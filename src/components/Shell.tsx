@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Popover } from "./Popover";
+import { MetronomePopover } from "../features/metronome/MetronomePopover";
 import "./Shell.css";
 
 type PanelId = "metronome" | "mic" | "settings";
@@ -70,14 +71,11 @@ export function Shell() {
         </div>
       </main>
 
-      <Popover
+      <MetronomePopover
         anchorRef={metronomeRef}
         open={openPanel === "metronome"}
         onClose={close}
-        label="Metronome"
-      >
-        <PlaceholderPanel title="Metronome" />
-      </Popover>
+      />
       <Popover
         anchorRef={micRef}
         open={openPanel === "mic"}

@@ -1,0 +1,484 @@
+/* ===========================================================================
+   Metronome popover — an Apple-grade instrument. Consumes design tokens only.
+   ========================================================================== */
+
+.metro {
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  user-select: none;
+}
+
+/* --- Tempo readout -------------------------------------------------------- */
+.metro-tempo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.metro-tempo-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.metro-nudge {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xl);
+  line-height: 1;
+  color: var(--ink-secondary);
+  background: var(--surface-hover);
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-spring);
+}
+.metro-nudge:hover {
+  background: var(--surface-active);
+  color: var(--ink-primary);
+}
+.metro-nudge:active {
+  transform: scale(0.88);
+}
+
+.metro-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.metro-bpm {
+  width: 3.2ch;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: center;
+  font-family: var(--font-sans);
+  font-size: 4.25rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+  color: var(--ink-primary);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-feature-settings: "tnum";
+  font-feature-settings: "tnum";
+  caret-color: var(--accent);
+}
+.metro-bpm:focus {
+  outline: none;
+}
+.metro-bpm:focus-visible {
+  outline: none;
+  color: var(--accent);
+}
+
+.metro-bpm-unit {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.08em;
+  color: var(--ink-tertiary);
+}
+
+.metro-tempo-name {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--ink-secondary);
+  letter-spacing: var(--tracking-tight);
+}
+
+/* Drag-wheel band: a rolling ruler of ticks that scrolls with the tempo. */
+.metro-wheel {
+  margin-top: var(--space-2);
+  width: 100%;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  overflow: hidden;
+  cursor: ew-resize;
+  touch-action: none;
+  position: relative;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 18%,
+    #000 82%,
+    transparent
+  );
+  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+}
+.metro-wheel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.metro-wheel-ticks {
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--ink-tertiary) 0,
+    var(--ink-tertiary) 1px,
+    transparent 1px,
+    transparent 12px
+  );
+  opacity: 0.5;
+}
+/* Center indicator marking the current tempo. */
+.metro-wheel::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+}
+
+/* --- Beat-flash indicator (pure-CSS sweep) -------------------------------- */
+.metro-beats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 12px;
+}
+.metro-beat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--ink-tertiary);
+  opacity: 0.35;
+}
+.metro-beat-dot[data-accent="true"] {
+  background: var(--accent);
+  opacity: 0.55;
+}
+.metro-beats[data-running="true"] .metro-beat-dot {
+  animation-name: metro-beat-flash;
+  animation-duration: var(--bar-period);
+  animation-timing-function: var(--ease-standard);
+  animation-iteration-count: infinite;
+  will-change: transform, opacity;
+}
+@keyframes metro-beat-flash {
+  0% {
+    opacity: 1;
+    transform: scale(1.35);
+  }
+  12% {
+    opacity: 1;
+    transform: scale(1.35);
+  }
+  40%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+}
+.metro-beats[data-running="true"] .metro-beat-dot[data-accent="true"] {
+  background: var(--accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .metro-beats[data-running="true"] .metro-beat-dot {
+    animation: none;
+  }
+}
+
+/* --- Steppers ------------------------------------------------------------- */
+.metro-steppers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+.metro-stepper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--surface-hover);
+  border-radius: var(--radius-md);
+}
+.metro-stepper-label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  color: var(--ink-tertiary);
+  text-transform: uppercase;
+}
+.metro-stepper-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.metro-stepper-value {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  color: var(--ink-primary);
+  font-variant-numeric: tabular-nums;
+  min-width: 2ch;
+  text-align: center;
+}
+.metro-step {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-lg);
+  line-height: 1;
+  color: var(--ink-secondary);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-spring),
+    opacity var(--duration-fast) var(--ease-standard);
+}
+.metro-step:hover:not(:disabled) {
+  background: var(--surface-active);
+  color: var(--ink-primary);
+}
+.metro-step:active:not(:disabled) {
+  transform: scale(0.86);
+}
+.metro-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* --- Accent toggle -------------------------------------------------------- */
+.metro-accent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.metro-accent-label {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+}
+
+/* --- Sound picker (3×2 grid) --------------------------------------------- */
+.metro-sounds {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+.metro-sound {
+  padding: var(--space-2) var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-secondary);
+  background: var(--surface-hover);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-spring);
+}
+.metro-sound:hover {
+  background: var(--surface-active);
+  color: var(--ink-primary);
+}
+.metro-sound:active {
+  transform: scale(0.95);
+}
+.metro-sound[data-selected="true"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  font-weight: var(--weight-semibold);
+}
+
+/* --- Gain slider ---------------------------------------------------------- */
+.metro-gain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.metro-gain-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.metro-gain-label {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+}
+.metro-gain-value {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.metro-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-active);
+  cursor: pointer;
+}
+.metro-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform var(--duration-fast) var(--ease-spring);
+}
+.metro-slider::-webkit-slider-thumb:active {
+  transform: scale(1.15);
+}
+.metro-slider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* --- Boost toggle --------------------------------------------------------- */
+.metro-boost {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-1);
+}
+.metro-boost-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.metro-boost-label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-primary);
+}
+.metro-boost-hint {
+  font-size: var(--text-xs);
+  color: var(--ink-tertiary);
+}
+
+/* --- Switch (accent + boost) --------------------------------------------- */
+.metro-switch {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 26px;
+  padding: 3px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--surface-active);
+  cursor: pointer;
+  transition: background var(--duration-base) var(--ease-standard);
+}
+.metro-switch[data-on="true"] {
+  background: var(--accent);
+}
+.metro-switch-thumb {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transform: translateX(0);
+  transition: transform var(--duration-base) var(--ease-spring);
+}
+.metro-switch[data-on="true"] .metro-switch-thumb {
+  transform: translateX(16px);
+}
+.metro-switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- Transport ------------------------------------------------------------ */
+.metro-transport {
+  width: 100%;
+  height: 46px;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-spring);
+}
+.metro-transport:hover {
+  background: var(--accent-hover);
+}
+.metro-transport:active {
+  transform: scale(0.97);
+}
+.metro-transport[data-running="true"] {
+  color: var(--ink-primary);
+  background: var(--surface-active);
+}
+.metro-transport[data-running="true"]:hover {
+  background: var(--surface-hover);
+}
+.metro-transport:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- Inline rejection notice ---------------------------------------------- */
+.metro-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--ink-primary);
+  background: color-mix(in srgb, #e5484d 16%, transparent);
+  border: 1px solid color-mix(in srgb, #e5484d 40%, transparent);
+  border-radius: var(--radius-md);
+}
+.metro-error-dismiss {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-base);
+  line-height: 1;
+  color: var(--ink-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.metro-error-dismiss:hover {
+  color: var(--ink-primary);
+  background: var(--surface-hover);
+}
