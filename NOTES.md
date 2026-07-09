@@ -187,6 +187,89 @@ Options:
 For further details, see 'man hear'.
 ```
 
-(Captured via `./vendor/bin/hear --help 2>&1`, exit code 0. No live microphone test was
-performed — deferred to a later task per instructions, to avoid triggering a macOS TCC
-permission prompt.)
+(Captured via `./vendor/bin/hear --help 2>&1`, exit code 0.)
+
+### Task 9 empirical spike — VERIFIED behavior (macOS 15.0, MacBook Air M2, 8GB)
+
+Full command log + raw outputs: `.superpowers/sdd/task-9-report.md`.
+
+**GO/NO-GO RECOMMENDATION: GO.** On-device recognition is accurate on clean audio,
+CPU/RAM are trivial, control (SIGTERM) is clean, and non-speech audio is rejected (no
+garbage). The remaining unknowns (real acoustic ambient-piano robustness; live
+partial-vs-final streaming framing) could not be reproduced unattended because the
+speaker→built-in-mic acoustic path is too attenuated (peak −34 dB at 100% volume) to
+drive the recognizer — they are deferred to Task 13 live QA with a human speaking, NOT
+hear defects. Nothing found triggers the whisper.cpp fallback.
+
+**CRITICAL PREREQUISITE — Dictation must be enabled.** On a fresh machine Dictation was
+OFF and *every* recognition (even file input) failed instantly with
+`Error Domain=kLSRErrorDomain Code=201 "Siri and Dictation are disabled"`. Enabling it
+via `defaults write com.apple.assistant.support "Dictation Enabled" -bool true` made
+recognition work immediately (this spike set it). **No model download** was needed for
+en-US on-device — it worked with zero latency after the flag flipped. Tasks 10-13 must
+treat Code 201 as an actionable "enable Dictation" setup error (document as a setup step
+and/or detect the string and instruct the user); do not confuse it with a mic-permission
+error.
+
+**1. Continuous mic invocation.** `./vendor/bin/hear -d -l en-US -m` (add `-p` only if
+you want punctuation — for command parsing you probably want it OFF so words aren't
+returned as e.g. `stop.`). Flags: `-d` = on-device only (REQUIRED — offline + private),
+`-l en-US` = locale, `-m` = single-line output mode (mic only). Omitting `-m` = default
+multi-line mode. Framing detail (does non-`-m` stream evolving partials line-by-line vs
+`-m` collapsing to one final line per utterance, and how utterance boundaries/newlines
+are marked) needs live speech — **DEFERRED to Task 13**. Data point from FILE mode: the
+whole file's transcript is emitted as ONE line, finals concatenated, no per-sentence
+newline even across periods (`"metronome ninety six. done. stop. tempo one hundred
+twenty."` → single line `Metronome 96 done stop tempo 120`).
+
+**2. Silence behavior / max-duration.** With no `-t`, hear ran a full **67 s continuous
+mic session through silence without exiting** — it keeps listening indefinitely. It did
+NOT die at the ~60 s mark (Apple's historical 1-minute recognizer limit is handled
+internally / not hit on the on-device path). `-t seconds` sets a silence timeout that
+quits; leave it unset (or high) for always-on. (>5 min soak still worth a live check,
+but the 60 s barrier is cleared.) In FILE mode, pure silence / non-speech instead errors
+with `kAFAssistantErrorDomain Code=1110 "No speech detected"`.
+
+**3. stdout buffering when piped.** File-mode output reaches a pipe fine (flushed on
+exit). Live streaming line-buffering when piped is **UNCONFIRMED** (no live transcript
+was produced to observe). If Tasks 10-13 find it block-buffers when piped, the workaround
+is `stdbuf -oL ./vendor/bin/hear ...` (`stdbuf` is present) or a pty via `script`. FLAG
+for Task 13.
+
+**4. Signals.** `SIGTERM` → clean, instant exit (measured 0.022 s), process gone.
+`SIGINT` (Ctrl-C) → **IGNORED, hear survives it** (verified twice). The supervisor MUST
+kill/restart with SIGTERM, never SIGINT. SIGTERM flushes no pending transcript (fine).
+
+**5. CPU / RSS (60 s continuous listening).** CPU held **0.2–0.7%** throughout; RSS
+**~27 MB, stable** (grew 26.9 → 27.5 MB over 65 s, no leak). Negligible on 8 GB. Sampled
+`ps -o rss,pcpu` every 3 s.
+
+**6. Recognition quality — product-critical.**
+  - *Clean speech (file input, on-device):* EXCELLENT. `"metronome ninety six. done.
+    stop. tempo one hundred twenty."` → `Metronome 96 done stop tempo 120`. Command words
+    recognized; spoken numbers returned as digits (`ninety six`→`96`).
+  - *Non-speech / harmonic "music" (synthetic C-major arpeggio chords, 15 s file):* →
+    `kAFAssistantErrorDomain Code=1110 "No speech detected"` — **NO garbage transcript**
+    (same result as a silence file). Encouraging that the on-device VAD/recognizer gates
+    out instrumental content. CAVEAT: this was synthetic sine-chord audio, not a real
+    recorded piano timbre with room noise — the real ambient-piano test still needs a
+    live YouTube-clip run at the mic in **Task 13**.
+  - *Live mic recognition (human phrases + real ambient piano):* NOT obtained. Verified
+    the built-in mic captures real audio (ffmpeg avfoundation got a genuine −60 dB noise
+    floor, not digital silence → mic + speech-recognition TCC effectively granted for the
+    terminal session, no prompt hang), but speaker→mic loopback peaks only −34 dB even at
+    100% volume — too faint to trigger ASR, and CPU stayed flat during playback confirming
+    no speech was detected. This is an unattended-environment limit. **DEFERRED to Task 13**
+    (the Tauri app also carries a different bundle id, so it will trigger its OWN mic +
+    speech-recognition TCC prompts on first launch regardless).
+
+**7. Locale / model.** `-s` lists 13 en locales incl `en-US`. en-US on-device required NO
+model download (worked instantly once Dictation was enabled).
+
+**Error-code catalogue for Tasks 10-13 to handle:**
+  - `kLSRErrorDomain Code=201 "Siri and Dictation are disabled"` → Dictation OFF; enable it.
+  - `kAFAssistantErrorDomain Code=1110 "No speech detected"` → silence/non-speech (file
+    mode; mic mode keeps listening instead of erroring).
+
+**Available audio input:** `1. MacBook Air Microphone (ID: BuiltInMicrophoneDevice)`
+(via `-a`; pass to `-n` if selecting a specific device).
