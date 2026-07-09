@@ -14,6 +14,8 @@ import {
   MAX_SUBDIVISION,
   MIN_BEATS_PER_BAR,
   SOUNDS,
+  UI_BPM_MAX,
+  UI_BPM_MIN,
   parseBpmInput,
   tempoName,
   useMetronome,
@@ -23,6 +25,11 @@ import "./MetronomePopover.css";
 // Pixels of horizontal drag per 1 bpm on the tempo wheel — a light touch so the
 // tempo responds immediately but stays controllable.
 const PX_PER_BPM = 3.2;
+
+// Interactive controls that must keep native Space/Enter activation — the
+// space-toggle window listener must never hijack Space from these.
+const INTERACTIVE_SELECTOR =
+  'button, input, textarea, select, [role="switch"], [role="slider"], [contenteditable]';
 
 interface MetronomePopoverProps {
   anchorRef: RefObject<HTMLElement | null>;
@@ -63,28 +70,37 @@ function MetronomePanel({ open }: { open: boolean }) {
     });
   }, [m]);
 
-  // Space toggles start/stop while open — unless the user is typing in a field.
+  // Space toggles start/stop while open — unless an interactive control (a
+  // button, the tempo input, a switch, the wheel slider, etc.) has focus, in
+  // which case native Space/Enter activation of THAT control must proceed
+  // untouched (no preventDefault, no toggle from here).
+  const { toggle } = m;
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== "Space" && e.key !== " ") return;
-      const t = e.target as HTMLElement | null;
-      const tag = t?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable) return;
+      const t = (e.target as HTMLElement | null) ?? (document.activeElement as HTMLElement | null);
+      if (t?.closest(INTERACTIVE_SELECTOR)) return;
       e.preventDefault();
-      m.toggle();
+      toggle();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, m]);
+  }, [open, toggle]);
 
   // --- Tempo wheel (horizontal drag = ±1 bpm / few px, with pointer capture) --
-  const drag = useRef<{ startX: number; startBpm: number } | null>(null);
+  const drag = useRef<{ startX: number; startBpm: number; lastBpm: number } | null>(null);
 
   const onWheelPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
-      e.currentTarget.setPointerCapture(e.pointerId);
-      drag.current = { startX: e.clientX, startBpm: state.bpm };
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Not implemented in some environments (e.g. jsdom) — drag still
+        // works via document-level pointermove/up in real browsers that
+        // lack capture; here it degrades to plain move tracking.
+      }
+      drag.current = { startX: e.clientX, startBpm: state.bpm, lastBpm: state.bpm };
     },
     [state.bpm],
   );
@@ -94,17 +110,31 @@ function MetronomePanel({ open }: { open: boolean }) {
       const d = drag.current;
       if (!d) return;
       const next = d.startBpm + Math.round((e.clientX - d.startX) / PX_PER_BPM);
-      if (next !== state.bpm) m.setBpm(next);
+      if (next !== d.lastBpm) {
+        d.lastBpm = next;
+        m.setBpmDrag(next);
+      }
     },
-    [m, state.bpm],
+    [m],
   );
 
-  const endWheelDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    if (drag.current && e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-    drag.current = null;
-  }, []);
+  const endWheelDrag = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const d = drag.current;
+      if (d) {
+        try {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          }
+        } catch {
+          // Not implemented in some environments — nothing to release.
+        }
+        m.commitBpmDrag(d.lastBpm);
+      }
+      drag.current = null;
+    },
+    [m],
+  );
 
   // Beat-flash sweep: pure CSS. The dots animate at the bar/beat period derived
   // from bpm — durations set here, never a per-beat JS timer.
@@ -168,8 +198,8 @@ function MetronomePanel({ open }: { open: boolean }) {
           className="metro-wheel"
           role="slider"
           aria-label="Tempo wheel"
-          aria-valuemin={20}
-          aria-valuemax={300}
+          aria-valuemin={UI_BPM_MIN}
+          aria-valuemax={UI_BPM_MAX}
           aria-valuenow={state.bpm}
           tabIndex={0}
           onPointerDown={onWheelPointerDown}
@@ -201,7 +231,6 @@ function MetronomePanel({ open }: { open: boolean }) {
         style={
           {
             "--bar-period": `${barPeriod}s`,
-            "--beat-period": `${beatPeriod}s`,
           } as React.CSSProperties
         }
       >

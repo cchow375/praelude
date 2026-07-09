@@ -115,6 +115,18 @@ describe("useMetronome — IPC wiring", () => {
     expect(result.current.state.boost).toBe(true);
   });
 
+  it("reconciles an optimistic start() bpm with a later metro://state event (event wins)", async () => {
+    const { result } = renderHook(() => useMetronome());
+    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+
+    act(() => result.current.start(140));
+    expect(result.current.state.bpm).toBe(140); // optimistic
+
+    emitState({ ...DEFAULT_METRO_STATE, running: true, bpm: 138 });
+
+    expect(result.current.state.bpm).toBe(138); // authoritative event wins
+  });
+
   it("surfaces a command rejection as an inline error", async () => {
     const { result } = renderHook(() => useMetronome());
     await waitFor(() => expect(listenMock).toHaveBeenCalled());

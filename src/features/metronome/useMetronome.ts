@@ -121,6 +121,12 @@ export interface UseMetronome {
   stop: () => void;
   toggle: () => void;
   setBpm: (bpm: number) => void;
+  /** Optimistic bpm update during an active drag; the invoke call is throttled
+   * (trailing, ≤1 per 150ms) — call `commitBpmDrag` on drag end to flush. */
+  setBpmDrag: (bpm: number) => void;
+  /** Flush any pending throttled drag call and send one final, unconditional
+   * `metro_set` with the given (final) bpm. */
+  commitBpmDrag: (bpm: number) => void;
   nudgeBpm: (delta: number) => void;
   setBeatsPerBar: (n: number) => void;
   setSubdivision: (n: number) => void;
@@ -179,25 +185,32 @@ export function useMetronome(): UseMetronome {
     [showError],
   );
 
-  // Mount: one initial fetch, then subscribe to the event bus.
+  // Mount: subscribe to the event bus FIRST, then do the one-time initial
+  // fetch. This ordering matters — if the fetch went first, any `metro://state`
+  // event emitted while the fetch was in flight (e.g. another window's action)
+  // would have no listener yet and be silently dropped. `eventArrived` guards
+  // the fetch's result: once a live event has landed, it always wins over the
+  // (now possibly stale) fetch response.
   useEffect(() => {
     let alive = true;
     let unlisten: (() => void) | undefined;
+    let eventArrived = false;
     (async () => {
       try {
-        const s = await invoke<MetroState>("metro_state");
-        if (alive && s) applyState(s);
-      } catch {
-        // Backend absent (plain `vite` browser dev) — keep defaults.
-      }
-      try {
         const un = await listen<MetroState>("metro://state", (e) => {
+          eventArrived = true;
           if (alive) applyState(e.payload);
         });
         if (alive) unlisten = un;
         else un();
       } catch {
         // No event bus (browser dev) — optimistic updates still drive the UI.
+      }
+      try {
+        const s = await invoke<MetroState>("metro_state");
+        if (alive && s && !eventArrived) applyState(s);
+      } catch {
+        // Backend absent (plain `vite` browser dev) — keep defaults.
       }
     })();
     return () => {
@@ -265,6 +278,62 @@ export function useMetronome(): UseMetronome {
       set({ bpm: v }, { bpm: v });
     },
     [set],
+  );
+
+  // Drag-wheel bpm: the displayed value updates optimistically on every
+  // integer crossing, but the `metro_set` invoke is trailing-throttled to at
+  // most once per 150ms so a fast drag doesn't flood the backend/persist path.
+  const DRAG_THROTTLE_MS = 150;
+  const dragThrottle = useRef<{
+    timer?: ReturnType<typeof setTimeout>;
+    lastCallAt: number;
+    pendingBpm: number | null;
+  }>({ lastCallAt: 0, pendingBpm: null });
+
+  const setBpmDrag = useCallback(
+    (bpm: number) => {
+      const v = clampBpm(bpm);
+      patch({ bpm: v });
+      const dt = dragThrottle.current;
+      const elapsed = Date.now() - dt.lastCallAt;
+      if (elapsed >= DRAG_THROTTLE_MS) {
+        dt.lastCallAt = Date.now();
+        dt.pendingBpm = null;
+        if (dt.timer) {
+          clearTimeout(dt.timer);
+          dt.timer = undefined;
+        }
+        void call("metro_set", { bpm: v });
+      } else {
+        dt.pendingBpm = v;
+        if (!dt.timer) {
+          dt.timer = setTimeout(() => {
+            dt.timer = undefined;
+            dt.lastCallAt = Date.now();
+            const toSend = dt.pendingBpm;
+            dt.pendingBpm = null;
+            if (toSend != null) void call("metro_set", { bpm: toSend });
+          }, DRAG_THROTTLE_MS - elapsed);
+        }
+      }
+    },
+    [call, patch],
+  );
+
+  const commitBpmDrag = useCallback(
+    (bpm: number) => {
+      const dt = dragThrottle.current;
+      if (dt.timer) {
+        clearTimeout(dt.timer);
+        dt.timer = undefined;
+      }
+      dt.pendingBpm = null;
+      dt.lastCallAt = Date.now();
+      const v = clampBpm(bpm);
+      patch({ bpm: v });
+      void call("metro_set", { bpm: v });
+    },
+    [call, patch],
   );
 
   const nudgeBpm = useCallback(
@@ -342,6 +411,8 @@ export function useMetronome(): UseMetronome {
     stop,
     toggle,
     setBpm,
+    setBpmDrag,
+    commitBpmDrag,
     nudgeBpm,
     setBeatsPerBar,
     setSubdivision,
