@@ -2,6 +2,13 @@
 
 ## Decisions
 
+- **Task 5 fix round 1 — `crossbeam-queue` dependency APPROVED by controller.** The
+  lock-free `ArrayQueue` is the mechanism the real-time callback uses to receive
+  pattern changes, TTS PCM chunks, and (new this round) recycled empty `Vec`s
+  without ever locking, allocating, or freeing on the audio thread. A hand-rolled
+  SPSC ring would duplicate a small, well-audited, widely-used primitive; the
+  controller approved keeping `crossbeam-queue 0.3` rather than reinventing it.
+
 - **Task 5 (audio engine):** cpal callback owns `ClickClock`+`Mixer`; cross-thread
   input is lock-free via `crossbeam_queue::ArrayQueue` (pattern changes + resampled
   PCM chunks) — no mutex in the callback. TTS is resampled at enqueue time

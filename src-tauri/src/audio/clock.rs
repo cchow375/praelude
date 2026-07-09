@@ -7,6 +7,16 @@
 //! placing an event inside a buffer. Rounding the beat interval per-beat would
 //! accumulate drift (audible after an hour of practice); this design does not.
 
+/// Upper bound on subdivisions per beat actually honored by the scheduler.
+/// Musically 16 (sixteenth-note subdivisions of a beat) is already extreme; the
+/// clamp also caps how many events a single buffer can emit, which keeps the
+/// callback's pre-sized event scratch from ever reallocating even under a
+/// pathological pattern. At the max clamped tempo (1000 bpm) a beat is
+/// `sample_rate*60/1000` frames (2880 at 48 kHz); with 16 subdivisions that is
+/// one tick per ~180 frames, so a typical ≤4096-frame buffer emits well under 64
+/// events (the scratch capacity).
+const MAX_SUBDIVISION: u8 = 16;
+
 /// A metronome pattern. All fields are plain data so the whole struct is `Copy`
 /// and can be handed to the audio thread lock-free.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -141,7 +151,7 @@ impl ClickClock {
 
             // Advance to the next subdivision tick. The fractional remainder in
             // `next_tick` is preserved — never rounded — so beats never drift.
-            let sub = self.pattern.subdivision.max(1);
+            let sub = self.pattern.subdivision.clamp(1, MAX_SUBDIVISION);
             self.next_tick += self.samples_per_beat / sub as f64;
             self.sub_idx += 1;
             if self.sub_idx >= sub {
@@ -193,6 +203,73 @@ mod tests {
         for w in positions.windows(2) {
             assert_eq!(w[1] - w[0], 22050, "no drift: every gap is exactly 22050");
         }
+    }
+
+    // Longevity / non-integer-bpm drift regression. 137 bpm at 48 kHz gives a
+    // beat interval of 21021.8978... frames — deliberately NOT an integer, so
+    // any per-beat rounding would accumulate. Run ≥10 simulated minutes of
+    // 512-frame buffers and assert the absolute error of every beat position vs
+    // the ideal `i * samples_per_beat` stays under one frame AND does not grow
+    // across the run (the core product property: no audible drift after long
+    // practice). This test must live in the tree, not in a story.
+    #[test]
+    fn no_drift_at_non_integer_bpm_over_ten_minutes() {
+        let sample_rate = 48_000u32;
+        let bpm = 137.0;
+        let frames = 512usize;
+        let spb = sample_rate as f64 * 60.0 / bpm; // 21021.8978...
+        assert!(spb.fract() != 0.0, "test only meaningful for non-integer spb");
+
+        let mut clock = ClickClock::new(sample_rate);
+        clock.set_pattern(ClickPattern {
+            bpm,
+            beats_per_bar: 4,
+            accent_first: true,
+            subdivision: 1,
+        });
+
+        // ≥10 minutes of audio.
+        let total_frames = sample_rate as usize * 600;
+        let buffers = total_frames / frames; // 56_250
+
+        let mut positions: Vec<usize> = Vec::new();
+        let mut scratch: Vec<ClickEvent> = Vec::new();
+        for b in 0..buffers {
+            let base = b * frames;
+            clock.next_events_into(frames, &mut scratch);
+            for ev in &scratch {
+                positions.push(base + ev.offset_in_buffer);
+            }
+        }
+
+        assert!(positions.len() > 1350, "≈{} beats expected over 10 min", positions.len());
+        assert_eq!(positions[0], 0, "first beat at frame 0");
+
+        let mut max_abs_err = 0.0f64;
+        for (i, &pos) in positions.iter().enumerate() {
+            let ideal = i as f64 * spb;
+            let err = (pos as f64 - ideal).abs();
+            if err > max_abs_err {
+                max_abs_err = err;
+            }
+            // Bounded: never off by a whole frame, at ANY point in the run — a
+            // growing error would blow past this well before 10 minutes.
+            assert!(
+                err < 1.0,
+                "beat {i} at frame {pos} drifted {err} frames from ideal {ideal}"
+            );
+        }
+        // Every inter-beat gap is the floor or ceil of spb (21021 or 21022) —
+        // never a value that would betray accumulation.
+        for w in positions.windows(2) {
+            let gap = w[1] - w[0];
+            assert!(
+                gap == spb.floor() as usize || gap == spb.ceil() as usize,
+                "gap {gap} must be floor/ceil of {spb}"
+            );
+        }
+        // Non-growing: the worst error is a sub-frame floor artifact, not drift.
+        assert!(max_abs_err < 1.0, "max abs error {max_abs_err} must stay sub-frame");
     }
 
     // (b) A bpm change applies at the next beat, never mid-interval.

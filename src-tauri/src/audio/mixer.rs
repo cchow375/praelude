@@ -48,7 +48,13 @@ impl Default for Mixer {
 impl Mixer {
     /// A mixer with no click samples loaded and unity gains.
     pub fn new() -> Self {
-        // Reserve typical max overlap up front so the callback never grows this.
+        // Reserve for the max plausible click overlap so the callback never
+        // grows this. Overlap = ringing click length / tick spacing. Click
+        // samples are short (tens of ms); with the clock clamping subdivisions
+        // to 16 and bpm to ≤1000 the tightest tick spacing is ~180 frames at
+        // 48 kHz, so even a ~60 ms (2880-frame) click leaves at most ~16 voices
+        // overlapping — comfortably under 32. `render` retains only unfinished
+        // voices each buffer, so this is a steady-state ceiling, not a leak.
         let voices = Vec::with_capacity(32);
         Mixer {
             accent: Arc::new(Vec::new()),
@@ -160,6 +166,12 @@ fn read_wav_mono(path: &Path) -> Result<Vec<f32>, String> {
             .map(|s| s.unwrap_or(0.0))
             .collect(),
         hound::SampleFormat::Int => {
+            // 8-bit WAV PCM is stored UNSIGNED (128 = silence), but hound already
+            // returns it re-centered to signed [-128, 127] when read as i32 (its
+            // own regression test confirms a zeroed 8-bit file decodes to -128).
+            // So the same `/ 2^(bits-1)` normalization is correct for every bit
+            // depth here — do NOT subtract 128 again, that would double-bias and
+            // shift silence to -1.0 (guarded by `eightbit_wav_roundtrips_centered`).
             let max = ((1i64 << (spec.bits_per_sample.saturating_sub(1))) as f32).max(1.0);
             reader
                 .samples::<i32>()
@@ -222,6 +234,39 @@ mod tests {
         // index2: pcm 0.4*0.5 = 0.2 (in range, gain applied)
         assert!((out[2] - 0.2).abs() < 1e-6, "voice_gain applied, no clamp");
         assert_eq!(out[3], 0.0, "no more PCM");
+    }
+
+    // 8-bit WAV round-trip: silence must decode to ~0.0 (not -1.0). Guards the
+    // read_wav_mono normalization against a spurious "unsigned fix" that would
+    // double-bias hound's already-signed 8-bit samples.
+    #[test]
+    fn eightbit_wav_roundtrips_centered() {
+        let path = std::env::temp_dir().join(format!(
+            "codakiller_8bit_{}.wav",
+            std::process::id()
+        ));
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 44_100,
+            bits_per_sample: 8,
+            sample_format: hound::SampleFormat::Int,
+        };
+        {
+            let mut w = hound::WavWriter::create(&path, spec).expect("create 8-bit wav");
+            // Signed 8-bit domain: 0 = silence, 127 = ~full+, -128 = full-.
+            for s in [0i8, 64, -128, 127] {
+                w.write_sample(s as i32).expect("write sample");
+            }
+            w.finalize().expect("finalize");
+        }
+        let mono = read_wav_mono(&path).expect("read back");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(mono.len(), 4);
+        assert!(mono[0].abs() < 1e-6, "silence (byte 128) must decode to ~0.0, got {}", mono[0]);
+        assert!((mono[1] - 0.5).abs() < 1e-6, "64/128 = 0.5");
+        assert!((mono[2] + 1.0).abs() < 1e-6, "-128/128 = -1.0 (full negative)");
+        assert!((mono[3] - 127.0 / 128.0).abs() < 1e-6, "127/128 ~= +0.992");
     }
 
     // Overlapping click tails: a click longer than the buffer keeps ringing into

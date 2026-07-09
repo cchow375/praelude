@@ -13,21 +13,33 @@
 //! * **TTS PCM** rides an `ArrayQueue<Vec<f32>>` of already-resampled chunks
 //!   (resampling happens on the *enqueue* thread, never in the callback).
 //!
-//! The callback does not lock, does not do I/O, and does not allocate on the
-//! steady-state click path. (The two warm-up allocations — growing the scratch
-//! and event scratch buffers on the first buffer — settle immediately; and
-//! draining a TTS chunk into the pre-reserved `pcm_queue` frees that chunk's
-//! `Vec`, an infrequent cost on the bursty voice path, never on the daily click
-//! path.)
+//! The callback does not lock, does not do I/O, and **never allocates or frees**,
+//! not even on the bursty voice path. (The two warm-up allocations — growing the
+//! scratch and event scratch buffers on the first buffer — settle immediately.)
+//! To keep the TTS path allocation-free *and* free-free:
+//!
+//! * The mixer's `pcm_queue` is pre-reserved to the hard pending cap
+//!   ([`PCM_CAP_SECONDS`]) at engine start, and `enqueue_pcm` refuses any chunk
+//!   that would push total pending past that cap — so the callback's `extend`
+//!   into `pcm_queue` can never reallocate.
+//! * Instead of dropping (freeing) each drained chunk `Vec`, the callback copies
+//!   its samples out, clears it, and pushes the now-empty `Vec` onto a **recycle
+//!   `ArrayQueue<Vec<f32>>`** for `enqueue_pcm` to refill. The recycle queue is
+//!   sized larger than the chunk queue (see [`RECYCLE_QUEUE_CHUNKS`]) so that
+//!   push can never fail — the callback therefore never has to free a chunk.
 //!
 //! # `pcm_done` semantics
 //!
-//! `pcm_pending` counts enqueued-but-not-yet-*output* PCM samples: incremented at
-//! enqueue, decremented only as `Mixer::render` actually consumes samples. A
-//! sample sitting in the cross-thread queue (not yet moved into the mixer) still
-//! counts, so [`EngineHandle::pcm_done`] can never report "done" while any TTS
-//! audio is still buffered anywhere — the exact signal Task 11's half-duplex gate
-//! depends on.
+//! `pcm_pending` counts enqueued-but-not-yet-*output* PCM samples: reserved
+//! (incremented) at enqueue *before* the chunk is published to the queue,
+//! decremented only as `Mixer::render` actually consumes samples. Reserving first
+//! is the load-bearing ordering: if we pushed the chunk and *then* incremented, a
+//! concurrent [`EngineHandle::pcm_done`] could observe the count at 0 while the
+//! samples already sit in the queue, falsely report "done", and open Task 11's
+//! half-duplex mic gate over still-audible TTS. Reserve-first makes the count a
+//! conservative over-estimate during the tiny publish window, never an
+//! under-estimate — so `pcm_done` can never be falsely `true` while any TTS audio
+//! is buffered anywhere. If the push fails, the reservation is backed out.
 
 #![allow(dead_code)] // engine wiring lands with later tasks (commands, half-duplex gate)
 
@@ -71,8 +83,20 @@ pub struct EngineConfig {
 /// Capacity (in chunks / patterns) of the lock-free hand-off queues.
 const PCM_QUEUE_CHUNKS: usize = 1024;
 const PATTERN_QUEUE_LEN: usize = 16;
-/// Seconds of PCM to pre-reserve in the mixer so draining never reallocates.
-const PCM_RESERVE_SECONDS: usize = 8;
+/// Capacity of the empty-`Vec` recycle queue. Must exceed [`PCM_QUEUE_CHUNKS`]:
+/// at most `PCM_QUEUE_CHUNKS` chunk `Vec`s can sit in `pcm_q`, plus one held
+/// transiently by the callback and one by the *single* enqueue producer, so `+2`
+/// guarantees the callback's push-to-recycle can never fail (and it therefore
+/// never frees a chunk in the real-time path). This proof relies on the
+/// single-producer contract documented on [`EngineHandle::enqueue_pcm`]: with N
+/// concurrent producers the transient-hold term becomes N, not 1, and no fixed
+/// size would suffice.
+const RECYCLE_QUEUE_CHUNKS: usize = PCM_QUEUE_CHUNKS + 2;
+/// Hard cap on buffered TTS: `enqueue_pcm` refuses any chunk that would push
+/// total pending PCM past this many seconds (at the stream rate). The mixer's
+/// `pcm_queue` is pre-reserved to exactly this many samples so the callback's
+/// `extend` never reallocates. 30 s comfortably exceeds any single TTS utterance.
+const PCM_CAP_SECONDS: usize = 30;
 
 /// A running engine. `Send + Sync`: it holds only `Arc`s to lock-free state and a
 /// join handle — the non-`Send` cpal `Stream` lives entirely on the audio thread
@@ -80,11 +104,35 @@ const PCM_RESERVE_SECONDS: usize = 8;
 pub struct EngineHandle {
     pattern_q: Arc<ArrayQueue<ClickPattern>>,
     pcm_q: Arc<ArrayQueue<Vec<f32>>>,
+    /// Emptied chunk `Vec`s recycled by the callback for `enqueue_pcm` to refill,
+    /// so the callback never allocates or frees. See module docs.
+    recycle_q: Arc<ArrayQueue<Vec<f32>>>,
     /// Enqueued-but-not-yet-output PCM samples. See module docs.
     pcm_pending: Arc<AtomicUsize>,
+    /// Hard cap (in samples at the stream rate) on `pcm_pending`; enqueues that
+    /// would exceed it are refused. Equals `sample_rate * PCM_CAP_SECONDS`.
+    pcm_cap: usize,
     sample_rate: u32,
     shutdown: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+}
+
+/// Static proof that the handle really is thread-safe (it is documented as
+/// `Send + Sync` and shared across the UI and audio threads). A compile-time
+/// assertion here fails loudly if a future field breaks the guarantee.
+const _: fn() = || {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<EngineHandle>();
+};
+
+/// Why an [`EngineHandle::enqueue_pcm`] chunk was refused (dropped rather than
+/// buffered). Both variants mean the caller should try again later.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PcmError {
+    /// Buffering this chunk would push total pending PCM past the ~30 s hard cap.
+    CapExceeded,
+    /// The fixed-size chunk hand-off queue is momentarily full.
+    QueueFull,
 }
 
 impl EngineHandle {
@@ -104,24 +152,52 @@ impl EngineHandle {
     }
 
     /// Enqueue TTS PCM (`samples` at `src_rate` Hz, mono f32) for playback. The
-    /// samples are resampled to the stream rate *here*, off the audio thread.
-    pub fn enqueue_pcm(&self, samples: &[f32], src_rate: u32) {
-        let resampled = resample_linear(samples, src_rate, self.sample_rate);
-        if resampled.is_empty() {
-            return;
+    /// samples are resampled to the stream rate *here*, off the audio thread,
+    /// into a `Vec` reused from the callback's recycle pool when one is available
+    /// (bounding allocation on the voice path).
+    ///
+    /// **Single-producer contract:** call this from one producer thread only.
+    /// TTS is an inherently serial stream (one utterance's chunks after another),
+    /// so this is the natural shape. The recycle-pool sizing that keeps the audio
+    /// callback free-free ([`RECYCLE_QUEUE_CHUNKS`]) is proven under this
+    /// precondition; concurrent callers could grow the pool past its bound and
+    /// force the callback to free a chunk. `EngineHandle` is still `Send + Sync`
+    /// because the *read/observer* methods ([`Self::pcm_done`],
+    /// [`Self::sample_rate`], [`Self::set_pattern`]) are safe from any thread —
+    /// only `enqueue_pcm` carries the single-producer requirement.
+    ///
+    /// Returns `Err` — without buffering anything — if the chunk would push total
+    /// pending PCM past the ~30 s hard cap ([`PcmError::CapExceeded`]) or if the
+    /// chunk hand-off queue is momentarily full ([`PcmError::QueueFull`]). On
+    /// either refusal the pending count and recycle pool are left exactly as they
+    /// were, so `pcm_done` accounting stays consistent.
+    pub fn enqueue_pcm(&self, samples: &[f32], src_rate: u32) -> Result<(), PcmError> {
+        // Refill a recycled buffer if the callback has handed one back; otherwise
+        // this is the only place on the TTS path that may allocate (off the audio
+        // thread, which is fine).
+        let mut buf = self.recycle_q.pop().unwrap_or_default();
+        resample_linear_into(samples, src_rate, self.sample_rate, &mut buf);
+        if buf.is_empty() {
+            let _ = self.recycle_q.push(buf); // nothing to play; return the Vec
+            return Ok(());
         }
-        let len = resampled.len();
-        // Count as pending only if it actually made it into the queue, so
-        // `pcm_done` never waits on a dropped chunk.
-        match self.pcm_q.push(resampled) {
-            Ok(()) => {
-                self.pcm_pending.fetch_add(len, Ordering::AcqRel);
-            }
-            Err(_dropped) => {
-                // Queue full (would need ~8000 pending chunks). Drop rather than
-                // block the caller; realistically unreachable for TTS.
-            }
+        let len = buf.len();
+
+        // Reserve first: bump the pending count BEFORE the chunk is visible in the
+        // queue, so a concurrent `pcm_done` can never see 0 while samples are
+        // already buffered (see module docs). Back the reservation out on refusal.
+        let prev = self.pcm_pending.fetch_add(len, Ordering::AcqRel);
+        if prev + len > self.pcm_cap {
+            self.pcm_pending.fetch_sub(len, Ordering::AcqRel);
+            let _ = self.recycle_q.push(buf); // recycle, never free
+            return Err(PcmError::CapExceeded);
         }
+        if let Err(buf) = self.pcm_q.push(buf) {
+            self.pcm_pending.fetch_sub(len, Ordering::AcqRel);
+            let _ = self.recycle_q.push(buf); // recycle the rejected Vec
+            return Err(PcmError::QueueFull);
+        }
+        Ok(())
     }
 
     /// `true` once every enqueued TTS sample has been output through the callback
@@ -152,6 +228,7 @@ impl Engine {
     pub fn start(config: EngineConfig) -> Result<EngineHandle, String> {
         let pattern_q = Arc::new(ArrayQueue::new(PATTERN_QUEUE_LEN));
         let pcm_q = Arc::new(ArrayQueue::new(PCM_QUEUE_CHUNKS));
+        let recycle_q = Arc::new(ArrayQueue::new(RECYCLE_QUEUE_CHUNKS));
         let pcm_pending = Arc::new(AtomicUsize::new(0));
         let shutdown = Arc::new(AtomicBool::new(false));
 
@@ -161,6 +238,7 @@ impl Engine {
 
         let t_pattern_q = pattern_q.clone();
         let t_pcm_q = pcm_q.clone();
+        let t_recycle_q = recycle_q.clone();
         let t_pcm_pending = pcm_pending.clone();
         let t_shutdown = shutdown.clone();
 
@@ -171,6 +249,7 @@ impl Engine {
                     &config,
                     t_pattern_q,
                     t_pcm_q,
+                    t_recycle_q,
                     t_pcm_pending,
                 ) {
                     Ok((stream, sample_rate)) => {
@@ -197,7 +276,9 @@ impl Engine {
             Ok(Ok(sample_rate)) => Ok(EngineHandle {
                 pattern_q,
                 pcm_q,
+                recycle_q,
                 pcm_pending,
+                pcm_cap: sample_rate as usize * PCM_CAP_SECONDS,
                 sample_rate,
                 shutdown,
                 thread: Some(thread),
@@ -220,6 +301,7 @@ fn build_stream(
     config: &EngineConfig,
     pattern_q: Arc<ArrayQueue<ClickPattern>>,
     pcm_q: Arc<ArrayQueue<Vec<f32>>>,
+    recycle_q: Arc<ArrayQueue<Vec<f32>>>,
     pcm_pending: Arc<AtomicUsize>,
 ) -> Result<(cpal::Stream, u32), String> {
     let host = cpal::default_host();
@@ -237,7 +319,9 @@ fn build_stream(
     clock.set_pattern(config.pattern);
 
     let mut mixer = Mixer::new();
-    mixer.reserve_pcm(sample_rate as usize * PCM_RESERVE_SECONDS);
+    // Reserve to the hard pending cap so the callback's `extend` into `pcm_queue`
+    // never reallocates (enqueue_pcm refuses anything past this cap).
+    mixer.reserve_pcm(sample_rate as usize * PCM_CAP_SECONDS);
     if let Some(c) = &config.clicks {
         mixer.set_clicks(
             resample_linear(&c.accent, c.src_rate, sample_rate),
@@ -248,6 +332,11 @@ fn build_stream(
 
     // Reusable scratch, sized on the first buffer (grows at most once).
     let mut scratch: Vec<f32> = Vec::new();
+    // Event scratch. Capacity 64 cannot realloc in practice: the clock clamps
+    // subdivisions to MAX_SUBDIVISION (16) and bpm to ≤1000, so at 48 kHz the
+    // shortest tick spacing is ~180 frames; a typical ≤4096-frame CoreAudio
+    // buffer emits far fewer than 64 events. Any first-buffer growth (warm-up)
+    // settles immediately, as with `scratch`.
     let mut events: Vec<ClickEvent> = Vec::with_capacity(64);
 
     let err_fn = |e| eprintln!("audio stream error: {e}");
@@ -265,9 +354,15 @@ fn build_stream(
                     clock.set_pattern(p);
                 }
 
-                // 2. Move any enqueued TTS chunks into the mixer's queue.
-                while let Some(chunk) = pcm_q.pop() {
-                    mixer.pcm_queue.extend(chunk);
+                // 2. Move any enqueued TTS chunks into the mixer's queue. Copy the
+                //    samples out (pcm_queue is pre-reserved to the cap, so this
+                //    never reallocates), then hand the emptied Vec back to the
+                //    recycle pool instead of dropping it — the callback never
+                //    frees. The recycle queue is sized so this push cannot fail.
+                while let Some(mut chunk) = pcm_q.pop() {
+                    mixer.pcm_queue.extend(chunk.iter().copied());
+                    chunk.clear();
+                    let _ = recycle_q.push(chunk);
                 }
 
                 // 3. Schedule + render this buffer (mono), then fan out to
@@ -329,17 +424,29 @@ fn choose_f32_config(device: &cpal::Device) -> Result<cpal::SupportedStreamConfi
 }
 
 /// Linear-interpolation resample of mono f32 from `src_rate` to `dst_rate`.
-/// Adequate for v1 TTS. Off the audio thread; allocation is fine here.
+/// Adequate for v1 TTS. Off the audio thread; allocation is fine here. Thin
+/// allocating wrapper around [`resample_linear_into`].
 pub fn resample_linear(input: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
+    let mut out = Vec::new();
+    resample_linear_into(input, src_rate, dst_rate, &mut out);
+    out
+}
+
+/// Resample into a caller-provided `out` (cleared first, then filled). Lets the
+/// enqueue path reuse a recycled buffer's allocation instead of allocating a
+/// fresh `Vec` each call. Off the audio thread.
+pub fn resample_linear_into(input: &[f32], src_rate: u32, dst_rate: u32, out: &mut Vec<f32>) {
+    out.clear();
     if input.is_empty() || src_rate == 0 || dst_rate == 0 {
-        return Vec::new();
+        return;
     }
     if src_rate == dst_rate {
-        return input.to_vec();
+        out.extend_from_slice(input);
+        return;
     }
     let ratio = dst_rate as f64 / src_rate as f64;
     let out_len = ((input.len() as f64) * ratio).round() as usize;
-    let mut out = Vec::with_capacity(out_len);
+    out.reserve(out_len);
     let last = input.len() - 1;
     for i in 0..out_len {
         let src_pos = i as f64 / ratio;
@@ -349,7 +456,6 @@ pub fn resample_linear(input: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> 
         let b = input[(idx + 1).min(last)];
         out.push(a + (b - a) * frac);
     }
-    out
 }
 
 #[cfg(test)]
@@ -359,7 +465,7 @@ mod tests {
     // Pure-math check on the enqueue-time resampler (no device).
     #[test]
     fn resample_upsamples_and_preserves_endpoints() {
-        // 2 samples at 24 kHz -> 44.1 kHz. Endpoints preserved, length scales.
+        // 2 samples at 24 kHz -> 48 kHz. Endpoints preserved, length scales.
         let out = resample_linear(&[0.0, 1.0], 24_000, 48_000);
         assert_eq!(out.len(), 4);
         // src positions 0, 0.5, 1.0, 1.5 -> [0.0, 0.5, 1.0, 1.0] (tail clamps).
@@ -369,6 +475,81 @@ mod tests {
         assert!((out[3] - 1.0).abs() < 1e-6, "past-end clamps to last sample");
         // Same rate is identity.
         assert_eq!(resample_linear(&[0.1, 0.2, 0.3], 24_000, 24_000), vec![0.1, 0.2, 0.3]);
+    }
+
+    // A device-free `EngineHandle` for exercising the `enqueue_pcm` accounting
+    // paths (queue full / cap exceeded / backout) without opening an audio
+    // stream. `thread: None` so `Drop` is a no-op. Same-module test => private
+    // fields are reachable.
+    fn headless_handle(sample_rate: u32, chunks: usize, cap_seconds: usize) -> EngineHandle {
+        EngineHandle {
+            pattern_q: Arc::new(ArrayQueue::new(PATTERN_QUEUE_LEN)),
+            pcm_q: Arc::new(ArrayQueue::new(chunks)),
+            recycle_q: Arc::new(ArrayQueue::new(chunks + 2)),
+            pcm_pending: Arc::new(AtomicUsize::new(0)),
+            pcm_cap: sample_rate as usize * cap_seconds,
+            sample_rate,
+            shutdown: Arc::new(AtomicBool::new(false)),
+            thread: None,
+        }
+    }
+
+    // Backout path: when the chunk queue is full, `enqueue_pcm` must reserve then
+    // fully back out its reservation, leaving `pcm_pending` (and `pcm_done`)
+    // exactly as before the refused call.
+    #[test]
+    fn enqueue_backs_out_reservation_when_queue_full() {
+        // src_rate == sample_rate => identity resample, so chunk len == input len.
+        let handle = headless_handle(48_000, 4, 30);
+        let chunk = vec![0.1f32; 100];
+
+        // Fill all 4 chunk slots.
+        for _ in 0..4 {
+            handle.enqueue_pcm(&chunk, 48_000).expect("slot available");
+        }
+        let pending_before = handle.pcm_pending.load(Ordering::Acquire);
+        assert_eq!(pending_before, 400, "4 chunks * 100 samples pending");
+        assert!(!handle.pcm_done(), "not done while chunks are buffered");
+
+        // The 5th enqueue cannot push (queue full) and must back its reservation
+        // out completely.
+        let err = handle.enqueue_pcm(&chunk, 48_000).unwrap_err();
+        assert_eq!(err, PcmError::QueueFull);
+        assert_eq!(
+            handle.pcm_pending.load(Ordering::Acquire),
+            pending_before,
+            "pending must return to its prior value after a refused enqueue"
+        );
+        assert!(!handle.pcm_done(), "still not done; nothing was lost or falsely cleared");
+
+        // The refused chunk's Vec was recycled, not leaked/freed: a fresh enqueue
+        // after freeing a queue slot succeeds again. (A raw `pcm_q.pop` here does
+        // not touch `pcm_pending` — only `render` decrements it — so pending rises
+        // from 400 to 500 with the newly accepted chunk.)
+        assert!(handle.pcm_q.pop().is_some(), "drain one slot");
+        handle.enqueue_pcm(&chunk, 48_000).expect("slot free again");
+        assert_eq!(handle.pcm_pending.load(Ordering::Acquire), 500);
+    }
+
+    // Cap path: `enqueue_pcm` refuses (and backs out) when total pending would
+    // exceed the ~PCM_CAP_SECONDS hard cap, before the chunk queue is full.
+    #[test]
+    fn enqueue_refuses_past_the_pending_cap() {
+        // sample_rate 100, cap 3 s => cap = 300 samples. Plenty of chunk slots so
+        // the cap (not the queue) is what refuses.
+        let handle = headless_handle(100, 1024, 3);
+        let chunk = vec![0.2f32; 100];
+        for _ in 0..3 {
+            handle.enqueue_pcm(&chunk, 100).expect("under cap");
+        }
+        assert_eq!(handle.pcm_pending.load(Ordering::Acquire), 300, "at the cap");
+        let err = handle.enqueue_pcm(&chunk, 100).unwrap_err();
+        assert_eq!(err, PcmError::CapExceeded);
+        assert_eq!(
+            handle.pcm_pending.load(Ordering::Acquire),
+            300,
+            "over-cap enqueue backs out; pending stays at the cap"
+        );
     }
 
     // Live check of the pcm_done contract through the real stream: false while
@@ -385,7 +566,7 @@ mod tests {
         let pcm: Vec<f32> = (0..n)
             .map(|i| (2.0 * std::f32::consts::PI * 220.0 * i as f32 / rate as f32).sin() * 0.2)
             .collect();
-        handle.enqueue_pcm(&pcm, rate);
+        handle.enqueue_pcm(&pcm, rate).expect("enqueue accepted");
         assert!(!handle.pcm_done(), "not done immediately after enqueue");
         // Poll until drained (or fail after a generous timeout).
         let mut done = false;
