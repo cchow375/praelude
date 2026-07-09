@@ -9,8 +9,10 @@
 //! * Auth: header `x-goog-api-key: <key>` (never logged)
 //! * Body: `{model, input, response_format:{type:"audio"},
 //!   generation_config:{speech_config:[{voice}]}}`
-//! * Response: `{output_audio:{data:"<base64>"}}`, audio = raw headerless PCM,
-//!   mono, 24 kHz, signed 16-bit little-endian.
+//! * Response: `{steps:[{content:[{mime_type,data}]}]}` — audio lives at
+//!   `steps[].content[].data` (base64), with `mime_type` `audio/l16` (raw
+//!   headerless PCM, mono, 24 kHz, signed 16-bit little-endian). The docs'
+//!   summarized `output_audio.data` field does NOT exist; see [`parse_response`].
 
 use std::time::Duration;
 
@@ -45,10 +47,17 @@ pub struct GeminiTts {
 impl GeminiTts {
     /// Build a provider. `model`/`voice` default to [`DEFAULT_MODEL`]/[`DEFAULT_VOICE`].
     pub fn new(api_key: String, model: Option<String>, voice: Option<String>) -> GeminiTts {
+        // `new` returns `GeminiTts` (not `Result`), and its caller
+        // (`select_provider` in tts/mod.rs) does too, so propagating a build
+        // error cleanly would require broader signature changes across module
+        // boundaries. `build()` only fails on invalid client configuration
+        // (e.g. a bad TLS backend), never at runtime from normal params like a
+        // plain timeout, so panicking here instead of silently dropping the
+        // timeout (the prior `unwrap_or_default()`) is acceptable.
         let client = reqwest::blocking::Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .build()
-            .unwrap_or_default();
+            .expect("http client build");
         GeminiTts {
             api_key,
             model: model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
@@ -269,5 +278,26 @@ mod tests {
     fn rate_from_mime_parses_or_defaults() {
         assert_eq!(rate_from_mime("audio/L16;codec=pcm;rate=24000"), Some(24_000));
         assert_eq!(rate_from_mime("audio/l16"), None);
+    }
+
+    #[test]
+    fn synth_request_carries_api_key_header() {
+        // Hermetic: build the same request `synth` sends, but never call
+        // `.send()`, so this never touches the network.
+        let g = GeminiTts::new("secret-key-123".into(), None, None);
+        let body = build_request_body("hi", &g.model, &g.voice);
+        let req = g
+            .client
+            .post(g.endpoint())
+            .header("x-goog-api-key", &g.api_key)
+            .json(&body)
+            .build()
+            .expect("request builds");
+
+        let header = req
+            .headers()
+            .get("x-goog-api-key")
+            .expect("x-goog-api-key header present");
+        assert_eq!(header.to_str().expect("header is valid utf8"), "secret-key-123");
     }
 }

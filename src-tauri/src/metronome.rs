@@ -428,11 +428,16 @@ impl Metronome {
                     Err(StartFailure::Busy(msg)) => {
                         // Pre-checked above; only reachable via a concurrent TTS
                         // producer (Task 11). Engine untouched & still running the
-                        // OLD sound, and persist is skipped — so roll the sound
-                        // field back (the other, lock-free changes DID apply) so
-                        // the emitted state matches reality instead of lying.
+                        // OLD sound, so roll the sound field back (the other,
+                        // lock-free changes DID apply) so the emitted state matches
+                        // reality instead of lying. Those already-applied fields
+                        // (bpm/gain/pattern/etc) DID take effect live, so persist
+                        // them here too — otherwise the store and the in-memory
+                        // state would diverge on a Busy refusal.
                         inner.state.sound = prev_sound;
                         let state = inner.state.clone();
+                        drop(inner);
+                        persist(store, &state);
                         return (state, Err(msg));
                     }
                 }
@@ -748,8 +753,16 @@ mod tests {
         metro.force_restart_busy.store(true, Ordering::SeqCst);
 
         let store = Store::open(":memory:").expect("in-memory store");
-        let (state, result) =
-            metro.do_set(&store, None, None, None, None, Some("cowbell".into()), None, None);
+        let (state, result) = metro.do_set(
+            &store,
+            Some(140.0),
+            None,
+            None,
+            None,
+            Some("cowbell".into()),
+            None,
+            None,
+        );
 
         let err = result.expect_err("do_set Busy arm must surface the error");
         assert!(err.contains("busy"), "descriptive busy error, got: {err}");
@@ -763,11 +776,22 @@ mod tests {
             "woodblock",
             "in-memory state also rolled back, matching the still-running engine"
         );
-        // Persist was skipped, so the store must NOT have the new sound.
+        // Persist was skipped for sound, so the store must NOT have the new sound.
         assert_ne!(
             store.get_setting("metronome.sound").unwrap().as_deref(),
             Some("cowbell"),
             "the refused sound must not have been persisted"
+        );
+        // But the lock-free bpm change WAS applied live, so it must have been
+        // persisted too — otherwise the store and in-memory state diverge.
+        assert_eq!(
+            state.bpm, 140.0,
+            "bpm was applied live despite the Busy refusal"
+        );
+        assert_eq!(
+            store.get_setting("metronome.bpm").unwrap().as_deref(),
+            Some("140"),
+            "the applied bpm must be persisted even on a Busy refusal"
         );
     }
 

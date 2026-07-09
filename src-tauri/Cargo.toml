@@ -41,7 +41,7 @@ libc = "0.2"
 # thread (no async runtime bleed into the audio/command paths). Pinned to 0.13 to reuse
 # the exact locked 0.13.4 (avoids a second reqwest copy).
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "native-tls"] }
-# Decodes the Gemini `output_audio.data` base64 (24 kHz s16le PCM). Already at 0.22.1
-# in the lock via reqwest.
+# Decodes the Gemini `steps[].content[].data` base64 (24 kHz s16le PCM). Already at
+# 0.22.1 in the lock via reqwest.
 base64 = "0.22"
 
