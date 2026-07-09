@@ -466,7 +466,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "codakiller-scaffold"
+name = "codakiller"
 version = "0.1.0"
 dependencies = [
  "serde",

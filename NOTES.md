@@ -27,11 +27,9 @@
   untracked scaffold paths). The scaffold's `.gitignore` entries (logs, `.vscode/*`,
   `.idea`, etc.) were hand-merged into ours; ours already had `node_modules/`,
   `target/`, `dist/`, `.DS_Store`, `*.local`, `.superpowers/` covered.
-- Tauri v2 has **no** `bundle.macOS.infoPlist` config key (the brief's guess was
-  wrong — checked via context7 docs for `v2.tauri.app/distribute/macos-application-bundle`).
-  The actual mechanism: drop a file literally named `Info.plist` in `src-tauri/` and
-  Tauri auto-detects and merges it into the generated bundle's `Info.plist` at build
-  time. No `tauri.conf.json` reference is needed or possible. Verified by inspecting
+- Tauri v2 **does** have a `bundle > macOS > infoPlist` config key (a path that merges
+  with the default Info.plist) per official docs; this project instead uses the equally-
+  documented same-directory `Info.plist` auto-merge approach. Verified by inspecting
   the built `.app`'s `Contents/Info.plist` with `plutil -p`: both
   `NSMicrophoneUsageDescription` and `NSSpeechRecognitionUsageDescription` were
   present with the exact strings from `src-tauri/Info.plist`.
