@@ -15,7 +15,16 @@
 /// `sample_rate*60/1000` frames (2880 at 48 kHz); with 16 subdivisions that is
 /// one tick per ~180 frames, so a typical ≤4096-frame buffer emits well under 64
 /// events (the scratch capacity).
-const MAX_SUBDIVISION: u8 = 16;
+///
+/// Single source of truth: `metronome.rs` clamps user input to this same bound by
+/// re-exporting it (via [`crate::audio`]) rather than defining its own copy.
+pub const MAX_SUBDIVISION: u8 = 16;
+
+/// Musically-sane bpm bounds honored by the scheduler ([`safe_bpm`]). Also the
+/// single source of truth for the metronome's user-facing bpm clamp — `metronome.rs`
+/// re-exports these instead of duplicating the literals.
+pub const MIN_BPM: f64 = 1.0;
+pub const MAX_BPM: f64 = 1000.0;
 
 /// A metronome pattern. All fields are plain data so the whole struct is `Copy`
 /// and can be handed to the audio thread lock-free.
@@ -86,7 +95,7 @@ pub struct ClickClock {
 /// frozen audio thread is catastrophic, so the engine never trusts the input.
 fn safe_bpm(bpm: f64) -> f64 {
     if bpm.is_finite() {
-        bpm.clamp(1.0, 1000.0)
+        bpm.clamp(MIN_BPM, MAX_BPM)
     } else {
         ClickPattern::default().bpm
     }

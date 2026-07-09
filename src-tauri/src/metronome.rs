@@ -24,20 +24,21 @@
 //! callback, so the engine's lock-free discipline is preserved.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::audio::{Clicks, ClickPattern, Engine, EngineConfig, EngineHandle};
+use crate::audio::{
+    Clicks, ClickPattern, Engine, EngineConfig, EngineHandle, MAX_BPM, MAX_SUBDIVISION, MIN_BPM,
+};
 use crate::store::Store;
 use crate::sysvol::BoostGuard;
 
-/// Hard cap on subdivisions (mirrors the audio clock's `MAX_SUBDIVISION`).
-const MAX_SUBDIVISION: u8 = 16;
-/// Musically-sane bpm bounds (mirror the clock's `safe_bpm`).
-const MIN_BPM: f64 = 1.0;
-const MAX_BPM: f64 = 1000.0;
+// `MAX_SUBDIVISION`, `MIN_BPM`, and `MAX_BPM` are the audio engine's own honored
+// bounds (`audio::clock`), re-exported here so the user-facing clamps below share a
+// single source of truth with the scheduler instead of duplicating the literals.
+
 /// Upper bound on click gain (the mixer clamps the summed output anyway; this just
 /// keeps the stored setting sane).
 const MAX_GAIN: f32 = 4.0;
@@ -108,6 +109,28 @@ impl MetroState {
     }
 }
 
+/// Injectable engine-start seam. Production is [`Engine::start`]; tests inject a
+/// closure that returns `Err` or a device-free [`EngineHandle::test_handle`], so the
+/// restart / rollback logic is unit-testable with no audio device (same pattern as
+/// [`BoostGuard::engage_with`]).
+type EngineStartFn = Box<dyn Fn(EngineConfig) -> Result<EngineHandle, String> + Send + Sync>;
+/// Injectable boost-engage seam. Production is [`BoostGuard::engage`] (real
+/// osascript); tests inject a recording closure so a rollback's boost release can be
+/// asserted without touching the real system volume.
+type BoostEngageFn = Box<dyn Fn(u8) -> BoostGuard + Send + Sync>;
+
+/// How a restart of the engine failed. The two variants have very different
+/// post-conditions, so callers must roll back differently (see [`Metronome::do_start`]
+/// / [`Metronome::do_set`]).
+enum StartFailure {
+    /// The TTS-drop guard refused the restart: the existing engine was **not
+    /// touched** and is still running. `state.running` must stay `true`.
+    Busy(String),
+    /// The old engine was stopped but the new one failed to start: there is now
+    /// **no live engine**, so `state.running` must be rolled back to `false`.
+    Dead(String),
+}
+
 /// Managed Tauri state: loaded click sounds, the boost target, and the mutable
 /// running state (engine handle + boost guard) behind a control-path mutex.
 pub struct Metronome {
@@ -116,6 +139,10 @@ pub struct Metronome {
     sounds: HashMap<String, Clicks>,
     /// System volume the boost raises to.
     boost_level: u8,
+    /// Seam for starting the audio engine (see [`EngineStartFn`]).
+    engine_start: EngineStartFn,
+    /// Seam for engaging the boost guard (see [`BoostEngageFn`]).
+    boost_engage: BoostEngageFn,
     inner: Mutex<Inner>,
 }
 
@@ -128,11 +155,38 @@ struct Inner {
 }
 
 impl Metronome {
-    /// Build the managed state from loaded sounds and the persisted initial state.
+    /// Build the managed state from loaded sounds and the persisted initial state,
+    /// wired to the real [`Engine::start`] and [`BoostGuard::engage`].
     pub fn new(sounds: HashMap<String, Clicks>, state: MetroState, boost_level: u8) -> Self {
         Metronome {
             sounds,
             boost_level,
+            engine_start: Box::new(Engine::start),
+            boost_engage: Box::new(BoostGuard::engage),
+            inner: Mutex::new(Inner {
+                state,
+                handle: None,
+                guard: None,
+            }),
+        }
+    }
+
+    /// Test constructor: same as [`Self::new`] but with injectable engine-start and
+    /// boost-engage seams, so the restart / rollback / busy-guard logic can be
+    /// exercised with mock closures and no audio device or real system volume.
+    #[cfg(test)]
+    pub(crate) fn with_seams(
+        sounds: HashMap<String, Clicks>,
+        state: MetroState,
+        boost_level: u8,
+        engine_start: impl Fn(EngineConfig) -> Result<EngineHandle, String> + Send + Sync + 'static,
+        boost_engage: impl Fn(u8) -> BoostGuard + Send + Sync + 'static,
+    ) -> Self {
+        Metronome {
+            sounds,
+            boost_level,
+            engine_start: Box::new(engine_start),
+            boost_engage: Box::new(boost_engage),
             inner: Mutex::new(Inner {
                 state,
                 handle: None,
@@ -152,8 +206,8 @@ impl Metronome {
         self.lock().state.clone()
     }
 
-    /// Stop audio and restore the system volume. Called on `metro_stop` and on the
-    /// window-close / exit path so a boosted volume is never left behind.
+    /// Stop audio and restore the system volume. Called on the window-close / exit
+    /// path so a boosted volume is never left behind.
     pub fn shutdown(&self) {
         let mut inner = self.lock();
         inner.guard = None; // drop restores the pre-boost volume
@@ -163,18 +217,34 @@ impl Metronome {
 
     /// (Re)build the engine for the current state. Any prior handle is dropped
     /// first (stopping its stream) so there is only ever one live engine.
-    fn start_engine(&self, inner: &mut Inner) -> Result<(), String> {
+    ///
+    /// **TTS-drop contract (enforced, not documented):** a restart allocates fresh
+    /// PCM queues, so any buffered-but-unplayed TTS would be silently discarded even
+    /// though `enqueue_pcm` returned `Ok`. Therefore, if an existing engine still has
+    /// speech playing (`!pcm_done()`), this refuses with [`StartFailure::Busy`]
+    /// **without touching the running engine or state** — the caller must surface the
+    /// error and leave the current audio alone. (The TTS producer lands in Task 11;
+    /// this makes the contract mechanical now.)
+    fn start_engine(&self, inner: &mut Inner) -> Result<(), StartFailure> {
+        if let Some(h) = &inner.handle {
+            if !h.pcm_done() {
+                return Err(StartFailure::Busy(
+                    "audio busy: speech playing — retry after".to_string(),
+                ));
+            }
+        }
         let clicks = self
             .sounds
             .get(&inner.state.sound)
             .or_else(|| self.sounds.get(DEFAULT_SOUND))
             .cloned();
         inner.handle = None; // stop any existing stream before opening a new one
-        let handle = Engine::start(EngineConfig {
+        let handle = (self.engine_start)(EngineConfig {
             pattern: inner.state.pattern(),
             clicks,
             click_gain: inner.state.gain,
-        })?;
+        })
+        .map_err(StartFailure::Dead)?;
         inner.handle = Some(handle);
         Ok(())
     }
@@ -182,138 +252,110 @@ impl Metronome {
     /// Engage/release the boost guard to match `inner.state.boost`.
     fn sync_boost(&self, inner: &mut Inner) {
         if inner.state.boost && inner.guard.is_none() {
-            inner.guard = Some(BoostGuard::engage(self.boost_level));
+            inner.guard = Some((self.boost_engage)(self.boost_level));
         } else if !inner.state.boost {
             inner.guard = None; // drop restores volume
         }
     }
-}
 
-/// Load the persisted metronome defaults, falling back to [`MetroState::default`]
-/// for any missing / unparseable key.
-pub fn load_state(store: &Store) -> MetroState {
-    let mut s = MetroState::default();
-    if let Ok(Some(v)) = store.get_setting("metronome.bpm") {
-        if let Ok(b) = v.parse::<f64>() {
-            s.set_bpm(b);
+    /// Core of `metro_start`: apply an optional bpm, mark running, sync boost, and
+    /// (re)start the engine — with rollback on failure. Returns the state to emit
+    /// (post-rollback on failure) plus the outcome. Does no I/O beyond the engine /
+    /// boost seams, so it runs inside `spawn_blocking` and is directly unit-testable.
+    fn do_start(&self, bpm: Option<f64>) -> (MetroState, Result<(), String>) {
+        let mut inner = self.lock();
+        let prev = inner.state.clone();
+        // Whether boost was already engaged *before* this call, so a rollback releases
+        // only the boost this call raised (never one a prior call left engaged).
+        let boosted_before = inner.guard.is_some();
+
+        if let Some(b) = bpm {
+            inner.state.set_bpm(b);
+        }
+        inner.state.running = true;
+        self.sync_boost(&mut inner);
+
+        match self.start_engine(&mut inner) {
+            Ok(()) => {
+                let state = inner.state.clone();
+                (state, Ok(()))
+            }
+            Err(StartFailure::Busy(msg)) => {
+                // Old engine untouched & still running: restore the pre-call state
+                // exactly (it already matches the live engine).
+                inner.state = prev;
+                if !boosted_before {
+                    inner.guard = None; // release boost this call engaged
+                }
+                let state = inner.state.clone();
+                (state, Err(msg))
+            }
+            Err(StartFailure::Dead(msg)) => {
+                // Engine was stopped and failed to restart: no live engine, so state
+                // must NOT claim running.
+                inner.state = prev;
+                inner.state.running = false;
+                if !boosted_before {
+                    inner.guard = None; // release boost this call engaged
+                }
+                let state = inner.state.clone();
+                (state, Err(msg))
+            }
         }
     }
-    if let Ok(Some(v)) = store.get_setting("metronome.sound") {
-        if !v.is_empty() {
-            s.sound = v;
-        }
-    }
-    if let Ok(Some(v)) = store.get_setting("metronome.gain") {
-        if let Ok(g) = v.parse::<f32>() {
-            s.set_gain(g);
-        }
-    }
-    if let Ok(Some(v)) = store.get_setting("metronome.boost") {
-        s.boost = v == "true";
-    }
-    if let Ok(Some(v)) = store.get_setting("metronome.beats_per_bar") {
-        if let Ok(b) = v.parse::<u8>() {
-            s.set_beats_per_bar(b);
-        }
-    }
-    if let Ok(Some(v)) = store.get_setting("metronome.subdivision") {
-        if let Ok(sub) = v.parse::<u8>() {
-            s.set_subdivision(sub);
-        }
-    }
-    s
-}
 
-/// Load the persisted boost target level, defaulting to [`DEFAULT_BOOST_LEVEL`].
-pub fn load_boost_level(store: &Store) -> u8 {
-    store
-        .get_setting("metronome.boost_level")
-        .ok()
-        .flatten()
-        .and_then(|v| v.parse::<u8>().ok())
-        .map(|v| v.min(100))
-        .unwrap_or(DEFAULT_BOOST_LEVEL)
-}
-
-/// Persist every metronome setting (write-through on `metro_set`). Best-effort:
-/// a failed write is logged, not fatal.
-fn persist(store: &Store, s: &MetroState) {
-    let writes = [
-        ("metronome.bpm", s.bpm.to_string()),
-        ("metronome.sound", s.sound.clone()),
-        ("metronome.gain", s.gain.to_string()),
-        ("metronome.boost", s.boost.to_string()),
-        ("metronome.beats_per_bar", s.beats_per_bar.to_string()),
-        ("metronome.subdivision", s.subdivision.to_string()),
-    ];
-    for (key, value) in writes {
-        if let Err(e) = store.set_setting(key, &value) {
-            eprintln!("metronome: failed to persist {key}: {e}");
-        }
-    }
-}
-
-/// Emit the state event to the frontend. Best-effort.
-fn emit(app: &AppHandle, s: &MetroState) {
-    if let Err(e) = app.emit("metro://state", s) {
-        eprintln!("metronome: failed to emit metro://state: {e}");
-    }
-}
-
-/// Start (or restart) the metronome. Optional `bpm` updates the tempo first.
-#[tauri::command]
-pub fn metro_start(
-    bpm: Option<f64>,
-    app: AppHandle,
-    metro: State<'_, Metronome>,
-) -> Result<MetroState, String> {
-    let mut inner = metro.lock();
-    if let Some(b) = bpm {
-        inner.state.set_bpm(b);
-    }
-    inner.state.running = true;
-    metro.sync_boost(&mut inner);
-    metro.start_engine(&mut inner)?;
-    let state = inner.state.clone();
-    drop(inner);
-    emit(&app, &state);
-    Ok(state)
-}
-
-/// Stop the metronome and restore the system volume.
-#[tauri::command]
-pub fn metro_stop(app: AppHandle, metro: State<'_, Metronome>) -> Result<MetroState, String> {
-    let state = {
-        let mut inner = metro.lock();
-        inner.handle = None; // stop audio
-        inner.guard = None; // restore volume
+    /// Core of `metro_stop`: drop the engine and boost guard and mark stopped.
+    fn do_stop(&self) -> MetroState {
+        let mut inner = self.lock();
+        inner.handle = None; // stop audio (joins the audio thread)
+        inner.guard = None; // restore the pre-boost volume
         inner.state.running = false;
         inner.state.clone()
-    };
-    emit(&app, &state);
-    Ok(state)
-}
+    }
 
-/// Update one or more settings. Live-applies to a running engine where possible
-/// (gain + pattern via lock-free hand-off; sound via restart), toggles boost,
-/// writes the new settings through to the store, and emits the new state.
-#[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub fn metro_set(
-    bpm: Option<f64>,
-    beats_per_bar: Option<u8>,
-    subdivision: Option<u8>,
-    accent: Option<bool>,
-    sound: Option<String>,
-    gain: Option<f32>,
-    boost: Option<bool>,
-    app: AppHandle,
-    metro: State<'_, Metronome>,
-    store: State<'_, Store>,
-) -> Result<MetroState, String> {
-    let state = {
-        let mut inner = metro.lock();
-        let old_sound = inner.state.sound.clone();
+    /// Core of `metro_set`: validate + apply the settings, live-apply to a running
+    /// engine (gain/pattern lock-free; sound via restart), sync boost, and persist.
+    /// Returns the state to emit plus the outcome. Persist happens here (inside the
+    /// blocking section) so the six SQLite writes never run on the UI thread.
+    #[allow(clippy::too_many_arguments)]
+    fn do_set(
+        &self,
+        store: &Store,
+        bpm: Option<f64>,
+        beats_per_bar: Option<u8>,
+        subdivision: Option<u8>,
+        accent: Option<bool>,
+        sound: Option<String>,
+        gain: Option<f32>,
+        boost: Option<bool>,
+    ) -> (MetroState, Result<(), String>) {
+        let mut inner = self.lock();
+
+        // Reject an unknown sound up front (before mutating anything). Skip the
+        // check when no click set is loaded (assets failed => metronome runs silent,
+        // any name is acceptable).
+        if let Some(s) = &sound {
+            if !self.sounds.is_empty() && !self.sounds.contains_key(s) {
+                let state = inner.state.clone();
+                return (state, Err(format!("unknown metronome sound '{s}'")));
+            }
+        }
+
+        // A sound change on a running engine forces a restart, which discards
+        // buffered TTS. Enforce the TTS-drop contract BEFORE mutating any state or
+        // the live engine, so a busy refusal leaves everything untouched.
+        let sound_changing = sound.as_ref().is_some_and(|s| *s != inner.state.sound);
+        if inner.state.running && sound_changing {
+            if let Some(h) = &inner.handle {
+                if !h.pcm_done() {
+                    let state = inner.state.clone();
+                    return (
+                        state,
+                        Err("audio busy: speech playing — retry after".to_string()),
+                    );
+                }
+            }
+        }
 
         if let Some(v) = bpm {
             inner.state.set_bpm(v);
@@ -347,30 +389,392 @@ pub fn metro_set(
             }
             // A sound change can't cross the audio-thread boundary lock-free;
             // rebuild the engine (carries the just-updated pattern + gain).
-            if inner.state.sound != old_sound {
-                metro.start_engine(&mut inner)?;
+            if sound_changing {
+                match self.start_engine(&mut inner) {
+                    Ok(()) => {}
+                    Err(StartFailure::Dead(msg)) => {
+                        // Engine stopped and failed to restart: it is now dead, so
+                        // state must not claim running. Persist the rolled-back state
+                        // so the store and the emit stay consistent.
+                        inner.state.running = false;
+                        let state = inner.state.clone();
+                        drop(inner);
+                        persist(store, &state);
+                        return (state, Err(msg));
+                    }
+                    Err(StartFailure::Busy(msg)) => {
+                        // Pre-checked above; only reachable via a concurrent TTS
+                        // producer (Task 11). Engine untouched & still running.
+                        let state = inner.state.clone();
+                        return (state, Err(msg));
+                    }
+                }
             }
             // Boost can be toggled mid-run.
-            metro.sync_boost(&mut inner);
+            self.sync_boost(&mut inner);
         }
 
-        inner.state.clone()
-    };
+        let state = inner.state.clone();
+        drop(inner);
+        persist(store, &state);
+        (state, Ok(()))
+    }
+}
 
-    persist(&store, &state);
+/// Load the persisted metronome defaults, falling back to [`MetroState::default`]
+/// for any missing / unparseable key.
+pub fn load_state(store: &Store) -> MetroState {
+    let mut s = MetroState::default();
+    if let Ok(Some(v)) = store.get_setting("metronome.bpm") {
+        match v.parse::<f64>() {
+            Ok(b) => s.set_bpm(b),
+            Err(e) => eprintln!("metronome: ignoring unparseable metronome.bpm {v:?}: {e}"),
+        }
+    }
+    if let Ok(Some(v)) = store.get_setting("metronome.sound") {
+        if !v.is_empty() {
+            s.sound = v;
+        }
+    }
+    if let Ok(Some(v)) = store.get_setting("metronome.gain") {
+        match v.parse::<f32>() {
+            Ok(g) => s.set_gain(g),
+            Err(e) => eprintln!("metronome: ignoring unparseable metronome.gain {v:?}: {e}"),
+        }
+    }
+    if let Ok(Some(v)) = store.get_setting("metronome.boost") {
+        s.boost = v == "true";
+    }
+    if let Ok(Some(v)) = store.get_setting("metronome.beats_per_bar") {
+        match v.parse::<u8>() {
+            Ok(b) => s.set_beats_per_bar(b),
+            Err(e) => {
+                eprintln!("metronome: ignoring unparseable metronome.beats_per_bar {v:?}: {e}")
+            }
+        }
+    }
+    if let Ok(Some(v)) = store.get_setting("metronome.subdivision") {
+        match v.parse::<u8>() {
+            Ok(sub) => s.set_subdivision(sub),
+            Err(e) => {
+                eprintln!("metronome: ignoring unparseable metronome.subdivision {v:?}: {e}")
+            }
+        }
+    }
+    s
+}
+
+/// Load the persisted boost target level, defaulting to [`DEFAULT_BOOST_LEVEL`].
+pub fn load_boost_level(store: &Store) -> u8 {
+    store
+        .get_setting("metronome.boost_level")
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse::<u8>().ok())
+        .map(|v| v.min(100))
+        .unwrap_or(DEFAULT_BOOST_LEVEL)
+}
+
+/// Persist every metronome setting (write-through on `metro_set`) in a single
+/// transaction, so the six writes commit atomically and take the store lock once.
+/// Best-effort: a failed commit is logged, not fatal.
+fn persist(store: &Store, s: &MetroState) {
+    let writes = [
+        ("metronome.bpm", s.bpm.to_string()),
+        ("metronome.sound", s.sound.clone()),
+        ("metronome.gain", s.gain.to_string()),
+        ("metronome.boost", s.boost.to_string()),
+        ("metronome.beats_per_bar", s.beats_per_bar.to_string()),
+        ("metronome.subdivision", s.subdivision.to_string()),
+    ];
+    if let Err(e) = store.set_settings(&writes) {
+        eprintln!("metronome: failed to persist settings: {e}");
+    }
+}
+
+/// Emit the state event to the frontend. Best-effort.
+fn emit(app: &AppHandle, s: &MetroState) {
+    if let Err(e) = app.emit("metro://state", s) {
+        eprintln!("metronome: failed to emit metro://state: {e}");
+    }
+}
+
+/// Start (or restart) the metronome. Optional `bpm` updates the tempo first.
+///
+/// `async` + `spawn_blocking`: the blocking work — spawning `osascript` for the
+/// boost, joining the audio thread + reopening the output device on an engine
+/// (re)start — must not run on Tauri's main thread (it would freeze the UI). The
+/// control mutex is taken only inside the blocking closure, never across an
+/// `.await`.
+#[tauri::command]
+pub async fn metro_start(
+    bpm: Option<f64>,
+    app: AppHandle,
+    metro: State<'_, Arc<Metronome>>,
+) -> Result<MetroState, String> {
+    let metro = Arc::clone(&metro);
+    let (state, result) = tauri::async_runtime::spawn_blocking(move || metro.do_start(bpm))
+        .await
+        .map_err(|e| format!("metro_start task failed: {e}"))?;
+    emit(&app, &state);
+    result.map(|()| state)
+}
+
+/// Stop the metronome and restore the system volume. `async` + `spawn_blocking`:
+/// dropping the guard spawns `osascript` and dropping the handle joins the audio
+/// thread — blocking work kept off the main thread.
+#[tauri::command]
+pub async fn metro_stop(
+    app: AppHandle,
+    metro: State<'_, Arc<Metronome>>,
+) -> Result<MetroState, String> {
+    let metro = Arc::clone(&metro);
+    let state = tauri::async_runtime::spawn_blocking(move || metro.do_stop())
+        .await
+        .map_err(|e| format!("metro_stop task failed: {e}"))?;
     emit(&app, &state);
     Ok(state)
 }
 
-/// Return the current metronome state (no side effects).
+/// Update one or more settings. Live-applies to a running engine where possible
+/// (gain + pattern via lock-free hand-off; sound via restart), toggles boost,
+/// writes the new settings through to the store, and emits the new state.
+///
+/// `async` + `spawn_blocking`: boost `osascript`, a possible engine restart, and
+/// the six-key persist transaction are all blocking and must not run on the main
+/// thread.
 #[tauri::command]
-pub fn metro_state(metro: State<'_, Metronome>) -> MetroState {
+#[allow(clippy::too_many_arguments)]
+pub async fn metro_set(
+    bpm: Option<f64>,
+    beats_per_bar: Option<u8>,
+    subdivision: Option<u8>,
+    accent: Option<bool>,
+    sound: Option<String>,
+    gain: Option<f32>,
+    boost: Option<bool>,
+    app: AppHandle,
+    metro: State<'_, Arc<Metronome>>,
+    store: State<'_, Arc<Store>>,
+) -> Result<MetroState, String> {
+    let metro = Arc::clone(&metro);
+    let store = Arc::clone(&store);
+    let (state, result) = tauri::async_runtime::spawn_blocking(move || {
+        metro.do_set(
+            &store,
+            bpm,
+            beats_per_bar,
+            subdivision,
+            accent,
+            sound,
+            gain,
+            boost,
+        )
+    })
+    .await
+    .map_err(|e| format!("metro_set task failed: {e}"))?;
+    emit(&app, &state);
+    result.map(|()| state)
+}
+
+/// Return the current metronome state (no side effects). Stays synchronous: it
+/// only takes the mutex briefly to clone the state (no blocking I/O).
+#[tauri::command]
+pub fn metro_state(metro: State<'_, Arc<Metronome>>) -> MetroState {
     metro.snapshot()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex as StdMutex;
+
+    /// A loaded click set with the given names (empty `Clicks`, enough to exercise
+    /// sound validation / lookup).
+    fn sounds_with(names: &[&str]) -> HashMap<String, Clicks> {
+        names
+            .iter()
+            .map(|n| (n.to_string(), Clicks::default()))
+            .collect()
+    }
+
+    /// A boost-engage seam that records every volume the guard sets (no real
+    /// system volume touched). Returns the seam closure + the shared record.
+    fn recording_boost() -> (
+        impl Fn(u8) -> BoostGuard + Send + Sync + 'static,
+        Arc<StdMutex<Vec<u8>>>,
+    ) {
+        let calls: Arc<StdMutex<Vec<u8>>> = Arc::new(StdMutex::new(Vec::new()));
+        let rec = calls.clone();
+        let seam = move |level: u8| {
+            let rec = rec.clone();
+            BoostGuard::engage_with(level, || 40, move |v| rec.lock().unwrap().push(v))
+        };
+        (seam, calls)
+    }
+
+    // (a) Engine start failure must roll `running` back to false AND release the
+    //     boost this call engaged (both via mock closures — no device, no real
+    //     system volume) while surfacing a descriptive error.
+    #[test]
+    fn start_failure_rolls_back_running_and_releases_boost() {
+        let (boost_seam, vol_calls) = recording_boost();
+        let metro = Metronome::with_seams(
+            sounds_with(&["woodblock"]),
+            MetroState {
+                boost: true,
+                ..MetroState::default()
+            },
+            85,
+            |_cfg| Err("no audio device".to_string()),
+            boost_seam,
+        );
+
+        let (state, result) = metro.do_start(None);
+
+        assert!(result.is_err(), "start must fail when the engine can't start");
+        assert!(
+            !state.running,
+            "running rolled back to false on a dead engine"
+        );
+        // Boost was raised to 85 by this call, then restored to the saved 40 on
+        // rollback — engaged then released, exactly once each.
+        assert_eq!(
+            &*vol_calls.lock().unwrap(),
+            &[85, 40],
+            "boost engaged then released on rollback"
+        );
+        assert!(
+            metro.lock().guard.is_none(),
+            "boost guard cleared after rollback"
+        );
+        assert!(metro.lock().handle.is_none(), "no live engine after failure");
+    }
+
+    // (b) A sound-change restart must be REFUSED while a fake handle reports PCM
+    //     not done (speech playing): engine untouched, state unchanged, no restart.
+    #[test]
+    fn sound_change_refused_while_speech_playing() {
+        let started = Arc::new(StdMutex::new(0u32));
+        let s = started.clone();
+        let (boost_seam, _vol) = recording_boost();
+        let metro = Metronome::with_seams(
+            sounds_with(&["woodblock", "cowbell"]),
+            MetroState {
+                running: true,
+                sound: "woodblock".to_string(),
+                ..MetroState::default()
+            },
+            85,
+            move |_cfg| {
+                *s.lock().unwrap() += 1;
+                Ok(EngineHandle::test_handle(48_000, 0))
+            },
+            boost_seam,
+        );
+        // Simulate a running engine with speech still buffered (pcm not done).
+        metro.lock().handle = Some(EngineHandle::test_handle(48_000, 4096));
+
+        let store = Store::open(":memory:").expect("in-memory store");
+        let (state, result) =
+            metro.do_set(&store, None, None, None, None, Some("cowbell".into()), None, None);
+
+        let err = result.expect_err("sound change must be refused while speech plays");
+        assert!(err.contains("busy"), "descriptive busy error, got: {err}");
+        assert_eq!(state.sound, "woodblock", "sound NOT changed while busy");
+        assert!(state.running, "engine left running and untouched");
+        assert_eq!(*started.lock().unwrap(), 0, "engine was not restarted");
+        assert!(
+            metro.lock().handle.is_some(),
+            "existing engine handle left in place"
+        );
+    }
+
+    // (c) A sound-change restart on a running engine with speech finished must
+    //     succeed: engine restarted once, new sound applied + persisted, still
+    //     running.
+    #[test]
+    fn sound_change_restarts_when_speech_done() {
+        let started = Arc::new(StdMutex::new(0u32));
+        let s = started.clone();
+        let (boost_seam, _vol) = recording_boost();
+        let metro = Metronome::with_seams(
+            sounds_with(&["woodblock", "cowbell"]),
+            MetroState {
+                running: true,
+                sound: "woodblock".to_string(),
+                ..MetroState::default()
+            },
+            85,
+            move |_cfg| {
+                *s.lock().unwrap() += 1;
+                Ok(EngineHandle::test_handle(48_000, 0))
+            },
+            boost_seam,
+        );
+        // Running engine, speech finished (pcm_done true).
+        metro.lock().handle = Some(EngineHandle::test_handle(48_000, 0));
+
+        let store = Store::open(":memory:").expect("in-memory store");
+        let (state, result) =
+            metro.do_set(&store, None, None, None, None, Some("cowbell".into()), None, None);
+
+        assert!(result.is_ok(), "restart succeeds when speech is done");
+        assert_eq!(state.sound, "cowbell", "new sound applied");
+        assert!(state.running, "still running after a clean restart");
+        assert_eq!(*started.lock().unwrap(), 1, "engine restarted exactly once");
+        assert!(metro.lock().handle.is_some(), "new engine handle installed");
+        assert_eq!(
+            store.get_setting("metronome.sound").unwrap().as_deref(),
+            Some("cowbell"),
+            "new sound persisted"
+        );
+    }
+
+    // Minor: an unknown sound name is rejected with a descriptive error and leaves
+    // the state unchanged (rather than silently playing the default).
+    #[test]
+    fn set_rejects_unknown_sound() {
+        let (boost_seam, _vol) = recording_boost();
+        let metro = Metronome::with_seams(
+            sounds_with(&["woodblock"]),
+            MetroState::default(),
+            85,
+            |_cfg| Ok(EngineHandle::test_handle(48_000, 0)),
+            boost_seam,
+        );
+        let store = Store::open(":memory:").expect("in-memory store");
+        let (state, result) = metro.do_set(
+            &store,
+            None,
+            None,
+            None,
+            None,
+            Some("does-not-exist".into()),
+            None,
+            None,
+        );
+        assert!(result.is_err(), "unknown sound must be rejected");
+        assert_eq!(state.sound, "woodblock", "state unchanged on rejection");
+    }
+
+    // A successful start transitions running -> true and installs a live handle.
+    #[test]
+    fn start_succeeds_and_installs_handle() {
+        let (boost_seam, _vol) = recording_boost();
+        let metro = Metronome::with_seams(
+            sounds_with(&["woodblock"]),
+            MetroState::default(),
+            85,
+            |_cfg| Ok(EngineHandle::test_handle(48_000, 0)),
+            boost_seam,
+        );
+        let (state, result) = metro.do_start(Some(150.0));
+        assert!(result.is_ok(), "start succeeds with a working engine seam");
+        assert!(state.running, "running after a successful start");
+        assert_eq!(state.bpm, 150.0, "bpm applied");
+        assert!(metro.lock().handle.is_some(), "live engine handle installed");
+    }
 
     #[test]
     fn start_set_stop_transitions() {

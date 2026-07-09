@@ -55,6 +55,26 @@ impl Store {
         .optional()
     }
 
+    /// Insert-or-replace several settings atomically in a single transaction.
+    /// Used by write-through paths (e.g. `metro_set` persisting all metronome
+    /// settings) so the six writes commit as one unit and take one lock, rather
+    /// than six independent statements.
+    pub fn set_settings(&self, pairs: &[(&str, String)]) -> rusqlite::Result<()> {
+        // See `schema_version`: recover from a poisoned lock rather than propagate it.
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO setting (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            )?;
+            for (key, value) in pairs {
+                stmt.execute((key, value.as_str()))?;
+            }
+        }
+        tx.commit()
+    }
+
     /// Insert or replace a setting.
     pub fn set_setting(&self, key: &str, value: &str) -> rusqlite::Result<()> {
         // See `schema_version`: recover from a poisoned lock rather than propagate it.

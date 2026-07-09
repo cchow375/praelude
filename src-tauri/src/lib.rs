@@ -4,6 +4,7 @@ mod store;
 mod sysvol;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use metronome::Metronome;
 use store::Store;
@@ -18,13 +19,13 @@ fn greet(name: &str) -> String {
 
 /// Read a persisted setting. Returns `null` when the key has never been set.
 #[tauri::command]
-fn get_setting(key: String, store: State<'_, Store>) -> Result<Option<String>, String> {
+fn get_setting(key: String, store: State<'_, Arc<Store>>) -> Result<Option<String>, String> {
     store.get_setting(&key).map_err(|e| e.to_string())
 }
 
 /// Persist a setting value (insert or overwrite).
 #[tauri::command]
-fn set_setting(key: String, value: String, store: State<'_, Store>) -> Result<(), String> {
+fn set_setting(key: String, value: String, store: State<'_, Arc<Store>>) -> Result<(), String> {
     store.set_setting(&key, &value).map_err(|e| e.to_string())
 }
 
@@ -64,8 +65,11 @@ pub fn run() {
             });
             let state = metronome::load_state(&store);
             let boost_level = metronome::load_boost_level(&store);
-            app.manage(Metronome::new(sounds, state, boost_level));
-            app.manage(store);
+            // Managed behind `Arc` so the async commands can clone a `'static`
+            // handle into `spawn_blocking` (the blocking work runs off the main
+            // thread).
+            app.manage(Arc::new(Metronome::new(sounds, state, boost_level)));
+            app.manage(Arc::new(store));
             Ok(())
         })
         // Restore the system volume on window close: a boosted volume must never
@@ -73,7 +77,7 @@ pub fn run() {
         // `kill -9` is the one path we cannot cover — see sysvol docs.)
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { .. } = event {
-                if let Some(metro) = window.try_state::<Metronome>() {
+                if let Some(metro) = window.try_state::<Arc<Metronome>>() {
                     metro.shutdown();
                 }
             }
@@ -98,7 +102,7 @@ pub fn run() {
         // one path we cannot cover — see `sysvol` docs.)
         .run(|app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
-                if let Some(metro) = app_handle.try_state::<Metronome>() {
+                if let Some(metro) = app_handle.try_state::<Arc<Metronome>>() {
                     metro.shutdown();
                 }
             }

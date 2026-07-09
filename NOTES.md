@@ -45,6 +45,43 @@
   is strong (state-machine + parser + guard unit tests, clean build, bundle staging
   verified), but driving the JS console needs the frontend glue that Task 8 builds.
 
+- **Task 7 fix round 1 — async commands, restart rollback, TTS-drop guard, layer tests:**
+  - **Blocking work off the main thread.** `metro_start/stop/set` are now `async fn` that
+    do all blocking work (boost `osascript` spawns, audio-thread join + device reopen on
+    engine (re)start, the 6-key persist) inside `tauri::async_runtime::spawn_blocking`.
+    `Metronome` and `Store` are managed behind `Arc` so a `'static` clone can move into
+    the closure. The control mutex is taken **only inside** the blocking closure, never
+    across an `.await` (clippy `await_holding_lock` clean). `metro_state` stays sync (a
+    brief mutex read). Command logic lives in pure `Metronome::do_start/do_stop/do_set`
+    methods (no `AppHandle`/emit), which is what the new tests drive directly.
+  - **TTS-drop contract, enforced not documented.** A sound change restarts the engine,
+    which allocates fresh PCM queues and would silently discard buffered-but-unplayed TTS
+    even though `enqueue_pcm` returned `Ok`. So `start_engine` now refuses with
+    `StartFailure::Busy("audio busy: speech playing — retry after")` when an existing
+    handle reports `!pcm_done()`, **without touching the running engine or state**. The
+    TTS producer lands in Task 11; this makes the contract mechanical now. `metro_set`
+    also pre-checks the guard before mutating anything so a busy refusal is a clean no-op.
+  - **Restart-failure rollback.** `start_engine` returns a typed `StartFailure`: `Busy`
+    (engine untouched, still running → keep `running=true`) vs `Dead` (old engine stopped,
+    new one failed → force `running=false`). `do_start` restores the pre-call state and
+    releases only the boost *this call* engaged; `do_set`'s sound-change `Dead` path forces
+    `running=false` and persists the rolled-back state so store + emit stay consistent.
+    State can never claim `running` with a dead engine.
+  - **Injectable engine-start seam** (mirrors sysvol's `engage_with`): `Metronome` holds
+    `engine_start: Box<dyn Fn(EngineConfig)->Result<EngineHandle,String>>` and
+    `boost_engage: Box<dyn Fn(u8)->BoostGuard>` (real `Engine::start`/`BoostGuard::engage`
+    in `new`; mock closures via `with_seams` in tests). A `#[cfg(test)]`
+    `EngineHandle::test_handle(sample_rate, pcm_pending)` builds a device-free handle whose
+    `pcm_done()` reflects `pcm_pending`. Tests: (a) start failure → running false + boost
+    released; (b) sound change refused while a fake handle reports PCM not done; (c) clean
+    restart transitions correctly + persists; plus unknown-sound rejection + start success.
+  - **Minors:** `metro_set` rejects unknown sound names (`unknown metronome sound '…'`)
+    validated against the loaded click set (skipped when no clicks loaded → silent mode);
+    `MAX_SUBDIVISION`/`MIN_BPM`/`MAX_BPM` are now `pub` in `audio::clock` and re-exported —
+    `metronome.rs` uses those instead of duplicating the literals; `persist` writes all six
+    keys in one `Store::set_settings` transaction; `load_state` logs (not swallows) parse
+    failures.
+
 - **Task 5 fix round 1 — `crossbeam-queue` dependency APPROVED by controller.** The
   lock-free `ArrayQueue` is the mechanism the real-time callback uses to receive
   pattern changes, TTS PCM chunks, and (new this round) recycled empty `Vec`s

@@ -57,7 +57,7 @@ use cpal::SampleFormat;
 use crossbeam_queue::ArrayQueue;
 
 #[allow(unused_imports)]
-pub use clock::{ClickClock, ClickEvent, ClickKind, ClickPattern};
+pub use clock::{ClickClock, ClickEvent, ClickKind, ClickPattern, MAX_BPM, MAX_SUBDIVISION, MIN_BPM};
 #[allow(unused_imports)]
 pub use mixer::Mixer;
 
@@ -233,6 +233,28 @@ impl EngineHandle {
     /// thread. Vacuously `true` when nothing has been enqueued.
     pub fn pcm_done(&self) -> bool {
         self.pcm_pending.load(Ordering::Acquire) == 0
+    }
+}
+
+#[cfg(test)]
+impl EngineHandle {
+    /// Test-only, device-free handle for exercising control-path logic (e.g. the
+    /// metronome's TTS-drop restart guard) without opening an audio stream.
+    /// `pcm_pending` seeds the busy indicator: any nonzero value makes
+    /// [`Self::pcm_done`] return `false` (as if speech were still playing).
+    /// `thread: None` so `Drop` is a no-op.
+    pub(crate) fn test_handle(sample_rate: u32, pcm_pending: usize) -> EngineHandle {
+        EngineHandle {
+            pattern_q: Arc::new(ArrayQueue::new(PATTERN_QUEUE_LEN)),
+            pcm_q: Arc::new(ArrayQueue::new(4)),
+            recycle_q: Arc::new(ArrayQueue::new(6)),
+            pcm_pending: Arc::new(AtomicUsize::new(pcm_pending)),
+            click_gain: Arc::new(AtomicU32::new(1.0f32.to_bits())),
+            pcm_cap: sample_rate as usize * PCM_CAP_SECONDS,
+            sample_rate,
+            shutdown: Arc::new(AtomicBool::new(false)),
+            thread: None,
+        }
     }
 }
 
