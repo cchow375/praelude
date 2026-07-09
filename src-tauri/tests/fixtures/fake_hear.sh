@@ -19,6 +19,9 @@
 #   FAKE_LINES          : lines to emit on stdout, separated by '|'
 #                           (default "hello world|testing one two")
 #   FAKE_LINE_DELAY     : seconds to sleep between lines (default 0.05)
+#   FAKE_EMIT_FILE      : append each line here just before printing it to stdout
+#                         (proves the fixture actually emitted, so a gate-closed
+#                          test can't pass vacuously by never emitting anything)
 
 if [ -n "$FAKE_COUNT_FILE" ]; then
   printf 'start\n' >> "$FAKE_COUNT_FILE"
@@ -46,6 +49,9 @@ OLDIFS=$IFS
 IFS='|'
 for line in $LINES; do
   IFS=$OLDIFS
+  if [ -n "$FAKE_EMIT_FILE" ]; then
+    printf '%s\n' "$line" >> "$FAKE_EMIT_FILE"
+  fi
   printf '%s\n' "$line"
   sleep "$DELAY"
   IFS='|'

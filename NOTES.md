@@ -18,13 +18,18 @@
     `Child::wait()` on the manager thread → no zombies. **New dep `libc` 0.2** — justified
     in Cargo.toml: `std::process` can only SIGKILL a single child, not SIGTERM a group;
     `libc` is already transitive (cpal/rusqlite) so zero new compilation.
-  - **stdbuf decision: production spawn wraps `stdbuf -oL <hear>`** as insurance against
-    block-buffered stdout when piped (Task 9 flagged this UNCONFIRMED). `stdbuf` execs the
-    target, so the child pid *is* `hear` and SIGTERM/pgid semantics are unaffected.
+  - **stdbuf decision (Task 10 fix round 1): stdbuf is OPTIONAL, not a hard dep.**
+    Production config still *requests* `stdbuf -oL <hear>` as insurance against
+    block-buffered stdout when piped (Task 9 flagged this UNCONFIRMED), but `stdbuf` is a
+    Homebrew (coreutils) binary absent from stock macOS and the spec bans hardcoded Homebrew
+    deps. So the supervisor probes ONCE at manager start (`stdbuf --version` succeeds) and,
+    if absent, degrades to a direct `hear` spawn and logs it; an ENOENT at spawn time also
+    falls back. **A missing `stdbuf` never trips RestartStorm.** When used, `stdbuf` execs
+    the target so the child pid *is* `hear` and SIGTERM/pgid semantics are unaffected.
     Real-binary smoke (silent, 3s): 0 bytes stdout/stderr (no Code=201 → Dictation still
-    enabled; no garbage on silence), SIGTERM-to-group killed it in ~0.010s. Live buffering
-    of actual transcript lines stays unobservable without speech → still DEFERRED to Task
-    13, but `stdbuf` makes the outcome moot (guaranteed line-buffered either way).
+    enabled; no garbage on silence), SIGTERM-to-group killed it fast. Escalation path if
+    Task 13's live test shows block-buffering WITHOUT stdbuf: a pty via stock
+    `/usr/bin/script` (documented, NOT built now).
   - **is_final framing policy (defensive, correct for both plausible framings):** every
     non-empty line → immediate partial (`is_final=false`); the *previous* pending utterance
     is finalized (`is_final=true`) the moment a line arrives that is NOT a prefix-extension

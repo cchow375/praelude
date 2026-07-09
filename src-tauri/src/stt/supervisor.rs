@@ -55,7 +55,10 @@ pub struct SttConfig {
     pub args: Vec<String>,
     /// Extra environment variables for the child (used by the test fake).
     pub env: HashMap<String, String>,
-    /// Wrap the spawn in `stdbuf -oL` to force line-buffered stdout when piped.
+    /// Request wrapping the spawn in `stdbuf -oL` to force line-buffered stdout
+    /// when piped. Best-effort: if `stdbuf` is not on PATH the supervisor spawns
+    /// the binary directly instead (a missing `stdbuf` must never surface as a
+    /// restart storm).
     pub use_stdbuf: bool,
     /// Quiet gap after which a pending utterance is finalized.
     pub settle: Duration,
@@ -72,9 +75,12 @@ impl SttConfig {
     ///
     /// Flags mirror the Task 9 spike recommendation: `-d` on-device (offline +
     /// private), `-l en-US` locale, `-m` single-line mic mode (one line per
-    /// settled utterance). `use_stdbuf` is on as insurance against block-buffered
-    /// stdout when piped — `stdbuf` execs the target so the child pid is still
-    /// `hear` and SIGTERM stays clean.
+    /// settled utterance). `use_stdbuf` *requests* wrapping in `stdbuf -oL` as
+    /// insurance against block-buffered stdout when piped — but it is optional:
+    /// `stdbuf` is a Homebrew (coreutils) binary that may be absent, so the
+    /// supervisor probes for it once and degrades to a direct `hear` spawn if it
+    /// is missing (see [`run_manager`] / [`spawn_child`]). `stdbuf` execs the
+    /// target so, when used, the child pid is still `hear` and SIGTERM stays clean.
     pub fn hear(binary: PathBuf) -> Self {
         SttConfig {
             binary,
@@ -117,6 +123,11 @@ impl SttHandle {
 
     /// Stop the pipeline: SIGTERM the child's process group, reap it, and join
     /// the supervisor threads. Idempotent — a second call (or `Drop`) is a no-op.
+    ///
+    /// Caveat: the caller's sink is invoked from the settler thread, which the
+    /// manager joins during teardown. The sink must therefore neither panic nor
+    /// BLOCK — either one wedges the settler and hangs this join chain (and hence
+    /// `shutdown`/`Drop`) forever.
     pub fn shutdown(&mut self) {
         if !self.active {
             return;
@@ -207,6 +218,25 @@ fn run_manager(
 
     let mut restarts: Vec<Instant> = Vec::new();
 
+    // Probe for `stdbuf` ONCE (it is a Homebrew-only binary that may be absent).
+    // If requested but missing, degrade to a direct spawn rather than ever letting
+    // a missing `stdbuf` masquerade as a restart storm.
+    let use_stdbuf = if config.use_stdbuf {
+        if stdbuf_available() {
+            true
+        } else {
+            eprintln!(
+                "stt: stdbuf not found on PATH; spawning {:?} directly (stdout may \
+                 block-buffer when piped — pty via /usr/bin/script is the documented \
+                 escalation, see NOTES)",
+                config.binary
+            );
+            false
+        }
+    } else {
+        false
+    };
+
     loop {
         if shutdown.load(Ordering::Acquire) {
             break;
@@ -214,7 +244,7 @@ fn run_manager(
 
         // Spawn the child. A spawn failure is treated like a death so a broken
         // binary trips the restart-storm cap instead of looping instantly.
-        let mut child = match spawn_child(&config) {
+        let mut child = match spawn_child(&config, use_stdbuf) {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("stt: failed to spawn {:?}: {e}", config.binary);
@@ -244,20 +274,28 @@ fn run_manager(
             let line_tx = line_tx.clone();
             thread::spawn(move || read_lines(stdout, gate, line_tx))
         };
-        // Stderr reader: buffer stderr for config-error classification.
+        // Stderr reader: buffer the HEAD of stderr for config-error classification.
+        // Cap the retained bytes (the `Code=201` marker appears at the very start)
+        // so a chatty or wedged child can't grow this buffer unboundedly; keep
+        // draining the pipe past the cap so the child never blocks on a full pipe.
         let stderr_reader = {
             let stderr = child.stderr.take().expect("piped stderr");
-            thread::spawn(move || {
-                let mut buf = String::new();
-                let _ = BufReader::new(stderr).read_to_string(&mut buf);
-                buf
-            })
+            thread::spawn(move || read_stderr_head(stderr))
         };
 
         let _status = child.wait(); // reaps the child (no zombie)
+        // Death-path group kill: SIGTERM the whole group BEFORE joining the reader
+        // and stderr threads. A grandchild that inherited the child's stdout/stderr
+        // fds would otherwise keep those pipes open, wedging `reader.join()` /
+        // `stderr_reader.join()` forever and silently killing auto-restart. On the
+        // shutdown path the group was already signaled; a second SIGTERM is harmless
+        // (ESRCH on an already-dead group is ignored).
+        term_group(child_pgid);
+        // Forget the pgid the instant the child is reaped, shrinking the window in
+        // which shutdown could signal a pgid the OS has recycled onto a new process.
+        *pgid_slot.lock().unwrap() = None;
         let _ = reader.join();
         let stderr_text = stderr_reader.join().unwrap_or_default();
-        *pgid_slot.lock().unwrap() = None;
 
         if shutdown.load(Ordering::Acquire) {
             break;
@@ -322,10 +360,46 @@ fn backoff_or_stop(
     }
 }
 
+/// Probe (once, at manager start) whether `stdbuf` is runnable. `stdbuf` is a
+/// Homebrew (coreutils) binary that is not present on a stock macOS, so this is
+/// best-effort: `false` simply means "spawn `hear` directly".
+fn stdbuf_available() -> bool {
+    Command::new("stdbuf")
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Build and spawn the child in its own process group (so shutdown can SIGTERM
-/// the whole group). Optionally wraps in `stdbuf -oL`.
-fn spawn_child(config: &SttConfig) -> std::io::Result<Child> {
-    let mut cmd = if config.use_stdbuf {
+/// the whole group). When `use_stdbuf` is set the spawn is wrapped in
+/// `stdbuf -oL`; if that wrapper turns out to be missing at exec time (ENOENT),
+/// we transparently fall back to a direct spawn — a missing `stdbuf` must never
+/// surface as a spawn failure (which would trip the restart-storm cap).
+fn spawn_child(config: &SttConfig, use_stdbuf: bool) -> std::io::Result<Child> {
+    if use_stdbuf {
+        match spawn_inner(config, true) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "stt: stdbuf vanished between probe and spawn (ENOENT); \
+                     spawning {:?} directly",
+                    config.binary
+                );
+                spawn_inner(config, false)
+            }
+            other => other,
+        }
+    } else {
+        spawn_inner(config, false)
+    }
+}
+
+/// Construct and spawn the command, optionally wrapped in `stdbuf -oL`.
+fn spawn_inner(config: &SttConfig, wrap_stdbuf: bool) -> std::io::Result<Child> {
+    let mut cmd = if wrap_stdbuf {
         let mut c = Command::new("stdbuf");
         c.arg("-oL").arg(&config.binary).args(&config.args);
         c
@@ -355,7 +429,7 @@ fn spawn_child(config: &SttConfig) -> std::io::Result<Child> {
 
 /// Read stdout line by line. Each non-empty line, when the gate is open, is
 /// forwarded to the settler. When the gate is closed the line is DROPPED here —
-/// the hot-path check is a single relaxed atomic load, no lock.
+/// the hot-path check is a single `Acquire` atomic load, no lock.
 fn read_lines(stdout: impl Read, gate: Arc<AtomicBool>, line_tx: mpsc::Sender<String>) {
     let mut reader = BufReader::new(stdout);
     let mut line = String::new();
@@ -383,6 +457,30 @@ fn read_lines(stdout: impl Read, gate: Arc<AtomicBool>, line_tx: mpsc::Sender<St
     }
 }
 
+/// Read stderr, retaining only the first [`STDERR_HEAD_CAP`] bytes (where the
+/// `Code=201` marker lives) while still draining the rest so the child never
+/// blocks on a full stderr pipe.
+fn read_stderr_head(stderr: impl Read) -> String {
+    const STDERR_HEAD_CAP: usize = 4096;
+    let mut reader = BufReader::new(stderr);
+    let mut head: Vec<u8> = Vec::with_capacity(STDERR_HEAD_CAP);
+    let mut chunk = [0u8; 4096];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => break, // EOF
+            Ok(n) => {
+                if head.len() < STDERR_HEAD_CAP {
+                    let take = (STDERR_HEAD_CAP - head.len()).min(n);
+                    head.extend_from_slice(&chunk[..take]);
+                }
+                // Past the cap we keep looping to drain (and discard) the rest.
+            }
+            Err(_) => break,
+        }
+    }
+    String::from_utf8_lossy(&head).into_owned()
+}
+
 /// Turn the raw line stream into partial/final transcripts per the framing
 /// policy (see module docs). Runs for the supervisor's whole lifetime so
 /// utterance state survives child respawns. Gate is re-checked at emit time so
@@ -407,10 +505,15 @@ fn run_settler(
     loop {
         match line_rx.recv_timeout(settle) {
             Ok(text) => {
-                // A distinct new utterance finalizes the previous pending one;
-                // a prefix-extension supersedes it silently (progressive partial).
+                // A distinct new utterance finalizes the previous pending one; a
+                // strict prefix-EXTENSION supersedes it silently (progressive
+                // partial). An EXACTLY-EQUAL repeat is a *new* utterance (saying
+                // "done" twice = two reps) and must finalize the previous one — it
+                // must NOT collapse into a single final. This is product-critical
+                // for Task 13 rep counting.
                 if let Some(prev) = pending.take() {
-                    if !text.starts_with(&prev) {
+                    let is_extension = text != prev && text.starts_with(&prev);
+                    if !is_extension {
                         emit(prev, true);
                     }
                 }
@@ -432,9 +535,11 @@ fn run_settler(
     }
 }
 
-/// True if `hear`'s stderr indicates the dictation-disabled setup error.
+/// True if `hear`'s stderr indicates the dictation-disabled setup error. Matches
+/// `Code=201` specifically — a bare `kLSRErrorDomain` covers other, *recoverable*
+/// LSR errors that must not be latched into a permanent `DictationDisabled`.
 fn is_config_error(stderr: &str) -> bool {
-    stderr.contains("Code=201") || stderr.contains("kLSRErrorDomain")
+    stderr.contains("Code=201")
 }
 
 /// SIGTERM an entire process group. `hear` ignores SIGINT but exits cleanly on
@@ -557,6 +662,49 @@ mod tests {
             })
             .collect();
         assert_eq!(finals, vec!["stop", "tempo 120", "play louder"]);
+    }
+
+    // Repeated-command policy: two IDENTICAL lines that arrive WITHIN the settle
+    // window must NOT collapse — each is a distinct rep (e.g. saying "done" twice
+    // = two reps). Product-critical for Task 13 rep counting.
+    #[test]
+    fn settler_equal_repeat_within_window_yields_two_finals() {
+        let (sink, log) = sink_collecting();
+        let gate = Arc::new(AtomicBool::new(true));
+        let (tx, rx) = mpsc::channel::<String>();
+        // Settle is 500ms; the two lines land 200ms apart, so they are WITHIN the
+        // window — this exercises the equal-repeat path, not the settle timeout.
+        let settle = Duration::from_millis(500);
+        let s = thread::spawn({
+            let sink = sink.clone();
+            let gate = gate.clone();
+            move || run_settler(rx, sink, gate, settle)
+        });
+
+        tx.send("done".into()).unwrap();
+        thread::sleep(Duration::from_millis(200));
+        tx.send("done".into()).unwrap(); // equal repeat -> finalizes the first "done"
+        drop(tx); // disconnect -> flush the second "done" as final
+        let _ = s.join();
+
+        let finals: Vec<String> = log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                SttEvent::Transcript(t) if t.is_final => Some(t.text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(finals, vec!["done", "done"]);
+    }
+
+    // is_config_error latches ONLY on Code=201, not on other kLSR errors.
+    #[test]
+    fn is_config_error_ignores_non_201_lsr() {
+        assert!(!is_config_error(
+            "Error Domain=kLSRErrorDomain Code=203 \"Some other recoverable error\""
+        ));
     }
 
     // Gate closed at emit time suppresses a settle-timer final.

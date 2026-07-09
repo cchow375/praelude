@@ -127,13 +127,21 @@ fn lines_arrive_as_transcripts() {
 // while the gate is closed (not buffered and delivered late).
 #[test]
 fn gate_closed_drops_lines() {
+    let dir = std::env::temp_dir();
+    let emit_file = dir.join(format!("fake_hear_gate_emit_{}.txt", std::process::id()));
+    let _ = std::fs::remove_file(&emit_file);
+
     let (sink, log) = collector();
     // Slow the fake down so the gate is provably closed across the whole emit
     // window, and delay the first line so we can close the gate before it fires.
+    // FAKE_EMIT_FILE records every line the fake actually printed, so we can prove
+    // this test isn't passing vacuously (i.e. the fake really did emit lines that
+    // the closed gate then dropped).
     let cfg = test_config(vec![
         ("FAKE_MODE", "emit-stay".into()),
         ("FAKE_LINES", "one|two|three".into()),
         ("FAKE_LINE_DELAY", "0.15".into()),
+        ("FAKE_EMIT_FILE", emit_file.to_string_lossy().into_owned()),
     ]);
     let mut handle = SttSupervisor::spawn_with_config(cfg, sink);
 
@@ -144,10 +152,20 @@ fn gate_closed_drops_lines() {
     // settle window, all with the gate closed.
     std::thread::sleep(Duration::from_millis(900));
 
+    // The fixture MUST have actually emitted lines, else the empty-transcript
+    // assertion below would be vacuously true.
+    let emitted = std::fs::read_to_string(&emit_file)
+        .map(|s| s.lines().count())
+        .unwrap_or(0);
+    let got = transcript_texts(&log);
+    let _ = std::fs::remove_file(&emit_file);
     assert!(
-        transcript_texts(&log).is_empty(),
-        "gate closed => no transcripts should be delivered, got {:?}",
-        transcript_texts(&log)
+        emitted >= 1,
+        "fixture never emitted any lines; the drop assertion would be vacuous"
+    );
+    assert!(
+        got.is_empty(),
+        "gate closed => no transcripts should be delivered, got {got:?} (fixture emitted {emitted} lines)"
     );
 
     handle.shutdown();
