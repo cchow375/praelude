@@ -14,6 +14,40 @@
 
 ## Gotchas
 
+- **Task 2 (Tauri v2 scaffold):** `npm create tauri-app@latest` does not accept
+  `--yes`/`--template`/`--manager` flags the way the brief guessed in isolation, but
+  it did accept them combined: the real invocation used was
+  `npm create tauri-app@latest codakiller-scaffold -- --template react-ts --manager npm --identifier com.christian.codakiller --yes`.
+  The CLI also exposes `--identifier` directly, so the correct `com.christian.codakiller`
+  identifier was set at scaffold time (no post-hoc edit needed for that field).
+- create-tauri-app requires an empty target dir, so it was scaffolded into
+  `$SCRATCHPAD/codakiller-scaffold` then merged in with
+  `rsync -a --ignore-existing --exclude .git`. This left `.gitignore` and `NOTES.md`
+  untouched (already existed) — new files only (`git status` showed only new,
+  untracked scaffold paths). The scaffold's `.gitignore` entries (logs, `.vscode/*`,
+  `.idea`, etc.) were hand-merged into ours; ours already had `node_modules/`,
+  `target/`, `dist/`, `.DS_Store`, `*.local`, `.superpowers/` covered.
+- Tauri v2 has **no** `bundle.macOS.infoPlist` config key (the brief's guess was
+  wrong — checked via context7 docs for `v2.tauri.app/distribute/macos-application-bundle`).
+  The actual mechanism: drop a file literally named `Info.plist` in `src-tauri/` and
+  Tauri auto-detects and merges it into the generated bundle's `Info.plist` at build
+  time. No `tauri.conf.json` reference is needed or possible. Verified by inspecting
+  the built `.app`'s `Contents/Info.plist` with `plutil -p`: both
+  `NSMicrophoneUsageDescription` and `NSSpeechRecognitionUsageDescription` were
+  present with the exact strings from `src-tauri/Info.plist`.
+- `npm run tauri build` (all default bundle targets, which include `dmg`) intermittently
+  failed on the DMG step (`bundle_dmg.sh` / `hdiutil` — likely a transient Finder/AppleScript
+  race, common on first-run `create-dmg` invocations) but always produced the app bundle
+  first (`Bundling CodaKiller.app` succeeds before `Bundling ...dmg` runs). One retry of
+  the full build succeeded end-to-end and produced both the `.app` and the `.dmg`.
+  However, the DMG bundler step **deletes/cleans the `.app` output dir** after packaging
+  it into the DMG (`Cleaning .../CodaKiller.app`), so if you need `CodaKiller.app` to
+  persist on disk, run `npm run tauri build -- --bundles app` to build only the macOS
+  `.app` target and skip the DMG step entirely — this is what verification used.
+- This is a CLT-only Mac (no full Xcode install) — `cargo build`, `npm run build`, and
+  `npm run tauri build -- --bundles app` all succeeded without any Xcode-only tool
+  being required; no CLT-specific build quirks were hit for the app bundle itself.
+
 - The `hear-0.8.zip` release archive extracts to a subdirectory `hear-0.8/` containing
   three files: `hear` (the universal Mach-O binary), `hear.1` (man page), and
   `install.sh` (installer script). The brief's brief `find`/`cp` one-liner handled this

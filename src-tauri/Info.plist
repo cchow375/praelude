@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>CodaKiller listens for your spoken commands and rep check-offs.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>CodaKiller transcribes your voice on-device to track reps and control practice tools.</string>
+</dict>
+</plist>
