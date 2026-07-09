@@ -98,7 +98,7 @@ This kills the old app's bleed/cutoff/infinite-loop family of bugs *by design*: 
 - `piece` (id, title, composer, xml_path, pdf_path, goals JSON, deadline, target_tempo, hard_spots JSON, intake_done, notes)
 - `rep_block` (id, piece_id, m_start, m_end, label, start_bpm, target_bpm, increment_rule JSON, planned_reps, variants JSON, status, created_at)
 - `rep` (id, block_id, ts, bpm, variant, verdict ENUM clean/flawed/failed, note)
-- `session` (id, started_at, ended_at, summary_md) + `session_event` (ts, kind, payload JSON)
+- `session` (id, started_at, ended_at, summary_md) + `session_event` (id, session_id, ts, kind, payload JSON)
 - `spot_review` (piece_id, spot, last_seen, interval_days, ease) — planner spacing
 - `setting` (key, value)
 

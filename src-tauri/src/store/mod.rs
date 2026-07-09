@@ -37,13 +37,16 @@ impl Store {
     /// (migration gate); currently exercised only by tests.
     #[allow(dead_code)]
     pub fn schema_version(&self) -> rusqlite::Result<i32> {
-        let conn = self.conn.lock().unwrap();
+        // A poisoned lock (panic while holding it) must not permanently kill the
+        // settings store for the rest of the app; recover the inner data instead.
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         conn.query_row("PRAGMA user_version", [], |row| row.get(0))
     }
 
     /// Read a setting, or `None` if the key is absent.
     pub fn get_setting(&self, key: &str) -> rusqlite::Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        // See `schema_version`: recover from a poisoned lock rather than propagate it.
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         conn.query_row(
             "SELECT value FROM setting WHERE key = ?1",
             [key],
@@ -54,7 +57,8 @@ impl Store {
 
     /// Insert or replace a setting.
     pub fn set_setting(&self, key: &str, value: &str) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        // See `schema_version`: recover from a poisoned lock rather than propagate it.
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         conn.execute(
             "INSERT INTO setting (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -112,6 +116,23 @@ mod tests {
                 .unwrap_or_else(|_| panic!("table `{table}` should exist"));
             assert_eq!(found, table);
         }
+    }
+
+    #[test]
+    fn session_event_has_expected_columns() {
+        let store = mem();
+        let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare("PRAGMA table_info(session_event)").unwrap();
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(
+            columns,
+            vec!["id", "session_id", "ts", "kind", "payload"],
+            "session_event should have exactly these columns, in order"
+        );
     }
 
     #[test]

@@ -59,14 +59,15 @@ CREATE TABLE session (
 );
 
 CREATE TABLE session_event (
-    id      INTEGER PRIMARY KEY,
-    ts      TEXT,
-    kind    TEXT,
-    payload TEXT                  -- JSON
+    id         INTEGER PRIMARY KEY,
+    session_id INTEGER REFERENCES session(id),
+    ts         TEXT,
+    kind       TEXT,
+    payload    TEXT               -- JSON
 );
 
 CREATE TABLE spot_review (
-    piece_id      INTEGER NOT NULL,
+    piece_id      INTEGER NOT NULL REFERENCES piece(id),
     spot          TEXT NOT NULL,
     last_seen     TEXT,
     interval_days INTEGER,
