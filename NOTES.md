@@ -2,6 +2,49 @@
 
 ## Decisions
 
+- **Task 7 (metronome commands + boost):** Commands `metro_start/metro_stop/metro_set/
+  metro_state` on a managed `Metronome { sounds, boost_level, Mutex<Inner{state,handle,
+  guard}> }`. The mutex guards ONLY the control path (command handlers), never the audio
+  callback — the engine's lock-free discipline is intact. Change-flow into a running
+  engine: **bpm/beats/subdivision/accent** → `EngineHandle::set_pattern` (existing
+  lock-free pattern queue, adopted at next beat); **gain** → new `EngineHandle::
+  set_click_gain`, a single `AtomicU32` (f32 bits, Relaxed) the callback reads each
+  buffer — this *extends* the existing atomics design (no Mutex bolted onto the callback,
+  no restart, smooth for slider drags); **sound** → engine RESTART, because the click
+  samples are `Arc<Vec<f32>>` owned by the callback and swapping them cross-thread would
+  force a *free* on the audio thread (forbidden by the RT contract). Sound changes are
+  rare + user-initiated; the restart gap is one buffer. `EngineConfig` gained a
+  `click_gain` field (manual `Default`=1.0) so a fresh engine starts at the right level
+  with no unity-gain blip.
+- **Boost / crash-safe volume restore:** `sysvol::{parse_output_volume,current,set}` via
+  `osascript` (`get volume settings` / `set volume output volume N`); every osascript
+  call is best-effort (log, never panic — a broken osascript must not strand the Mac at
+  boost volume). `BoostGuard::engage(target)` saves current vol, raises to target,
+  restores on `Drop` AND explicit `release` (idempotent — restore runs exactly once).
+  Restore fires on FOUR in-process paths: `metro_stop`, window `CloseRequested`
+  (`on_window_event` → `Metronome::shutdown`), app quit `RunEvent::ExitRequested`
+  (macOS Cmd-Q — which does NOT fire a per-window close, and whose `process::exit`
+  would skip `Drop`; caught via `.build(...).run(|_, event| ...)`), and `Drop`
+  (backstop). Honest limitation:
+  a hard `kill -9` cannot run `Drop`, so a SIGKILL'd process is the one path we cannot
+  cover — documented in `sysvol.rs`. `BoostGuard` is unit-tested with injected
+  getter/setter closures (no real system volume touched).
+- **Click-assets dual path (dev + bundled) — VERIFIED BOTH WAYS.** `resolve_clicks_dir`
+  tries `app.path().resolve("assets/clicks", BaseDirectory::Resource)` first (bundled
+  `.app`), falling back to `CARGO_MANIFEST_DIR/assets/clicks` (dev, where Tauri does NOT
+  stage resources). Added `bundle.resources: ["assets/clicks/*.wav"]` to tauri.conf.json.
+  Verified: `npm run tauri build -- --bundles app` stages the six WAVs at
+  `CodaKiller.app/Contents/Resources/assets/clicks/*.wav` — exactly where the Resource
+  base dir resolves. Dev path is exercised by the `load_clicks` unit test (reads from the
+  manifest `assets/clicks`). A clicks-load failure is non-fatal (metronome runs silent).
+- **Persisted settings:** `metronome.{bpm,sound,gain,boost,beats_per_bar,subdivision}`
+  (+ optional `metronome.boost_level`, default 85). Loaded on startup via
+  `metronome::load_state`, written through on every `metro_set`.
+- **Deferred to Task 8:** interactive command invocation from the running app
+  (`metro://state` event round-trip, live audio through the commands). Static coverage
+  is strong (state-machine + parser + guard unit tests, clean build, bundle staging
+  verified), but driving the JS console needs the frontend glue that Task 8 builds.
+
 - **Task 5 fix round 1 — `crossbeam-queue` dependency APPROVED by controller.** The
   lock-free `ArrayQueue` is the mechanism the real-time callback uses to receive
   pattern changes, TTS PCM chunks, and (new this round) recycled empty `Vec`s

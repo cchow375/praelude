@@ -46,7 +46,7 @@
 pub mod clock;
 pub mod mixer;
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -72,12 +72,25 @@ pub struct Clicks {
 }
 
 /// How to start the engine.
-#[derive(Default)]
 pub struct EngineConfig {
     /// Initial pattern (adopted on the very first beat).
     pub pattern: ClickPattern,
     /// Click samples, or `None` to run silent until Task 6's WAV assets load.
     pub clicks: Option<Clicks>,
+    /// Initial click-voice gain (metronome volume). Seeds the atomic so the very
+    /// first rendered buffer is already at the intended level (no unity-gain blip
+    /// before the first `set_click_gain`).
+    pub click_gain: f32,
+}
+
+impl Default for EngineConfig {
+    fn default() -> Self {
+        EngineConfig {
+            pattern: ClickPattern::default(),
+            clicks: None,
+            click_gain: 1.0,
+        }
+    }
 }
 
 /// Capacity (in chunks / patterns) of the lock-free hand-off queues.
@@ -109,6 +122,12 @@ pub struct EngineHandle {
     recycle_q: Arc<ArrayQueue<Vec<f32>>>,
     /// Enqueued-but-not-yet-output PCM samples. See module docs.
     pcm_pending: Arc<AtomicUsize>,
+    /// Click-voice gain as `f32` bits, read by the callback each buffer. This is
+    /// the metronome-volume control: it extends the engine's lock-free input
+    /// design (like `pattern_q`) rather than reaching into the callback-owned
+    /// `Mixer` across threads. Relaxed ordering is fine — a gain change need only
+    /// be picked up "soon", never synchronized against other state.
+    click_gain: Arc<AtomicU32>,
     /// Hard cap (in samples at the stream rate) on `pcm_pending`; enqueues that
     /// would exceed it are refused. Equals `sample_rate * PCM_CAP_SECONDS`.
     pcm_cap: usize,
@@ -140,6 +159,15 @@ impl EngineHandle {
     /// is resampled to this rate.
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
+    }
+
+    /// Set the click-voice gain (metronome volume). Applied by the callback on
+    /// its next buffer via a lock-free atomic — no allocation, no lock, no engine
+    /// restart. Non-finite values are ignored.
+    pub fn set_click_gain(&self, gain: f32) {
+        if gain.is_finite() {
+            self.click_gain.store(gain.to_bits(), Ordering::Relaxed);
+        }
     }
 
     /// Change the metronome pattern. Takes effect at the next beat boundary.
@@ -230,6 +258,7 @@ impl Engine {
         let pcm_q = Arc::new(ArrayQueue::new(PCM_QUEUE_CHUNKS));
         let recycle_q = Arc::new(ArrayQueue::new(RECYCLE_QUEUE_CHUNKS));
         let pcm_pending = Arc::new(AtomicUsize::new(0));
+        let click_gain = Arc::new(AtomicU32::new(config.click_gain.to_bits()));
         let shutdown = Arc::new(AtomicBool::new(false));
 
         // The cpal Stream is not Send on CoreAudio, so it must be built, played,
@@ -240,6 +269,7 @@ impl Engine {
         let t_pcm_q = pcm_q.clone();
         let t_recycle_q = recycle_q.clone();
         let t_pcm_pending = pcm_pending.clone();
+        let t_click_gain = click_gain.clone();
         let t_shutdown = shutdown.clone();
 
         let thread = std::thread::Builder::new()
@@ -251,6 +281,7 @@ impl Engine {
                     t_pcm_q,
                     t_recycle_q,
                     t_pcm_pending,
+                    t_click_gain,
                 ) {
                     Ok((stream, sample_rate)) => {
                         if stream.play().is_err() {
@@ -278,6 +309,7 @@ impl Engine {
                 pcm_q,
                 recycle_q,
                 pcm_pending,
+                click_gain,
                 pcm_cap: sample_rate as usize * PCM_CAP_SECONDS,
                 sample_rate,
                 shutdown,
@@ -303,6 +335,7 @@ fn build_stream(
     pcm_q: Arc<ArrayQueue<Vec<f32>>>,
     recycle_q: Arc<ArrayQueue<Vec<f32>>>,
     pcm_pending: Arc<AtomicUsize>,
+    click_gain: Arc<AtomicU32>,
 ) -> Result<(cpal::Stream, u32), String> {
     let host = cpal::default_host();
     let device = host
@@ -319,6 +352,7 @@ fn build_stream(
     clock.set_pattern(config.pattern);
 
     let mut mixer = Mixer::new();
+    mixer.click_gain = config.click_gain;
     // Reserve to the hard pending cap so the callback's `extend` into `pcm_queue`
     // never reallocates (enqueue_pcm refuses anything past this cap).
     mixer.reserve_pcm(sample_rate as usize * PCM_CAP_SECONDS);
@@ -353,6 +387,10 @@ fn build_stream(
                 if let Some(p) = latest {
                     clock.set_pattern(p);
                 }
+
+                // Pick up the latest click gain (metronome volume). Lock-free
+                // atomic read; no allocation.
+                mixer.click_gain = f32::from_bits(click_gain.load(Ordering::Relaxed));
 
                 // 2. Move any enqueued TTS chunks into the mixer's queue. Copy the
                 //    samples out (pcm_queue is pre-reserved to the cap, so this
@@ -487,6 +525,7 @@ mod tests {
             pcm_q: Arc::new(ArrayQueue::new(chunks)),
             recycle_q: Arc::new(ArrayQueue::new(chunks + 2)),
             pcm_pending: Arc::new(AtomicUsize::new(0)),
+            click_gain: Arc::new(AtomicU32::new(1.0f32.to_bits())),
             pcm_cap: sample_rate as usize * cap_seconds,
             sample_rate,
             shutdown: Arc::new(AtomicBool::new(false)),
@@ -615,6 +654,7 @@ mod tests {
                 subdivision: 1,
             },
             clicks: Some(clicks),
+            click_gain: 1.0,
         })
         .expect("engine should start on this Mac");
         eprintln!("playing 4 beats at 120 bpm @ {} Hz...", handle.sample_rate());
