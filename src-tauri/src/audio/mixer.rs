@@ -5,7 +5,7 @@
 //! Click samples are triggered by [`ClickEvent`](super::clock::ClickEvent)s and
 //! may overlap (a fast click can still be ringing when the next one starts).
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -81,13 +81,25 @@ impl Mixer {
         self.sub = Arc::new(sub);
     }
 
-    /// Load `accent.wav`, `beat.wav`, `sub.wav` from `dir` (Task 6 asset seam).
-    /// Any channel layout / bit depth is downmixed to mono f32.
-    pub fn load_clicks(&mut self, dir: &Path) -> Result<(), String> {
-        let accent = read_wav_mono(&dir.join("accent.wav"))?;
-        let beat = read_wav_mono(&dir.join("beat.wav"))?;
-        let sub = read_wav_mono(&dir.join("sub.wav"))?;
-        self.set_clicks(accent, beat, sub);
+    /// Select one already-loaded click sound (by name, as returned by
+    /// [`load_clicks`]) as the mixer's active accent/beat/sub voices. Resamples
+    /// from the sound's authored `src_rate` to `stream_rate` (the engine's
+    /// actual output rate) so a 44.1 kHz asset never plays detuned/wrong-length
+    /// on a 48 kHz stream.
+    pub fn use_click_sound(
+        &mut self,
+        sounds: &HashMap<String, super::Clicks>,
+        name: &str,
+        stream_rate: u32,
+    ) -> Result<(), String> {
+        let c = sounds
+            .get(name)
+            .ok_or_else(|| format!("no click sound named {name:?}"))?;
+        self.set_clicks(
+            super::resample_linear(&c.accent, c.src_rate, stream_rate),
+            super::resample_linear(&c.beat, c.src_rate, stream_rate),
+            super::resample_linear(&c.sub, c.src_rate, stream_rate),
+        );
         Ok(())
     }
 
@@ -155,8 +167,66 @@ impl Mixer {
     }
 }
 
+/// Sound names produced by `scripts/gen_clicks.py` into `src-tauri/assets/clicks/`.
+pub const CLICK_SOUND_NAMES: [&str; 6] = ["woodblock", "rim", "beep", "clave", "cowbell", "tick"];
+
+/// +3 dB pre-gain applied to derive the "accent" variant from the authored sample.
+const ACCENT_GAIN_DB: f32 = 3.0;
+/// -6 dB attenuation applied to derive the quieter "sub" (subdivision) variant.
+const SUB_GAIN_DB: f32 = -6.0;
+
+fn db_to_lin(db: f32) -> f32 {
+    10f32.powf(db / 20.0)
+}
+
+/// Load every click WAV in `dir` (`woodblock.wav`, `rim.wav`, `beep.wav`,
+/// `clave.wav`, `cowbell.wav`, `tick.wav` — see `scripts/gen_clicks.py`,
+/// [`CLICK_SOUND_NAMES`]) and derive an (accent, beat, sub) [`super::Clicks`]
+/// per sound name (Task 6 asset seam). Each WAV holds a single authored
+/// sample; `beat` is that sample as-is, `accent` is the same sample pre-gained
+/// +3 dB (soft-clamped to `[-1, 1]` — the assets are normalized to -0.3 dBFS
+/// peak, so at most a hair of the loudest sample's peak clips, a deliberate
+/// trade-off for a felt-louder accent), and `sub` is the same sample at -6 dB.
+///
+/// Samples are kept at their WAV's native sample rate (`Clicks::src_rate`,
+/// 44.1 kHz as authored) rather than resampled here: [`Mixer::use_click_sound`]
+/// / `build_stream` already resample `Clicks` from `src_rate` to the engine's
+/// actual output rate (48 kHz on the dev Mac) via [`super::resample_linear`],
+/// so resampling here too would just do the same work twice. This keeps a
+/// single source of truth for "what rate is this engine's stream" — the
+/// stream's negotiated rate, discovered at `build_stream` time — rather than
+/// baking a target rate into asset loading.
+pub fn load_clicks(dir: &Path) -> Result<HashMap<String, super::Clicks>, String> {
+    let accent_gain = db_to_lin(ACCENT_GAIN_DB);
+    let sub_gain = db_to_lin(SUB_GAIN_DB);
+    let mut map = HashMap::with_capacity(CLICK_SOUND_NAMES.len());
+    for name in CLICK_SOUND_NAMES {
+        let path = dir.join(format!("{name}.wav"));
+        let (beat, src_rate) = read_wav_mono_with_rate(&path)?;
+        let accent: Vec<f32> = beat.iter().map(|s| (s * accent_gain).clamp(-1.0, 1.0)).collect();
+        let sub: Vec<f32> = beat.iter().map(|s| s * sub_gain).collect();
+        map.insert(
+            name.to_string(),
+            super::Clicks {
+                accent,
+                beat,
+                sub,
+                src_rate,
+            },
+        );
+    }
+    Ok(map)
+}
+
 /// Read a WAV file as mono f32 samples, downmixing and normalizing as needed.
 fn read_wav_mono(path: &Path) -> Result<Vec<f32>, String> {
+    read_wav_mono_with_rate(path).map(|(samples, _rate)| samples)
+}
+
+/// Like [`read_wav_mono`] but also returns the file's native sample rate, so
+/// callers that need to resample (e.g. [`load_clicks`]) don't have to reopen
+/// the file.
+fn read_wav_mono_with_rate(path: &Path) -> Result<(Vec<f32>, u32), String> {
     let mut reader = hound::WavReader::open(path).map_err(|e| e.to_string())?;
     let spec = reader.spec();
     let channels = spec.channels.max(1) as usize;
@@ -179,8 +249,9 @@ fn read_wav_mono(path: &Path) -> Result<Vec<f32>, String> {
                 .collect()
         }
     };
+    let rate = spec.sample_rate;
     if channels <= 1 {
-        return Ok(interleaved);
+        return Ok((interleaved, rate));
     }
     // Downmix to mono by averaging channels.
     let frames = interleaved.len() / channels;
@@ -192,7 +263,7 @@ fn read_wav_mono(path: &Path) -> Result<Vec<f32>, String> {
         }
         mono.push(sum / channels as f32);
     }
-    Ok(mono)
+    Ok((mono, rate))
 }
 
 #[cfg(test)]
@@ -289,5 +360,74 @@ mod tests {
         assert!((buf[1] - 1.0).abs() < 1e-6, "old tail (0.5) + new click (0.5)");
         assert!((buf[2] - 0.5).abs() < 1e-6, "only the new click remains");
         assert!((buf[3] - 0.5).abs() < 1e-6, "only the new click remains");
+    }
+
+    // Task 6: all six generated click WAVs load, and each sound's accent
+    // variant is louder than its beat variant (both peak and RMS).
+    #[test]
+    fn load_clicks_loads_all_six_and_accent_is_louder() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/clicks");
+        let sounds = load_clicks(&dir).expect("all six click WAVs should load");
+        assert_eq!(sounds.len(), CLICK_SOUND_NAMES.len());
+
+        fn peak(samples: &[f32]) -> f32 {
+            samples.iter().fold(0.0f32, |m, s| m.max(s.abs()))
+        }
+        fn rms(samples: &[f32]) -> f32 {
+            if samples.is_empty() {
+                return 0.0;
+            }
+            (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt()
+        }
+
+        for name in CLICK_SOUND_NAMES {
+            let c = sounds
+                .get(name)
+                .unwrap_or_else(|| panic!("missing click sound {name:?}"));
+            assert!(!c.accent.is_empty(), "{name}: accent must not be empty");
+            assert!(!c.beat.is_empty(), "{name}: beat must not be empty");
+            assert!(!c.sub.is_empty(), "{name}: sub must not be empty");
+            assert_eq!(c.src_rate, 44_100, "{name}: assets are authored at 44.1 kHz");
+
+            assert!(
+                peak(&c.accent) > peak(&c.beat) - 1e-6,
+                "{name}: accent peak ({}) should be >= beat peak ({})",
+                peak(&c.accent),
+                peak(&c.beat)
+            );
+            assert!(
+                rms(&c.accent) > rms(&c.beat),
+                "{name}: accent RMS ({}) should be louder than beat RMS ({})",
+                rms(&c.accent),
+                rms(&c.beat)
+            );
+            assert!(
+                rms(&c.sub) < rms(&c.beat),
+                "{name}: sub RMS ({}) should be quieter than beat RMS ({})",
+                rms(&c.sub),
+                rms(&c.beat)
+            );
+        }
+    }
+
+    // A whole click sound (all three variants) loads correctly via
+    // Mixer::use_click_sound and becomes the mixer's active voices.
+    #[test]
+    fn use_click_sound_selects_and_resamples() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/clicks");
+        let sounds = load_clicks(&dir).expect("load six click sounds");
+
+        let mut mixer = Mixer::new();
+        mixer
+            .use_click_sound(&sounds, "tick", 48_000)
+            .expect("tick should be selectable");
+
+        mixer.trigger(ClickKind::Beat, 0);
+        let mut buf = [0.0f32; 32];
+        let _ = mixer.render(&mut buf);
+        assert!(
+            buf.iter().any(|s| s.abs() > 0.0),
+            "selected click sound should actually voice audio"
+        );
     }
 }
