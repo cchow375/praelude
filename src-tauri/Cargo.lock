@@ -494,6 +494,7 @@ dependencies = [
  "cpal",
  "crossbeam-queue",
  "hound",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",

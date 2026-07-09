@@ -26,4 +26,11 @@ rusqlite = { version = "0.40.1", features = ["bundled"] }
 cpal = "0.18.1"
 hound = "3.5.1"
 crossbeam-queue = "0.3.13"
+# `libc` is required for STT child-process control that `std::process` cannot do:
+# placing the child in its own process group (`setpgid` via `pre_exec`) and
+# sending SIGTERM to that group (`killpg`). std's `Child::kill` only sends SIGKILL
+# to the single child; the Task 9 spike proved `hear` needs a clean SIGTERM and
+# that group-signaling is needed to avoid orphaned grandchildren. Already present
+# transitively (cpal/rusqlite), so this adds no new compilation.
+libc = "0.2"
 

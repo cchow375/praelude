@@ -1,5 +1,6 @@
 mod audio;
 mod metronome;
+pub mod stt;
 mod store;
 mod sysvol;
 

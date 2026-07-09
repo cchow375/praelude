@@ -2,6 +2,67 @@
 
 ## Decisions
 
+- **Task 10 (STT supervisor `stt::SttSupervisor`):** New module `src-tauri/src/stt/`
+  (`mod.rs` docs + `supervisor.rs`). `SttSupervisor::spawn(binary, on_event)` launches
+  `hear` and returns an `SttHandle{set_gate(open), shutdown()}`. Design:
+  - **`on_event` takes `SttEvent`, not just `Transcript`** — a small, necessary widening
+    of the brief's `Fn(Transcript)` signature: the brief *itself* requires a `stt://down`
+    lifecycle event that a Transcript-only sink literally cannot carry. `SttEvent` =
+    `Transcript(Transcript)` | `Down(DownReason::{DictationDisabled,RestartStorm})`. One
+    sink, both streams. Task 13 filters `is_final` transcripts and reacts to `Down`.
+  - **SIGTERM the process GROUP, never SIGINT** (Task 9: `hear` ignores SIGINT, exits
+    clean on SIGTERM ~22ms). Child is placed in its own process group via
+    `libc::setpgid(0,0)` in `Command::pre_exec` (pgid == child pid); `shutdown()` calls
+    `libc::killpg(pgid, SIGTERM)`. Group-kill catches any grandchildren (verified by the
+    `shutdown_terminates_process_group` test forking a `sleep` grandchild). Reaping is
+    `Child::wait()` on the manager thread → no zombies. **New dep `libc` 0.2** — justified
+    in Cargo.toml: `std::process` can only SIGKILL a single child, not SIGTERM a group;
+    `libc` is already transitive (cpal/rusqlite) so zero new compilation.
+  - **stdbuf decision: production spawn wraps `stdbuf -oL <hear>`** as insurance against
+    block-buffered stdout when piped (Task 9 flagged this UNCONFIRMED). `stdbuf` execs the
+    target, so the child pid *is* `hear` and SIGTERM/pgid semantics are unaffected.
+    Real-binary smoke (silent, 3s): 0 bytes stdout/stderr (no Code=201 → Dictation still
+    enabled; no garbage on silence), SIGTERM-to-group killed it in ~0.010s. Live buffering
+    of actual transcript lines stays unobservable without speech → still DEFERRED to Task
+    13, but `stdbuf` makes the outcome moot (guaranteed line-buffered either way).
+  - **is_final framing policy (defensive, correct for both plausible framings):** every
+    non-empty line → immediate partial (`is_final=false`); the *previous* pending utterance
+    is finalized (`is_final=true`) the moment a line arrives that is NOT a prefix-extension
+    of it (a distinct new utterance — what `-m` single-line mode is expected to emit, so
+    back-to-back commands never merge/drop); a prefix-growth supersedes silently
+    (progressive partials, as non-`-m` might stream); and a `settle` gap (default 600ms of
+    quiet) finalizes whatever is pending. This *guarantees a final always eventually fires*
+    (Task 13 routes only finals) for either framing, with no command loss. TASK 13 TODO:
+    once live framing is known, if `-m` lines are already final you may drop the settle
+    latency by treating each line as final directly.
+  - **Gate = `AtomicBool`, checked with no lock in the reader hot path** (Acquire load per
+    line; closed ⇒ line DROPPED at the reader, not buffered). Re-checked at emit time in
+    the settler too, so a 600ms settle-timer final can't leak into a closed-gate window
+    (half-duplex contract Task 11 depends on). Set via `set_gate(open)` (Release store).
+  - **Auto-restart:** on child death, respawn after `backoff` (1s). Restart timestamps are
+    kept in a sliding `restart_window` (60s); the (max+1)-th death within the window
+    (`max_restarts`=5) emits `Down(RestartStorm)` and stops instead of hot-looping. A
+    spawn *failure* (bad binary) counts as a death so it too trips the cap. A
+    `kLSRErrorDomain Code=201` on stderr is classified as `Down(DictationDisabled)` and
+    stops immediately (no restart — it needs a System Settings change, not a respawn).
+  - **Threads & teardown:** one manager thread (spawn/restart loop, owns `Child`), a
+    per-child stdout reader thread and stderr-buffer thread (both end on EOF when the child
+    dies, joined before the next iteration), and one long-lived settler thread (framing
+    state survives respawns; disconnects & drains when the manager drops its `line_tx`).
+    `shutdown()` sets a flag (so no respawn), SIGTERMs the current group, wakes the manager
+    if mid-backoff via a stop channel, and joins the manager (which joins the rest).
+    Idempotent (guarded by an `active` flag) and also runs on `Drop` as a backstop
+    (mirrors `BoostGuard`). A publish-then-recheck of the shutdown flag after setting the
+    child pgid closes the spawn/shutdown race (no wait()-forever hang).
+  - **Testability seams:** `SttConfig{binary,args,env,use_stdbuf,settle,backoff,
+    max_restarts,restart_window}` (`SttConfig::hear()` = production). Tests use
+    `spawn_with_config` against `tests/fixtures/fake_hear.sh` (POSIX-sh, env-driven:
+    scripted lines/sleeps, spawn-count file, emit-exit for respawn, config-error for 201,
+    grandchild fork for group-kill) with compressed timings. Coverage: 8 integration tests
+    (a–f from the brief + gate-reopen + idempotent shutdown) & 5 lib unit tests (201
+    classification, storm cap + window pruning, framing policy, emit-gate). RED verified by
+    mutation (removing BOTH gate checks makes the closed-gate test fail with leaked lines).
+
 - **Task 7 (metronome commands + boost):** Commands `metro_start/metro_stop/metro_set/
   metro_state` on a managed `Metronome { sounds, boost_level, Mutex<Inner{state,handle,
   guard}> }`. The mutex guards ONLY the control path (command handlers), never the audio
