@@ -9,9 +9,19 @@
 #   - Source secrets file is only read, never modified.
 #   - Key lands in Keychain: service "codakiller", account "gemini".
 #
-# The key is NEVER passed in argv (visible via `ps`): it is fed to the
-# `security` prompt via stdin using the bash builtin `printf` (no external
-# process is spawned for printf, so the value never appears in any argv).
+# The key is NEVER passed in argv (visible via `ps`) and the write path is
+# genuinely tty-independent. It is fed to `security -i` (interactive command
+# mode): the full `add-generic-password ... -w '<key>'` command line is piped
+# to security over stdin, so the value rides security's internal command
+# stream. This avoids the `-w`-with-no-value prompt, which reads from /dev/tty
+# when a controlling terminal exists (readpassphrase(3) prefers /dev/tty and
+# uses stdin only as a fallback) — from a real Terminal that path would PROMPT
+# and ignore any piped value. The value is single-quote wrapped in the command;
+# keys containing a single quote or backslash are rejected up front because
+# security's tokenizer treats both as special even inside single quotes. The
+# verify-after-write round-trip is the final byte-for-byte correctness gate.
+# `printf` is a shell builtin, so no external process is spawned and the value
+# never becomes any process's argv.
 #
 # Output (stdout is the ONLY status channel; one word):
 #   migrated   key was written (fresh, forced, or refreshed)
@@ -23,6 +33,11 @@
 #   2  usage error
 #   3  refused (existing entry differs; rerun with --force)
 #   1  operational error (missing source, empty key, keychain read/write fail)
+
+# Defensively disable command tracing as the very first executable line: an
+# exported SHELLOPTS containing `xtrace` propagates `set -x` into this child
+# bash, which would expand and print $key to stderr. `verbose` is disabled too.
+{ set +o xtrace; set +o verbose; } 2>/dev/null
 
 set -euo pipefail
 
@@ -63,22 +78,59 @@ done
 # --- read key from source (value never printed) -----------------------------
 [ -r "$SRC" ] || die "secrets file not readable: $SRC"
 
-raw="$(grep -E '^GEMINI_API_KEY=' "$SRC" | head -n1 || true)"
-[ -n "$raw" ] || die "GEMINI_API_KEY not found in $SRC"
+# Collect every GEMINI_API_KEY assignment, tolerating leading whitespace and
+# whitespace around the `=`. Each value is normalized (trailing CR, surrounding
+# whitespace, then one layer of matching surrounding quotes are stripped);
+# empty results are dropped.
+vals=()
+while IFS= read -r line; do
+  val="${line#*=}"
+  val="${val%$'\r'}"                                  # strip a stray CR
+  val="${val#"${val%%[![:space:]]*}"}"                # strip leading whitespace
+  val="${val%"${val##*[![:space:]]}"}"                # strip trailing whitespace
+  case "$val" in
+    \"*\") val="${val#\"}"; val="${val%\"}" ;;        # strip surrounding "..."
+    \'*\') val="${val#\'}"; val="${val%\'}" ;;        # strip surrounding '...'
+  esac
+  [ -n "$val" ] && vals+=("$val")
+done < <(grep -E '^[[:space:]]*GEMINI_API_KEY[[:space:]]*=' "$SRC" || true)
 
-key="${raw#GEMINI_API_KEY=}"
-key="${key%$'\r'}"                                  # strip a stray CR
-case "$key" in \"*\") key="${key#\"}"; key="${key%\"}";; esac  # strip quotes
-case "$key" in \'*\') key="${key#\'}"; key="${key%\'}";; esac
+[ "${#vals[@]}" -gt 0 ] || die "GEMINI_API_KEY not found (or empty) in $SRC"
+
+# Dup detection: fail loudly on >1 distinct value; otherwise use the last
+# occurrence (env-file last-wins semantics).
+distinct=()
+for v in "${vals[@]}"; do
+  seen=0
+  if [ "${#distinct[@]}" -gt 0 ]; then
+    for d in "${distinct[@]}"; do [ "$d" = "$v" ] && { seen=1; break; }; done
+  fi
+  [ "$seen" -eq 0 ] && distinct+=("$v")
+done
+if [ "${#distinct[@]}" -gt 1 ]; then
+  die "multiple differing GEMINI_API_KEY values in $SRC (${#distinct[@]} distinct); refusing to guess"
+fi
+
+key="${vals[$(( ${#vals[@]} - 1 ))]}"                 # last occurrence
 [ -n "$key" ] || die "GEMINI_API_KEY is empty in $SRC"
 
-# --- write helper (key travels via stdin only, never argv) ------------------
+# The interactive command line single-quotes the value; security's tokenizer
+# treats ' and \ as special even inside single quotes, so reject them (real
+# Gemini keys are [A-Za-z0-9._-] and never contain either).
+case "$key" in
+  *\'*) die "GEMINI_API_KEY contains a single quote; unsupported for safe keychain write" ;;
+  *\\*) die "GEMINI_API_KEY contains a backslash; unsupported for safe keychain write" ;;
+esac
+
+# --- write helper (tty-independent; key travels via stdin only, never argv) --
 write_key() {
-  # `security add-generic-password -w` with no value prompts twice
-  # (password + retype); feed the value twice over stdin. -U updates if present.
-  if ! printf '%s\n%s\n' "$key" "$key" \
-      | security add-generic-password -U -s "$SERVICE" -a "$ACCOUNT" -w \
-        >/dev/null 2>&1; then
+  # Feed the whole add-generic-password command to `security -i` over stdin.
+  # -U updates in place if the item already exists. security reads the value
+  # from its own command stream, never from /dev/tty, so this does not prompt
+  # under a controlling terminal. printf is a builtin: no argv exposure.
+  if ! printf "add-generic-password -U -s '%s' -a '%s' -w '%s'\n" \
+      "$SERVICE" "$ACCOUNT" "$key" \
+      | security -i >/dev/null 2>&1; then
     die "keychain write failed for service=$SERVICE account=$ACCOUNT"
   fi
 }
