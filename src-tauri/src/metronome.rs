@@ -143,6 +143,14 @@ pub struct Metronome {
     engine_start: EngineStartFn,
     /// Seam for engaging the boost guard (see [`BoostEngageFn`]).
     boost_engage: BoostEngageFn,
+    /// Test-only seam: when set, the NEXT [`Self::start_engine`] returns
+    /// [`StartFailure::Busy`] regardless of `pcm_done`, and clears itself. This is
+    /// the only way to deterministically reach `do_set`'s Busy arm — that arm is
+    /// otherwise a TOCTOU-only path (the pre-check and `start_engine` read the same
+    /// `pcm_done` atomic with no interleaving point, so a single thread can never
+    /// make one pass and the other fail).
+    #[cfg(test)]
+    force_restart_busy: std::sync::atomic::AtomicBool,
     inner: Mutex<Inner>,
 }
 
@@ -163,6 +171,8 @@ impl Metronome {
             boost_level,
             engine_start: Box::new(Engine::start),
             boost_engage: Box::new(BoostGuard::engage),
+            #[cfg(test)]
+            force_restart_busy: std::sync::atomic::AtomicBool::new(false),
             inner: Mutex::new(Inner {
                 state,
                 handle: None,
@@ -187,6 +197,7 @@ impl Metronome {
             boost_level,
             engine_start: Box::new(engine_start),
             boost_engage: Box::new(boost_engage),
+            force_restart_busy: std::sync::atomic::AtomicBool::new(false),
             inner: Mutex::new(Inner {
                 state,
                 handle: None,
@@ -226,6 +237,13 @@ impl Metronome {
     /// error and leave the current audio alone. (The TTS producer lands in Task 11;
     /// this makes the contract mechanical now.)
     fn start_engine(&self, inner: &mut Inner) -> Result<(), StartFailure> {
+        #[cfg(test)]
+        if self
+            .force_restart_busy
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(StartFailure::Busy("forced busy (test seam)".to_string()));
+        }
         if let Some(h) = &inner.handle {
             if !h.pcm_done() {
                 return Err(StartFailure::Busy(
@@ -345,6 +363,11 @@ impl Metronome {
         // buffered TTS. Enforce the TTS-drop contract BEFORE mutating any state or
         // the live engine, so a busy refusal leaves everything untouched.
         let sound_changing = sound.as_ref().is_some_and(|s| *s != inner.state.sound);
+        // Remember the sound in effect before we mutate it, so a Busy refusal from
+        // the restart (only reachable via a concurrent TTS producer, Task 11) can
+        // roll it back — the engine keeps playing the old sound and the store is
+        // not rewritten, so the emitted state must not claim the new one.
+        let prev_sound = inner.state.sound.clone();
         if inner.state.running && sound_changing {
             if let Some(h) = &inner.handle {
                 if !h.pcm_done() {
@@ -404,7 +427,11 @@ impl Metronome {
                     }
                     Err(StartFailure::Busy(msg)) => {
                         // Pre-checked above; only reachable via a concurrent TTS
-                        // producer (Task 11). Engine untouched & still running.
+                        // producer (Task 11). Engine untouched & still running the
+                        // OLD sound, and persist is skipped — so roll the sound
+                        // field back (the other, lock-free changes DID apply) so
+                        // the emitted state matches reality instead of lying.
+                        inner.state.sound = prev_sound;
                         let state = inner.state.clone();
                         return (state, Err(msg));
                     }
@@ -687,6 +714,60 @@ mod tests {
         assert!(
             metro.lock().handle.is_some(),
             "existing engine handle left in place"
+        );
+    }
+
+    // (b2) The do_set Busy ARM (distinct from the pre-check in (b)): reachable only
+    //      via a concurrent-producer TOCTOU, forced here with the `force_restart_busy`
+    //      test seam. The pre-check passes (pcm_done true), the sound field is mutated,
+    //      then start_engine reports Busy — and the arm must roll the sound back so the
+    //      emitted state does not lie (engine keeps the old sound; persist is skipped).
+    #[test]
+    fn do_set_busy_arm_rolls_back_unapplied_sound() {
+        use std::sync::atomic::Ordering;
+        let started = Arc::new(StdMutex::new(0u32));
+        let s = started.clone();
+        let (boost_seam, _vol) = recording_boost();
+        let metro = Metronome::with_seams(
+            sounds_with(&["woodblock", "cowbell"]),
+            MetroState {
+                running: true,
+                sound: "woodblock".to_string(),
+                ..MetroState::default()
+            },
+            85,
+            move |_cfg| {
+                *s.lock().unwrap() += 1;
+                Ok(EngineHandle::test_handle(48_000, 0))
+            },
+            boost_seam,
+        );
+        // Running engine, speech DONE (pcm_done true) so the pre-check passes.
+        metro.lock().handle = Some(EngineHandle::test_handle(48_000, 0));
+        // Force the restart to report Busy (models a TOCTOU concurrent producer).
+        metro.force_restart_busy.store(true, Ordering::SeqCst);
+
+        let store = Store::open(":memory:").expect("in-memory store");
+        let (state, result) =
+            metro.do_set(&store, None, None, None, None, Some("cowbell".into()), None, None);
+
+        let err = result.expect_err("do_set Busy arm must surface the error");
+        assert!(err.contains("busy"), "descriptive busy error, got: {err}");
+        assert_eq!(
+            state.sound, "woodblock",
+            "Busy arm must roll the unapplied sound back (emitted state must not lie)"
+        );
+        assert!(state.running, "engine left running");
+        assert_eq!(
+            metro.lock().state.sound,
+            "woodblock",
+            "in-memory state also rolled back, matching the still-running engine"
+        );
+        // Persist was skipped, so the store must NOT have the new sound.
+        assert_ne!(
+            store.get_setting("metronome.sound").unwrap().as_deref(),
+            Some("cowbell"),
+            "the refused sound must not have been persisted"
         );
     }
 

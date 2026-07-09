@@ -33,4 +33,15 @@ crossbeam-queue = "0.3.13"
 # that group-signaling is needed to avoid orphaned grandchildren. Already present
 # transitively (cpal/rusqlite), so this adds no new compilation.
 libc = "0.2"
+# TTS (Task 11). Both crates are ALREADY in Cargo.lock transitively via tauri, so
+# declaring them direct adds zero new compilation. `reqwest` was pulled with
+# default-features=false (no TLS backend); we opt into `native-tls` which on macOS is
+# Security.framework (already linked) — no openssl, no ring — the lean choice on 8GB.
+# `blocking` lets the Gemini client run a synchronous request on the Speaker worker
+# thread (no async runtime bleed into the audio/command paths). Pinned to 0.13 to reuse
+# the exact locked 0.13.4 (avoids a second reqwest copy).
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "native-tls"] }
+# Decodes the Gemini `output_audio.data` base64 (24 kHz s16le PCM). Already at 0.22.1
+# in the lock via reqwest.
+base64 = "0.22"
 

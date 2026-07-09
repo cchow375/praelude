@@ -2,6 +2,80 @@
 
 ## Decisions
 
+- **Task 11 (tts:: — Gemini TTS + `say` fallback + half-duplex gate):**
+  - **VERIFIED Gemini TTS API (2026-07, docs win over brief's generateContent guess).**
+    Sources: WebFetch of https://ai.google.dev/gemini-api/docs/speech-generation AND
+    context7 `/websites/ai_google_dev_gemini-api` (independent) — both agree. The current
+    API is the NEW `interactions` endpoint, NOT the older `generateContent`+`inlineData`
+    shape the brief guessed:
+    - **Endpoint:** `POST https://generativelanguage.googleapis.com/v1beta/interactions`
+    - **Auth header:** `x-goog-api-key: <key>` (never logged)
+    - **Model:** `gemini-3.1-flash-tts-preview` (single-speaker TTS; overridable via
+      `tts.model` setting)
+    - **Request body:** `{ "model": <m>, "input": <text>, "response_format": {"type":
+      "audio"}, "generation_config": {"speech_config": [{"voice": <voice>}]} }`
+    - **Voice:** default `Kore` (overridable via `tts.voice`). 30 prebuilt voices
+      (Zephyr, Puck, Charon, Kore, Fenrir, Leda, Orus, Aoede, ...).
+    - **Response (VERIFIED against the LIVE API — the docs' summarized
+      `output_audio.data` field is WRONG / hallucinated):** audio lives at
+      `steps[].content[].{mime_type,data}`, `mime_type = "audio/l16"`, `data =
+      base64 s16le`. We concatenate every audio chunk across all steps, decode, and
+      read `rate=NNNN` from the mime_type if present (else default 24 kHz). The live
+      probe returned `{"id":..,"status":"completed","steps":[{"content":[{"mime_type":
+      "audio/l16","data":"<b64>"}]}],...}`. (The classic `generateContent` endpoint
+      also works and returns `candidates[0].content.parts[0].inlineData.data` with
+      `mimeType: audio/L16;codec=pcm;rate=24000` — kept `interactions` as the current
+      documented endpoint but fixed the parser to the real shape.)
+    - **Audio format:** raw headerless PCM, mono, **24000 Hz, s16le** (channels=1,
+      rate=24000, sample_width=2 — the Python sample writes the base64-decoded bytes
+      straight into a wave file via `writeframes`). Decode: base64 → i16 LE → f32
+      (`/32768`) → `Pcm{rate:24000, mono_f32}`; `EngineHandle::enqueue_pcm` resamples
+      24k→stream rate off the audio thread.
+  - **`say` fallback (verified on THIS Mac):** `say -o x.wav --data-format=LEI16@22050
+    <text>` writes a standard 16-bit PCM mono WAVE (fmt tag 1, 1 ch, 22050 Hz, with a
+    leading JUNK chunk hound skips fine). hound reads it as i16 → f32. AIFF path rejected
+    (hound cannot read AIFF-C). Tempfile in the OS temp dir, removed after decode.
+  - **Deps (zero-new-compilation on 8GB):** `reqwest` 0.13, `base64` 0.22 are BOTH already
+    in `Cargo.lock` transitively via tauri. `reqwest` was pulled with `default-features=
+    false` (no TLS backend), so we add it directly with `default-features=false, features=
+    ["blocking","json","native-tls"]` — native-tls on macOS = Security.framework (already
+    linked), NO openssl/ring, the lean choice per brief. Pinned to `0.13` to reuse the
+    exact locked 0.13.4 (no second reqwest copy). `base64 = "0.22"` reuses 0.22.1.
+  - **Speaker = single owning TTS thread (enforces `enqueue_pcm` single-producer).**
+    `Speaker::speak(text)` sends the text over an mpsc channel to ONE dedicated worker
+    thread which is the sole caller of `enqueue_pcm` — the audio engine's single-producer
+    contract is thus structurally guaranteed (metronome never enqueues PCM; it only sets
+    pattern/gain and reads `pcm_done`). Requests are processed strictly serially, so two
+    concurrent `speak()` calls never overlap (double-speak serialization) and never
+    interleave gate cycles.
+  - **Half-duplex gate ordering (the safety invariant — app NEVER hears itself):** per
+    utterance the worker does, in order: (1) `synth(text)` with the gate still OPEN — a
+    synth failure/timeout returns early and NEVER closes the gate (mic stays live while we
+    "think"); (2) `gate.set_gate(false)` — close BEFORE any sample is enqueued; (3) chunk
+    the PCM and `enqueue_pcm` each chunk with backpressure retry (QueueFull/CapExceeded →
+    short sleep + retry the SAME chunk, never drop); (4) poll `pcm_done()` until true
+    (drain — reserve-first semantics from Task 5 guarantee it stays false until every
+    sample has passed the render callback); (5) sleep `reopen_delay` (300 ms); (6)
+    `gate.set_gate(true)`. Steps 4–6 run in an ` always-reopen` guard so any error after
+    step 2 still drains+reopens (the gate can never get stuck closed).
+  - **Why 300 ms reopen margin:** `pcm_done()==true` means all samples left the cpal
+    render callback, but the physical tail is still in flight — CoreAudio output buffer +
+    DAC + speaker→air→mic acoustic path + the STT engine's own input buffering. 300 ms
+    comfortably covers device output latency (~tens of ms) plus a short room-acoustic
+    tail, so `hear` never captures the fading end of our own TTS. Configurable via
+    `SpeakerConfig.reopen_delay` for tests.
+  - **Provider selection:** `tts.provider` setting overrides ("gemini" | "say"). Else:
+    Gemini if a key is present (`keys::gemini_key`) AND a network probe succeeds, else
+    `say`. Key resolution: Keychain `security find-generic-password -s codakiller -a
+    gemini -w` first, then `GEMINI_API_KEY` env. Key is never logged.
+  - **do_set Busy-arm fix (carried from Task 7 review):** metronome `do_set`'s
+    `StartFailure::Busy` arm mutated `inner.state.sound` before the refused restart but
+    did not roll it back (unlike `do_start`'s Busy arm), so the emitted state lied
+    (claimed the new sound while the engine/store kept the old). Fixed by capturing the
+    prior sound and reverting it in that arm; a new seam test asserts `state.sound`
+    unchanged after a concurrent-producer Busy refusal.
+
+
 - **Task 10 (STT supervisor `stt::SttSupervisor`):** New module `src-tauri/src/stt/`
   (`mod.rs` docs + `supervisor.rs`). `SttSupervisor::spawn(binary, on_event)` launches
   `hear` and returns an `SttHandle{set_gate(open), shutdown()}`. Design:

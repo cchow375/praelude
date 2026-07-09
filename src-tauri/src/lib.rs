@@ -1,8 +1,10 @@
-mod audio;
+pub mod audio;
+mod keys;
 mod metronome;
 pub mod stt;
 mod store;
 mod sysvol;
+pub mod tts;
 
 use std::path::PathBuf;
 use std::sync::Arc;
