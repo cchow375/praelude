@@ -1,0 +1,33 @@
+.popover-panel {
+  position: fixed;
+  z-index: 100;
+  min-width: 220px;
+  max-width: min(92vw, 420px);
+  padding: var(--space-3);
+  background: var(--surface-popover);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink-primary);
+  outline: none;
+
+  /* Enter/exit spring: scale + fade, anchored to the top-right corner so it
+     reads as unfurling from the trigger. */
+  transform-origin: top right;
+  opacity: 0;
+  transform: translateY(-4px) scale(0.96);
+  transition:
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-slow) var(--ease-spring);
+}
+
+.popover-panel[data-visible="true"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popover-panel {
+    transition-duration: 1ms;
+    transform: none;
+  }
+}
