@@ -7,10 +7,11 @@ no numpy/scipy, so this must run on any Mac with a stock python3.
 Each sound is a short (<=120 ms), 44.1 kHz mono 16-bit PCM WAV with most of its
 energy in the 1-5 kHz band (to cut through a loud acoustic piano) and a sharp
 attack + short decay (no mushy sustain). All six are peak-normalized to
--0.3 dBFS so `Mixer::load_clicks` can derive a louder "accent" variant via
-+3 dB pre-gain without any of them clipping (-0.3 + 3 = 2.7 dBFS headroom
-needed at accent time; the mixer's downstream clamp to [-1, 1] handles that,
-so headroom here is deliberately not zero).
+-0.3 dBFS. `Mixer::load_clicks` derives the "beat" and "sub" variants via
+*relative attenuation* rather than boosting "accent": accent stays at gain
+1.0 (the sample as loaded, already limiter-maximized to -0.3 dBFS), beat is
+attenuated -3 dB, and sub is attenuated -6 dB. This guarantees zero clipping,
+since attenuation can only make an already-safe sample quieter.
 
 Usage:
     python3 scripts/gen_clicks.py            # generate all six WAVs
@@ -261,6 +262,8 @@ def verify() -> bool:
             print(f"FAIL {name}: missing file {path}")
             ok = False
             continue
+
+        file_ok = True
         try:
             with wave.open(path, "rb") as w:
                 nchannels = w.getnchannels()
@@ -276,17 +279,21 @@ def verify() -> bool:
         if nchannels != 1:
             print(f"FAIL {name}: expected mono, got {nchannels} channels")
             ok = False
+            file_ok = False
         if sampwidth != 2:
             print(f"FAIL {name}: expected 16-bit (2 bytes/sample), got {sampwidth}")
             ok = False
+            file_ok = False
         if framerate != SAMPLE_RATE:
             print(f"FAIL {name}: expected {SAMPLE_RATE} Hz, got {framerate}")
             ok = False
+            file_ok = False
 
         dur_ms = 1000.0 * nframes / framerate if framerate else 0.0
         if dur_ms > MAX_DURATION_MS + 1e-6:
             print(f"FAIL {name}: duration {dur_ms:.1f} ms exceeds {MAX_DURATION_MS} ms")
             ok = False
+            file_ok = False
 
         samples = struct.unpack(f"<{nframes}h", raw) if nframes else ()
         peak = max((abs(s) for s in samples), default=0) / 32768.0
@@ -294,7 +301,8 @@ def verify() -> bool:
         if peak_db < -0.5:
             print(f"FAIL {name}: peak {peak_db:.2f} dBFS below -0.5 dBFS floor")
             ok = False
-        else:
+            file_ok = False
+        if file_ok:
             print(f"OK   {name}: {dur_ms:.1f} ms, peak {peak_db:.2f} dBFS, {nchannels}ch/{sampwidth*8}bit/{framerate}Hz")
 
     return ok

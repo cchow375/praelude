@@ -24,7 +24,7 @@ struct Voice {
 ///
 /// `pcm_queue` is public so the audio thread can push resampled TTS samples into
 /// it; the unit tests push directly too. Click samples are set via
-/// [`Mixer::set_clicks`] (tests / synthetic) or [`Mixer::load_clicks`] (Task 6
+/// [`Mixer::set_clicks`] (tests / synthetic) or [`load_clicks`] (Task 6
 /// WAV assets).
 pub struct Mixer {
     accent: Arc<Vec<f32>>,
@@ -170,8 +170,9 @@ impl Mixer {
 /// Sound names produced by `scripts/gen_clicks.py` into `src-tauri/assets/clicks/`.
 pub const CLICK_SOUND_NAMES: [&str; 6] = ["woodblock", "rim", "beep", "clave", "cowbell", "tick"];
 
-/// +3 dB pre-gain applied to derive the "accent" variant from the authored sample.
-const ACCENT_GAIN_DB: f32 = 3.0;
+/// -3 dB attenuation applied to derive the quieter "beat" variant from the
+/// authored (accent) sample.
+const BEAT_GAIN_DB: f32 = -3.0;
 /// -6 dB attenuation applied to derive the quieter "sub" (subdivision) variant.
 const SUB_GAIN_DB: f32 = -6.0;
 
@@ -183,10 +184,16 @@ fn db_to_lin(db: f32) -> f32 {
 /// `clave.wav`, `cowbell.wav`, `tick.wav` — see `scripts/gen_clicks.py`,
 /// [`CLICK_SOUND_NAMES`]) and derive an (accent, beat, sub) [`super::Clicks`]
 /// per sound name (Task 6 asset seam). Each WAV holds a single authored
-/// sample; `beat` is that sample as-is, `accent` is the same sample pre-gained
-/// +3 dB (soft-clamped to `[-1, 1]` — the assets are normalized to -0.3 dBFS
-/// peak, so at most a hair of the loudest sample's peak clips, a deliberate
-/// trade-off for a felt-louder accent), and `sub` is the same sample at -6 dB.
+/// sample, already peak-normalized to -0.3 dBFS (see `scripts/gen_clicks.py`).
+///
+/// Gains are applied as *relative attenuation*, never boost: you can't boost
+/// a -0.3 dBFS-normalized sample without risking clipping (the old +3 dB
+/// accent boost clamp clipped up to 9.3% of samples on the "beep" click).
+/// Instead `accent` is left at the sample's native (already maximized)
+/// loudness — gain 1.0, unmodified — so it cuts through an acoustic grand
+/// piano; `beat` and `sub` are pulled down instead, to -3 dB and -6 dB
+/// respectively. Because we only ever attenuate an already-safe sample, this
+/// guarantees zero clipping.
 ///
 /// Samples are kept at their WAV's native sample rate (`Clicks::src_rate`,
 /// 44.1 kHz as authored) rather than resampled here: [`Mixer::use_click_sound`]
@@ -197,14 +204,14 @@ fn db_to_lin(db: f32) -> f32 {
 /// stream's negotiated rate, discovered at `build_stream` time — rather than
 /// baking a target rate into asset loading.
 pub fn load_clicks(dir: &Path) -> Result<HashMap<String, super::Clicks>, String> {
-    let accent_gain = db_to_lin(ACCENT_GAIN_DB);
+    let beat_gain = db_to_lin(BEAT_GAIN_DB);
     let sub_gain = db_to_lin(SUB_GAIN_DB);
     let mut map = HashMap::with_capacity(CLICK_SOUND_NAMES.len());
     for name in CLICK_SOUND_NAMES {
         let path = dir.join(format!("{name}.wav"));
-        let (beat, src_rate) = read_wav_mono_with_rate(&path)?;
-        let accent: Vec<f32> = beat.iter().map(|s| (s * accent_gain).clamp(-1.0, 1.0)).collect();
-        let sub: Vec<f32> = beat.iter().map(|s| s * sub_gain).collect();
+        let (accent, src_rate) = read_wav_mono_with_rate(&path)?;
+        let beat: Vec<f32> = accent.iter().map(|s| s * beat_gain).collect();
+        let sub: Vec<f32> = accent.iter().map(|s| s * sub_gain).collect();
         map.insert(
             name.to_string(),
             super::Clicks {
@@ -402,11 +409,29 @@ mod tests {
                 rms(&c.beat)
             );
             assert!(
-                rms(&c.sub) < rms(&c.beat),
-                "{name}: sub RMS ({}) should be quieter than beat RMS ({})",
-                rms(&c.sub),
-                rms(&c.beat)
+                rms(&c.beat) > rms(&c.sub),
+                "{name}: beat RMS ({}) should be louder than sub RMS ({})",
+                rms(&c.beat),
+                rms(&c.sub)
             );
+
+            // accent/beat peak ratio should be a ~3 dB step (10^(2.5/20)..10^(3.5/20)).
+            let ratio = peak(&c.accent) / peak(&c.beat);
+            assert!(
+                (1.334..=1.496).contains(&ratio),
+                "{name}: accent/beat peak ratio ({ratio}) should be ~3 dB (within [1.334, 1.496])"
+            );
+
+            // Anti-clipping: relative attenuation must never push a sample past
+            // the loaded (already-safe) amplitude.
+            for (variant, samples) in [("accent", &c.accent), ("beat", &c.beat), ("sub", &c.sub)] {
+                for s in samples.iter() {
+                    assert!(
+                        s.abs() <= 0.999,
+                        "{name}: {variant} sample {s} exceeds |0.999| (clipping risk)"
+                    );
+                }
+            }
         }
     }
 
