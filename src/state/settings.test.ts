@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 
 // Mock the Tauri core invoke so we can simulate the backend being absent
@@ -8,7 +8,11 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
-import { useSettings, DEFAULT_SETTINGS } from "./settings";
+import { useSettings, DEFAULT_SETTINGS, __resetSettingsForTests } from "./settings";
+
+beforeEach(() => {
+  __resetSettingsForTests();
+});
 
 afterEach(() => {
   invokeMock.mockReset();

@@ -22,6 +22,10 @@ export const DEFAULT_SETTINGS: Settings = {
 // Process-lifetime fallback store used whenever the Tauri backend is unavailable.
 const memoryStore = new Map<keyof Settings, string>();
 
+export function __resetSettingsForTests() {
+  memoryStore.clear();
+}
+
 async function readSetting<K extends keyof Settings>(
   key: K,
   fallback: Settings[K],

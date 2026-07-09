@@ -15,8 +15,7 @@
   padding: 0 var(--space-4);
   background: var(--surface-raised);
   box-shadow: var(--shadow-topbar);
-  /* Reserve room for macOS traffic lights when the window is not fullscreen. */
-  padding-left: max(var(--space-4), env(titlebar-area-x, var(--space-4)));
+  padding-left: var(--space-4);
 }
 
 .topbar-brand {
