@@ -2,6 +2,19 @@
 
 ## Decisions
 
+- **Task 5 (audio engine):** cpal callback owns `ClickClock`+`Mixer`; cross-thread
+  input is lock-free via `crossbeam_queue::ArrayQueue` (pattern changes + resampled
+  PCM chunks) — no mutex in the callback. TTS is resampled at enqueue time
+  (linear interp), never in the callback. `pcm_done()` uses an `AtomicUsize` counted
+  at enqueue / decremented at output, so it is never false-done while samples are
+  buffered anywhere (Task 11 half-duplex gate depends on this). Drift uses an f64
+  fractional accumulator (`samples_per_beat`, remainder carried; floored only for the
+  in-buffer offset) — verified 0-frame error over a 1-hour sim. `bpm` is clamped to a
+  finite `[1,1000]` before use so a garbage tempo can't stall the RT loop (a fresh-
+  context verifier found `+inf`/negative bpm would infinite-loop the callback; fixed +
+  regression-tested). Device negotiated 48 kHz f32 on this Mac (engine is sample-rate-
+  agnostic). Deps added: `cpal 0.18`, `hound 3.5`, `crossbeam-queue 0.3`.
+
 - Installed Rust via `brew install rust` (not rustup) per the brief. This installed
   rust 1.96.1 as a Homebrew-managed toolchain (not rustup-managed). `cargo` and `rustc`
   are on PATH via Homebrew's shim (`/opt/homebrew/bin`). No `rustup` toolchain link was
