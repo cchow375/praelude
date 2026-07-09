@@ -1,3 +1,4 @@
+mod audio;
 mod store;
 
 use store::Store;

@@ -1,0 +1,445 @@
+//! Real-time audio engine: a sample-accurate click clock, a mixer, and a cpal
+//! output stream. See [`clock`] for scheduling and [`mixer`] for voicing.
+//!
+//! # Real-time discipline
+//!
+//! The cpal callback owns the [`ClickClock`] and [`Mixer`] outright (moved into
+//! the closure). Everything the *outside world* pushes at it crosses the thread
+//! boundary through lock-free [`ArrayQueue`]s, never a mutex:
+//!
+//! * **Pattern changes** ride a small `ArrayQueue<ClickPattern>`; the callback
+//!   drains it and keeps the newest. `ClickPattern` is `Copy`, so this is a wait-
+//!   free hand-off.
+//! * **TTS PCM** rides an `ArrayQueue<Vec<f32>>` of already-resampled chunks
+//!   (resampling happens on the *enqueue* thread, never in the callback).
+//!
+//! The callback does not lock, does not do I/O, and does not allocate on the
+//! steady-state click path. (The two warm-up allocations — growing the scratch
+//! and event scratch buffers on the first buffer — settle immediately; and
+//! draining a TTS chunk into the pre-reserved `pcm_queue` frees that chunk's
+//! `Vec`, an infrequent cost on the bursty voice path, never on the daily click
+//! path.)
+//!
+//! # `pcm_done` semantics
+//!
+//! `pcm_pending` counts enqueued-but-not-yet-*output* PCM samples: incremented at
+//! enqueue, decremented only as `Mixer::render` actually consumes samples. A
+//! sample sitting in the cross-thread queue (not yet moved into the mixer) still
+//! counts, so [`EngineHandle::pcm_done`] can never report "done" while any TTS
+//! audio is still buffered anywhere — the exact signal Task 11's half-duplex gate
+//! depends on.
+
+#![allow(dead_code)] // engine wiring lands with later tasks (commands, half-duplex gate)
+
+pub mod clock;
+pub mod mixer;
+
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::sync::Arc;
+use std::thread::JoinHandle;
+use std::time::Duration;
+
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::SampleFormat;
+use crossbeam_queue::ArrayQueue;
+
+#[allow(unused_imports)]
+pub use clock::{ClickClock, ClickEvent, ClickKind, ClickPattern};
+#[allow(unused_imports)]
+pub use mixer::Mixer;
+
+/// Click samples for [`EngineConfig`], at `src_rate` Hz (resampled to the stream
+/// rate when the engine starts). Empty vectors mean "silent for that kind".
+#[derive(Clone, Default)]
+pub struct Clicks {
+    pub accent: Vec<f32>,
+    pub beat: Vec<f32>,
+    pub sub: Vec<f32>,
+    pub src_rate: u32,
+}
+
+/// How to start the engine.
+#[derive(Default)]
+pub struct EngineConfig {
+    /// Initial pattern (adopted on the very first beat).
+    pub pattern: ClickPattern,
+    /// Click samples, or `None` to run silent until Task 6's WAV assets load.
+    pub clicks: Option<Clicks>,
+}
+
+/// Capacity (in chunks / patterns) of the lock-free hand-off queues.
+const PCM_QUEUE_CHUNKS: usize = 1024;
+const PATTERN_QUEUE_LEN: usize = 16;
+/// Seconds of PCM to pre-reserve in the mixer so draining never reallocates.
+const PCM_RESERVE_SECONDS: usize = 8;
+
+/// A running engine. `Send + Sync`: it holds only `Arc`s to lock-free state and a
+/// join handle — the non-`Send` cpal `Stream` lives entirely on the audio thread
+/// and is never moved across threads.
+pub struct EngineHandle {
+    pattern_q: Arc<ArrayQueue<ClickPattern>>,
+    pcm_q: Arc<ArrayQueue<Vec<f32>>>,
+    /// Enqueued-but-not-yet-output PCM samples. See module docs.
+    pcm_pending: Arc<AtomicUsize>,
+    sample_rate: u32,
+    shutdown: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl EngineHandle {
+    /// The output stream's sample rate (Hz). TTS enqueued via [`Self::enqueue_pcm`]
+    /// is resampled to this rate.
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    /// Change the metronome pattern. Takes effect at the next beat boundary.
+    pub fn set_pattern(&self, pattern: ClickPattern) {
+        // Newest wins; if the tiny queue is momentarily full, make room.
+        if self.pattern_q.push(pattern).is_err() {
+            let _ = self.pattern_q.pop();
+            let _ = self.pattern_q.push(pattern);
+        }
+    }
+
+    /// Enqueue TTS PCM (`samples` at `src_rate` Hz, mono f32) for playback. The
+    /// samples are resampled to the stream rate *here*, off the audio thread.
+    pub fn enqueue_pcm(&self, samples: &[f32], src_rate: u32) {
+        let resampled = resample_linear(samples, src_rate, self.sample_rate);
+        if resampled.is_empty() {
+            return;
+        }
+        let len = resampled.len();
+        // Count as pending only if it actually made it into the queue, so
+        // `pcm_done` never waits on a dropped chunk.
+        match self.pcm_q.push(resampled) {
+            Ok(()) => {
+                self.pcm_pending.fetch_add(len, Ordering::AcqRel);
+            }
+            Err(_dropped) => {
+                // Queue full (would need ~8000 pending chunks). Drop rather than
+                // block the caller; realistically unreachable for TTS.
+            }
+        }
+    }
+
+    /// `true` once every enqueued TTS sample has been output through the callback
+    /// (nothing left in the hand-off queue *or* the mixer). Callable from any
+    /// thread. Vacuously `true` when nothing has been enqueued.
+    pub fn pcm_done(&self) -> bool {
+        self.pcm_pending.load(Ordering::Acquire) == 0
+    }
+}
+
+impl Drop for EngineHandle {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Release);
+        if let Some(t) = self.thread.take() {
+            t.thread().unpark();
+            let _ = t.join();
+        }
+    }
+}
+
+/// Namespace for engine construction.
+pub struct Engine;
+
+impl Engine {
+    /// Open the default output device, start an f32 output stream, and return a
+    /// handle. Blocks only until the stream is built (or fails); audio then runs
+    /// on a dedicated thread until the handle is dropped.
+    pub fn start(config: EngineConfig) -> Result<EngineHandle, String> {
+        let pattern_q = Arc::new(ArrayQueue::new(PATTERN_QUEUE_LEN));
+        let pcm_q = Arc::new(ArrayQueue::new(PCM_QUEUE_CHUNKS));
+        let pcm_pending = Arc::new(AtomicUsize::new(0));
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        // The cpal Stream is not Send on CoreAudio, so it must be built, played,
+        // and dropped all on one thread. `ready` reports the build outcome back.
+        let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
+
+        let t_pattern_q = pattern_q.clone();
+        let t_pcm_q = pcm_q.clone();
+        let t_pcm_pending = pcm_pending.clone();
+        let t_shutdown = shutdown.clone();
+
+        let thread = std::thread::Builder::new()
+            .name("codakiller-audio".into())
+            .spawn(move || {
+                match build_stream(
+                    &config,
+                    t_pattern_q,
+                    t_pcm_q,
+                    t_pcm_pending,
+                ) {
+                    Ok((stream, sample_rate)) => {
+                        if stream.play().is_err() {
+                            let _ = ready_tx.send(Err("failed to start output stream".into()));
+                            return;
+                        }
+                        let _ = ready_tx.send(Ok(sample_rate));
+                        // Keep the stream alive until asked to stop; dropping it
+                        // stops the audio.
+                        while !t_shutdown.load(Ordering::Acquire) {
+                            std::thread::park_timeout(Duration::from_millis(100));
+                        }
+                        drop(stream);
+                    }
+                    Err(e) => {
+                        let _ = ready_tx.send(Err(e));
+                    }
+                }
+            })
+            .map_err(|e| format!("failed to spawn audio thread: {e}"))?;
+
+        match ready_rx.recv() {
+            Ok(Ok(sample_rate)) => Ok(EngineHandle {
+                pattern_q,
+                pcm_q,
+                pcm_pending,
+                sample_rate,
+                shutdown,
+                thread: Some(thread),
+            }),
+            Ok(Err(e)) => {
+                let _ = thread.join();
+                Err(e)
+            }
+            Err(_) => {
+                let _ = thread.join();
+                Err("audio thread exited before reporting readiness".into())
+            }
+        }
+    }
+}
+
+/// Build (but do not play) the output stream and wire the callback. Returns the
+/// stream and its sample rate.
+fn build_stream(
+    config: &EngineConfig,
+    pattern_q: Arc<ArrayQueue<ClickPattern>>,
+    pcm_q: Arc<ArrayQueue<Vec<f32>>>,
+    pcm_pending: Arc<AtomicUsize>,
+) -> Result<(cpal::Stream, u32), String> {
+    let host = cpal::default_host();
+    let device = host
+        .default_output_device()
+        .ok_or_else(|| "no default output device".to_string())?;
+
+    let supported = choose_f32_config(&device)?;
+    let sample_rate = supported.sample_rate();
+    let channels = supported.channels() as usize;
+    let stream_config: cpal::StreamConfig = supported.config();
+
+    // Build clock + mixer owned by the callback.
+    let mut clock = ClickClock::new(sample_rate);
+    clock.set_pattern(config.pattern);
+
+    let mut mixer = Mixer::new();
+    mixer.reserve_pcm(sample_rate as usize * PCM_RESERVE_SECONDS);
+    if let Some(c) = &config.clicks {
+        mixer.set_clicks(
+            resample_linear(&c.accent, c.src_rate, sample_rate),
+            resample_linear(&c.beat, c.src_rate, sample_rate),
+            resample_linear(&c.sub, c.src_rate, sample_rate),
+        );
+    }
+
+    // Reusable scratch, sized on the first buffer (grows at most once).
+    let mut scratch: Vec<f32> = Vec::new();
+    let mut events: Vec<ClickEvent> = Vec::with_capacity(64);
+
+    let err_fn = |e| eprintln!("audio stream error: {e}");
+
+    let stream = device
+        .build_output_stream::<f32, _, _>(
+            stream_config,
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                // 1. Adopt the newest pending pattern (drain, keep last).
+                let mut latest = None;
+                while let Some(p) = pattern_q.pop() {
+                    latest = Some(p);
+                }
+                if let Some(p) = latest {
+                    clock.set_pattern(p);
+                }
+
+                // 2. Move any enqueued TTS chunks into the mixer's queue.
+                while let Some(chunk) = pcm_q.pop() {
+                    mixer.pcm_queue.extend(chunk);
+                }
+
+                // 3. Schedule + render this buffer (mono), then fan out to
+                //    every output channel.
+                let chans = channels.max(1);
+                let frames = data.len() / chans;
+                if scratch.len() < frames {
+                    scratch.resize(frames, 0.0);
+                }
+                clock.next_events_into(frames, &mut events);
+                for e in events.iter() {
+                    mixer.trigger(e.kind, e.offset_in_buffer);
+                }
+                let consumed = mixer.render(&mut scratch[..frames]);
+                if consumed > 0 {
+                    pcm_pending.fetch_sub(consumed, Ordering::AcqRel);
+                }
+                for (i, frame) in data.chunks_mut(chans).enumerate() {
+                    // cpal supplies whole frames (data.len() % chans == 0), so a
+                    // trailing partial chunk never occurs — but never panic in the
+                    // callback if one somehow did.
+                    let v = scratch.get(i).copied().unwrap_or(0.0);
+                    for s in frame.iter_mut() {
+                        *s = v;
+                    }
+                }
+            },
+            err_fn,
+            None,
+        )
+        .map_err(|e| format!("failed to build output stream: {e}"))?;
+
+    Ok((stream, sample_rate))
+}
+
+/// Pick an f32 output config: prefer the device default, otherwise search the
+/// supported configs. cpal on macOS/CoreAudio supplies f32 by default.
+fn choose_f32_config(device: &cpal::Device) -> Result<cpal::SupportedStreamConfig, String> {
+    let default = device
+        .default_output_config()
+        .map_err(|e| format!("no default output config: {e}"))?;
+    if default.sample_format() == SampleFormat::F32 {
+        return Ok(default);
+    }
+    let want_rate = default.sample_rate();
+    let ranges = device
+        .supported_output_configs()
+        .map_err(|e| format!("no supported output configs: {e}"))?;
+    for range in ranges {
+        if range.sample_format() == SampleFormat::F32 {
+            let rate = want_rate.clamp(range.min_sample_rate(), range.max_sample_rate());
+            return Ok(range.with_sample_rate(rate));
+        }
+    }
+    Err(format!(
+        "device has no f32 output config (default is {:?})",
+        default.sample_format()
+    ))
+}
+
+/// Linear-interpolation resample of mono f32 from `src_rate` to `dst_rate`.
+/// Adequate for v1 TTS. Off the audio thread; allocation is fine here.
+pub fn resample_linear(input: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
+    if input.is_empty() || src_rate == 0 || dst_rate == 0 {
+        return Vec::new();
+    }
+    if src_rate == dst_rate {
+        return input.to_vec();
+    }
+    let ratio = dst_rate as f64 / src_rate as f64;
+    let out_len = ((input.len() as f64) * ratio).round() as usize;
+    let mut out = Vec::with_capacity(out_len);
+    let last = input.len() - 1;
+    for i in 0..out_len {
+        let src_pos = i as f64 / ratio;
+        let idx = src_pos.floor() as usize;
+        let frac = (src_pos - idx as f64) as f32;
+        let a = input[idx.min(last)];
+        let b = input[(idx + 1).min(last)];
+        out.push(a + (b - a) * frac);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Pure-math check on the enqueue-time resampler (no device).
+    #[test]
+    fn resample_upsamples_and_preserves_endpoints() {
+        // 2 samples at 24 kHz -> 44.1 kHz. Endpoints preserved, length scales.
+        let out = resample_linear(&[0.0, 1.0], 24_000, 48_000);
+        assert_eq!(out.len(), 4);
+        // src positions 0, 0.5, 1.0, 1.5 -> [0.0, 0.5, 1.0, 1.0] (tail clamps).
+        assert!((out[0] - 0.0).abs() < 1e-6, "start preserved");
+        assert!((out[1] - 0.5).abs() < 1e-6, "interpolated midpoint");
+        assert!((out[2] - 1.0).abs() < 1e-6, "end sample reached");
+        assert!((out[3] - 1.0).abs() < 1e-6, "past-end clamps to last sample");
+        // Same rate is identity.
+        assert_eq!(resample_linear(&[0.1, 0.2, 0.3], 24_000, 24_000), vec![0.1, 0.2, 0.3]);
+    }
+
+    // Live check of the pcm_done contract through the real stream: false while
+    // TTS is buffered, true once fully output. Needs a device:
+    //   cargo test pcm_done_live -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn pcm_done_live() {
+        let handle = Engine::start(EngineConfig::default()).expect("engine starts");
+        assert!(handle.pcm_done(), "vacuously done before any enqueue");
+        // ~0.4s of quiet-ish tone at 24 kHz (TTS rate).
+        let rate = 24_000u32;
+        let n = (rate as f32 * 0.4) as usize;
+        let pcm: Vec<f32> = (0..n)
+            .map(|i| (2.0 * std::f32::consts::PI * 220.0 * i as f32 / rate as f32).sin() * 0.2)
+            .collect();
+        handle.enqueue_pcm(&pcm, rate);
+        assert!(!handle.pcm_done(), "not done immediately after enqueue");
+        // Poll until drained (or fail after a generous timeout).
+        let mut done = false;
+        for _ in 0..200 {
+            if handle.pcm_done() {
+                done = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(done, "pcm_done must become true once the queue drains");
+        eprintln!("pcm_done transitioned false -> true correctly");
+        drop(handle);
+    }
+
+    // A short audible run: 4 beats at 120 bpm through the real cpal stream.
+    // Ignored by default (needs an output device); run with:
+    //   cargo test click_audible -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn click_audible() {
+        // Synthetic click: a short decaying sine burst (Task 6 replaces this
+        // with real WAVs via Mixer::load_clicks).
+        fn click(rate: u32, freq: f32, secs: f32) -> Vec<f32> {
+            let n = (rate as f32 * secs) as usize;
+            (0..n)
+                .map(|i| {
+                    let t = i as f32 / rate as f32;
+                    let env = (-t * 40.0).exp(); // fast decay
+                    (2.0 * std::f32::consts::PI * freq * t).sin() * env * 0.6
+                })
+                .collect()
+        }
+        let rate = 48_000;
+        let clicks = Clicks {
+            accent: click(rate, 1760.0, 0.06),
+            beat: click(rate, 880.0, 0.05),
+            sub: click(rate, 660.0, 0.04),
+            src_rate: rate,
+        };
+        let handle = Engine::start(EngineConfig {
+            pattern: ClickPattern {
+                bpm: 120.0,
+                beats_per_bar: 4,
+                accent_first: true,
+                subdivision: 1,
+            },
+            clicks: Some(clicks),
+        })
+        .expect("engine should start on this Mac");
+        eprintln!("playing 4 beats at 120 bpm @ {} Hz...", handle.sample_rate());
+        // 4 beats at 120 bpm = 2 seconds; give the tail a moment.
+        std::thread::sleep(Duration::from_millis(2300));
+        eprintln!("done; pcm_done()={}", handle.pcm_done());
+        drop(handle);
+    }
+}
