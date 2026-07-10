@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::{Pcm, Result, TtsError, TtsProvider};
 
 /// `say` writes at this rate with the `LEI16` (signed-16 LE) data format.
+#[allow(dead_code)]
 const SAY_RATE: u32 = 22_050;
 
 /// The macOS `say` provider.

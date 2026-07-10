@@ -218,6 +218,7 @@ export function useMetronome(): UseMetronome {
       unlisten?.();
       if (errorTimer.current) clearTimeout(errorTimer.current);
       if (preview.current.timer) clearTimeout(preview.current.timer);
+      if (dragThrottle.current.timer) clearTimeout(dragThrottle.current.timer);
       // If we're unmounted mid-audition (popover closed during a preview), the
       // pending auto-stop timer is now dead — so stop the engine directly, or it
       // would play forever. Only when the run is OURS (a preview), never when the

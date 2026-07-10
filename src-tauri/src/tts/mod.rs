@@ -63,8 +63,6 @@
 //! the worst case is one buffered chunk discarded by the restart, and sound
 //! changes are rare and user-initiated. No cross-thread handshake is added now.
 
-#![allow(dead_code)] // full app wiring (Task 13+) consumes the selection + Speaker
-
 pub mod gemini;
 pub mod say;
 

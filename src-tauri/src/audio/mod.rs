@@ -41,8 +41,6 @@
 //! under-estimate — so `pcm_done` can never be falsely `true` while any TTS audio
 //! is buffered anywhere. If the push fails, the reservation is backed out.
 
-#![allow(dead_code)] // engine wiring lands with later tasks (commands, half-duplex gate)
-
 pub mod clock;
 pub mod mixer;
 
@@ -157,6 +155,7 @@ pub enum PcmError {
 impl EngineHandle {
     /// The output stream's sample rate (Hz). TTS enqueued via [`Self::enqueue_pcm`]
     /// is resampled to this rate.
+    #[allow(dead_code)]
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }

@@ -946,7 +946,7 @@ mod tests {
         // The bug: the old code recorded `Instant::now()` at *processing* time
         // (before speaking). By the time the second identical final was
         // processed, the first call's blocking speak had already elapsed
-        // past DEDUP_WINDOW (1.5s), so the "same text within the window" check
+        // past DEDUP_WINDOW (2.5s), so the "same text within the window" check
         // failed and the duplicate fired again (e.g. applying a tempo change
         // twice). The fix keys off `t.at` (the settler's emit timestamp)
         // instead, so what matters is how far apart the transcripts were

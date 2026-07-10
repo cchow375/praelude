@@ -18,12 +18,6 @@ use tauri::path::BaseDirectory;
 use tauri::{Manager, State, WindowEvent};
 use voice_loop::{VoiceLoop, VoiceStatus};
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 /// Read a persisted setting. Returns `null` when the key has never been set.
 #[tauri::command]
 fn get_setting(key: String, store: State<'_, Arc<Store>>) -> Result<Option<String>, String> {
@@ -159,7 +153,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             get_setting,
             set_setting,
             metronome::metro_start,

@@ -86,6 +86,7 @@ impl Mixer {
     /// from the sound's authored `src_rate` to `stream_rate` (the engine's
     /// actual output rate) so a 44.1 kHz asset never plays detuned/wrong-length
     /// on a 48 kHz stream.
+    #[allow(dead_code)]
     pub fn use_click_sound(
         &mut self,
         sounds: &HashMap<String, super::Clicks>,
@@ -226,6 +227,7 @@ pub fn load_clicks(dir: &Path) -> Result<HashMap<String, super::Clicks>, String>
 }
 
 /// Read a WAV file as mono f32 samples, downmixing and normalizing as needed.
+#[allow(dead_code)]
 fn read_wav_mono(path: &Path) -> Result<Vec<f32>, String> {
     read_wav_mono_with_rate(path).map(|(samples, _rate)| samples)
 }
