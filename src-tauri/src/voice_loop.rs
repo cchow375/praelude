@@ -46,8 +46,35 @@
 //!
 //! Task 10's framing can emit two identical finals if `hear` re-sends an identical
 //! line. The action thread drops a repeat of the *same* text within a short window
-//! — but ONLY for non-rep intents. Rep-mode "done, done, done" repeats are REAL
-//! (three cleared reps), so [`Intent::RepCheck`] is never deduped.
+//! — but ONLY for non-rep, non-delta intents. Rep-mode "done, done, done" repeats
+//! are REAL (three cleared reps), so [`Intent::RepCheck`] is never deduped.
+//!
+//! ## Dedup policy (Task 13 fix round 1)
+//!
+//! The window is keyed on the transcript's OWN emit timestamp
+//! ([`Transcript::at`], stamped by the settler), never on `Instant::now()`
+//! re-sampled at processing time. A stop confirmation, and any other command,
+//! goes through [`Speaker::speak_blocking`], which blocks the action thread for
+//! the full gate cycle (synth + playback + 300 ms tail) — comfortably >= the
+//! 1.5 s dedup window on its own. If the second identical final were compared
+//! against `Instant::now()` sampled when *processing* it (i.e. after that
+//! blocking speak already elapsed), the elapsed time would already exceed the
+//! window and the genuine duplicate would sail through undeduped — silently
+//! defeating the entire mechanism and applying deltas (e.g. a tempo bump) twice.
+//! Keying on `t.at` instead measures the gap between when the two transcripts
+//! were actually *heard*, which is unaffected by how long we spent speaking in
+//! between.
+//!
+//! [`Intent::RepCheck`] is excluded because repeated rep-check words are
+//! genuine, distinct reps, not dedup-worthy repeats. Relative-delta
+//! [`Intent::MetroSet`] (a `bpm_delta` — "faster"/"slower"/"bump it up 4") is
+//! ALSO excluded, for a different reason: even though `t.at`-keying now lets us
+//! tell a real repeated utterance from a stale one, a delta command is
+//! *semantically* meant to apply every time it's said, no matter how close
+//! together — saying "faster" twice in a row means "faster, twice", not "faster
+//! (and the second one was noise)". Absolute/start/stop/accent commands, by
+//! contrast, are idempotent-in-intent (saying "metronome 96" twice means "96",
+//! not "192"), so dedup is safe and desired for them.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -117,10 +144,28 @@ impl PcmSink for MetroSink {
 /// [`Gate`] over the shared STT gate atom (see [`SttHandle::gate_flag`]). A
 /// `Send + Sync` seam so the Speaker can mute the mic without holding the
 /// non-`Sync` `SttHandle`.
-struct AtomicGate(Arc<AtomicBool>);
+///
+/// # Mute hardening (Task 13 fix round 1)
+///
+/// [`ReopenGuard`](crate::tts) always calls `set_gate(true)` once an utterance's
+/// gate cycle completes — including one that was in flight when the user muted.
+/// Without a check here, that reopen would silently un-mute the mic: mute is
+/// still active, but the gate is open again. `AtomicGate` therefore also holds
+/// the `muted` flag and refuses to open the gate while muted (closing is always
+/// honored). `VoiceLoop::set_muted(false)` reopens the gate directly (not
+/// through this seam), so unmuting still works immediately.
+struct AtomicGate {
+    gate: Arc<AtomicBool>,
+    muted: Arc<AtomicBool>,
+}
 impl Gate for AtomicGate {
     fn set_gate(&self, open: bool) {
-        self.0.store(open, Ordering::Release);
+        if open && self.muted.load(Ordering::Acquire) {
+            // Mute wins: don't let a completing utterance's reopen re-arm the
+            // mic while the user has it muted.
+            return;
+        }
+        self.gate.store(open, Ordering::Release);
     }
 }
 
@@ -154,17 +199,22 @@ impl ActionCtx {
             return; // ambient speech: no event, no action
         }
 
-        // Spurious-final dedup for everything EXCEPT rep checks (which are real
-        // repeats). Records the text up front so a duplicate arriving during the
-        // ~1.5s of speak_blocking is still caught.
-        if !matches!(intent, Intent::RepCheck(..)) {
+        // Spurious-final dedup — see the module docs ("Dedup policy") for the
+        // full rationale. Excluded: rep checks (real repeats) and relative-delta
+        // MetroSet (meant to re-fire every time it's said). Keyed on `t.at` (the
+        // settler's own emit timestamp), NOT `Instant::now()` sampled here — by
+        // the time we get here a prior blocking speak may already have eaten the
+        // whole dedup window, which would make a stale re-sample never catch the
+        // duplicate.
+        let is_delta = matches!(&intent, Intent::MetroSet(args) if args.bpm_delta.is_some());
+        if !matches!(intent, Intent::RepCheck(..)) && !is_delta {
             let norm: String = t.text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
             if let Some((prev, at)) = &self.last {
-                if *prev == norm && at.elapsed() < DEDUP_WINDOW {
+                if *prev == norm && t.at.saturating_duration_since(*at) < DEDUP_WINDOW {
                     return;
                 }
             }
-            self.last = Some((norm, Instant::now()));
+            self.last = Some((norm, t.at));
         }
 
         match intent {
@@ -209,13 +259,13 @@ impl ActionCtx {
 
     fn act_set(&self, args: MetroSetArgs, text: &str) {
         let snap = self.metro.snapshot();
-        let (state, res, spoken, bpm_for_evt) = if let Some(d) = args.bpm_delta {
+        let (state, res, spoken, bpm_for_evt, kind) = if let Some(d) = args.bpm_delta {
             let nb = (snap.bpm + d).clamp(1.0, 1000.0);
             let (s, r) = self.set_bpm_only(nb);
-            (s, r, bpm_to_speech(nb), Some(nb))
+            (s, r, bpm_to_speech(nb), Some(nb), "set")
         } else if let Some(v) = args.bpm_abs {
             let (s, r) = self.set_bpm_only(v);
-            (s, r, bpm_to_speech(v), Some(v))
+            (s, r, bpm_to_speech(v), Some(v), "set")
         } else if let Some(bp) = args.beats_per_bar {
             let (s, r) = self.metro.do_set(
                 &self.store,
@@ -227,14 +277,17 @@ impl ActionCtx {
                 None,
                 None,
             );
-            (s, r, format!("Accent every {}.", cardinal(bp as i64)), None)
+            // "accent", not "set" — this is a beats-per-bar/accent change, not a
+            // tempo change, and the UI toast label should say so instead of
+            // mislabeling it "Tempo set".
+            (s, r, format!("Accent every {}.", cardinal(bp as i64)), None, "accent")
         } else {
             return;
         };
         self.emit_state(&state);
         match res {
             Ok(()) => {
-                self.emit_intent("set", text, bpm_for_evt);
+                self.emit_intent(kind, text, bpm_for_evt);
                 self.speaker.say(&spoken);
             }
             Err(e) => self.speak_error(&e, text),
@@ -373,17 +426,26 @@ impl VoiceLoop {
         wake_word: Option<String>,
     ) -> Arc<VoiceLoop> {
         let emitter: Arc<dyn VoiceEmitter> = Arc::new(TauriEmitter(app.clone()));
-        Self::start_with(emitter, metro, store, stt_config, wake_word, |m, st| {
-            Self::build_speaker(m, st)
+        Self::start_with(emitter, metro, store, stt_config, wake_word, |m, g, mu| {
+            Self::build_speaker(m, g, mu)
         })
     }
 
     /// Build the production TTS speaker (provider chosen from settings) plugged
     /// into the metronome engine + STT gate.
-    fn build_speaker(metro: Arc<Metronome>, gate: Arc<AtomicBool>) -> Box<dyn Confirm> {
+    ///
+    /// This blocks: [`crate::tts::select_provider`] calls `network_available()`
+    /// (up to a 1.5 s TCP-connect timeout) plus a Keychain lookup that can spawn
+    /// a subprocess and, on some machines, prompt the user. See [`Self::start_with`]
+    /// for why this must never run on the caller's thread.
+    fn build_speaker(
+        metro: Arc<Metronome>,
+        gate: Arc<AtomicBool>,
+        muted: Arc<AtomicBool>,
+    ) -> Box<dyn Confirm> {
         let provider = crate::tts::select_provider(None, None, None);
         let sink: Arc<dyn PcmSink> = Arc::new(MetroSink(metro));
-        let gate_seam: Arc<dyn Gate> = Arc::new(AtomicGate(gate));
+        let gate_seam: Arc<dyn Gate> = Arc::new(AtomicGate { gate, muted });
         Box::new(Speaker::spawn(
             provider,
             sink,
@@ -394,13 +456,30 @@ impl VoiceLoop {
 
     /// Core wiring, parameterized over the emitter and a speaker factory so tests
     /// can inject fakes and avoid the audio device / network.
+    ///
+    /// # Async speaker init (Task 13 fix round 1)
+    ///
+    /// `make_speaker` used to run synchronously here, on the caller's thread —
+    /// which for [`Self::start`] is Tauri's `setup` hook, i.e. the main thread.
+    /// Since [`Self::build_speaker`] can block up to ~1.5 s (network probe) plus
+    /// however long a Keychain prompt takes, that blocked app startup. Fixed:
+    /// `make_speaker` is now called on the action thread itself, not here, so
+    /// this function (and therefore `VoiceLoop::start`) returns as soon as the
+    /// action thread is spawned. While the speaker is being built, finals
+    /// already in flight simply accumulate in the `rx` mpsc channel (nothing is
+    /// dropped or crashes) and get processed — in order, with the usual
+    /// `t.at`-based dedup — once the speaker is ready and the thread starts its
+    /// `rx.iter()` loop. We queue rather than drop: an early command a user
+    /// actually spoke should still fire once voice is up, not be silently lost.
     fn start_with(
         emitter: Arc<dyn VoiceEmitter>,
         metro: Arc<Metronome>,
         store: Arc<Store>,
         stt_config: SttConfig,
         wake_word: Option<String>,
-        make_speaker: impl FnOnce(Arc<Metronome>, Arc<AtomicBool>) -> Box<dyn Confirm>,
+        make_speaker: impl FnOnce(Arc<Metronome>, Arc<AtomicBool>, Arc<AtomicBool>) -> Box<dyn Confirm>
+            + Send
+            + 'static,
     ) -> Arc<VoiceLoop> {
         let muted = Arc::new(AtomicBool::new(false));
         let status = Arc::new(Mutex::new(VoiceStatus {
@@ -448,22 +527,27 @@ impl VoiceLoop {
         let handle = SttSupervisor::spawn_with_config(stt_config, on_event);
         let gate = handle.gate_flag();
 
-        // Build the speaker (owns the TTS worker) now that we have the gate atom.
-        let speaker = make_speaker(metro.clone(), gate.clone());
-
-        let mut ctx = ActionCtx {
-            metro,
-            store,
-            speaker,
-            emitter: emitter.clone(),
-            wake_word,
-            rep_active: false,
-            muted: muted.clone(),
-            last: None,
-        };
+        let action_emitter = emitter.clone();
+        let action_muted = muted.clone();
+        let action_gate = gate.clone();
         let action_thread = std::thread::Builder::new()
             .name("codakiller-voice".into())
             .spawn(move || {
+                // Build the speaker (owns the TTS worker + does the blocking
+                // provider/network/Keychain work) here, on the action thread —
+                // NOT on the caller of `start_with` — so app startup never waits
+                // on it. See the doc comment above for the full rationale.
+                let speaker = make_speaker(metro.clone(), action_gate, action_muted.clone());
+                let mut ctx = ActionCtx {
+                    metro,
+                    store,
+                    speaker,
+                    emitter: action_emitter,
+                    wake_word,
+                    rep_active: false,
+                    muted: action_muted,
+                    last: None,
+                };
                 for t in rx.iter() {
                     ctx.handle_final(&t);
                 }
@@ -704,7 +788,7 @@ mod tests {
         cfg.settle = Duration::from_millis(200); // finalize quickly for the test
 
         let emitter: Arc<dyn VoiceEmitter> = Arc::new(RecEmitter(rec.clone()));
-        let voice = VoiceLoop::start_with(emitter, metro.clone(), store, cfg, None, move |_m, _g| {
+        let voice = VoiceLoop::start_with(emitter, metro.clone(), store, cfg, None, move |_m, _g, _mu| {
             Box::new(RecConfirm(rec_for_speaker))
         });
 
@@ -768,10 +852,10 @@ mod tests {
         cfg.settle = Duration::from_millis(200);
 
         // REAL Speaker (say provider, offline-safe) wired to the metronome engine.
-        let voice = VoiceLoop::start_with(emitter, metro.clone(), store, cfg, None, |m, g| {
+        let voice = VoiceLoop::start_with(emitter, metro.clone(), store, cfg, None, |m, g, mu| {
             let provider: Box<dyn crate::tts::TtsProvider> = Box::new(crate::tts::say::SayTts::new());
             let sink: Arc<dyn PcmSink> = Arc::new(MetroSink(m));
-            let gate: Arc<dyn Gate> = Arc::new(AtomicGate(g.clone()));
+            let gate: Arc<dyn Gate> = Arc::new(AtomicGate { gate: g, muted: mu });
             Box::new(Speaker::spawn(provider, sink, gate, SpeakerConfig::default()))
         });
 
@@ -805,5 +889,150 @@ mod tests {
         ctx.handle_final(&final_t("done"));
         // Three real reps → three acknowledgements (asymmetry vs non-rep dedup).
         assert_eq!(rec.said.lock().unwrap().len(), 3);
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 13 fix round 1 regression tests.
+    // -----------------------------------------------------------------------
+
+    /// A [`Confirm`] that sleeps ~1.8s per `say`, standing in for a real
+    /// blocking `speak_blocking` confirmation cycle (synth + play + drain +
+    /// 300ms tail routinely adds up to >=1.5s, i.e. >= [`DEDUP_WINDOW`]).
+    struct BlockingConfirm(Arc<Recorder>);
+    impl Confirm for BlockingConfirm {
+        fn say(&self, text: &str) {
+            std::thread::sleep(Duration::from_millis(1800));
+            self.0.said.lock().unwrap().push(text.to_string());
+        }
+    }
+
+    #[test]
+    fn dedup_survives_a_blocking_confirmation_speak() {
+        // The bug: the old code recorded `Instant::now()` at *processing* time
+        // (before speaking). By the time the second identical final was
+        // processed, the first call's ~1.8s blocking speak had already elapsed
+        // past DEDUP_WINDOW (1.5s), so the "same text within the window" check
+        // failed and the duplicate fired again (e.g. applying a tempo change
+        // twice). The fix keys off `t.at` (the settler's emit timestamp)
+        // instead, so what matters is how far apart the transcripts were
+        // actually *heard*, not how long we spent speaking in between.
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.speaker = Box::new(BlockingConfirm(rec.clone()));
+
+        let t1 = final_t("metronome 100");
+        let mut t2 = final_t("metronome 100");
+        t2.at = t1.at + Duration::from_millis(600); // heard 600ms apart
+
+        ctx.handle_final(&t1); // blocks ~1.8s here, simulating the confirmation
+        ctx.handle_final(&t2); // processed well over 1.8s of *wall clock* later
+
+        assert_eq!(
+            rec.said.lock().unwrap().len(),
+            1,
+            "second identical final (heard only 600ms after the first) must still be deduped, \
+             even though processing it happened long after the first's blocking speak"
+        );
+    }
+
+    #[test]
+    fn delta_intents_bypass_dedup_even_when_repeated_quickly() {
+        // Relative-delta commands ("faster"/"slower"/bump-by-N) are excluded
+        // from dedup entirely: saying "faster" twice means "faster, twice", so
+        // it must always fire, even within the dedup window.
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+
+        let t1 = final_t("faster");
+        let mut t2 = final_t("faster");
+        t2.at = t1.at + Duration::from_millis(50); // well inside DEDUP_WINDOW
+
+        ctx.handle_final(&t1);
+        ctx.handle_final(&t2);
+
+        assert_eq!(
+            rec.said.lock().unwrap().len(),
+            2,
+            "delta commands ('faster') fire every time, dedup window notwithstanding"
+        );
+    }
+
+    #[test]
+    fn start_returns_before_speaker_construction_finishes() {
+        // VoiceLoop::start (via start_with) used to build the speaker
+        // synchronously, on the caller's thread, before returning — and
+        // building a real speaker can block ~1.5s (network probe) plus a
+        // Keychain call. Fixed: speaker construction now happens on the action
+        // thread, so start_with returns immediately regardless of how slow
+        // make_speaker is.
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir();
+        let script = dir.join(format!("fake_hear_idle_{}.sh", std::process::id()));
+        {
+            let mut f = std::fs::File::create(&script).unwrap();
+            writeln!(f, "#!/bin/sh").unwrap();
+            writeln!(f, "sleep 5").unwrap();
+            let mut perms = f.metadata().unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script, perms).unwrap();
+        }
+
+        let rec = Arc::new(Recorder::default());
+        let ctx = test_ctx(&rec);
+        let metro = ctx.metro.clone();
+        let store = ctx.store.clone();
+
+        let mut cfg = SttConfig::hear(script.clone());
+        cfg.args = vec![];
+        cfg.use_stdbuf = false;
+        cfg.settle = Duration::from_millis(200);
+
+        let emitter: Arc<dyn VoiceEmitter> = Arc::new(RecEmitter(rec.clone()));
+        let started = Instant::now();
+        let voice = VoiceLoop::start_with(emitter, metro, store, cfg, None, move |_m, _g, _mu| {
+            // A slow provider-builder: sleeps well past the 50ms budget.
+            std::thread::sleep(Duration::from_millis(500));
+            Box::new(RecConfirm(rec)) as Box<dyn Confirm>
+        });
+        let elapsed = started.elapsed();
+        voice.shutdown();
+        let _ = std::fs::remove_file(&script);
+
+        assert!(
+            elapsed < Duration::from_millis(50),
+            "start_with must return before the (slow) speaker is built, took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn mute_during_inflight_speak_keeps_gate_closed_until_unmuted() {
+        // Mute hardening: if mute happens while an utterance is in flight, the
+        // ReopenGuard reopening the gate at the end of that utterance must not
+        // silently re-arm the mic. AtomicGate checks the muted flag on every
+        // open request and refuses to open while muted; only an explicit
+        // unmute (VoiceLoop::set_muted(false), which stores the atom directly)
+        // reopens it.
+        let gate = Arc::new(AtomicBool::new(false)); // closed, as if speech is in flight
+        let muted = Arc::new(AtomicBool::new(false));
+        let ag = AtomicGate {
+            gate: gate.clone(),
+            muted: muted.clone(),
+        };
+
+        // User mutes mid-utterance.
+        muted.store(true, Ordering::Release);
+        // The in-flight utterance completes; its ReopenGuard fires.
+        ag.set_gate(true);
+        assert!(
+            !gate.load(Ordering::Acquire),
+            "gate must stay closed: mute is still active"
+        );
+
+        // User unmutes: VoiceLoop::set_muted(false) reopens the gate directly.
+        muted.store(false, Ordering::Release);
+        gate.store(true, Ordering::Release);
+        assert!(gate.load(Ordering::Acquire), "gate reopens once unmuted");
     }
 }

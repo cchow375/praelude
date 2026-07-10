@@ -327,7 +327,10 @@ fn is_explicit_metro_stop(words: &[&str]) -> bool {
     const VOCAB: &[&str] = &[
         "metronome", "off", "stop", "turn", "the", "please", "halt", "kill", "it", "now",
     ];
-    let has_cue = words.contains(&"off") || words.contains(&"stop") || words.contains(&"halt");
+    let has_cue = words.contains(&"off")
+        || words.contains(&"stop")
+        || words.contains(&"halt")
+        || words.contains(&"kill");
     words.contains(&"metronome")
         && has_cue
         && words.len() <= 5
@@ -515,6 +518,15 @@ mod tests {
         assert_eq!(r("stop the metronome", &stopped()), Intent::MetroStop);
     }
     #[test]
+    fn kill_is_a_stop_cue() {
+        // "kill" was already in is_explicit_metro_stop's VOCAB allow-list but was
+        // never checked by has_cue, so it was dead/misleading — a stop-shaped
+        // sentence built entirely from stop vocabulary containing "kill" never
+        // actually fired. Fixed: "kill" now triggers the cue like the other stop
+        // synonyms. The shape gate (short + all-in-vocab) still applies unchanged.
+        assert_eq!(r("kill the metronome", &stopped()), Intent::MetroStop);
+    }
+    #[test]
     fn stopped_word_boundary_is_not_stop() {
         // "stopped" is not "stop"; and this is a long ambient sentence.
         assert_eq!(
@@ -560,6 +572,19 @@ mod tests {
         assert_eq!(
             r("slower", &running()),
             Intent::MetroSet(MetroSetArgs::delta(-5.0))
+        );
+    }
+    #[test]
+    fn take_it_up_a_notch_fires_a_delta() {
+        // Task 13 review flagged this as a possible misfire risk ("take it up a
+        // notch" is often just a figure of speech), but for CodaKiller's
+        // practice-coaching context a literal "take it up a notch" IS a genuine
+        // ask to nudge the tempo up — so this is a conscious, accepted-fire
+        // decision, not an oversight. Documented here so a future reviewer sees
+        // it was considered and kept as-is.
+        assert_eq!(
+            r("take it up a notch", &running()),
+            Intent::MetroSet(MetroSetArgs::delta(5.0))
         );
     }
     #[test]
