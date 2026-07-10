@@ -1,0 +1,7 @@
+370.088  Natural
+370.541  Metronome
+370.729  Metronome 90
+370.942  Metronome 96
+372.741  Metronome 96
+375.342  Stop
+376.943  Stop

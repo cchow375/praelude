@@ -1,0 +1,58 @@
+# Onset / audio analysis of Task 13 live recordings
+# (generated Thu Jul  9 21:19:37 EDT 2026)
+
+## verify1.wav
+file=/private/tmp/claude-501/-Users-c3/b16ee4c0-ea48-4523-994f-6de8b31f1c9e/scratchpad/verify1.wav
+duration=7.32s  rms=0.0034  peak=0.043
+onset_count=8
+median_ioi=0.906s  implied_bpm=66.3  (n_intervals=7)
+first_onsets=[0.186, 1.091, 1.858, 2.972, 4.342, 4.876, 5.619, 6.966]
+
+## verify1b.wav
+file=/private/tmp/claude-501/-Users-c3/b16ee4c0-ea48-4523-994f-6de8b31f1c9e/scratchpad/verify1b.wav
+duration=7.32s  rms=0.0152  peak=0.958
+onset_count=3
+no plausible click intervals (0.2-1.5s) found
+first_onsets=[0.418, 2.879, 4.574]
+
+## verify144.wav
+file=/private/tmp/claude-501/-Users-c3/b16ee4c0-ea48-4523-994f-6de8b31f1c9e/scratchpad/verify144.wav
+duration=7.20s  rms=0.0264  peak=0.594
+onset_count=9
+median_ioi=0.801s  implied_bpm=74.9  (n_intervals=8)
+first_onsets=[0.232, 0.998, 2.461, 3.344, 3.878, 4.714, 5.433, 6.107, 7.198]
+
+## verify60.wav
+file=/private/tmp/claude-501/-Users-c3/b16ee4c0-ea48-4523-994f-6de8b31f1c9e/scratchpad/verify60.wav
+duration=7.40s  rms=0.0027  peak=0.053
+onset_count=6
+median_ioi=0.720s  implied_bpm=83.4  (n_intervals=3)
+first_onsets=[1.138, 2.833, 3.390, 4.992, 5.712, 7.105]
+
+## verify_stopped.wav
+file=/private/tmp/claude-501/-Users-c3/b16ee4c0-ea48-4523-994f-6de8b31f1c9e/scratchpad/verify_stopped.wav
+duration=5.33s  rms=0.0057  peak=0.195
+onset_count=6
+median_ioi=0.650s  implied_bpm=92.3  (n_intervals=5)
+first_onsets=[1.649, 2.392, 3.019, 3.669, 4.574, 5.201]
+
+## verify120.wav
+file=/private/tmp/claude-501/-Users-c3/b16ee4c0-ea48-4523-994f-6de8b31f1c9e/scratchpad/verify120.wav
+duration=10.69s  rms=0.0050  peak=0.098
+onset_count=7
+median_ioi=0.859s  implied_bpm=69.8  (n_intervals=3)
+first_onsets=[0.859, 1.718, 4.226, 5.016, 6.037, 7.941, 10.356]
+
+## verify_ambient.wav
+file=/private/tmp/claude-501/-Users-c3/b16ee4c0-ea48-4523-994f-6de8b31f1c9e/scratchpad/verify_ambient.wav
+duration=5.48s  rms=0.0029  peak=0.066
+onset_count=6
+median_ioi=0.673s  implied_bpm=89.1  (n_intervals=4)
+first_onsets=[0.070, 0.580, 1.068, 2.577, 3.878, 4.714]
+
+## saycheck.wav
+file=/private/tmp/claude-501/-Users-c3/b16ee4c0-ea48-4523-994f-6de8b31f1c9e/scratchpad/saycheck.wav
+duration=3.58s  rms=0.0069  peak=0.040
+onset_count=5
+median_ioi=0.685s  implied_bpm=87.6  (n_intervals=4)
+first_onsets=[0.209, 1.440, 2.113, 2.810, 3.413]
