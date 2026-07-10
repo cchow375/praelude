@@ -30,7 +30,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::audio::{
-    Clicks, ClickPattern, Engine, EngineConfig, EngineHandle, MAX_BPM, MAX_SUBDIVISION, MIN_BPM,
+    Clicks, ClickPattern, Engine, EngineConfig, EngineHandle, PcmError, MAX_BPM, MAX_SUBDIVISION,
+    MIN_BPM,
 };
 use crate::store::Store;
 use crate::sysvol::BoostGuard;
@@ -217,6 +218,42 @@ impl Metronome {
         self.lock().state.clone()
     }
 
+    // --- TTS PCM bridge (Task 13) -----------------------------------------
+    //
+    // The TTS `Speaker` plays voice confirmations through the *same* audio engine
+    // the metronome owns (single output stream, single PCM producer). But that
+    // `EngineHandle` is not stable: a sound-change restart REPLACES it, and a stop
+    // drops it entirely. So the Speaker must never capture a handle — it reaches
+    // the *current* one through these methods on every chunk, under the same
+    // control lock the metronome uses. Consequences, by design:
+    //
+    // * **Restart-safe:** each `tts_enqueue` reads `inner.handle` fresh, so a
+    //   replacement between chunks is transparent. The metronome's Busy guard
+    //   refuses a restart while `!pcm_done()`, so a restart never races an
+    //   in-flight utterance out from under the Speaker.
+    // * **Stopped == silent drop:** with no engine (`handle == None`) there is
+    //   nowhere to play, so enqueue is a no-op and `tts_done()` is vacuously true.
+    //   The voice loop therefore speaks a stop confirmation BEFORE calling
+    //   `do_stop`, while the engine is still alive (see `voice_loop`).
+    // * **Cheap under lock:** enqueue is a lock-free queue push and `pcm_done` an
+    //   atomic load, so holding the control `Mutex` across them is negligible and
+    //   cannot deadlock (they call back into nothing that locks).
+
+    /// Enqueue one chunk of TTS PCM into the current engine, if one is running.
+    /// Restart-safe: always targets the live handle. A no-op (Ok) when stopped.
+    pub fn tts_enqueue(&self, samples: &[f32], src_rate: u32) -> Result<(), PcmError> {
+        match &self.lock().handle {
+            Some(h) => h.enqueue_pcm(samples, src_rate),
+            None => Ok(()),
+        }
+    }
+
+    /// `true` once all enqueued TTS PCM has been output (or when stopped, since
+    /// there is then nothing buffered anywhere).
+    pub fn tts_done(&self) -> bool {
+        self.lock().handle.as_ref().is_none_or(|h| h.pcm_done())
+    }
+
     /// Stop audio and restore the system volume. Called on the window-close / exit
     /// path so a boosted volume is never left behind.
     pub fn shutdown(&self) {
@@ -280,7 +317,7 @@ impl Metronome {
     /// (re)start the engine — with rollback on failure. Returns the state to emit
     /// (post-rollback on failure) plus the outcome. Does no I/O beyond the engine /
     /// boost seams, so it runs inside `spawn_blocking` and is directly unit-testable.
-    fn do_start(&self, bpm: Option<f64>) -> (MetroState, Result<(), String>) {
+    pub(crate) fn do_start(&self, bpm: Option<f64>) -> (MetroState, Result<(), String>) {
         let mut inner = self.lock();
         let prev = inner.state.clone();
         // Whether boost was already engaged *before* this call, so a rollback releases
@@ -323,7 +360,7 @@ impl Metronome {
     }
 
     /// Core of `metro_stop`: drop the engine and boost guard and mark stopped.
-    fn do_stop(&self) -> MetroState {
+    pub(crate) fn do_stop(&self) -> MetroState {
         let mut inner = self.lock();
         inner.handle = None; // stop audio (joins the audio thread)
         inner.guard = None; // restore the pre-boost volume
@@ -336,7 +373,7 @@ impl Metronome {
     /// Returns the state to emit plus the outcome. Persist happens here (inside the
     /// blocking section) so the six SQLite writes never run on the UI thread.
     #[allow(clippy::too_many_arguments)]
-    fn do_set(
+    pub(crate) fn do_set(
         &self,
         store: &Store,
         bpm: Option<f64>,

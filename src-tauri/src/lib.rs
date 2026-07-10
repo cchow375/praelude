@@ -1,18 +1,22 @@
 pub mod audio;
+pub mod intent;
 mod keys;
 mod metronome;
 pub mod stt;
 mod store;
 mod sysvol;
 pub mod tts;
+mod voice_loop;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use metronome::Metronome;
+use stt::SttConfig;
 use store::Store;
 use tauri::path::BaseDirectory;
 use tauri::{Manager, State, WindowEvent};
+use voice_loop::{VoiceLoop, VoiceStatus};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -48,6 +52,49 @@ fn resolve_clicks_dir(app: &tauri::App) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/clicks")
 }
 
+/// Resolve the vendored `hear` STT binary, working in BOTH dev and the bundled
+/// `.app` (same dev/Resource strategy as [`resolve_clicks_dir`]). In a bundle the
+/// `bundle.resources` glob stages it into `Resources/`; in dev it lives at
+/// `vendor/bin/hear` beside the crate.
+fn resolve_hear_bin(app: &tauri::App) -> PathBuf {
+    for candidate in ["hear", "vendor/bin/hear", "_up_/vendor/bin/hear"] {
+        if let Ok(p) = app.path().resolve(candidate, BaseDirectory::Resource) {
+            if p.exists() {
+                return p;
+            }
+        }
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vendor/bin/hear")
+}
+
+/// Build the STT config, honoring a fake-`hear` test seam. Setting
+/// `CODAKILLER_HEAR_BIN` (and optionally `CODAKILLER_HEAR_ARGS`) points the
+/// supervisor at a scripted stand-in for end-to-end verification without a mic.
+fn resolve_stt_config(app: &tauri::App) -> SttConfig {
+    if let Ok(bin) = std::env::var("CODAKILLER_HEAR_BIN") {
+        let mut cfg = SttConfig::hear(PathBuf::from(bin));
+        cfg.args = std::env::var("CODAKILLER_HEAR_ARGS")
+            .ok()
+            .map(|s| s.split_whitespace().map(String::from).collect())
+            .unwrap_or_default();
+        cfg.use_stdbuf = false; // the fake is a plain script, not the real binary
+        return cfg;
+    }
+    SttConfig::hear(resolve_hear_bin(app))
+}
+
+/// Mute (`true`) or unmute the mic. Gates STT and blocks any action while muted.
+#[tauri::command]
+fn voice_mute(muted: bool, voice: State<'_, Arc<VoiceLoop>>) {
+    voice.set_muted(muted);
+}
+
+/// Current mic status (muted / down reason) for the top-bar glyph.
+#[tauri::command]
+fn voice_state(voice: State<'_, Arc<VoiceLoop>>) -> VoiceStatus {
+    voice.state()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -68,11 +115,27 @@ pub fn run() {
             });
             let state = metronome::load_state(&store);
             let boost_level = metronome::load_boost_level(&store);
+            let wake_word = store
+                .get_setting("voice.wake_word")
+                .ok()
+                .flatten()
+                .filter(|w| !w.trim().is_empty());
             // Managed behind `Arc` so the async commands can clone a `'static`
             // handle into `spawn_blocking` (the blocking work runs off the main
-            // thread).
-            app.manage(Arc::new(Metronome::new(sounds, state, boost_level)));
-            app.manage(Arc::new(store));
+            // thread). The voice loop shares these same Arcs.
+            let metro = Arc::new(Metronome::new(sounds, state, boost_level));
+            let store = Arc::new(store);
+            app.manage(metro.clone());
+            app.manage(store.clone());
+
+            // Start the end-to-end voice loop (STT → intent → metronome + spoken
+            // confirmation). Managed so `voice_mute`/`voice_state` reach it and so
+            // it is torn down on exit. It gates itself; a missing `hear` binary or
+            // disabled Dictation surfaces as a `voice://status` down event, never a
+            // crash.
+            let stt_config = resolve_stt_config(app);
+            let voice = VoiceLoop::start(&app.handle().clone(), metro, store, stt_config, wake_word);
+            app.manage(voice);
             Ok(())
         })
         // Restore the system volume on window close: a boosted volume must never
@@ -80,6 +143,9 @@ pub fn run() {
         // `kill -9` is the one path we cannot cover — see sysvol docs.)
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { .. } = event {
+                if let Some(voice) = window.try_state::<Arc<VoiceLoop>>() {
+                    voice.shutdown();
+                }
                 if let Some(metro) = window.try_state::<Arc<Metronome>>() {
                     metro.shutdown();
                 }
@@ -93,6 +159,8 @@ pub fn run() {
             metronome::metro_stop,
             metronome::metro_set,
             metronome::metro_state,
+            voice_mute,
+            voice_state,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -105,6 +173,9 @@ pub fn run() {
         // one path we cannot cover — see `sysvol` docs.)
         .run(|app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
+                if let Some(voice) = app_handle.try_state::<Arc<VoiceLoop>>() {
+                    voice.shutdown();
+                }
                 if let Some(metro) = app_handle.try_state::<Arc<Metronome>>() {
                     metro.shutdown();
                 }

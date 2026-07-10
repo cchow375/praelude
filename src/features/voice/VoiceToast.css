@@ -1,0 +1,91 @@
+/* ===========================================================================
+   Voice feedback — quiet, transient surfaces. Consumes design tokens only.
+   ========================================================================== */
+
+.voice-feedback {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-5);
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  pointer-events: none;
+  max-width: min(90vw, 28rem);
+}
+
+/* --- Transient intent toast ----------------------------------------------- */
+.voice-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface-popover);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-popover);
+  animation: voice-toast-in var(--duration-base) var(--ease-spring);
+}
+
+.voice-toast-heard {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 18rem;
+}
+
+.voice-toast-label {
+  flex: 0 0 auto;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes voice-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-toast {
+    animation: none;
+  }
+}
+
+/* --- Persistent down-guidance banner -------------------------------------- */
+.voice-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--ink-primary);
+  background: color-mix(in srgb, #e5a23d 16%, var(--surface-popover));
+  border: 1px solid color-mix(in srgb, #e5a23d 40%, transparent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+
+.voice-banner-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: #e5a23d;
+}
+
+.voice-banner-text {
+  line-height: var(--leading-normal);
+}

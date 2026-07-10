@@ -1,11 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockRejectedValue(new Error("no backend")),
 }));
 
 import App from "./App";
+
+// globals:false disables testing-library's auto-cleanup, so unmount each
+// render explicitly to keep queries scoped to a single App instance.
+afterEach(cleanup);
 
 describe("App shell smoke", () => {
   it("renders the shell and toggles a popover open/closed", async () => {
@@ -24,6 +28,27 @@ describe("App shell smoke", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() =>
       expect(settingsBtn.getAttribute("aria-expanded")).toBe("false"),
+    );
+  });
+
+  it("renders the mic button and toggles mute inside its popover", async () => {
+    render(<App />);
+
+    const micBtn = screen.getByRole("button", { name: "Microphone" });
+    expect(micBtn).toBeTruthy();
+
+    fireEvent.click(micBtn);
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Microphone" })).toBeTruthy(),
+    );
+
+    // Starts live -> the toggle offers "Mute". Clicking it optimistically
+    // mutes (the mocked invoke rejects, but that is swallowed) so the control
+    // flips to "Unmute".
+    const muteBtn = screen.getByRole("button", { name: "Mute" });
+    fireEvent.click(muteBtn);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Unmute" })).toBeTruthy(),
     );
   });
 

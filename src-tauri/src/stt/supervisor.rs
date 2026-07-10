@@ -121,6 +121,16 @@ impl SttHandle {
         self.gate.store(open, Ordering::Release);
     }
 
+    /// A clone of the shared half-duplex gate flag. Lets the TTS [`Speaker`] drive
+    /// the *same* atomic the reader thread checks (a `Send + Sync` seam), so the
+    /// mic is muted during speech without the Speaker holding the whole
+    /// (non-`Sync`) `SttHandle`. See `crate::voice_loop`.
+    ///
+    /// [`Speaker`]: crate::tts::Speaker
+    pub fn gate_flag(&self) -> Arc<AtomicBool> {
+        self.gate.clone()
+    }
+
     /// Stop the pipeline: SIGTERM the child's process group, reap it, and join
     /// the supervisor threads. Idempotent — a second call (or `Drop`) is a no-op.
     ///

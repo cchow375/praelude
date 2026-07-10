@@ -1,7 +1,15 @@
 import { useRef, useState } from "react";
 import { Popover } from "./Popover";
 import { MetronomePopover } from "../features/metronome/MetronomePopover";
+import { useVoice, type VoiceStatus } from "../features/voice/useVoice";
+import { VoiceToast } from "../features/voice/VoiceToast";
 import "./Shell.css";
+
+const VOICE_STATUS_LABEL: Record<VoiceStatus, string> = {
+  live: "Listening",
+  muted: "Muted",
+  down: "Unavailable",
+};
 
 type PanelId = "metronome" | "mic" | "settings";
 
@@ -16,6 +24,7 @@ export function Shell() {
   const metronomeRef = useRef<HTMLButtonElement>(null);
   const micRef = useRef<HTMLButtonElement>(null);
   const settingsRef = useRef<HTMLButtonElement>(null);
+  const voice = useVoice();
 
   const toggle = (id: PanelId) =>
     setOpenPanel((cur) => (cur === id ? null : id));
@@ -40,13 +49,18 @@ export function Shell() {
           <button
             ref={micRef}
             type="button"
-            className="icon-button"
+            className={`icon-button voice-mic is-${voice.status}`}
             aria-label="Microphone"
             aria-haspopup="dialog"
             aria-expanded={openPanel === "mic"}
             onClick={() => toggle("mic")}
           >
             <MicGlyph />
+            <span
+              className="voice-status-dot"
+              data-status={voice.status}
+              aria-hidden="true"
+            />
           </button>
           <button
             ref={settingsRef}
@@ -82,7 +96,7 @@ export function Shell() {
         onClose={close}
         label="Microphone"
       >
-        <PlaceholderPanel title="Microphone" />
+        <VoiceMicPanel status={voice.status} onMute={voice.mute} />
       </Popover>
       <Popover
         anchorRef={settingsRef}
@@ -92,6 +106,38 @@ export function Shell() {
       >
         <PlaceholderPanel title="Settings" />
       </Popover>
+
+      <VoiceToast
+        lastIntent={voice.lastIntent}
+        status={voice.status}
+        downGuidance={voice.downGuidance}
+      />
+    </div>
+  );
+}
+
+/** The mic popover panel: current voice status plus a mute/unmute toggle. */
+function VoiceMicPanel({
+  status,
+  onMute,
+}: {
+  status: VoiceStatus;
+  onMute: (muted: boolean) => void;
+}) {
+  const isMuted = status === "muted";
+  return (
+    <div className="voice-panel">
+      <div className="voice-panel-status">
+        <span className="voice-status-dot" data-status={status} aria-hidden="true" />
+        <span className="voice-panel-label">{VOICE_STATUS_LABEL[status]}</span>
+      </div>
+      <button
+        type="button"
+        className="voice-panel-button"
+        onClick={() => onMute(!isMuted)}
+      >
+        {isMuted ? "Unmute" : "Mute"}
+      </button>
     </div>
   );
 }
