@@ -80,7 +80,17 @@ export function Shell() {
         <div className="hero-placeholder">
           <p className="hero-title">Ready when you are.</p>
           <p className="hero-subtitle">
-            Your score will appear here. Say the word to begin.
+            The mic is always listening — no wake word needed. Try saying:
+          </p>
+          <ul className="hero-examples">
+            <li>“metronome ninety-six”</li>
+            <li>“bump it up four” · “faster” · “slower”</li>
+            <li>“accent every three”</li>
+            <li>“stop”</li>
+          </ul>
+          <p className="hero-footnote">
+            Playing, singing, and conversation are ignored. Your score view
+            arrives in a later update.
           </p>
         </div>
       </main>
