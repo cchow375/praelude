@@ -409,12 +409,26 @@ fn route_delta(words: &[&str]) -> Option<MetroSetArgs> {
     }
 
     // Only NOW (command shape confirmed, cue present, all words in vocab) do we let
-    // a number homophone fill the number slot: "for" → "four", "to"/"too" → "two".
-    // Gating on the confirmed shape is what keeps "what is this for" (no cue) and
-    // "take two" (no direction) from ever mapping a homophone to a tempo.
+    // the sole surviving number homophone fill the number slot: "for" → "four".
+    // "to"/"too" → "two" was removed entirely — it corrupted real digit runs like
+    // "bump it up to 100" by turning "to" into "two" mid-number. "for" is kept, but
+    // ONLY maps to a number when it is the FINAL token of the command AND no
+    // genuine number was already parsed from the raw words — this is what keeps
+    // "what is this for" (no cue) and "take two" (no direction) from ever mapping
+    // a homophone to a tempo, while still catching ASR drops like "bump it up for"
+    // (→ "bump it up four").
+    let has_real_number = words.iter().any(|w| numbers::parse_number(w).is_some());
+    let last_idx = words.len() - 1;
     let mapped: Vec<&str> = words
         .iter()
-        .map(|w| homophone_number(w).unwrap_or(w))
+        .enumerate()
+        .map(|(i, w)| {
+            if !has_real_number && i == last_idx && *w == "for" {
+                homophone_number(w).unwrap_or(w)
+            } else {
+                w
+            }
+        })
         .collect();
     let mag = extract_first_number(&mapped).unwrap_or(5.0);
     Some(MetroSetArgs::delta(if dir_up { mag } else { -mag }))
@@ -436,14 +450,17 @@ fn fold_verb(w: &str) -> &str {
     }
 }
 
-/// Map a number homophone to its spelled number word. Only `for`/`to`/`too` — the
-/// homophones the on-device recognizer actually produces for `four`/`two`. The
-/// caller applies this ONLY after confirming the utterance is a complete command
-/// shape, so these common English words never become tempos in ambient speech.
+/// Map a number homophone to its spelled number word. Only `for` — the homophone
+/// the on-device recognizer actually produces for `four`. (`to`/`too` → `two` was
+/// removed: it corrupted genuine digit runs, e.g. "bump it up to 100" had its
+/// "to" rewritten to "two" and mangled the number parse.) The caller applies this
+/// ONLY after confirming the utterance is a complete command shape, AND only when
+/// `for` is the final token with no real number already present elsewhere in the
+/// words — see the call site in [`route_delta`] — so this common English word
+/// never becomes a tempo in ambient speech or steals a slot from a real number.
 fn homophone_number(w: &str) -> Option<&'static str> {
     match w {
         "for" => Some("four"),
-        "to" | "too" => Some("two"),
         _ => None,
     }
 }
@@ -646,6 +663,24 @@ mod tests {
         assert_eq!(
             r("metronome one twenty", &stopped()),
             Intent::MetroStart(Some(120.0))
+        );
+    }
+    #[test]
+    fn to_too_no_longer_map_to_two() {
+        // "to"/"too" → "two" was removed: it corrupted genuine digit runs by
+        // rewriting the "to" inside "up to 100" into "two", mangling the parse.
+        assert_eq!(r("bump it up to 100", &running()), Intent::Ignored);
+        assert_eq!(r("take it up to one forty", &running()), Intent::Ignored);
+    }
+    #[test]
+    fn for_still_maps_to_four_as_final_token() {
+        assert_eq!(
+            r("bump it up for", &running()),
+            Intent::MetroSet(MetroSetArgs::delta(4.0))
+        );
+        assert_eq!(
+            r("bumped it up for", &running()),
+            Intent::MetroSet(MetroSetArgs::delta(4.0))
         );
     }
     #[test]

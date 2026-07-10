@@ -73,6 +73,9 @@
 //! again). The one accepted tradeoff: a deliberate identical delta ("faster" then
 //! "faster") repeated in under 2.5 s is lost — judged far cheaper than a
 //! phantom double-bump on every single spoken command.
+//!
+//! the sliding window is safe ONLY because every ack closes the STT gate; if
+//! acks ever become silent, revisit
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -927,13 +930,13 @@ mod tests {
     // Task 13 fix round 1 regression tests.
     // -----------------------------------------------------------------------
 
-    /// A [`Confirm`] that sleeps ~1.8s per `say`, standing in for a real
+    /// A [`Confirm`] that sleeps ~2.8s per `say`, standing in for a real
     /// blocking `speak_blocking` confirmation cycle (synth + play + drain +
     /// 300ms tail routinely adds up to >=1.5s, i.e. >= [`DEDUP_WINDOW`]).
     struct BlockingConfirm(Arc<Recorder>);
     impl Confirm for BlockingConfirm {
         fn say(&self, text: &str) {
-            std::thread::sleep(Duration::from_millis(1800));
+            std::thread::sleep(Duration::from_millis(2800));
             self.0.said.lock().unwrap().push(text.to_string());
         }
     }
@@ -942,12 +945,21 @@ mod tests {
     fn dedup_survives_a_blocking_confirmation_speak() {
         // The bug: the old code recorded `Instant::now()` at *processing* time
         // (before speaking). By the time the second identical final was
-        // processed, the first call's ~1.8s blocking speak had already elapsed
+        // processed, the first call's blocking speak had already elapsed
         // past DEDUP_WINDOW (1.5s), so the "same text within the window" check
         // failed and the duplicate fired again (e.g. applying a tempo change
         // twice). The fix keys off `t.at` (the settler's emit timestamp)
         // instead, so what matters is how far apart the transcripts were
         // actually *heard*, not how long we spent speaking in between.
+        //
+        // The sleep here (2.8s) must exceed DEDUP_WINDOW (2.5s): this is what
+        // makes the test discriminate between a correct `t.at`-keyed dedup
+        // (still passes, since `t.at` for t2 is only 600ms after t1) and a
+        // buggy processing-time-keyed (`Instant::now()`) implementation (would
+        // fail, since by the time t2 is processed, wall-clock time since t1's
+        // recorded `Instant::now()` has already exceeded DEDUP_WINDOW). A
+        // sleep shorter than DEDUP_WINDOW would pass under either
+        // implementation and prove nothing.
         let rec = Arc::new(Recorder::default());
         let mut ctx = test_ctx(&rec);
         ctx.speaker = Box::new(BlockingConfirm(rec.clone()));

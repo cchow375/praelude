@@ -129,6 +129,8 @@ static CURRENT_HEAR_PGID: AtomicI32 = AtomicI32::new(0);
 /// uncatchable) remains the one path that still orphans `hear`; documented, and
 /// no worse than before.
 pub fn install_termination_handler() {
+    // future crates installing SIGTERM/SIGINT/SIGHUP handlers will silently
+    // replace this one — the hear-leak returns
     for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
         // Safe: registering a plain `extern "C"` handler for a catchable signal.
         unsafe {
