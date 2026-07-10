@@ -20,7 +20,12 @@
 //!   (Task 9 spike). [`SttHandle::shutdown`] SIGTERMs the child's whole process
 //!   group and reaps it (via [`std::process::Child::wait`]) so no zombie is
 //!   left behind. `shutdown` is idempotent and also runs on `Drop` as a
-//!   backstop.
+//!   backstop. For the *abnormal* exit path — a raw POSIX SIGTERM/SIGINT/SIGHUP
+//!   to the app that bypasses Tauri's graceful `CloseRequested`/`ExitRequested`
+//!   events — [`install_termination_handler`] installs an async-signal-safe
+//!   handler that kills the `hear` group before the process dies, so a killed app
+//!   never orphans `hear` (which lives in its own process group) and leaks the
+//!   microphone. Only `kill -9` (uncatchable) still orphans it.
 //!
 //! ## Transcript framing policy (is_final)
 //!
@@ -46,4 +51,7 @@
 
 mod supervisor;
 
-pub use supervisor::{DownReason, SttConfig, SttEvent, SttHandle, SttSupervisor, Transcript};
+pub use supervisor::{
+    install_termination_handler, DownReason, SttConfig, SttEvent, SttHandle, SttSupervisor,
+    Transcript,
+};

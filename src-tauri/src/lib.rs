@@ -136,6 +136,13 @@ pub fn run() {
             let stt_config = resolve_stt_config(app);
             let voice = VoiceLoop::start(&app.handle().clone(), metro, store, stt_config, wake_word);
             app.manage(voice);
+
+            // A raw POSIX SIGTERM/SIGINT/SIGHUP to the app bypasses Tauri's
+            // graceful `CloseRequested`/`ExitRequested` cleanup, which would
+            // orphan the `hear` child (it lives in its own process group) and leak
+            // the microphone. Install an async-signal-safe handler that kills the
+            // `hear` group before the process dies. See `stt::install_termination_handler`.
+            stt::install_termination_handler();
             Ok(())
         })
         // Restore the system volume on window close: a boosted volume must never

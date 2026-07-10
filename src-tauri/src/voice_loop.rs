@@ -42,39 +42,37 @@
 //! and flips a `muted` flag the action thread checks, so a stray transcript that
 //! slips through a TTS-reopened gate is still never actioned while muted.
 //!
-//! # Spurious-final dedup (with a deliberate asymmetry)
+//! # Spurious-final dedup (ONE unified rule)
 //!
-//! Task 10's framing can emit two identical finals if `hear` re-sends an identical
-//! line. The action thread drops a repeat of the *same* text within a short window
-//! — but ONLY for non-rep, non-delta intents. Rep-mode "done, done, done" repeats
-//! are REAL (three cleared reps), so [`Intent::RepCheck`] is never deduped.
+//! ## Dedup policy (Task 13 fix round 2 — empirically grounded)
 //!
-//! ## Dedup policy (Task 13 fix round 1)
+//! The Task 13 live run proved the STT engine RE-SENDS the final hypothesis
+//! 0.5–2.3 s after an utterance (measured: one spoken "done" produced identical
+//! `Done` lines at t=5.441, 5.939, 7.838). Those re-sends are byte-identical to
+//! the original and indistinguishable from a very fast human repeat. The old
+//! policy — which excluded rep checks and relative deltas from dedup — therefore
+//! DOUBLE-FIRED those intents in production (a re-sent "faster" bumped the tempo
+//! twice, a re-sent "done" cleared two reps for one).
 //!
-//! The window is keyed on the transcript's OWN emit timestamp
+//! The fix is ONE rule applied to EVERY intent (including [`Intent::RepCheck`]
+//! and relative-delta [`Intent::MetroSet`]): an identical normalized transcript
+//! within a [`DEDUP_WINDOW`] (2.5 s) of the previous occurrence of the same text
+//! is suppressed. The window is keyed on the transcript's OWN emit timestamp
 //! ([`Transcript::at`], stamped by the settler), never on `Instant::now()`
-//! re-sampled at processing time. A stop confirmation, and any other command,
-//! goes through [`Speaker::speak_blocking`], which blocks the action thread for
-//! the full gate cycle (synth + playback + 300 ms tail) — comfortably >= the
-//! 1.5 s dedup window on its own. If the second identical final were compared
-//! against `Instant::now()` sampled when *processing* it (i.e. after that
-//! blocking speak already elapsed), the elapsed time would already exceed the
-//! window and the genuine duplicate would sail through undeduped — silently
-//! defeating the entire mechanism and applying deltas (e.g. a tempo bump) twice.
-//! Keying on `t.at` instead measures the gap between when the two transcripts
-//! were actually *heard*, which is unaffected by how long we spent speaking in
-//! between.
+//! re-sampled at processing time — a prior [`Speaker::speak_blocking`] can block
+//! the action thread for the full gate cycle (synth + playback + 300 ms tail),
+//! so an `Instant::now()` re-sample would already have overrun the window and let
+//! the genuine duplicate through. The stored timestamp SLIDES forward on every
+//! matching occurrence, so a chain of re-sends (each < 2.5 s from the last) is
+//! fully collapsed even when the first and last are > 2.5 s apart.
 //!
-//! [`Intent::RepCheck`] is excluded because repeated rep-check words are
-//! genuine, distinct reps, not dedup-worthy repeats. Relative-delta
-//! [`Intent::MetroSet`] (a `bpm_delta` — "faster"/"slower"/"bump it up 4") is
-//! ALSO excluded, for a different reason: even though `t.at`-keying now lets us
-//! tell a real repeated utterance from a stale one, a delta command is
-//! *semantically* meant to apply every time it's said, no matter how close
-//! together — saying "faster" twice in a row means "faster, twice", not "faster
-//! (and the second one was noise)". Absolute/start/stop/accent commands, by
-//! contrast, are idempotent-in-intent (saying "metronome 96" twice means "96",
-//! not "192"), so dedup is safe and desired for them.
+//! Why 2.5 s is safe for reps and deltas too: a *genuine* rep is separated by
+//! actually playing the passage (≫ 2.5 s), and a *genuine* repeated delta is
+//! separated by hearing the spoken confirmation (≈ 1.5 s of speech + the 300 ms
+//! reopen tail, but typically the user waits to hear the new tempo before asking
+//! again). The one accepted tradeoff: a deliberate identical delta ("faster" then
+//! "faster") repeated in under 2.5 s is lost — judged far cheaper than a
+//! phantom double-bump on every single spoken command.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -92,8 +90,11 @@ use crate::stt::{DownReason, SttConfig, SttEvent, SttHandle, SttSupervisor, Tran
 use crate::store::Store;
 use crate::tts::{Gate, PcmSink, Speaker, SpeakerConfig};
 
-/// How long an identical final is treated as a spurious repeat (non-rep intents).
-const DEDUP_WINDOW: Duration = Duration::from_millis(1500);
+/// How long an identical final is treated as a spurious repeat. Sized to cover
+/// the STT engine's measured re-send latency (0.5–2.3 s) with margin, while
+/// staying below the gap that separates genuine repeated commands. Applies to
+/// ALL intents (see the module docs, "Dedup policy").
+const DEDUP_WINDOW: Duration = Duration::from_millis(2500);
 
 // ---------------------------------------------------------------------------
 // Seams: emit + speak, abstracted so the action logic is unit-testable without a
@@ -199,22 +200,29 @@ impl ActionCtx {
             return; // ambient speech: no event, no action
         }
 
-        // Spurious-final dedup — see the module docs ("Dedup policy") for the
-        // full rationale. Excluded: rep checks (real repeats) and relative-delta
-        // MetroSet (meant to re-fire every time it's said). Keyed on `t.at` (the
-        // settler's own emit timestamp), NOT `Instant::now()` sampled here — by
-        // the time we get here a prior blocking speak may already have eaten the
-        // whole dedup window, which would make a stale re-sample never catch the
-        // duplicate.
-        let is_delta = matches!(&intent, Intent::MetroSet(args) if args.bpm_delta.is_some());
-        if !matches!(intent, Intent::RepCheck(..)) && !is_delta {
-            let norm: String = t.text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
-            if let Some((prev, at)) = &self.last {
-                if *prev == norm && t.at.saturating_duration_since(*at) < DEDUP_WINDOW {
-                    return;
-                }
-            }
-            self.last = Some((norm, t.at));
+        // Spurious-final dedup — ONE rule for EVERY intent (see the module docs,
+        // "Dedup policy"). The STT engine re-sends an identical final 0.5–2.3 s
+        // after an utterance, so an identical normalized transcript within
+        // DEDUP_WINDOW of the previous occurrence of the same text is a re-send,
+        // not a genuine repeat, and is dropped — reps and deltas included. Keyed
+        // on `t.at` (the settler's own emit timestamp), NOT `Instant::now()`
+        // sampled here: a prior blocking speak may already have eaten the whole
+        // window, which would make a stale re-sample never catch the duplicate.
+        // The stored timestamp slides forward on every match so a chain of
+        // re-sends (each < window from the last) collapses fully.
+        let norm: String = t
+            .text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        let suppress = self
+            .last
+            .as_ref()
+            .is_some_and(|(prev, at)| *prev == norm && t.at.saturating_duration_since(*at) < DEDUP_WINDOW);
+        self.last = Some((norm, t.at));
+        if suppress {
+            return;
         }
 
         match intent {
@@ -880,15 +888,39 @@ mod tests {
     }
 
     #[test]
-    fn rep_repeats_are_not_deduped() {
+    fn rep_repeats_within_window_are_deduped() {
+        // Fix round 2: rep checks are NO LONGER exempt from dedup. The STT
+        // engine re-sends an identical "done" 0.5–2.3 s later, which the old
+        // exempt-reps policy double-counted. A genuine second rep is separated
+        // by actually playing the passage (≫ 2.5 s), so keying on `t.at` and
+        // applying the one unified rule collapses only the re-sends.
         let rec = Arc::new(Recorder::default());
         let mut ctx = test_ctx(&rec);
         ctx.rep_active = true;
-        ctx.handle_final(&final_t("done"));
-        ctx.handle_final(&final_t("done"));
-        ctx.handle_final(&final_t("done"));
-        // Three real reps → three acknowledgements (asymmetry vs non-rep dedup).
-        assert_eq!(rec.said.lock().unwrap().len(), 3);
+
+        // Three "done" finals within the 2.5 s window (a re-send burst) → ONE ack.
+        let base = Instant::now();
+        for off in [0u64, 500, 1900] {
+            let mut t = final_t("done");
+            t.at = base + Duration::from_millis(off);
+            ctx.handle_final(&t);
+        }
+        assert_eq!(
+            rec.said.lock().unwrap().len(),
+            1,
+            "a re-send burst of identical reps within the window counts once"
+        );
+
+        // A genuine second rep, heard well after the passage was played (> 2.5 s
+        // past the last occurrence), fires again.
+        let mut t = final_t("done");
+        t.at = base + Duration::from_millis(1900 + 3000);
+        ctx.handle_final(&t);
+        assert_eq!(
+            rec.said.lock().unwrap().len(),
+            2,
+            "a genuine rep after > 2.5 s fires as a distinct rep"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -936,24 +968,33 @@ mod tests {
     }
 
     #[test]
-    fn delta_intents_bypass_dedup_even_when_repeated_quickly() {
-        // Relative-delta commands ("faster"/"slower"/bump-by-N) are excluded
-        // from dedup entirely: saying "faster" twice means "faster, twice", so
-        // it must always fire, even within the dedup window.
+    fn delta_intents_are_deduped_within_window_and_pass_after() {
+        // Fix round 2: relative-delta commands are NO LONGER exempt from dedup.
+        // A re-sent "faster" within the window would otherwise double-bump the
+        // tempo; the accepted tradeoff is that a deliberate identical delta
+        // repeated in < 2.5 s is lost. Outside the window, it fires again.
         let rec = Arc::new(Recorder::default());
         let mut ctx = test_ctx(&rec);
 
         let t1 = final_t("faster");
         let mut t2 = final_t("faster");
-        t2.at = t1.at + Duration::from_millis(50); // well inside DEDUP_WINDOW
-
+        t2.at = t1.at + Duration::from_millis(50); // well inside DEDUP_WINDOW (a re-send)
         ctx.handle_final(&t1);
         ctx.handle_final(&t2);
+        assert_eq!(
+            rec.said.lock().unwrap().len(),
+            1,
+            "a re-sent identical delta within 2.5 s is suppressed (no phantom double-bump)"
+        );
 
+        // A genuine repeat spoken > 2.5 s later fires again.
+        let mut t3 = final_t("faster");
+        t3.at = t1.at + Duration::from_millis(3000);
+        ctx.handle_final(&t3);
         assert_eq!(
             rec.said.lock().unwrap().len(),
             2,
-            "delta commands ('faster') fire every time, dedup window notwithstanding"
+            "an identical delta heard > 2.5 s later is a genuine new command"
         );
     }
 

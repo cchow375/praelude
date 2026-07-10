@@ -371,14 +371,24 @@ fn route_delta(words: &[&str]) -> Option<MetroSetArgs> {
         "bump", "speed", "slow", "take", "bring", "knock", "push", "faster", "slower", "quicker",
         "it", "up", "down", "by", "tempo", "the", "a", "please", "notch", "bit", "little",
     ];
-    // Command-shape gate: short, and every non-number word is delta vocabulary.
+    // ASR-ism fold (fix round 2): the on-device recognizer transcribes some verbs
+    // as their past tense ("bump it up four" → "Bumped it up for"). Fold ONLY the
+    // past-tense forms of verbs already in the delta vocabulary back to the base
+    // verb — this can never admit a new word, so the firewall is unchanged.
+    let words: Vec<&str> = words.iter().map(|w| fold_verb(w)).collect();
+    let words: &[&str] = &words;
+
+    // Command-shape gate: short, and every non-number word is delta vocabulary (or
+    // a number homophone in the number slot — see `homophone_number`).
     if words.is_empty() || words.len() > 6 {
         return None;
     }
-    if !words
-        .iter()
-        .all(|w| VOCAB.contains(w) || *w == "and" || numbers::parse_number(w).is_some())
-    {
+    if !words.iter().all(|w| {
+        VOCAB.contains(w)
+            || *w == "and"
+            || numbers::parse_number(w).is_some()
+            || homophone_number(w).is_some()
+    }) {
         return None;
     }
 
@@ -398,8 +408,44 @@ fn route_delta(words: &[&str]) -> Option<MetroSetArgs> {
         return None;
     }
 
-    let mag = extract_first_number(words).unwrap_or(5.0);
+    // Only NOW (command shape confirmed, cue present, all words in vocab) do we let
+    // a number homophone fill the number slot: "for" → "four", "to"/"too" → "two".
+    // Gating on the confirmed shape is what keeps "what is this for" (no cue) and
+    // "take two" (no direction) from ever mapping a homophone to a tempo.
+    let mapped: Vec<&str> = words
+        .iter()
+        .map(|w| homophone_number(w).unwrap_or(w))
+        .collect();
+    let mag = extract_first_number(&mapped).unwrap_or(5.0);
     Some(MetroSetArgs::delta(if dir_up { mag } else { -mag }))
+}
+
+/// Fold a past-tense ASR mis-transcription back to the base verb, but ONLY for
+/// verbs already in the delta vocabulary. Returns the input unchanged otherwise,
+/// so this never introduces a token the firewall would not already accept.
+fn fold_verb(w: &str) -> &str {
+    match w {
+        "bumped" => "bump",
+        "sped" | "speeded" => "speed",
+        "slowed" => "slow",
+        "took" => "take",
+        "brought" => "bring",
+        "knocked" => "knock",
+        "pushed" => "push",
+        other => other,
+    }
+}
+
+/// Map a number homophone to its spelled number word. Only `for`/`to`/`too` — the
+/// homophones the on-device recognizer actually produces for `four`/`two`. The
+/// caller applies this ONLY after confirming the utterance is a complete command
+/// shape, so these common English words never become tempos in ambient speech.
+fn homophone_number(w: &str) -> Option<&'static str> {
+    match w {
+        "for" => Some("four"),
+        "to" | "too" => Some("two"),
+        _ => None,
+    }
 }
 
 /// Find the first contiguous number-word run in `words` and parse it.
@@ -586,6 +632,32 @@ mod tests {
             r("take it up a notch", &running()),
             Intent::MetroSet(MetroSetArgs::delta(5.0))
         );
+    }
+    #[test]
+    fn asr_ism_folding_and_homophone_number() {
+        // "bump it up four" is transcribed by the on-device recognizer as
+        // "Bumped it up for": past-tense verb fold (bumped→bump) + number
+        // homophone in the number slot (for→4).
+        assert_eq!(
+            r("bumped it up for", &running()),
+            Intent::MetroSet(MetroSetArgs::delta(4.0))
+        );
+        // Compact-hundreds already handles the absolute-tempo ASR shape.
+        assert_eq!(
+            r("metronome one twenty", &stopped()),
+            Intent::MetroStart(Some(120.0))
+        );
+    }
+    #[test]
+    fn asr_ism_folding_does_not_weaken_firewall() {
+        // Homophones only map inside a confirmed command shape; verb folds only
+        // apply to known vocab verbs. None of these are commands.
+        assert_eq!(r("what is this for", &running()), Intent::Ignored);
+        assert_eq!(r("what is this for", &stopped()), Intent::Ignored);
+        assert_eq!(r("I bumped into her", &running()), Intent::Ignored);
+        assert_eq!(r("I bumped into her", &stopped()), Intent::Ignored);
+        assert_eq!(r("take two", &running()), Intent::Ignored, "no direction cue");
+        assert_eq!(r("take two", &stopped()), Intent::Ignored, "no direction cue");
     }
     #[test]
     fn accent_every_n() {

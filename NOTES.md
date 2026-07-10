@@ -413,3 +413,54 @@ model download (worked instantly once Dictation was enabled).
 
 **Available audio input:** `1. MacBook Air Microphone (ID: BuiltInMicrophoneDevice)`
 (via `-a`; pass to `-n` if selecting a specific device).
+
+### Task 13 fix round 2 — LIVE mic framing VERIFIED (corrects the Task 9 `-m` guidance)
+
+The Task 9 spike deferred live streaming framing; Task 13 obtained it with a human/`say`
+voice at the mic. **Ground-truth findings on this Mac (macOS 15, M2):**
+
+- **DO NOT pass `-m`.** `-m` ("single-line output mode") streams progressive hypotheses
+  separated by `\r` + ANSI `ESC[2K` with **ZERO newlines**, so a line-based reader never
+  completes a line and **no transcript is ever delivered** — the voice loop is DEAD with
+  `-m`. Task 9's recommendation to use `-m` was wrong for a piped line reader; it is
+  removed from `SttConfig::hear` (now just `-d -l en-US`). Raw capture:
+  `scratchpad/hear-noline.txt` (without -m) vs the `-m` single-line stream.
+- **Without `-m`: clean `\n`-framed lines, one progressive hypothesis per line.** e.g.
+  `Natural\nMetronome\nMetronome 90\nMetronome 96\n`. Spoken numbers come back as digits
+  ("ninety six" → `Metronome 96`). The settler collapses the prefix-growth chain and
+  finalizes the last hypothesis on the 600 ms settle gap.
+- **stdout line-buffers PROMPTLY even on a plain pipe (no `stdbuf`).** Empirically probed
+  `hear -d -l en-US | while read` (NO stdbuf, NO `-m`): lines arrived in real time DURING
+  the session (timestamps ~200 ms apart as the hypothesis grew), NOT withheld until exit.
+  So `stdbuf` is **not required**. `use_stdbuf` is left `true` as harmless insurance
+  (stdbuf is present here at `/opt/homebrew/bin/stdbuf` and execs `hear`, so pid/SIGTERM
+  semantics are unchanged); the probe-and-degrade path already covers its absence.
+- **The engine RE-SENDS the final hypothesis 0.5–2.3 s later** (measured: `Metronome 96`
+  at t=370.942 and again 372.741 = 1.8 s; `Stop` at 375.342 and 376.943 = 1.6 s;
+  `scratchpad/hear-timed.txt` shows `Done` re-sent at 5.441/5.939/7.838). Byte-identical to
+  the original, indistinguishable from a fast human repeat → handled by the unified 2.5 s
+  dedup in `voice_loop` (keyed on `Transcript::at`, sliding). See `voice_loop.rs` module docs.
+- **ASR-isms:** "bump it up four" → `Bumped it up for` (past-tense verb + number homophone);
+  handled by verb folding (`bumped`→`bump`) + number-slot homophone mapping (`for`→4,
+  `to`/`too`→2) in `intent::route_delta`, gated on a confirmed command shape so the firewall
+  is unweakened.
+- **Zombie-`hear`-on-signal fix (found by Task 13 step 8).** A raw POSIX SIGTERM to the
+  app (e.g. `kill <pid>`, a service manager stopping it, terminal SIGINT) terminates the
+  Tauri process WITHOUT firing `CloseRequested`/`ExitRequested`, so `VoiceLoop::shutdown`
+  never runs and the `hear` child — deliberately in its OWN process group — is orphaned to
+  `launchd`, leaking a process that holds the mic (verified: after `kill <app>`, `hear`
+  survived with PPID 1). Fixed with `stt::install_termination_handler()`: an
+  async-signal-safe handler for SIGTERM/SIGINT/SIGHUP that reads a lock-free global mirror
+  of the live `hear` pgid (`CURRENT_HEAR_PGID`, written by the manager on spawn/reap),
+  `killpg`s it, then restores SIG_DFL and re-raises so the app dies normally. `kill -9`
+  (uncatchable) is the one remaining path that can orphan `hear` — same limitation class as
+  the boost-volume `Drop` caveat.
+- **Observed minor framing artifact (documented, not fixed):** a non-prefix revision in the
+  progressive chain (`Metronome 90` → `Metronome 96`, 213 ms apart, faster than the 600 ms
+  settle) makes the settler finalize the intermediate `Metronome 90` as its own final before
+  `Metronome 96`. The metronome briefly starts at 90 then corrects to 96 (final tempo is
+  correct). This is the progressive-revision case, DISTINCT from re-sends (different text, so
+  dedup does not and should not collapse it). Settle policy left as-is per the Task 13 brief
+  ("prefer leaving equal-repeat two-finals since voice_loop now suppresses"); collapsing
+  fast revisions safely would risk merging genuine back-to-back distinct commands, so it was
+  judged out of scope for this fix.

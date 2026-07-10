@@ -6,7 +6,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -73,18 +73,23 @@ pub struct SttConfig {
 impl SttConfig {
     /// Production config for the vendored `hear` binary.
     ///
-    /// Flags mirror the Task 9 spike recommendation: `-d` on-device (offline +
-    /// private), `-l en-US` locale, `-m` single-line mic mode (one line per
-    /// settled utterance). `use_stdbuf` *requests* wrapping in `stdbuf -oL` as
-    /// insurance against block-buffered stdout when piped — but it is optional:
-    /// `stdbuf` is a Homebrew (coreutils) binary that may be absent, so the
-    /// supervisor probes for it once and degrades to a direct `hear` spawn if it
-    /// is missing (see [`run_manager`] / [`spawn_child`]). `stdbuf` execs the
-    /// target so, when used, the child pid is still `hear` and SIGTERM stays clean.
+    /// Flags: `-d` on-device (offline + private), `-l en-US` locale. **`-m` is
+    /// deliberately OMITTED** — the Task 13 live acceptance run proved `-m`
+    /// ("single-line output mode") is fatal: it streams progressive hypotheses
+    /// separated by `\r` + ANSI `ESC[2K` with ZERO newlines, so the line-based
+    /// reader never completes a line and NO transcript is ever delivered. Without
+    /// `-m`, `hear` frames one hypothesis per line with clean `\n` newlines (the
+    /// settler collapses the progressive chain into finals). See NOTES "hear CLI
+    /// facts". `use_stdbuf` *requests* wrapping in `stdbuf -oL` as insurance
+    /// against block-buffered stdout when piped — but it is optional: `stdbuf` is
+    /// a Homebrew (coreutils) binary that may be absent, so the supervisor probes
+    /// for it once and degrades to a direct `hear` spawn if it is missing (see
+    /// [`run_manager`] / [`spawn_child`]). `stdbuf` execs the target so, when
+    /// used, the child pid is still `hear` and SIGTERM stays clean.
     pub fn hear(binary: PathBuf) -> Self {
         SttConfig {
             binary,
-            args: ["-d", "-l", "en-US", "-m"]
+            args: ["-d", "-l", "en-US"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
@@ -99,6 +104,54 @@ impl SttConfig {
 }
 
 type Sink = Arc<dyn Fn(SttEvent) + Send + Sync + 'static>;
+
+/// The process-group id of the currently-live `hear` child, mirrored into a
+/// lock-free atomic so an async-signal-safe termination handler can reach it
+/// WITHOUT taking the `SttHandle`'s mutex (forbidden in a signal handler). `0`
+/// means "no live child". There is exactly one voice loop / one supervisor per
+/// process, so a single global mirror is sufficient. Written by [`run_manager`]
+/// on every spawn/reap; read by [`term_signal_handler`].
+static CURRENT_HEAR_PGID: AtomicI32 = AtomicI32::new(0);
+
+/// Install an async-signal-safe handler for SIGTERM/SIGINT/SIGHUP that kills the
+/// live `hear` process group before the process dies.
+///
+/// The graceful teardown paths ([`SttHandle::shutdown`] via Tauri's
+/// `CloseRequested`/`ExitRequested`) already SIGTERM the `hear` group and reap it.
+/// But a *raw POSIX signal* to the app (e.g. `kill <pid>`, a supervisor stopping
+/// the service, a terminal SIGINT) bypasses the Tauri event loop entirely, so
+/// those handlers never run and `hear` — which lives in its OWN process group —
+/// is orphaned to `launchd`, leaking a process that holds the microphone. This
+/// handler closes that gap: it `killpg`s the mirrored `hear` pgid, restores the
+/// signal's default disposition, and re-raises so the process still dies with the
+/// correct exit status. Everything it does (atomic load, `killpg`, `signal`,
+/// `raise`) is async-signal-safe — no locks, no allocation. A `kill -9` (SIGKILL,
+/// uncatchable) remains the one path that still orphans `hear`; documented, and
+/// no worse than before.
+pub fn install_termination_handler() {
+    for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        // Safe: registering a plain `extern "C"` handler for a catchable signal.
+        unsafe {
+            libc::signal(sig, term_signal_handler as *const () as libc::sighandler_t);
+        }
+    }
+}
+
+/// The signal handler itself. MUST stay async-signal-safe.
+extern "C" fn term_signal_handler(sig: libc::c_int) {
+    let pgid = CURRENT_HEAR_PGID.load(Ordering::Acquire);
+    if pgid != 0 {
+        // SIGTERM the hear group (hear ignores SIGINT but exits on SIGTERM).
+        unsafe {
+            libc::killpg(pgid, libc::SIGTERM);
+        }
+    }
+    // Restore default disposition and re-raise so the process dies normally.
+    unsafe {
+        libc::signal(sig, libc::SIG_DFL);
+        libc::raise(sig);
+    }
+}
 
 /// Handle to a running supervisor: toggle the gate, or shut it all down.
 pub struct SttHandle {
@@ -270,6 +323,8 @@ fn run_manager(
 
         let child_pgid = child.id() as i32;
         *pgid_slot.lock().unwrap() = Some(child_pgid);
+        // Mirror into the lock-free global so the signal handler can reach it.
+        CURRENT_HEAR_PGID.store(child_pgid, Ordering::Release);
         // Close the shutdown race: if shutdown was requested after our top-of-loop
         // check but before we published the pgid, signal ourselves so wait()
         // returns instead of blocking forever.
@@ -304,6 +359,14 @@ fn run_manager(
         // Forget the pgid the instant the child is reaped, shrinking the window in
         // which shutdown could signal a pgid the OS has recycled onto a new process.
         *pgid_slot.lock().unwrap() = None;
+        // Only clear the global mirror if it still points at THIS child (a fresh
+        // spawn in a racing iteration may already have overwritten it).
+        let _ = CURRENT_HEAR_PGID.compare_exchange(
+            child_pgid,
+            0,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        );
         let _ = reader.join();
         let stderr_text = stderr_reader.join().unwrap_or_default();
 
@@ -437,6 +500,37 @@ fn spawn_inner(config: &SttConfig, wrap_stdbuf: bool) -> std::io::Result<Child> 
     cmd.spawn()
 }
 
+/// Strip ANSI CSI escape sequences (`ESC [ … final-byte`) and carriage returns
+/// from a raw line, then trim. Defensive/future-proof: without `-m` the framing
+/// is clean `\n`-terminated lines, but a stray `\r` (progressive rewrite) or an
+/// `ESC[2K` erase sequence must never leak into a transcript or the router. Cheap
+/// — a single pass, allocates only the cleaned string.
+fn sanitize_line(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            // ESC: consume a CSI sequence — optional '[' then bytes up to and
+            // including the first final byte in 0x40..=0x7e.
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&nc) = chars.peek() {
+                    chars.next();
+                    if ('\u{40}'..='\u{7e}').contains(&nc) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if c == '\r' {
+            continue;
+        }
+        out.push(c);
+    }
+    out.trim().to_string()
+}
+
 /// Read stdout line by line. Each non-empty line, when the gate is open, is
 /// forwarded to the settler. When the gate is closed the line is DROPPED here —
 /// the hot-path check is a single `Acquire` atomic load, no lock.
@@ -448,14 +542,14 @@ fn read_lines(stdout: impl Read, gate: Arc<AtomicBool>, line_tx: mpsc::Sender<St
         match reader.read_line(&mut line) {
             Ok(0) => break, // EOF: child closed stdout / exited
             Ok(_) => {
-                let text = line.trim();
+                let text = sanitize_line(&line);
                 if text.is_empty() {
                     continue;
                 }
                 if !gate.load(Ordering::Acquire) {
                     continue; // gate closed: drop, do not buffer
                 }
-                if line_tx.send(text.to_string()).is_err() {
+                if line_tx.send(text).is_err() {
                     break; // settler gone
                 }
             }
@@ -707,6 +801,20 @@ mod tests {
             })
             .collect();
         assert_eq!(finals, vec!["done", "done"]);
+    }
+
+    // Defensive line sanitization: strip CR and ANSI CSI, keep the text.
+    #[test]
+    fn sanitize_strips_cr_and_ansi_csi() {
+        assert_eq!(sanitize_line("Bumped it up for\r\n"), "Bumped it up for");
+        assert_eq!(sanitize_line("\u{1b}[2KMetronome 120"), "Metronome 120");
+        assert_eq!(
+            sanitize_line("\rDone\u{1b}[2K"),
+            "Done",
+            "leading CR + trailing erase both stripped"
+        );
+        assert_eq!(sanitize_line("plain"), "plain");
+        assert_eq!(sanitize_line("  \r\u{1b}[2K  "), "", "control-only line collapses to empty");
     }
 
     // is_config_error latches ONLY on Code=201, not on other kLSR errors.
