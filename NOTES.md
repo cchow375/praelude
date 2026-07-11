@@ -517,3 +517,27 @@ voice at the mic. **Ground-truth findings on this Mac (macOS 15, M2):**
   ("prefer leaving equal-repeat two-finals since voice_loop now suppresses"); collapsing
   fast revisions safely would risk merging genuine back-to-back distinct commands, so it was
   judged out of scope for this fix.
+
+- **Ship-smoke discoveries (v0.2.0, 2026-07-10, controller live-tested):**
+  - **AppleEvent quit (`osascript 'quit app'`) does NOT deliver `RunEvent::ExitRequested`**
+    (nor any POSIX signal) on this Tauri v2 / macOS 15 setup — the run-loop cleanup arm
+    never fires on that path. Verified by direct stderr capture: no panic, no output, hear
+    orphaned (held the mic until an eventual SIGPIPE), boosted volume stranded at 85, open
+    session left unended. Fix: `libc::atexit` backstop (runs on every normal exit incl.
+    NSApp terminate) that kills the hear process group (shared fn with the signal handler,
+    async-signal-safe) + restores the pre-boost volume via a lock-free mirrored global
+    (`sysvol::STRANDED_SAVED`). Sessions are deliberately left open on that path — the
+    next launch adopts them (`latest_open_session`) and exports on the next graceful end.
+    Window-close (`CloseRequested`) now also runs `end_and_export` (it was shutdown-only).
+  - **Rebuild/reinstall invalidates TCC** (ad-hoc signing → new cdhash): after a ditto
+    reinstall, `open -a` launches got silent mic denial (hear alive, zero transcripts, no
+    error), while terminal-launched instances inherited the terminal's grant and worked —
+    diagnose exactly this way before blaming the pipeline. Resolution: `tccutil reset
+    Microphone com.christian.codakiller` + `tccutil reset SpeechRecognition …` → the app
+    freshly prompts on next launch (user clicks Allow twice). Expect this after EVERY
+    rebuild that gets installed.
+  - **`say`-through-speakers recognition is volume-marginal** (the −34 dB loopback): at
+    output volume 50 commands land intermittently; the earlier P2-era harness runs
+    coincidentally benefited from a stranded boost volume of 85. For future self-tests,
+    set output volume ≥75 before driving the app with `say`, and expect flakiness — a
+    human voice at the piano is a far stronger signal than this harness.
