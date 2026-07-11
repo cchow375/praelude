@@ -67,6 +67,7 @@ pub mod gemini;
 pub mod say;
 
 use std::fmt;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -124,6 +125,102 @@ pub type Result<T> = std::result::Result<T, TtsError>;
 pub trait TtsProvider: Send + Sync {
     /// Synthesize `text` into mono PCM. Blocking; runs on the worker thread.
     fn synth(&self, text: &str) -> Result<Pcm>;
+}
+
+/// Default number of *consecutive* primary failures after which the primary
+/// provider is abandoned for the rest of the process lifetime.
+const DEFAULT_FAIL_THRESHOLD: u32 = 2;
+
+/// A [`TtsProvider`] that speaks through a `primary` provider but **falls back**
+/// to a `fallback` provider whenever the primary fails — so an utterance is never
+/// silently dropped just because (e.g.) the Gemini network call errored.
+///
+/// This wraps at the *provider* layer, entirely inside [`TtsProvider::synth`],
+/// which runs in the [`Speaker`] worker's **step 1 — with the half-duplex gate
+/// still OPEN** (see the module docs). A synth failure here therefore behaves
+/// exactly like any other synth failure: it happens before the gate is ever
+/// touched, so the load-bearing gate ordering in [`speak_once`] is completely
+/// unaffected. `FallbackTts` never enqueues PCM or touches the gate itself.
+///
+/// Policy (per utterance):
+/// * If the primary is still enabled, try it first. On success the consecutive-
+///   failure counter is reset to 0.
+/// * On a primary failure the counter increments and we *immediately* try the
+///   fallback (the user still hears the ack).
+/// * After [`threshold`](FallbackTts::with_threshold) **consecutive** primary
+///   failures the primary is disabled for the rest of the process lifetime (a
+///   dead network / bad key won't recover mid-session, and retrying it every
+///   utterance would add a pointless timeout before every ack). This transition
+///   is logged exactly once.
+pub struct FallbackTts {
+    primary: Box<dyn TtsProvider>,
+    fallback: Box<dyn TtsProvider>,
+    /// Count of consecutive primary failures (reset to 0 on any primary success).
+    primary_fails: AtomicU32,
+    /// Latched true once `primary_fails` reaches `threshold`; the primary is then
+    /// never called again.
+    primary_disabled: AtomicBool,
+    threshold: u32,
+}
+
+impl FallbackTts {
+    /// Wrap `primary` with a `fallback`, using the default failure threshold (2).
+    pub fn new(primary: Box<dyn TtsProvider>, fallback: Box<dyn TtsProvider>) -> FallbackTts {
+        FallbackTts::with_threshold(primary, fallback, DEFAULT_FAIL_THRESHOLD)
+    }
+
+    /// Wrap with an explicit consecutive-failure `threshold` (`>= 1`). Used by
+    /// tests; production uses [`FallbackTts::new`].
+    pub fn with_threshold(
+        primary: Box<dyn TtsProvider>,
+        fallback: Box<dyn TtsProvider>,
+        threshold: u32,
+    ) -> FallbackTts {
+        FallbackTts {
+            primary,
+            fallback,
+            primary_fails: AtomicU32::new(0),
+            primary_disabled: AtomicBool::new(false),
+            threshold: threshold.max(1),
+        }
+    }
+}
+
+impl TtsProvider for FallbackTts {
+    fn synth(&self, text: &str) -> Result<Pcm> {
+        // The Speaker worker is the only caller and processes utterances strictly
+        // serially, so these atomics never actually race; they are atomics only
+        // because `TtsProvider` is `Sync`.
+        if !self.primary_disabled.load(Ordering::Acquire) {
+            match self.primary.synth(text) {
+                Ok(pcm) => {
+                    self.primary_fails.store(0, Ordering::Release);
+                    return Ok(pcm);
+                }
+                Err(e) => {
+                    let fails = self.primary_fails.fetch_add(1, Ordering::AcqRel) + 1;
+                    eprintln!(
+                        "tts: primary provider failed ({fails}/{}); using fallback: {e}",
+                        self.threshold
+                    );
+                    if fails >= self.threshold
+                        && !self.primary_disabled.swap(true, Ordering::AcqRel)
+                    {
+                        // Log the permanent-disable transition exactly once.
+                        eprintln!(
+                            "tts: primary provider disabled after {} consecutive failures; \
+                             using the fallback provider for the rest of this session",
+                            self.threshold
+                        );
+                    }
+                }
+            }
+        }
+        // Fallback path (primary just failed, or was already disabled). If the
+        // fallback also fails, that error propagates to the Speaker, which logs it
+        // — the utterance is dropped only when BOTH providers fail.
+        self.fallback.synth(text)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -437,11 +534,19 @@ pub fn select_provider(
     match decide_provider(provider_override.as_deref(), has_key, has_network) {
         ProviderKind::Gemini => {
             // has_key is true here (decide_provider guarantees it), so unwrap is safe.
-            Box::new(gemini::GeminiTts::new(
+            // Wrap Gemini in a runtime fallback to `say`: if a Gemini synth fails
+            // mid-session (network drop, API error), the utterance is still spoken
+            // via the always-available `say`, and after repeated failures Gemini is
+            // abandoned so acks stop paying a network timeout. The wrapper is a
+            // plain TtsProvider, so the Speaker's half-duplex gate logic is
+            // untouched (the fallback attempt happens in synth, gate still OPEN).
+            let primary = Box::new(gemini::GeminiTts::new(
                 key.expect("key present for gemini"),
                 model,
                 voice,
-            ))
+            ));
+            let fallback = Box::new(say::SayTts::new());
+            Box::new(FallbackTts::new(primary, fallback))
         }
         ProviderKind::Say => Box::new(say::SayTts::new()),
     }
@@ -466,6 +571,150 @@ fn network_available() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::Arc;
+
+    /// A fake provider whose per-call outcome is scripted, counting how many times
+    /// it was actually invoked so a test can assert the primary is (or is not)
+    /// called.
+    struct FakeProvider {
+        /// One entry per expected call: `true` => succeed, `false` => fail. Calls
+        /// beyond the script reuse the last entry.
+        script: Vec<bool>,
+        calls: AtomicUsize,
+        tag: &'static str,
+    }
+
+    impl FakeProvider {
+        fn new(tag: &'static str, script: Vec<bool>) -> Arc<FakeProvider> {
+            Arc::new(FakeProvider {
+                script,
+                calls: AtomicUsize::new(0),
+                tag,
+            })
+        }
+        fn call_count(&self) -> usize {
+            self.calls.load(Ordering::Acquire)
+        }
+    }
+
+    impl TtsProvider for Arc<FakeProvider> {
+        fn synth(&self, _text: &str) -> Result<Pcm> {
+            let n = self.calls.fetch_add(1, Ordering::AcqRel);
+            let ok = *self.script.get(n).or_else(|| self.script.last()).unwrap_or(&true);
+            if ok {
+                Ok(Pcm {
+                    rate: 24_000,
+                    // A distinct sample per provider so a test can tell them apart.
+                    mono_f32: vec![if self.tag == "primary" { 1.0 } else { -1.0 }],
+                })
+            } else {
+                Err(TtsError::Transport(format!("{} scripted failure", self.tag)))
+            }
+        }
+    }
+
+    fn is_fallback(pcm: &Pcm) -> bool {
+        pcm.mono_f32 == vec![-1.0f32]
+    }
+
+    // Step 1: primary fails once => fallback used, and the consecutive-failure
+    // counter reflects that one failure (still 1, below the threshold of 2, so the
+    // primary is NOT yet disabled).
+    #[test]
+    fn fallback_used_on_single_primary_failure() {
+        let primary = FakeProvider::new("primary", vec![false, true]);
+        let fallback = FakeProvider::new("fallback", vec![true]);
+        let fb = FallbackTts::with_threshold(
+            Box::new(primary.clone()),
+            Box::new(fallback.clone()),
+            2,
+        );
+
+        let pcm = fb.synth("hi").expect("fallback covers the failed primary");
+        assert!(is_fallback(&pcm), "utterance should be spoken by the fallback");
+        assert_eq!(primary.call_count(), 1, "primary was tried once");
+        assert_eq!(fallback.call_count(), 1, "fallback was used once");
+        assert_eq!(fb.primary_fails.load(Ordering::Acquire), 1, "one consecutive fail");
+        assert!(
+            !fb.primary_disabled.load(Ordering::Acquire),
+            "one failure (< threshold 2) must not disable the primary"
+        );
+    }
+
+    // Step 1: a primary SUCCESS after a failure resets the consecutive-failure
+    // counter, so an intermittent blip never accumulates toward the disable
+    // threshold.
+    #[test]
+    fn primary_success_resets_the_fail_counter() {
+        // fail, then succeed, then fail again.
+        let primary = FakeProvider::new("primary", vec![false, true, false]);
+        let fallback = FakeProvider::new("fallback", vec![true]);
+        let fb = FallbackTts::with_threshold(
+            Box::new(primary.clone()),
+            Box::new(fallback.clone()),
+            2,
+        );
+
+        // 1st: primary fails -> counter 1, fallback used.
+        assert!(is_fallback(&fb.synth("a").unwrap()));
+        assert_eq!(fb.primary_fails.load(Ordering::Acquire), 1);
+        // 2nd: primary succeeds -> counter reset to 0.
+        let pcm = fb.synth("b").unwrap();
+        assert!(!is_fallback(&pcm), "primary spoke this one");
+        assert_eq!(fb.primary_fails.load(Ordering::Acquire), 0, "success resets");
+        // 3rd: primary fails again -> counter 1, NOT 2 (reset happened), primary
+        // still enabled.
+        assert!(is_fallback(&fb.synth("c").unwrap()));
+        assert_eq!(fb.primary_fails.load(Ordering::Acquire), 1);
+        assert!(!fb.primary_disabled.load(Ordering::Acquire));
+    }
+
+    // Step 1: after 2 CONSECUTIVE primary failures the primary is disabled for the
+    // rest of the process — it is never called again, even though later calls
+    // would have "succeeded" per its script.
+    #[test]
+    fn primary_disabled_after_threshold_consecutive_failures() {
+        // Script says the primary would succeed from the 3rd call on, but it must
+        // never be reached.
+        let primary = FakeProvider::new("primary", vec![false, false, true, true]);
+        let fallback = FakeProvider::new("fallback", vec![true]);
+        let fb = FallbackTts::with_threshold(
+            Box::new(primary.clone()),
+            Box::new(fallback.clone()),
+            2,
+        );
+
+        assert!(is_fallback(&fb.synth("1").unwrap())); // fail 1
+        assert!(is_fallback(&fb.synth("2").unwrap())); // fail 2 -> disabled
+        assert!(fb.primary_disabled.load(Ordering::Acquire), "disabled at threshold");
+
+        // Two more utterances: the primary must NOT be called again.
+        assert!(is_fallback(&fb.synth("3").unwrap()));
+        assert!(is_fallback(&fb.synth("4").unwrap()));
+        assert_eq!(
+            primary.call_count(),
+            2,
+            "primary must never be called after it is disabled"
+        );
+        assert_eq!(fallback.call_count(), 4, "fallback carries every utterance");
+    }
+
+    // When BOTH providers fail, the error propagates (the Speaker logs it); the
+    // utterance is only dropped if neither backend can synthesize it.
+    #[test]
+    fn both_failing_propagates_error() {
+        let primary = FakeProvider::new("primary", vec![false]);
+        let fallback = FakeProvider::new("fallback", vec![false]);
+        let fb = FallbackTts::with_threshold(
+            Box::new(primary.clone()),
+            Box::new(fallback.clone()),
+            2,
+        );
+        assert!(fb.synth("x").is_err(), "no backend could synthesize");
+        assert_eq!(primary.call_count(), 1);
+        assert_eq!(fallback.call_count(), 1);
+    }
 
     #[test]
     fn decide_override_say_always_say() {
