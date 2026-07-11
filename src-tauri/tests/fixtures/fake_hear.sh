@@ -42,6 +42,13 @@ if [ "$MODE" = "config-error" ]; then
   exit 1
 fi
 
+if [ "$MODE" = "mic-denied" ]; then
+  # Mirror the real hear failure when Speech Recognition permission is denied
+  # (verbatim from sveinbjornt/hear src/Hear.m requestSpeechRecognitionPermission).
+  printf 'Speech recognition authorization denied\n' >&2
+  exit 1
+fi
+
 LINES="${FAKE_LINES:-hello world|testing one two}"
 DELAY="${FAKE_LINE_DELAY:-0.05}"
 

@@ -666,9 +666,13 @@ impl VoiceLoop {
                         "dictation-disabled",
                         "Enable macOS Dictation (System Settings ▸ Keyboard ▸ Dictation) to use voice control.",
                     ),
+                    DownReason::MicDenied => (
+                        "mic-denied",
+                        "Microphone or Speech Recognition permission is off. System Settings ▸ Privacy & Security ▸ Microphone (and Speech Recognition) → allow CodaKiller, then relaunch.",
+                    ),
                     DownReason::RestartStorm => (
                         "restart-storm",
-                        "Voice input stopped after repeated failures.",
+                        "Voice input stopped after repeated failures — often a Microphone or Speech Recognition permission issue. Check System Settings ▸ Privacy & Security ▸ Microphone (and Speech Recognition) for CodaKiller, then relaunch.",
                     ),
                 };
                 if let Ok(mut s) = ev_status.lock() {

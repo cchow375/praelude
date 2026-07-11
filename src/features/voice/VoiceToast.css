@@ -76,6 +76,9 @@
   border: 1px solid color-mix(in srgb, #e5a23d 40%, transparent);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-popover);
+  /* The feedback container is pointer-events:none (so it never blocks clicks to
+     the app); the banner's dismiss button needs pointer events back on. */
+  pointer-events: auto;
 }
 
 .voice-banner-dot {
@@ -88,4 +91,34 @@
 
 .voice-banner-text {
   line-height: var(--leading-normal);
+}
+
+.voice-banner-dismiss {
+  flex: 0 0 auto;
+  margin-left: var(--space-1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  font-size: var(--text-xs);
+  line-height: 1;
+  color: var(--ink-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
+}
+
+.voice-banner-dismiss:hover {
+  color: var(--ink-primary);
+  background: color-mix(in srgb, #e5a23d 22%, transparent);
+}
+
+.voice-banner-dismiss:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }

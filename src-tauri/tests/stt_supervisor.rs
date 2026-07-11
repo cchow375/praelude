@@ -303,6 +303,39 @@ fn config_error_emits_down_no_hotloop() {
     assert_eq!(spawns, 1, "config error must not hot-loop restarts");
 }
 
+// (e2) Permission denial: a fixture that prints the REAL `hear` speech-recognition
+// denial string and exits => a single Down(MicDenied), NO restart hot-loop.
+#[test]
+fn mic_denied_emits_down_no_hotloop() {
+    let dir = std::env::temp_dir();
+    let count_file = dir.join(format!("fake_hear_mic_{}.txt", std::process::id()));
+    let _ = std::fs::remove_file(&count_file);
+
+    let (sink, log) = collector();
+    let cfg = test_config(vec![
+        ("FAKE_MODE", "mic-denied".into()),
+        ("FAKE_COUNT_FILE", count_file.to_string_lossy().into_owned()),
+    ]);
+    let mut handle = SttSupervisor::spawn_with_config(cfg, sink);
+
+    assert!(
+        wait_until(Duration::from_secs(3), || downs(&log)
+            .contains(&DownReason::MicDenied)),
+        "expected a MicDenied down event, downs={:?}",
+        downs(&log)
+    );
+
+    // It must NOT hot-loop: permission won't change by restarting, so the fake
+    // must have been spawned exactly once.
+    std::thread::sleep(Duration::from_millis(500));
+    let spawns = std::fs::read_to_string(&count_file)
+        .map(|s| s.lines().count())
+        .unwrap_or(0);
+    handle.shutdown();
+    let _ = std::fs::remove_file(&count_file);
+    assert_eq!(spawns, 1, "mic-denied must not hot-loop restarts");
+}
+
 // (f) Restart storm: a fixture that always exits instantly should trip the
 // max-restarts cap and emit a RestartStorm down event, then stop.
 #[test]

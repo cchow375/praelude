@@ -10,8 +10,13 @@ import "./VoiceToast.css";
 //     needs confirmation for). It shows what was heard plus a short label and
 //     auto-dismisses after ~2.5s.
 //
-//  2. A persistent guidance banner shown while status === "down", carrying the
-//     backend's guidance text (e.g. how to re-enable macOS dictation).
+//  2. A persistent, DISMISSIBLE guidance banner shown while status === "down",
+//     carrying the backend's guidance text (e.g. how to grant mic permission or
+//     re-enable macOS dictation). Unlike the toast it does NOT auto-dismiss —
+//     a down pipeline needs a deliberate user action — but the user can close it.
+//     Dismissal is keyed to the guidance text: a NEW down reason (different
+//     guidance) re-shows the banner even if a previous one was dismissed, and a
+//     recovery (status leaves "down") resets dismissal so the next down re-shows.
 //
 // Both consume design tokens only and adapt to light/dark via the theme vars.
 // ---------------------------------------------------------------------------
@@ -56,6 +61,9 @@ interface VoiceToastProps {
 
 export function VoiceToast({ lastIntent, status, downGuidance }: VoiceToastProps) {
   const [toast, setToast] = useState<VoiceIntent | null>(null);
+  // The guidance string the user has dismissed. The banner is hidden only while
+  // this equals the CURRENT guidance, so a different down reason re-shows it.
+  const [dismissedGuidance, setDismissedGuidance] = useState<string | null>(null);
 
   // Show a transient toast whenever a NEW actionable intent lands. Each intent
   // event is a fresh object, so identical repeated commands still re-toast.
@@ -66,12 +74,29 @@ export function VoiceToast({ lastIntent, status, downGuidance }: VoiceToastProps
     return () => clearTimeout(t);
   }, [lastIntent]);
 
+  // When the pipeline recovers (status leaves "down"), clear the dismissal so the
+  // banner is shown again the next time it goes down.
+  useEffect(() => {
+    if (status !== "down") setDismissedGuidance(null);
+  }, [status]);
+
+  const bannerVisible =
+    status === "down" && !!downGuidance && downGuidance !== dismissedGuidance;
+
   return (
     <div className="voice-feedback" aria-live="polite">
-      {status === "down" && downGuidance && (
+      {bannerVisible && (
         <div className="voice-banner" role="status">
           <span className="voice-banner-dot" aria-hidden="true" />
           <span className="voice-banner-text">{downGuidance}</span>
+          <button
+            type="button"
+            className="voice-banner-dismiss"
+            aria-label="Dismiss"
+            onClick={() => setDismissedGuidance(downGuidance)}
+          >
+            ✕
+          </button>
         </div>
       )}
       {toast && (

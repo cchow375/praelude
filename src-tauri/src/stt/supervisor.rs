@@ -28,6 +28,11 @@ pub enum DownReason {
     /// `hear` reported `kLSRErrorDomain Code=201` — macOS Dictation is disabled.
     /// No amount of restarting fixes this; it needs a System Settings change.
     DictationDisabled,
+    /// `hear` was denied Microphone or Speech-Recognition permission (macOS TCC).
+    /// Like [`DictationDisabled`](DownReason::DictationDisabled) this is a permanent
+    /// setup error — restarting cannot grant permission, so the supervisor stops
+    /// and surfaces actionable guidance (grant it in System Settings, then relaunch).
+    MicDenied,
     /// The child kept dying: more than `max_restarts` within `restart_window`.
     RestartStorm,
 }
@@ -384,6 +389,15 @@ fn run_manager(
             break;
         }
 
+        // Permission denial (Microphone / Speech Recognition TCC) is likewise a
+        // permanent setup error — restarting cannot grant permission, so stop and
+        // surface actionable guidance instead of hot-looping into a restart storm.
+        if is_mic_denied(&stderr_text) {
+            eprintln!("stt: microphone / speech-recognition permission denied; stopping. stderr: {stderr_text:?}");
+            sink(SttEvent::Down(DownReason::MicDenied));
+            break;
+        }
+
         eprintln!("stt: child exited ({_status:?}); considering restart");
         if should_give_up(&mut restarts, &config, &sink, &stderr_text) {
             break;
@@ -648,6 +662,37 @@ fn is_config_error(stderr: &str) -> bool {
     stderr.contains("Code=201")
 }
 
+/// True if `hear`'s stderr indicates a Microphone / Speech-Recognition permission
+/// denial (macOS TCC). Distinct from [`is_config_error`] (Dictation *disabled*,
+/// Code=201): here the user must GRANT permission in System Settings.
+///
+/// The matched substrings are the *verbatim* messages `hear` prints via its
+/// `die:` helper (`fprintf(stderr, ...)`), read directly from the upstream source
+/// `sveinbjornt/hear` (`src/Hear.m`, `requestSpeechRecognitionPermission` +
+/// `startListening`) and cross-checked against `strings vendor/bin/hear`:
+///
+/// * `Speech recognition authorization denied`
+/// * `Speech recognition authorization restricted on this device`
+/// * `Speech recognition authorization not determined`
+/// * `Failed to start audio engine: …` (AVAudioEngine start fails when the
+///   Microphone TCC grant is missing)
+///
+/// We match on the stable, distinctive fragments (`authorization denied`,
+/// `authorization restricted`, `authorization not determined`,
+/// `Failed to start audio engine`) so a minor upstream wording tweak still
+/// classifies. None overlaps the recoverable `kAFAssistantErrorDomain` /
+/// `Code=1110` (no-speech) noise, and none overlaps the `Code=201`
+/// dictation-disabled marker, so the two terminal conditions stay disjoint.
+fn is_mic_denied(stderr: &str) -> bool {
+    const NEEDLES: [&str; 4] = [
+        "authorization denied",
+        "authorization restricted",
+        "authorization not determined",
+        "Failed to start audio engine",
+    ];
+    NEEDLES.iter().any(|n| stderr.contains(n))
+}
+
 /// SIGTERM an entire process group. `hear` ignores SIGINT but exits cleanly on
 /// SIGTERM (Task 9 spike); signaling the group also catches any grandchildren.
 fn term_group(pgid: i32) {
@@ -825,6 +870,36 @@ mod tests {
         assert!(!is_config_error(
             "Error Domain=kLSRErrorDomain Code=203 \"Some other recoverable error\""
         ));
+    }
+
+    // MicDenied classification matches the REAL `hear` permission-denial strings
+    // (verbatim from sveinbjornt/hear src/Hear.m), across every denial variant.
+    #[test]
+    fn is_mic_denied_matches_real_hear_strings() {
+        assert!(is_mic_denied("Speech recognition authorization denied"));
+        assert!(is_mic_denied(
+            "Speech recognition authorization restricted on this device"
+        ));
+        assert!(is_mic_denied("Speech recognition authorization not determined"));
+        assert!(is_mic_denied(
+            "Failed to start audio engine: The operation couldn’t be completed."
+        ));
+    }
+
+    // MicDenied must NOT latch on unrelated / recoverable stderr, and must stay
+    // disjoint from the Code=201 dictation-disabled and Code=1110 no-speech cases.
+    #[test]
+    fn is_mic_denied_ignores_unrelated_stderr() {
+        assert!(!is_mic_denied(""));
+        assert!(!is_mic_denied(
+            "Error Domain=kLSRErrorDomain Code=201 \"Siri and Dictation are disabled\""
+        ));
+        assert!(!is_mic_denied(
+            "kAFAssistantErrorDomain Code=1110 No speech detected"
+        ));
+        assert!(!is_mic_denied("Metronome 96"));
+        // The two terminal classifiers never fire on the same input.
+        assert!(!is_config_error("Speech recognition authorization denied"));
     }
 
     // Gate closed at emit time suppresses a settle-timer final.
