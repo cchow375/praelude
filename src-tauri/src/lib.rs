@@ -19,8 +19,8 @@ use rep::{RepEngine, RepVerdict};
 use sessions::{SessionService, StateEmitter};
 use stt::SttConfig;
 use store::model::{
-    BlockHistory, CheckOutcome, Intake, PieceDetail, PieceSummary, RepOpenArgs, RepSnapshot,
-    SessionView,
+    BlockHistory, CheckOutcome, ExportResult, Intake, PieceDetail, PieceSummary, RepOpenArgs,
+    RepSnapshot, SessionView,
 };
 use store::Store;
 use tauri::path::BaseDirectory;
@@ -102,7 +102,7 @@ fn resolve_stt_config(app: &tauri::App) -> SttConfig {
 /// the `pieces_scan` command always agree on where pieces live.
 const DEFAULT_PIECES_DIR: &str = "/Users/c3/Desktop/christian's universe/Piano Practice/Pieces";
 
-fn pieces_dir(store: &Store) -> PathBuf {
+pub(crate) fn pieces_dir(store: &Store) -> PathBuf {
     store
         .get_setting("vault.pieces_dir")
         .ok()
@@ -212,6 +212,17 @@ fn session_current(sessions: State<'_, Arc<SessionService>>) -> Option<SessionVi
     sessions.current()
 }
 
+/// End the current session: write its vault summary and mark it ended. Returns
+/// the export result, or `null` when no session was open.
+#[tauri::command]
+fn session_end(
+    store: State<'_, Arc<Store>>,
+    sessions: State<'_, Arc<SessionService>>,
+) -> Option<ExportResult> {
+    let dir = pieces_dir(&store);
+    sessions.end_and_export(&store, &dir)
+}
+
 /// Remember the piece the user is working on (setting `ui.current_piece`). The
 /// voice layer reads this later to scope commands to the active piece.
 #[tauri::command]
@@ -285,7 +296,15 @@ pub fn run() {
             // disabled Dictation surfaces as a `voice://status` down event, never a
             // crash.
             let stt_config = resolve_stt_config(app);
-            let voice = VoiceLoop::start(&app.handle().clone(), metro, store.clone(), stt_config, wake_word);
+            let voice = VoiceLoop::start(
+                &app.handle().clone(),
+                metro,
+                store.clone(),
+                rep.clone(),
+                sessions.clone(),
+                stt_config,
+                wake_word,
+            );
             app.manage(voice);
 
             // Prime the piece list from the vault on a background thread so first
@@ -335,6 +354,7 @@ pub fn run() {
             rep_state,
             rep_blocks_for_piece,
             session_current,
+            session_end,
             metronome::metro_start,
             metronome::metro_stop,
             metronome::metro_set,
@@ -353,6 +373,16 @@ pub fn run() {
         // one path we cannot cover — see `sysvol` docs.)
         .run(|app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
+                // Best-effort session export on quit. Must never block exit for
+                // long or panic: end_and_export only reads the event log + appends
+                // a small markdown file, and any I/O error inside is swallowed.
+                if let (Some(store), Some(sessions)) = (
+                    app_handle.try_state::<Arc<Store>>(),
+                    app_handle.try_state::<Arc<SessionService>>(),
+                ) {
+                    let dir = pieces_dir(&store);
+                    let _ = sessions.end_and_export(&store, &dir);
+                }
                 if let Some(voice) = app_handle.try_state::<Arc<VoiceLoop>>() {
                     voice.shutdown();
                 }

@@ -7,11 +7,14 @@
 //! not fork the log. Every log both persists to SQLite and emits a
 //! `session://event` so the frontend session panel updates live.
 
+pub mod export;
+
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
-use crate::store::model::{sqlite_ts_to_rfc3339, SessionView};
+use crate::store::model::{sqlite_ts_to_rfc3339, ExportResult, SessionView};
 use crate::store::Store;
 
 /// Sink for app-facing events (`rep://state`, `session://event`). Mirrors the
@@ -145,8 +148,6 @@ impl SessionService {
     }
 
     /// The current session id, if one is open (without opening one).
-    // Real (non-test) caller lands with `end_and_export` in Task 18.
-    #[allow(dead_code)]
     pub fn current_id(&self) -> Option<i64> {
         let cur = self.current.lock().unwrap_or_else(|p| p.into_inner());
         match *cur {
@@ -157,9 +158,8 @@ impl SessionService {
 
     /// Mark the current session ended (empty summary — the vault export in
     /// [`Self::end_and_export`] writes the real markdown) and clear it. Returns
-    /// the ended session id, or `None` if none was open. Export lands in Task 18.
-    // Real (non-test) caller lands with `end_and_export` in Task 18.
-    #[allow(dead_code)]
+    /// the ended session id, or `None` if none was open. Used by
+    /// [`Self::end_and_export`] after the vault summary is written.
     pub fn end_raw(&self) -> Option<i64> {
         let mut cur = self.current.lock().unwrap_or_else(|p| p.into_inner());
         let sid = match *cur {
@@ -172,6 +172,20 @@ impl SessionService {
         }
         *cur = None;
         Some(sid)
+    }
+
+    /// End the session AND write its vault summary. Reconstructs the session from
+    /// its event log, appends a section to each practiced piece's
+    /// `(C) codakiller-sessions.md` under `pieces_dir`, then marks the session
+    /// ended. Returns the export result, or `None` when no session was open
+    /// (nothing to save). A session with no rep activity still ends but writes no
+    /// vault files. Best-effort and quick — safe to call from the app-exit hook.
+    pub fn end_and_export(&self, store: &Store, pieces_dir: &Path) -> Option<ExportResult> {
+        let sid = self.current_id()?;
+        // Export BEFORE ending: reads the event log (ending does not touch it).
+        let result = export::write_session_md(store, sid, pieces_dir);
+        self.end_raw();
+        Some(result)
     }
 }
 

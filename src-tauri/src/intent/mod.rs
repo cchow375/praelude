@@ -38,14 +38,29 @@
 
 pub mod numbers;
 
-/// Rep-check outcome, used once P3 wires practice-rep mode. Carried by
-/// [`Intent::RepCheck`].
+/// Rep-check outcome (three-way). Carried by [`Intent::RepCheck`]; the voice
+/// layer maps this onto the store's [`crate::rep::RepVerdict`]
+/// (`Pass→clean`, `Flawed→flawed`, `Fail→failed`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
-    /// The rep was clean ("done", "got it", "nailed it").
+    /// A clean rep ("done", "clean", "got it", "nailed it", "yes", "yep").
     Pass,
-    /// The rep was missed ("again", "messed up", "no").
+    /// A shaky-but-through rep ("sloppy", "rough", "shaky", "almost").
+    Flawed,
+    /// A missed rep ("again", "nope", "no", "messed up", "failed").
     Fail,
+}
+
+/// A voice request to open a rep block (`open a rep tracker measures 40 to 56
+/// start at 80 target 120`). The piece is resolved by the voice layer from the
+/// `ui.current_piece` setting, not carried here.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RepOpenSpec {
+    pub m_start: u32,
+    pub m_end: u32,
+    pub start_bpm: Option<f64>,
+    pub target_bpm: Option<f64>,
+    pub reps: Option<u32>,
 }
 
 /// Arguments for a live metronome adjustment ([`Intent::MetroSet`]). Exactly the
@@ -94,8 +109,17 @@ pub enum Intent {
     MetroStop,
     /// Adjust a running metronome.
     MetroSet(MetroSetArgs),
-    /// A practice-rep self-assessment (P3 mode). The `String` is an optional note.
+    /// A practice-rep self-assessment (rep mode). The `String` is an optional
+    /// note captured after a leading fail/flawed token.
     RepCheck(Verdict, Option<String>),
+    /// Open a rep block (any mode). See [`RepOpenSpec`].
+    RepOpen(RepOpenSpec),
+    /// "Where are we / how many left / status" — report the active block (rep mode).
+    RepStatus,
+    /// "Close the block / end the tracker" — close the active block (rep mode).
+    RepClose,
+    /// "End the session" — end + export the session (any mode).
+    SessionEnd,
     /// A spoken question for a future assistant path (only produced in wake-word
     /// mode for a wake-prefixed utterance that is not a command).
     Question(String),
@@ -144,19 +168,36 @@ impl Router {
             return Intent::Ignored;
         }
 
-        // 3. Rep-check grammar takes priority inside an active rep block.
+        // 3. Session + rep-block lifecycle (available in ANY mode). These are
+        //    command-shaped enough to route before the metronome grammar, and
+        //    `end the session` / `open a rep tracker` must work whether or not a
+        //    block is currently active.
+        if is_session_end(&words) {
+            return Intent::SessionEnd;
+        }
+        if let Some(spec) = route_rep_open(&words) {
+            return Intent::RepOpen(spec);
+        }
+
+        // 4. Rep-check grammar takes priority inside an active rep block.
         if mode.rep_block_active {
-            if let Some(v) = rep_verdict(&words) {
-                return Intent::RepCheck(v, None);
+            if is_rep_status(&words) {
+                return Intent::RepStatus;
+            }
+            if is_rep_close(&words) {
+                return Intent::RepClose;
+            }
+            if let Some((v, note)) = rep_check(&words) {
+                return Intent::RepCheck(v, note);
             }
         }
 
-        // 4. Metronome grammar.
+        // 5. Metronome grammar.
         if let Some(intent) = route_metronome(&words, mode) {
             return intent;
         }
 
-        // 5. Wake-prefixed but unmatched → a Question for the future assistant path.
+        // 6. Wake-prefixed but unmatched → a Question for the future assistant path.
         if mode.wake_word.is_some() {
             return Intent::Question(body);
         }
@@ -196,22 +237,195 @@ fn strip_wake(norm: &str, wake: &str) -> Option<String> {
     }
 }
 
-/// Words that mean "clean rep" vs "missed rep" in an active rep block.
-fn rep_verdict(words: &[&str]) -> Option<Verdict> {
+/// Longest note (in words) captured after a leading fail/flawed verdict token.
+/// A longer trailing clause is treated as ambient rambling that happens to begin
+/// with a verdict word (`"no i really think we should go home now and ..."`), so
+/// the whole utterance is rejected rather than logged as a rep.
+const MAX_NOTE_WORDS: usize = 12;
+
+/// Classify an in-rep-block utterance into a three-way [`Verdict`] plus an
+/// optional note.
+///
+/// * **Pass** matches only an *exact* whole-utterance pass phrase — a clean rep
+///   carries no note, and a pass word with a trailing clause is not a rep.
+/// * **Flawed** / **Fail** match on a leading verdict token (one or two words);
+///   any remaining words become the note (≤ [`MAX_NOTE_WORDS`], else the whole
+///   utterance is rejected). This is the only path that captures notes.
+fn rep_check(words: &[&str]) -> Option<(Verdict, Option<String>)> {
     let joined = words.join(" ");
     const PASS: &[&str] = &[
-        "done", "got it", "get it", "nailed it", "clean", "perfect", "good", "yes", "yep",
+        "done", "clean", "got it", "get it", "nailed it", "perfect", "good", "yes", "yep",
     ];
-    const FAIL: &[&str] = &[
-        "again", "miss", "missed", "messed up", "mess up", "fail", "failed", "no", "retry",
-    ];
-    if PASS.iter().any(|p| joined == *p) {
-        return Some(Verdict::Pass);
+    if PASS.contains(&joined.as_str()) {
+        return Some((Verdict::Pass, None));
     }
-    if FAIL.iter().any(|p| joined == *p) {
-        return Some(Verdict::Fail);
+
+    // Leading verdict token(s): two-word forms first, then single tokens.
+    let (verdict, lead) = if words.starts_with(&["messed", "up"]) || words.starts_with(&["mess", "up"]) {
+        (Verdict::Fail, 2)
+    } else {
+        match words.first().copied() {
+            Some("again" | "nope" | "no" | "failed" | "fail" | "miss" | "missed" | "retry") => {
+                (Verdict::Fail, 1)
+            }
+            Some("sloppy" | "rough" | "shaky" | "almost") => (Verdict::Flawed, 1),
+            _ => return None,
+        }
+    };
+
+    let rest = &words[lead..];
+    if rest.is_empty() {
+        return Some((verdict, None));
     }
-    None
+    if rest.len() > MAX_NOTE_WORDS {
+        // Too long to be a rep note — reject the whole utterance (ambient speech
+        // that merely starts with a verdict word).
+        return None;
+    }
+    Some((verdict, Some(rest.join(" "))))
+}
+
+/// "End the session" family (any mode).
+fn is_session_end(words: &[&str]) -> bool {
+    matches!(
+        words.join(" ").as_str(),
+        "end the session" | "end session" | "finish the session" | "end this session"
+    )
+}
+
+/// "Where are we / how many left / status" (rep mode).
+fn is_rep_status(words: &[&str]) -> bool {
+    matches!(
+        words.join(" ").as_str(),
+        "where are we"
+            | "where were we"
+            | "how many left"
+            | "how many are left"
+            | "how many reps left"
+            | "status"
+    )
+}
+
+/// "Close the block / end the tracker" (rep mode).
+fn is_rep_close(words: &[&str]) -> bool {
+    matches!(
+        words.join(" ").as_str(),
+        "close the block"
+            | "close block"
+            | "end the block"
+            | "close the tracker"
+            | "close the rep tracker"
+            | "end the tracker"
+    )
+}
+
+/// Parse a rep-open utterance: `open a rep tracker measures 40 to 56 start at 80
+/// target 120`. Requires a rep-open cue (`tracker`/`rep`/`block`) AND the word
+/// `measures`/`measure` followed by a two-number range; both range numbers must
+/// parse or the whole thing is rejected. Optional `at N` (start tempo),
+/// `target N`, and `N reps` are pulled by keyword.
+fn route_rep_open(words: &[&str]) -> Option<RepOpenSpec> {
+    let has_cue = has(words, "tracker") || has(words, "rep") || has(words, "block");
+    let has_measures = has(words, "measures") || has(words, "measure");
+    if !has_cue || !has_measures {
+        return None;
+    }
+    let mpos = words
+        .iter()
+        .position(|w| *w == "measures" || *w == "measure")?;
+    let after = &words[mpos + 1..];
+
+    // The range lives before the first tempo/reps keyword, so a distant tempo
+    // number can never be mistaken for the range end.
+    let range_end = after
+        .iter()
+        .position(|w| matches!(*w, "start" | "at" | "target" | "reps"))
+        .unwrap_or(after.len());
+    let range_seg = &after[..range_end];
+    let (m_start, i1) = number_run_at(range_seg, 0)?;
+    let (m_end, _) = number_run_at(range_seg, i1)?;
+
+    let start_bpm = keyword_number(after, "at");
+    let target_bpm = keyword_number(after, "target");
+    let reps = number_before(after, "reps").map(|n| n as u32);
+
+    Some(RepOpenSpec {
+        m_start: m_start as u32,
+        m_end: m_end as u32,
+        start_bpm,
+        target_bpm,
+        reps,
+    })
+}
+
+/// Whether a token is a bare digit literal (`"120"`), as opposed to a
+/// number-word (`"twenty"`).
+fn is_digit_literal(tok: &str) -> bool {
+    !tok.is_empty() && tok.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// From `start`, skip forward to the first number token, then consume one number
+/// run and parse it. Returns the value and the index just past the run. `None` if
+/// there is no number at/after `start`.
+///
+/// A digit literal (`"120"`) is always a standalone run, so two adjacent numbers
+/// with no separator (`"target 120 twenty reps"`) are kept apart — a literal is
+/// never merged with the following number-word into an unparseable `"120 twenty"`.
+/// Number-words chain (`"one twenty"`, `"fifty six"`), stopping at the next digit
+/// literal or non-number.
+fn number_run_at(tokens: &[&str], start: usize) -> Option<(f64, usize)> {
+    let mut i = start;
+    while i < tokens.len() && numbers::parse_number(tokens[i]).is_none() {
+        i += 1;
+    }
+    if i >= tokens.len() {
+        return None;
+    }
+    if is_digit_literal(tokens[i]) {
+        return numbers::parse_number(tokens[i]).map(|v| (v, i + 1));
+    }
+    let run_start = i;
+    let mut j = i + 1;
+    while j < tokens.len()
+        && !is_digit_literal(tokens[j])
+        && (numbers::parse_number(tokens[j]).is_some() || tokens[j] == "and")
+    {
+        j += 1;
+    }
+    let val = numbers::parse_number(&tokens[run_start..j].join(" "))?;
+    Some((val, j))
+}
+
+/// The number run immediately following the first occurrence of `kw`.
+fn keyword_number(tokens: &[&str], kw: &str) -> Option<f64> {
+    let pos = tokens.iter().position(|w| *w == kw)?;
+    number_run_at(tokens, pos + 1).map(|(v, _)| v)
+}
+
+/// The number run immediately preceding the first occurrence of `kw`
+/// (`twenty reps` → 20).
+fn number_before(tokens: &[&str], kw: &str) -> Option<f64> {
+    let pos = tokens.iter().position(|w| *w == kw)?;
+    if pos == 0 {
+        return None;
+    }
+    // A digit literal immediately before the keyword is the whole number.
+    if is_digit_literal(tokens[pos - 1]) {
+        return numbers::parse_number(tokens[pos - 1]);
+    }
+    // Otherwise walk back over number-words (and "and"), stopping at a literal.
+    let mut i = pos;
+    while i > 0
+        && !is_digit_literal(tokens[i - 1])
+        && (numbers::parse_number(tokens[i - 1]).is_some() || tokens[i - 1] == "and")
+    {
+        i -= 1;
+    }
+    if i < pos {
+        numbers::parse_number(&tokens[i..pos].join(" "))
+    } else {
+        None
+    }
 }
 
 fn has(words: &[&str], w: &str) -> bool {
@@ -834,5 +1048,201 @@ mod tests {
     fn rep_words_ignored_outside_rep_mode() {
         // "done" is ambient outside a rep block.
         assert_eq!(r("done", &running()), Intent::Ignored);
+    }
+
+    // ------------------------------------------------------- REP GRAMMAR (P3)
+    fn rep_mode() -> Mode {
+        Mode {
+            rep_block_active: true,
+            wake_word: None,
+            metro_running: false,
+        }
+    }
+
+    #[test]
+    fn three_way_verdicts() {
+        let m = rep_mode();
+        assert_eq!(r("done", &m), Intent::RepCheck(Verdict::Pass, None));
+        assert_eq!(r("clean", &m), Intent::RepCheck(Verdict::Pass, None));
+        assert_eq!(r("yep", &m), Intent::RepCheck(Verdict::Pass, None));
+        assert_eq!(r("sloppy", &m), Intent::RepCheck(Verdict::Flawed, None));
+        assert_eq!(r("rough", &m), Intent::RepCheck(Verdict::Flawed, None));
+        assert_eq!(r("almost", &m), Intent::RepCheck(Verdict::Flawed, None));
+        assert_eq!(r("again", &m), Intent::RepCheck(Verdict::Fail, None));
+        assert_eq!(r("nope", &m), Intent::RepCheck(Verdict::Fail, None));
+        assert_eq!(r("no", &m), Intent::RepCheck(Verdict::Fail, None));
+        assert_eq!(r("messed up", &m), Intent::RepCheck(Verdict::Fail, None));
+        assert_eq!(r("failed", &m), Intent::RepCheck(Verdict::Fail, None));
+    }
+
+    #[test]
+    fn fail_and_flawed_capture_a_trailing_note() {
+        let m = rep_mode();
+        assert_eq!(
+            r("nope missed the left hand jump", &m),
+            Intent::RepCheck(Verdict::Fail, Some("missed the left hand jump".into()))
+        );
+        assert_eq!(
+            r("again fingering fell apart", &m),
+            Intent::RepCheck(Verdict::Fail, Some("fingering fell apart".into()))
+        );
+        assert_eq!(
+            r("sloppy rushed the runs", &m),
+            Intent::RepCheck(Verdict::Flawed, Some("rushed the runs".into()))
+        );
+    }
+
+    #[test]
+    fn pass_never_captures_a_note() {
+        // A pass word with a trailing clause is not a clean rep (and not ambient
+        // enough to be a fail either) → it falls through to Ignored.
+        assert_eq!(r("done and dusted for today", &rep_mode()), Intent::Ignored);
+    }
+
+    #[test]
+    fn overlong_note_is_rejected() {
+        // A verdict word leading a long ramble is ambient speech, not a rep note.
+        assert_eq!(
+            r(
+                "no i really do not think we should keep going for much longer today",
+                &rep_mode()
+            ),
+            Intent::Ignored
+        );
+    }
+
+    #[test]
+    fn rep_status_and_close() {
+        let m = rep_mode();
+        assert_eq!(r("where are we", &m), Intent::RepStatus);
+        assert_eq!(r("how many left", &m), Intent::RepStatus);
+        assert_eq!(r("status", &m), Intent::RepStatus);
+        assert_eq!(r("close the block", &m), Intent::RepClose);
+        assert_eq!(r("end the block", &m), Intent::RepClose);
+        assert_eq!(r("close the tracker", &m), Intent::RepClose);
+    }
+
+    #[test]
+    fn session_end_works_in_any_mode() {
+        assert_eq!(r("end the session", &stopped()), Intent::SessionEnd);
+        assert_eq!(r("end session", &running()), Intent::SessionEnd);
+        assert_eq!(r("end the session", &rep_mode()), Intent::SessionEnd);
+        // Not confused with closing a block.
+        assert_ne!(r("end the block", &rep_mode()), Intent::SessionEnd);
+    }
+
+    #[test]
+    fn rep_open_hero_phrase() {
+        assert_eq!(
+            r(
+                "open a rep tracker measures 40 to 56 start at 80 target 120",
+                &stopped()
+            ),
+            Intent::RepOpen(RepOpenSpec {
+                m_start: 40,
+                m_end: 56,
+                start_bpm: Some(80.0),
+                target_bpm: Some(120.0),
+                reps: None,
+            })
+        );
+    }
+
+    #[test]
+    fn rep_open_variants() {
+        // "at N" is the start tempo, no target.
+        assert_eq!(
+            r("rep block measures 12 to 16 at 60", &stopped()),
+            Intent::RepOpen(RepOpenSpec {
+                m_start: 12,
+                m_end: 16,
+                start_bpm: Some(60.0),
+                target_bpm: None,
+                reps: None,
+            })
+        );
+        // "through" range + explicit rep count.
+        assert_eq!(
+            r(
+                "tracker measures 40 through 56 start at 80 target 120 twenty reps",
+                &stopped()
+            ),
+            Intent::RepOpen(RepOpenSpec {
+                m_start: 40,
+                m_end: 56,
+                start_bpm: Some(80.0),
+                target_bpm: Some(120.0),
+                reps: Some(20),
+            })
+        );
+    }
+
+    #[test]
+    fn rep_open_works_in_rep_mode_too() {
+        assert!(matches!(
+            r("open a rep tracker measures 1 to 8 at 90", &rep_mode()),
+            Intent::RepOpen(_)
+        ));
+    }
+
+    #[test]
+    fn rep_open_requires_both_range_numbers() {
+        // Only one range number → not a valid open → Ignored.
+        assert_eq!(
+            r("open a rep tracker measures 40 start at 80", &stopped()),
+            Intent::Ignored
+        );
+    }
+
+    #[test]
+    fn rep_open_requires_a_cue_and_measures() {
+        // "measures 40 to 56" with no rep/tracker/block cue is ambient (e.g.
+        // "the melody measures 40 to 56 are lovely").
+        assert_eq!(
+            r("the melody measures 40 to 56 are lovely", &stopped()),
+            Intent::Ignored
+        );
+    }
+
+    // -------------------------------------------------- REP FIREWALL BATTERY
+    #[test]
+    fn rep_mode_does_not_misfire_on_ambient_speech() {
+        // In rep mode, ordinary conversation that does NOT lead with a verdict
+        // word must not be logged as a rep or note. (A leading fail/flawed token
+        // *does* capture a short note by design — that is the "nope missed the
+        // jump" path — so the ambient battery deliberately excludes utterances
+        // that begin with one.)
+        for phrase in [
+            "i stopped by the store",
+            "that was so clean of him",
+            "can you pass the salt",
+            "lets take a break",
+            "the weather is rough today",
+            "i almost forgot to tell you something important earlier",
+            "yes please that would be lovely thank you so much",
+            "we should probably close the window it is cold",
+            "where are we going for dinner tonight",
+            "how many people are coming to the party",
+            "the timing there was clean but the pedal was muddy",
+            "that sounded good to me overall",
+        ] {
+            let got = Router::route(phrase, &rep_mode());
+            assert!(
+                matches!(got, Intent::Ignored),
+                "ambient in rep mode must be Ignored: {phrase:?} → {got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_rep_mode_ignores_bare_verdict_and_flawed_words() {
+        // Outside a block these are ambient.
+        for phrase in ["sloppy", "rough", "almost", "nope", "that was so clean of him"] {
+            assert_eq!(
+                Router::route(phrase, &running()),
+                Intent::Ignored,
+                "rep vocab outside rep mode must be Ignored: {phrase:?}"
+            );
+        }
     }
 }

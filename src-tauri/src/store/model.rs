@@ -230,8 +230,6 @@ pub struct SessionView {
 }
 
 /// The outcome of ending a session and writing its vault summary.
-// Constructed by the Task 18 session export (`session_end` / app-exit hook).
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExportResult {
     pub session_id: i64,

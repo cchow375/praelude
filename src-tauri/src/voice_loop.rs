@@ -87,9 +87,12 @@ use serde_json::json;
 use tauri::{AppHandle, Emitter};
 
 use crate::audio::PcmError;
-use crate::intent::{Intent, MetroSetArgs, Mode, Router, Verdict};
+use crate::intent::{Intent, MetroSetArgs, Mode, RepOpenSpec, Router, Verdict};
 use crate::metronome::{MetroState, Metronome};
+use crate::rep::{RepEngine, RepVerdict};
+use crate::sessions::SessionService;
 use crate::stt::{DownReason, SttConfig, SttEvent, SttHandle, SttSupervisor, Transcript};
+use crate::store::model::RepOpenArgs;
 use crate::store::Store;
 use crate::tts::{Gate, PcmSink, Speaker, SpeakerConfig};
 
@@ -180,10 +183,11 @@ impl Gate for AtomicGate {
 struct ActionCtx {
     metro: Arc<Metronome>,
     store: Arc<Store>,
+    rep: Arc<RepEngine>,
+    sessions: Arc<SessionService>,
     speaker: Box<dyn Confirm>,
     emitter: Arc<dyn VoiceEmitter>,
     wake_word: Option<String>,
-    rep_active: bool,
     muted: Arc<AtomicBool>,
     last: Option<(String, Instant)>,
 }
@@ -194,7 +198,9 @@ impl ActionCtx {
             return;
         }
         let mode = Mode {
-            rep_block_active: self.rep_active,
+            // Live from the engine — a block opened by voice or by the UI makes
+            // rep-check phrases route as reps immediately.
+            rep_block_active: self.rep.active(),
             wake_word: self.wake_word.clone(),
             metro_running: self.metro.snapshot().running,
         };
@@ -232,7 +238,11 @@ impl ActionCtx {
             Intent::MetroStart(bpm) => self.act_start(bpm, &t.text),
             Intent::MetroStop => self.act_stop(&t.text),
             Intent::MetroSet(args) => self.act_set(args, &t.text),
-            Intent::RepCheck(v, _) => self.act_rep(v, &t.text),
+            Intent::RepCheck(v, note) => self.act_rep(v, note, &t.text),
+            Intent::RepOpen(spec) => self.act_rep_open(spec, &t.text),
+            Intent::RepStatus => self.act_rep_status(&t.text),
+            Intent::RepClose => self.act_rep_close(&t.text),
+            Intent::SessionEnd => self.act_session_end(&t.text),
             Intent::Question(q) => {
                 self.emit_intent("question", &q, None);
             }
@@ -253,6 +263,8 @@ impl ActionCtx {
         match res {
             Ok(()) => {
                 self.emit_intent("start", text, Some(state.bpm));
+                self.sessions
+                    .log("metro", json!({ "action": "start", "bpm": state.bpm }));
                 self.speaker.say(&bpm_to_speech(state.bpm));
             }
             Err(e) => self.speak_error(&e, text),
@@ -266,6 +278,7 @@ impl ActionCtx {
         let state = self.metro.do_stop();
         self.emit_state(&state);
         self.emit_intent("stop", text, None);
+        self.sessions.log("metro", json!({ "action": "stop" }));
     }
 
     fn act_set(&self, args: MetroSetArgs, text: &str) {
@@ -299,27 +312,136 @@ impl ActionCtx {
         match res {
             Ok(()) => {
                 self.emit_intent(kind, text, bpm_for_evt);
+                self.sessions
+                    .log("metro", json!({ "action": kind, "bpm": bpm_for_evt }));
                 self.speaker.say(&spoken);
             }
             Err(e) => self.speak_error(&e, text),
         }
     }
 
-    fn act_rep(&self, v: Verdict, text: &str) {
-        // P3 consumes rep verdicts; for now acknowledge minimally so the gate still
-        // proves itself and the UI sees the intent.
-        self.emit_intent(
-            match v {
-                Verdict::Pass => "rep_pass",
-                Verdict::Fail => "rep_fail",
-            },
-            text,
-            None,
-        );
-        self.speaker.say(match v {
-            Verdict::Pass => "Got it.",
-            Verdict::Fail => "Again.",
-        });
+    /// Record a rep through the engine (the single source of the ladder + spoken
+    /// line), then follow any tempo step on a *running* metronome. When the
+    /// metronome is stopped, the engine still persisted the new tempo for the
+    /// block, so we just speak the composed line.
+    fn act_rep(&self, v: Verdict, note: Option<String>, text: &str) {
+        let verdict = match v {
+            Verdict::Pass => RepVerdict::Clean,
+            Verdict::Flawed => RepVerdict::Flawed,
+            Verdict::Fail => RepVerdict::Failed,
+        };
+        match self.rep.check(verdict, note) {
+            Ok(outcome) => {
+                // Follow a ladder step on the metronome only if it is running.
+                if let Some(nb) = outcome.new_bpm {
+                    if self.metro.snapshot().running {
+                        let (state, _res) = self.set_bpm_only(nb);
+                        self.emit_state(&state);
+                    }
+                }
+                self.emit_intent("rep", text, outcome.new_bpm);
+                self.speaker.say(&outcome.say);
+            }
+            // The router only produces RepCheck while a block is active, but a
+            // block could close between routing and here — degrade quietly.
+            Err(e) => eprintln!("voice: rep check ignored: {e}"),
+        }
+    }
+
+    /// Open a rep block from voice. Resolves the piece from `ui.current_piece`;
+    /// with no piece selected, says so and does nothing. Starts the metronome at
+    /// the block's start tempo if it is not already running.
+    fn act_rep_open(&self, spec: RepOpenSpec, text: &str) {
+        let Some(piece_id) = self.current_piece_id() else {
+            self.speaker.say("Pick a piece first.");
+            return;
+        };
+        // Default the start tempo to the metronome's current bpm when unspoken.
+        let start_bpm = spec.start_bpm.unwrap_or_else(|| self.metro.snapshot().bpm);
+        let args = RepOpenArgs {
+            piece_id,
+            m_start: spec.m_start,
+            m_end: spec.m_end,
+            label: None,
+            start_bpm,
+            target_bpm: spec.target_bpm,
+            planned_reps: spec.reps,
+            increment: None,
+            variants: vec![],
+        };
+        match self.rep.open(args) {
+            Ok(snap) => {
+                // Start the metronome at the block tempo if it is idle.
+                if !self.metro.snapshot().running {
+                    let (state, _res) = self.metro.do_start(Some(snap.start_bpm));
+                    self.emit_state(&state);
+                }
+                self.emit_intent("rep_open", text, Some(snap.start_bpm));
+                self.speaker.say(&format!(
+                    "Measures {} to {} at {}. Go.",
+                    snap.m_start,
+                    snap.m_end,
+                    fmt_bpm(snap.start_bpm)
+                ));
+            }
+            Err(e) if e.contains("close the current block") => {
+                self.speaker.say("Close the current block first.");
+            }
+            Err(e) => eprintln!("voice: rep open failed: {e}"),
+        }
+    }
+
+    fn act_rep_status(&self, text: &str) {
+        match self.rep.snapshot() {
+            Some(s) => {
+                self.emit_intent("rep_status", text, Some(s.bpm));
+                self.speaker.say(&format!(
+                    "{} of {}, at {}.",
+                    s.reps_done,
+                    s.planned_reps,
+                    fmt_bpm(s.bpm)
+                ));
+            }
+            None => self.speaker.say("No block open."),
+        }
+    }
+
+    fn act_rep_close(&self, text: &str) {
+        match self.rep.close() {
+            Some(s) => {
+                self.emit_intent("rep_close", text, None);
+                let verb = if s.status == "done" { "done" } else { "closed" };
+                self.speaker.say(&format!(
+                    "Block {}. {} reps, {} clean.",
+                    verb, s.reps_done, s.verdicts.clean
+                ));
+            }
+            None => self.speaker.say("No block open."),
+        }
+    }
+
+    fn act_session_end(&self, text: &str) {
+        let pieces_dir = crate::pieces_dir(&self.store);
+        match self.sessions.end_and_export(&self.store, &pieces_dir) {
+            Some(result) => {
+                self.emit_intent("session_end", text, None);
+                self.speaker.say(&format!(
+                    "Session saved. {} reps across {} pieces.",
+                    result.reps, result.pieces
+                ));
+            }
+            None => self.speaker.say("No session to save."),
+        }
+    }
+
+    /// The selected piece id from `ui.current_piece`, or `None` if unset/invalid.
+    fn current_piece_id(&self) -> Option<i64> {
+        self.store
+            .get_setting("ui.current_piece")
+            .ok()
+            .flatten()
+            .filter(|s| !s.trim().is_empty())
+            .and_then(|s| s.trim().parse::<i64>().ok())
     }
 
     /// Change only the tempo of a running (or stored) metronome via `do_set`.
@@ -348,6 +470,17 @@ impl ActionCtx {
     fn emit_intent(&self, kind: &str, text: &str, bpm: Option<f64>) {
         self.emitter
             .emit("voice://intent", json!({ "kind": kind, "text": text, "bpm": bpm }));
+    }
+}
+
+/// Numeric BPM for rep lines (`"Measures 40 to 56 at 80. Go."`), a whole number
+/// printed without a trailing decimal. (Metronome tempo confirmations use the
+/// spoken-word [`bpm_to_speech`] instead.)
+fn fmt_bpm(bpm: f64) -> String {
+    if bpm.fract() == 0.0 {
+        (bpm as i64).to_string()
+    } else {
+        bpm.to_string()
     }
 }
 
@@ -429,17 +562,27 @@ pub struct VoiceLoop {
 impl VoiceLoop {
     /// Wire and start the whole pipeline. `stt_config` selects the `hear` binary
     /// (or a fake, via the config seam). `wake_word` gates all commands when set.
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         app: &AppHandle,
         metro: Arc<Metronome>,
         store: Arc<Store>,
+        rep: Arc<RepEngine>,
+        sessions: Arc<SessionService>,
         stt_config: SttConfig,
         wake_word: Option<String>,
     ) -> Arc<VoiceLoop> {
         let emitter: Arc<dyn VoiceEmitter> = Arc::new(TauriEmitter(app.clone()));
-        Self::start_with(emitter, metro, store, stt_config, wake_word, |m, g, mu| {
-            Self::build_speaker(m, g, mu)
-        })
+        Self::start_with(
+            emitter,
+            metro,
+            store,
+            rep,
+            sessions,
+            stt_config,
+            wake_word,
+            |m, g, mu| Self::build_speaker(m, g, mu),
+        )
     }
 
     /// Build the production TTS speaker (provider chosen from settings) plugged
@@ -482,10 +625,13 @@ impl VoiceLoop {
     /// `t.at`-based dedup — once the speaker is ready and the thread starts its
     /// `rx.iter()` loop. We queue rather than drop: an early command a user
     /// actually spoke should still fire once voice is up, not be silently lost.
+    #[allow(clippy::too_many_arguments)]
     fn start_with(
         emitter: Arc<dyn VoiceEmitter>,
         metro: Arc<Metronome>,
         store: Arc<Store>,
+        rep: Arc<RepEngine>,
+        sessions: Arc<SessionService>,
         stt_config: SttConfig,
         wake_word: Option<String>,
         make_speaker: impl FnOnce(Arc<Metronome>, Arc<AtomicBool>, Arc<AtomicBool>) -> Box<dyn Confirm>
@@ -552,10 +698,11 @@ impl VoiceLoop {
                 let mut ctx = ActionCtx {
                     metro,
                     store,
+                    rep,
+                    sessions,
                     speaker,
                     emitter: action_emitter,
                     wake_word,
-                    rep_active: false,
                     muted: action_muted,
                     last: None,
                 };
@@ -670,6 +817,18 @@ mod tests {
         }
     }
 
+    /// Records `rep://state` / `session://event` into the same recorder.
+    struct RecState(Arc<Recorder>);
+    impl crate::sessions::StateEmitter for RecState {
+        fn emit(&self, event: &str, payload: serde_json::Value) {
+            self.0
+                .events
+                .lock()
+                .unwrap()
+                .push((event.to_string(), payload));
+        }
+    }
+
     fn final_t(text: &str) -> Transcript {
         Transcript {
             text: text.to_string(),
@@ -678,9 +837,12 @@ mod tests {
         }
     }
 
+    static TEST_PIECE_SEQ: AtomicUsize = AtomicUsize::new(0);
+
+    /// A Metronome wired to a mock engine (no audio device), an in-memory store
+    /// seeded with one selected piece, and a rep engine + session service that
+    /// share the recorder as their event emitter.
     fn test_ctx(rec: &Arc<Recorder>) -> ActionCtx {
-        // A Metronome wired to a mock engine (no real audio device) and an
-        // in-memory store.
         let engine_starts = Arc::new(AtomicUsize::new(0));
         let es = engine_starts.clone();
         let metro = Arc::new(crate::metronome::Metronome::with_seams(
@@ -695,13 +857,38 @@ mod tests {
             |lvl| crate::sysvol::BoostGuard::engage_with(lvl, || 40, |_v| {}),
         ));
         let store = Arc::new(Store::open(":memory:").expect("in-memory store"));
+
+        // A selected piece in a real (unique) temp folder, so a voice rep-open
+        // resolves `ui.current_piece` and a session export has somewhere to write.
+        let n = TEST_PIECE_SEQ.fetch_add(1, Ordering::SeqCst);
+        let folder = std::env::temp_dir().join(format!("ck_test_piece_{}_{n}", std::process::id()));
+        let _ = std::fs::create_dir_all(&folder);
+        let pid = store
+            .upsert_piece(&crate::store::model::ScanPiece {
+                folder_path: folder.to_string_lossy().into_owned(),
+                title: "Test Piece".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+        store
+            .set_setting("ui.current_piece", &pid.to_string())
+            .unwrap();
+
+        let sessions = Arc::new(SessionService::new(store.clone()));
+        sessions.set_emitter(Arc::new(RecState(rec.clone())));
+        let rep = Arc::new(RepEngine::new(store.clone(), sessions.clone()));
+        rep.set_emitter(Arc::new(RecState(rec.clone())));
+
         ActionCtx {
             metro,
             store,
+            rep,
+            sessions,
             speaker: Box::new(RecConfirm(rec.clone())),
             emitter: Arc::new(RecEmitter(rec.clone())),
             wake_word: None,
-            rep_active: false,
             muted: Arc::new(AtomicBool::new(false)),
             last: None,
         }
@@ -791,6 +978,8 @@ mod tests {
         let ctx = test_ctx(&rec);
         let metro = ctx.metro.clone();
         let store = ctx.store.clone();
+        let rep = ctx.rep.clone();
+        let sessions = ctx.sessions.clone();
         let rec_for_speaker = rec.clone();
 
         let mut cfg = SttConfig::hear(script.clone());
@@ -799,9 +988,16 @@ mod tests {
         cfg.settle = Duration::from_millis(200); // finalize quickly for the test
 
         let emitter: Arc<dyn VoiceEmitter> = Arc::new(RecEmitter(rec.clone()));
-        let voice = VoiceLoop::start_with(emitter, metro.clone(), store, cfg, None, move |_m, _g, _mu| {
-            Box::new(RecConfirm(rec_for_speaker))
-        });
+        let voice = VoiceLoop::start_with(
+            emitter,
+            metro.clone(),
+            store,
+            rep,
+            sessions,
+            cfg,
+            None,
+            move |_m, _g, _mu| Box::new(RecConfirm(rec_for_speaker)),
+        );
 
         // Poll until the metronome starts (or time out).
         let mut started = false;
@@ -822,6 +1018,111 @@ mod tests {
             "spoke the confirmation: {:?}",
             rec.said.lock().unwrap()
         );
+    }
+
+    /// END-TO-END rep-tracker hero flow through the REAL STT supervisor (no mic,
+    /// no audio device): a fake `hear` prints the hero open phrase, then two
+    /// `done` lines spaced > 2.5 s apart (so the dedup treats them as distinct
+    /// reps). Asserts the block opened for the SELECTED piece, the metronome
+    /// started at 80, both reps persisted to the store, and the spoken acks were
+    /// recorded. This is the deterministic stand-in for the "speak the hero
+    /// phrase" live smoke the brief calls for (a mic cannot be driven here).
+    #[test]
+    fn e2e_fake_hear_rep_tracker_hero_flow() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir();
+        let script = dir.join(format!("fake_hear_rep_{}.sh", std::process::id()));
+        {
+            let mut f = std::fs::File::create(&script).unwrap();
+            writeln!(f, "#!/bin/sh").unwrap();
+            writeln!(
+                f,
+                "/usr/bin/printf 'open a rep tracker measures 40 to 56 start at 80 target 120\\n'"
+            )
+            .unwrap();
+            writeln!(f, "sleep 3").unwrap();
+            writeln!(f, "/usr/bin/printf 'done\\n'").unwrap();
+            writeln!(f, "sleep 3").unwrap();
+            writeln!(f, "/usr/bin/printf 'done\\n'").unwrap();
+            writeln!(f, "sleep 3").unwrap();
+            let mut perms = f.metadata().unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script, perms).unwrap();
+        }
+
+        // Mock-engine metronome + a store seeded with a SELECTED piece.
+        let metro = Arc::new(crate::metronome::Metronome::with_seams(
+            Default::default(),
+            crate::metronome::MetroState::default(),
+            80,
+            |_cfg| Ok(crate::audio::EngineHandle::test_handle(48_000, 0)),
+            |lvl| crate::sysvol::BoostGuard::engage_with(lvl, || 40, |_v| {}),
+        ));
+        let store = Arc::new(Store::open(":memory:").unwrap());
+        let pid = store
+            .upsert_piece(&crate::store::model::ScanPiece {
+                folder_path: "/tmp/ck_e2e_hero".into(),
+                title: "Hero".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+        store.set_setting("ui.current_piece", &pid.to_string()).unwrap();
+        let sessions = Arc::new(SessionService::new(store.clone()));
+        let rep = Arc::new(RepEngine::new(store.clone(), sessions.clone()));
+
+        let rec = Arc::new(Recorder::default());
+        let rec_for_speaker = rec.clone();
+        let mut cfg = SttConfig::hear(script.clone());
+        cfg.args = vec![];
+        cfg.use_stdbuf = false;
+        cfg.settle = Duration::from_millis(200);
+
+        let emitter: Arc<dyn VoiceEmitter> = Arc::new(RecEmitter(rec.clone()));
+        let voice = VoiceLoop::start_with(
+            emitter,
+            metro.clone(),
+            store.clone(),
+            rep.clone(),
+            sessions,
+            cfg,
+            None,
+            move |_m, _g, _mu| Box::new(RecConfirm(rec_for_speaker)),
+        );
+
+        // Poll until both reps are recorded (or time out ~15s covering the sleeps).
+        let mut reps_done = 0;
+        for _ in 0..150 {
+            reps_done = store
+                .block_history(pid)
+                .unwrap()
+                .first()
+                .map(|b| b.reps_done)
+                .unwrap_or(0);
+            if reps_done >= 2 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        voice.shutdown();
+        let _ = std::fs::remove_file(&script);
+
+        // Block opened for the selected piece, metronome started at 80.
+        let hist = store.block_history(pid).unwrap();
+        assert_eq!(hist.len(), 1, "one block opened for the selected piece");
+        assert!(metro.snapshot().running, "metronome started");
+        assert_eq!(metro.snapshot().bpm, 80.0);
+        // Both reps persisted.
+        assert_eq!(reps_done, 2, "two spaced 'done's persisted as two reps");
+        assert_eq!(hist[0].verdicts.clean, 2);
+        // Spoken acks recorded end-to-end.
+        let said = rec.said.lock().unwrap();
+        assert!(said.iter().any(|s| s == "Measures 40 to 56 at 80. Go."), "said: {said:?}");
+        assert!(said.iter().any(|s| s == "1 of 30."), "said: {said:?}");
+        assert!(said.iter().any(|s| s == "2 of 30."), "said: {said:?}");
     }
 
     /// LIVE on-device smoke (needs an output device + `say`): fake `hear` →
@@ -855,6 +1156,8 @@ mod tests {
             80,
         ));
         let store = Arc::new(Store::open(":memory:").unwrap());
+        let sessions = Arc::new(SessionService::new(store.clone()));
+        let rep = Arc::new(RepEngine::new(store.clone(), sessions.clone()));
         let emitter: Arc<dyn VoiceEmitter> = Arc::new(RecEmitter(Arc::new(Recorder::default())));
 
         let mut cfg = SttConfig::hear(script.clone());
@@ -863,7 +1166,7 @@ mod tests {
         cfg.settle = Duration::from_millis(200);
 
         // REAL Speaker (say provider, offline-safe) wired to the metronome engine.
-        let voice = VoiceLoop::start_with(emitter, metro.clone(), store, cfg, None, |m, g, mu| {
+        let voice = VoiceLoop::start_with(emitter, metro.clone(), store, rep, sessions, cfg, None, |m, g, mu| {
             let provider: Box<dyn crate::tts::TtsProvider> = Box::new(crate::tts::say::SayTts::new());
             let sink: Arc<dyn PcmSink> = Arc::new(MetroSink(m));
             let gate: Arc<dyn Gate> = Arc::new(AtomicGate { gate: g, muted: mu });
@@ -899,7 +1202,21 @@ mod tests {
         // applying the one unified rule collapses only the re-sends.
         let rec = Arc::new(Recorder::default());
         let mut ctx = test_ctx(&rec);
-        ctx.rep_active = true;
+        // Open a real block so rep-check phrases route as reps (rep_block_active
+        // is now read live from the engine, not a field).
+        ctx.rep
+            .open(crate::store::model::RepOpenArgs {
+                piece_id: 1,
+                m_start: 1,
+                m_end: 4,
+                label: None,
+                start_bpm: 80.0,
+                target_bpm: None,
+                planned_reps: Some(30),
+                increment: None,
+                variants: vec![],
+            })
+            .unwrap();
 
         // Three "done" finals within the 2.5 s window (a re-send burst) → ONE ack.
         let base = Instant::now();
@@ -1036,6 +1353,8 @@ mod tests {
         let ctx = test_ctx(&rec);
         let metro = ctx.metro.clone();
         let store = ctx.store.clone();
+        let rep = ctx.rep.clone();
+        let sessions = ctx.sessions.clone();
 
         let mut cfg = SttConfig::hear(script.clone());
         cfg.args = vec![];
@@ -1044,7 +1363,7 @@ mod tests {
 
         let emitter: Arc<dyn VoiceEmitter> = Arc::new(RecEmitter(rec.clone()));
         let started = Instant::now();
-        let voice = VoiceLoop::start_with(emitter, metro, store, cfg, None, move |_m, _g, _mu| {
+        let voice = VoiceLoop::start_with(emitter, metro, store, rep, sessions, cfg, None, move |_m, _g, _mu| {
             // A slow provider-builder: sleeps well past the 50ms budget.
             std::thread::sleep(Duration::from_millis(500));
             Box::new(RecConfirm(rec)) as Box<dyn Confirm>
@@ -1087,5 +1406,152 @@ mod tests {
         muted.store(false, Ordering::Release);
         gate.store(true, Ordering::Release);
         assert!(gate.load(Ordering::Acquire), "gate reopens once unmuted");
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 18: rep voice paths through ActionCtx.
+    // -----------------------------------------------------------------------
+
+    fn final_at(text: &str, at: Instant) -> Transcript {
+        Transcript {
+            text: text.to_string(),
+            is_final: true,
+            at,
+        }
+    }
+
+    /// Space genuine repeats far enough apart that the 2.5 s dedup treats them as
+    /// distinct commands.
+    fn feed_spaced(ctx: &mut ActionCtx, text: &str, n: usize) {
+        let base = Instant::now();
+        for i in 0..n {
+            ctx.handle_final(&final_at(text, base + Duration::from_millis(4000 * i as u64)));
+        }
+    }
+
+    #[test]
+    fn voice_rep_open_starts_metro_and_speaks_go() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.handle_final(&final_t(
+            "open a rep tracker measures 40 to 56 start at 80 target 120",
+        ));
+        assert!(ctx.rep.active(), "a block is open");
+        assert!(ctx.metro.snapshot().running, "metronome started");
+        assert_eq!(ctx.metro.snapshot().bpm, 80.0);
+        assert!(
+            rec.said.lock().unwrap().iter().any(|s| s == "Measures 40 to 56 at 80. Go."),
+            "said: {:?}",
+            rec.said.lock().unwrap()
+        );
+    }
+
+    #[test]
+    fn voice_rep_open_without_a_piece_says_pick_first() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.store.set_setting("ui.current_piece", "").unwrap(); // deselect
+        ctx.handle_final(&final_t("open a rep tracker measures 1 to 8 at 80"));
+        assert!(!ctx.rep.active(), "no block opened without a piece");
+        assert_eq!(rec.said.lock().unwrap().last().unwrap(), "Pick a piece first.");
+    }
+
+    #[test]
+    fn voice_rep_check_speaks_ladder_and_follows_step_when_running() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.handle_final(&final_t(
+            "open a rep tracker measures 40 to 56 start at 80 target 120",
+        )); // starts metro at 80
+        feed_spaced(&mut ctx, "done", 3); // 3rd clean steps 80 → 84
+        assert_eq!(ctx.metro.snapshot().bpm, 84.0, "metro follows the step while running");
+        assert!(
+            rec.said.lock().unwrap().iter().any(|s| s == "3 of 30. Up to 84."),
+            "said: {:?}",
+            rec.said.lock().unwrap()
+        );
+    }
+
+    #[test]
+    fn voice_rep_step_not_applied_to_a_stopped_metronome() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        // Open a block directly (engine), leaving the metronome stopped.
+        ctx.rep
+            .open(crate::store::model::RepOpenArgs {
+                piece_id: 1,
+                m_start: 40,
+                m_end: 56,
+                label: None,
+                start_bpm: 80.0,
+                target_bpm: Some(120.0),
+                planned_reps: Some(30),
+                increment: None,
+                variants: vec![],
+            })
+            .unwrap();
+        assert!(!ctx.metro.snapshot().running);
+        feed_spaced(&mut ctx, "done", 3);
+        assert!(!ctx.metro.snapshot().running, "a stopped metronome is not started by a step");
+        assert!(
+            rec.said.lock().unwrap().iter().any(|s| s == "3 of 30. Up to 84."),
+            "the step is still spoken: {:?}",
+            rec.said.lock().unwrap()
+        );
+    }
+
+    #[test]
+    fn voice_rep_note_reaches_the_session_log() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.handle_final(&final_t("open a rep tracker measures 1 to 8 at 80"));
+        ctx.handle_final(&final_t("nope missed the left hand jump"));
+        let events = rec.events.lock().unwrap();
+        assert!(
+            events.iter().any(|(e, p)| e == "session://event"
+                && p["kind"] == "rep"
+                && p["payload"]["note"] == "missed the left hand jump"
+                && p["payload"]["verdict"] == "failed"),
+            "the fail note was logged with the rep: {events:?}"
+        );
+    }
+
+    #[test]
+    fn voice_rep_status_reports_progress() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.handle_final(&final_t(
+            "open a rep tracker measures 40 to 56 start at 80 target 120",
+        ));
+        ctx.handle_final(&final_t("status"));
+        assert_eq!(rec.said.lock().unwrap().last().unwrap(), "0 of 30, at 80.");
+    }
+
+    #[test]
+    fn voice_rep_close_summarizes_and_clears_the_block() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.handle_final(&final_t("open a rep tracker measures 1 to 8 at 80"));
+        ctx.handle_final(&final_t("done"));
+        ctx.handle_final(&final_t("close the block"));
+        assert!(!ctx.rep.active(), "block closed");
+        assert_eq!(
+            rec.said.lock().unwrap().last().unwrap(),
+            "Block closed. 1 reps, 1 clean."
+        );
+    }
+
+    #[test]
+    fn voice_session_end_saves_and_speaks_totals() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.handle_final(&final_t("open a rep tracker measures 1 to 8 at 80"));
+        ctx.handle_final(&final_t("done"));
+        ctx.handle_final(&final_t("end the session"));
+        assert_eq!(
+            rec.said.lock().unwrap().last().unwrap(),
+            "Session saved. 1 reps across 1 pieces."
+        );
+        assert!(ctx.sessions.current_id().is_none(), "session ended");
     }
 }

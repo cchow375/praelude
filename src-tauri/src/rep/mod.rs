@@ -83,8 +83,6 @@ impl RepEngine {
 
     /// Whether a block is currently open. The voice layer reads this live to
     /// decide whether rep-check phrases (`done`, `again`) route as reps.
-    // The live (non-test) caller is the voice loop's `Mode`, wired in Task 18.
-    #[allow(dead_code)]
     pub fn active(&self) -> bool {
         self.active
             .lock()
