@@ -144,8 +144,13 @@ pub fn install_termination_handler() {
     }
 }
 
-/// The signal handler itself. MUST stay async-signal-safe.
-extern "C" fn term_signal_handler(sig: libc::c_int) {
+/// SIGTERM the live `hear` process group, if any. Async-signal-safe (one atomic
+/// load + `killpg`, no locks, no allocation), so it is shared by BOTH backstops:
+/// the POSIX signal handler below AND the `atexit` hook in `lib.rs` (which covers
+/// quit paths that deliver neither a signal nor a Tauri event — verified live
+/// 2026-07-10: an AppleEvent quit skips `RunEvent::ExitRequested` entirely,
+/// orphaning `hear` with the microphone held until a SIGPIPE eventually kills it).
+pub fn kill_current_hear_group() {
     let pgid = CURRENT_HEAR_PGID.load(Ordering::Acquire);
     if pgid != 0 {
         // SIGTERM the hear group (hear ignores SIGINT but exits on SIGTERM).
@@ -153,6 +158,11 @@ extern "C" fn term_signal_handler(sig: libc::c_int) {
             libc::killpg(pgid, libc::SIGTERM);
         }
     }
+}
+
+/// The signal handler itself. MUST stay async-signal-safe.
+extern "C" fn term_signal_handler(sig: libc::c_int) {
+    kill_current_hear_group();
     // Restore default disposition and re-raise so the process dies normally.
     unsafe {
         libc::signal(sig, libc::SIG_DFL);

@@ -52,6 +52,6 @@
 mod supervisor;
 
 pub use supervisor::{
-    install_termination_handler, DownReason, SttConfig, SttEvent, SttHandle, SttSupervisor,
-    Transcript,
+    install_termination_handler, kill_current_hear_group, DownReason, SttConfig, SttEvent,
+    SttHandle, SttSupervisor, Transcript,
 };

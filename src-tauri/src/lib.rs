@@ -325,6 +325,26 @@ pub fn run() {
             // the microphone. Install an async-signal-safe handler that kills the
             // `hear` group before the process dies. See `stt::install_termination_handler`.
             stt::install_termination_handler();
+
+            // An AppleEvent quit (`osascript 'quit app'` — and possibly other
+            // NSApp-terminate paths) tears the process down WITHOUT delivering
+            // `RunEvent::ExitRequested` OR a POSIX signal (verified live
+            // 2026-07-10: the run-loop arm below never fired; `hear` was
+            // orphaned holding the mic and the boosted volume was stranded).
+            // `atexit` runs on every normal process exit including NSApp
+            // terminate, so it is the path-independent backstop for the two
+            // cleanups that must never be skipped. The open session is
+            // deliberately NOT ended here: the next launch adopts it
+            // (`SessionService`/`latest_open_session`) and exports it on the
+            // next graceful end — nothing is lost, only deferred.
+            extern "C" fn exit_backstop() {
+                stt::kill_current_hear_group();
+                sysvol::restore_stranded_boost();
+            }
+            // Safe: registering a plain extern "C" fn to run at normal exit.
+            unsafe {
+                libc::atexit(exit_backstop);
+            }
             Ok(())
         })
         // Restore the system volume on window close: a boosted volume must never
@@ -332,6 +352,19 @@ pub fn run() {
         // `kill -9` is the one path we cannot cover — see sysvol docs.)
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { .. } = event {
+                // Closing the window is the most natural "practice is over"
+                // gesture, and (unlike an NSApp-terminate quit) it reliably
+                // reaches us — so end + export the session here, BEFORE tearing
+                // the pipelines down. Idempotent with the ExitRequested arm:
+                // ending twice is a no-op (`latest_open_session` only finds
+                // sessions with `ended_at IS NULL`).
+                if let (Some(store), Some(sessions)) = (
+                    window.try_state::<Arc<Store>>(),
+                    window.try_state::<Arc<SessionService>>(),
+                ) {
+                    let dir = pieces_dir(&store);
+                    let _ = sessions.end_and_export(&store, &dir);
+                }
                 if let Some(voice) = window.try_state::<Arc<VoiceLoop>>() {
                     voice.shutdown();
                 }

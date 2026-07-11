@@ -16,6 +16,27 @@
 //! limitation, documented honestly.
 
 use std::process::Command;
+use std::sync::atomic::{AtomicI32, Ordering};
+
+/// The pre-boost volume to restore if the process exits while a boost is still
+/// engaged, or `-1` when none is. Mirrors [`BoostGuard::saved`] into a lock-free
+/// global so the `atexit` backstop in `lib.rs` can restore it on quit paths that
+/// never deliver Tauri's events (verified live 2026-07-10: an AppleEvent quit —
+/// `osascript 'quit app'` — terminates the NSApp without firing
+/// `RunEvent::ExitRequested`, stranding the Mac at boost volume). One metronome
+/// ⇒ at most one engaged boost per process, so a single global is sufficient.
+static STRANDED_SAVED: AtomicI32 = AtomicI32::new(-1);
+
+/// Restore the pre-boost volume if a [`BoostGuard`] is still engaged at process
+/// exit; no-op otherwise. Called from the `atexit` backstop (a normal-exit
+/// context, so spawning `osascript` is fine — this is NOT a signal handler).
+/// Idempotent: the swap clears the marker, so a second call does nothing.
+pub fn restore_stranded_boost() {
+    let saved = STRANDED_SAVED.swap(-1, Ordering::AcqRel);
+    if saved >= 0 {
+        set(saved as u8);
+    }
+}
 
 /// Parse the `output volume` field out of the text `osascript -e "get volume
 /// settings"` prints, e.g. `"output volume:64, input volume:83, alert
@@ -99,6 +120,10 @@ impl BoostGuard {
     ) -> Self {
         let saved = getter();
         setter(target);
+        // Mirror for the atexit backstop (see STRANDED_SAVED). Tests that inject
+        // fake setters also write this global; harmless — restore_stranded_boost
+        // is only registered (and the global only consumed) in the real app.
+        STRANDED_SAVED.store(saved as i32, Ordering::Release);
         BoostGuard {
             saved,
             setter: Box::new(setter),
@@ -118,6 +143,9 @@ impl BoostGuard {
         if self.active {
             (self.setter)(self.saved);
             self.active = false;
+            // The boost is no longer engaged; the atexit backstop has nothing
+            // to restore.
+            STRANDED_SAVED.store(-1, Ordering::Release);
         }
     }
 }
