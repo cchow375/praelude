@@ -330,6 +330,27 @@ fn route_rep_open(words: &[&str]) -> Option<RepOpenSpec> {
     if !has_cue || !has_measures {
         return None;
     }
+
+    // Command-shape firewall (mirrors `is_explicit_metro_stop`/`route_delta`):
+    // every word must be rep-open vocabulary or a number. This is what stops the
+    // *very* common ambient phrasing this app invites — a musician saying "the
+    // block measures 40 to 56 are hard" or "that rep in measures 12 to 16 was
+    // rough" carries a cue word + "measures" + a range, but the stray words
+    // ("are"/"hard"/"in"/"was"/"rough") are out of vocab, so it never opens a
+    // block. A genuine command ("open a rep tracker measures 40 to 56 start at 80
+    // target 120") is built entirely from this vocabulary.
+    const VOCAB: &[&str] = &[
+        "open", "start", "new", "up", "a", "an", "the", "please", "lets", "let", "us", "go",
+        "rep", "reps", "tracker", "block", "measures", "measure", "to", "through", "thru", "at",
+        "target", "and",
+    ];
+    if !words
+        .iter()
+        .all(|w| VOCAB.contains(w) || numbers::parse_number(w).is_some())
+    {
+        return None;
+    }
+
     let mpos = words
         .iter()
         .position(|w| *w == "measures" || *w == "measure")?;
@@ -1202,6 +1223,32 @@ mod tests {
             r("the melody measures 40 to 56 are lovely", &stopped()),
             Intent::Ignored
         );
+    }
+
+    #[test]
+    fn rep_open_firewall_rejects_ambient_measure_talk() {
+        // This app is ALL about measures, so a musician constantly says "measures
+        // N to N" in passing. A cue word + a range buried in a sentence with any
+        // out-of-vocab word must NOT open a block (the command-shape gate). These
+        // carry a cue (rep/block) + "measures 40 to 56" but are plainly ambient.
+        for phrase in [
+            "the block measures 40 to 56 are hard",
+            "that rep in measures 40 to 56 was rough",
+            "the rep i did on measures 12 to 16 felt shaky",
+            "lets look at the block where measures 40 to 56 get tricky",
+            "the tracker says measures 40 to 56 are the problem area",
+        ] {
+            assert_eq!(
+                Router::route(phrase, &stopped()),
+                Intent::Ignored,
+                "ambient measure-talk must be Ignored: {phrase:?}"
+            );
+            assert_eq!(
+                Router::route(phrase, &rep_mode()),
+                Intent::Ignored,
+                "…and in rep mode too: {phrase:?}"
+            );
+        }
     }
 
     // -------------------------------------------------- REP FIREWALL BATTERY

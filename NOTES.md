@@ -2,6 +2,59 @@
 
 ## Decisions
 
+- **Task 17/18 (rep engine + sessions + voice wiring):**
+  - **Ladder math (`rep/ladder.rs`, pure).** `resolve_auto(start, target, planned,
+    variants)`: planned = Σ variant reps if variants present, else planned, else 30.
+    `bpm_step` always 4. Rungs `K = ceil((target-start)/4)` (≥1); `clean_needed =
+    clamp(round(planned/K), 1, 5)`, EXCEPT no-target → fixed 3 (a ladder needs a
+    ceiling to climb). `step()` returns `Some(new_bpm)` capped at target only when
+    `cleans_at_step ≥ clean_needed` AND `bpm < target`; no target ⇒ always `None`.
+  - **`check()` ordering is load-bearing:** the rep is recorded at the block's
+    CURRENT (pre-step) bpm and the current variant lane (lane of rep `reps_done+1`);
+    THEN reps_done increments; only a `clean` advances `cleans_at_step` and can step;
+    a step sets bpm and resets `cleans_at_step`. `snapshot.variant` tracks the
+    UPCOMING rep's lane. `say` composed once in the engine (single source for voice +
+    UI): block-done wins over step wins over plain; variant change appends "{Name}
+    next." Block-done = `reps_done ≥ planned_reps`.
+  - **`open` rejects a double-open** (`Err("close the current block first")`) rather
+    than auto-abandoning — voice safety (a mis-heard open must not nuke a live block).
+  - **Session ↔ block linkage lives ONLY in the event log** (rep_block has no
+    session_id in the schema), so `export::write_session_md` reconstructs everything
+    from `rep_open`/`rep`/`rep_close`/`metro` events. `rep_open` logs the whole
+    RepSnapshot as its payload so export has piece_id/title/measures/start_bpm without
+    extra queries; the piece folder is resolved via `get_piece(piece_id).folder_path`.
+    Append-only: create with a one-line header, never edit. Tempdir-only in tests.
+  - **RFC3339 at the boundary, native in SQLite.** `sqlite_ts_to_rfc3339` (space→T,
+    append Z, idempotent) is applied in `SessionService::current()` and the
+    `session://event` emit; the store keeps `datetime('now')` native. `BlockHistory`
+    was reshaped to the frozen wire contract (`block_id` not `id`, drop `piece_id`,
+    add `bpm` = latest rep bpm via correlated subquery, else `start_bpm`).
+  - **Voice note capture is intentionally eager in rep mode:** a leading
+    fail/flawed token (`no`/`nope`/`again`/`sloppy`/…) + a ≤12-word trailing clause
+    becomes `RepCheck(Fail|Flawed, Some(note))`. So while a block is open, "no thanks"
+    to someone in the room WOULD log a failed rep with note "thanks". This is the
+    brief's designed behavior (you're actively practicing); the firewall battery for
+    rep mode therefore only covers utterances that do NOT lead with a verdict word.
+    A >12-word trailing clause reject the whole utterance (ambient ramble).
+  - **RepOpen firewall (hardened after adversarial review):** beyond the brief's
+    "measures + range", RepOpen requires (a) a rep-open cue (`tracker`/`rep`/`block`)
+    AND (b) a command-SHAPE gate — every word must be rep-open vocabulary or a number
+    (mirrors `is_explicit_metro_stop`). This matters because the app is ALL about
+    measures: "the block measures 40 to 56 are hard" / "that rep in measures 12 to 16
+    was rough" carry a cue + a range but the stray words ("are"/"hard"/"in"/"was")
+    fall out of vocab, so ambient measure-talk never opens a block. Number parsing
+    keeps a bare digit literal (`120`) as its own run so adjacent `target 120 twenty
+    reps` splits cleanly (a literal is never merged with a following number-word into
+    an unparseable `"120 twenty"`).
+  - **Every new spoken ack goes through `self.speaker.say` (gate-closing)** — reps,
+    open/status/close, session-end, "Pick a piece first." — preserving the 2.5 s
+    `t.at`-keyed dedup safety invariant (no silent acks). The metronome follows a
+    ladder step via `set_bpm_only` ONLY when running; when stopped, the engine has
+    already persisted the new block bpm and the step is still spoken.
+  - **App-exit export hook** on `RunEvent::ExitRequested` calls `end_and_export`
+    (best-effort: only reads the event log + appends a small markdown file; a second
+    call after `session_end` is a no-op because `current_id()` is then `None`).
+
 - **Task 11 (tts:: — Gemini TTS + `say` fallback + half-duplex gate):**
   - **VERIFIED Gemini TTS API (2026-07, docs win over brief's generateContent guess).**
     Sources: WebFetch of https://ai.google.dev/gemini-api/docs/speech-generation AND
