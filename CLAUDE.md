@@ -14,7 +14,10 @@ version history live in the Obsidian vault**, not here:
 1. Log it in the vault `(C) Changelog.md` (date · what · why · files).
 2. Refresh the vault `CodaKiller.md` (portable summary + its `Last updated:` line).
 3. Update the affected vault living docs — `(C) Roadmap.md`, `(C) Flaws.md` (never delete
-   a flaw; move to Resolved), the `(C) CodaKiller Command Center.md` status/threads.
+   a flaw; move to Resolved), the `(C) CodaKiller Command Center.md` status/threads, and
+   **`(C) How To Use.md` whenever anything user-facing changes** (voice grammar/vocabulary,
+   UI flows, defaults, permissions/setup) — bump its `Matches: vX.Y.Z` line; the tutorial
+   must always describe the installed app exactly.
 4. Log engineering decisions/gotchas/empirical facts in **this repo's `NOTES.md`**.
 5. Commit here with a clear message; **tag on a version bump** (`git tag vX.Y.Z`).
 
