@@ -3,6 +3,11 @@ import { Popover } from "./Popover";
 import { MetronomePopover } from "../features/metronome/MetronomePopover";
 import { useVoice, type VoiceStatus } from "../features/voice/useVoice";
 import { VoiceToast } from "../features/voice/VoiceToast";
+import { PiecesPanel } from "../features/pieces/PiecesPanel";
+import { useRep } from "../features/rep/useRep";
+import { RepHud } from "../features/rep/RepHud";
+import { useSession } from "../features/session/useSession";
+import { SessionBar } from "../features/session/SessionBar";
 import "./Shell.css";
 
 const VOICE_STATUS_LABEL: Record<VoiceStatus, string> = {
@@ -12,6 +17,7 @@ const VOICE_STATUS_LABEL: Record<VoiceStatus, string> = {
 };
 
 type PanelId = "metronome" | "mic" | "settings";
+type ViewId = "practice" | "metronome";
 
 /**
  * The app shell: a slim top bar and a large, quiet hero area. Per the CodaKiller
@@ -21,19 +27,54 @@ type PanelId = "metronome" | "mic" | "settings";
  */
 export function Shell() {
   const [openPanel, setOpenPanel] = useState<PanelId | null>(null);
+  const [view, setView] = useState<ViewId>("practice");
+  const [ending, setEnding] = useState(false);
   const metronomeRef = useRef<HTMLButtonElement>(null);
   const micRef = useRef<HTMLButtonElement>(null);
   const settingsRef = useRef<HTMLButtonElement>(null);
   const voice = useVoice();
+  const rep = useRep();
+  const session = useSession();
 
   const toggle = (id: PanelId) =>
     setOpenPanel((cur) => (cur === id ? null : id));
   const close = () => setOpenPanel(null);
 
+  const endSession = async () => {
+    setEnding(true);
+    try {
+      await session.endSession();
+    } finally {
+      setEnding(false);
+    }
+  };
+
   return (
     <div className="shell">
       <header className="topbar">
-        <span className="topbar-brand">CodaKiller</span>
+        <div className="topbar-left">
+          <span className="topbar-brand">CodaKiller</span>
+          <nav className="view-switcher" aria-label="View">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "practice"}
+              className={`view-tab ${view === "practice" ? "is-on" : ""}`}
+              onClick={() => setView("practice")}
+            >
+              Practice
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "metronome"}
+              className={`view-tab ${view === "metronome" ? "is-on" : ""}`}
+              onClick={() => setView("metronome")}
+            >
+              Metronome
+            </button>
+          </nav>
+        </div>
         <nav className="topbar-actions" aria-label="Tools">
           <button
             ref={metronomeRef}
@@ -76,24 +117,30 @@ export function Shell() {
         </nav>
       </header>
 
-      <main className="hero">
-        <div className="hero-placeholder">
-          <p className="hero-title">Ready when you are.</p>
-          <p className="hero-subtitle">
-            The mic is always listening — no wake word needed. Try saying:
-          </p>
-          <ul className="hero-examples">
-            <li>“metronome ninety-six”</li>
-            <li>“bump it up four” · “faster” · “slower”</li>
-            <li>“accent every three”</li>
-            <li>“stop”</li>
-          </ul>
-          <p className="hero-footnote">
-            Playing, singing, and conversation are ignored. Your score view
-            arrives in a later update.
-          </p>
-        </div>
-      </main>
+      {view === "practice" ? (
+        <main className="practice-main">
+          <PiecesPanel onOpenBlock={rep.open} />
+        </main>
+      ) : (
+        <main className="hero">
+          <div className="hero-placeholder">
+            <p className="hero-title">Ready when you are.</p>
+            <p className="hero-subtitle">
+              The mic is always listening — no wake word needed. Try saying:
+            </p>
+            <ul className="hero-examples">
+              <li>“metronome ninety-six”</li>
+              <li>“bump it up four” · “faster” · “slower”</li>
+              <li>“accent every three”</li>
+              <li>“stop”</li>
+            </ul>
+            <p className="hero-footnote">
+              Playing, singing, and conversation are ignored. Your score view
+              arrives in a later update.
+            </p>
+          </div>
+        </main>
+      )}
 
       <MetronomePopover
         anchorRef={metronomeRef}
@@ -121,6 +168,21 @@ export function Shell() {
         lastIntent={voice.lastIntent}
         status={voice.status}
         downGuidance={voice.downGuidance}
+      />
+
+      {/* Session + rep surfaces live at shell level so they are visible from
+          both the Practice and Metronome views. */}
+      <SessionBar
+        session={session.session}
+        onEnd={endSession}
+        ending={ending}
+      />
+      <RepHud
+        snap={rep.snap}
+        feed={rep.feed}
+        error={rep.error}
+        onCheck={rep.check}
+        onClose={rep.close}
       />
     </div>
   );
