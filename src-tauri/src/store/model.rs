@@ -92,6 +92,8 @@ pub struct Intake {
 /// A resolved tempo-increment rule for a rep block: after `clean_needed` clean
 /// reps at the current tempo, bump the BPM by `bpm_step`. Stored resolved (an
 /// `"auto"` request is resolved to concrete numbers when the block opens).
+// Consumed by the Task 17 rep engine; only tests construct it in this task.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IncrementRule {
     pub clean_needed: u32,
@@ -100,6 +102,7 @@ pub struct IncrementRule {
 
 /// A named practice variant within a block (e.g. "hands separate", `reps`
 /// planned for it).
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VariantSpec {
     pub name: String,
@@ -107,6 +110,7 @@ pub struct VariantSpec {
 }
 
 /// Tally of rep verdicts, used in block history and rep snapshots.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct VerdictCounts {
     pub clean: u32,
@@ -116,6 +120,7 @@ pub struct VerdictCounts {
 
 /// A rep block plus its rolled-up rep counts — one row of a piece's block
 /// history (`rep_blocks_for_piece`).
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockHistory {
     pub id: i64,
@@ -133,6 +138,7 @@ pub struct BlockHistory {
 
 /// One session-log event as shown in the session view. `payload` is opaque JSON
 /// (its shape depends on `kind`); the store round-trips it untouched.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionEventView {
     pub ts: String,

@@ -6,6 +6,7 @@ pub mod stt;
 mod store;
 mod sysvol;
 pub mod tts;
+pub mod vault;
 mod voice_loop;
 
 use std::path::PathBuf;
@@ -13,6 +14,7 @@ use std::sync::Arc;
 
 use metronome::Metronome;
 use stt::SttConfig;
+use store::model::{Intake, PieceDetail, PieceSummary};
 use store::Store;
 use tauri::path::BaseDirectory;
 use tauri::{Manager, State, WindowEvent};
@@ -77,6 +79,77 @@ fn resolve_stt_config(app: &tauri::App) -> SttConfig {
     SttConfig::hear(resolve_hear_bin(app))
 }
 
+/// The vault pieces directory: the `vault.pieces_dir` setting, or the shipped
+/// default when it has never been set. Kept in one place so the startup scan and
+/// the `pieces_scan` command always agree on where pieces live.
+const DEFAULT_PIECES_DIR: &str = "/Users/c3/Desktop/christian's universe/Piano Practice/Pieces";
+
+fn pieces_dir(store: &Store) -> PathBuf {
+    store
+        .get_setting("vault.pieces_dir")
+        .ok()
+        .flatten()
+        .filter(|s| !s.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_PIECES_DIR))
+}
+
+/// Ingest the vault into the store: scan (read-only) → upsert each piece →
+/// return the refreshed list. Shared by the `pieces_scan` command and the
+/// startup background scan.
+fn ingest_pieces(store: &Store) -> Result<Vec<PieceSummary>, String> {
+    let dir = pieces_dir(store);
+    for piece in vault::scan_pieces(&dir) {
+        store.upsert_piece(&piece).map_err(|e| e.to_string())?;
+    }
+    store.list_pieces().map_err(|e| e.to_string())
+}
+
+/// Rescan the vault dir, upsert every piece found, and return all pieces.
+#[tauri::command]
+fn pieces_scan(store: State<'_, Arc<Store>>) -> Result<Vec<PieceSummary>, String> {
+    ingest_pieces(&store)
+}
+
+/// All known pieces, without rescanning the vault.
+#[tauri::command]
+fn pieces_list(store: State<'_, Arc<Store>>) -> Result<Vec<PieceSummary>, String> {
+    store.list_pieces().map_err(|e| e.to_string())
+}
+
+/// Full detail for one piece.
+#[tauri::command]
+fn piece_get(id: i64, store: State<'_, Arc<Store>>) -> Result<PieceDetail, String> {
+    store
+        .get_piece(id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("piece {id} not found"))
+}
+
+/// Persist a piece's intake payload (sets `intake_done`) and return the updated
+/// detail.
+#[tauri::command]
+fn piece_intake_save(
+    id: i64,
+    intake: Intake,
+    store: State<'_, Arc<Store>>,
+) -> Result<PieceDetail, String> {
+    store.save_intake(id, &intake).map_err(|e| e.to_string())?;
+    store
+        .get_piece(id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("piece {id} not found"))
+}
+
+/// Remember the piece the user is working on (setting `ui.current_piece`). The
+/// voice layer reads this later to scope commands to the active piece.
+#[tauri::command]
+fn piece_select(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    store
+        .set_setting("ui.current_piece", &id.to_string())
+        .map_err(|e| e.to_string())
+}
+
 /// Mute (`true`) or unmute the mic. Gates STT and blocks any action while muted.
 #[tauri::command]
 fn voice_mute(muted: bool, voice: State<'_, Arc<VoiceLoop>>) {
@@ -128,8 +201,20 @@ pub fn run() {
             // disabled Dictation surfaces as a `voice://status` down event, never a
             // crash.
             let stt_config = resolve_stt_config(app);
-            let voice = VoiceLoop::start(&app.handle().clone(), metro, store, stt_config, wake_word);
+            let voice = VoiceLoop::start(&app.handle().clone(), metro, store.clone(), stt_config, wake_word);
             app.manage(voice);
+
+            // Prime the piece list from the vault on a background thread so first
+            // paint is never blocked on a filesystem scan. Best-effort: a missing
+            // vault yields an empty scan (never a panic), and any upsert error is
+            // logged rather than propagated — the UI can always re-trigger
+            // `pieces_scan` manually.
+            let scan_store = store.clone();
+            std::thread::spawn(move || {
+                if let Err(e) = ingest_pieces(&scan_store) {
+                    eprintln!("vault: startup piece scan failed: {e}");
+                }
+            });
 
             // A raw POSIX SIGTERM/SIGINT/SIGHUP to the app bypasses Tauri's
             // graceful `CloseRequested`/`ExitRequested` cleanup, which would
@@ -155,6 +240,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_setting,
             set_setting,
+            pieces_scan,
+            pieces_list,
+            piece_get,
+            piece_intake_save,
+            piece_select,
             metronome::metro_start,
             metronome::metro_stop,
             metronome::metro_set,

@@ -206,6 +206,14 @@ impl Store {
         Ok(())
     }
 
+}
+
+/// Rep, block, and session persistence. These methods are the data layer the
+/// Task 17 rep engine and Task 18 session layer build on; they are exercised by
+/// this module's tests but have no in-crate callers yet, hence the crate-local
+/// `dead_code` allowance (the same pattern `schema_version` uses).
+#[allow(dead_code)]
+impl Store {
     // ── Rep blocks & reps ─────────────────────────────────────────────────
 
     /// Insert a new rep block (always `status = 'open'`); returns its row id.

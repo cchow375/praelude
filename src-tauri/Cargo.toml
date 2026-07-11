@@ -45,3 +45,8 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking", 
 # 0.22.1 in the lock via reqwest.
 base64 = "0.22"
 
+[dev-dependencies]
+# Tempdir fixtures for the vault scan tests (real vault is never touched by tests).
+# Already present in Cargo.lock (transitive), so this pins the same 3.x build.
+tempfile = "3"
+
