@@ -25,3 +25,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Agent tooling scratch
+.claude/
+.claude-flow/

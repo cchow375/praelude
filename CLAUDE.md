@@ -53,6 +53,9 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**v0.1.0 shipped (P0–P2, tag `p2-done`): metronome + voice loop work end-to-end. The real
-product (P3–P6) is unbuilt; the at-piano acceptance run is pending; the repo is local-only
-(no off-disk backup yet).** Next: at-piano acceptance, then P3 (pieces + rep engine) → v0.2.0.
+**v0.2.0 shipped (P3, tag `v0.2.0`, 2026-07-10): the rep tracker is real — pieces seeded
+from the vault, typed intake, voice-driven rep blocks with ladders/variants and verbal
+check-off, sessions exported append-only to the piece folders, runtime TTS fallback +
+mic-permission guidance. Score viewer / brain / library (P4–P6) remain; the at-piano
+acceptance run (now of the full rep flow) is pending; the repo is local-only (no off-disk
+backup yet).** Next: real at-piano session → tuning round → plan P4 (OSMD perf spike first).
