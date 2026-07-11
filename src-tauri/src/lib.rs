@@ -2,6 +2,8 @@ pub mod audio;
 pub mod intent;
 mod keys;
 mod metronome;
+mod rep;
+mod sessions;
 pub mod stt;
 mod store;
 mod sysvol;
@@ -13,12 +15,28 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use metronome::Metronome;
+use rep::{RepEngine, RepVerdict};
+use sessions::{SessionService, StateEmitter};
 use stt::SttConfig;
-use store::model::{Intake, PieceDetail, PieceSummary};
+use store::model::{
+    BlockHistory, CheckOutcome, Intake, PieceDetail, PieceSummary, RepOpenArgs, RepSnapshot,
+    SessionView,
+};
 use store::Store;
 use tauri::path::BaseDirectory;
-use tauri::{Manager, State, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use voice_loop::{VoiceLoop, VoiceStatus};
+
+/// The production [`StateEmitter`]: forwards `rep://state` / `session://event`
+/// through the Tauri `AppHandle`. Best-effort — a failed emit is logged.
+struct AppEmitter(AppHandle);
+impl StateEmitter for AppEmitter {
+    fn emit(&self, event: &str, payload: serde_json::Value) {
+        if let Err(e) = self.0.emit(event, payload) {
+            eprintln!("app: failed to emit {event}: {e}");
+        }
+    }
+}
 
 /// Read a persisted setting. Returns `null` when the key has never been set.
 #[tauri::command]
@@ -127,18 +145,71 @@ fn piece_get(id: i64, store: State<'_, Arc<Store>>) -> Result<PieceDetail, Strin
 }
 
 /// Persist a piece's intake payload (sets `intake_done`) and return the updated
-/// detail.
+/// detail. Also logs an `intake` session event so the session summary reflects
+/// piece setup done during the session.
 #[tauri::command]
 fn piece_intake_save(
     id: i64,
     intake: Intake,
     store: State<'_, Arc<Store>>,
+    sessions: State<'_, Arc<SessionService>>,
 ) -> Result<PieceDetail, String> {
     store.save_intake(id, &intake).map_err(|e| e.to_string())?;
-    store
+    let detail = store
         .get_piece(id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("piece {id} not found"))
+        .ok_or_else(|| format!("piece {id} not found"))?;
+    sessions.log(
+        "intake",
+        serde_json::json!({ "piece_id": id, "piece_title": detail.title }),
+    );
+    Ok(detail)
+}
+
+/// Open a rep block (voice or UI). Resolves the ladder, persists the block, and
+/// returns the fresh snapshot; the frontend applies it directly.
+#[tauri::command]
+fn rep_open(args: RepOpenArgs, rep: State<'_, Arc<RepEngine>>) -> Result<RepSnapshot, String> {
+    rep.open(args)
+}
+
+/// Record one rep against the active block. `verdict` is `"clean"`/`"flawed"`/
+/// `"failed"`; `note` is optional. Takes the exact same engine path voice uses.
+#[tauri::command]
+fn rep_check(
+    verdict: String,
+    note: Option<String>,
+    rep: State<'_, Arc<RepEngine>>,
+) -> Result<CheckOutcome, String> {
+    let v = RepVerdict::parse(&verdict).ok_or_else(|| format!("unknown verdict '{verdict}'"))?;
+    rep.check(v, note)
+}
+
+/// Close the active block (`done` if the plan was met, else `abandoned`).
+#[tauri::command]
+fn rep_close(rep: State<'_, Arc<RepEngine>>) -> Option<RepSnapshot> {
+    rep.close()
+}
+
+/// The current active-block snapshot, or `null` when no block is open.
+#[tauri::command]
+fn rep_state(rep: State<'_, Arc<RepEngine>>) -> Option<RepSnapshot> {
+    rep.snapshot()
+}
+
+/// Every rep block for a piece (newest first) with its per-verdict rep tallies.
+#[tauri::command]
+fn rep_blocks_for_piece(
+    piece_id: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<BlockHistory>, String> {
+    store.block_history(piece_id).map_err(|e| e.to_string())
+}
+
+/// The current session and its event log (newest-first, capped), or `null`.
+#[tauri::command]
+fn session_current(sessions: State<'_, Arc<SessionService>>) -> Option<SessionView> {
+    sessions.current()
 }
 
 /// Remember the piece the user is working on (setting `ui.current_piece`). The
@@ -192,8 +263,21 @@ pub fn run() {
             // thread). The voice loop shares these same Arcs.
             let metro = Arc::new(Metronome::new(sounds, state, boost_level));
             let store = Arc::new(store);
+
+            // Session log + rep engine share the store. Both emit app events
+            // (`session://event`, `rep://state`) through the Tauri AppHandle,
+            // installed here now that it exists. The voice loop drives the SAME
+            // Arcs so a block opened by voice is the block the UI sees.
+            let sessions = Arc::new(SessionService::new(store.clone()));
+            let rep = Arc::new(RepEngine::new(store.clone(), sessions.clone()));
+            let app_emitter: Arc<dyn StateEmitter> = Arc::new(AppEmitter(app.handle().clone()));
+            sessions.set_emitter(app_emitter.clone());
+            rep.set_emitter(app_emitter);
+
             app.manage(metro.clone());
             app.manage(store.clone());
+            app.manage(sessions.clone());
+            app.manage(rep.clone());
 
             // Start the end-to-end voice loop (STT → intent → metronome + spoken
             // confirmation). Managed so `voice_mute`/`voice_state` reach it and so
@@ -245,6 +329,12 @@ pub fn run() {
             piece_get,
             piece_intake_save,
             piece_select,
+            rep_open,
+            rep_check,
+            rep_close,
+            rep_state,
+            rep_blocks_for_piece,
+            session_current,
             metronome::metro_start,
             metronome::metro_stop,
             metronome::metro_set,

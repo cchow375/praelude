@@ -120,19 +120,24 @@ pub struct VerdictCounts {
 
 /// A rep block plus its rolled-up rep counts — one row of a piece's block
 /// history (`rep_blocks_for_piece`).
-#[allow(dead_code)]
+///
+/// The serialized shape (field names + order) is a hard frontend contract:
+/// `{ block_id, m_start, m_end, label, start_bpm, bpm, target_bpm, planned_reps,
+/// reps_done, status, verdicts }`. `bpm` is the block's *latest* rep bpm (or
+/// `start_bpm` when the block has no reps yet), so the history row shows where a
+/// block topped out, not just where it started.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockHistory {
-    pub id: i64,
-    pub piece_id: i64,
+    pub block_id: i64,
     pub m_start: u32,
     pub m_end: u32,
     pub label: Option<String>,
     pub start_bpm: f64,
+    pub bpm: f64,
     pub target_bpm: Option<f64>,
     pub planned_reps: u32,
-    pub status: String,
     pub reps_done: u32,
+    pub status: String,
     pub verdicts: VerdictCounts,
 }
 
@@ -144,6 +149,107 @@ pub struct SessionEventView {
     pub ts: String,
     pub kind: String,
     pub payload: serde_json::Value,
+}
+
+// ── Rep engine wire types (Task 17) ───────────────────────────────────────
+
+/// Arguments to open a rep block. Received from the frontend (`rep_open`) and
+/// synthesized by the voice layer. Optional fields carry serde defaults so the
+/// caller may omit them; `increment` unset means "auto-resolve the ladder".
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RepOpenArgs {
+    pub piece_id: i64,
+    pub m_start: u32,
+    pub m_end: u32,
+    #[serde(default)]
+    pub label: Option<String>,
+    pub start_bpm: f64,
+    #[serde(default)]
+    pub target_bpm: Option<f64>,
+    #[serde(default)]
+    pub planned_reps: Option<u32>,
+    #[serde(default)]
+    pub increment: Option<IncrementRule>,
+    #[serde(default)]
+    pub variants: Vec<VariantSpec>,
+}
+
+/// The most recent rep recorded in a block (for the snapshot's "last" field).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LastRep {
+    pub verdict: String,
+    pub note: Option<String>,
+    pub bpm: f64,
+}
+
+/// The full live state of the active rep block. Emitted as `rep://state`,
+/// returned by `rep_open`/`rep_state`, and carried inside a [`CheckOutcome`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RepSnapshot {
+    pub block_id: i64,
+    pub piece_id: i64,
+    pub piece_title: String,
+    pub m_start: u32,
+    pub m_end: u32,
+    pub label: Option<String>,
+    /// The block's current working tempo (steps up the ladder as reps land clean).
+    pub bpm: f64,
+    pub start_bpm: f64,
+    pub target_bpm: Option<f64>,
+    pub planned_reps: u32,
+    pub reps_done: u32,
+    /// Clean reps accumulated at the current rung; resets to 0 on a step.
+    pub cleans_at_step: u32,
+    pub rule: IncrementRule,
+    /// The variant the *next* rep belongs to, if the block has variants.
+    pub variant: Option<String>,
+    pub variants: Vec<VariantSpec>,
+    pub verdicts: VerdictCounts,
+    pub last: Option<LastRep>,
+    pub status: String,
+}
+
+/// The result of recording one rep (`rep_check`): the updated snapshot, the new
+/// tempo if the rep stepped the ladder, whether the block just completed, and the
+/// spoken/UI line — composed once in the engine so voice and UI never diverge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CheckOutcome {
+    pub snap: RepSnapshot,
+    pub new_bpm: Option<f64>,
+    pub block_done: bool,
+    pub say: String,
+}
+
+/// A session and its event log for the frontend session panel. `events` are
+/// newest-first and capped; `started_at` is RFC3339 UTC.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionView {
+    pub id: i64,
+    pub started_at: String,
+    pub events: Vec<SessionEventView>,
+}
+
+/// The outcome of ending a session and writing its vault summary.
+// Constructed by the Task 18 session export (`session_end` / app-exit hook).
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExportResult {
+    pub session_id: i64,
+    pub files: Vec<String>,
+    pub pieces: u32,
+    pub reps: u32,
+}
+
+/// Convert a SQLite-native timestamp (`"YYYY-MM-DD HH:MM:SS"`, always UTC via
+/// `datetime('now')`) into the RFC3339 form the frontend expects
+/// (`"YYYY-MM-DDTHH:MM:SSZ"`). SQLite stays native; conversion happens only at
+/// the command/emit boundary. Idempotent: a value that already looks RFC3339
+/// (has a `T` or trailing `Z`) is returned unchanged.
+pub(crate) fn sqlite_ts_to_rfc3339(ts: &str) -> String {
+    if ts.is_empty() || ts.contains('T') || ts.ends_with('Z') {
+        return ts.to_string();
+    }
+    format!("{}Z", ts.replacen(' ', "T", 1))
 }
 
 /// Serialize a value into the TEXT form stored in a JSON-shaped column,

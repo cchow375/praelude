@@ -283,16 +283,23 @@ impl Store {
     }
 
     /// Every rep block for a piece (newest first), each with its rep verdict
-    /// tallies rolled up in a single query.
+    /// tallies rolled up in a single query. `bpm` is the block's latest rep bpm
+    /// (via a correlated subquery), falling back to `start_bpm` when the block
+    /// has no reps yet.
     pub fn block_history(&self, piece_id: i64) -> rusqlite::Result<Vec<BlockHistory>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut stmt = conn.prepare(
-            "SELECT b.id, b.piece_id, b.m_start, b.m_end, b.label,
+            "SELECT b.id, b.m_start, b.m_end, b.label,
                     b.start_bpm, b.target_bpm, b.planned_reps, b.status,
                     COUNT(r.id) AS reps_done,
                     COALESCE(SUM(r.verdict = 'clean'),  0) AS cleans,
                     COALESCE(SUM(r.verdict = 'flawed'), 0) AS flaweds,
-                    COALESCE(SUM(r.verdict = 'failed'), 0) AS faileds
+                    COALESCE(SUM(r.verdict = 'failed'), 0) AS faileds,
+                    COALESCE(
+                        (SELECT r2.bpm FROM rep r2 WHERE r2.block_id = b.id
+                         ORDER BY r2.id DESC LIMIT 1),
+                        b.start_bpm
+                    ) AS bpm
              FROM rep_block b
              LEFT JOIN rep r ON r.block_id = b.id
              WHERE b.piece_id = ?1
@@ -301,21 +308,21 @@ impl Store {
         )?;
         let rows = stmt.query_map([piece_id], |row| {
             Ok(BlockHistory {
-                id: row.get(0)?,
-                piece_id: row.get(1)?,
-                m_start: row.get(2)?,
-                m_end: row.get(3)?,
-                label: row.get(4)?,
-                start_bpm: row.get(5)?,
-                target_bpm: row.get(6)?,
-                planned_reps: row.get(7)?,
-                status: row.get(8)?,
-                reps_done: row.get(9)?,
+                block_id: row.get(0)?,
+                m_start: row.get(1)?,
+                m_end: row.get(2)?,
+                label: row.get(3)?,
+                start_bpm: row.get(4)?,
+                target_bpm: row.get(5)?,
+                planned_reps: row.get(6)?,
+                status: row.get(7)?,
+                reps_done: row.get(8)?,
                 verdicts: VerdictCounts {
-                    clean: row.get(10)?,
-                    flawed: row.get(11)?,
-                    failed: row.get(12)?,
+                    clean: row.get(9)?,
+                    flawed: row.get(10)?,
+                    failed: row.get(11)?,
                 },
+                bpm: row.get(12)?,
             })
         })?;
         rows.collect()
@@ -388,6 +395,36 @@ impl Store {
             })
         })?;
         rows.collect()
+    }
+
+    /// A single session event by its row id (native `ts`). Used by the session
+    /// service to build the `session://event` payload for the just-logged event
+    /// without re-reading the whole log.
+    pub fn session_event(&self, event_id: i64) -> rusqlite::Result<SessionEventView> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row(
+            "SELECT ts, kind, payload FROM session_event WHERE id = ?1",
+            [event_id],
+            |row| {
+                let payload_json: String = row.get(2)?;
+                Ok(SessionEventView {
+                    ts: row.get(0)?,
+                    kind: row.get(1)?,
+                    payload: json_from_sql(&payload_json)?,
+                })
+            },
+        )
+    }
+
+    /// A session's `started_at` (native ts), or `None` if the id is unknown.
+    pub fn session_started_at(&self, session_id: i64) -> rusqlite::Result<Option<String>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row(
+            "SELECT started_at FROM session WHERE id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )
+        .optional()
     }
 }
 
@@ -618,12 +655,12 @@ mod tests {
         let hist = store.block_history(pid).unwrap();
         assert_eq!(hist.len(), 1);
         let h = &hist[0];
-        assert_eq!(h.id, block);
-        assert_eq!(h.piece_id, pid);
+        assert_eq!(h.block_id, block);
         assert_eq!(h.m_start, 1);
         assert_eq!(h.m_end, 8);
         assert_eq!(h.label.as_deref(), Some("intro"));
         assert_eq!(h.start_bpm, 80.0);
+        assert_eq!(h.bpm, 80.0, "latest rep bpm (all reps were at 80)");
         assert_eq!(h.target_bpm, Some(120.0));
         assert_eq!(h.planned_reps, 10);
         assert_eq!(h.status, "open");
