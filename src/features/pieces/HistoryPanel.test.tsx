@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const invokeMock = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invokeMock(...args) }));
-import { groupBlocksByRegion, HistoryPanel } from "./HistoryPanel";
+import { filterSortHistory, groupBlocksByRegion, HistoryPanel } from "./HistoryPanel";
 import type { BlockHistory, Region } from "./types";
 
 afterEach(cleanup);
@@ -28,5 +28,16 @@ describe("HistoryPanel", () => {
     render(<HistoryPanel pieceId={1} />);
     await waitFor(() => expect(screen.getAllByText("legato section").length).toBeGreaterThan(0));
     expect(screen.getByText(/1 block · best ♩44/)).toBeTruthy();
+  });
+
+  it("filters by a measure token and sorts by measure", () => {
+    const laterRegion = { ...region, id: 2, name: "B (mm.544-552)", m_start: 544, m_end: 552 };
+    const earlyRegion = { ...region, id: 3, name: "A", m_start: 1, m_end: 8 };
+    const groups = [
+      { region: laterRegion, blocks: [{ ...block, region_id: 2 }], mastery: null },
+      { region: earlyRegion, blocks: [{ ...block, region_id: 3, m_start: 1, m_end: 8 }], mastery: null },
+    ];
+    const output = filterSortHistory(groups, { query: "544", sort: "by-measure" });
+    expect(output.map((group) => group.region?.name)).toEqual(["B (mm.544-552)"]);
   });
 });

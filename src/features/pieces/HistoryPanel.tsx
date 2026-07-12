@@ -10,6 +10,39 @@ export interface HistoryGroup {
   mastery: RegionMastery | null;
 }
 
+export type HistorySort = "recent" | "by-measure" | "most-practiced";
+
+export function filterSortHistory(
+  groups: HistoryGroup[],
+  options: { query: string; sort: HistorySort },
+): HistoryGroup[] {
+  const query = options.query.trim().toLocaleLowerCase();
+  const filtered = query
+    ? groups.filter((group) => {
+        const regionText = group.region
+          ? `${group.region.name} ${group.region.m_start} ${group.region.m_end} mm.${group.region.m_start}-${group.region.m_end}`
+          : "ungrouped no region";
+        const blockText = group.blocks
+          .map((block) => `${block.label ?? ""} ${block.m_start} ${block.m_end} mm.${block.m_start}-${block.m_end}`)
+          .join(" ");
+        return `${regionText} ${blockText}`.toLocaleLowerCase().includes(query);
+      })
+    : [...groups];
+  return filtered.sort((a, b) => {
+    if (options.sort === "by-measure") {
+      const aStart = a.region?.m_start ?? Math.min(...a.blocks.map((block) => block.m_start));
+      const bStart = b.region?.m_start ?? Math.min(...b.blocks.map((block) => block.m_start));
+      return aStart - bStart;
+    }
+    if (options.sort === "most-practiced") {
+      const reps = (group: HistoryGroup) => group.mastery?.reps ?? group.blocks.reduce((sum, block) => sum + block.reps_done, 0);
+      return reps(b) - reps(a);
+    }
+    const when = (group: HistoryGroup) => Date.parse(group.mastery?.last_practiced ?? "") || 0;
+    return when(b) - when(a);
+  });
+}
+
 export function groupBlocksByRegion(
   blocks: BlockHistory[],
   regions: Region[],
@@ -48,6 +81,8 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
   const [summary, setSummary] = useState<ProgressSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<HistorySort>("recent");
 
   const load = useCallback(async () => {
     setError(null);
@@ -69,6 +104,10 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
     () => groupBlocksByRegion(blocks, regions, summary?.per_region_mastery),
     [blocks, regions, summary],
   );
+  const visibleGroups = useMemo(
+    () => filterSortHistory(groups, { query, sort }),
+    [groups, query, sort],
+  );
 
   return (
     <section className="history-panel" aria-label="Practice history">
@@ -76,9 +115,19 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
         <div><span className="ck-label">Practice history</span><p>Organized by section. Open a section, then a block, to reach individual reps.</p></div>
         <span className="history-total">{blocks.length} block{blocks.length === 1 ? "" : "s"}</span>
       </div>
-      {loading ? <p className="history-empty">Loading history…</p> : groups.length === 0 ? <p className="history-empty">No practice blocks yet.</p> : (
+      {!loading && groups.length > 0 && (
+        <div className="history-toolbar">
+          <label className="history-search"><span className="history-search-icon" aria-hidden="true">⌕</span><input type="search" aria-label="Search practice history" placeholder="Section, label, or measure…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+          <select aria-label="Sort practice history" value={sort} onChange={(event) => setSort(event.target.value as HistorySort)}>
+            <option value="recent">Most recent</option>
+            <option value="by-measure">By measure</option>
+            <option value="most-practiced">Most practiced</option>
+          </select>
+        </div>
+      )}
+      {loading ? <p className="history-empty">Loading history…</p> : groups.length === 0 ? <p className="history-empty">No practice blocks yet.</p> : visibleGroups.length === 0 ? <p className="history-empty">No sections match “{query}”.</p> : (
         <div className="history-groups">
-          {groups.map((group) => {
+          {visibleGroups.map((group) => {
             const region = group.region;
             const best = group.mastery?.best_bpm;
             return (
