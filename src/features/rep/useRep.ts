@@ -65,6 +65,8 @@ export interface RepSnapshot {
   verdicts: VerdictCounts;
   last: LastRep | null;
   status: string;
+  focus: string;
+  use_metronome: boolean;
 }
 
 /** Mirrors the backend `CheckOutcome` serde payload. */
@@ -81,11 +83,13 @@ export interface RepOpenArgs {
   m_start: number;
   m_end: number;
   label: string | null;
-  start_bpm: number;
+  start_bpm: number | null;
   target_bpm: number | null;
   planned_reps: number | null;
   increment: IncrementRule | null;
   variants: VariantSpec[];
+  focus: string;
+  use_metronome: boolean;
 }
 
 /** Verdict strings accepted by `rep_check`. */

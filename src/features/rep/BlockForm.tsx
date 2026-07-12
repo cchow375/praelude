@@ -52,6 +52,8 @@ export function BlockForm({
   const [cleanNeeded, setCleanNeeded] = useState<string>("3");
   const [bpmStep, setBpmStep] = useState<string>("4");
   const [variants, setVariants] = useState<VariantSpec[]>([]);
+  const [focus, setFocus] = useState("tempo");
+  const [useMetronome, setUseMetronome] = useState(true);
 
   const setVariant = (i: number, patch: Partial<VariantSpec>) =>
     setVariants((v) => v.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
@@ -67,11 +69,11 @@ export function BlockForm({
       m_start: parseIntOrNull(mStart) ?? 1,
       m_end: parseIntOrNull(mEnd) ?? parseIntOrNull(mStart) ?? 1,
       label: label.trim() === "" ? null : label.trim(),
-      start_bpm: parseNumOr(startBpm, 60),
-      target_bpm: parseIntOrNull(targetBpm),
+      start_bpm: focus === "tempo" || useMetronome ? parseNumOr(startBpm, 60) : null,
+      target_bpm: focus === "tempo" ? parseIntOrNull(targetBpm) : null,
       planned_reps: parseIntOrNull(plannedReps), // null -> backend default (30)
       increment:
-        mode === "auto"
+        focus !== "tempo" || mode === "auto"
           ? null // auto -> backend resolves the rule
           : {
               clean_needed: parseIntOrNull(cleanNeeded) ?? 3,
@@ -80,6 +82,8 @@ export function BlockForm({
       variants: variants
         .map((v) => ({ name: v.name.trim(), reps: v.reps }))
         .filter((v) => v.name !== ""),
+      focus,
+      use_metronome: useMetronome,
     };
     onOpen(args);
   };
@@ -87,6 +91,34 @@ export function BlockForm({
   return (
     <form className="block-form" onSubmit={submit}>
       <h3 className="ck-form-heading">New practice block</h3>
+
+      <div className="ck-field-grid block-mode-row">
+        <label className="ck-field">
+          <span className="ck-label">Practice focus</span>
+          <select
+            className="ck-input"
+            aria-label="Focus"
+            value={focus}
+            onChange={(event) => {
+              const next = event.target.value;
+              setFocus(next);
+              if (next !== "tempo") setUseMetronome(false);
+            }}
+          >
+            <option value="tempo">Tempo</option>
+            <option value="notes">Notes & accuracy</option>
+            <option value="phrasing">Phrasing</option>
+            <option value="dynamics">Dynamics</option>
+            <option value="memory">Memory</option>
+            <option value="hands">Hands / coordination</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label className="ck-toggle-field">
+          <input type="checkbox" aria-label="Use metronome" checked={useMetronome} onChange={(event) => setUseMetronome(event.target.checked)} />
+          <span><strong>Metronome</strong><small>{useMetronome ? "On for this block" : "Off — reps still count"}</small></span>
+        </label>
+      </div>
 
       <div className="ck-field-grid">
         <label className="ck-field">
@@ -128,9 +160,9 @@ export function BlockForm({
         />
       </label>
 
-      <div className="ck-field-grid">
+      {(focus === "tempo" || useMetronome) && <div className="ck-field-grid">
         <label className="ck-field">
-          <span className="ck-label">Start bpm</span>
+          <span className="ck-label">{focus === "tempo" ? "Start bpm" : "Metronome bpm"}</span>
           <input
             className="ck-input"
             type="number"
@@ -141,7 +173,7 @@ export function BlockForm({
             onChange={(e) => setStartBpm(e.target.value)}
           />
         </label>
-        <label className="ck-field">
+        {focus === "tempo" && <label className="ck-field">
           <span className="ck-label">Target bpm</span>
           <input
             className="ck-input"
@@ -153,23 +185,24 @@ export function BlockForm({
             aria-label="Target bpm"
             onChange={(e) => setTargetBpm(e.target.value)}
           />
-        </label>
-        <label className="ck-field">
-          <span className="ck-label">Planned reps</span>
-          <input
-            className="ck-input"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            value={plannedReps}
-            placeholder="30"
-            aria-label="Planned reps"
-            onChange={(e) => setPlannedReps(e.target.value)}
-          />
-        </label>
-      </div>
+        </label>}
+      </div>}
 
-      <fieldset className="ck-field">
+      <label className="ck-field">
+        <span className="ck-label">Planned reps</span>
+        <input
+          className="ck-input"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          value={plannedReps}
+          placeholder="30"
+          aria-label="Planned reps"
+          onChange={(e) => setPlannedReps(e.target.value)}
+        />
+      </label>
+
+      {focus === "tempo" && <fieldset className="ck-field">
         <legend className="ck-label">Tempo increment</legend>
         <div className="ck-segmented" role="radiogroup" aria-label="Increment mode">
           <button
@@ -218,7 +251,7 @@ export function BlockForm({
             </label>
           </div>
         )}
-      </fieldset>
+      </fieldset>}
 
       <fieldset className="ck-field">
         <legend className="ck-label">Variants (optional)</legend>

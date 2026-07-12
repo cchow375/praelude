@@ -25,6 +25,8 @@ function makeSnap(over: Partial<RepSnapshot> = {}): RepSnapshot {
     verdicts: { clean: 3, flawed: 1, failed: 0 },
     last: null,
     status: "active",
+    focus: "tempo",
+    use_metronome: true,
     ...over,
   };
 }

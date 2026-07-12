@@ -67,7 +67,7 @@ export function BlockRow({ block, onChanged, regions = [] }: BlockRowProps) {
         {block.focus === "tempo" && (
           <span className="history-tempo">
             ♩ <EditableNumber value={block.start_bpm} min={1} allowNull ariaLabel="start bpm" onSave={(start_bpm) => change({ start_bpm })} />
-            {block.bpm !== block.start_bpm ? ` → ${block.bpm}` : ""}
+            {block.bpm != null && block.bpm !== block.start_bpm ? ` → ${block.bpm}` : ""}
           </span>
         )}
         <span className="history-count">{block.reps_done}/{block.planned_reps}</span>

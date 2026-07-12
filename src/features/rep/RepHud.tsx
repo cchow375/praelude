@@ -69,7 +69,7 @@ export function RepHud({ snap, feed, error, onCheck, onClose }: RepHudProps) {
             <span className="rep-hud-slash">/</span>
             <span className="rep-hud-planned">{snap.planned_reps}</span>
           </span>
-          <span className="rep-hud-bpm">♩ = {snap.bpm}</span>
+          {snap.focus === "tempo" || snap.use_metronome ? <span className="rep-hud-bpm">♩ = {snap.bpm}</span> : <span className="rep-hud-bpm">{snap.focus}</span>}
         </div>
 
         <div className="rep-hud-actions">

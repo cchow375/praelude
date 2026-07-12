@@ -45,6 +45,8 @@ function makeSnap(over: Partial<RepSnapshot> = {}): RepSnapshot {
     verdicts: { clean: 0, flawed: 0, failed: 0 },
     last: null,
     status: "active",
+    focus: "tempo",
+    use_metronome: true,
     ...over,
   };
 }
@@ -135,6 +137,8 @@ describe("useRep — IPC wiring", () => {
       planned_reps: null,
       increment: null,
       variants: [{ name: "hands separate", reps: 5 }],
+      focus: "tempo",
+      use_metronome: true,
     };
     invokeMock.mockResolvedValueOnce(makeSnap({ block_id: 42, reps_done: 0 }));
 

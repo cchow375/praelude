@@ -74,7 +74,7 @@ mod test_support {
             m_start,
             m_end,
             None,
-            60.0,
+            Some(60.0),
             None,
             &IncrementRule { clean_needed: 3, bpm_step: 2.0 },
             10,

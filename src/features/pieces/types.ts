@@ -49,8 +49,8 @@ export interface BlockHistory {
   m_start: number;
   m_end: number;
   label: string | null;
-  start_bpm: number;
-  bpm: number;
+  start_bpm: number | null;
+  bpm: number | null;
   target_bpm: number | null;
   planned_reps: number;
   reps_done: number;

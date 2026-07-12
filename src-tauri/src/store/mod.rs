@@ -243,7 +243,7 @@ impl Store {
         m_start: u32,
         m_end: u32,
         label: Option<&str>,
-        start_bpm: f64,
+        start_bpm: Option<f64>,
         target_bpm: Option<f64>,
         increment_rule: &IncrementRule,
         planned_reps: u32,
@@ -840,7 +840,7 @@ mod tests {
             reps: 10,
         }];
         let block = store
-            .insert_rep_block(pid, 1, 8, Some("intro"), 80.0, Some(120.0), &rule, 10, &variants, "tempo", true)
+            .insert_rep_block(pid, 1, 8, Some("intro"), Some(80.0), Some(120.0), &rule, 10, &variants, "tempo", true)
             .unwrap();
 
         store.insert_rep(block, 80.0, None, "clean", None).unwrap();
@@ -857,8 +857,8 @@ mod tests {
         assert_eq!(h.m_start, 1);
         assert_eq!(h.m_end, 8);
         assert_eq!(h.label.as_deref(), Some("intro"));
-        assert_eq!(h.start_bpm, 80.0);
-        assert_eq!(h.bpm, 80.0, "latest rep bpm (all reps were at 80)");
+        assert_eq!(h.start_bpm, Some(80.0));
+        assert_eq!(h.bpm, Some(80.0), "latest rep bpm (all reps were at 80)");
         assert_eq!(h.target_bpm, Some(120.0));
         assert_eq!(h.planned_reps, 10);
         assert_eq!(h.status, "open");
@@ -879,7 +879,7 @@ mod tests {
         let pid = store.upsert_piece(&scan("/v/P", "P", None)).unwrap();
         let rule = IncrementRule { clean_needed: 1, bpm_step: 2.0 };
         store
-            .insert_rep_block(pid, 1, 4, None, 60.0, None, &rule, 5, &[], "tempo", true)
+            .insert_rep_block(pid, 1, 4, None, Some(60.0), None, &rule, 5, &[], "tempo", true)
             .unwrap();
         let h = &store.block_history(pid).unwrap()[0];
         assert_eq!(h.reps_done, 0);

@@ -154,18 +154,24 @@ fn render_section(
         reps_total += reps.len() as u32;
         // Top tempo reached is the highest bpm any rep landed at (the ladder only
         // climbs, so this is where the block topped out).
-        let top_bpm = reps.iter().map(|r| r.bpm).fold(b.start_bpm, f64::max);
-        let tempo = if top_bpm > b.start_bpm {
-            format!("{}→{}", fmt(b.start_bpm), fmt(top_bpm))
+        let tempo = if b.focus == "tempo" {
+            b.start_bpm.map(|start| {
+                let top_bpm = reps.iter().map(|r| r.bpm).fold(start, f64::max);
+                if top_bpm > start {
+                    format!("{}→{}", fmt(start), fmt(top_bpm))
+                } else {
+                    fmt(start)
+                }
+            })
         } else {
-            fmt(b.start_bpm)
+            None
         };
         let label = b.label.as_deref().unwrap_or("");
         s.push_str(&format!(
             "| {}–{} | {} | {} ({}/{}/{}) | {} |\n",
             b.m_start,
             b.m_end,
-            tempo,
+            tempo.as_deref().unwrap_or("—"),
             b.reps_done,
             b.verdicts.clean,
             b.verdicts.flawed,
@@ -271,7 +277,7 @@ mod tests {
                 m_start,
                 m_end,
                 Some(&label),
-                60.0,
+                Some(60.0),
                 None,
                 &IncrementRule { clean_needed: 3, bpm_step: 2.0 },
                 10,

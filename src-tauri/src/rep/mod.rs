@@ -125,7 +125,11 @@ impl RepEngine {
                 args.m_start,
                 args.m_end,
                 args.label.as_deref(),
-                args.start_bpm,
+                if args.focus == "tempo" || args.use_metronome {
+                    Some(args.start_bpm)
+                } else {
+                    None
+                },
                 args.target_bpm,
                 &rule,
                 planned,
@@ -367,7 +371,7 @@ impl RepEngine {
         snap.label = row.label;
         snap.m_start = row.m_start;
         snap.m_end = row.m_end;
-        snap.start_bpm = row.start_bpm;
+        snap.start_bpm = row.start_bpm.unwrap_or(0.0);
         snap.target_bpm = row.target_bpm;
         snap.planned_reps = row.planned_reps;
         snap.reps_done = row.reps_done;
@@ -377,7 +381,7 @@ impl RepEngine {
         // edit to `start_bpm` moves it; once reps exist, the live `snap.bpm` (the
         // ladder position) is authoritative and left untouched.
         if snap.reps_done == 0 {
-            snap.bpm = row.start_bpm;
+            snap.bpm = row.start_bpm.unwrap_or(0.0);
         }
         // Mirror a live edit of the block's ladder config too.
         if let Ok(Some(rule)) = self.store.block_rule(block_id) {
@@ -589,6 +593,19 @@ mod tests {
         // And no tempo_change was logged for a non-tempo block.
         let evs = engine.store.events_for_piece(snap.piece_id).unwrap();
         assert!(!evs.iter().any(|e| e.kind == "tempo_change"));
+    }
+
+    #[test]
+    fn metronome_free_non_tempo_block_persists_without_fake_bpm() {
+        let (engine, _emit) = engine_with_capture();
+        let mut args = open_args_focus("phrasing");
+        args.start_bpm = 0.0;
+        args.use_metronome = false;
+        let snap = engine.open(args).unwrap();
+        let history = engine.store.block_row(snap.block_id).unwrap().unwrap();
+        assert_eq!(history.start_bpm, None);
+        assert_eq!(history.focus, "phrasing");
+        assert!(!history.use_metronome);
     }
 
     #[test]

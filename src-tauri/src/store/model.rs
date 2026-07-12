@@ -15,7 +15,7 @@
 //! malformed value surfaces as a `rusqlite::Error` rather than a panic.
 
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// A piece as discovered by a read-only vault scan (see `vault::scan_pieces`).
 ///
@@ -132,8 +132,8 @@ pub struct BlockHistory {
     pub m_start: u32,
     pub m_end: u32,
     pub label: Option<String>,
-    pub start_bpm: f64,
-    pub bpm: f64,
+    pub start_bpm: Option<f64>,
+    pub bpm: Option<f64>,
     pub target_bpm: Option<f64>,
     pub planned_reps: u32,
     pub reps_done: u32,
@@ -181,6 +181,9 @@ pub struct RepOpenArgs {
     pub m_end: u32,
     #[serde(default)]
     pub label: Option<String>,
+    /// Frontend non-tempo blocks intentionally send `null`. The live engine
+    /// uses 0 as a harmless internal sentinel while SQLite stores NULL.
+    #[serde(deserialize_with = "deserialize_nullable_bpm")]
     pub start_bpm: f64,
     #[serde(default)]
     pub target_bpm: Option<f64>,
@@ -198,6 +201,32 @@ pub struct RepOpenArgs {
     /// Whether a ladder step should retune the metronome. Defaults to `true`.
     #[serde(default = "default_use_metronome")]
     pub use_metronome: bool,
+}
+
+fn deserialize_nullable_bpm<'de, D>(deserializer: D) -> Result<f64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<f64>::deserialize(deserializer)?.unwrap_or(0.0))
+}
+
+#[cfg(test)]
+mod nullable_bpm_tests {
+    use super::*;
+
+    #[test]
+    fn rep_open_accepts_null_bpm_from_non_tempo_frontend() {
+        let args: RepOpenArgs = serde_json::from_value(serde_json::json!({
+            "piece_id": 1,
+            "m_start": 1,
+            "m_end": 8,
+            "start_bpm": null,
+            "focus": "notes",
+            "use_metronome": false
+        }))
+        .unwrap();
+        assert_eq!(args.start_bpm, 0.0);
+    }
 }
 
 /// serde default for [`RepOpenArgs::focus`] / [`RepSnapshot::focus`].
