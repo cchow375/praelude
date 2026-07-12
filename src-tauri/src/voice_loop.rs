@@ -1513,6 +1513,78 @@ mod tests {
     }
 
     #[test]
+    fn voice_rep_step_does_not_retune_metronome_when_use_metronome_off() {
+        // The retune gate lives in `act_rep` (`if outcome.snap.use_metronome &&
+        // running`), not the rep engine (which holds no metronome handle) — so a
+        // `use_metronome=false` tempo block must advance its ladder + log a
+        // `tempo_change` while the RUNNING metronome is left untouched. This is
+        // the only place that path can be exercised.
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let pid: i64 = ctx
+            .store
+            .get_setting("ui.current_piece")
+            .unwrap()
+            .unwrap()
+            .parse()
+            .unwrap();
+
+        // Metronome RUNNING at 80.
+        let _ = ctx.metro.do_start(Some(80.0));
+        assert!(ctx.metro.snapshot().running, "metronome is running");
+        let metro_bpm_before = ctx.metro.snapshot().bpm;
+        assert_eq!(metro_bpm_before, 80.0);
+
+        // Open a `tempo` block with the metronome DECOUPLED. Opened directly via
+        // the engine because `act_rep_open` hardcodes `use_metronome: true` (there
+        // is no voice grammar for it yet), same as the sibling stopped-metro test.
+        ctx.rep
+            .open(crate::store::model::RepOpenArgs {
+                piece_id: pid,
+                m_start: 40,
+                m_end: 56,
+                label: None,
+                start_bpm: 80.0,
+                target_bpm: Some(120.0),
+                planned_reps: Some(30),
+                increment: None,
+                variants: vec![],
+                focus: "tempo".into(),
+                use_metronome: false,
+            })
+            .unwrap();
+
+        // Drive the ladder through `act_rep` (the gate under test): the 3rd clean
+        // rep steps 80 → 84 in the engine.
+        feed_spaced(&mut ctx, "done", 3);
+
+        // (a) the ladder DID advance — new_bpm was Some(84) (feed_spaced routes
+        // through act_rep and does not surface the CheckOutcome, so the engine's
+        // advanced working tempo + the spoken "Up to 84." line are the proxy).
+        assert_eq!(ctx.rep.snapshot().unwrap().bpm, 84.0, "engine tempo advanced");
+        assert!(
+            rec.said.lock().unwrap().iter().any(|s| s == "3 of 30. Up to 84."),
+            "step spoken: {:?}",
+            rec.said.lock().unwrap()
+        );
+
+        // (b) a durable tempo_change event was logged.
+        let evs = ctx.store.events_for_piece(pid).unwrap();
+        assert!(
+            evs.iter().any(|e| e.kind == "tempo_change"),
+            "tempo_change logged despite metronome-off"
+        );
+
+        // (c) the RUNNING metronome was NOT physically retuned.
+        assert!(ctx.metro.snapshot().running, "metronome still running");
+        assert_eq!(
+            ctx.metro.snapshot().bpm,
+            metro_bpm_before,
+            "metronome bpm unchanged — no retune when use_metronome=false"
+        );
+    }
+
+    #[test]
     fn voice_rep_note_reaches_the_session_log() {
         let rec = Arc::new(Recorder::default());
         let mut ctx = test_ctx(&rec);
