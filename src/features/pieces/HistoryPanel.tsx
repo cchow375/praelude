@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { BlockRow } from "./BlockRow";
 import type { BlockHistory, ProgressSummary, Region, RegionMastery } from "./types";
+import { RegionEditor } from "./RegionEditor";
 
 export interface HistoryGroup {
   region: Region | null;
@@ -89,6 +90,7 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
                   <span className="history-group-meta">{group.blocks.length} block{group.blocks.length === 1 ? "" : "s"}{best != null ? ` · best ♩${best}` : ""} · last {formatWhen(group.mastery?.last_practiced)}</span>
                 </summary>
                 <div className="history-group-blocks">
+                  {region && <RegionEditor region={region} regions={regions} blocks={group.blocks} onChanged={load} />}
                   {group.blocks.map((block) => <BlockRow key={block.block_id} block={block} regions={regions} onChanged={load} />)}
                 </div>
               </details>
