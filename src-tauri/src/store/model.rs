@@ -383,6 +383,53 @@ pub struct PieceFieldPatch {
     pub notes: Option<Option<String>>,
 }
 
+// ── Derived-metrics wire types (Task 9) ───────────────────────────────────
+
+/// Minimal per-block metadata the metrics layer groups on: which region a block
+/// belongs to and its practice focus. Read by [`Store::blocks_meta`](crate::store::Store::blocks_meta);
+/// not itself sent to the frontend (it feeds the pure metric functions).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockMeta {
+    pub block_id: i64,
+    pub region_id: Option<i64>,
+    pub focus: String,
+}
+
+/// Rolled-up practice mastery for one region: how many blocks/reps it holds, the
+/// fraction of reps that were clean, the fastest clean tempo reached, and when it
+/// was last practiced.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RegionMastery {
+    pub region_id: i64,
+    pub name: String,
+    pub blocks: u32,
+    pub reps: u32,
+    pub clean_ratio: f64,
+    pub best_bpm: Option<f64>,
+    pub last_practiced: Option<String>,
+}
+
+/// Focused practice seconds attributed to one practice `focus` (e.g. "tempo",
+/// "notes"), derived from the event-gap heuristic within that focus's blocks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FocusTime {
+    pub focus: String,
+    pub seconds: u64,
+}
+
+/// A piece's derived progress dashboard, assembled by the `progress_summary`
+/// command from the durable event log + canonical graph. All fields are derived
+/// (never stored) so they always reflect the current graph.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProgressSummary {
+    pub piece_id: i64,
+    pub focused_seconds: u64,
+    pub per_region_mastery: Vec<RegionMastery>,
+    pub streak: u32,
+    pub best_tempo_reached: Option<f64>,
+    pub time_by_focus: Vec<FocusTime>,
+}
+
 /// Convert a SQLite-native timestamp (`"YYYY-MM-DD HH:MM:SS"`, always UTC via
 /// `datetime('now')`) into the RFC3339 form the frontend expects
 /// (`"YYYY-MM-DDTHH:MM:SSZ"`). SQLite stays native; conversion happens only at

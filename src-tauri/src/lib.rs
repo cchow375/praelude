@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod intent;
 mod keys;
+mod metrics;
 mod metronome;
 mod rep;
 mod sessions;
@@ -20,8 +21,8 @@ use sessions::{SessionService, StateEmitter};
 use stt::SttConfig;
 use store::model::{
     BlockHistory, BlockPatch, CheckOutcome, ExportResult, Goal, GoalCreate, GoalPatch,
-    Intake, PieceDetail, PieceFieldPatch, PieceSummary, Region, RegionCreate, RegionPatch,
-    RepOpenArgs, RepPatch, RepSnapshot, SessionView,
+    Intake, PieceDetail, PieceFieldPatch, PieceSummary, ProgressSummary, Region, RegionCreate,
+    RegionPatch, RepOpenArgs, RepPatch, RepSnapshot, SessionView,
 };
 use store::Store;
 use tauri::path::BaseDirectory;
@@ -386,6 +387,14 @@ fn piece_field_update(
         .map_err(|e| e.to_string())
 }
 
+/// A piece's derived progress dashboard (focused time, per-region mastery,
+/// streak, best tempo, time-by-focus), computed from the durable event log and
+/// canonical graph. Nothing is stored — the summary always reflects the current graph.
+#[tauri::command]
+fn progress_summary(piece_id: i64, store: State<'_, Arc<Store>>) -> Result<ProgressSummary, String> {
+    metrics::progress_summary(&store, piece_id).map_err(|e| e.to_string())
+}
+
 /// Mute (`true`) or unmute the mic. Gates STT and blocks any action while muted.
 #[tauri::command]
 fn voice_mute(muted: bool, voice: State<'_, Arc<VoiceLoop>>) {
@@ -555,6 +564,7 @@ pub fn run() {
             goal_delete,
             goal_reorder,
             piece_field_update,
+            progress_summary,
             session_current,
             session_end,
             metronome::metro_start,

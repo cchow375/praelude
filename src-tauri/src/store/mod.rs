@@ -418,6 +418,47 @@ impl Store {
         rows.collect()
     }
 
+    /// Minimal per-block metadata (region membership + practice focus) for every
+    /// block of a piece, ordered by id. Feeds the derived-metrics layer (Task 9),
+    /// which groups reps by region/focus.
+    pub fn blocks_meta(&self, piece_id: i64) -> rusqlite::Result<Vec<model::BlockMeta>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT id, region_id, focus FROM rep_block WHERE piece_id = ?1 ORDER BY id",
+        )?;
+        let rows = stmt.query_map([piece_id], |row| {
+            Ok(model::BlockMeta {
+                block_id: row.get(0)?,
+                region_id: row.get(1)?,
+                focus: row.get(2)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// Every rep logged against any block of a piece, oldest first. Feeds the
+    /// derived-metrics layer (Task 9).
+    pub fn reps_for_piece(&self, piece_id: i64) -> rusqlite::Result<Vec<Rep>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT r.id, r.block_id, r.ts, r.bpm, r.variant, r.verdict, r.note
+             FROM rep r JOIN rep_block b ON r.block_id = b.id
+             WHERE b.piece_id = ?1 ORDER BY r.id",
+        )?;
+        let rows = stmt.query_map([piece_id], |row| {
+            Ok(Rep {
+                id: row.get(0)?,
+                block_id: row.get(1)?,
+                ts: row.get(2)?,
+                bpm: row.get(3)?,
+                variant: row.get(4)?,
+                verdict: row.get(5)?,
+                note: row.get(6)?,
+            })
+        })?;
+        rows.collect()
+    }
+
     /// Reassign (or clear) a block's region membership.
     pub fn block_set_region(&self, block_id: i64, region_id: Option<i64>) -> rusqlite::Result<()> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
