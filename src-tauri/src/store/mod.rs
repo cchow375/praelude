@@ -5,6 +5,7 @@
 //! all commands serialize through that lock. At this app's scale (a single local
 //! user, low write volume) a global lock is more than adequate.
 
+mod backfill;
 mod migrations;
 pub mod model;
 
@@ -437,8 +438,8 @@ mod tests {
     }
 
     #[test]
-    fn fresh_store_is_at_schema_version_2() {
-        assert_eq!(mem().schema_version().unwrap(), 2);
+    fn fresh_store_is_at_schema_version_3() {
+        assert_eq!(mem().schema_version().unwrap(), 3);
     }
 
     #[test]
@@ -501,16 +502,16 @@ mod tests {
         // (e.g. duplicate CREATE TABLE) and must leave the version untouched.
         let store = mem();
         migrations::migrate(&store.conn.lock().unwrap()).expect("re-migrate is a no-op");
-        assert_eq!(store.schema_version().unwrap(), 2);
+        assert_eq!(store.schema_version().unwrap(), 3);
     }
 
-    // ── v1 → v2 migration ─────────────────────────────────────────────────
+    // ── v1 → v3 migration ─────────────────────────────────────────────────
 
     /// Build a raw v1 database (the old placeholder schema) with a settings row,
     /// then hand it to `Store::from_connection` so the normal migrate() path
-    /// upgrades it. Proves the upgrade preserves settings and reaches v2.
+    /// upgrades it. Proves the upgrade preserves settings and reaches v3.
     #[test]
-    fn v1_to_v2_upgrade_preserves_settings() {
+    fn v1_to_v3_upgrade_preserves_settings() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         // Simulate a shipped v1 database: apply v1 schema + stamp version, and
@@ -524,13 +525,13 @@ mod tests {
         .unwrap();
 
         let store = Store::from_connection(conn).expect("v1 db upgrades cleanly");
-        assert_eq!(store.schema_version().unwrap(), 2, "reaches v2");
+        assert_eq!(store.schema_version().unwrap(), 3, "reaches v3");
         assert_eq!(
             store.get_setting("theme").unwrap(),
             Some("dark".into()),
             "existing setting survives the upgrade"
         );
-        // The v2 piece table must exist with its new UNIQUE folder_path key.
+        // The v2+ piece table must exist with its new UNIQUE folder_path key.
         let p = ScanPiece {
             folder_path: "/x/Foo".into(),
             title: "Foo".into(),
