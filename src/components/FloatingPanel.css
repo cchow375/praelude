@@ -1,0 +1,98 @@
+.floating-panel {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  min-height: 120px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 22%), 0 2px 10px rgb(0 0 0 / 12%);
+  backdrop-filter: blur(22px) saturate(1.15);
+  -webkit-backdrop-filter: blur(22px) saturate(1.15);
+  isolation: isolate;
+}
+
+.floating-panel.is-collapsed {
+  min-height: 0;
+}
+
+.floating-panel-header {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 8px 0 12px;
+  gap: 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.floating-panel-header:active {
+  cursor: grabbing;
+}
+
+.floating-panel-grip {
+  width: 16px;
+  height: 6px;
+  opacity: 0.5;
+  background: radial-gradient(circle, currentColor 1px, transparent 1.5px) 0 0 / 5px 5px;
+}
+
+.floating-panel-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.floating-panel-collapse {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.floating-panel-collapse:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.floating-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.floating-panel-resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: linear-gradient(135deg, transparent 48%, var(--text-muted) 49%, var(--text-muted) 55%, transparent 56%, transparent 68%, var(--text-muted) 69%, var(--text-muted) 75%, transparent 76%);
+  opacity: 0.42;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floating-panel {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
