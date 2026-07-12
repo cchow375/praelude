@@ -6,50 +6,59 @@
 //! one-line header if missing; never edit or delete existing content, never touch
 //! human-authored docs).
 //!
-//! The session→piece→block linkage exists only in the session event log (blocks
-//! carry no session id in the schema), so this reconstructs everything from the
-//! `rep_open` / `rep` / `rep_close` / `metro` events, groups by piece, and writes
-//! one section per piece touched. A session with no rep events writes nothing.
+//! The session→piece→block linkage exists only in the durable `event` log (blocks
+//! carry no session id in the schema), so this enumerates the blocks touched in a
+//! session from that log's `rep_open` events, then renders each block from the
+//! CANONICAL graph — `block_history` + `reps_for_block` — rather than the frozen
+//! event payloads. That is what lets a block edited (relabelled/retempoed) after
+//! its reps were logged export with its CURRENT values, and survive a relaunch.
+//! A session with no rep blocks writes nothing.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 
-use crate::store::model::ExportResult;
-use crate::store::Store;
+use crate::store::model::{BlockHistory, ExportResult};
+use crate::store::{EventKind, Store};
 
 /// The append-only per-piece session log filename.
 const SESSIONS_FILE: &str = "(C) codakiller-sessions.md";
 /// The one-line header written when the file is first created.
 const HEADER: &str = "# CodaKiller session log\n";
 
-/// One block's rolled-up practice data, reconstructed from the event log.
-struct BlockAgg {
-    m_start: u32,
-    m_end: u32,
-    start_bpm: f64,
-    top_bpm: f64,
-    clean: u32,
-    flawed: u32,
-    failed: u32,
-    reps: u32,
-    /// (verdict, note) for every rep that carried a note.
-    notes: Vec<(String, String)>,
-}
-
-/// One piece's blocks, in open order, plus its title.
-struct PieceAgg {
-    title: String,
-    order: Vec<i64>,
-    blocks: HashMap<i64, BlockAgg>,
-}
-
-/// Reconstruct a session from its event log and append a summary section to each
-/// practiced piece's `(C) codakiller-sessions.md`. Returns what was written.
-/// A session with no rep activity writes no files (but still returns a result).
+/// Append a summary section to each practiced piece's `(C) codakiller-sessions.md`,
+/// rendering each block from the current canonical graph. Returns what was written.
+/// A session with no rep blocks writes no files (but still returns a result).
 pub fn write_session_md(store: &Store, session_id: i64, pieces_dir: &Path) -> ExportResult {
-    let events = store.session_events(session_id).unwrap_or_default();
+    let events = store.events_for_session(session_id).unwrap_or_default();
+
+    // Enumerate the pieces + their blocks touched in the session. The ONLY
+    // session→piece→block linkage is the durable event log's `rep_open` events
+    // (piece_id/block_id live in the payload); the block DATA is read canonically
+    // below, so a post-log edit is reflected. Pieces are ordered by first open,
+    // blocks by first open within a piece.
+    let mut piece_order: Vec<i64> = Vec::new();
+    let mut blocks_by_piece: HashMap<i64, Vec<i64>> = HashMap::new();
+    let mut seen_block: HashSet<i64> = HashSet::new();
+    for ev in &events {
+        if ev.kind != EventKind::REP_OPEN {
+            continue;
+        }
+        let piece_id = match ev.payload["piece_id"].as_i64().or(ev.piece_id) {
+            Some(p) => p,
+            None => continue,
+        };
+        let Some(block_id) = ev.payload["block_id"].as_i64() else {
+            continue;
+        };
+        if !blocks_by_piece.contains_key(&piece_id) {
+            piece_order.push(piece_id);
+        }
+        if seen_block.insert(block_id) {
+            blocks_by_piece.entry(piece_id).or_default().push(block_id);
+        }
+    }
 
     // Session time window for the section header (native ts → date + HH:MM).
     let start_ts = store
@@ -63,98 +72,38 @@ pub fn write_session_md(store: &Store, session_id: i64, pieces_dir: &Path) -> Ex
         .map(|e| e.ts.clone())
         .unwrap_or_else(|| start_ts.clone());
 
-    // Group by piece.
-    let mut pieces: HashMap<i64, PieceAgg> = HashMap::new();
-    let mut piece_order: Vec<i64> = Vec::new();
-    let mut total_reps: u32 = 0;
-    let mut metro_actions: u32 = 0;
-
-    for ev in &events {
-        let p = &ev.payload;
-        match ev.kind.as_str() {
-            "rep_open" => {
-                let (Some(piece_id), Some(block_id)) =
-                    (p["piece_id"].as_i64(), p["block_id"].as_i64())
-                else {
-                    continue;
-                };
-                let title = p["piece_title"].as_str().unwrap_or("Untitled").to_string();
-                let start_bpm = p["start_bpm"].as_f64().unwrap_or(0.0);
-                let entry = pieces.entry(piece_id).or_insert_with(|| {
-                    piece_order.push(piece_id);
-                    PieceAgg {
-                        title: title.clone(),
-                        order: Vec::new(),
-                        blocks: HashMap::new(),
-                    }
-                });
-                entry.title = title;
-                if !entry.blocks.contains_key(&block_id) {
-                    entry.order.push(block_id);
-                    entry.blocks.insert(
-                        block_id,
-                        BlockAgg {
-                            m_start: p["m_start"].as_u64().unwrap_or(0) as u32,
-                            m_end: p["m_end"].as_u64().unwrap_or(0) as u32,
-                            start_bpm,
-                            top_bpm: start_bpm,
-                            clean: 0,
-                            flawed: 0,
-                            failed: 0,
-                            reps: 0,
-                            notes: Vec::new(),
-                        },
-                    );
-                }
-            }
-            "rep" => {
-                total_reps += 1;
-                let (Some(piece_id), Some(block_id)) =
-                    (p["piece_id"].as_i64(), p["block_id"].as_i64())
-                else {
-                    continue;
-                };
-                let Some(piece) = pieces.get_mut(&piece_id) else {
-                    continue;
-                };
-                let Some(block) = piece.blocks.get_mut(&block_id) else {
-                    continue;
-                };
-                block.reps += 1;
-                if let Some(bpm) = p["bpm"].as_f64() {
-                    block.top_bpm = block.top_bpm.max(bpm);
-                }
-                let verdict = p["verdict"].as_str().unwrap_or("");
-                match verdict {
-                    "clean" => block.clean += 1,
-                    "flawed" => block.flawed += 1,
-                    "failed" => block.failed += 1,
-                    _ => {}
-                }
-                if let Some(note) = p["note"].as_str() {
-                    if !note.trim().is_empty() {
-                        block.notes.push((verdict.to_string(), note.to_string()));
-                    }
-                }
-            }
-            "metro" => metro_actions += 1,
-            _ => {}
-        }
-    }
+    // Metronome actions come from the live session feed (the durable log carries
+    // no `metro` rows); a supplementary tally for the summary line only.
+    let metro_actions = store
+        .session_events(session_id)
+        .unwrap_or_default()
+        .iter()
+        .filter(|e| e.kind == "metro")
+        .count() as u32;
 
     // Render + append one section per piece, in the order they were first opened.
+    let mut total_reps: u32 = 0;
     let mut files: Vec<String> = Vec::new();
     for piece_id in &piece_order {
-        let Some(piece) = pieces.get(piece_id) else {
-            continue;
-        };
-        // Resolve the piece folder; skip (do not error) if it is unknown.
-        let folder = match store.get_piece(*piece_id) {
-            Ok(Some(detail)) => detail.folder_path,
+        // Resolve the piece (title + folder); skip (do not error) if unknown.
+        let detail = match store.get_piece(*piece_id) {
+            Ok(Some(detail)) => detail,
             _ => continue,
         };
-        let section = render_section(piece, &start_ts, &end_ts, metro_actions);
-        let path = Path::new(&folder).join(SESSIONS_FILE);
+        // Canonical block rows for the piece, indexed by id (current values).
+        let hist: HashMap<i64, BlockHistory> = store
+            .block_history(*piece_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|b| (b.block_id, b))
+            .collect();
+        let block_ids = blocks_by_piece.get(piece_id).cloned().unwrap_or_default();
+
+        let (section, reps) =
+            render_section(store, &detail.title, &block_ids, &hist, &start_ts, &end_ts, metro_actions);
+        total_reps += reps;
+
+        let path = Path::new(&detail.folder_path).join(SESSIONS_FILE);
         if let Err(e) = append_section(&path, &section) {
             eprintln!("session export: failed to write {path:?}: {e}");
             continue;
@@ -171,9 +120,19 @@ pub fn write_session_md(store: &Store, session_id: i64, pieces_dir: &Path) -> Ex
     }
 }
 
-/// Render one piece's markdown section: a dated header, a blocks table, verdict
-/// notes, and a metronome summary line.
-fn render_section(piece: &PieceAgg, start_ts: &str, end_ts: &str, metro_actions: u32) -> String {
+/// Render one piece's markdown section from the canonical graph: a dated header, a
+/// blocks table (measures, tempo start→top, verdict tallies, current label),
+/// verdict notes, and a metronome summary line. Returns the section text and the
+/// number of reps it accounts for.
+fn render_section(
+    store: &Store,
+    title: &str,
+    block_ids: &[i64],
+    hist: &HashMap<i64, BlockHistory>,
+    start_ts: &str,
+    end_ts: &str,
+    metro_actions: u32,
+) -> (String, u32) {
     let mut s = String::new();
     s.push_str(&format!(
         "\n## {} {}–{}\n\n",
@@ -181,25 +140,45 @@ fn render_section(piece: &PieceAgg, start_ts: &str, end_ts: &str, metro_actions:
         time_of(start_ts),
         time_of(end_ts)
     ));
-    s.push_str(&format!("**{}**\n\n", piece.title));
-    s.push_str("| Measures | Tempo | Reps (clean/flawed/failed) |\n");
-    s.push_str("|---|---|---|\n");
+    s.push_str(&format!("**{title}**\n\n"));
+    s.push_str("| Measures | Tempo | Reps (clean/flawed/failed) | Label |\n");
+    s.push_str("|---|---|---|---|\n");
 
     let mut notes: Vec<(String, String)> = Vec::new();
-    for block_id in &piece.order {
-        let Some(b) = piece.blocks.get(block_id) else {
+    let mut reps_total: u32 = 0;
+    for block_id in block_ids {
+        let Some(b) = hist.get(block_id) else {
             continue;
         };
-        let tempo = if b.top_bpm > b.start_bpm {
-            format!("{}→{}", fmt(b.start_bpm), fmt(b.top_bpm))
+        let reps = store.reps_for_block(*block_id).unwrap_or_default();
+        reps_total += reps.len() as u32;
+        // Top tempo reached is the highest bpm any rep landed at (the ladder only
+        // climbs, so this is where the block topped out).
+        let top_bpm = reps.iter().map(|r| r.bpm).fold(b.start_bpm, f64::max);
+        let tempo = if top_bpm > b.start_bpm {
+            format!("{}→{}", fmt(b.start_bpm), fmt(top_bpm))
         } else {
             fmt(b.start_bpm)
         };
+        let label = b.label.as_deref().unwrap_or("");
         s.push_str(&format!(
-            "| {}–{} | {} | {} ({}/{}/{}) |\n",
-            b.m_start, b.m_end, tempo, b.reps, b.clean, b.flawed, b.failed
+            "| {}–{} | {} | {} ({}/{}/{}) | {} |\n",
+            b.m_start,
+            b.m_end,
+            tempo,
+            b.reps_done,
+            b.verdicts.clean,
+            b.verdicts.flawed,
+            b.verdicts.failed,
+            label
         ));
-        notes.extend(b.notes.iter().cloned());
+        for r in &reps {
+            if let Some(note) = &r.note {
+                if !note.trim().is_empty() {
+                    notes.push((r.verdict.clone(), note.clone()));
+                }
+            }
+        }
     }
 
     if !notes.is_empty() {
@@ -210,7 +189,7 @@ fn render_section(piece: &PieceAgg, start_ts: &str, end_ts: &str, metro_actions:
     }
 
     s.push_str(&format!("\n_Metronome actions: {metro_actions}._\n"));
-    s
+    (s, reps_total)
 }
 
 /// Append `section` to `path`, creating the file with a one-line header first if
@@ -261,6 +240,91 @@ mod tests {
                 pdf_path: None,
             })
             .unwrap()
+    }
+
+    // ── T8 seed helpers ───────────────────────────────────────────────────
+    // These seed the canonical graph directly (no rep engine), plus the ONE
+    // linkage export needs: a durable `REP_OPEN` event tying the session to the
+    // piece/block. Block DATA (label, measures, tempo, reps) is read canonically
+    // by the exporter, so editing the block after seeding is reflected on export.
+
+    use crate::store::model::{BlockPatch, IncrementRule};
+    use crate::store::EventKind;
+
+    fn seed_piece_with_folder(store: &Store, title: &str, folder: &str) -> i64 {
+        store
+            .upsert_piece(&ScanPiece {
+                folder_path: folder.into(),
+                title: title.into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap()
+    }
+
+    fn seed_block(store: &Store, pid: i64, m_start: u32, m_end: u32) -> i64 {
+        let label = format!("mm.{m_start}-{m_end}");
+        let bid = store
+            .insert_rep_block(
+                pid,
+                m_start,
+                m_end,
+                Some(&label),
+                60.0,
+                None,
+                &IncrementRule { clean_needed: 3, bpm_step: 2.0 },
+                10,
+                &[],
+            )
+            .unwrap();
+        let sid = store.latest_open_session().unwrap();
+        store
+            .append_event(
+                EventKind::REP_OPEN,
+                sid,
+                Some(pid),
+                &serde_json::json!({ "piece_id": pid, "block_id": bid }),
+            )
+            .unwrap();
+        bid
+    }
+
+    fn seed_rep(store: &Store, block_id: i64, verdict: &str) -> i64 {
+        store.insert_rep(block_id, 60.0, None, verdict, None).unwrap()
+    }
+
+    #[test]
+    fn export_reflects_post_log_block_edit_after_relaunch() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("codakiller.db");
+        let pieces = dir.path().join("pieces");
+        std::fs::create_dir_all(pieces.join("etude")).unwrap();
+
+        // session 1: log reps under original label
+        let session_id;
+        {
+            let store = Store::open(&db).unwrap();
+            let pid = seed_piece_with_folder(&store, "Etude", pieces.join("etude").to_str().unwrap());
+            session_id = store.open_session().unwrap();
+            let block_id = seed_block(&store, pid, 1, 8); // label "mm.1-8"
+            seed_rep(&store, block_id, "clean");
+            // edit AFTER logging
+            store
+                .block_update(
+                    block_id,
+                    BlockPatch { label: Some(Some("legato section".into())), ..Default::default() },
+                )
+                .unwrap();
+        } // store dropped == "relaunch"
+
+        // relaunch: fresh Store on same db, export
+        let store2 = Store::open(&db).unwrap();
+        let res = write_session_md(&store2, session_id, &pieces);
+        let md = std::fs::read_to_string(pieces.join("etude").join("(C) codakiller-sessions.md")).unwrap();
+        assert!(md.contains("legato section"), "export must reflect the post-log edit; got:\n{md}");
+        assert!(!md.contains("mm.1-8"), "stale label must not appear; got:\n{md}");
+        assert!(res.reps >= 1);
     }
 
     #[test]
