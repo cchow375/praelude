@@ -19,8 +19,8 @@ use rep::{RepEngine, RepVerdict};
 use sessions::{SessionService, StateEmitter};
 use stt::SttConfig;
 use store::model::{
-    BlockHistory, CheckOutcome, ExportResult, Intake, PieceDetail, PieceSummary, RepOpenArgs,
-    RepSnapshot, SessionView,
+    BlockHistory, CheckOutcome, ExportResult, Intake, PieceDetail, PieceSummary,
+    Region, RegionCreate, RegionPatch, RepOpenArgs, RepSnapshot, SessionView,
 };
 use store::Store;
 use tauri::path::BaseDirectory;
@@ -232,6 +232,48 @@ fn piece_select(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+// ── T3: Region CRUD commands ────────────────────────────────────────────────
+
+/// All regions for a piece, ordered by their sort order.
+#[tauri::command]
+fn region_list(piece_id: i64, store: State<'_, Arc<Store>>) -> Result<Vec<Region>, String> {
+    store.region_list(piece_id).map_err(|e| e.to_string())
+}
+
+/// Create a region.
+#[tauri::command]
+fn region_create(args: RegionCreate, store: State<'_, Arc<Store>>) -> Result<Region, String> {
+    store.region_create(args).map_err(|e| e.to_string())
+}
+
+/// Apply a partial patch to a region.
+#[tauri::command]
+fn region_update(
+    id: i64,
+    patch: RegionPatch,
+    store: State<'_, Arc<Store>>,
+) -> Result<Region, String> {
+    store.region_update(id, patch).map_err(|e| e.to_string())
+}
+
+/// Delete a region (member blocks are kept, unlinked).
+#[tauri::command]
+fn region_delete(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    store.region_delete(id).map_err(|e| e.to_string())
+}
+
+/// Merge `id_absorb` into `id_keep`.
+#[tauri::command]
+fn region_merge(
+    id_keep: i64,
+    id_absorb: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<Region, String> {
+    store
+        .region_merge(id_keep, id_absorb)
+        .map_err(|e| e.to_string())
+}
+
 /// Mute (`true`) or unmute the mic. Gates STT and blocks any action while muted.
 #[tauri::command]
 fn voice_mute(muted: bool, voice: State<'_, Arc<VoiceLoop>>) {
@@ -386,6 +428,11 @@ pub fn run() {
             rep_close,
             rep_state,
             rep_blocks_for_piece,
+            region_list,
+            region_create,
+            region_update,
+            region_delete,
+            region_merge,
             session_current,
             session_end,
             metronome::metro_start,

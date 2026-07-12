@@ -253,6 +253,64 @@ pub struct ExportResult {
     pub reps: u32,
 }
 
+// ── Regions, goals, and the T3-T7 CRUD wire types ─────────────────────────
+
+/// A named span of measures within a piece (a section, phrase, or hard spot).
+/// `order` is the wire name for the SQL `sort_order` column.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Region {
+    pub id: i64,
+    pub piece_id: i64,
+    pub name: String,
+    pub m_start: u32,
+    pub m_end: u32,
+    pub kind: String,
+    #[serde(rename = "order")]
+    pub order: i64,
+    pub color: Option<String>,
+    /// Reserved for P4 (score-viewer anchor); opaque JSON, unused this phase.
+    pub pdf_anchor: Option<serde_json::Value>,
+}
+
+/// Arguments to create a region.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RegionCreate {
+    pub piece_id: i64,
+    pub name: String,
+    pub m_start: u32,
+    pub m_end: u32,
+    pub kind: String,
+}
+
+/// A partial region update. Every field is `Option`-absent-means-unchanged;
+/// `color` is additionally nullable (`Option<Option<String>>`: absent = leave,
+/// `Some(None)` = clear, `Some(Some(v))` = set).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct RegionPatch {
+    pub name: Option<String>,
+    pub m_start: Option<u32>,
+    pub m_end: Option<u32>,
+    pub kind: Option<String>,
+    #[serde(rename = "order")]
+    pub order: Option<i64>,
+    pub color: Option<Option<String>>,
+}
+
+/// A single logged rep, as read back by [`reps_for_block`](crate::store::Store::reps_for_block).
+/// Lands with T3: `reps_for_block` is one of the shared readers T3 introduces
+/// (see foundation-context.md), so its return-element type lands alongside it
+/// rather than waiting for T5 (which only adds [`RepPatch`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Rep {
+    pub id: i64,
+    pub block_id: i64,
+    pub ts: String,
+    pub bpm: f64,
+    pub variant: Option<String>,
+    pub verdict: String,
+    pub note: Option<String>,
+}
+
 /// Convert a SQLite-native timestamp (`"YYYY-MM-DD HH:MM:SS"`, always UTC via
 /// `datetime('now')`) into the RFC3339 form the frontend expects
 /// (`"YYYY-MM-DDTHH:MM:SSZ"`). SQLite stays native; conversion happens only at

@@ -6,6 +6,7 @@
 //! user, low write volume) a global lock is more than adequate.
 
 mod backfill;
+mod crud;
 mod events;
 mod migrations;
 pub mod model;
@@ -19,7 +20,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use model::{
     json_from_sql, json_to_sql, BlockHistory, HardSpot, Intake, PieceDetail, PieceSummary,
-    ScanPiece, SessionEventView, VariantSpec, VerdictCounts,
+    Rep, ScanPiece, SessionEventView, VariantSpec, VerdictCounts,
 };
 use model::IncrementRule;
 
@@ -330,6 +331,82 @@ impl Store {
             })
         })?;
         rows.collect()
+    }
+
+    /// A single block's history row (same shape/derivation as [`Self::block_history`],
+    /// narrowed to one id), or `None` if the block doesn't exist. Shared reader used
+    /// by the T4/T5 CRUD mutations and the rep engine's active-snapshot resync.
+    pub fn block_row(&self, block_id: i64) -> rusqlite::Result<Option<BlockHistory>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row(
+            "SELECT b.id, b.m_start, b.m_end, b.label,
+                    b.start_bpm, b.target_bpm, b.planned_reps, b.status,
+                    COUNT(r.id) AS reps_done,
+                    COALESCE(SUM(r.verdict = 'clean'),  0) AS cleans,
+                    COALESCE(SUM(r.verdict = 'flawed'), 0) AS flaweds,
+                    COALESCE(SUM(r.verdict = 'failed'), 0) AS faileds,
+                    COALESCE(
+                        (SELECT r2.bpm FROM rep r2 WHERE r2.block_id = b.id
+                         ORDER BY r2.id DESC LIMIT 1),
+                        b.start_bpm
+                    ) AS bpm
+             FROM rep_block b
+             LEFT JOIN rep r ON r.block_id = b.id
+             WHERE b.id = ?1
+             GROUP BY b.id",
+            [block_id],
+            |row| {
+                Ok(BlockHistory {
+                    block_id: row.get(0)?,
+                    m_start: row.get(1)?,
+                    m_end: row.get(2)?,
+                    label: row.get(3)?,
+                    start_bpm: row.get(4)?,
+                    target_bpm: row.get(5)?,
+                    planned_reps: row.get(6)?,
+                    status: row.get(7)?,
+                    reps_done: row.get(8)?,
+                    verdicts: VerdictCounts {
+                        clean: row.get(9)?,
+                        flawed: row.get(10)?,
+                        failed: row.get(11)?,
+                    },
+                    bpm: row.get(12)?,
+                })
+            },
+        )
+        .optional()
+    }
+
+    /// Every rep row logged against a block, oldest first.
+    pub fn reps_for_block(&self, block_id: i64) -> rusqlite::Result<Vec<Rep>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT id, block_id, ts, bpm, variant, verdict, note
+             FROM rep WHERE block_id = ?1 ORDER BY id",
+        )?;
+        let rows = stmt.query_map([block_id], |row| {
+            Ok(Rep {
+                id: row.get(0)?,
+                block_id: row.get(1)?,
+                ts: row.get(2)?,
+                bpm: row.get(3)?,
+                variant: row.get(4)?,
+                verdict: row.get(5)?,
+                note: row.get(6)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// Reassign (or clear) a block's region membership.
+    pub fn block_set_region(&self, block_id: i64, region_id: Option<i64>) -> rusqlite::Result<()> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.execute(
+            "UPDATE rep_block SET region_id = ?2 WHERE id = ?1",
+            rusqlite::params![block_id, region_id],
+        )?;
+        Ok(())
     }
 
     // ── Sessions & the session event log ──────────────────────────────────
