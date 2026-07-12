@@ -6,8 +6,11 @@
 //! user, low write volume) a global lock is more than adequate.
 
 mod backfill;
+mod events;
 mod migrations;
 pub mod model;
+
+pub use events::EventKind;
 
 use std::path::Path;
 use std::sync::Mutex;

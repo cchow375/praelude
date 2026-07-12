@@ -20,7 +20,7 @@ use crate::sessions::{SessionService, StateEmitter};
 use crate::store::model::{
     CheckOutcome, LastRep, RepOpenArgs, RepSnapshot, VerdictCounts,
 };
-use crate::store::Store;
+use crate::store::{EventKind, Store};
 
 /// A rep verdict. The wire/store form is the lowercase string ("clean" /
 /// "flawed" / "failed"); the voice layer maps its three-way [`crate::intent::Verdict`]
@@ -159,8 +159,17 @@ impl RepEngine {
         *active = Some(snap.clone());
         drop(active);
 
-        self.sessions
-            .log("rep_open", serde_json::to_value(&snap).unwrap_or(Value::Null));
+        let snap_val = serde_json::to_value(&snap).unwrap_or(Value::Null);
+        self.sessions.log("rep_open", snap_val.clone());
+        // Durable canonical log (separate from the live session_event feed above).
+        if let Some(sid) = self.sessions.current_id() {
+            if let Err(e) =
+                self.store
+                    .append_event(EventKind::REP_OPEN, Some(sid), Some(snap.piece_id), &snap_val)
+            {
+                eprintln!("rep: failed to append REP_OPEN event: {e}");
+            }
+        }
         self.emit_state(Some(&snap));
         Ok(snap)
     }
@@ -234,17 +243,24 @@ impl RepEngine {
         let out_snap = snap.clone();
         drop(active);
 
-        self.sessions.log(
-            "rep",
-            json!({
-                "block_id": out_snap.block_id,
-                "piece_id": out_snap.piece_id,
-                "bpm": rep_bpm,
-                "variant": rep_variant,
-                "verdict": verdict.as_str(),
-                "note": note,
-            }),
-        );
+        let rep_payload = json!({
+            "block_id": out_snap.block_id,
+            "piece_id": out_snap.piece_id,
+            "bpm": rep_bpm,
+            "variant": rep_variant,
+            "verdict": verdict.as_str(),
+            "note": note,
+        });
+        self.sessions.log("rep", rep_payload.clone());
+        // Durable canonical log (separate from the live session_event feed above).
+        if let Some(sid) = self.sessions.current_id() {
+            if let Err(e) =
+                self.store
+                    .append_event(EventKind::REP, Some(sid), Some(out_snap.piece_id), &rep_payload)
+            {
+                eprintln!("rep: failed to append REP event: {e}");
+            }
+        }
         self.emit_state(Some(&out_snap));
 
         Ok(CheckOutcome {

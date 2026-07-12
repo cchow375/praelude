@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use crate::store::model::{sqlite_ts_to_rfc3339, ExportResult, SessionView};
-use crate::store::Store;
+use crate::store::{EventKind, Store};
 
 /// Sink for app-facing events (`rep://state`, `session://event`). Mirrors the
 /// `VoiceEmitter` seam pattern: the production impl wraps a Tauri `AppHandle`;
@@ -72,7 +72,19 @@ impl SessionService {
         let sid = match self.store.latest_open_session() {
             Ok(Some(sid)) => sid,
             Ok(None) => match self.store.open_session() {
-                Ok(sid) => sid,
+                Ok(sid) => {
+                    // Durable canonical log: a genuinely new session begins (not on
+                    // restart-adoption of an already-open session above).
+                    if let Err(e) = self.store.append_event(
+                        EventKind::SESSION_START,
+                        Some(sid),
+                        None,
+                        &Value::Object(Default::default()),
+                    ) {
+                        eprintln!("session: failed to append SESSION_START event: {e}");
+                    }
+                    sid
+                }
                 Err(e) => {
                     eprintln!("session: failed to open session: {e}");
                     return None;
@@ -169,6 +181,15 @@ impl SessionService {
         if let Err(e) = self.store.end_session(sid, "") {
             eprintln!("session: failed to end session {sid}: {e}");
             return None;
+        }
+        // Durable canonical log: mark the session closed.
+        if let Err(e) = self.store.append_event(
+            EventKind::SESSION_END,
+            Some(sid),
+            None,
+            &Value::Object(Default::default()),
+        ) {
+            eprintln!("session: failed to append SESSION_END event: {e}");
         }
         *cur = None;
         Some(sid)

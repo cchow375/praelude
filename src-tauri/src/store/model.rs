@@ -151,6 +151,21 @@ pub struct SessionEventView {
     pub payload: serde_json::Value,
 }
 
+/// One row of the durable canonical `event` log (Task 2). Distinct from
+/// [`SessionEventView`] (the live session-feed shape): this is the persistent
+/// append-only record that export/metrics derive from, with nullable
+/// `session_id`/`piece_id` FK links and the row `id`/`ts` exposed.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Event {
+    pub id: i64,
+    pub ts: String,
+    pub session_id: Option<i64>,
+    pub piece_id: Option<i64>,
+    pub kind: String,
+    pub payload: serde_json::Value,
+}
+
 // ── Rep engine wire types (Task 17) ───────────────────────────────────────
 
 /// Arguments to open a rep block. Received from the frontend (`rep_open`) and
