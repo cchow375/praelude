@@ -79,6 +79,8 @@ mod test_support {
             &IncrementRule { clean_needed: 3, bpm_step: 2.0 },
             10,
             &[],
+            "tempo",
+            true,
         )
         .unwrap()
     }

@@ -130,6 +130,8 @@ impl RepEngine {
                 &rule,
                 planned,
                 &args.variants,
+                &args.focus,
+                args.use_metronome,
             )
             .map_err(|e| e.to_string())?;
 
@@ -155,6 +157,8 @@ impl RepEngine {
             verdicts: VerdictCounts::default(),
             last: None,
             status: "open".to_string(),
+            focus: args.focus,
+            use_metronome: args.use_metronome,
         };
         *active = Some(snap.clone());
         drop(active);
@@ -220,8 +224,15 @@ impl RepEngine {
             bpm: rep_bpm,
         });
 
-        // Only a clean rep can step the ladder (only it advances cleans_at_step).
-        let new_bpm = if matches!(verdict, RepVerdict::Clean) {
+        // The tempo ladder is decoupled from the metronome and gated on focus:
+        // only a `tempo` block climbs, and only a clean rep can step it (only a
+        // clean rep advances cleans_at_step). A `focus != "tempo"` block counts
+        // verdicts but never advances BPM. When it does step, we ALWAYS update the
+        // working tempo + log a `tempo_change` event (below), regardless of whether
+        // the metronome is running or `use_metronome` is set — retuning the actual
+        // metronome is the consumer's job (voice loop), gated on `use_metronome`.
+        let from_bpm = snap.bpm;
+        let new_bpm = if snap.focus == "tempo" && matches!(verdict, RepVerdict::Clean) {
             ladder::step(&snap.rule, snap.cleans_at_step, snap.bpm, snap.target_bpm)
         } else {
             None
@@ -253,12 +264,32 @@ impl RepEngine {
         });
         self.sessions.log("rep", rep_payload.clone());
         // Durable canonical log (separate from the live session_event feed above).
-        if let Some(sid) = self.sessions.current_id() {
+        let sid = self.sessions.current_id();
+        if let Some(sid) = sid {
             if let Err(e) =
                 self.store
                     .append_event(EventKind::REP, Some(sid), Some(out_snap.piece_id), &rep_payload)
             {
                 eprintln!("rep: failed to append REP event: {e}");
+            }
+        }
+        // A ladder step is a durable `tempo_change` event, always logged when the
+        // BPM advances (independent of the metronome). Only `tempo`-focus blocks
+        // ever reach here with `new_bpm = Some`.
+        if let (Some(nb), Some(sid)) = (new_bpm, sid) {
+            let tempo_payload = json!({
+                "block_id": out_snap.block_id,
+                "piece_id": out_snap.piece_id,
+                "from_bpm": from_bpm,
+                "to_bpm": nb,
+            });
+            if let Err(e) = self.store.append_event(
+                EventKind::TEMPO_CHANGE,
+                Some(sid),
+                Some(out_snap.piece_id),
+                &tempo_payload,
+            ) {
+                eprintln!("rep: failed to append TEMPO_CHANGE event: {e}");
             }
         }
         self.emit_state(Some(&out_snap));
@@ -352,6 +383,13 @@ impl RepEngine {
         if let Ok(Some(rule)) = self.store.block_rule(block_id) {
             snap.rule = rule;
         }
+        // Mirror a live edit of the block's focus / metronome flag, so toggling a
+        // block to (or from) `tempo` focus — or turning the metronome off — takes
+        // effect on the active block without reopening it.
+        if let Ok(Some((focus, use_metronome))) = self.store.block_focus_metronome(block_id) {
+            snap.focus = focus;
+            snap.use_metronome = use_metronome;
+        }
         let out = snap.clone();
         drop(active);
         self.emit_state(Some(&out));
@@ -418,7 +456,7 @@ fn compose_say(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::model::{ScanPiece, VariantSpec};
+    use crate::store::model::{IncrementRule, ScanPiece, VariantSpec};
 
     #[derive(Default)]
     struct RecEmitter {
@@ -479,7 +517,78 @@ mod tests {
             planned_reps: Some(30),
             increment: None,
             variants: vec![],
+            focus: "tempo".into(),
+            use_metronome: true,
         }
+    }
+
+    // ── T18 helpers ───────────────────────────────────────────────────────
+    // `engine_with_capture` mirrors `engine_with_piece` but returns just the
+    // engine + emitter (the seeded piece is id 1 in a fresh in-memory store).
+
+    fn engine_with_capture() -> (RepEngine, Arc<RecEmitter>) {
+        let (engine, _pid, _store, rec) = engine_with_piece();
+        (engine, rec)
+    }
+
+    /// A `tempo`-focus block with an explicit ladder (so a step is deterministic)
+    /// and a target far enough above `start` to leave headroom to climb.
+    fn open_args_tempo(use_metronome: bool, clean_needed: u32, step: f64, start: f64) -> RepOpenArgs {
+        RepOpenArgs {
+            piece_id: 1,
+            m_start: 1,
+            m_end: 8,
+            label: None,
+            start_bpm: start,
+            target_bpm: Some(start + 200.0),
+            planned_reps: Some(30),
+            increment: Some(IncrementRule { clean_needed, bpm_step: step }),
+            variants: vec![],
+            focus: "tempo".into(),
+            use_metronome,
+        }
+    }
+
+    /// A block with the given non-`tempo` focus, carrying a ladder that WOULD step
+    /// on the first clean rep were it a tempo block — proving the focus gate, not a
+    /// missing ladder, is what holds the BPM.
+    fn open_args_focus(focus: &str) -> RepOpenArgs {
+        RepOpenArgs {
+            piece_id: 1,
+            m_start: 1,
+            m_end: 8,
+            label: None,
+            start_bpm: 40.0,
+            target_bpm: Some(200.0),
+            planned_reps: Some(30),
+            increment: Some(IncrementRule { clean_needed: 1, bpm_step: 4.0 }),
+            variants: vec![],
+            focus: focus.into(),
+            use_metronome: true,
+        }
+    }
+
+    #[test]
+    fn ladder_advances_with_metronome_off() {
+        let (engine, _emit) = engine_with_capture();
+        let args = open_args_tempo(/*use_metronome*/ false, /*clean_needed*/ 2, /*step*/ 4.0, /*start*/ 40.0);
+        let snap = engine.open(args).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let out = engine.check(RepVerdict::Clean, None).unwrap(); // hits the step
+        assert_eq!(out.snap.bpm, 44.0); // advanced
+        let evs = engine.store.events_for_piece(snap.piece_id).unwrap();
+        assert!(evs.iter().any(|e| e.kind == "tempo_change"));
+    }
+
+    #[test]
+    fn non_tempo_block_never_advances_bpm() {
+        let (engine, _emit) = engine_with_capture();
+        let snap = engine.open(open_args_focus("notes")).unwrap();
+        let out = engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(out.snap.bpm, snap.bpm); // unchanged
+        // And no tempo_change was logged for a non-tempo block.
+        let evs = engine.store.events_for_piece(snap.piece_id).unwrap();
+        assert!(!evs.iter().any(|e| e.kind == "tempo_change"));
     }
 
     #[test]
@@ -576,6 +685,8 @@ mod tests {
                 VariantSpec { name: "hands separate".into(), reps: 2 },
                 VariantSpec { name: "hands together".into(), reps: 2 },
             ],
+            focus: "tempo".into(),
+            use_metronome: true,
         };
         let snap = engine.open(args).unwrap();
         assert_eq!(snap.planned_reps, 4, "Σ variant reps");

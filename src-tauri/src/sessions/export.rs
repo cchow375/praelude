@@ -276,6 +276,8 @@ mod tests {
                 &IncrementRule { clean_needed: 3, bpm_step: 2.0 },
                 10,
                 &[],
+                "tempo",
+                true,
             )
             .unwrap();
         let sid = store.latest_open_session().unwrap();
@@ -353,6 +355,8 @@ mod tests {
             planned_reps: Some(30),
             increment: None,
             variants: vec![],
+            focus: "tempo".into(),
+            use_metronome: true,
         })
         .unwrap();
         for _ in 0..3 {
@@ -372,6 +376,8 @@ mod tests {
             planned_reps: Some(5),
             increment: None,
             variants: vec![],
+            focus: "tempo".into(),
+            use_metronome: true,
         })
         .unwrap();
         rep.check(crate::rep::RepVerdict::Clean, None).unwrap();
@@ -403,6 +409,8 @@ mod tests {
             planned_reps: Some(2),
             increment: None,
             variants: vec![],
+            focus: "tempo".into(),
+            use_metronome: true,
         })
         .unwrap();
         rep.check(crate::rep::RepVerdict::Clean, None).unwrap();

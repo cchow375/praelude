@@ -235,13 +235,15 @@ impl Store {
         increment_rule: &IncrementRule,
         planned_reps: u32,
         variants: &[VariantSpec],
+        focus: &str,
+        use_metronome: bool,
     ) -> rusqlite::Result<i64> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         conn.query_row(
             "INSERT INTO rep_block
                  (piece_id, m_start, m_end, label, start_bpm, target_bpm,
-                  increment_rule, planned_reps, variants)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                  increment_rule, planned_reps, variants, focus, use_metronome)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              RETURNING id",
             rusqlite::params![
                 piece_id,
@@ -253,6 +255,8 @@ impl Store {
                 json_to_sql(increment_rule)?,
                 planned_reps,
                 json_to_sql(variants)?,
+                focus,
+                use_metronome,
             ],
             |row| row.get(0),
         )
@@ -395,6 +399,19 @@ impl Store {
             Some(t) => Ok(Some(json_from_sql(&t)?)),
             None => Ok(None),
         }
+    }
+
+    /// A block's practice `focus` and `use_metronome` flag, or `None` when the
+    /// block is missing. Used by the rep engine's `resync_active_if` to mirror a
+    /// live edit of the block's focus/metronome config into the active snapshot.
+    pub fn block_focus_metronome(&self, block_id: i64) -> rusqlite::Result<Option<(String, bool)>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row(
+            "SELECT focus, use_metronome FROM rep_block WHERE id = ?1",
+            [block_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
     }
 
     /// Every rep row logged against a block, oldest first.
@@ -783,7 +800,7 @@ mod tests {
             reps: 10,
         }];
         let block = store
-            .insert_rep_block(pid, 1, 8, Some("intro"), 80.0, Some(120.0), &rule, 10, &variants)
+            .insert_rep_block(pid, 1, 8, Some("intro"), 80.0, Some(120.0), &rule, 10, &variants, "tempo", true)
             .unwrap();
 
         store.insert_rep(block, 80.0, None, "clean", None).unwrap();
@@ -822,7 +839,7 @@ mod tests {
         let pid = store.upsert_piece(&scan("/v/P", "P", None)).unwrap();
         let rule = IncrementRule { clean_needed: 1, bpm_step: 2.0 };
         store
-            .insert_rep_block(pid, 1, 4, None, 60.0, None, &rule, 5, &[])
+            .insert_rep_block(pid, 1, 4, None, 60.0, None, &rule, 5, &[], "tempo", true)
             .unwrap();
         let h = &store.block_history(pid).unwrap()[0];
         assert_eq!(h.reps_done, 0);

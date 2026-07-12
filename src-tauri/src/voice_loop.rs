@@ -332,9 +332,11 @@ impl ActionCtx {
         };
         match self.rep.check(verdict, note) {
             Ok(outcome) => {
-                // Follow a ladder step on the metronome only if it is running.
+                // Follow a ladder step on the metronome only if the block uses the
+                // metronome (a metronome-off tempo block still advanced its tempo
+                // in the engine) and it is currently running.
                 if let Some(nb) = outcome.new_bpm {
-                    if self.metro.snapshot().running {
+                    if outcome.snap.use_metronome && self.metro.snapshot().running {
                         let (state, _res) = self.set_bpm_only(nb);
                         self.emit_state(&state);
                     }
@@ -368,6 +370,8 @@ impl ActionCtx {
             planned_reps: spec.reps,
             increment: None,
             variants: vec![],
+            focus: "tempo".into(),
+            use_metronome: true,
         };
         match self.rep.open(args) {
             Ok(snap) => {
@@ -1219,6 +1223,8 @@ mod tests {
                 planned_reps: Some(30),
                 increment: None,
                 variants: vec![],
+                focus: "tempo".into(),
+                use_metronome: true,
             })
             .unwrap();
 
@@ -1492,6 +1498,8 @@ mod tests {
                 planned_reps: Some(30),
                 increment: None,
                 variants: vec![],
+                focus: "tempo".into(),
+                use_metronome: true,
             })
             .unwrap();
         assert!(!ctx.metro.snapshot().running);

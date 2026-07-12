@@ -187,6 +187,24 @@ pub struct RepOpenArgs {
     pub increment: Option<IncrementRule>,
     #[serde(default)]
     pub variants: Vec<VariantSpec>,
+    /// The block's practice focus. Only a `"tempo"` block carries a tempo ladder;
+    /// any other focus counts rep verdicts without advancing BPM. Defaults to
+    /// `"tempo"` so existing callers (and JS payloads that omit it) are unchanged.
+    #[serde(default = "default_focus")]
+    pub focus: String,
+    /// Whether a ladder step should retune the metronome. Defaults to `true`.
+    #[serde(default = "default_use_metronome")]
+    pub use_metronome: bool,
+}
+
+/// serde default for [`RepOpenArgs::focus`] / [`RepSnapshot::focus`].
+pub(crate) fn default_focus() -> String {
+    "tempo".to_string()
+}
+
+/// serde default for [`RepOpenArgs::use_metronome`] / [`RepSnapshot::use_metronome`].
+pub(crate) fn default_use_metronome() -> bool {
+    true
 }
 
 /// The most recent rep recorded in a block (for the snapshot's "last" field).
@@ -222,6 +240,13 @@ pub struct RepSnapshot {
     pub verdicts: VerdictCounts,
     pub last: Option<LastRep>,
     pub status: String,
+    /// The block's practice focus (see [`RepOpenArgs::focus`]). Gates the ladder:
+    /// only `"tempo"` advances BPM.
+    #[serde(default = "default_focus")]
+    pub focus: String,
+    /// Whether a ladder step retunes the metronome (see [`RepOpenArgs::use_metronome`]).
+    #[serde(default = "default_use_metronome")]
+    pub use_metronome: bool,
 }
 
 /// The result of recording one rep (`rep_check`): the updated snapshot, the new
