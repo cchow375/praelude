@@ -5,7 +5,10 @@
 
 use rusqlite::Connection;
 
-use super::model::{BlockPatch, Region, RegionCreate, RegionPatch, RepPatch, VerdictCounts};
+use super::model::{
+    BlockPatch, Goal, GoalCreate, GoalPatch, Region, RegionCreate, RegionPatch, RepPatch,
+    VerdictCounts,
+};
 use super::{EventKind, Store};
 // ── Shared: append_event over an already-locked connection ─────────────────
 //
@@ -633,5 +636,195 @@ mod rep {
         let r1 = seed_rep(&s, bid, "flawed");
         s.rep_update(r1, RepPatch { verdict: Some("clean".into()), note: None }).unwrap();
         assert_eq!(s.block_row(bid).unwrap().unwrap().verdicts.clean, 1);
+    }
+}
+// ── T6: Goal CRUD + reorder ─────────────────────────────────────────────────
+
+impl Store {
+    /// All goals for a piece, ordered by `sort_order`.
+    pub fn goal_list(&self, piece_id: i64) -> rusqlite::Result<Vec<Goal>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT id, piece_id, text, kind, parent_goal_id, done, sort_order, target_date, created_ts
+             FROM goal WHERE piece_id = ?1 ORDER BY sort_order",
+        )?;
+        let rows = stmt.query_map([piece_id], Self::goal_from_row)?;
+        rows.collect()
+    }
+
+    fn goal_from_row(row: &rusqlite::Row) -> rusqlite::Result<Goal> {
+        Ok(Goal {
+            id: row.get(0)?,
+            piece_id: row.get(1)?,
+            text: row.get(2)?,
+            kind: row.get(3)?,
+            parent_goal_id: row.get(4)?,
+            done: row.get(5)?,
+            order: row.get(6)?,
+            target_date: row.get(7)?,
+            created_ts: row.get(8)?,
+        })
+    }
+
+    fn goal_get(conn: &Connection, id: i64) -> rusqlite::Result<Goal> {
+        conn.query_row(
+            "SELECT id, piece_id, text, kind, parent_goal_id, done, sort_order, target_date, created_ts
+             FROM goal WHERE id = ?1",
+            [id],
+            Self::goal_from_row,
+        )
+    }
+
+    /// Create a goal; appends a `goal_change` event. New goals land at the
+    /// end of the piece's ordering (`sort_order = MAX(sort_order)+1`).
+    pub fn goal_create(&self, args: GoalCreate) -> rusqlite::Result<Goal> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let id: i64 = conn.query_row(
+            "INSERT INTO goal (piece_id, text, kind, parent_goal_id, target_date, sort_order)
+             VALUES (?1, ?2, ?3, ?4, ?5,
+                 COALESCE((SELECT MAX(sort_order) + 1 FROM goal WHERE piece_id = ?1), 0))
+             RETURNING id",
+            rusqlite::params![
+                args.piece_id,
+                args.text,
+                args.kind,
+                args.parent_goal_id,
+                args.target_date
+            ],
+            |row| row.get(0),
+        )?;
+        let goal = Self::goal_get(&conn, id)?;
+        Self::append_event_conn(
+            &conn,
+            EventKind::GOAL_CHANGE,
+            None,
+            Some(args.piece_id),
+            &serde_json::json!({ "action": "create", "goal_id": id }),
+        )?;
+        Ok(goal)
+    }
+
+    /// Apply a partial patch to a goal; appends a `goal_change` event.
+    pub fn goal_update(&self, id: i64, patch: GoalPatch) -> rusqlite::Result<Goal> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut sets: Vec<String> = Vec::new();
+        let mut vals: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(v) = patch.text {
+            sets.push(format!("text = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.done {
+            sets.push(format!("done = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.target_date {
+            sets.push(format!("target_date = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.parent_goal_id {
+            sets.push(format!("parent_goal_id = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if !sets.is_empty() {
+            let sql = format!("UPDATE goal SET {} WHERE id = ?1", sets.join(", "));
+            let mut params: Vec<&dyn rusqlite::ToSql> = vec![&id];
+            for v in &vals {
+                params.push(v.as_ref());
+            }
+            conn.execute(&sql, params.as_slice())?;
+        }
+        let goal = Self::goal_get(&conn, id)?;
+        Self::append_event_conn(
+            &conn,
+            EventKind::GOAL_CHANGE,
+            None,
+            Some(goal.piece_id),
+            &serde_json::json!({ "action": "update", "goal_id": id }),
+        )?;
+        Ok(goal)
+    }
+
+    /// Delete a goal; appends a `goal_change` event.
+    pub fn goal_delete(&self, id: i64) -> rusqlite::Result<()> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let piece_id: i64 =
+            conn.query_row("SELECT piece_id FROM goal WHERE id = ?1", [id], |r| r.get(0))?;
+        conn.execute("DELETE FROM goal WHERE id = ?1", [id])?;
+        Self::append_event_conn(
+            &conn,
+            EventKind::GOAL_CHANGE,
+            None,
+            Some(piece_id),
+            &serde_json::json!({ "action": "delete", "goal_id": id }),
+        )?;
+        Ok(())
+    }
+
+    /// Assign `sort_order` by array index, in one transaction. Appends a
+    /// single `goal_change` event for the whole reorder.
+    pub fn goal_reorder(&self, piece_id: i64, ordered_ids: Vec<i64>) -> rusqlite::Result<()> {
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        for (idx, id) in ordered_ids.iter().enumerate() {
+            tx.execute(
+                "UPDATE goal SET sort_order = ?2 WHERE id = ?1 AND piece_id = ?3",
+                rusqlite::params![id, idx as i64, piece_id],
+            )?;
+        }
+        tx.commit()?;
+        Self::append_event_conn(
+            &conn,
+            EventKind::GOAL_CHANGE,
+            None,
+            Some(piece_id),
+            &serde_json::json!({ "action": "reorder", "order": ordered_ids }),
+        )?;
+        Ok(())
+    }
+}
+// ── T6: goal tests ───────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod goal {
+    use super::test_support::seed_piece;
+    use super::*;
+    use crate::store::Store;
+
+    #[test]
+    fn goal_reorder_sets_sort_order_by_index() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let a = s
+            .goal_create(GoalCreate { piece_id: 1, text: "a".into(), kind: "big".into(), parent_goal_id: None, target_date: None })
+            .unwrap();
+        let b = s
+            .goal_create(GoalCreate { piece_id: 1, text: "b".into(), kind: "big".into(), parent_goal_id: None, target_date: None })
+            .unwrap();
+        s.goal_reorder(1, vec![b.id, a.id]).unwrap();
+        let ids: Vec<i64> = s.goal_list(1).unwrap().into_iter().map(|g| g.id).collect();
+        assert_eq!(ids, vec![b.id, a.id]);
+    }
+
+    #[test]
+    fn goal_update_toggles_done() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let g = s
+            .goal_create(GoalCreate { piece_id: 1, text: "a".into(), kind: "big".into(), parent_goal_id: None, target_date: None })
+            .unwrap();
+        assert!(!g.done);
+        let updated = s.goal_update(g.id, GoalPatch { done: Some(true), ..Default::default() }).unwrap();
+        assert!(updated.done);
+    }
+
+    #[test]
+    fn goal_delete_removes_it() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let g = s
+            .goal_create(GoalCreate { piece_id: 1, text: "a".into(), kind: "big".into(), parent_goal_id: None, target_date: None })
+            .unwrap();
+        s.goal_delete(g.id).unwrap();
+        assert!(s.goal_list(1).unwrap().is_empty());
     }
 }

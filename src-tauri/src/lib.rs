@@ -19,9 +19,9 @@ use rep::{RepEngine, RepVerdict};
 use sessions::{SessionService, StateEmitter};
 use stt::SttConfig;
 use store::model::{
-    BlockHistory, BlockPatch, CheckOutcome, ExportResult, Intake, PieceDetail,
-    PieceSummary, Region, RegionCreate, RegionPatch, RepOpenArgs, RepPatch,
-    RepSnapshot, SessionView,
+    BlockHistory, BlockPatch, CheckOutcome, ExportResult, Goal, GoalCreate, GoalPatch,
+    Intake, PieceDetail, PieceSummary, Region, RegionCreate, RegionPatch, RepOpenArgs,
+    RepPatch, RepSnapshot, SessionView,
 };
 use store::Store;
 use tauri::path::BaseDirectory;
@@ -333,6 +333,44 @@ fn rep_delete(
     Ok(())
 }
 
+// ── T6: Goal CRUD + reorder ──────────────────────────────────────────────────
+
+/// All goals for a piece, ordered by their sort order.
+#[tauri::command]
+fn goal_list(piece_id: i64, store: State<'_, Arc<Store>>) -> Result<Vec<Goal>, String> {
+    store.goal_list(piece_id).map_err(|e| e.to_string())
+}
+
+/// Create a goal.
+#[tauri::command]
+fn goal_create(args: GoalCreate, store: State<'_, Arc<Store>>) -> Result<Goal, String> {
+    store.goal_create(args).map_err(|e| e.to_string())
+}
+
+/// Apply a partial patch to a goal.
+#[tauri::command]
+fn goal_update(id: i64, patch: GoalPatch, store: State<'_, Arc<Store>>) -> Result<Goal, String> {
+    store.goal_update(id, patch).map_err(|e| e.to_string())
+}
+
+/// Delete a goal.
+#[tauri::command]
+fn goal_delete(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    store.goal_delete(id).map_err(|e| e.to_string())
+}
+
+/// Reassign every goal's sort order to match `ordered_ids`' array index.
+#[tauri::command]
+fn goal_reorder(
+    piece_id: i64,
+    ordered_ids: Vec<i64>,
+    store: State<'_, Arc<Store>>,
+) -> Result<(), String> {
+    store
+        .goal_reorder(piece_id, ordered_ids)
+        .map_err(|e| e.to_string())
+}
+
 /// Mute (`true`) or unmute the mic. Gates STT and blocks any action while muted.
 #[tauri::command]
 fn voice_mute(muted: bool, voice: State<'_, Arc<VoiceLoop>>) {
@@ -496,6 +534,11 @@ pub fn run() {
             block_delete,
             rep_update,
             rep_delete,
+            goal_list,
+            goal_create,
+            goal_update,
+            goal_delete,
+            goal_reorder,
             session_current,
             session_end,
             metronome::metro_start,

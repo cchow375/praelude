@@ -336,6 +336,41 @@ pub struct RepPatch {
     pub note: Option<Option<String>>,
 }
 
+/// A practice goal for a piece ("big" top-level or a "sub" goal under a
+/// parent). `order` is the wire name for the SQL `sort_order` column.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Goal {
+    pub id: i64,
+    pub piece_id: i64,
+    pub text: String,
+    pub kind: String,
+    pub parent_goal_id: Option<i64>,
+    pub done: bool,
+    #[serde(rename = "order")]
+    pub order: i64,
+    pub target_date: Option<String>,
+    pub created_ts: String,
+}
+
+/// Arguments to create a goal.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GoalCreate {
+    pub piece_id: i64,
+    pub text: String,
+    pub kind: String,
+    pub parent_goal_id: Option<i64>,
+    pub target_date: Option<String>,
+}
+
+/// A partial goal update; `target_date`/`parent_goal_id` are nullable.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct GoalPatch {
+    pub text: Option<String>,
+    pub done: Option<bool>,
+    pub target_date: Option<Option<String>>,
+    pub parent_goal_id: Option<Option<i64>>,
+}
+
 /// Convert a SQLite-native timestamp (`"YYYY-MM-DD HH:MM:SS"`, always UTC via
 /// `datetime('now')`) into the RFC3339 form the frontend expects
 /// (`"YYYY-MM-DDTHH:MM:SSZ"`). SQLite stays native; conversion happens only at
