@@ -371,6 +371,18 @@ pub struct GoalPatch {
     pub parent_goal_id: Option<Option<i64>>,
 }
 
+/// A partial edit to a piece's inline-editable intake metadata. Every field is
+/// nullable (absent = unchanged, `Some(None)` = clear, `Some(Some(v))` = set).
+/// Deliberately does not append an `event` row: this is metadata, not part of
+/// the practice-event stream metrics derive from.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PieceFieldPatch {
+    pub current_state: Option<Option<String>>,
+    pub deadline: Option<Option<String>>,
+    pub target_tempo: Option<Option<f64>>,
+    pub notes: Option<Option<String>>,
+}
+
 /// Convert a SQLite-native timestamp (`"YYYY-MM-DD HH:MM:SS"`, always UTC via
 /// `datetime('now')`) into the RFC3339 form the frontend expects
 /// (`"YYYY-MM-DDTHH:MM:SSZ"`). SQLite stays native; conversion happens only at

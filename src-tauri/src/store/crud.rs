@@ -6,8 +6,8 @@
 use rusqlite::Connection;
 
 use super::model::{
-    BlockPatch, Goal, GoalCreate, GoalPatch, Region, RegionCreate, RegionPatch, RepPatch,
-    VerdictCounts,
+    BlockPatch, Goal, GoalCreate, GoalPatch, PieceFieldPatch, Region, RegionCreate, RegionPatch,
+    RepPatch, VerdictCounts,
 };
 use super::{EventKind, Store};
 // ── Shared: append_event over an already-locked connection ─────────────────
@@ -826,5 +826,60 @@ mod goal {
             .unwrap();
         s.goal_delete(g.id).unwrap();
         assert!(s.goal_list(1).unwrap().is_empty());
+    }
+}
+// ── T7: Inline piece-field update ───────────────────────────────────────────
+
+impl Store {
+    /// Update any of a piece's inline-editable intake fields (absent =
+    /// unchanged). Deliberately appends NO event — see [`PieceFieldPatch`].
+    pub fn piece_field_update(&self, piece_id: i64, patch: PieceFieldPatch) -> rusqlite::Result<()> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut sets: Vec<String> = Vec::new();
+        let mut vals: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(v) = patch.current_state {
+            sets.push(format!("current_state = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.deadline {
+            sets.push(format!("deadline = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.target_tempo {
+            sets.push(format!("target_tempo = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.notes {
+            sets.push(format!("notes = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if !sets.is_empty() {
+            let sql = format!("UPDATE piece SET {} WHERE id = ?1", sets.join(", "));
+            let mut params: Vec<&dyn rusqlite::ToSql> = vec![&piece_id];
+            for v in &vals {
+                params.push(v.as_ref());
+            }
+            conn.execute(&sql, params.as_slice())?;
+        }
+        Ok(())
+    }
+}
+// ── T7: piece_field tests ────────────────────────────────────────────────
+
+#[cfg(test)]
+mod piece_field {
+    use super::test_support::seed_piece;
+    use super::*;
+    use crate::store::Store;
+
+    #[test]
+    fn piece_field_update_edits_current_state_only() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        s.piece_field_update(1, PieceFieldPatch { current_state: Some(Some("mm.1-40 solid".into())), ..Default::default() })
+            .unwrap();
+        let p = s.get_piece(1).unwrap().unwrap();
+        assert_eq!(p.current_state.as_deref(), Some("mm.1-40 solid"));
+        assert_eq!(p.deadline, None); // untouched
     }
 }

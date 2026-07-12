@@ -20,8 +20,8 @@ use sessions::{SessionService, StateEmitter};
 use stt::SttConfig;
 use store::model::{
     BlockHistory, BlockPatch, CheckOutcome, ExportResult, Goal, GoalCreate, GoalPatch,
-    Intake, PieceDetail, PieceSummary, Region, RegionCreate, RegionPatch, RepOpenArgs,
-    RepPatch, RepSnapshot, SessionView,
+    Intake, PieceDetail, PieceFieldPatch, PieceSummary, Region, RegionCreate, RegionPatch,
+    RepOpenArgs, RepPatch, RepSnapshot, SessionView,
 };
 use store::Store;
 use tauri::path::BaseDirectory;
@@ -371,6 +371,21 @@ fn goal_reorder(
         .map_err(|e| e.to_string())
 }
 
+// ── T7: Inline piece-field update ───────────────────────────────────────────
+
+/// Update any of a piece's inline-editable intake fields (current_state,
+/// deadline, target_tempo, notes). Appends no event — see [`PieceFieldPatch`].
+#[tauri::command]
+fn piece_field_update(
+    piece_id: i64,
+    patch: PieceFieldPatch,
+    store: State<'_, Arc<Store>>,
+) -> Result<(), String> {
+    store
+        .piece_field_update(piece_id, patch)
+        .map_err(|e| e.to_string())
+}
+
 /// Mute (`true`) or unmute the mic. Gates STT and blocks any action while muted.
 #[tauri::command]
 fn voice_mute(muted: bool, voice: State<'_, Arc<VoiceLoop>>) {
@@ -539,6 +554,7 @@ pub fn run() {
             goal_update,
             goal_delete,
             goal_reorder,
+            piece_field_update,
             session_current,
             session_end,
             metronome::metro_start,
