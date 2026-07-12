@@ -329,6 +329,13 @@ pub struct BlockPatch {
     pub increment_rule: Option<Option<IncrementRule>>,
 }
 
+/// A partial rep edit: verdict is a plain replace, `note` is nullable.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct RepPatch {
+    pub verdict: Option<String>,
+    pub note: Option<Option<String>>,
+}
+
 /// Convert a SQLite-native timestamp (`"YYYY-MM-DD HH:MM:SS"`, always UTC via
 /// `datetime('now')`) into the RFC3339 form the frontend expects
 /// (`"YYYY-MM-DDTHH:MM:SSZ"`). SQLite stays native; conversion happens only at

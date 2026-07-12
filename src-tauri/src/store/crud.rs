@@ -5,7 +5,7 @@
 
 use rusqlite::Connection;
 
-use super::model::{BlockPatch, Region, RegionCreate, RegionPatch};
+use super::model::{BlockPatch, Region, RegionCreate, RegionPatch, RepPatch, VerdictCounts};
 use super::{EventKind, Store};
 // ── Shared: append_event over an already-locked connection ─────────────────
 //
@@ -504,5 +504,134 @@ mod block {
         assert_eq!(updated.label.as_deref(), Some("legato"));
         assert_eq!(updated.target_bpm, Some(120.0));
         assert_eq!(updated.m_start, 1, "untouched field unchanged");
+    }
+}
+// ── T5: Rep update/delete with verdict-count recompute ─────────────────────
+
+/// Recompute verdict tallies for a block by grouping its surviving `rep`
+/// rows. Counts are always derived live (never a stored/decremented
+/// counter) — see `block_row`, which uses the same derivation for the full
+/// `reps_done`/`bpm` row.
+fn recompute_block_counts(conn: &Connection, block_id: i64) -> rusqlite::Result<VerdictCounts> {
+    let mut counts = VerdictCounts::default();
+    let mut stmt =
+        conn.prepare("SELECT verdict, COUNT(*) FROM rep WHERE block_id = ?1 GROUP BY verdict")?;
+    let rows = stmt.query_map([block_id], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+    })?;
+    for row in rows {
+        let (v, n) = row?;
+        match v.as_str() {
+            "clean" => counts.clean = n as u32,
+            "flawed" => counts.flawed = n as u32,
+            "failed" => counts.failed = n as u32,
+            _ => {}
+        }
+    }
+    Ok(counts)
+}
+
+impl Store {
+    /// Apply a partial patch to one rep (verdict replace, nullable note);
+    /// appends a `rep_edit` event. Counts are derived live on read (see
+    /// `block_row`), so no counter needs updating here.
+    /// Returns the owning `block_id` so the command layer can resync the rep
+    /// engine's active snapshot without a second lookup.
+    pub fn rep_update(&self, rep_id: i64, patch: RepPatch) -> rusqlite::Result<i64> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut sets: Vec<String> = Vec::new();
+        let mut vals: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(v) = patch.verdict {
+            sets.push(format!("verdict = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.note {
+            sets.push(format!("note = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if !sets.is_empty() {
+            let sql = format!("UPDATE rep SET {} WHERE id = ?1", sets.join(", "));
+            let mut params: Vec<&dyn rusqlite::ToSql> = vec![&rep_id];
+            for v in &vals {
+                params.push(v.as_ref());
+            }
+            conn.execute(&sql, params.as_slice())?;
+        }
+        let block_id: i64 =
+            conn.query_row("SELECT block_id FROM rep WHERE id = ?1", [rep_id], |r| r.get(0))?;
+        // Touch the derived counts (also validates the row exists post-patch);
+        // the actual values are re-derived by whoever reads block_row next.
+        recompute_block_counts(&conn, block_id)?;
+        let piece_id: i64 =
+            conn.query_row("SELECT piece_id FROM rep_block WHERE id = ?1", [block_id], |r| {
+                r.get(0)
+            })?;
+        Self::append_event_conn(
+            &conn,
+            EventKind::REP_EDIT,
+            None,
+            Some(piece_id),
+            &serde_json::json!({ "action": "update", "rep_id": rep_id, "block_id": block_id }),
+        )?;
+        Ok(block_id)
+    }
+
+    /// Delete a rep; appends a `rep_edit` event. Verdict counts and
+    /// `reps_done` need no explicit recompute step — they are always derived
+    /// live from surviving `rep` rows by `block_row`. Returns the owning
+    /// `block_id` (see [`Self::rep_update`]).
+    pub fn rep_delete(&self, rep_id: i64) -> rusqlite::Result<i64> {
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let block_id: i64 =
+            conn.query_row("SELECT block_id FROM rep WHERE id = ?1", [rep_id], |r| r.get(0))?;
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM rep WHERE id = ?1", [rep_id])?;
+        tx.commit()?;
+        recompute_block_counts(&conn, block_id)?;
+        let piece_id: i64 =
+            conn.query_row("SELECT piece_id FROM rep_block WHERE id = ?1", [block_id], |r| {
+                r.get(0)
+            })?;
+        Self::append_event_conn(
+            &conn,
+            EventKind::REP_EDIT,
+            None,
+            Some(piece_id),
+            &serde_json::json!({ "action": "delete", "rep_id": rep_id, "block_id": block_id }),
+        )?;
+        Ok(block_id)
+    }
+}
+// ── T5: rep tests ────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod rep {
+    use super::test_support::{seed_block, seed_piece, seed_rep};
+    use super::*;
+    use crate::store::Store;
+
+    #[test]
+    fn deleting_a_rep_recomputes_block_counts() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let bid = seed_block(&s, 1, 1, 8);
+        let r1 = seed_rep(&s, bid, "clean");
+        let _r2 = seed_rep(&s, bid, "clean");
+        let _r3 = seed_rep(&s, bid, "flawed");
+        s.rep_delete(r1).unwrap();
+        let b = s.block_row(bid).unwrap().unwrap();
+        assert_eq!(b.reps_done, 2);
+        assert_eq!(b.verdicts.clean, 1);
+        assert_eq!(b.verdicts.flawed, 1);
+    }
+
+    #[test]
+    fn updating_a_verdict_recomputes_counts() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let bid = seed_block(&s, 1, 1, 8);
+        let r1 = seed_rep(&s, bid, "flawed");
+        s.rep_update(r1, RepPatch { verdict: Some("clean".into()), note: None }).unwrap();
+        assert_eq!(s.block_row(bid).unwrap().unwrap().verdicts.clean, 1);
     }
 }

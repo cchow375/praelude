@@ -20,8 +20,8 @@ use sessions::{SessionService, StateEmitter};
 use stt::SttConfig;
 use store::model::{
     BlockHistory, BlockPatch, CheckOutcome, ExportResult, Intake, PieceDetail,
-    PieceSummary, Region, RegionCreate, RegionPatch, RepOpenArgs, RepSnapshot,
-    SessionView,
+    PieceSummary, Region, RegionCreate, RegionPatch, RepOpenArgs, RepPatch,
+    RepSnapshot, SessionView,
 };
 use store::Store;
 use tauri::path::BaseDirectory;
@@ -305,6 +305,34 @@ fn block_delete(
     Ok(())
 }
 
+// ── T5: Rep update/delete ───────────────────────────────────────────────────
+
+/// Apply a partial patch to one rep (verdict/note). Resyncs the owning
+/// block's active snapshot afterward.
+#[tauri::command]
+fn rep_update(
+    rep_id: i64,
+    patch: RepPatch,
+    store: State<'_, Arc<Store>>,
+    rep: State<'_, Arc<RepEngine>>,
+) -> Result<(), String> {
+    let block_id = store.rep_update(rep_id, patch).map_err(|e| e.to_string())?;
+    rep.resync_active_if(block_id);
+    Ok(())
+}
+
+/// Delete a rep. Resyncs the owning block's active snapshot afterward.
+#[tauri::command]
+fn rep_delete(
+    rep_id: i64,
+    store: State<'_, Arc<Store>>,
+    rep: State<'_, Arc<RepEngine>>,
+) -> Result<(), String> {
+    let block_id = store.rep_delete(rep_id).map_err(|e| e.to_string())?;
+    rep.resync_active_if(block_id);
+    Ok(())
+}
+
 /// Mute (`true`) or unmute the mic. Gates STT and blocks any action while muted.
 #[tauri::command]
 fn voice_mute(muted: bool, voice: State<'_, Arc<VoiceLoop>>) {
@@ -466,6 +494,8 @@ pub fn run() {
             region_merge,
             block_update,
             block_delete,
+            rep_update,
+            rep_delete,
             session_current,
             session_end,
             metronome::metro_start,
