@@ -5,14 +5,14 @@
 }
 
 .editable-field[data-empty="true"] {
-  color: var(--ink-muted, #888);
+  color: var(--ink-tertiary);
 }
 
 .editable-field-input {
   font: inherit;
   color: inherit;
-  background: var(--surface-input, #fff);
-  border: 1px solid var(--border-focus, #888);
+  background: var(--surface-app);
+  border: 1px solid var(--accent);
   border-radius: var(--radius-sm, 4px);
   padding: 0 2px;
 }

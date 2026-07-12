@@ -42,18 +42,18 @@ export function Shell() {
   useEffect(() => {
     panelManager.register("rep", {
       x: Math.max(16, panelManager.viewport.w - 430),
-      y: Math.max(68, panelManager.viewport.h - 390),
+      y: 68,
       w: 410,
-      h: 360,
+      h: 330,
       collapsed: false,
       z: 42,
     });
     panelManager.register("session", {
-      x: 16,
-      y: 68,
-      w: 350,
-      h: 300,
-      collapsed: false,
+      x: Math.min(Math.max(310, panelManager.viewport.w / 2 - 130), panelManager.viewport.w - 276),
+      y: 7,
+      w: 260,
+      h: 180,
+      collapsed: true,
       z: 41,
     });
   }, [panelManager.register, panelManager.viewport.h, panelManager.viewport.w]);
@@ -72,7 +72,7 @@ export function Shell() {
   };
 
   return (
-    <div className="shell">
+    <div className={`shell ${rep.snap ? "has-rep-panel" : ""}`}>
       <header className="topbar">
         <div className="topbar-left">
           <span className="topbar-brand">CodaKiller</span>

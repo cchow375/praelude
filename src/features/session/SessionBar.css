@@ -44,13 +44,13 @@
   width: 8px;
   height: 8px;
   border-radius: var(--radius-pill);
-  background: #30a46c;
-  box-shadow: 0 0 0 0 color-mix(in srgb, #30a46c 60%, transparent);
+  background: var(--success);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 60%, transparent);
   animation: session-pulse 2s var(--ease-standard) infinite;
 }
 @keyframes session-pulse {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, #30a46c 55%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 55%, transparent);
   }
   70% {
     box-shadow: 0 0 0 6px transparent;
@@ -90,8 +90,8 @@
   cursor: pointer;
 }
 .session-end:hover {
-  color: #e5484d;
-  border-color: color-mix(in srgb, #e5484d 40%, transparent);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
 }
 .session-end:disabled {
   opacity: 0.6;

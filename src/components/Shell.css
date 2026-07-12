@@ -76,6 +76,11 @@
 .practice-main {
   flex: 1 1 auto;
   overflow-y: auto;
+  transition: padding-right var(--duration-slow) var(--ease-standard);
+}
+
+.shell.has-rep-panel .practice-main {
+  padding-right: min(430px, 36vw);
 }
 
 .topbar-actions {
@@ -130,7 +135,7 @@
   color: var(--ink-primary);
 }
 .voice-mic.is-down {
-  color: #e5484d;
+  color: var(--danger);
 }
 
 .voice-status-dot {
@@ -141,13 +146,13 @@
   flex: 0 0 auto;
 }
 .voice-status-dot[data-status="live"] {
-  background: #30a46c;
+  background: var(--success);
 }
 .voice-status-dot[data-status="muted"] {
   background: var(--ink-tertiary);
 }
 .voice-status-dot[data-status="down"] {
-  background: #e5484d;
+  background: var(--danger);
 }
 
 /* The dot pinned to the corner of the mic button. */
@@ -290,4 +295,23 @@
 .floating-panel .rep-hud {
   padding: var(--space-4);
   overflow-y: auto;
+}
+
+.floating-panel .rep-hud-context {
+  flex-basis: 100%;
+}
+
+.floating-panel .rep-hud-actions {
+  flex: 1 1 auto;
+}
+
+.floating-panel .rep-verdict {
+  flex: 1 1 0;
+  padding-inline: var(--space-3);
+}
+
+@media (max-width: 1080px) {
+  .shell.has-rep-panel .practice-main {
+    padding-right: 390px;
+  }
 }

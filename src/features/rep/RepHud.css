@@ -122,37 +122,28 @@
   outline-offset: 2px;
 }
 .rep-verdict.is-clean {
-  color: #14794b;
-  border-color: color-mix(in srgb, #30a46c 45%, transparent);
-  background: color-mix(in srgb, #30a46c 12%, transparent);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
 }
 .rep-verdict.is-clean:hover {
-  background: color-mix(in srgb, #30a46c 20%, transparent);
+  background: color-mix(in srgb, var(--success) 20%, transparent);
 }
 .rep-verdict.is-flawed {
-  color: #96590a;
-  border-color: color-mix(in srgb, #d9911f 45%, transparent);
-  background: color-mix(in srgb, #d9911f 12%, transparent);
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
 }
 .rep-verdict.is-flawed:hover {
-  background: color-mix(in srgb, #d9911f 20%, transparent);
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
 }
 .rep-verdict.is-failed {
-  color: #c22a2f;
-  border-color: color-mix(in srgb, #e5484d 45%, transparent);
-  background: color-mix(in srgb, #e5484d 12%, transparent);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 .rep-verdict.is-failed:hover {
-  background: color-mix(in srgb, #e5484d 20%, transparent);
-}
-:root[data-theme="dark"] .rep-verdict.is-clean {
-  color: #4cc38a;
-}
-:root[data-theme="dark"] .rep-verdict.is-flawed {
-  color: #e5a13a;
-}
-:root[data-theme="dark"] .rep-verdict.is-failed {
-  color: #ff6369;
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
 }
 
 /* --- Note field ----------------------------------------------------------- */
@@ -220,13 +211,13 @@
   font-weight: var(--weight-semibold);
 }
 .rep-feed-item.is-clean .rep-feed-symbol {
-  color: #30a46c;
+  color: var(--success);
 }
 .rep-feed-item.is-flawed .rep-feed-symbol {
-  color: #d9911f;
+  color: var(--warning);
 }
 .rep-feed-item.is-failed .rep-feed-symbol {
-  color: #e5484d;
+  color: var(--danger);
 }
 .rep-feed-bpm {
   font-variant-numeric: tabular-nums;
@@ -241,5 +232,5 @@
 .rep-hud-error {
   margin: 0;
   font-size: var(--text-sm);
-  color: #e5484d;
+  color: var(--danger);
 }

@@ -19,5 +19,5 @@
 }
 
 .confirm-delete-danger {
-  color: var(--ink-danger, #c0392b);
+  color: var(--danger);
 }

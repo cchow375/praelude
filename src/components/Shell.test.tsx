@@ -31,7 +31,8 @@ describe("Shell floating workspace", () => {
     await waitFor(() => expect(screen.getByTestId("panel-rep")).toBeTruthy());
     expect(screen.getByTestId("panel-session")).toBeTruthy();
     expect(screen.getByTestId("main-practice")).toBeTruthy();
-    expect(screen.getAllByLabelText("Collapse panel")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Collapse panel")).toHaveLength(1);
+    expect(screen.getByLabelText("Expand panel")).toBeTruthy();
   });
 
   it("exposes a reset-layout recovery control", async () => {
