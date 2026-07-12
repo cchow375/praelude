@@ -2,6 +2,45 @@
 
 ## Decisions
 
+- **Foundation T8/T9/T18 (2026-07-12, Opus 4.8 takeover):**
+  - **Export reads the canonical graph, not frozen event payloads (T8).**
+    `sessions/export.rs::write_session_md` now enumerates a session's blocks from the
+    durable `event` log's `rep_open` events (the ONLY session→piece→block linkage —
+    blocks carry no `session_id`), taking piece_id/block_id from each event's payload,
+    then renders every block from `block_history` + `reps_for_block` (current label /
+    measures / tempo / verdict tallies). Rep COUNT and top-tempo are also derived
+    canonically (a block belongs to exactly one open, so `reps_for_block` == that
+    session's reps). Result: a block edited after its reps were logged exports with the
+    edited values, and export survives a relaunch. Added a trailing **Label** column to
+    the table (the old renderer emitted no label at all) — appended at the end so the
+    existing `| 40–56 | 80→84 |` substring assertions still hold. Metro tally + time
+    window still come from the live `session_event` feed (the durable log carries no
+    `metro` rows) — a pragmatic mix, not worth a schema change.
+  - **Metrics are pure functions over (events, graph); zero IO inside them (T9).**
+    `metrics/mod.rs` — `focused_seconds`, `streak`, `best_tempo_reached`,
+    `per_region_mastery`, `time_by_focus` take already-loaded slices. `progress_summary(
+    &Store, piece_id)` is the one impure assembler (loads via Store readers `blocks_meta`
+    / `reps_for_piece`, then calls the pure fns). **`focused_seconds` gotcha:** the
+    brief's "locked reference impl" (`.clamp(0, IDLE)` then `if g <= IDLE {g} else {0}`)
+    is self-contradicting — the clamp makes a 600 s idle gap count as 120, but the brief's
+    own test expects it to count as **0**. The TEST is authoritative, so the gap heuristic
+    is `if (0..=120).contains(&g) { g } else { 0 }` (idle gaps contribute 0). No date crate
+    (chrono absent, 8 GB ethos): timestamps parse via a hand-rolled Hinnant `days_from_civil`;
+    `parse_ts_secs` also accepts a bare integer string so tests can pass epoch seconds directly.
+  - **Tempo ladder decoupled from the metronome + gated on focus (T18).** `RepSnapshot`
+    and `RepOpenArgs` gained `focus: String` / `use_metronome: bool` with **serde
+    defaults** (`"tempo"` / `true`, via `default_focus`/`default_use_metronome` fns) so
+    every existing caller and JS payload is unchanged. `insert_rep_block` persists both
+    (so `resync_active_if` can reload them via the new `block_focus_metronome` reader —
+    chose a dedicated reader over widening `BlockHistory`, to avoid touching that frontend
+    contract). `check()` gates the ladder on `snap.focus == "tempo"` (a non-tempo block
+    counts verdicts, never advances BPM) and, when it steps, ALWAYS updates `snap.bpm` and
+    appends a durable `tempo_change` event regardless of the metronome. **The rep engine
+    holds no metronome handle** — the actual retune lives in `voice_loop::act_rep`, now
+    gated on `outcome.snap.use_metronome && running` (was `running` only). Test-helper
+    note: the briefs' test snippets reference `out.snapshot` but `CheckOutcome`'s field is
+    `.snap` — used `.snap` so it compiles.
+
 - **Task 17/18 (rep engine + sessions + voice wiring):**
   - **Ladder math (`rep/ladder.rs`, pure).** `resolve_auto(start, target, planned,
     variants)`: planned = Σ variant reps if variants present, else planned, else 30.
