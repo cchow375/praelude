@@ -70,20 +70,20 @@ export function RegionEditor({
           <div className="region-editor-row">
             <span className="ck-label">Color</span>
             <div className="region-colors">
-              {COLORS.map((color) => <button key={color} type="button" aria-label={`Set region color ${color}`} className={region.color === color ? "region-color is-on" : "region-color"} style={{ backgroundColor: color }} onClick={() => void run(() => crud.regionUpdate(region.id, { color }))} />)}
-              <button type="button" className="region-color-clear" onClick={() => void run(() => crud.regionUpdate(region.id, { color: null }))}>Clear</button>
+              {COLORS.map((color) => <button key={color} type="button" aria-label={`Set region color ${color}`} className={region.color === color ? "region-color is-on" : "region-color"} style={{ backgroundColor: color }} onClick={() => void run(() => crud.regionUpdate(region.id, { color })).catch(() => undefined)} />)}
+              <button type="button" className="region-color-clear" onClick={() => void run(() => crud.regionUpdate(region.id, { color: null })).catch(() => undefined)}>Clear</button>
             </div>
           </div>
           {regions.some((item) => item.id !== region.id) && (
             <div className="region-editor-row">
               <label><span className="ck-label">Merge into</span><select aria-label="Merge target" value={mergeTarget} onChange={(event) => setMergeTarget(event.target.value)}><option value="">Choose section…</option>{regions.filter((item) => item.id !== region.id).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-              <button type="button" disabled={!mergeTarget} onClick={() => void run(() => crud.regionMerge(Number(mergeTarget), region.id))}>Merge</button>
+              <button type="button" disabled={!mergeTarget} onClick={() => void run(() => crud.regionMerge(Number(mergeTarget), region.id)).catch(() => undefined)}>Merge</button>
             </div>
           )}
           {region.m_end > region.m_start && (
             <div className="region-editor-row">
               <label><span className="ck-label">Split before measure</span><input aria-label="Split measure" type="number" min={region.m_start + 1} max={region.m_end} value={splitAt} onChange={(event) => setSplitAt(event.target.value)} /></label>
-              <button type="button" onClick={() => void split()}>Split</button>
+              <button type="button" onClick={() => void split().catch(() => undefined)}>Split</button>
             </div>
           )}
           <ConfirmDelete label={`Delete this section? Its ${blocks.length} blocks will move to Ungrouped.`} onConfirm={() => run(() => crud.regionDelete(region.id))}>

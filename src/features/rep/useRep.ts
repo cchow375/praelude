@@ -189,7 +189,12 @@ export function useRep(): UseRep {
     async (args: RepOpenArgs) => {
       try {
         const s = await invoke<RepSnapshot>("rep_open", { args });
-        if (s) applySnapshot(s);
+        if (s) {
+          applySnapshot(s);
+          if (args.use_metronome && args.start_bpm != null) {
+            await invoke("metro_start", { bpm: args.start_bpm });
+          }
+        }
       } catch (e) {
         showError(messageOf(e));
       }
@@ -200,7 +205,13 @@ export function useRep(): UseRep {
   const check = useCallback(
     async (verdict: Verdict, note?: string | null) => {
       try {
-        await invoke("rep_check", { verdict, note: note ?? null });
+        const outcome = await invoke<CheckOutcome>("rep_check", {
+          verdict,
+          note: note ?? null,
+        });
+        if (outcome?.new_bpm != null && outcome.snap.use_metronome) {
+          await invoke("metro_set", { bpm: outcome.new_bpm });
+        }
         // The authoritative `rep://state` event reconciles snap + feed.
       } catch (e) {
         showError(messageOf(e));

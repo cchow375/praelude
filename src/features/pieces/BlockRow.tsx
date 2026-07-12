@@ -90,17 +90,17 @@ export function BlockRow({ block, onChanged, regions = [] }: BlockRowProps) {
       <div className="history-block-controls">
         <label>
           Focus
-          <select value={block.focus} aria-label="block focus" onChange={(event) => void change({ focus: event.target.value })}>
+          <select value={block.focus} aria-label="block focus" onChange={(event) => void change({ focus: event.target.value }).catch(() => undefined)}>
             {['tempo', 'notes', 'phrasing', 'dynamics', 'memory', 'hands', 'other'].map((focus) => <option key={focus}>{focus}</option>)}
           </select>
         </label>
         <label className="history-check">
-          <input type="checkbox" checked={block.use_metronome} onChange={(event) => void change({ use_metronome: event.target.checked })} /> metronome
+          <input type="checkbox" checked={block.use_metronome} onChange={(event) => void change({ use_metronome: event.target.checked }).catch(() => undefined)} /> metronome
         </label>
         <label>
           Planned reps <EditableNumber value={block.planned_reps} min={1} ariaLabel="planned reps" onSave={(planned_reps) => change({ planned_reps: planned_reps! })} />
         </label>
-        {regions.length > 0 && <label>Region <select value={block.region_id ?? ""} onChange={(event) => void change({ region_id: event.target.value ? Number(event.target.value) : null })}><option value="">Ungrouped</option>{regions.map((region) => <option value={region.id} key={region.id}>{region.name}</option>)}</select></label>}
+        {regions.length > 0 && <label>Region <select value={block.region_id ?? ""} onChange={(event) => void change({ region_id: event.target.value ? Number(event.target.value) : null }).catch(() => undefined)}><option value="">Ungrouped</option>{regions.map((region) => <option value={region.id} key={region.id}>{region.name}</option>)}</select></label>}
       </div>
 
       {expanded && (

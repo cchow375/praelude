@@ -76,7 +76,14 @@ export function usePanels(): UsePanels {
   const update = useCallback(
     (geometry: PanelGeometry) => {
       setPanels((current) => {
-        const next = { ...current, [geometry.id]: geometry };
+        // A drag starts by raising the panel, but FloatingPanel's transient
+        // geometry still carries the pre-raise z. Never let the final drag/
+        // resize commit accidentally send the panel behind its siblings again.
+        const nextGeometry = {
+          ...geometry,
+          z: Math.max(geometry.z, current[geometry.id]?.z ?? geometry.z),
+        };
+        const next = { ...current, [geometry.id]: nextGeometry };
         persist(next);
         return next;
       });

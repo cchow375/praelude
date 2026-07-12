@@ -67,13 +67,15 @@ describe("usePanels", () => {
     expect(result.current.panels.rep.x).toBe(1);
 
     act(() => result.current.raise("rep"));
-    expect(result.current.panels.rep.z).toBeGreaterThan(
+    const raisedZ = result.current.panels.rep.z;
+    expect(raisedZ).toBeGreaterThan(
       result.current.panels.session.z,
     );
 
     act(() =>
-      result.current.update({ ...result.current.panels.rep, x: 99 }),
+      result.current.update({ ...result.current.panels.rep, x: 99, z: 1 }),
     );
+    expect(result.current.panels.rep.z).toBe(raisedZ);
     act(() => result.current.resetLayout());
     expect(result.current.panels.rep.x).toBe(1);
   });

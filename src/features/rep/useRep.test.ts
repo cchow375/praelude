@@ -140,7 +140,13 @@ describe("useRep — IPC wiring", () => {
       focus: "tempo",
       use_metronome: true,
     };
-    invokeMock.mockResolvedValueOnce(makeSnap({ block_id: 42, reps_done: 0 }));
+    invokeMock.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "rep_open"
+          ? makeSnap({ block_id: 42, reps_done: 0 })
+          : null,
+      ),
+    );
 
     const { result } = renderHook(() => useRep());
     await waitFor(() => expect(listenMock).toHaveBeenCalled());
@@ -150,7 +156,19 @@ describe("useRep — IPC wiring", () => {
     });
 
     expect(invokeMock).toHaveBeenCalledWith("rep_open", { args });
+    expect(invokeMock).toHaveBeenCalledWith("metro_start", { bpm: 60 });
     expect(result.current.snap?.block_id).toBe(42);
+  });
+
+  it("applies a ladder step to the metronome only when the block opted in", async () => {
+    const stepped = makeSnap({ bpm: 64, use_metronome: true });
+    invokeMock.mockImplementation((command: string) =>
+      Promise.resolve(command === "rep_check" ? { snap: stepped, new_bpm: 64, block_done: false, say: "64" } : null),
+    );
+    const { result } = renderHook(() => useRep());
+    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+    await act(async () => { await result.current.check("clean"); });
+    expect(invokeMock).toHaveBeenCalledWith("metro_set", { bpm: 64 });
   });
 
   it("close() invokes rep_close and applies the (null) result", async () => {
