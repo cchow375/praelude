@@ -19,8 +19,9 @@ use rep::{RepEngine, RepVerdict};
 use sessions::{SessionService, StateEmitter};
 use stt::SttConfig;
 use store::model::{
-    BlockHistory, CheckOutcome, ExportResult, Intake, PieceDetail, PieceSummary,
-    Region, RegionCreate, RegionPatch, RepOpenArgs, RepSnapshot, SessionView,
+    BlockHistory, BlockPatch, CheckOutcome, ExportResult, Intake, PieceDetail,
+    PieceSummary, Region, RegionCreate, RegionPatch, RepOpenArgs, RepSnapshot,
+    SessionView,
 };
 use store::Store;
 use tauri::path::BaseDirectory;
@@ -274,6 +275,36 @@ fn region_merge(
         .map_err(|e| e.to_string())
 }
 
+// ── T4: Block update/delete ─────────────────────────────────────────────────
+
+/// Apply a partial patch to a rep block. If the block is the active one, the
+/// rep engine's live snapshot is resynced and `rep://state` re-emitted.
+#[tauri::command]
+fn block_update(
+    block_id: i64,
+    patch: BlockPatch,
+    store: State<'_, Arc<Store>>,
+    rep: State<'_, Arc<RepEngine>>,
+) -> Result<BlockHistory, String> {
+    let updated = store.block_update(block_id, patch).map_err(|e| e.to_string())?;
+    rep.resync_active_if(block_id);
+    Ok(updated)
+}
+
+/// Delete a block and its reps (cascade). If the block was active, the caller
+/// is expected to have closed it first; this only resyncs (a no-op if the
+/// block is gone from the active snapshot's id).
+#[tauri::command]
+fn block_delete(
+    block_id: i64,
+    store: State<'_, Arc<Store>>,
+    rep: State<'_, Arc<RepEngine>>,
+) -> Result<(), String> {
+    store.block_delete(block_id).map_err(|e| e.to_string())?;
+    rep.resync_active_if(block_id);
+    Ok(())
+}
+
 /// Mute (`true`) or unmute the mic. Gates STT and blocks any action while muted.
 #[tauri::command]
 fn voice_mute(muted: bool, voice: State<'_, Arc<VoiceLoop>>) {
@@ -433,6 +464,8 @@ pub fn run() {
             region_update,
             region_delete,
             region_merge,
+            block_update,
+            block_delete,
             session_current,
             session_end,
             metronome::metro_start,

@@ -5,7 +5,7 @@
 
 use rusqlite::Connection;
 
-use super::model::{Region, RegionCreate, RegionPatch};
+use super::model::{BlockPatch, Region, RegionCreate, RegionPatch};
 use super::{EventKind, Store};
 // ── Shared: append_event over an already-locked connection ─────────────────
 //
@@ -361,5 +361,148 @@ mod region {
         s.region_update(a.id, RegionPatch { order: Some(5), ..Default::default() }).unwrap();
         let ids: Vec<i64> = s.region_list(1).unwrap().into_iter().map(|r| r.id).collect();
         assert_eq!(ids, vec![b.id, a.id]);
+    }
+}
+// ── T4: Block update/delete ─────────────────────────────────────────────────
+
+impl Store {
+    /// Apply a partial patch to a rep block; appends a `block_edit` event and
+    /// returns the refreshed [`super::model::BlockHistory`] row. Does NOT
+    /// touch the rep engine's in-memory active snapshot — the command layer
+    /// calls `RepEngine::resync_active_if` after this succeeds.
+    pub fn block_update(
+        &self,
+        block_id: i64,
+        patch: BlockPatch,
+    ) -> rusqlite::Result<super::model::BlockHistory> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut sets: Vec<String> = Vec::new();
+        let mut vals: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(v) = patch.label {
+            sets.push(format!("label = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.m_start {
+            sets.push(format!("m_start = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.m_end {
+            sets.push(format!("m_end = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.start_bpm {
+            sets.push(format!("start_bpm = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.target_bpm {
+            sets.push(format!("target_bpm = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.planned_reps {
+            sets.push(format!("planned_reps = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.focus {
+            sets.push(format!("focus = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.use_metronome {
+            sets.push(format!("use_metronome = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.region_id {
+            sets.push(format!("region_id = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.increment_rule {
+            let json = v.map(|r| super::model::json_to_sql(&r)).transpose()?;
+            sets.push(format!("increment_rule = ?{}", vals.len() + 2));
+            vals.push(Box::new(json));
+        }
+        if !sets.is_empty() {
+            let sql = format!("UPDATE rep_block SET {} WHERE id = ?1", sets.join(", "));
+            let mut params: Vec<&dyn rusqlite::ToSql> = vec![&block_id];
+            for v in &vals {
+                params.push(v.as_ref());
+            }
+            conn.execute(&sql, params.as_slice())?;
+        }
+        let piece_id: i64 =
+            conn.query_row("SELECT piece_id FROM rep_block WHERE id = ?1", [block_id], |r| {
+                r.get(0)
+            })?;
+        Self::append_event_conn(
+            &conn,
+            EventKind::BLOCK_EDIT,
+            None,
+            Some(piece_id),
+            &serde_json::json!({ "action": "update", "block_id": block_id }),
+        )?;
+        drop(conn);
+        self.block_row(block_id)?
+            .ok_or_else(|| rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    /// Delete a block and every rep logged against it (cascade, in one
+    /// transaction). Appends a `block_edit` event.
+    pub fn block_delete(&self, block_id: i64) -> rusqlite::Result<()> {
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let piece_id: i64 =
+            conn.query_row("SELECT piece_id FROM rep_block WHERE id = ?1", [block_id], |r| {
+                r.get(0)
+            })?;
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM rep WHERE block_id = ?1", [block_id])?;
+        tx.execute("DELETE FROM rep_block WHERE id = ?1", [block_id])?;
+        tx.commit()?;
+        Self::append_event_conn(
+            &conn,
+            EventKind::BLOCK_EDIT,
+            None,
+            Some(piece_id),
+            &serde_json::json!({ "action": "delete", "block_id": block_id }),
+        )?;
+        Ok(())
+    }
+}
+// ── T4: block tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod block {
+    use super::test_support::{seed_block, seed_piece, seed_rep};
+    use super::*;
+    use crate::store::Store;
+
+    #[test]
+    fn block_delete_removes_block_and_its_reps() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let bid = seed_block(&s, 1, 1, 8);
+        seed_rep(&s, bid, "clean");
+        seed_rep(&s, bid, "flawed");
+        s.block_delete(bid).unwrap();
+        assert_eq!(s.block_row(bid).unwrap(), None);
+        let reps = s.reps_for_block(bid).unwrap();
+        assert!(reps.is_empty());
+    }
+
+    #[test]
+    fn block_update_on_non_active_block_persists() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let bid = seed_block(&s, 1, 1, 8);
+        let updated = s
+            .block_update(
+                bid,
+                BlockPatch {
+                    label: Some(Some("legato".into())),
+                    target_bpm: Some(Some(120.0)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.label.as_deref(), Some("legato"));
+        assert_eq!(updated.target_bpm, Some(120.0));
+        assert_eq!(updated.m_start, 1, "untouched field unchanged");
     }
 }

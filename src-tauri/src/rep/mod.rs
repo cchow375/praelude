@@ -303,6 +303,38 @@ impl RepEngine {
         Some(snap)
     }
 
+
+    /// Reload a live-editable block's mutable fields from the store into the
+    /// in-memory active snapshot and re-emit `rep://state`, but only when
+    /// `block_id` is the currently open block (a no-op otherwise). Called by
+    /// the `block_update`/`block_delete`/`rep_update`/`rep_delete` commands
+    /// after their store mutation succeeds, so an edit made while a block is
+    /// open (e.g. from a drill-in panel) is reflected immediately without a
+    /// UI refetch.
+    pub fn resync_active_if(&self, block_id: i64) {
+        let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(snap) = active.as_mut() else { return };
+        if snap.block_id != block_id {
+            return;
+        }
+        let Ok(Some(row)) = self.store.block_row(block_id) else {
+            return;
+        };
+        snap.label = row.label;
+        snap.m_start = row.m_start;
+        snap.m_end = row.m_end;
+        snap.start_bpm = row.start_bpm;
+        snap.target_bpm = row.target_bpm;
+        snap.bpm = row.bpm;
+        snap.planned_reps = row.planned_reps;
+        snap.reps_done = row.reps_done;
+        snap.verdicts = row.verdicts;
+        snap.status = row.status;
+        let out = snap.clone();
+        drop(active);
+        self.emit_state(Some(&out));
+    }
+
     fn emit_state(&self, snap: Option<&RepSnapshot>) {
         let e = self.emitter.lock().ok().and_then(|g| g.as_ref().cloned());
         if let Some(e) = e {
@@ -398,6 +430,20 @@ mod tests {
         let engine = RepEngine::new(store.clone(), sessions);
         engine.set_emitter(rec.clone());
         (engine, pid, store, rec)
+    }
+
+    impl RecEmitter {
+        /// The payload of the most recently emitted `rep://state`, deserialized
+        /// as a [`RepSnapshot`]. Panics if none has been emitted (test-only).
+        fn last_state(&self) -> RepSnapshot {
+            let events = self.events.lock().unwrap();
+            let (_, payload) = events
+                .iter()
+                .rev()
+                .find(|(e, _)| e == "rep://state")
+                .expect("no rep://state emitted");
+            serde_json::from_value(payload.clone()).expect("payload is a RepSnapshot")
+        }
     }
 
     fn open_args(pid: i64) -> RepOpenArgs {
@@ -549,6 +595,47 @@ mod tests {
         let closed = engine.close().unwrap();
         assert_eq!(closed.status, "abandoned");
         assert!(engine.close().is_none(), "nothing to close now");
+    }
+
+    #[test]
+    fn editing_active_block_reemits_snapshot() {
+        use crate::store::model::BlockPatch;
+
+        let (engine, pid, _store, rec) = engine_with_piece();
+        let snap = engine.open(open_args(pid)).unwrap();
+        engine
+            .store
+            .block_update(
+                snap.block_id,
+                BlockPatch {
+                    label: Some(Some("legato".into())),
+                    target_bpm: Some(Some(120.0)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        engine.resync_active_if(snap.block_id);
+        let last = rec.last_state();
+        assert_eq!(last.label.as_deref(), Some("legato"));
+        assert_eq!(last.target_bpm, Some(120.0));
+    }
+
+    #[test]
+    fn resync_active_if_is_a_no_op_for_a_different_block() {
+        use crate::store::model::BlockPatch;
+
+        let (engine, pid, store, rec) = engine_with_piece();
+        let snap = engine.open(open_args(pid)).unwrap();
+        let events_before = rec.events.lock().unwrap().len();
+        store
+            .block_update(
+                snap.block_id,
+                BlockPatch { label: Some(Some("noop".into())), ..Default::default() },
+            )
+            .ok();
+        engine.resync_active_if(snap.block_id + 999);
+        assert_eq!(rec.events.lock().unwrap().len(), events_before, "no re-emit");
+        assert_eq!(engine.snapshot().unwrap().label, None, "unrelated edit not applied");
     }
 
     #[test]

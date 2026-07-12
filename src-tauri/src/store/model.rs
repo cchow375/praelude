@@ -311,6 +311,24 @@ pub struct Rep {
     pub note: Option<String>,
 }
 
+/// A rep block's mutable fields. Nullable columns use `Option<Option<T>>`
+/// (absent = unchanged, `Some(None)` = set NULL, `Some(Some(v))` = set `v`);
+/// non-nullable columns (`m_start`/`m_end`/`planned_reps`/`focus`/
+/// `use_metronome`) use a plain `Option<T>` (absent = unchanged).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct BlockPatch {
+    pub label: Option<Option<String>>,
+    pub m_start: Option<u32>,
+    pub m_end: Option<u32>,
+    pub start_bpm: Option<Option<f64>>,
+    pub target_bpm: Option<Option<f64>>,
+    pub planned_reps: Option<u32>,
+    pub focus: Option<String>,
+    pub use_metronome: Option<bool>,
+    pub region_id: Option<Option<i64>>,
+    pub increment_rule: Option<Option<IncrementRule>>,
+}
+
 /// Convert a SQLite-native timestamp (`"YYYY-MM-DD HH:MM:SS"`, always UTC via
 /// `datetime('now')`) into the RFC3339 form the frontend expects
 /// (`"YYYY-MM-DDTHH:MM:SSZ"`). SQLite stays native; conversion happens only at
