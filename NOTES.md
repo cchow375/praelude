@@ -580,3 +580,34 @@ voice at the mic. **Ground-truth findings on this Mac (macOS 15, M2):**
     coincidentally benefited from a stranded boost volume of 85. For future self-tests,
     set output volume ≥75 before driving the app with `say`, and expect flakiness — a
     human voice at the piano is a far stronger signal than this harness.
+
+## Foundation / schema v3 (v0.3.0, 2026-07-12)
+
+- **The `rep_block` v3 rebuild is deliberate and crash-atomic.** SQLite cannot relax a
+  `NOT NULL` column or add the new FK shape in place, so migration disables FK enforcement,
+  begins one transaction, creates `rep_block_v3`, copies every id/column, swaps the table,
+  back-fills, stamps `user_version=3`, and commits before re-enabling FKs. The version stamp
+  belongs inside the transaction; otherwise a crash can wedge a half-migrated real DB.
+- **Nullable patches use `Option<Option<T>>`.** Outer `None` = field absent/leave unchanged;
+  `Some(None)` = write SQL NULL; `Some(Some(value))` = replace. JS omits a key to leave it and
+  sends `null` to clear it. Do not flatten this convention in block/region/goal/piece patches.
+- **Canonical `event` is not `session_event`.** `event` is the durable append-only graph log
+  used by metrics/rewards/replay; `session_event` remains the capped live UI timeline. Exports
+  enumerate block ids from canonical events, then render the CURRENT block/rep graph, so edits
+  after logging and relaunch are reflected.
+- **Focused time is an idle-gap heuristic, not a timer.** Sort canonical event timestamps; gaps
+  of 0–120 s count, gaps >120 s count as zero. It intentionally rewards focused presence without
+  pretending an open app equals practice.
+- **Region migration is geometric, not musical intelligence.** Overlapping/touching block ranges
+  cluster into a Region; users clean the guess with rename/merge/split/reassign. `pdf_anchor` is
+  reserved opaque JSON for P4's real-PDF light mapping.
+- **Non-tempo block tempo contract.** Frontend sends `start_bpm: null`; serde maps that to an
+  internal 0 sentinel for the live rep engine, while SQLite stores NULL and exports “—”. If the
+  independent metronome toggle is on, a real click BPM is stored even though focus still gates
+  ladder advancement.
+- **Panel z-order gotcha.** Drag begins with `raise()`, but the floating component's transient
+  geometry still has its old z. `usePanels.update` must preserve `max(incoming.z,current.z)` or
+  the final drag commit silently undoes focus-to-front.
+- **Visual QA finding:** movable overlays are not enough if defaults still cover content. While
+  an active Rep window exists, the main Practice view reserves a right gutter; Session defaults
+  collapsed inside the top bar. This fixed title/history overlap and clipped HUD context.

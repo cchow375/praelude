@@ -1,5 +1,7 @@
 # CodaKiller Foundation Implementation Plan
 
+> **Status:** Shipped as v0.3.0 on 2026-07-12. Execution evidence and the honest visual-QA gap are recorded in `.superpowers/sdd/progress.md` and `docs/qa/(C) foundation-v0.3.0.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Upgrade CodaKiller's data layer from an append-only log into a durable, fully-editable SQLite graph (regions, goals, events, editable blocks/reps) and make the UI non-blocking and organized — editable-in-place fields, floating panels, region-grouped history, and tempo decoupled from the metronome.

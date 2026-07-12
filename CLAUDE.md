@@ -56,9 +56,8 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**v0.2.0 shipped (P3, tag `v0.2.0`, 2026-07-10): the rep tracker is real — pieces seeded
-from the vault, typed intake, voice-driven rep blocks with ladders/variants and verbal
-check-off, sessions exported append-only to the piece folders, runtime TTS fallback +
-mic-permission guidance. Score viewer / brain / library (P4–P6) remain; the at-piano
-acceptance run (now of the full rep flow) is pending; the repo is local-only (no off-disk
-backup yet).** Next: real at-piano session → tuning round → plan P4 (OSMD perf spike first).
+**v0.3.0 shipped (P3.5, tag `v0.3.0`, 2026-07-12): the rep tracker is now fully editable
+and organized — Region → block → rep history, real goals, movable persisted windows,
+focus/metronome independence, canonical event/export/metrics graph. Score viewer / brain /
+planner / Practice Universe remain; at-piano acceptance is pending; the repo is local-only.**
+Next: real at-piano session → tuning round → plan P4 (real PDF + light Region mapping).
