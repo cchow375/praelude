@@ -41,7 +41,7 @@ describe("panel geometry", () => {
     fireEvent.pointerDown(header, { clientX: 100, clientY: 100 });
     fireEvent.pointerMove(window, { clientX: 5000, clientY: 5000 }); // way off-screen
     fireEvent.pointerUp(window);
-    const last = onChange.mock.calls.at(-1)![0];
+    const last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
     expect(last.x).toBeLessThanOrEqual(vp.w - 300); // clamped
     expect(last.y).toBeLessThanOrEqual(vp.h - 200);
   });
@@ -83,7 +83,7 @@ describe("panel geometry", () => {
     });
     fireEvent.pointerMove(window, { clientX: 1400, clientY: 1200 });
     fireEvent.pointerUp(window);
-    const last = onChange.mock.calls.at(-1)![0];
+    const last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
     expect(last.x + last.w).toBeLessThanOrEqual(vp.w);
     expect(last.y + last.h).toBeLessThanOrEqual(vp.h);
   });

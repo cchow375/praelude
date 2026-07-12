@@ -22,7 +22,7 @@ use stt::SttConfig;
 use store::model::{
     BlockHistory, BlockPatch, CheckOutcome, ExportResult, Goal, GoalCreate, GoalPatch,
     Intake, PanelLayout, PieceDetail, PieceFieldPatch, PieceSummary, ProgressSummary, Region,
-    RegionCreate, RegionPatch, RepOpenArgs, RepPatch, RepSnapshot, SessionView,
+    RegionCreate, RegionPatch, Rep, RepOpenArgs, RepPatch, RepSnapshot, SessionView,
 };
 use store::Store;
 use tauri::path::BaseDirectory;
@@ -344,6 +344,12 @@ fn rep_delete(
     Ok(())
 }
 
+/// Every individual rep for a block, oldest first, for history drill-in.
+#[tauri::command]
+fn reps_for_block(block_id: i64, store: State<'_, Arc<Store>>) -> Result<Vec<Rep>, String> {
+    store.reps_for_block(block_id).map_err(|e| e.to_string())
+}
+
 // ── T6: Goal CRUD + reorder ──────────────────────────────────────────────────
 
 /// All goals for a piece, ordered by their sort order.
@@ -570,6 +576,7 @@ pub fn run() {
             block_delete,
             rep_update,
             rep_delete,
+            reps_for_block,
             goal_list,
             goal_create,
             goal_update,

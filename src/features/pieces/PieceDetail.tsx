@@ -4,6 +4,11 @@ import type { BlockHistory, Intake, PieceDetailData } from "./types";
 import type { RepOpenArgs } from "../rep/useRep";
 import { IntakeForm } from "./IntakeForm";
 import { BlockForm } from "../rep/BlockForm";
+import { EditableField } from "../../components/EditableField";
+import { EditableNumber } from "../../components/EditableNumber";
+import { useCrud } from "../rep/useCrud";
+import { BlockRow } from "./BlockRow";
+import { GoalsPanel } from "./GoalsPanel";
 
 // ---------------------------------------------------------------------------
 // The detail surface for a selected piece. Before intake is done it shows the
@@ -33,6 +38,7 @@ export function PieceDetail({
   onOpenBlock,
   onUpdated,
 }: PieceDetailProps) {
+  const crud = useCrud();
   const [piece, setPiece] = useState<PieceDetailData>(initial);
   const [blocks, setBlocks] = useState<BlockHistory[]>([]);
   const [saving, setSaving] = useState(false);
@@ -91,6 +97,18 @@ export function PieceDetail({
     [onOpenBlock, loadBlocks, piece.id],
   );
 
+  const updatePieceField = useCallback(
+    async (
+      patch: Partial<Pick<PieceDetailData, "current_state" | "deadline" | "target_tempo" | "notes">>,
+    ) => {
+      await crud.pieceFieldUpdate(piece.id, patch);
+      const updated = { ...piece, ...patch };
+      setPiece(updated);
+      onUpdated?.(updated);
+    },
+    [crud, onUpdated, piece],
+  );
+
   return (
     <section className="piece-detail" aria-label={`Piece: ${piece.title}`}>
       <div className="piece-detail-head">
@@ -115,8 +133,9 @@ export function PieceDetail({
         <IntakeForm piece={piece} onSave={saveIntake} saving={saving} />
       ) : (
         <>
-          <PieceSummary piece={piece} />
-          <BlockHistoryList blocks={blocks} />
+          <PieceSummary piece={piece} onUpdate={updatePieceField} />
+          <GoalsPanel pieceId={piece.id} />
+          <BlockHistoryList blocks={blocks} onChanged={() => void loadBlocks(piece.id)} />
           <BlockForm
             pieceId={piece.id}
             defaultTargetBpm={piece.target_tempo}
@@ -129,32 +148,35 @@ export function PieceDetail({
   );
 }
 
-function PieceSummary({ piece }: { piece: PieceDetailData }) {
+function PieceSummary({
+  piece,
+  onUpdate,
+}: {
+  piece: PieceDetailData;
+  onUpdate: (
+    patch: Partial<Pick<PieceDetailData, "current_state" | "deadline" | "target_tempo" | "notes">>,
+  ) => Promise<void>;
+}) {
   return (
     <div className="piece-summary">
-      {piece.goals.length > 0 && (
-        <div className="piece-summary-block">
-          <span className="ck-label">Goals</span>
-          <ul className="piece-goals">
-            {piece.goals.map((g, i) => (
-              <li key={i}>{g}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <div className="piece-summary-block piece-summary-lead">
+        <span className="ck-label">Where I am</span>
+        <EditableField
+          value={piece.current_state ?? ""}
+          placeholder="Double-click to add your current state"
+          ariaLabel="current state"
+          onSave={(current_state) => onUpdate({ current_state: current_state || null })}
+        />
+      </div>
       <div className="piece-summary-facts">
-        {piece.deadline && (
-          <div className="piece-fact">
-            <span className="ck-label">Deadline</span>
-            <span>{piece.deadline}</span>
-          </div>
-        )}
-        {piece.target_tempo != null && (
-          <div className="piece-fact">
-            <span className="ck-label">Target</span>
-            <span>♩ = {piece.target_tempo}</span>
-          </div>
-        )}
+        <div className="piece-fact">
+          <span className="ck-label">Deadline</span>
+          <EditableField value={piece.deadline ?? ""} placeholder="None" ariaLabel="deadline" onSave={(deadline) => onUpdate({ deadline: deadline || null })} />
+        </div>
+        <div className="piece-fact">
+          <span className="ck-label">Target tempo</span>
+          <span>♩ = <EditableNumber value={piece.target_tempo} min={1} allowNull ariaLabel="target tempo" onSave={(target_tempo) => onUpdate({ target_tempo })} /></span>
+        </div>
       </div>
       {piece.hard_spots.length > 0 && (
         <div className="piece-summary-block">
@@ -169,48 +191,24 @@ function PieceSummary({ piece }: { piece: PieceDetailData }) {
           </ul>
         </div>
       )}
-      {piece.current_state && (
-        <div className="piece-summary-block">
-          <span className="ck-label">Where I am</span>
-          <p className="piece-current-state">{piece.current_state}</p>
-        </div>
-      )}
+      <div className="piece-summary-block">
+        <span className="ck-label">Notes</span>
+        <EditableField value={piece.notes ?? ""} placeholder="Double-click to add notes" ariaLabel="piece notes" onSave={(notes) => onUpdate({ notes: notes || null })} />
+      </div>
     </div>
   );
 }
 
-function BlockHistoryList({ blocks }: { blocks: BlockHistory[] }) {
+function BlockHistoryList({ blocks, onChanged }: { blocks: BlockHistory[]; onChanged: () => void }) {
   return (
     <div className="block-history">
       <span className="ck-label">Block history</span>
       {blocks.length === 0 ? (
         <p className="block-history-empty">No blocks yet.</p>
       ) : (
-        <ul className="block-history-list">
-          {blocks.map((b) => (
-            <li className="block-history-row" key={b.block_id}>
-              <span className="block-history-mm">
-                mm. {b.m_start}–{b.m_end}
-                {b.label ? ` · ${b.label}` : ""}
-              </span>
-              <span className="block-history-tempo">
-                ♩ {b.start_bpm}
-                {b.bpm !== b.start_bpm ? `→${b.bpm}` : ""}
-              </span>
-              <span className="block-history-counts">
-                <span className="verdict-tally is-clean">
-                  {b.verdicts?.clean ?? 0}
-                </span>
-                <span className="verdict-tally is-flawed">
-                  {b.verdicts?.flawed ?? 0}
-                </span>
-                <span className="verdict-tally is-failed">
-                  {b.verdicts?.failed ?? 0}
-                </span>
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className="block-history-list">
+          {blocks.map((block) => <BlockRow key={block.block_id} block={block} onChanged={onChanged} />)}
+        </div>
       )}
     </div>
   );

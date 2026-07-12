@@ -321,7 +321,8 @@ impl Store {
                         (SELECT r2.bpm FROM rep r2 WHERE r2.block_id = b.id
                          ORDER BY r2.id DESC LIMIT 1),
                         b.start_bpm
-                    ) AS bpm
+                    ) AS bpm,
+                    b.region_id, b.focus, b.use_metronome
              FROM rep_block b
              LEFT JOIN rep r ON r.block_id = b.id
              WHERE b.piece_id = ?1
@@ -345,6 +346,9 @@ impl Store {
                     failed: row.get(11)?,
                 },
                 bpm: row.get(12)?,
+                region_id: row.get(13)?,
+                focus: row.get(14)?,
+                use_metronome: row.get(15)?,
             })
         })?;
         rows.collect()
@@ -366,7 +370,8 @@ impl Store {
                         (SELECT r2.bpm FROM rep r2 WHERE r2.block_id = b.id
                          ORDER BY r2.id DESC LIMIT 1),
                         b.start_bpm
-                    ) AS bpm
+                    ) AS bpm,
+                    b.region_id, b.focus, b.use_metronome
              FROM rep_block b
              LEFT JOIN rep r ON r.block_id = b.id
              WHERE b.id = ?1
@@ -389,6 +394,9 @@ impl Store {
                         failed: row.get(11)?,
                     },
                     bpm: row.get(12)?,
+                    region_id: row.get(13)?,
+                    focus: row.get(14)?,
+                    use_metronome: row.get(15)?,
                 })
             },
         )

@@ -114,6 +114,9 @@ describe("PiecesPanel", () => {
       if (cmd === "piece_get")
         return Promise.resolve(detailOf(SATIE, { goals: ["from memory"], target_tempo: 120 }));
       if (cmd === "rep_blocks_for_piece") return Promise.resolve([]);
+      if (cmd === "goal_list") return Promise.resolve([
+        { id: 1, piece_id: 2, text: "from memory", kind: "big", parent_goal_id: null, done: false, order: 0, target_date: null, created_ts: "now" },
+      ]);
       return Promise.resolve([]);
     });
 

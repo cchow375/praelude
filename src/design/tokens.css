@@ -67,6 +67,9 @@
   --accent: #5b5bd6;
   --accent-hover: #6d6de0;
   --accent-contrast: #ffffff;
+  --success: #2f8f5b;
+  --warning: #a86f16;
+  --danger: #c93d45;
 }
 
 /* --- Light theme (default) ---------------------------------------------- */
@@ -114,4 +117,7 @@
   /* Nudge the accent slightly brighter so it holds contrast on dark. */
   --accent: #7c7cf0;
   --accent-hover: #9090f5;
+  --success: #55b982;
+  --warning: #d7a34b;
+  --danger: #ef6b72;
 }

@@ -139,6 +139,9 @@ pub struct BlockHistory {
     pub reps_done: u32,
     pub status: String,
     pub verdicts: VerdictCounts,
+    pub region_id: Option<i64>,
+    pub focus: String,
+    pub use_metronome: bool,
 }
 
 /// One session-log event as shown in the session view. `payload` is opaque JSON

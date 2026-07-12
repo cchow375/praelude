@@ -56,4 +56,60 @@ export interface BlockHistory {
   reps_done: number;
   status: string;
   verdicts: VerdictCounts;
+  region_id: number | null;
+  focus: string;
+  use_metronome: boolean;
+}
+
+export interface Rep {
+  id: number;
+  block_id: number;
+  ts: string;
+  bpm: number;
+  variant: string | null;
+  verdict: "clean" | "flawed" | "failed";
+  note: string | null;
+}
+
+export interface Region {
+  id: number;
+  piece_id: number;
+  name: string;
+  m_start: number;
+  m_end: number;
+  kind: string;
+  order: number;
+  color: string | null;
+  pdf_anchor: unknown | null;
+}
+
+export interface Goal {
+  id: number;
+  piece_id: number;
+  text: string;
+  kind: "big" | "sub";
+  parent_goal_id: number | null;
+  done: boolean;
+  order: number;
+  target_date: string | null;
+  created_ts: string;
+}
+
+export interface RegionMastery {
+  region_id: number;
+  name: string;
+  blocks: number;
+  reps: number;
+  clean_ratio: number;
+  best_bpm: number | null;
+  last_practiced: string | null;
+}
+
+export interface ProgressSummary {
+  piece_id: number;
+  focused_seconds: number;
+  per_region_mastery: RegionMastery[];
+  streak: number;
+  best_tempo_reached: number | null;
+  time_by_focus: { focus: string; seconds: number }[];
 }
