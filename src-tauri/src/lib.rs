@@ -21,8 +21,8 @@ use sessions::{SessionService, StateEmitter};
 use stt::SttConfig;
 use store::model::{
     BlockHistory, BlockPatch, CheckOutcome, ExportResult, Goal, GoalCreate, GoalPatch,
-    Intake, PieceDetail, PieceFieldPatch, PieceSummary, ProgressSummary, Region, RegionCreate,
-    RegionPatch, RepOpenArgs, RepPatch, RepSnapshot, SessionView,
+    Intake, PanelLayout, PieceDetail, PieceFieldPatch, PieceSummary, ProgressSummary, Region,
+    RegionCreate, RegionPatch, RepOpenArgs, RepPatch, RepSnapshot, SessionView,
 };
 use store::Store;
 use tauri::path::BaseDirectory;
@@ -50,6 +50,16 @@ fn get_setting(key: String, store: State<'_, Arc<Store>>) -> Result<Option<Strin
 #[tauri::command]
 fn set_setting(key: String, value: String, store: State<'_, Arc<Store>>) -> Result<(), String> {
     store.set_setting(&key, &value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn layout_get(store: State<'_, Arc<Store>>) -> Result<Option<PanelLayout>, String> {
+    store.layout_get().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn layout_set(layout: PanelLayout, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    store.layout_set(&layout).map_err(|e| e.to_string())
 }
 
 /// Resolve the click-assets directory, working in BOTH dev and the bundled `.app`.
@@ -539,6 +549,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_setting,
             set_setting,
+            layout_get,
+            layout_set,
             pieces_scan,
             pieces_list,
             piece_get,

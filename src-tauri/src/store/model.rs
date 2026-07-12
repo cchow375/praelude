@@ -455,6 +455,25 @@ pub struct ProgressSummary {
     pub time_by_focus: Vec<FocusTime>,
 }
 
+/// Persisted geometry for one movable UI panel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PanelGeometry {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub collapsed: bool,
+    pub z: i64,
+}
+
+/// The complete floating-panel layout, stored as one JSON setting so updates
+/// are atomic and future panel types can be added without a schema migration.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PanelLayout {
+    pub panels: Vec<PanelGeometry>,
+}
+
 /// Convert a SQLite-native timestamp (`"YYYY-MM-DD HH:MM:SS"`, always UTC via
 /// `datetime('now')`) into the RFC3339 form the frontend expects
 /// (`"YYYY-MM-DDTHH:MM:SSZ"`). SQLite stays native; conversion happens only at

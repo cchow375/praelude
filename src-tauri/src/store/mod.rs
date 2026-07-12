@@ -99,6 +99,19 @@ impl Store {
         Ok(())
     }
 
+    /// Read the floating-panel layout from the generic settings table.
+    pub fn layout_get(&self) -> rusqlite::Result<Option<model::PanelLayout>> {
+        self.get_setting("panel_layout")?
+            .map(|raw| model::json_from_sql(&raw))
+            .transpose()
+    }
+
+    /// Store the floating-panel layout as one JSON value.
+    pub fn layout_set(&self, layout: &model::PanelLayout) -> rusqlite::Result<()> {
+        let raw = model::json_to_sql(layout)?;
+        self.set_setting("panel_layout", &raw)
+    }
+
     // ── Pieces ────────────────────────────────────────────────────────────
     //
     // `folder_path` is the natural key: a piece IS its vault folder, and a
@@ -610,6 +623,25 @@ mod tests {
         // Upsert overwrites rather than erroring on the PK.
         store.set_setting("theme", "light").unwrap();
         assert_eq!(store.get_setting("theme").unwrap(), Some("light".into()));
+    }
+
+    #[test]
+    fn layout_roundtrips_through_settings() {
+        let store = mem();
+        let layout = model::PanelLayout {
+            panels: vec![model::PanelGeometry {
+                id: "rep".into(),
+                x: 12.0,
+                y: 24.0,
+                w: 320.0,
+                h: 180.0,
+                collapsed: false,
+                z: 3,
+            }],
+        };
+        assert_eq!(store.layout_get().unwrap(), None);
+        store.layout_set(&layout).unwrap();
+        assert_eq!(store.layout_get().unwrap(), Some(layout));
     }
 
     #[test]
