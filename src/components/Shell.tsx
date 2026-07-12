@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Popover } from "./Popover";
 import { MetronomePopover } from "../features/metronome/MetronomePopover";
 import { useVoice, type VoiceStatus } from "../features/voice/useVoice";
@@ -8,6 +8,8 @@ import { useRep } from "../features/rep/useRep";
 import { RepHud } from "../features/rep/RepHud";
 import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
+import { FloatingPanel } from "./FloatingPanel";
+import { usePanels } from "./usePanels";
 import "./Shell.css";
 
 const VOICE_STATUS_LABEL: Record<VoiceStatus, string> = {
@@ -35,6 +37,26 @@ export function Shell() {
   const voice = useVoice();
   const rep = useRep();
   const session = useSession();
+  const panelManager = usePanels();
+
+  useEffect(() => {
+    panelManager.register("rep", {
+      x: Math.max(16, panelManager.viewport.w - 430),
+      y: Math.max(68, panelManager.viewport.h - 390),
+      w: 410,
+      h: 360,
+      collapsed: false,
+      z: 42,
+    });
+    panelManager.register("session", {
+      x: 16,
+      y: 68,
+      w: 350,
+      h: 300,
+      collapsed: false,
+      z: 41,
+    });
+  }, [panelManager.register, panelManager.viewport.h, panelManager.viewport.w]);
 
   const toggle = (id: PanelId) =>
     setOpenPanel((cur) => (cur === id ? null : id));
@@ -118,7 +140,7 @@ export function Shell() {
       </header>
 
       {view === "practice" ? (
-        <main className="practice-main">
+        <main className="practice-main" data-testid="main-practice">
           <PiecesPanel onOpenBlock={rep.open} />
         </main>
       ) : (
@@ -161,7 +183,7 @@ export function Shell() {
         onClose={close}
         label="Settings"
       >
-        <PlaceholderPanel title="Settings" />
+        <SettingsPanel onResetLayout={panelManager.resetLayout} />
       </Popover>
 
       <VoiceToast
@@ -172,18 +194,30 @@ export function Shell() {
 
       {/* Session + rep surfaces live at shell level so they are visible from
           both the Practice and Metronome views. */}
-      <SessionBar
-        session={session.session}
-        onEnd={endSession}
-        ending={ending}
-      />
-      <RepHud
-        snap={rep.snap}
-        feed={rep.feed}
-        error={rep.error}
-        onCheck={rep.check}
-        onClose={rep.close}
-      />
+      {session.session && panelManager.panels.session && (
+        <FloatingPanel
+          geometry={panelManager.panels.session}
+          title="Practice session"
+          viewport={panelManager.viewport}
+          onGeometryChange={panelManager.update}
+          onFocus={panelManager.raise}
+          testId="panel-session"
+        >
+          <SessionBar session={session.session} onEnd={endSession} ending={ending} />
+        </FloatingPanel>
+      )}
+      {rep.snap && panelManager.panels.rep && (
+        <FloatingPanel
+          geometry={panelManager.panels.rep}
+          title="Active block"
+          viewport={panelManager.viewport}
+          onGeometryChange={panelManager.update}
+          onFocus={panelManager.raise}
+          testId="panel-rep"
+        >
+          <RepHud snap={rep.snap} feed={rep.feed} error={rep.error} onCheck={rep.check} onClose={rep.close} />
+        </FloatingPanel>
+      )}
     </div>
   );
 }
@@ -214,11 +248,12 @@ function VoiceMicPanel({
   );
 }
 
-function PlaceholderPanel({ title }: { title: string }) {
+function SettingsPanel({ onResetLayout }: { onResetLayout: () => void }) {
   return (
     <div className="panel-placeholder">
-      <p className="panel-title">{title}</p>
-      <p className="panel-hint">Coming soon.</p>
+      <p className="panel-title">Workspace</p>
+      <p className="panel-hint">Moved a window somewhere awkward?</p>
+      <button type="button" className="voice-panel-button" onClick={onResetLayout}>Reset panel layout</button>
     </div>
   );
 }
