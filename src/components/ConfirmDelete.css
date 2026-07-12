@@ -1,0 +1,23 @@
+.confirm-delete-anchor {
+  display: inline-block;
+}
+
+.confirm-delete-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.confirm-delete-label {
+  margin: 0;
+}
+
+.confirm-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2, 8px);
+}
+
+.confirm-delete-danger {
+  color: var(--ink-danger, #c0392b);
+}

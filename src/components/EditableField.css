@@ -1,0 +1,18 @@
+.editable-field {
+  cursor: text;
+  border-radius: var(--radius-sm, 4px);
+  padding: 0 2px;
+}
+
+.editable-field[data-empty="true"] {
+  color: var(--ink-muted, #888);
+}
+
+.editable-field-input {
+  font: inherit;
+  color: inherit;
+  background: var(--surface-input, #fff);
+  border: 1px solid var(--border-focus, #888);
+  border-radius: var(--radius-sm, 4px);
+  padding: 0 2px;
+}
