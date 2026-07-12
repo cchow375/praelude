@@ -128,7 +128,7 @@ describe("PiecesPanel", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Open block" })).toBeTruthy(),
     );
-    expect(screen.getByText("from memory")).toBeTruthy();
+    expect(await screen.findByText("from memory")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save intake" })).toBeNull();
   });
 });

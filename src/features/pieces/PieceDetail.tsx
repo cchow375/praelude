@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { BlockHistory, Intake, PieceDetailData } from "./types";
+import type { Intake, PieceDetailData } from "./types";
 import type { RepOpenArgs } from "../rep/useRep";
 import { IntakeForm } from "./IntakeForm";
 import { BlockForm } from "../rep/BlockForm";
 import { EditableField } from "../../components/EditableField";
 import { EditableNumber } from "../../components/EditableNumber";
 import { useCrud } from "../rep/useCrud";
-import { BlockRow } from "./BlockRow";
 import { GoalsPanel } from "./GoalsPanel";
+import { HistoryPanel } from "./HistoryPanel";
 
 // ---------------------------------------------------------------------------
 // The detail surface for a selected piece. Before intake is done it shows the
@@ -40,25 +40,10 @@ export function PieceDetail({
 }: PieceDetailProps) {
   const crud = useCrud();
   const [piece, setPiece] = useState<PieceDetailData>(initial);
-  const [blocks, setBlocks] = useState<BlockHistory[]>([]);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [saving, setSaving] = useState(false);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const loadBlocks = useCallback(async (pieceId: number) => {
-    try {
-      const list = await invoke<BlockHistory[]>("rep_blocks_for_piece", {
-        pieceId,
-      });
-      setBlocks(list ?? []);
-    } catch {
-      setBlocks([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (piece.intake_done) void loadBlocks(piece.id);
-  }, [piece.id, piece.intake_done, loadBlocks]);
 
   const saveIntake = useCallback(
     async (intake: Intake) => {
@@ -89,12 +74,12 @@ export function PieceDetail({
       try {
         await onOpenBlock(args);
         // Refresh history so the just-opened block appears.
-        void loadBlocks(piece.id);
+        setHistoryRevision((revision) => revision + 1);
       } finally {
         setOpening(false);
       }
     },
-    [onOpenBlock, loadBlocks, piece.id],
+    [onOpenBlock],
   );
 
   const updatePieceField = useCallback(
@@ -135,7 +120,7 @@ export function PieceDetail({
         <>
           <PieceSummary piece={piece} onUpdate={updatePieceField} />
           <GoalsPanel pieceId={piece.id} />
-          <BlockHistoryList blocks={blocks} onChanged={() => void loadBlocks(piece.id)} />
+          <HistoryPanel pieceId={piece.id} refreshToken={historyRevision} />
           <BlockForm
             pieceId={piece.id}
             defaultTargetBpm={piece.target_tempo}
@@ -195,21 +180,6 @@ function PieceSummary({
         <span className="ck-label">Notes</span>
         <EditableField value={piece.notes ?? ""} placeholder="Double-click to add notes" ariaLabel="piece notes" onSave={(notes) => onUpdate({ notes: notes || null })} />
       </div>
-    </div>
-  );
-}
-
-function BlockHistoryList({ blocks, onChanged }: { blocks: BlockHistory[]; onChanged: () => void }) {
-  return (
-    <div className="block-history">
-      <span className="ck-label">Block history</span>
-      {blocks.length === 0 ? (
-        <p className="block-history-empty">No blocks yet.</p>
-      ) : (
-        <div className="block-history-list">
-          {blocks.map((block) => <BlockRow key={block.block_id} block={block} onChanged={onChanged} />)}
-        </div>
-      )}
     </div>
   );
 }
