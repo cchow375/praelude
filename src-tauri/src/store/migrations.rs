@@ -220,15 +220,38 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         // The rep_block rebuild drops a table that `rep` FKs into. Disable FK
         // enforcement for the structural step (rows are re-inserted with identical
         // ids, so referential integrity is preserved) then re-enable. `PRAGMA
-        // foreign_keys` only takes effect outside an open transaction, so this
-        // relies on `execute_batch` not wrapping these statements in one.
+        // foreign_keys` only takes effect outside an open transaction, so the two
+        // pragmas stay OUTSIDE the transaction that wraps the DDL.
+        //
+        // The DDL + back-fill + version stamp are wrapped in one explicit
+        // transaction so the step is crash-atomic: SQLite DDL is transactional, so
+        // a crash mid-migration rolls back cleanly to v2 (leaving `user_version`
+        // at 2) and a retry re-runs the whole step from scratch. Stamping
+        // `user_version = 3` INSIDE the transaction is what makes "schema is v3"
+        // and "version says 3" commit as a single indivisible unit — they can
+        // never disagree on disk.
         conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
-        conn.execute_batch(SCHEMA_V3)?;
-        super::backfill::backfill_v3(conn)?;
+        let v3 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN;")?;
+            conn.execute_batch(SCHEMA_V3)?;
+            super::backfill::backfill_v3(conn)?;
+            conn.execute_batch("PRAGMA user_version = 3;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(e) = v3 {
+            // Best-effort rollback so the connection is left clean; re-enable FKs
+            // regardless before propagating so we never leave enforcement off.
+            let _ = conn.execute_batch("ROLLBACK;");
+            let _ = conn.execute_batch("PRAGMA foreign_keys = ON;");
+            return Err(e);
+        }
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-    }
-
-    if version != SCHEMA_VERSION {
+    } else if version != SCHEMA_VERSION {
+        // Fresh/v1/v2 databases that reached their target schema above but whose
+        // stamp is still behind (e.g. a brand-new db at v0 → v2, or a v1 → v2
+        // upgrade). The v3 branch stamps its own version inside its transaction,
+        // so this only runs when the v3 step did not.
         // PRAGMA user_version does not accept bound parameters.
         conn.execute_batch(&format!("PRAGMA user_version = {}", SCHEMA_VERSION))?;
     }
@@ -284,6 +307,19 @@ mod v3_tests {
         assert_eq!(blocks, 3);
         let reps: i64 = c.query_row("SELECT count(*) FROM rep", [], |r| r.get(0)).unwrap();
         assert_eq!(reps, 2);
+
+        // copied VALUES survived the rep_block rebuild (guards against a
+        // mis-mapped INSERT…SELECT, not just row counts): block 1's seeded
+        // start_bpm and its increment_rule JSON string must be intact.
+        let (sb, rule): (f64, String) = c.query_row(
+            "SELECT start_bpm, increment_rule FROM rep_block WHERE id=1", [],
+            |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(sb, 40.0);
+        assert_eq!(rule, "{\"clean_needed\":2,\"bpm_step\":4}");
+        let (m_start, m_end): (i64, i64) = c.query_row(
+            "SELECT m_start, m_end FROM rep_block WHERE id=3", [],
+            |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!((m_start, m_end), (40, 48));
 
         // rep_block gained columns with correct defaults
         let (focus, use_metro): (String, i64) = c.query_row(
