@@ -317,19 +317,41 @@ impl RepEngine {
         if snap.block_id != block_id {
             return;
         }
+        // The active block's row is gone (it was just `block_delete`d): evict the
+        // stranded snapshot so a later `check()` can't FK-error inserting a rep
+        // against a phantom block. Emit a `None` state so the UI clears the panel.
         let Ok(Some(row)) = self.store.block_row(block_id) else {
+            *active = None;
+            drop(active);
+            self.emit_state(None);
             return;
         };
+        // Reload only the fields `block_update` can actually change. Crucially we
+        // do NOT touch `snap.bpm`: that is the LIVE working tempo, advanced up the
+        // ladder by `check()`, whereas `row.bpm` is derived from the last logged
+        // rep's bpm — after a ladder step they diverge and copying `row.bpm` back
+        // would silently drop the working tempo. `reps_done`/`verdicts` ARE
+        // derived from surviving rep rows (a rep_delete/update changed them), so
+        // those we do refresh.
         snap.label = row.label;
         snap.m_start = row.m_start;
         snap.m_end = row.m_end;
         snap.start_bpm = row.start_bpm;
         snap.target_bpm = row.target_bpm;
-        snap.bpm = row.bpm;
         snap.planned_reps = row.planned_reps;
         snap.reps_done = row.reps_done;
         snap.verdicts = row.verdicts;
         snap.status = row.status;
+        // On a not-yet-started block the working tempo tracks `start_bpm`, so an
+        // edit to `start_bpm` moves it; once reps exist, the live `snap.bpm` (the
+        // ladder position) is authoritative and left untouched.
+        if snap.reps_done == 0 {
+            snap.bpm = row.start_bpm;
+        }
+        // Mirror a live edit of the block's ladder config too.
+        if let Ok(Some(rule)) = self.store.block_rule(block_id) {
+            snap.rule = rule;
+        }
         let out = snap.clone();
         drop(active);
         self.emit_state(Some(&out));
@@ -636,6 +658,81 @@ mod tests {
         engine.resync_active_if(snap.block_id + 999);
         assert_eq!(rec.events.lock().unwrap().len(), events_before, "no re-emit");
         assert_eq!(engine.snapshot().unwrap().label, None, "unrelated edit not applied");
+    }
+
+    #[test]
+    fn resync_preserves_stepped_working_tempo() {
+        use crate::store::model::BlockPatch;
+
+        let (engine, pid, store, _rec) = engine_with_piece();
+        let snap = engine.open(open_args(pid)).unwrap(); // 80→120/30 auto: step +4 every 3 cleans
+        // Climb the ladder past the start: 3 clean reps steps 80 → 84.
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let out = engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(out.new_bpm, Some(84.0), "3 cleans should step the ladder");
+        assert_eq!(engine.snapshot().unwrap().bpm, 84.0, "working tempo stepped");
+
+        // A live edit (relabel) must NOT reset the working tempo back to the
+        // last-logged-rep bpm (80). This is the core bug: resync used to copy
+        // block_row.bpm (derived from the last rep) over the live snap.bpm.
+        store
+            .block_update(
+                snap.block_id,
+                BlockPatch { label: Some(Some("legato".into())), ..Default::default() },
+            )
+            .unwrap();
+        engine.resync_active_if(snap.block_id);
+        assert_eq!(
+            engine.snapshot().unwrap().bpm,
+            84.0,
+            "working tempo preserved across resync"
+        );
+        assert_eq!(engine.snapshot().unwrap().label.as_deref(), Some("legato"));
+    }
+
+    #[test]
+    fn resync_evicts_the_active_block_when_its_row_is_gone() {
+        let (engine, pid, store, rec) = engine_with_piece();
+        let snap = engine.open(open_args(pid)).unwrap();
+        assert!(engine.active());
+
+        // The block_delete command deletes the row then calls resync_active_if.
+        store.block_delete(snap.block_id).unwrap();
+        engine.resync_active_if(snap.block_id);
+
+        assert!(!engine.active(), "active snapshot evicted after its row is deleted");
+        assert!(engine.snapshot().is_none());
+        // The last rep://state emitted must be the cleared (null) state.
+        let (_, payload) = rec
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|(e, _)| e == "rep://state")
+            .cloned()
+            .expect("a rep://state was emitted");
+        assert!(payload.is_null(), "cleared state emitted on eviction");
+    }
+
+    #[test]
+    fn resync_reloads_the_ladder_rule() {
+        use crate::store::model::{BlockPatch, IncrementRule};
+
+        let (engine, pid, store, _rec) = engine_with_piece();
+        let snap = engine.open(open_args(pid)).unwrap();
+        let new_rule = IncrementRule { clean_needed: 7, bpm_step: 2.0 };
+        assert_ne!(engine.snapshot().unwrap().rule, new_rule);
+
+        store
+            .block_update(
+                snap.block_id,
+                BlockPatch { increment_rule: Some(Some(new_rule.clone())), ..Default::default() },
+            )
+            .unwrap();
+        engine.resync_active_if(snap.block_id);
+        assert_eq!(engine.snapshot().unwrap().rule, new_rule, "live rule edit reflected");
     }
 
     #[test]

@@ -378,6 +378,25 @@ impl Store {
         .optional()
     }
 
+    /// The resolved ladder rule stored on a block (`increment_rule` JSON), or
+    /// `None` when the block is missing or has no rule. Used by the rep engine's
+    /// `resync_active_if` to mirror a live edit of the block's ladder config.
+    pub fn block_rule(&self, block_id: i64) -> rusqlite::Result<Option<IncrementRule>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let text: Option<String> = conn
+            .query_row(
+                "SELECT increment_rule FROM rep_block WHERE id = ?1",
+                [block_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        match text {
+            Some(t) => Ok(Some(json_from_sql(&t)?)),
+            None => Ok(None),
+        }
+    }
+
     /// Every rep row logged against a block, oldest first.
     pub fn reps_for_block(&self, block_id: i64) -> rusqlite::Result<Vec<Rep>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
