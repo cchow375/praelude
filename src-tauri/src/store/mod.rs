@@ -9,6 +9,7 @@ mod backfill;
 pub(crate) mod calendar;
 mod crud;
 mod events;
+mod history_backfill;
 mod migrations;
 pub mod model;
 
@@ -19,11 +20,11 @@ use std::sync::Mutex;
 
 use rusqlite::{Connection, OptionalExtension};
 
-use model::{
-    json_from_sql, json_to_sql, BlockHistory, HardSpot, Intake, PieceDetail, PieceSummary,
-    Rep, ScanPiece, SessionEventView, VariantSpec, VerdictCounts,
-};
 use model::IncrementRule;
+use model::{
+    json_from_sql, json_to_sql, BlockHistory, HardSpot, Intake, PieceDetail, PieceSummary, Rep,
+    ScanPiece, SessionEventView, VariantSpec, VerdictCounts,
+};
 
 /// A migrated SQLite store. Thread-safe via an internal `Mutex`.
 pub struct Store {
@@ -69,11 +70,9 @@ impl Store {
     pub fn get_setting(&self, key: &str) -> rusqlite::Result<Option<String>> {
         // See `schema_version`: recover from a poisoned lock rather than propagate it.
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        conn.query_row(
-            "SELECT value FROM setting WHERE key = ?1",
-            [key],
-            |row| row.get(0),
-        )
+        conn.query_row("SELECT value FROM setting WHERE key = ?1", [key], |row| {
+            row.get(0)
+        })
         .optional()
     }
 
@@ -151,8 +150,14 @@ impl Store {
     /// preserved.
     pub fn upsert_piece(&self, piece: &ScanPiece) -> rusqlite::Result<i64> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let xml = piece.xml_path.as_ref().map(|p| p.to_string_lossy().into_owned());
-        let pdf = piece.pdf_path.as_ref().map(|p| p.to_string_lossy().into_owned());
+        let xml = piece
+            .xml_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned());
+        let pdf = piece
+            .pdf_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned());
         conn.query_row(
             "INSERT INTO piece (title, composer, folder_path, xml_path, pdf_path)
              VALUES (?1, ?2, ?3, ?4, ?5)
@@ -231,10 +236,7 @@ impl Store {
     /// Filesystem roots needed by the score module. The scanned PDF and the
     /// explicit preference stay separate so edition discovery can mark the
     /// correct selected row and fall back cleanly when no preference exists.
-    pub(crate) fn piece_pdf_paths(
-        &self,
-        id: i64,
-    ) -> rusqlite::Result<Option<PiecePdfPaths>> {
+    pub(crate) fn piece_pdf_paths(&self, id: i64) -> rusqlite::Result<Option<PiecePdfPaths>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         conn.query_row(
             "SELECT folder_path, pdf_path, preferred_pdf_path FROM piece WHERE id = ?1",
@@ -252,11 +254,7 @@ impl Store {
 
     /// Persist a validated PDF path chosen by the user. Validation belongs to
     /// the score module; this method only owns the database mutation.
-    pub(crate) fn set_preferred_pdf_path(
-        &self,
-        id: i64,
-        path: &str,
-    ) -> rusqlite::Result<bool> {
+    pub(crate) fn set_preferred_pdf_path(&self, id: i64, path: &str) -> rusqlite::Result<bool> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         Ok(conn.execute(
             "UPDATE piece SET preferred_pdf_path = ?2 WHERE id = ?1",
@@ -275,11 +273,10 @@ impl Store {
         }
         let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let tx = conn.transaction()?;
-        let old_deadline: Option<String> = tx.query_row(
-            "SELECT deadline FROM piece WHERE id = ?1",
-            [id],
-            |row| row.get(0),
-        )?;
+        let old_deadline: Option<String> =
+            tx.query_row("SELECT deadline FROM piece WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })?;
         tx.execute(
             "UPDATE piece SET
                  goals         = ?2,
@@ -333,7 +330,6 @@ impl Store {
         tx.commit()?;
         Ok(())
     }
-
 }
 
 /// Rep, block, and session persistence. These methods are the data layer the
@@ -726,8 +722,8 @@ mod tests {
     }
 
     #[test]
-    fn fresh_store_is_at_schema_version_5() {
-        assert_eq!(mem().schema_version().unwrap(), 5);
+    fn fresh_store_is_at_schema_version_6() {
+        assert_eq!(mem().schema_version().unwrap(), 6);
     }
 
     #[test]
@@ -778,6 +774,7 @@ mod tests {
             "goal",
             "event",
             "daily_work",
+            "session_event_backfill",
         ] {
             let found: String = conn
                 .query_row(
@@ -813,7 +810,7 @@ mod tests {
         // (e.g. duplicate CREATE TABLE) and must leave the version untouched.
         let store = mem();
         migrations::migrate(&store.conn.lock().unwrap()).expect("re-migrate is a no-op");
-        assert_eq!(store.schema_version().unwrap(), 5);
+        assert_eq!(store.schema_version().unwrap(), 6);
     }
 
     /// Release-gate rehearsal against an operator-created backup of the real DB.
@@ -824,13 +821,12 @@ mod tests {
     fn rehearse_migration_on_real_database_copy() {
         let path = std::env::var("CODAKILLER_MIGRATION_COPY")
             .expect("set CODAKILLER_MIGRATION_COPY to a disposable database backup");
-        let core_tables = [
+        let preserved_tables = [
             "piece",
             "region",
             "rep_block",
             "rep",
             "goal",
-            "event",
             "session_event",
         ];
         let before_conn = Connection::open(&path).expect("open migration rehearsal copy");
@@ -838,27 +834,75 @@ mod tests {
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
         assert!(before_version <= migrations::SCHEMA_VERSION);
-        let before: Vec<i64> = core_tables
+        let before: Vec<i64> = preserved_tables
             .iter()
             .map(|table| {
                 before_conn
-                    .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+                    .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                        row.get(0)
+                    })
                     .unwrap()
             })
             .collect();
+        let before_events: i64 = before_conn
+            .query_row("SELECT COUNT(*) FROM event", [], |row| row.get(0))
+            .unwrap();
+        let source_events: i64 = before_conn
+            .query_row("SELECT COUNT(*) FROM session_event", [], |row| row.get(0))
+            .unwrap();
         drop(before_conn);
 
         let store = Store::open(&path).expect("migrate rehearsal copy");
         assert_eq!(store.schema_version().unwrap(), migrations::SCHEMA_VERSION);
         let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let after: Vec<i64> = core_tables
+        let after: Vec<i64> = preserved_tables
             .iter()
             .map(|table| {
-                conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
-                    .unwrap()
+                conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap()
             })
             .collect();
-        assert_eq!(after, before, "migration must preserve all core row counts");
+        assert_eq!(
+            after, before,
+            "migration must preserve all source graph row counts"
+        );
+        let after_events: i64 = conn
+            .query_row("SELECT COUNT(*) FROM event", [], |row| row.get(0))
+            .unwrap();
+        assert!(
+            after_events >= before_events,
+            "the canonical log is additive only"
+        );
+        let ledger_rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM session_event_backfill", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            ledger_rows, source_events,
+            "every legacy row is ledgered exactly once"
+        );
+        let mismatched_mappings: i64 = conn
+            .query_row(
+                "SELECT count(*)
+                 FROM session_event_backfill ledger
+                 JOIN session_event source ON source.id=ledger.legacy_session_event_id
+                 JOIN event canonical ON canonical.id=ledger.canonical_event_id
+                 WHERE canonical.ts != source.ts
+                    OR canonical.session_id != source.session_id
+                    OR canonical.kind != source.kind
+                    OR canonical.payload != source.payload
+                    OR canonical.piece_id != CAST(json_extract(source.payload,'$.piece_id') AS INTEGER)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            mismatched_mappings, 0,
+            "mapped rows preserve their exact source tuple"
+        );
         assert_eq!(
             conn.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
                 .unwrap(),
@@ -867,13 +911,36 @@ mod tests {
         {
             let mut statement = conn.prepare("PRAGMA foreign_key_check").unwrap();
             let mut rows = statement.query([]).unwrap();
-            assert!(rows.next().unwrap().is_none(), "migration must leave no FK violations");
+            assert!(
+                rows.next().unwrap().is_none(),
+                "migration must leave no FK violations"
+            );
         }
         drop(conn);
         drop(store);
 
         let reopened = Store::open(&path).expect("migration is idempotent on second open");
-        assert_eq!(reopened.schema_version().unwrap(), migrations::SCHEMA_VERSION);
+        assert_eq!(
+            reopened.schema_version().unwrap(),
+            migrations::SCHEMA_VERSION
+        );
+        let conn = reopened
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM event", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            after_events,
+            "second open maps zero additional events"
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM session_event_backfill", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            ledger_rows,
+            "second open adds zero ledger rows"
+        );
     }
 
     // ── v1 → v3 migration ─────────────────────────────────────────────────
@@ -896,7 +963,7 @@ mod tests {
         .unwrap();
 
         let store = Store::from_connection(conn).expect("v1 db upgrades cleanly");
-        assert_eq!(store.schema_version().unwrap(), 5, "reaches v5");
+        assert_eq!(store.schema_version().unwrap(), 6, "reaches v6");
         assert_eq!(
             store.get_setting("theme").unwrap(),
             Some("dark".into()),
@@ -981,7 +1048,10 @@ mod tests {
             "get_piece resolves the user preference over the refreshed scan"
         );
         let paths = store.piece_pdf_paths(id).unwrap().unwrap();
-        assert_eq!(paths.scanned_pdf_path.as_deref(), Some("/v/Chopin - Scherzo/score/s.pdf"));
+        assert_eq!(
+            paths.scanned_pdf_path.as_deref(),
+            Some("/v/Chopin - Scherzo/score/s.pdf")
+        );
         assert_eq!(
             paths.preferred_pdf_path.as_deref(),
             Some("/v/Chopin - Scherzo/score/preferred.pdf"),
@@ -1003,10 +1073,17 @@ mod tests {
         store.save_intake(id, &intake).unwrap();
         assert_eq!(store.goal_list(id).unwrap().len(), 2);
 
-        let shorter = Intake { goals: vec!["Perform".into()], ..intake };
+        let shorter = Intake {
+            goals: vec!["Perform".into()],
+            ..intake
+        };
         store.save_intake(id, &shorter).unwrap();
         let goals = store.goal_list(id).unwrap();
-        assert_eq!(goals.len(), 2, "omitting a goal from review must not erase it");
+        assert_eq!(
+            goals.len(),
+            2,
+            "omitting a goal from review must not erase it"
+        );
     }
 
     #[test]
@@ -1022,15 +1099,25 @@ mod tests {
         };
         store.save_intake(id, &initial).unwrap();
         let goals = store.goal_list(id).unwrap();
-        store.goal_update(goals[1].id, model::GoalPatch {
-            target_date: Some(Some("2026-07-20".into())),
-            ..Default::default()
-        }).unwrap();
+        store
+            .goal_update(
+                goals[1].id,
+                model::GoalPatch {
+                    target_date: Some(Some("2026-07-20".into())),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
 
-        store.save_intake(id, &Intake {
-            deadline: Some("2026-09-01".into()),
-            ..initial
-        }).unwrap();
+        store
+            .save_intake(
+                id,
+                &Intake {
+                    deadline: Some("2026-09-01".into()),
+                    ..initial
+                },
+            )
+            .unwrap();
 
         let goals = store.goal_list(id).unwrap();
         assert_eq!(goals[0].target_date.as_deref(), Some("2026-09-01"));
@@ -1083,7 +1170,19 @@ mod tests {
             reps: 10,
         }];
         let block = store
-            .insert_rep_block(pid, 1, 8, Some("intro"), Some(80.0), Some(120.0), &rule, 10, &variants, "tempo", true)
+            .insert_rep_block(
+                pid,
+                1,
+                8,
+                Some("intro"),
+                Some(80.0),
+                Some(120.0),
+                &rule,
+                10,
+                &variants,
+                "tempo",
+                true,
+            )
             .unwrap();
 
         store.insert_rep(block, 80.0, None, "clean", None).unwrap();
@@ -1106,13 +1205,22 @@ mod tests {
         assert_eq!(h.planned_reps, 10);
         assert_eq!(h.status, "open");
         assert_eq!(h.reps_done, 4);
-        assert_eq!(h.verdicts, VerdictCounts { clean: 2, flawed: 1, failed: 1 });
+        assert_eq!(
+            h.verdicts,
+            VerdictCounts {
+                clean: 2,
+                flawed: 1,
+                failed: 1
+            }
+        );
 
         store.update_block_status(block, "done").unwrap();
         assert_eq!(store.block_history(pid).unwrap()[0].status, "done");
 
         // A piece with no blocks yields an empty history (not an error).
-        let empty = store.upsert_piece(&scan("/v/Empty", "Empty", None)).unwrap();
+        let empty = store
+            .upsert_piece(&scan("/v/Empty", "Empty", None))
+            .unwrap();
         assert!(store.block_history(empty).unwrap().is_empty());
     }
 
@@ -1120,9 +1228,24 @@ mod tests {
     fn block_history_zero_reps_has_empty_tallies() {
         let store = mem();
         let pid = store.upsert_piece(&scan("/v/P", "P", None)).unwrap();
-        let rule = IncrementRule { clean_needed: 1, bpm_step: 2.0 };
+        let rule = IncrementRule {
+            clean_needed: 1,
+            bpm_step: 2.0,
+        };
         store
-            .insert_rep_block(pid, 1, 4, None, Some(60.0), None, &rule, 5, &[], "tempo", true)
+            .insert_rep_block(
+                pid,
+                1,
+                4,
+                None,
+                Some(60.0),
+                None,
+                &rule,
+                5,
+                &[],
+                "tempo",
+                true,
+            )
             .unwrap();
         let h = &store.block_history(pid).unwrap()[0];
         assert_eq!(h.reps_done, 0);
@@ -1140,7 +1263,11 @@ mod tests {
         assert_eq!(store.latest_open_session().unwrap(), Some(sid));
 
         store
-            .insert_session_event(sid, "rep", &serde_json::json!({ "verdict": "clean", "bpm": 80 }))
+            .insert_session_event(
+                sid,
+                "rep",
+                &serde_json::json!({ "verdict": "clean", "bpm": 80 }),
+            )
             .unwrap();
         store
             .insert_session_event(sid, "note", &serde_json::json!({ "text": "watch LH" }))

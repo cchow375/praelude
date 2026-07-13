@@ -8,7 +8,7 @@
 use rusqlite::Connection;
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 5;
+pub const SCHEMA_VERSION: i32 = 6;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -280,6 +280,27 @@ BEGIN
 END;
 ";
 
+/// Schema v6 — one durable disposition per legacy live-feed event. A mapped
+/// row points to exactly one canonical event; safely skipped rows retain a
+/// reason and no canonical link. The UNIQUE canonical id prevents two legacy
+/// rows from claiming the same pre-existing event during conservative dedup.
+pub(crate) const SCHEMA_V6: &str = "\
+CREATE TABLE session_event_backfill (
+  legacy_session_event_id INTEGER PRIMARY KEY
+    REFERENCES session_event(id) ON DELETE RESTRICT,
+  canonical_event_id INTEGER UNIQUE
+    REFERENCES event(id) ON DELETE RESTRICT,
+  disposition TEXT NOT NULL
+    CHECK(disposition IN ('inserted','matched','skipped')),
+  reason TEXT NOT NULL CHECK(length(trim(reason)) BETWEEN 1 AND 100),
+  migrated_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK(
+    (disposition IN ('inserted','matched') AND canonical_event_id IS NOT NULL) OR
+    (disposition = 'skipped' AND canonical_event_id IS NULL)
+  )
+);
+";
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
@@ -352,11 +373,29 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         let v5 = (|| -> rusqlite::Result<()> {
             conn.execute_batch("BEGIN;")?;
             conn.execute_batch(SCHEMA_V5)?;
-            conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
+            conn.execute_batch("PRAGMA user_version = 5;")?;
             conn.execute_batch("COMMIT;")?;
             Ok(())
         })();
         if let Err(error) = v5 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
+    if version < 6 {
+        // The ledger, copied canonical rows, and version stamp are one crash-
+        // atomic unit. Any insert/validation failure rolls all three back to a
+        // clean v5 database, so reopening can safely retry the entire bridge.
+        let v6 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN;")?;
+            conn.execute_batch(SCHEMA_V6)?;
+            super::history_backfill::backfill_history(conn)?;
+            conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v6 {
             let _ = conn.execute_batch("ROLLBACK;");
             return Err(error);
         }
@@ -379,21 +418,33 @@ mod v3_tests {
         c.execute(
             "INSERT INTO piece (id,title,folder_path,goals,hard_spots) VALUES \
              (1,'Etude','/p/1','[\"memorize\",\"hands together\"]',\
-             '[{\"measures\":\"12-16\",\"note\":\"LH leap\"}]')", []).unwrap();
+             '[{\"measures\":\"12-16\",\"note\":\"LH leap\"}]')",
+            [],
+        )
+        .unwrap();
         for (id, s, e) in [(1, 1, 8), (2, 5, 12), (3, 40, 48)] {
             c.execute(
                 "INSERT INTO rep_block (id,piece_id,m_start,m_end,start_bpm,increment_rule,planned_reps,status) \
                  VALUES (?1,1,?2,?3,40.0,'{\"clean_needed\":2,\"bpm_step\":4}',10,'done')",
                 (id, s, e)).unwrap();
         }
-        c.execute("INSERT INTO rep (block_id,bpm,verdict) VALUES (1,40.0,'clean')", []).unwrap();
-        c.execute("INSERT INTO rep (block_id,bpm,verdict) VALUES (1,40.0,'flawed')", []).unwrap();
+        c.execute(
+            "INSERT INTO rep (block_id,bpm,verdict) VALUES (1,40.0,'clean')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO rep (block_id,bpm,verdict) VALUES (1,40.0,'flawed')",
+            [],
+        )
+        .unwrap();
         c
     }
 
     fn seed_v3() -> Connection {
         let c = seed_v2();
-        c.execute_batch("PRAGMA foreign_keys = OFF; BEGIN;").unwrap();
+        c.execute_batch("PRAGMA foreign_keys = OFF; BEGIN;")
+            .unwrap();
         c.execute_batch(SCHEMA_V3).unwrap();
         super::super::backfill::backfill_v3(&c).unwrap();
         c.execute_batch("PRAGMA user_version = 3; COMMIT; PRAGMA foreign_keys = ON;")
@@ -416,12 +467,21 @@ mod v3_tests {
             [],
         )
         .unwrap();
-        c.execute("INSERT INTO session (id) VALUES (1)", []).unwrap();
+        c.execute("INSERT INTO session (id) VALUES (1)", [])
+            .unwrap();
         c.execute(
             "INSERT INTO event (session_id,piece_id,kind,payload) VALUES (1,1,'rep','{\"block_id\":1}')",
             [],
         )
         .unwrap();
+        c
+    }
+
+    fn seed_v5() -> Connection {
+        let c = seed_v4();
+        c.execute_batch("BEGIN;").unwrap();
+        c.execute_batch(SCHEMA_V5).unwrap();
+        c.execute_batch("PRAGMA user_version = 5; COMMIT;").unwrap();
         c
     }
 
@@ -442,8 +502,10 @@ mod v3_tests {
 
         migrate(&c).unwrap();
 
-        let version: i32 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(version, 5);
+        let version: i32 = c
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 6);
         let after: (i64, i64, i64, i64) = c
             .query_row(
                 "SELECT
@@ -473,11 +535,9 @@ mod v3_tests {
         .unwrap();
         migrate(&c).unwrap();
         let preferred: String = c
-            .query_row(
-                "SELECT preferred_pdf_path FROM piece WHERE id=1",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT preferred_pdf_path FROM piece WHERE id=1", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(preferred, "/p/1/score/urtext.pdf");
     }
@@ -488,8 +548,10 @@ mod v3_tests {
         migrate(&c).unwrap();
 
         // schema stamped
-        let v: i32 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(v, 5);
+        let v: i32 = c
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 6);
 
         // v4 adds a user-owned edition preference without disturbing the
         // scanner-owned pdf_path.
@@ -505,48 +567,82 @@ mod v3_tests {
 
         // new tables exist
         for t in ["region", "goal", "event"] {
-            let n: i64 = c.query_row(
-                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
-                [t], |r| r.get(0)).unwrap();
+            let n: i64 = c
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [t],
+                    |r| r.get(0),
+                )
+                .unwrap();
             assert_eq!(n, 1, "table {t} missing");
         }
 
         // all prior blocks/reps preserved
-        let blocks: i64 = c.query_row("SELECT count(*) FROM rep_block", [], |r| r.get(0)).unwrap();
+        let blocks: i64 = c
+            .query_row("SELECT count(*) FROM rep_block", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(blocks, 3);
-        let reps: i64 = c.query_row("SELECT count(*) FROM rep", [], |r| r.get(0)).unwrap();
+        let reps: i64 = c
+            .query_row("SELECT count(*) FROM rep", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(reps, 2);
 
         // copied VALUES survived the rep_block rebuild (guards against a
         // mis-mapped INSERT…SELECT, not just row counts): block 1's seeded
         // start_bpm and its increment_rule JSON string must be intact.
-        let (sb, rule): (f64, String) = c.query_row(
-            "SELECT start_bpm, increment_rule FROM rep_block WHERE id=1", [],
-            |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let (sb, rule): (f64, String) = c
+            .query_row(
+                "SELECT start_bpm, increment_rule FROM rep_block WHERE id=1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
         assert_eq!(sb, 40.0);
         assert_eq!(rule, "{\"clean_needed\":2,\"bpm_step\":4}");
-        let (m_start, m_end): (i64, i64) = c.query_row(
-            "SELECT m_start, m_end FROM rep_block WHERE id=3", [],
-            |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let (m_start, m_end): (i64, i64) = c
+            .query_row("SELECT m_start, m_end FROM rep_block WHERE id=3", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
         assert_eq!((m_start, m_end), (40, 48));
 
         // rep_block gained columns with correct defaults
-        let (focus, use_metro): (String, i64) = c.query_row(
-            "SELECT focus, use_metronome FROM rep_block WHERE id=1", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let (focus, use_metro): (String, i64) = c
+            .query_row(
+                "SELECT focus, use_metronome FROM rep_block WHERE id=1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
         assert_eq!(focus, "tempo");
         assert_eq!(use_metro, 1);
 
         // session gained focused_seconds
-        c.execute("INSERT INTO session (id) VALUES (1)", []).unwrap();
-        let fs: Option<i64> = c.query_row("SELECT focused_seconds FROM session WHERE id=1", [], |r| r.get(0)).unwrap();
+        c.execute("INSERT INTO session (id) VALUES (1)", [])
+            .unwrap();
+        let fs: Option<i64> = c
+            .query_row("SELECT focused_seconds FROM session WHERE id=1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(fs, None);
 
         // back-fill: blocks 1&2 overlap → one section region; block 3 → another; + 1 hard_spot region
-        let sections: i64 = c.query_row(
-            "SELECT count(*) FROM region WHERE piece_id=1 AND kind='section'", [], |r| r.get(0)).unwrap();
+        let sections: i64 = c
+            .query_row(
+                "SELECT count(*) FROM region WHERE piece_id=1 AND kind='section'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(sections, 2);
-        let hard: i64 = c.query_row(
-            "SELECT count(*) FROM region WHERE piece_id=1 AND kind='hard_spot'", [], |r| r.get(0)).unwrap();
+        let hard: i64 = c
+            .query_row(
+                "SELECT count(*) FROM region WHERE piece_id=1 AND kind='hard_spot'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(hard, 1);
         // blocks 1 and 2 assigned to the same region
         let (r1, r2): (i64, i64) = c.query_row(
@@ -555,13 +651,20 @@ mod v3_tests {
         assert_eq!(r1, r2);
 
         // intake goals → Goal rows kind=big
-        let goals: i64 = c.query_row(
-            "SELECT count(*) FROM goal WHERE piece_id=1 AND kind='big'", [], |r| r.get(0)).unwrap();
+        let goals: i64 = c
+            .query_row(
+                "SELECT count(*) FROM goal WHERE piece_id=1 AND kind='big'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(goals, 2);
 
         // idempotent: second migrate does not duplicate
         migrate(&c).unwrap();
-        let regions2: i64 = c.query_row("SELECT count(*) FROM region", [], |r| r.get(0)).unwrap();
+        let regions2: i64 = c
+            .query_row("SELECT count(*) FROM region", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(regions2, 3);
     }
 
@@ -569,8 +672,16 @@ mod v3_tests {
     fn migrate_v4_to_v5_preserves_every_existing_graph_and_is_idempotent() {
         let c = seed_v4();
         let tables = [
-            "piece", "rep_block", "rep", "session", "session_event", "spot_review",
-            "setting", "region", "goal", "event",
+            "piece",
+            "rep_block",
+            "rep",
+            "session",
+            "session_event",
+            "spot_review",
+            "setting",
+            "region",
+            "goal",
+            "event",
         ];
         let before = tables
             .iter()
@@ -586,7 +697,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            5
+            6
         );
         let after = tables
             .iter()
@@ -608,7 +719,9 @@ mod v3_tests {
             "/p/1/score/urtext.pdf"
         );
         let fk_failures: i64 = c
-            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| row.get(0))
+            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(fk_failures, 0);
 
@@ -621,7 +734,8 @@ mod v3_tests {
         .unwrap();
         migrate(&c).unwrap();
         assert_eq!(
-            c.query_row("SELECT count(*) FROM daily_work", [], |row| row.get::<_, i64>(0))
+            c.query_row("SELECT count(*) FROM daily_work", [], |row| row
+                .get::<_, i64>(0))
                 .unwrap(),
             1,
             "reopening v5 must not duplicate or clear work"
@@ -632,8 +746,13 @@ mod v3_tests {
     fn v5_constraints_reject_impossible_dates_ranges_states_and_origin_rewrites() {
         let c = seed_v4();
         migrate(&c).unwrap();
-        let insert = |title: &str, minutes: i64, origin: &str, scheduled: &str, status: &str,
-                      source: &str, completed: Option<&str>| {
+        let insert = |title: &str,
+                      minutes: i64,
+                      origin: &str,
+                      scheduled: &str,
+                      status: &str,
+                      source: &str,
+                      completed: Option<&str>| {
             c.execute(
                 "INSERT INTO daily_work
                  (goal_id,title,planned_minutes,origin_date,scheduled_date,status,source,completed_ts)
@@ -641,16 +760,374 @@ mod v3_tests {
                 rusqlite::params![title, minutes, origin, scheduled, status, source, completed],
             )
         };
-        assert!(insert("Leap work", 30, "2028-02-29", "2028-02-29", "planned", "manual", None).is_ok());
+        assert!(insert(
+            "Leap work",
+            30,
+            "2028-02-29",
+            "2028-02-29",
+            "planned",
+            "manual",
+            None
+        )
+        .is_ok());
         for bad in ["2026-02-29", "2026-04-31", "2026-13-01", "0000-01-01"] {
-            assert!(insert("Bad date", 30, bad, "2026-07-12", "planned", "manual", None).is_err(), "{bad}");
+            assert!(
+                insert("Bad date", 30, bad, "2026-07-12", "planned", "manual", None).is_err(),
+                "{bad}"
+            );
         }
-        assert!(insert("", 30, "2026-07-12", "2026-07-12", "planned", "manual", None).is_err());
-        assert!(insert("Too short", 0, "2026-07-12", "2026-07-12", "planned", "manual", None).is_err());
-        assert!(insert("Too long", 241, "2026-07-12", "2026-07-12", "planned", "manual", None).is_err());
-        assert!(insert("Bad state", 30, "2026-07-12", "2026-07-12", "missed", "manual", None).is_err());
-        assert!(insert("Bad source", 30, "2026-07-12", "2026-07-12", "planned", "ai", None).is_err());
-        assert!(insert("Fake done", 30, "2026-07-12", "2026-07-12", "done", "manual", None).is_err());
-        assert!(c.execute("UPDATE daily_work SET origin_date='2028-03-01' WHERE title='Leap work'", []).is_err());
+        assert!(insert(
+            "",
+            30,
+            "2026-07-12",
+            "2026-07-12",
+            "planned",
+            "manual",
+            None
+        )
+        .is_err());
+        assert!(insert(
+            "Too short",
+            0,
+            "2026-07-12",
+            "2026-07-12",
+            "planned",
+            "manual",
+            None
+        )
+        .is_err());
+        assert!(insert(
+            "Too long",
+            241,
+            "2026-07-12",
+            "2026-07-12",
+            "planned",
+            "manual",
+            None
+        )
+        .is_err());
+        assert!(insert(
+            "Bad state",
+            30,
+            "2026-07-12",
+            "2026-07-12",
+            "missed",
+            "manual",
+            None
+        )
+        .is_err());
+        assert!(insert(
+            "Bad source",
+            30,
+            "2026-07-12",
+            "2026-07-12",
+            "planned",
+            "ai",
+            None
+        )
+        .is_err());
+        assert!(insert(
+            "Fake done",
+            30,
+            "2026-07-12",
+            "2026-07-12",
+            "done",
+            "manual",
+            None
+        )
+        .is_err());
+        assert!(c
+            .execute(
+                "UPDATE daily_work SET origin_date='2028-03-01' WHERE title='Leap work'",
+                []
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn migrate_v5_to_v6_preserves_rows_maps_exact_history_and_ledgers_skips() {
+        let c = seed_v5();
+        c.execute(
+            "INSERT INTO piece (id,title,folder_path) VALUES (2,'Nocturne','/p/2')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO rep_block
+             (id,piece_id,m_start,m_end,planned_reps,focus,use_metronome)
+             VALUES (20,2,1,8,4,'notes',0)",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO daily_work
+             (goal_id,title,planned_minutes,origin_date,scheduled_date,source)
+             VALUES (1,'Keep me',15,'2026-07-11','2026-07-12','manual')",
+            [],
+        )
+        .unwrap();
+
+        let source_rows = [
+            (
+                1,
+                "2026-07-11 09:00:00",
+                "rep_open",
+                r#"{"piece_id":1,"block_id":1,"bpm":72}"#,
+            ),
+            (
+                2,
+                "2026-07-11 09:01:02",
+                "rep",
+                r#"{"piece_id":1,"block_id":1,"verdict":"clean"}"#,
+            ),
+            (3, "2026-07-11 09:02:00", "metro", r#"{"bpm":72}"#),
+            (4, "2026-07-11 09:03:00", "rep", "not-json"),
+            (
+                5,
+                "2026-07-11 09:04:00",
+                "rep",
+                r#"{"piece_id":2,"block_id":1}"#,
+            ),
+            (
+                6,
+                "2026-07-11 09:05:00",
+                "rep",
+                r#"{"piece_id":999,"block_id":1}"#,
+            ),
+            (
+                7,
+                "2026-07-11 09:06:00",
+                "rep",
+                r#"{"piece_id":1,"block_id":999}"#,
+            ),
+            (8, "2026-07-11 09:07:00", "rep", r#"{"block_id":1}"#),
+        ];
+        for (id, ts, kind, payload) in source_rows {
+            c.execute(
+                "INSERT INTO session_event (id,session_id,ts,kind,payload)
+                 VALUES (?1,1,?2,?3,?4)",
+                rusqlite::params![id, ts, kind, payload],
+            )
+            .unwrap();
+        }
+        // Simulate a post-v3 dual write. It must be claimed, not copied again.
+        c.execute(
+            "INSERT INTO event (id,ts,session_id,piece_id,kind,payload)
+             VALUES (100,'2026-07-11 09:00:00',1,1,'rep_open',
+                     '{\"piece_id\":1,\"block_id\":1,\"bpm\":72}')",
+            [],
+        )
+        .unwrap();
+
+        let preserved_tables = [
+            "piece",
+            "rep_block",
+            "rep",
+            "session",
+            "session_event",
+            "region",
+            "goal",
+            "daily_work",
+        ];
+        let before: Vec<i64> = preserved_tables
+            .iter()
+            .map(|table| {
+                c.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap()
+            })
+            .collect();
+        let events_before: i64 = c
+            .query_row("SELECT count(*) FROM event", [], |row| row.get(0))
+            .unwrap();
+
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            6
+        );
+        let after: Vec<i64> = preserved_tables
+            .iter()
+            .map(|table| {
+                c.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap()
+            })
+            .collect();
+        assert_eq!(
+            after, before,
+            "v6 must not rewrite or delete any v5 graph row"
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM event", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            events_before + 1,
+            "only the unmatched valid rep is inserted"
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM session_event_backfill", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            8,
+            "every legacy row receives one durable disposition"
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT canonical_event_id FROM session_event_backfill
+                 WHERE legacy_session_event_id=1 AND disposition='matched'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            100
+        );
+
+        let copied: (String, i64, i64, String, String) = c
+            .query_row(
+                "SELECT event.ts,event.session_id,event.piece_id,event.kind,event.payload
+                 FROM event JOIN session_event_backfill ledger
+                   ON ledger.canonical_event_id=event.id
+                 WHERE ledger.legacy_session_event_id=2
+                   AND ledger.disposition='inserted'",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            copied,
+            (
+                "2026-07-11 09:01:02".into(),
+                1,
+                1,
+                "rep".into(),
+                r#"{"piece_id":1,"block_id":1,"verdict":"clean"}"#.into(),
+            ),
+            "the canonical copy preserves the exact source tuple"
+        );
+
+        let skipped: Vec<(i64, String)> = {
+            let mut statement = c
+                .prepare(
+                    "SELECT legacy_session_event_id,reason FROM session_event_backfill
+                     WHERE disposition='skipped' ORDER BY legacy_session_event_id",
+                )
+                .unwrap();
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(
+            skipped,
+            vec![
+                (3, "unsupported_kind".into()),
+                (4, "malformed_payload".into()),
+                (5, "cross_piece_block".into()),
+                (6, "missing_piece".into()),
+                (7, "missing_block".into()),
+                (8, "missing_piece_id".into()),
+            ]
+        );
+
+        let event_count: i64 = c
+            .query_row("SELECT count(*) FROM event", [], |row| row.get(0))
+            .unwrap();
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM event", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            event_count,
+            "a second migration inserts zero events"
+        );
+        assert_eq!(
+            super::super::history_backfill::backfill_history(&c).unwrap(),
+            super::super::history_backfill::BackfillStats::default(),
+            "the ledger also makes the worker itself idempotent"
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn v6_failure_rolls_back_schema_events_ledger_and_version() {
+        let c = seed_v5();
+        for (id, block_id) in [(1, 1), (2, 2)] {
+            c.execute(
+                "INSERT INTO session_event (id,session_id,ts,kind,payload)
+                 VALUES (?1,1,?2,'rep',?3)",
+                rusqlite::params![
+                    id,
+                    format!("2026-07-11 10:00:0{id}"),
+                    format!(r#"{{"piece_id":1,"block_id":{block_id}}}"#),
+                ],
+            )
+            .unwrap();
+        }
+        let before_events: i64 = c
+            .query_row("SELECT count(*) FROM event", [], |row| row.get(0))
+            .unwrap();
+        c.execute_batch(
+            "CREATE TRIGGER fail_second_backfill
+             BEFORE INSERT ON event
+             WHEN NEW.payload = '{\"piece_id\":1,\"block_id\":2}'
+             BEGIN SELECT RAISE(ABORT,'simulated interruption'); END;",
+        )
+        .unwrap();
+
+        assert!(migrate(&c).is_err());
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            5
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM event", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            before_events,
+            "the first copied event rolls back with the later failure"
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM sqlite_master
+                 WHERE type='table' AND name='session_event_backfill'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0,
+            "the ledger DDL is in the same failed transaction"
+        );
+
+        c.execute_batch("DROP TRIGGER fail_second_backfill;")
+            .unwrap();
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            6
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM session_event_backfill", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
     }
 }
