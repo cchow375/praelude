@@ -10,6 +10,8 @@ import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
 import { FloatingPanel } from "./FloatingPanel";
 import { usePanels } from "./usePanels";
+import { BrainWorkspace } from "../features/brain/BrainWorkspace";
+import type { WakeQuestion } from "../features/brain/types";
 import { version as appVersion } from "../../package.json";
 import "./Shell.css";
 
@@ -20,7 +22,7 @@ const VOICE_STATUS_LABEL: Record<VoiceStatus, string> = {
 };
 
 type PanelId = "metronome" | "mic" | "settings";
-type ViewId = "practice" | "metronome";
+type ViewId = "practice" | "brain" | "metronome";
 
 /**
  * The app shell: a slim top bar and a large, quiet hero area. Per the CodaKiller
@@ -31,7 +33,9 @@ type ViewId = "practice" | "metronome";
 export function Shell() {
   const [openPanel, setOpenPanel] = useState<PanelId | null>(null);
   const [view, setView] = useState<ViewId>("practice");
+  const [wakeQuestion, setWakeQuestion] = useState<WakeQuestion | null>(null);
   const [ending, setEnding] = useState(false);
+  const wakeQuestionId = useRef(0);
   const metronomeRef = useRef<HTMLButtonElement>(null);
   const micRef = useRef<HTMLButtonElement>(null);
   const settingsRef = useRef<HTMLButtonElement>(null);
@@ -39,6 +43,15 @@ export function Shell() {
   const rep = useRep();
   const session = useSession();
   const panelManager = usePanels();
+
+  // useVoice owns the one global voice://intent listener. A wake-prefixed
+  // non-command arrives as kind=question; open Brain and hand it off once.
+  useEffect(() => {
+    if (voice.lastIntent?.kind !== "question") return;
+    wakeQuestionId.current += 1;
+    setWakeQuestion({ id: wakeQuestionId.current, text: voice.lastIntent.text });
+    setView("brain");
+  }, [voice.lastIntent]);
 
   useEffect(() => {
     panelManager.register("rep", {
@@ -82,7 +95,7 @@ export function Shell() {
               v{appVersion}
             </span>
           </div>
-          <nav className="view-switcher" aria-label="View">
+          <nav className="view-switcher" aria-label="View" role="tablist">
             <button
               type="button"
               role="tab"
@@ -91,6 +104,15 @@ export function Shell() {
               onClick={() => setView("practice")}
             >
               Practice
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "brain"}
+              className={`view-tab ${view === "brain" ? "is-on" : ""}`}
+              onClick={() => setView("brain")}
+            >
+              Brain
             </button>
             <button
               type="button"
@@ -149,6 +171,8 @@ export function Shell() {
         <main className="practice-main" data-testid="main-practice">
           <PiecesPanel onOpenBlock={rep.open} activeRep={rep.snap} />
         </main>
+      ) : view === "brain" ? (
+        <BrainWorkspace wakeQuestion={wakeQuestion} />
       ) : (
         <main className="hero">
           <div className="hero-placeholder">
