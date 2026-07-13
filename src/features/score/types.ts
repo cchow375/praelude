@@ -54,7 +54,10 @@ export interface PdfDocumentHandle {
 
 /** Small seam around PDF.js so viewer state is testable without a real canvas. */
 export interface PdfAdapter {
-  load: (bytes: ArrayBuffer) => Promise<PdfDocumentHandle>;
+  load: (
+    bytes: ArrayBuffer,
+    options?: { timeoutMs?: number },
+  ) => Promise<PdfDocumentHandle>;
 }
 
 export interface ScorePdfApi {

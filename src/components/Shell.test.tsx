@@ -67,7 +67,7 @@ afterEach(cleanup);
 describe("Shell floating workspace", () => {
   it("lands intentionally on Home, then keeps active surfaces when Practice opens", async () => {
     render(<Shell />);
-    expect(screen.getByLabelText("Version 1.0.0")).toBeTruthy();
+    expect(screen.getByLabelText("Version 1.0.1")).toBeTruthy();
     expect(await screen.findByTestId("universe-workspace")).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Home" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(screen.getByRole("tab", { name: "Practice" }));

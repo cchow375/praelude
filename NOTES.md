@@ -2,6 +2,24 @@
 
 ## Decisions
 
+- **P6 patch / v1.0.1 PDF viewer repair (2026-07-13):**
+  - **The hang was the renderer bootstrap, not the score file or SQLite.** On this Mac's
+    macOS 15 WKWebView, PDF.js 6's modern display build waited indefinitely for an ES-module
+    worker launched from Tauri's custom app protocol. The real Scherzo file itself is a valid
+    25-page PDF. CodaKiller now imports PDF.js's matching `legacy` display + worker modules;
+    loading the worker module in-process registers `WorkerMessageHandler`, so PDF.js uses its
+    loopback worker and no custom-protocol worker handshake can strand the UI.
+  - **PDF loading is now bounded and cross-realm safe.** Both the native byte read and renderer
+    startup have 30-second deadlines with a visible retry action. Bytes are copied with
+    `new Uint8Array(bytes).slice()` rather than `instanceof ArrayBuffer`, which is unreliable
+    across WKWebView/Tauri JS realms. Timed-out/failed loading tasks are destroyed, including a
+    task created after a dynamic-import deadline.
+  - **Proof used the real native path without touching Christian's data.** A temporary isolated
+    app-data/Pieces fixture opened Practice → Scherzo → Score in the installed WKWebView and
+    rendered page 1 of 25 at 1664 × 2314. The temporary instrumentation was removed. Regression
+    tests cover a never-resolving byte read and an actual minimal PDF parsed through the legacy
+    loopback worker. Schema remains v6; there is no user-data migration.
+
 - **P6 / v1.0.0 finish (2026-07-12):**
   - **Schema v6 backfills history without inventing it.** `session_event_backfill` is the
     one-row-per-legacy-event ledger. The v5→v6 migration maps only typed `rep` and `rep_open`

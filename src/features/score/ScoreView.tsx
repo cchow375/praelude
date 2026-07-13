@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { PDFDocumentLoadingTask, PDFPageProxy } from "pdfjs-dist";
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { BlockHistory, Region } from "../pieces/types";
 import type { RepOpenArgs } from "../rep/useRep";
 import { BlockForm } from "../rep/BlockForm";
@@ -26,6 +25,15 @@ import type {
   ScorePdfApi,
 } from "./types";
 import "./ScoreView.css";
+
+const PDF_LOAD_TIMEOUT_MS = 30_000;
+const PDF_RENDER_TIMEOUT_MESSAGE = "PDF rendering did not start in time. Try again or choose another edition.";
+
+interface PdfJsRuntime {
+  getDocument: (options: { data: Uint8Array }) => PDFDocumentLoadingTask;
+}
+
+type PdfJsRuntimeLoader = () => Promise<PdfJsRuntime>;
 
 const defaultApi: ScorePdfApi = {
   editions: (pieceId) => invoke<PdfEdition[]>("score_pdf_editions", { pieceId }),
@@ -58,19 +66,82 @@ function wrapPage(page: PDFPageProxy): PdfPageHandle {
   };
 }
 
-export const pdfJsAdapter: PdfAdapter = {
-  async load(bytes) {
-    const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist");
-    GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-    const task: PDFDocumentLoadingTask = getDocument({ data: new Uint8Array(bytes.slice(0)) });
-    const document = await task.promise;
-    return {
-      numPages: document.numPages,
-      getPage: async (pageNumber) => wrapPage(await document.getPage(pageNumber)),
-      destroy: async () => { await task.destroy(); },
-    };
+function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return operation;
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    operation.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (reason) => {
+        window.clearTimeout(timer);
+        reject(reason);
+      },
+    );
+  });
+}
+
+export function createPdfJsAdapter(
+  loadRuntime: PdfJsRuntimeLoader = async () => {
+    await import("pdfjs-dist/legacy/build/pdf.worker.min.mjs");
+    return import("pdfjs-dist/legacy/build/pdf.mjs");
   },
-};
+): PdfAdapter {
+  return {
+    async load(bytes, options) {
+      if (!bytes || typeof bytes.byteLength !== "number" || bytes.byteLength === 0) {
+        throw new Error("The selected PDF is empty or did not arrive as binary data.");
+      }
+
+      const timeoutMs = options?.timeoutMs ?? PDF_LOAD_TIMEOUT_MS;
+      const taskRef: { current: PDFDocumentLoadingTask | null } = { current: null };
+      let timedOut = false;
+      try {
+        const document = await withTimeout((async () => {
+          // CodaKiller runs inside WKWebView. PDF.js's modern build targets only
+          // the newest browser engines, and WebKit does not reliably start an ES
+          // module Worker from Tauri's custom app protocol. Loading the matching
+          // legacy worker module on the main thread registers WorkerMessageHandler;
+          // PDF.js then uses its supported loopback worker instead of waiting on a
+          // custom-protocol Worker handshake that may never answer.
+          const { getDocument } = await loadRuntime();
+          const task = getDocument({
+            // Uint8Array accepts ArrayBuffers from a different JS realm too; an
+            // `instanceof ArrayBuffer` check does not (WKWebView's IPC response is
+            // created by Tauri's injected realm).
+            data: new Uint8Array(bytes).slice(),
+          });
+          taskRef.current = task;
+          // Dynamic imports cannot be cancelled. If the outer deadline elapsed
+          // while WebKit was loading the chunks, destroy a task created later
+          // instead of leaving a hidden parser alive after the UI shows an error.
+          if (timedOut) {
+            void task.destroy().catch(() => undefined);
+            throw new Error(PDF_RENDER_TIMEOUT_MESSAGE);
+          }
+          return task.promise;
+        })(), timeoutMs, PDF_RENDER_TIMEOUT_MESSAGE);
+
+        return {
+          numPages: document.numPages,
+          getPage: async (pageNumber) => wrapPage(await document.getPage(pageNumber)),
+          destroy: async () => { await taskRef.current?.destroy(); },
+        };
+      } catch (error) {
+        timedOut = true;
+        // Cleanup is best-effort and deliberately not awaited. PDF.js destroy()
+        // can wait on the same worker startup that triggered this deadline; the
+        // visible retryable error must never be gated by an unbounded teardown.
+        if (taskRef.current) void taskRef.current.destroy().catch(() => undefined);
+        throw error;
+      }
+    },
+  };
+}
+
+export const pdfJsAdapter = createPdfJsAdapter();
 
 type ViewerPhase = "loading-editions" | "no-pdf" | "loading-document" | "ready" | "error";
 
@@ -82,6 +153,7 @@ export interface ScoreViewProps {
   opening?: boolean;
   api?: ScorePdfApi;
   adapter?: PdfAdapter;
+  loadTimeoutMs?: number;
 }
 
 interface MappingDraft {
@@ -120,6 +192,7 @@ export function ScoreView({
   opening = false,
   api = defaultApi,
   adapter = pdfJsAdapter,
+  loadTimeoutMs = PDF_LOAD_TIMEOUT_MS,
 }: ScoreViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageSizesRef = useRef(new Map<number, PdfPageSize>());
@@ -209,8 +282,12 @@ export function ScoreView({
     pageSizesRef.current.clear();
     setMaxPageWidth(DEFAULT_PAGE_SIZE.width);
 
-    void api.bytes(pieceId, editionId)
-      .then((bytes) => adapter.load(bytes))
+    void withTimeout(
+      api.bytes(pieceId, editionId),
+      loadTimeoutMs,
+      "The PDF file took too long to read. Try again or choose another edition.",
+    )
+      .then((bytes) => adapter.load(bytes, { timeoutMs: loadTimeoutMs }))
       .then((nextDocument) => {
         loaded = nextDocument;
         if (!alive) return nextDocument.destroy();
@@ -227,7 +304,7 @@ export function ScoreView({
       alive = false;
       if (loaded) void loaded.destroy();
     };
-  }, [adapter, api, editionId, editions, pieceId, reloadToken]);
+  }, [adapter, api, editionId, editions, loadTimeoutMs, pieceId]);
 
   useEffect(() => {
     const root = scrollRef.current;

@@ -1,13 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { PDFDocumentLoadingTask } from "pdfjs-dist";
 
-vi.mock("pdfjs-dist", () => ({
-  getDocument: vi.fn(),
-  GlobalWorkerOptions: {},
-}));
-vi.mock("pdfjs-dist/build/pdf.worker.min.mjs?url", () => ({ default: "local-worker.js" }));
-
-import { ScoreView } from "./ScoreView";
+import { createPdfJsAdapter, pdfJsAdapter, ScoreView } from "./ScoreView";
 import type {
   PdfAdapter,
   PdfDocumentHandle,
@@ -92,6 +87,27 @@ function makePdf(pageCount = 5) {
   return { adapter, document, getPage, cancels };
 }
 
+function makeMinimalPdf(): ArrayBuffer {
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Contents 4 0 R >>",
+    "<< /Length 0 >>\nstream\n\nendstream",
+  ];
+  let source = "%PDF-1.4\n";
+  const offsets = objects.map((object, index) => {
+    const offset = source.length;
+    source += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    return offset;
+  });
+  const xref = source.length;
+  source += `xref\n0 ${objects.length + 1}\n`;
+  source += "0000000000 65535 f \n";
+  source += offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  source += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return new TextEncoder().encode(source).buffer as ArrayBuffer;
+}
+
 beforeEach(() => {
   FakeIntersectionObserver.latest = null;
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
@@ -159,6 +175,64 @@ describe("ScoreView", () => {
     fireEvent.click(screen.getByText("Try again"));
     expect(await screen.findByText("No PDF score found.")).toBeTruthy();
     expect(editions).toHaveBeenCalledTimes(2);
+  });
+
+  it("turns a stalled PDF read into a retryable error instead of spinning forever", async () => {
+    const stalled = new Promise<ArrayBuffer>(() => undefined);
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ bytes: vi.fn().mockReturnValue(stalled) })}
+        adapter={makePdf().adapter}
+        loadTimeoutMs={20}
+      />,
+    );
+
+    expect(await screen.findByText("The PDF file took too long to read. Try again or choose another edition.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  it("retries a failed PDF exactly once after refreshing its editions", async () => {
+    const bytes = vi.fn()
+      .mockRejectedValueOnce(new Error("temporary read failure"))
+      .mockResolvedValueOnce(new ArrayBuffer(8));
+    const api = makeApi({ bytes });
+    const pdf = makePdf();
+    render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+
+    expect(await screen.findByText("temporary read failure")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByLabelText("Score page 5");
+
+    expect(api.editions).toHaveBeenCalledTimes(2);
+    expect(bytes).toHaveBeenCalledTimes(2);
+    expect(pdf.adapter.load).toHaveBeenCalledTimes(1);
+  });
+
+  it("parses a real PDF through the WebKit-compatible legacy loopback worker", async () => {
+    const document = await pdfJsAdapter.load(makeMinimalPdf(), { timeoutMs: 5_000 });
+    expect(document.numPages).toBe(1);
+    const page = await document.getPage(1);
+    expect(page.width).toBe(612);
+    expect(page.height).toBe(792);
+    page.cleanup();
+    await document.destroy();
+  });
+
+  it("rejects on deadline even when PDF.js startup and cleanup both never settle", async () => {
+    const destroy = vi.fn(() => new Promise<void>(() => undefined));
+    const task = {
+      promise: new Promise<never>(() => undefined),
+      destroy,
+    };
+    const adapter = createPdfJsAdapter(async () => ({
+      getDocument: vi.fn(() => task as unknown as PDFDocumentLoadingTask),
+    }));
+
+    await expect(adapter.load(makeMinimalPdf(), { timeoutMs: 20 })).rejects.toThrow(
+      "PDF rendering did not start in time",
+    );
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 
   it("renders only the visible page plus one neighbor and evicts old canvases", async () => {
