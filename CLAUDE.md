@@ -56,8 +56,9 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**v0.3.0 shipped (P3.5, tag `v0.3.0`, 2026-07-12): the rep tracker is now fully editable
+**v0.3.1 shipped (P3.5 hotfix, tag `v0.3.1`, 2026-07-12): the rep tracker is fully editable
 and organized — Region → block → rep history, real goals, movable persisted windows,
-focus/metronome independence, canonical event/export/metrics graph. Score viewer / brain /
+focus/metronome independence, canonical event/export/metrics graph. The installed app visibly
+identifies its version and is the only indexed bundle. Score viewer / brain /
 planner / Practice Universe remain; at-piano acceptance is pending; the repo is local-only.**
 Next: real at-piano session → tuning round → plan P4 (real PDF + light Region mapping).

@@ -28,6 +28,7 @@ afterEach(cleanup);
 describe("Shell floating workspace", () => {
   it("hosts active surfaces in movable panels without removing main practice", async () => {
     render(<Shell />);
+    expect(screen.getByLabelText("Version 0.3.1")).toBeTruthy();
     await waitFor(() => expect(screen.getByTestId("panel-rep")).toBeTruthy());
     expect(screen.getByTestId("panel-session")).toBeTruthy();
     expect(screen.getByTestId("main-practice")).toBeTruthy();

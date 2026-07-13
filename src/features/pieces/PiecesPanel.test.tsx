@@ -63,6 +63,7 @@ describe("PiecesPanel", () => {
     render(<PiecesPanel onOpenBlock={vi.fn()} />);
 
     await waitFor(() => expect(screen.getByText("Liebestraum No. 3")).toBeTruthy());
+    expect(screen.getByText("Foundation installed")).toBeTruthy();
     expect(screen.getByText("Gymnopédie No. 1")).toBeTruthy();
     // Liszt: XML + needs intake; Satie: XML + PDF (intake done).
     expect(screen.getByText("needs intake")).toBeTruthy();

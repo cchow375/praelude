@@ -611,3 +611,14 @@ voice at the mic. **Ground-truth findings on this Mac (macOS 15, M2):**
 - **Visual QA finding:** movable overlays are not enough if defaults still cover content. While
   an active Rep window exists, the main Practice view reserves a right gutter; Session defaults
   collapsed inside the top bar. This fixed title/history overlap and clipped HUD context.
+
+## v0.3.1 release identity / duplicate-app hygiene (2026-07-12)
+
+- `tauri build --bundles app` necessarily creates a runnable bundle under
+  `src-tauri/target/release/bundle/macos/`. Spotlight indexes that bundle as well as the installed
+  `/Applications` copy, so leaving it behind creates two CodaKiller search results even when the
+  executables are identical. After `ditto` install: unregister the generated bundle with
+  `lsregister -u`, delete that generated directory, then `lsregister -f` the Applications copy.
+- A correct invisible update is still a release failure. The top bar now derives its version from
+  `package.json`, and the Practice landing surface names the Foundation features. This gives a
+  first-screen, user-verifiable signal that the expected build is running.

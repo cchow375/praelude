@@ -10,6 +10,7 @@ import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
 import { FloatingPanel } from "./FloatingPanel";
 import { usePanels } from "./usePanels";
+import { version as appVersion } from "../../package.json";
 import "./Shell.css";
 
 const VOICE_STATUS_LABEL: Record<VoiceStatus, string> = {
@@ -75,7 +76,12 @@ export function Shell() {
     <div className={`shell ${rep.snap ? "has-rep-panel" : ""}`}>
       <header className="topbar">
         <div className="topbar-left">
-          <span className="topbar-brand">CodaKiller</span>
+          <div className="topbar-identity">
+            <span className="topbar-brand">CodaKiller</span>
+            <span className="topbar-version" aria-label={`Version ${appVersion}`}>
+              v{appVersion}
+            </span>
+          </div>
           <nav className="view-switcher" aria-label="View">
             <button
               type="button"

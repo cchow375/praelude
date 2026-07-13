@@ -116,6 +116,13 @@ export function PiecesPanel({ onOpenBlock }: PiecesPanelProps) {
         </button>
       </div>
 
+      <div className="foundation-release" aria-label="Installed Foundation release">
+        <span className="foundation-release-kicker">Foundation installed</span>
+        <span className="foundation-release-copy">
+          Open a piece for editable Regions, goals, rep history, and floating practice panels.
+        </span>
+      </div>
+
       {error && (
         <p className="ck-inline-error" role="alert">
           {error}
