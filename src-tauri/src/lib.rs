@@ -1,5 +1,7 @@
 pub mod audio;
+mod brain;
 pub mod intent;
+mod knowledge;
 mod keys;
 mod metrics;
 mod metronome;
@@ -450,6 +452,23 @@ fn progress_summary(piece_id: i64, store: State<'_, Arc<Store>>) -> Result<Progr
     metrics::progress_summary(&store, piece_id).map_err(|e| e.to_string())
 }
 
+/// Answer an open practice question from a bounded, read-only context. This is
+/// intentionally asynchronous and separate from the deterministic voice/rep
+/// loop; provider calls can never block a verdict or metronome command.
+#[tauri::command]
+async fn brain_ask(
+    request: brain::BrainAskRequest,
+    store: State<'_, Arc<Store>>,
+    sessions: State<'_, Arc<SessionService>>,
+) -> Result<brain::BrainAnswer, String> {
+    let store = store.inner().clone();
+    let sessions = sessions.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || brain::ask_native(request, store, sessions))
+        .await
+        .map_err(|_| "Brain worker stopped unexpectedly".to_string())?
+        .map_err(|error| error.to_string())
+}
+
 /// Mute (`true`) or unmute the mic. Gates STT and blocks any action while muted.
 #[tauri::command]
 fn voice_mute(muted: bool, voice: State<'_, Arc<VoiceLoop>>) {
@@ -626,6 +645,7 @@ pub fn run() {
             goal_reorder,
             piece_field_update,
             progress_summary,
+            brain_ask,
             session_current,
             session_end,
             metronome::metro_start,
