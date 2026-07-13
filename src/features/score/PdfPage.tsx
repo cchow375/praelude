@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cappedDevicePixelRatio, DEFAULT_PAGE_SIZE, displaySize } from "./geometry";
 import type { PdfDocumentHandle, PdfPageSize, PdfRenderTask } from "./types";
 
@@ -8,6 +8,7 @@ interface PdfPageProps {
   active: boolean;
   scale: number;
   onSize?: (pageNumber: number, size: PdfPageSize) => void;
+  children?: ReactNode;
 }
 
 function messageOf(error: unknown): string {
@@ -22,7 +23,7 @@ function isCancelled(error: unknown): boolean {
 }
 
 /** One persistent page placeholder whose canvas exists only near the viewport. */
-export function PdfPage({ document, pageNumber, active, scale, onSize }: PdfPageProps) {
+export function PdfPage({ document, pageNumber, active, scale, onSize, children }: PdfPageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const taskRef = useRef<PdfRenderTask | null>(null);
   const [size, setSize] = useState<PdfPageSize>(DEFAULT_PAGE_SIZE);
@@ -106,6 +107,7 @@ export function PdfPage({ document, pageNumber, active, scale, onSize }: PdfPage
       {status === "rendering" && <span className="pdf-page-loading">Rendering page {pageNumber}…</span>}
       {status === "error" && <span className="pdf-page-error">Page {pageNumber}: {error}</span>}
       <span className="pdf-page-number" aria-hidden="true">{pageNumber}</span>
+      {children}
     </section>
   );
 }

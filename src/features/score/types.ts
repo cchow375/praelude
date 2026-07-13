@@ -1,3 +1,5 @@
+import type { BlockHistory, Region } from "../pieces/types";
+
 export interface PdfEdition {
   id: string;
   label: string;
@@ -10,6 +12,24 @@ export interface PdfEdition {
 export interface PdfPageSize {
   width: number;
   height: number;
+}
+
+export interface PdfAnchorRect {
+  page: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface PdfEditionAnchors {
+  fingerprint: string;
+  rects: PdfAnchorRect[];
+}
+
+export interface PdfAnchorMap {
+  v: 1;
+  editions: Record<string, PdfEditionAnchors>;
 }
 
 export interface PdfRenderTask {
@@ -41,4 +61,7 @@ export interface ScorePdfApi {
   editions: (pieceId: number) => Promise<PdfEdition[]>;
   select: (pieceId: number, editionId: string) => Promise<void>;
   bytes: (pieceId: number, editionId: string) => Promise<ArrayBuffer>;
+  regions: (pieceId: number) => Promise<Region[]>;
+  blocks: (pieceId: number) => Promise<BlockHistory[]>;
+  updateRegion: (regionId: number, pdfAnchor: PdfAnchorMap | null) => Promise<Region>;
 }

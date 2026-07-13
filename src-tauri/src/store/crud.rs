@@ -247,13 +247,21 @@ impl Store {
     /// Merge `id_absorb` into `id_keep`: `id_keep`'s measure range widens to
     /// cover both, every block belonging to `id_absorb` is reassigned to
     /// `id_keep`, and `id_absorb` is deleted. Runs in one transaction.
+    /// Compatible PDF anchors are combined. If both regions have geometry for
+    /// the same edition but disagree on its fingerprint, that edition is
+    /// dropped rather than retaining a highlight for the wrong score revision.
     /// Appends a `region_change` event.
     pub fn region_merge(&self, id_keep: i64, id_absorb: i64) -> rusqlite::Result<Region> {
         let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let keep = Self::region_get(&conn, id_keep)?;
         let absorb = Self::region_get(&conn, id_absorb)?;
+        if keep.piece_id != absorb.piece_id || keep.id == absorb.id {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         let new_start = keep.m_start.min(absorb.m_start);
         let new_end = keep.m_end.max(absorb.m_end);
+        let merged_anchor = merge_pdf_anchors(keep.pdf_anchor, absorb.pdf_anchor);
+        let merged_anchor_sql = merged_anchor.as_ref().map(json_to_sql).transpose()?;
 
         let tx = conn.transaction()?;
         tx.execute(
@@ -261,8 +269,8 @@ impl Store {
             rusqlite::params![id_keep, id_absorb],
         )?;
         tx.execute(
-            "UPDATE region SET m_start = ?2, m_end = ?3 WHERE id = ?1",
-            rusqlite::params![id_keep, new_start, new_end],
+            "UPDATE region SET m_start = ?2, m_end = ?3, pdf_anchor = ?4 WHERE id = ?1",
+            rusqlite::params![id_keep, new_start, new_end, merged_anchor_sql],
         )?;
         tx.execute("DELETE FROM region WHERE id = ?1", [id_absorb])?;
         tx.commit()?;
@@ -277,6 +285,53 @@ impl Store {
         )?;
         Ok(region)
     }
+}
+
+/// Merge the P4 anchor contract without guessing across changed PDF editions.
+/// Unknown/malformed values are treated conservatively: keep-side data wins.
+fn merge_pdf_anchors(
+    keep: Option<serde_json::Value>,
+    absorb: Option<serde_json::Value>,
+) -> Option<serde_json::Value> {
+    let (mut keep, absorb) = match (keep, absorb) {
+        (Some(keep), Some(absorb)) => (keep, absorb),
+        (keep, absorb) => return keep.or(absorb),
+    };
+
+    let Some(keep_editions) = keep.get_mut("editions").and_then(|v| v.as_object_mut()) else {
+        return Some(keep);
+    };
+    let Some(absorb_editions) = absorb.get("editions").and_then(|v| v.as_object()) else {
+        return Some(keep);
+    };
+
+    for (edition_id, absorb_edition) in absorb_editions {
+        let Some(keep_edition) = keep_editions.get_mut(edition_id) else {
+            keep_editions.insert(edition_id.clone(), absorb_edition.clone());
+            continue;
+        };
+
+        let fingerprints_match = keep_edition.get("fingerprint")
+            == absorb_edition.get("fingerprint");
+        if !fingerprints_match {
+            keep_editions.remove(edition_id);
+            continue;
+        }
+
+        let Some(keep_rects) = keep_edition.get_mut("rects").and_then(|v| v.as_array_mut()) else {
+            continue;
+        };
+        let Some(absorb_rects) = absorb_edition.get("rects").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for rect in absorb_rects {
+            if !keep_rects.contains(rect) {
+                keep_rects.push(rect.clone());
+            }
+        }
+    }
+
+    Some(keep)
 }
 // ── T3: region tests ─────────────────────────────────────────────────────
 
@@ -317,6 +372,49 @@ mod region {
                 .unwrap()
         };
         assert_eq!(region_id, Some(a.id));
+    }
+
+    #[test]
+    fn region_merge_combines_compatible_pdf_anchors() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let a = s
+            .region_create(RegionCreate { piece_id: 1, name: "A".into(), m_start: 1, m_end: 8, kind: "section".into() })
+            .unwrap();
+        let b = s
+            .region_create(RegionCreate { piece_id: 1, name: "B".into(), m_start: 9, m_end: 16, kind: "section".into() })
+            .unwrap();
+        let rect_a = serde_json::json!({ "page": 1, "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1 });
+        let rect_b = serde_json::json!({ "page": 2, "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1 });
+        let anchor_a = serde_json::json!({ "v": 1, "editions": { "score.pdf": { "fingerprint": "same", "rects": [rect_a.clone()] } } });
+        let anchor_b = serde_json::json!({ "v": 1, "editions": { "score.pdf": { "fingerprint": "same", "rects": [rect_a, rect_b.clone()] } } });
+        s.region_update(a.id, RegionPatch { pdf_anchor: Some(Some(anchor_a)), ..Default::default() }).unwrap();
+        s.region_update(b.id, RegionPatch { pdf_anchor: Some(Some(anchor_b)), ..Default::default() }).unwrap();
+
+        let merged = s.region_merge(a.id, b.id).unwrap();
+        let rects = merged.pdf_anchor.unwrap()["editions"]["score.pdf"]["rects"]
+            .as_array().unwrap().clone();
+        assert_eq!(rects.len(), 2);
+        assert!(rects.contains(&rect_b));
+    }
+
+    #[test]
+    fn region_merge_drops_anchor_for_conflicting_fingerprint() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let a = s
+            .region_create(RegionCreate { piece_id: 1, name: "A".into(), m_start: 1, m_end: 8, kind: "section".into() })
+            .unwrap();
+        let b = s
+            .region_create(RegionCreate { piece_id: 1, name: "B".into(), m_start: 9, m_end: 16, kind: "section".into() })
+            .unwrap();
+        for (region, fingerprint) in [(a.id, "old"), (b.id, "new")] {
+            let anchor = serde_json::json!({ "v": 1, "editions": { "score.pdf": { "fingerprint": fingerprint, "rects": [{ "page": 1, "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1 }] } } });
+            s.region_update(region, RegionPatch { pdf_anchor: Some(Some(anchor)), ..Default::default() }).unwrap();
+        }
+
+        let merged = s.region_merge(a.id, b.id).unwrap();
+        assert!(merged.pdf_anchor.unwrap()["editions"].as_object().unwrap().is_empty());
     }
 
     #[test]

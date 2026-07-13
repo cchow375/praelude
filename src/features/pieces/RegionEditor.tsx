@@ -48,7 +48,9 @@ export function RegionEditor({
         m_end: region.m_end,
         kind: region.kind,
       });
-      await crud.regionUpdate(region.id, { m_end: measure - 1 });
+      // A split changes the measure-to-page relationship. Clear the original
+      // geometry and require both halves to be mapped explicitly.
+      await crud.regionUpdate(region.id, { m_end: measure - 1, pdf_anchor: null });
       for (const block of blocks.filter((item) => item.m_start >= measure)) {
         await crud.blockUpdate(block.block_id, { region_id: created.id });
       }

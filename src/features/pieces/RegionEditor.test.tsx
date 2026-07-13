@@ -28,4 +28,21 @@ describe("RegionEditor", () => {
     fireEvent.click(screen.getByText("Merge"));
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("region_merge", { idKeep: 2, idAbsorb: 1 }));
   });
+
+  it("clears stale PDF geometry when a region is split", async () => {
+    const anchored = { ...region, pdf_anchor: { v: 1, editions: {} } };
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "region_create") return Promise.resolve({ ...other, id: 3, m_start: 9 });
+      return Promise.resolve(anchored);
+    });
+    render(<RegionEditor region={anchored} regions={[anchored, other]} onChanged={vi.fn()} />);
+    fireEvent.click(screen.getByText("Manage section"));
+    fireEvent.change(screen.getByLabelText("Split measure"), { target: { value: "9" } });
+    fireEvent.click(screen.getByText("Split"));
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("region_update", {
+      id: 1,
+      patch: { m_end: 8, pdf_anchor: null },
+    }));
+  });
 });

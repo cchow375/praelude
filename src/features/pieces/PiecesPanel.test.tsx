@@ -126,6 +126,10 @@ describe("PiecesPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Gymnopédie No\. 1/ }));
 
+    // PDF-backed pieces now open on the score surface by default. The previous
+    // summary and block form remain available under Details.
+    fireEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Open block" })).toBeTruthy(),
     );

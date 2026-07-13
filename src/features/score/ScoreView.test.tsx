@@ -59,6 +59,9 @@ function makeApi(overrides: Partial<ScorePdfApi> = {}): ScorePdfApi {
     editions: vi.fn().mockResolvedValue(EDITIONS),
     select: vi.fn().mockResolvedValue(undefined),
     bytes: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+    regions: vi.fn().mockResolvedValue([]),
+    blocks: vi.fn().mockResolvedValue([]),
+    updateRegion: vi.fn(),
     ...overrides,
   };
 }
@@ -79,6 +82,7 @@ function makePdf(pageCount = 5) {
       },
     };
   });
+
   const document: PdfDocumentHandle = {
     numPages: pageCount,
     getPage,
@@ -91,7 +95,7 @@ function makePdf(pageCount = 5) {
 beforeEach(() => {
   FakeIntersectionObserver.latest = null;
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
-  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+  Object.defineProperty(HTMLElement.prototype, "scrollTo", {
     configurable: true,
     value: vi.fn(),
   });
@@ -104,6 +108,43 @@ afterEach(() => {
 });
 
 describe("ScoreView", () => {
+  it("maps a selected Region with normalized edition-specific rectangles", async () => {
+    const api = makeApi({
+      regions: vi.fn().mockResolvedValue([{
+        id: 4, piece_id: 7, name: "Development", m_start: 40, m_end: 56,
+        kind: "section", order: 0, color: "#8b7cf6", pdf_anchor: null,
+      }]),
+      updateRegion: vi.fn().mockImplementation(async (_id, pdfAnchor) => ({
+        id: 4, piece_id: 7, name: "Development", m_start: 40, m_end: 56,
+        kind: "section", order: 0, color: "#8b7cf6", pdf_anchor: pdfAnchor,
+      })),
+    });
+    render(<ScoreView pieceId={7} api={api} adapter={makePdf(2).adapter} />);
+    await screen.findByLabelText("Score page 2");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Development, measures 40 to 56" }));
+    fireEvent.click(screen.getByRole("button", { name: "Map Development" }));
+    const overlay = screen.getByTestId("page-overlay-1");
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 800,
+      width: 1000, height: 800, toJSON: () => ({}),
+    });
+    fireEvent.pointerDown(overlay, { pointerId: 1, clientX: 100, clientY: 200 });
+    fireEvent.pointerMove(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
+    fireEvent.click(screen.getByRole("button", { name: "Save mapping" }));
+
+    await waitFor(() => expect(api.updateRegion).toHaveBeenCalledWith(4, {
+      v: 1,
+      editions: {
+        urtext: {
+          fingerprint: "a",
+          rects: [{ page: 1, x: 0.1, y: 0.25, w: 0.4, h: 0.25 }],
+        },
+      },
+    }));
+  });
+
   it("shows an honest no-PDF state", async () => {
     render(<ScoreView pieceId={7} api={makeApi({ editions: vi.fn().mockResolvedValue([]) })} adapter={makePdf().adapter} />);
     expect(await screen.findByText("No PDF score found.")).toBeTruthy();
@@ -161,7 +202,7 @@ describe("ScoreView", () => {
 
     fireEvent.change(screen.getByLabelText("Page number"), { target: { value: "4" } });
     fireEvent.submit(screen.getByLabelText("Page number").closest("form")!);
-    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenCalled();
     expect(screen.getByLabelText("Page number").getAttribute("value")).toBe("4");
   });
 });

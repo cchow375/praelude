@@ -15,6 +15,10 @@ interface BlockFormProps {
   defaultStartBpm?: number;
   /** Pre-fill target tempo from the piece's intake, when available. */
   defaultTargetBpm?: number | null;
+  /** Pre-fill a score Region's measure range and label. */
+  defaultMeasureStart?: number;
+  defaultMeasureEnd?: number;
+  defaultLabel?: string;
   onOpen: (args: RepOpenArgs) => void;
   opening?: boolean;
 }
@@ -35,12 +39,19 @@ export function BlockForm({
   pieceId,
   defaultStartBpm,
   defaultTargetBpm,
+  defaultMeasureStart,
+  defaultMeasureEnd,
+  defaultLabel,
   onOpen,
   opening = false,
 }: BlockFormProps) {
-  const [mStart, setMStart] = useState<string>("");
-  const [mEnd, setMEnd] = useState<string>("");
-  const [label, setLabel] = useState<string>("");
+  const [mStart, setMStart] = useState<string>(
+    defaultMeasureStart != null ? String(defaultMeasureStart) : "",
+  );
+  const [mEnd, setMEnd] = useState<string>(
+    defaultMeasureEnd != null ? String(defaultMeasureEnd) : "",
+  );
+  const [label, setLabel] = useState<string>(defaultLabel ?? "");
   const [startBpm, setStartBpm] = useState<string>(
     defaultStartBpm != null ? String(defaultStartBpm) : "60",
   );

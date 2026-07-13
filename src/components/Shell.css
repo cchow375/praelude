@@ -99,6 +99,10 @@
   transition: padding-right var(--duration-slow) var(--ease-standard);
 }
 
+.practice-main:has(.piece-detail.is-score) {
+  overflow: hidden;
+}
+
 .shell.has-rep-panel .practice-main {
   padding-right: min(430px, 36vw);
 }

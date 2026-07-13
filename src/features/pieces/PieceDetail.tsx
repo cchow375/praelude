@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Intake, PieceDetailData } from "./types";
-import type { RepOpenArgs } from "../rep/useRep";
+import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
 import { IntakeForm } from "./IntakeForm";
 import { BlockForm } from "../rep/BlockForm";
 import { EditableField } from "../../components/EditableField";
@@ -9,6 +9,7 @@ import { EditableNumber } from "../../components/EditableNumber";
 import { useCrud } from "../rep/useCrud";
 import { GoalsPanel } from "./GoalsPanel";
 import { HistoryPanel } from "./HistoryPanel";
+import { ScoreView } from "../score/ScoreView";
 
 // ---------------------------------------------------------------------------
 // The detail surface for a selected piece. Before intake is done it shows the
@@ -22,6 +23,7 @@ interface PieceDetailProps {
   piece: PieceDetailData;
   onBack: () => void;
   onOpenBlock: (args: RepOpenArgs) => Promise<void>;
+  activeRep?: RepSnapshot | null;
   /** Notifies the parent list when the piece record changes (badges/summary). */
   onUpdated?: (piece: PieceDetailData) => void;
 }
@@ -36,6 +38,7 @@ export function PieceDetail({
   piece: initial,
   onBack,
   onOpenBlock,
+  activeRep = null,
   onUpdated,
 }: PieceDetailProps) {
   const crud = useCrud();
@@ -44,6 +47,9 @@ export function PieceDetail({
   const [saving, setSaving] = useState(false);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [surface, setSurface] = useState<"practice" | "score">(
+    initial.has_pdf ? "score" : "practice",
+  );
 
   const saveIntake = useCallback(
     async (intake: Intake) => {
@@ -95,7 +101,10 @@ export function PieceDetail({
   );
 
   return (
-    <section className="piece-detail" aria-label={`Piece: ${piece.title}`}>
+    <section
+      className={`piece-detail ${piece.intake_done && surface === "score" ? "is-score" : ""}`}
+      aria-label={`Piece: ${piece.title}`}
+    >
       <div className="piece-detail-head">
         <button type="button" className="ck-back" onClick={onBack}>
           ← Pieces
@@ -106,6 +115,28 @@ export function PieceDetail({
             <p className="piece-detail-composer">{piece.composer}</p>
           )}
         </div>
+        {piece.intake_done && piece.has_pdf && (
+          <div className="piece-surface-tabs" role="tablist" aria-label="Piece workspace">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={surface === "score"}
+              className={surface === "score" ? "is-on" : ""}
+              onClick={() => setSurface("score")}
+            >
+              Score
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={surface === "practice"}
+              className={surface === "practice" ? "is-on" : ""}
+              onClick={() => setSurface("practice")}
+            >
+              Details
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -116,6 +147,14 @@ export function PieceDetail({
 
       {!piece.intake_done ? (
         <IntakeForm piece={piece} onSave={saveIntake} saving={saving} />
+      ) : surface === "score" && piece.has_pdf ? (
+        <ScoreView
+          pieceId={piece.id}
+          activeRange={activeRep ? { m_start: activeRep.m_start, m_end: activeRep.m_end } : null}
+          defaultTargetBpm={piece.target_tempo}
+          onOpenBlock={openBlock}
+          opening={opening}
+        />
       ) : (
         <>
           <PieceSummary piece={piece} onUpdate={updatePieceField} />

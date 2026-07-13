@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { PieceDetailData, PieceSummary } from "./types";
-import type { RepOpenArgs } from "../rep/useRep";
+import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
 import { PieceDetail } from "./PieceDetail";
 import "./Pieces.css";
 
@@ -14,6 +14,7 @@ import "./Pieces.css";
 
 interface PiecesPanelProps {
   onOpenBlock: (args: RepOpenArgs) => Promise<void>;
+  activeRep?: RepSnapshot | null;
 }
 
 function messageOf(e: unknown): string {
@@ -22,7 +23,7 @@ function messageOf(e: unknown): string {
   return String(e);
 }
 
-export function PiecesPanel({ onOpenBlock }: PiecesPanelProps) {
+export function PiecesPanel({ onOpenBlock, activeRep = null }: PiecesPanelProps) {
   const [pieces, setPieces] = useState<PieceSummary[]>([]);
   const [selected, setSelected] = useState<PieceDetailData | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -94,6 +95,7 @@ export function PiecesPanel({ onOpenBlock }: PiecesPanelProps) {
           piece={selected}
           onBack={() => setSelected(null)}
           onOpenBlock={onOpenBlock}
+          activeRep={activeRep}
           onUpdated={onPieceUpdated}
         />
       </div>

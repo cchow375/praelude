@@ -147,7 +147,7 @@ export function Shell() {
 
       {view === "practice" ? (
         <main className="practice-main" data-testid="main-practice">
-          <PiecesPanel onOpenBlock={rep.open} />
+          <PiecesPanel onOpenBlock={rep.open} activeRep={rep.snap} />
         </main>
       ) : (
         <main className="hero">

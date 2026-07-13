@@ -49,7 +49,7 @@ export function useCrud() {
     regionList: (pieceId: number) => invoke<Region[]>("region_list", { pieceId }),
     regionCreate: (args: { piece_id: number; name: string; m_start: number; m_end: number; kind: string }) =>
       invoke<Region>("region_create", { args }),
-    regionUpdate: (id: number, patch: Partial<Pick<Region, "name" | "m_start" | "m_end" | "kind" | "order" | "color">>) =>
+    regionUpdate: (id: number, patch: Partial<Pick<Region, "name" | "m_start" | "m_end" | "kind" | "order" | "color" | "pdf_anchor">>) =>
       invoke<Region>("region_update", { id, patch }),
     regionDelete: (id: number) => invoke<void>("region_delete", { id }),
     regionMerge: (idKeep: number, idAbsorb: number) =>
