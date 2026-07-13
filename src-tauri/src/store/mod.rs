@@ -31,6 +31,40 @@ pub struct Store {
     conn: Mutex<Connection>,
 }
 
+fn insert_practice_event_rows(
+    tx: &rusqlite::Transaction<'_>,
+    session_id: i64,
+    piece_id: i64,
+    kind: &str,
+    payload: &serde_json::Value,
+) -> rusqlite::Result<(i64, i64, String)> {
+    if kind != EventKind::REP_OPEN && kind != EventKind::REP {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "practice event kind".into(),
+        ));
+    }
+    let payload = json_to_sql(payload)?;
+    let (legacy_id, timestamp): (i64, String) = tx.query_row(
+        "INSERT INTO session_event (session_id,kind,payload)
+         VALUES (?1,?2,?3) RETURNING id,ts",
+        rusqlite::params![session_id, kind, &payload],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let canonical_id: i64 = tx.query_row(
+        "INSERT INTO event (ts,session_id,piece_id,kind,payload)
+         VALUES (?1,?2,?3,?4,?5) RETURNING id",
+        rusqlite::params![&timestamp, session_id, piece_id, kind, &payload],
+        |row| row.get(0),
+    )?;
+    tx.execute(
+        "INSERT INTO session_event_backfill
+         (legacy_session_event_id,canonical_event_id,disposition,reason)
+         VALUES (?1,?2,'inserted','live_atomic')",
+        rusqlite::params![legacy_id, canonical_id],
+    )?;
+    Ok((legacy_id, canonical_id, timestamp))
+}
+
 /// Scanner-owned and user-owned score paths kept separate for secure edition
 /// discovery. Crate-private: the frontend receives
 /// [`PdfEdition`](crate::score::PdfEdition), never this raw filesystem record.
@@ -381,6 +415,64 @@ impl Store {
         )
     }
 
+    /// Insert a block plus its rep-open feed/canonical/ledger rows in one
+    /// transaction. The builder receives the real block id and returns both
+    /// the exact event payload and the caller-owned snapshot derived from it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_rep_block_with_practice_event<T, F>(
+        &self,
+        session_id: i64,
+        piece_id: i64,
+        m_start: u32,
+        m_end: u32,
+        label: Option<&str>,
+        start_bpm: Option<f64>,
+        target_bpm: Option<f64>,
+        increment_rule: &IncrementRule,
+        planned_reps: u32,
+        variants: &[VariantSpec],
+        focus: &str,
+        use_metronome: bool,
+        build: F,
+    ) -> rusqlite::Result<(i64, i64, T)>
+    where
+        F: FnOnce(i64) -> rusqlite::Result<(serde_json::Value, T)>,
+    {
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        let block_id = tx.query_row(
+            "INSERT INTO rep_block
+                 (piece_id,m_start,m_end,label,start_bpm,target_bpm,
+                  increment_rule,planned_reps,variants,focus,use_metronome)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+             RETURNING id",
+            rusqlite::params![
+                piece_id,
+                m_start,
+                m_end,
+                label,
+                start_bpm,
+                target_bpm,
+                json_to_sql(increment_rule)?,
+                planned_reps,
+                json_to_sql(variants)?,
+                focus,
+                use_metronome,
+            ],
+            |row| row.get(0),
+        )?;
+        let (payload, output) = build(block_id)?;
+        let (legacy_id, _, _) = insert_practice_event_rows(
+            &tx,
+            session_id,
+            piece_id,
+            EventKind::REP_OPEN,
+            &payload,
+        )?;
+        tx.commit()?;
+        Ok((block_id, legacy_id, output))
+    }
+
     /// Update a block's status (`open` / `done` / `abandoned`).
     pub fn update_block_status(&self, block_id: i64, status: &str) -> rusqlite::Result<()> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
@@ -408,6 +500,48 @@ impl Store {
             rusqlite::params![block_id, bpm, variant, verdict, note],
             |row| row.get(0),
         )
+    }
+
+    /// Insert the authoritative rep and all of its practice-history rows in one
+    /// transaction. A simultaneous ladder step is included in the same commit.
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_rep_with_practice_event(
+        &self,
+        session_id: i64,
+        piece_id: i64,
+        block_id: i64,
+        bpm: f64,
+        variant: Option<&str>,
+        verdict: &str,
+        note: Option<&str>,
+        payload: &serde_json::Value,
+        tempo_change: Option<&serde_json::Value>,
+    ) -> rusqlite::Result<(i64, i64)> {
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        let rep_id = tx.query_row(
+            "INSERT INTO rep (block_id,bpm,variant,verdict,note)
+             VALUES (?1,?2,?3,?4,?5) RETURNING id",
+            rusqlite::params![block_id, bpm, variant, verdict, note],
+            |row| row.get(0),
+        )?;
+        let (legacy_id, _, timestamp) =
+            insert_practice_event_rows(&tx, session_id, piece_id, EventKind::REP, payload)?;
+        if let Some(tempo_payload) = tempo_change {
+            tx.execute(
+                "INSERT INTO event (ts,session_id,piece_id,kind,payload)
+                 VALUES (?1,?2,?3,?4,?5)",
+                rusqlite::params![
+                    &timestamp,
+                    session_id,
+                    piece_id,
+                    EventKind::TEMPO_CHANGE,
+                    json_to_sql(tempo_payload)?,
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok((rep_id, legacy_id))
     }
 
     /// Every rep block for a piece (newest first), each with its rep verdict
@@ -653,6 +787,30 @@ impl Store {
         )
     }
 
+    /// Atomically append a practice event to the live session feed, canonical
+    /// event log, and v6 reconciliation ledger. One SQLite timestamp is shared
+    /// by both logs, so a crash or second-boundary rollover cannot create a
+    /// missing or duplicate canonical rep on the next open.
+    pub fn insert_practice_event(
+        &self,
+        session_id: i64,
+        piece_id: i64,
+        kind: &str,
+        payload: &serde_json::Value,
+    ) -> rusqlite::Result<i64> {
+        if kind != EventKind::REP_OPEN && kind != EventKind::REP {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "practice event kind".into(),
+            ));
+        }
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        let (legacy_id, _, _) =
+            insert_practice_event_rows(&tx, session_id, piece_id, kind, payload)?;
+        tx.commit()?;
+        Ok(legacy_id)
+    }
+
     /// Close a session, stamping `ended_at` and storing its markdown summary.
     pub fn end_session(&self, id: i64, summary_md: &str) -> rusqlite::Result<()> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
@@ -802,6 +960,129 @@ mod tests {
             vec!["id", "session_id", "ts", "kind", "payload"],
             "session_event should have exactly these columns, in order"
         );
+    }
+
+    #[test]
+    fn practice_event_writes_feed_canonical_and_ledger_atomically_with_one_timestamp() {
+        let store = mem();
+        let piece_id = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/vault/Atomic".into(),
+                title: "Atomic".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+        let session_id = store.open_session().unwrap();
+        let legacy_id = store
+            .insert_practice_event(
+                session_id,
+                piece_id,
+                EventKind::REP,
+                &serde_json::json!({"piece_id":piece_id,"block_id":99,"verdict":"clean"}),
+            )
+            .unwrap();
+        let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let row: (i64, String, String, String) = conn
+            .query_row(
+                "SELECT event.id,event.ts,session_event.ts,ledger.reason
+                 FROM session_event
+                 JOIN session_event_backfill ledger
+                   ON ledger.legacy_session_event_id=session_event.id
+                 JOIN event ON event.id=ledger.canonical_event_id
+                 WHERE session_event.id=?1",
+                [legacy_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert!(row.0 > 0);
+        assert_eq!(row.1, row.2, "both logs share the exact SQLite timestamp");
+        assert_eq!(row.3, "live_atomic");
+    }
+
+    #[test]
+    fn rep_and_block_source_rows_roll_back_when_history_transaction_fails() {
+        let store = mem();
+        let piece_id = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/vault/Rollback".into(),
+                title: "Rollback".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+        let session_id = store.open_session().unwrap();
+        {
+            let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
+            conn.execute_batch(
+                "CREATE TRIGGER fail_live_ledger BEFORE INSERT ON session_event_backfill
+                 BEGIN SELECT RAISE(ABORT,'injected ledger failure'); END;",
+            )
+            .unwrap();
+        }
+        let rule = IncrementRule {
+            clean_needed: 1,
+            bpm_step: 4.0,
+        };
+        assert!(store
+            .insert_rep_block_with_practice_event(
+                session_id,
+                piece_id,
+                1,
+                4,
+                None,
+                Some(80.0),
+                Some(100.0),
+                &rule,
+                10,
+                &[],
+                "tempo",
+                true,
+                |block_id| Ok((serde_json::json!({"piece_id":piece_id,"block_id":block_id}), ())),
+            )
+            .is_err());
+        {
+            let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
+            assert_eq!(conn.query_row("SELECT count(*) FROM rep_block", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+            assert_eq!(conn.query_row("SELECT count(*) FROM session_event", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+            assert_eq!(conn.query_row("SELECT count(*) FROM event WHERE kind='rep_open'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+            conn.execute_batch("DROP TRIGGER fail_live_ledger;").unwrap();
+        }
+
+        let block_id = store
+            .insert_rep_block(
+                piece_id, 1, 4, None, Some(80.0), Some(100.0), &rule, 10, &[], "tempo", true,
+            )
+            .unwrap();
+        {
+            let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
+            conn.execute_batch(
+                "CREATE TRIGGER fail_live_ledger BEFORE INSERT ON session_event_backfill
+                 BEGIN SELECT RAISE(ABORT,'injected ledger failure'); END;",
+            )
+            .unwrap();
+        }
+        let payload = serde_json::json!({"piece_id":piece_id,"block_id":block_id,"verdict":"clean"});
+        assert!(store
+            .insert_rep_with_practice_event(
+                session_id,
+                piece_id,
+                block_id,
+                80.0,
+                None,
+                "clean",
+                None,
+                &payload,
+                Some(&serde_json::json!({"piece_id":piece_id,"block_id":block_id,"from_bpm":80,"to_bpm":84})),
+            )
+            .is_err());
+        let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
+        assert_eq!(conn.query_row("SELECT count(*) FROM rep", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(conn.query_row("SELECT count(*) FROM session_event", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(conn.query_row("SELECT count(*) FROM event WHERE kind IN ('rep','tempo_change')", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(conn.query_row("SELECT count(*) FROM session_event_backfill", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
     }
 
     #[test]

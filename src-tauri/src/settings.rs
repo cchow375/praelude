@@ -132,7 +132,10 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
         writes.push(("metronome.boost", value.to_string()));
     }
     if let Some(value) = patch.metronome_boost_level {
-        writes.push(("metronome.boost_level", value.min(100).to_string()));
+        writes.push((
+            "metronome.boost_level",
+            bounded(u32::from(value), 0, 100, "Boost level")?.to_string(),
+        ));
     }
     if let Some(value) = patch.ladder_default_reps {
         writes.push(("rep.default_reps", bounded(value, 1, 240, "Default reps")?.to_string()));
@@ -345,6 +348,11 @@ mod tests {
             ..Default::default()
         }).is_err());
         assert_eq!(store.get_setting("theme").unwrap(), None);
+        assert!(update(&store, SettingsPatch {
+            metronome_boost_level: Some(101),
+            ..Default::default()
+        }).is_err());
+        assert_eq!(store.get_setting("metronome.boost_level").unwrap(), None);
     }
 
     #[test]

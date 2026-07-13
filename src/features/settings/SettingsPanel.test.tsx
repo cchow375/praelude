@@ -31,4 +31,15 @@ describe("SettingsPanel", () => {
     resolve({ provider: "claude", configured: true, source: "keychain" });
     expect(await within(control).findByText("Configured (keychain)")).toBeTruthy();
   });
+
+  it("submits the currently focused alias draft when Enter saves", async () => {
+    const settingsApi = api();
+    render(<SettingsPanel api={settingsApi} onResetLayout={vi.fn()} />);
+    const alias = await screen.findByLabelText("Clean verdict aliases");
+    fireEvent.change(alias, { target: { value: "solid landing, easy arrival" } });
+    fireEvent.submit(alias.closest("form")!);
+    await waitFor(() => expect(settingsApi.update).toHaveBeenCalledWith(expect.objectContaining({
+      verdict_aliases: { clean: ["solid landing", "easy arrival"], flawed: [], failed: [] },
+    })));
+  });
 });

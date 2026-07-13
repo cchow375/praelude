@@ -112,8 +112,24 @@ impl SessionService {
                 return;
             }
         };
-        // Emit the just-logged event with its stored (converted) timestamp so the
-        // frontend panel shows the same ts SQLite recorded.
+        self.emit_logged_event(event_id, kind);
+    }
+
+    /// Resolve or open the session required by a rep transaction. Unlike the
+    /// generic best-effort logger, practice mutations propagate failure.
+    pub(crate) fn ensure_session(&self) -> Result<i64, String> {
+        self.resolve_session()
+            .ok_or_else(|| "Could not open a practice session.".to_string())
+    }
+
+    /// Emit a practice-feed row only after its source/history transaction has
+    /// committed successfully.
+    pub(crate) fn emit_persisted_practice(&self, event_id: i64, kind: &str) {
+        self.emit_logged_event(event_id, kind);
+    }
+
+    /// Emit one just-logged feed event with the exact timestamp SQLite stored.
+    fn emit_logged_event(&self, event_id: i64, kind: &str) {
         match self.store.session_event(event_id) {
             Ok(mut view) => {
                 view.ts = sqlite_ts_to_rfc3339(&view.ts);

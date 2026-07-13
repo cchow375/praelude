@@ -229,6 +229,7 @@ export function Shell({ onThemeChange }: { onThemeChange?: (theme: ThemePref) =>
         open={openPanel === "settings"}
         onClose={close}
         label="Settings"
+        size="wide"
       >
         <SettingsPanel onResetLayout={panelManager.resetLayout} onThemeSaved={onThemeChange} />
       </Popover>

@@ -24,6 +24,8 @@ interface PopoverProps {
   offset?: number;
   /** Accessible label for the panel. */
   label?: string;
+  /** A wider measured surface for forms such as Settings. */
+  size?: "default" | "wide";
 }
 
 /**
@@ -40,6 +42,7 @@ export function Popover({
   align = "end",
   offset = 8,
   label,
+  size = "default",
 }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const labelId = useId();
@@ -56,15 +59,19 @@ export function Popover({
     if (!anchor || !panel) return;
     const a = anchor.getBoundingClientRect();
     const p = panel.getBoundingClientRect();
+    // `getBoundingClientRect()` includes the entrance scale transform. Use the
+    // untransformed layout width so a panel does not grow past the viewport
+    // after positioning (especially the wide Settings surface).
+    const panelWidth = panel.offsetWidth || p.width;
 
     let left: number;
     if (align === "start") left = a.left;
-    else if (align === "center") left = a.left + a.width / 2 - p.width / 2;
-    else left = a.right - p.width;
+    else if (align === "center") left = a.left + a.width / 2 - panelWidth / 2;
+    else left = a.right - panelWidth;
 
     // Clamp within the viewport with an 8px margin.
     const margin = 8;
-    left = Math.max(margin, Math.min(left, window.innerWidth - p.width - margin));
+    left = Math.max(margin, Math.min(left, window.innerWidth - panelWidth - margin));
     const top = a.bottom + offset;
 
     setPos({ top, left });
@@ -152,6 +159,7 @@ export function Popover({
       tabIndex={-1}
       className="popover-panel"
       data-visible={visible}
+      data-size={size}
       style={{
         top: pos?.top ?? 0,
         left: pos?.left ?? 0,

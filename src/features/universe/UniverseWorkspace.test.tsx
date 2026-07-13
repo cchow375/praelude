@@ -67,6 +67,7 @@ describe("UniverseWorkspace", () => {
     expect(screen.getByRole("button", { name: /Open Nocturne Op\. 9 No\. 2 by Chopin in Practice\./ })).toBeTruthy();
     expect(screen.getAllByText("1h 30m")).toHaveLength(2);
     expect(screen.getByText("2 of 3")).toBeTruthy();
+    expect(screen.getByText("97% tint · not a grade")).toBeTruthy();
     expect(screen.getByText("Signal definitions")).toBeTruthy();
     expect(screen.getByText("Focused practice time after idle time is removed.")).toBeTruthy();
     expect(screen.getByText(/Window: 2026-06-15 through 2026-07-12/)).toBeTruthy();

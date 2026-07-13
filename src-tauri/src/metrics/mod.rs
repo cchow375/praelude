@@ -194,7 +194,10 @@ fn parse_ts_secs(ts: &str) -> Option<i64> {
     let mut parts = time.split(':');
     let h: i64 = parts.next()?.parse().ok()?;
     let m: i64 = parts.next()?.parse().ok()?;
-    let s: i64 = parts.next().unwrap_or("0").parse().ok()?;
+    let s: i64 = parts.next()?.parse().ok()?;
+    if parts.next().is_some() || !(0..=23).contains(&h) || !(0..=59).contains(&m) || !(0..=59).contains(&s) {
+        return None;
+    }
     Some(days * 86_400 + h * 3_600 + m * 60 + s)
 }
 
@@ -286,6 +289,23 @@ mod tests {
         let mut e3 = ev_at(0);
         e3.ts = "2026-07-12 10:11:30".into(); // +600s → idle → 0
         assert_eq!(focused_seconds(&[e1, e2, e3]), 90);
+    }
+
+    #[test]
+    fn focused_seconds_rejects_invalid_or_trailing_clock_components() {
+        let mut valid = ev_at(0);
+        valid.ts = "2026-07-12 23:59:00".into();
+        let invalid = [
+            "2026-07-12 24:00:00",
+            "2026-07-12 23:60:00",
+            "2026-07-12 23:59:60",
+            "2026-07-12 23:59:30:99",
+        ];
+        for timestamp in invalid {
+            let mut bad = ev_at(0);
+            bad.ts = timestamp.into();
+            assert_eq!(focused_seconds(&[valid.clone(), bad]), 0, "{timestamp}");
+        }
     }
 
     #[test]

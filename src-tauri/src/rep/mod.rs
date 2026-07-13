@@ -140,9 +140,13 @@ impl RepEngine {
         );
         let rule = args.increment.clone().unwrap_or(auto_rule);
 
-        let block_id = self
+        let variant = ladder::variant_index_for_rep(&args.variants, 1)
+            .map(|i| args.variants[i].name.clone());
+        let session_id = self.sessions.ensure_session()?;
+        let (_block_id, event_id, snap) = self
             .store
-            .insert_rep_block(
+            .insert_rep_block_with_practice_event(
+                session_id,
                 args.piece_id,
                 args.m_start,
                 args.m_end,
@@ -158,48 +162,40 @@ impl RepEngine {
                 &args.variants,
                 &args.focus,
                 args.use_metronome,
+                |block_id| {
+                    let snap = RepSnapshot {
+                        block_id,
+                        piece_id: args.piece_id,
+                        piece_title: piece.title.clone(),
+                        m_start: args.m_start,
+                        m_end: args.m_end,
+                        label: args.label.clone(),
+                        bpm: args.start_bpm,
+                        start_bpm: args.start_bpm,
+                        target_bpm: args.target_bpm,
+                        planned_reps: planned,
+                        reps_done: 0,
+                        cleans_at_step: 0,
+                        rule: rule.clone(),
+                        variant: variant.clone(),
+                        variants: args.variants.clone(),
+                        verdicts: VerdictCounts::default(),
+                        last: None,
+                        status: "open".to_string(),
+                        focus: args.focus.clone(),
+                        use_metronome: args.use_metronome,
+                    };
+                    let payload = serde_json::to_value(&snap).map_err(|error| {
+                        rusqlite::Error::ToSqlConversionFailure(Box::new(error))
+                    })?;
+                    Ok((payload, snap))
+                },
             )
             .map_err(|e| e.to_string())?;
-
-        let variant = ladder::variant_index_for_rep(&args.variants, 1)
-            .map(|i| args.variants[i].name.clone());
-
-        let snap = RepSnapshot {
-            block_id,
-            piece_id: args.piece_id,
-            piece_title: piece.title,
-            m_start: args.m_start,
-            m_end: args.m_end,
-            label: args.label,
-            bpm: args.start_bpm,
-            start_bpm: args.start_bpm,
-            target_bpm: args.target_bpm,
-            planned_reps: planned,
-            reps_done: 0,
-            cleans_at_step: 0,
-            rule,
-            variant,
-            variants: args.variants,
-            verdicts: VerdictCounts::default(),
-            last: None,
-            status: "open".to_string(),
-            focus: args.focus,
-            use_metronome: args.use_metronome,
-        };
         *active = Some(snap.clone());
         drop(active);
-
-        let snap_val = serde_json::to_value(&snap).unwrap_or(Value::Null);
-        self.sessions.log("rep_open", snap_val.clone());
-        // Durable canonical log (separate from the live session_event feed above).
-        if let Some(sid) = self.sessions.current_id() {
-            if let Err(e) =
-                self.store
-                    .append_event(EventKind::REP_OPEN, Some(sid), Some(snap.piece_id), &snap_val)
-            {
-                eprintln!("rep: failed to append REP_OPEN event: {e}");
-            }
-        }
+        self.sessions
+            .emit_persisted_practice(event_id, EventKind::REP_OPEN);
         self.emit_state(Some(&snap));
         Ok(snap)
     }
@@ -224,27 +220,18 @@ impl RepEngine {
         let rep_bpm = snap.bpm;
         let cur_lane = ladder::variant_index_for_rep(&snap.variants, snap.reps_done + 1);
         let rep_variant = cur_lane.map(|i| snap.variants[i].name.clone());
+        let mut next_snap = snap.clone();
 
-        self.store
-            .insert_rep(
-                snap.block_id,
-                rep_bpm,
-                rep_variant.as_deref(),
-                verdict.as_str(),
-                note.as_deref(),
-            )
-            .map_err(|e| e.to_string())?;
-
-        snap.reps_done += 1;
+        next_snap.reps_done += 1;
         match verdict {
             RepVerdict::Clean => {
-                snap.verdicts.clean += 1;
-                snap.cleans_at_step += 1;
+                next_snap.verdicts.clean += 1;
+                next_snap.cleans_at_step += 1;
             }
-            RepVerdict::Flawed => snap.verdicts.flawed += 1,
-            RepVerdict::Failed => snap.verdicts.failed += 1,
+            RepVerdict::Flawed => next_snap.verdicts.flawed += 1,
+            RepVerdict::Failed => next_snap.verdicts.failed += 1,
         }
-        snap.last = Some(LastRep {
+        next_snap.last = Some(LastRep {
             verdict: verdict.as_str().to_string(),
             note: note.clone(),
             bpm: rep_bpm,
@@ -257,67 +244,74 @@ impl RepEngine {
         // working tempo + log a `tempo_change` event (below), regardless of whether
         // the metronome is running or `use_metronome` is set — retuning the actual
         // metronome is the consumer's job (voice loop), gated on `use_metronome`.
-        let from_bpm = snap.bpm;
-        let new_bpm = if snap.focus == "tempo" && matches!(verdict, RepVerdict::Clean) {
-            ladder::step(&snap.rule, snap.cleans_at_step, snap.bpm, snap.target_bpm)
+        let from_bpm = next_snap.bpm;
+        let new_bpm = if next_snap.focus == "tempo" && matches!(verdict, RepVerdict::Clean) {
+            ladder::step(
+                &next_snap.rule,
+                next_snap.cleans_at_step,
+                next_snap.bpm,
+                next_snap.target_bpm,
+            )
         } else {
             None
         };
         if let Some(nb) = new_bpm {
-            snap.bpm = nb;
-            snap.cleans_at_step = 0;
+            next_snap.bpm = nb;
+            next_snap.cleans_at_step = 0;
         }
 
         // Which lane the *next* rep belongs to, and whether that is a change.
-        let next_lane = ladder::variant_index_for_rep(&snap.variants, snap.reps_done + 1);
+        let next_lane =
+            ladder::variant_index_for_rep(&next_snap.variants, next_snap.reps_done + 1);
         let lane_changed = next_lane.is_some() && next_lane != cur_lane;
-        let next_variant = next_lane.map(|i| snap.variants[i].name.clone());
-        snap.variant = next_variant.clone();
+        let next_variant = next_lane.map(|i| next_snap.variants[i].name.clone());
+        next_snap.variant = next_variant.clone();
 
-        let block_done = snap.reps_done >= snap.planned_reps;
-        let say = compose_say(snap, new_bpm, block_done, lane_changed, next_variant.as_deref());
-
-        let out_snap = snap.clone();
-        drop(active);
+        let block_done = next_snap.reps_done >= next_snap.planned_reps;
+        let say = compose_say(
+            &next_snap,
+            new_bpm,
+            block_done,
+            lane_changed,
+            next_variant.as_deref(),
+        );
 
         let rep_payload = json!({
-            "block_id": out_snap.block_id,
-            "piece_id": out_snap.piece_id,
+            "block_id": next_snap.block_id,
+            "piece_id": next_snap.piece_id,
             "bpm": rep_bpm,
-            "variant": rep_variant,
+            "variant": rep_variant.clone(),
             "verdict": verdict.as_str(),
-            "note": note,
+            "note": note.clone(),
         });
-        self.sessions.log("rep", rep_payload.clone());
-        // Durable canonical log (separate from the live session_event feed above).
-        let sid = self.sessions.current_id();
-        if let Some(sid) = sid {
-            if let Err(e) =
-                self.store
-                    .append_event(EventKind::REP, Some(sid), Some(out_snap.piece_id), &rep_payload)
-            {
-                eprintln!("rep: failed to append REP event: {e}");
-            }
-        }
-        // A ladder step is a durable `tempo_change` event, always logged when the
-        // BPM advances (independent of the metronome). Only `tempo`-focus blocks
-        // ever reach here with `new_bpm = Some`.
-        if let (Some(nb), Some(sid)) = (new_bpm, sid) {
-            let tempo_payload = json!({
-                "block_id": out_snap.block_id,
-                "piece_id": out_snap.piece_id,
+        let tempo_payload = new_bpm.map(|nb| {
+            json!({
+                "block_id": next_snap.block_id,
+                "piece_id": next_snap.piece_id,
                 "from_bpm": from_bpm,
                 "to_bpm": nb,
-            });
-            if let Err(e) = self.store.append_event(
-                EventKind::TEMPO_CHANGE,
-                Some(sid),
-                Some(out_snap.piece_id),
-                &tempo_payload,
-            ) {
-                eprintln!("rep: failed to append TEMPO_CHANGE event: {e}");
-            }
-        }
+            })
+        });
+        let sid = self.sessions.ensure_session()?;
+        let (_, event_id) = self
+            .store
+            .insert_rep_with_practice_event(
+                sid,
+                next_snap.piece_id,
+                next_snap.block_id,
+                rep_bpm,
+                rep_variant.as_deref(),
+                verdict.as_str(),
+                note.as_deref(),
+                &rep_payload,
+                tempo_payload.as_ref(),
+            )
+            .map_err(|error| error.to_string())?;
+        *snap = next_snap.clone();
+        let out_snap = next_snap;
+        drop(active);
+        self.sessions
+            .emit_persisted_practice(event_id, EventKind::REP);
         self.emit_state(Some(&out_snap));
 
         Ok(CheckOutcome {
@@ -604,6 +598,32 @@ mod tests {
         assert_eq!(out.snap.bpm, 44.0); // advanced
         let evs = engine.store.events_for_piece(snap.piece_id).unwrap();
         assert!(evs.iter().any(|e| e.kind == "tempo_change"));
+    }
+
+    #[test]
+    fn step_after_session_end_uses_the_new_practice_session() {
+        let (engine, _pid, store, _emit) = engine_with_piece();
+        engine
+            .open(open_args_tempo(true, 1, 4.0, 40.0))
+            .unwrap();
+        let ended = engine.sessions.end_raw().expect("open session ends");
+        let out = engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(out.new_bpm, Some(44.0));
+        let events = store.events_for_piece(1).unwrap();
+        let rep_session = events
+            .iter()
+            .rev()
+            .find(|event| event.kind == EventKind::REP)
+            .and_then(|event| event.session_id)
+            .expect("rep opens a replacement session");
+        let tempo_session = events
+            .iter()
+            .rev()
+            .find(|event| event.kind == EventKind::TEMPO_CHANGE)
+            .and_then(|event| event.session_id)
+            .expect("step is logged in the replacement session");
+        assert_ne!(rep_session, ended);
+        assert_eq!(tempo_session, rep_session);
     }
 
     #[test]

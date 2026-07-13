@@ -52,10 +52,11 @@ export function SettingsPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [aliasDrafts, setAliasDrafts] = useState({ clean: "", flawed: "", failed: "" });
 
   useEffect(() => {
     let active = true;
-    api.snapshot().then((next) => { if (active) setValue(next); }).catch((cause) => {
+    api.snapshot().then((next) => { if (active) { setValue(next); setAliasDrafts(aliasStrings(next.verdict_aliases)); } }).catch((cause) => {
       if (active) setError(errorMessage(cause));
     });
     return () => { active = false; };
@@ -82,9 +83,14 @@ export function SettingsPanel({
         ladder_bpm_step: value.ladder_bpm_step,
         calendar_capacity_minutes: value.calendar_capacity_minutes,
         vault_pieces_dir: value.vault_pieces_dir,
-        verdict_aliases: value.verdict_aliases,
+        verdict_aliases: {
+          clean: parseAliases(aliasDrafts.clean),
+          flawed: parseAliases(aliasDrafts.flawed),
+          failed: parseAliases(aliasDrafts.failed),
+        },
       });
       setValue(next);
+      setAliasDrafts(aliasStrings(next.verdict_aliases));
       onThemeSaved?.(next.theme);
       setMessage("Settings saved. Voice/provider changes apply after relaunch.");
     } catch (cause) {
@@ -115,9 +121,9 @@ export function SettingsPanel({
         <label><span>Coach voice</span><select aria-label="Coach voice" value={value.tts_voice} onChange={(event) => setValue({ ...value, tts_voice: event.target.value })}>{["Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"].map((voice) => <option key={voice}>{voice}</option>)}</select></label>
         <label><span>Speech provider</span><select aria-label="Speech provider" value={value.tts_provider} onChange={(event) => setValue({ ...value, tts_provider: event.target.value as SettingsSnapshot["tts_provider"] })}><option value="auto">Auto (Gemini → Mac)</option><option value="gemini">Gemini</option><option value="say">Mac system voice</option></select></label>
         <label><span>Brain provider</span><select aria-label="Brain provider" value={value.brain_provider} onChange={(event) => setValue({ ...value, brain_provider: event.target.value as SettingsSnapshot["brain_provider"] })}><option value="auto">Auto (Claude → Gemini → offline)</option><option value="claude">Prefer Claude</option><option value="gemini">Gemini only</option><option value="offline">Offline library only</option></select></label>
-        <AliasField label="Clean verdict aliases" value={value.verdict_aliases.clean} onChange={(clean) => setValue({ ...value, verdict_aliases: { ...value.verdict_aliases, clean } })} />
-        <AliasField label="Flawed verdict aliases" value={value.verdict_aliases.flawed} onChange={(flawed) => setValue({ ...value, verdict_aliases: { ...value.verdict_aliases, flawed } })} />
-        <AliasField label="Failed verdict aliases" value={value.verdict_aliases.failed} onChange={(failed) => setValue({ ...value, verdict_aliases: { ...value.verdict_aliases, failed } })} />
+        <AliasField label="Clean verdict aliases" value={aliasDrafts.clean} onChange={(clean) => setAliasDrafts({ ...aliasDrafts, clean })} />
+        <AliasField label="Flawed verdict aliases" value={aliasDrafts.flawed} onChange={(flawed) => setAliasDrafts({ ...aliasDrafts, flawed })} />
+        <AliasField label="Failed verdict aliases" value={aliasDrafts.failed} onChange={(failed) => setAliasDrafts({ ...aliasDrafts, failed })} />
         <div className="settings-keys" aria-label="API keys">{(["claude", "gemini"] as Provider[]).map((provider) => <KeyControl key={provider} provider={provider} status={value.api_keys.find((item) => item.provider === provider)!} api={api} onStatus={(status) => setValue({ ...value, api_keys: value.api_keys.map((item) => item.provider === provider ? status : item) })} />)}</div>
       </fieldset>
 
@@ -138,9 +144,8 @@ function NumberField({ label, value, min, max, onChange }: { label: string; valu
   return <label><span>{label}</span><input type="number" aria-label={label} value={value} min={min} max={max} onChange={(event) => onChange(Number(event.target.value))} /></label>;
 }
 
-function AliasField({ label, value, onChange }: { label: string; value: string[]; onChange: (value: string[]) => void }) {
-  const [draft, setDraft] = useState(value.join(", "));
-  return <label><span>{label}</span><input aria-label={label} placeholder="comma separated" value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={() => onChange(parseAliases(draft))} /></label>;
+function AliasField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return <label><span>{label}</span><input aria-label={label} placeholder="comma separated" value={value} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
 function KeyControl({ provider, status, api, onStatus }: { provider: Provider; status: ApiKeyStatus; api: SettingsApi; onStatus: (status: ApiKeyStatus) => void }) {
@@ -165,3 +170,4 @@ function KeyControl({ provider, status, api, onStatus }: { provider: Provider; s
 
 function errorMessage(cause: unknown) { if (typeof cause === "string") return cause; if (cause instanceof Error) return cause.message; return "Settings could not be updated."; }
 function parseAliases(value: string) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
+function aliasStrings(value: VerdictAliases) { return { clean: value.clean.join(", "), flawed: value.flawed.join(", "), failed: value.failed.join(", ") }; }

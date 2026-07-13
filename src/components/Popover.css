@@ -25,6 +25,11 @@
   transform: translateY(0) scale(1);
 }
 
+.popover-panel[data-size="wide"] {
+  width: min(700px, calc(100vw - 16px));
+  max-width: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .popover-panel {
     transition-duration: 1ms;

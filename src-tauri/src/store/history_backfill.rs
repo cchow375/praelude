@@ -27,8 +27,10 @@ struct LegacyEvent {
 /// Ledger every previously unseen `session_event` and copy only reconstructable
 /// `rep_open`/`rep` rows into `event`.
 ///
-/// A reconstructable row must carry integer `piece_id` and `block_id` values,
-/// the piece must still exist, and the block must belong to that exact piece.
+/// A reconstructable row must carry integer `piece_id` and `block_id` values and
+/// the piece must still exist. When the block still exists, it must belong to
+/// that exact piece. A deleted block does not erase otherwise exact piece-level
+/// practice history; it simply cannot receive current Region attribution.
 /// The original timestamp, session link, kind, and payload bytes are preserved.
 /// An exact pre-existing canonical counterpart is linked instead of duplicated.
 pub(crate) fn backfill_history(conn: &Connection) -> rusqlite::Result<BackfillStats> {
@@ -100,11 +102,7 @@ pub(crate) fn backfill_history(conn: &Connection) -> rusqlite::Result<BackfillSt
             )
             .optional()?;
         match block_piece {
-            None => {
-                record_skip(conn, row.id, "missing_block")?;
-                stats.skipped += 1;
-                continue;
-            }
+            None => {}
             Some(owner) if owner != piece_id => {
                 record_skip(conn, row.id, "cross_piece_block")?;
                 stats.skipped += 1;
@@ -135,9 +133,18 @@ pub(crate) fn backfill_history(conn: &Connection) -> rusqlite::Result<BackfillSt
             )
             .optional()?;
 
+        let missing_block = block_piece.is_none();
         let (canonical_id, disposition, reason) = if let Some(event_id) = existing {
             stats.matched += 1;
-            (event_id, "matched", "exact_existing")
+            (
+                event_id,
+                "matched",
+                if missing_block {
+                    "exact_existing_deleted_block"
+                } else {
+                    "exact_existing"
+                },
+            )
         } else {
             let event_id = conn.query_row(
                 "INSERT INTO event (ts,session_id,piece_id,kind,payload)
@@ -147,7 +154,15 @@ pub(crate) fn backfill_history(conn: &Connection) -> rusqlite::Result<BackfillSt
                 |result| result.get(0),
             )?;
             stats.inserted += 1;
-            (event_id, "inserted", "backfilled")
+            (
+                event_id,
+                "inserted",
+                if missing_block {
+                    "backfilled_deleted_block"
+                } else {
+                    "backfilled"
+                },
+            )
         };
         conn.execute(
             "INSERT INTO session_event_backfill

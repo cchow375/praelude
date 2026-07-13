@@ -79,7 +79,7 @@ fn keychain_key(account: &str) -> Option<String> {
 }
 
 pub fn api_key_status(provider: ApiKeyProvider) -> ApiKeyStatus {
-    let keychain = keychain_key(provider.account()).is_some();
+    let keychain = keychain_has_key(provider.account());
     let environment = std::env::var(provider.env_name())
         .ok()
         .is_some_and(|value| !value.trim().is_empty());
@@ -94,6 +94,22 @@ pub fn api_key_status(provider: ApiKeyProvider) -> ApiKeyStatus {
             "none"
         },
     }
+}
+
+/// Check Keychain presence without asking `security` to return the secret.
+fn keychain_has_key(account: &str) -> bool {
+    Command::new("/usr/bin/security")
+        .args([
+            "find-generic-password",
+            "-s",
+            KEYCHAIN_SERVICE,
+            "-a",
+            account,
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 /// Store a key without putting its value in process arguments. Passing `-w` as

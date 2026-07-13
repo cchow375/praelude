@@ -33,21 +33,21 @@
 
 ## ✅ Execution checklist
 
-- [ ] **P6.1 — Schema v6 historical ledger/backfill.** Preserve exact legacy timestamps and links;
+- [x] **P6.1 — Schema v6 historical ledger/backfill.** Preserve exact legacy timestamps and links;
   reconstruct only typed rows with valid canonical ownership; idempotence/crash/real-copy gates.
-- [ ] **P6.2 — Honest Universe snapshot.** Pure aggregation for focused time, 28-day active days,
+- [x] **P6.2 — Honest Universe snapshot.** Pure aggregation for focused time, 28-day active days,
   Region breadth, 2+ day revisits, gentle quality brightness, and explicit definitions/traces.
-- [ ] **P6.3 — Home + Universe UI.** Calm space home, all-piece system, accessible SVG stars/
+- [x] **P6.3 — Home + Universe UI.** Calm space home, all-piece system, accessible SVG stars/
   orbits/planets, text list, empty/error/loading states, keyboard drill-in to piece/Region.
-- [ ] **P6.4 — Navigation finish.** Home becomes intentional landing; Practice/Calendar/Brain stay
+- [x] **P6.4 — Navigation finish.** Home becomes intentional landing; Practice/Calendar/Brain stay
   one click away; remove the redundant top-level Metronome placeholder while keeping its tool.
-- [ ] **P6.5 — References.** Per-piece Spotify/YouTube search handoff, quiet-mode explanation,
+- [x] **P6.5 — References.** Per-piece Spotify/YouTube search handoff, quiet-mode explanation,
   fixed allowlisted URLs, correct encoding, failure feedback, no provider automation claims.
-- [ ] **P6.6 — Deep typed Settings.** Theme, voice/TTS/wake behavior, metronome/ladder defaults,
+- [x] **P6.6 — Deep typed Settings.** Theme, voice/TTS/wake behavior, metronome/ladder defaults,
   aliases with collision validation, brain preference + native key status/write-only save.
-- [ ] **P6.7 — Final icon/design pass.** Repo-native icon source + complete macOS sizes; coherent
+- [x] **P6.7 — Final icon/design pass.** Repo-native icon source + complete macOS sizes; coherent
   calm hierarchy, reduced motion, contrast, focus order, narrow layout, no decorative clutter.
-- [ ] **P6.8 — Automated release path.** Fail-fast script for app/DMG, ad-hoc seal, identifier/
+- [x] **P6.8 — Automated release path.** Fail-fast script for app/DMG, ad-hoc seal, identifier/
   version checks, staged DMG contents, checksum, LaunchServices cleanup, duplicate rejection.
 - [ ] **P6.9 — Adversarial + real-copy gate.** Fresh security/data/accessibility reviews, full
   suites/build/clippy, migration on fresh v0.6 DB backup, installed launch/relaunch/data checks.
@@ -92,4 +92,5 @@ Developer ID/notarization claim, WebGL, or Universe physics simulator.
 
 ## Next action
 
-Land and rehearse the schema v6 historical-event ledger before rendering a single star.
+Resolve the fresh adversarial reviews, then run the v1 release script against the preserved
+schema-v5 live database and verify the installed app, migrated data, DMG, and checksum.

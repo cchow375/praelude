@@ -289,7 +289,7 @@
 
 .universe-piece-card header p {
   margin: var(--space-1) 0 0;
-  color: var(--ink-tertiary);
+  color: var(--ink-secondary);
   font-size: var(--text-sm);
 }
 
@@ -305,7 +305,7 @@
 }
 
 .universe-piece-metrics dt {
-  color: var(--ink-tertiary);
+  color: var(--ink-secondary);
   font-size: var(--text-xs);
 }
 
@@ -333,7 +333,7 @@
 
 .universe-region-details summary span {
   margin-left: var(--space-1);
-  color: var(--ink-tertiary);
+  color: var(--ink-secondary);
   font-weight: var(--weight-normal);
 }
 
@@ -368,7 +368,7 @@
 .universe-region-details li span,
 .universe-region-details li p,
 .universe-no-regions {
-  color: var(--ink-tertiary);
+  color: var(--ink-secondary);
   font-size: var(--text-xs);
 }
 
@@ -411,7 +411,7 @@
 
 .universe-source-note {
   margin: var(--space-5) 0 0;
-  color: var(--ink-tertiary);
+  color: var(--ink-secondary);
   font-size: var(--text-xs);
 }
 

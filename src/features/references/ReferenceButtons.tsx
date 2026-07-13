@@ -43,7 +43,7 @@ export function ReferenceButtons({ pieceId, api = defaultApi }: { pieceId: numbe
     <section className="reference-buttons" aria-label="Reference recordings">
       <div>
         <span className="ck-label">Reference recordings</span>
-        <p>Open an explicit search in your browser. CodaKiller never downloads or autoplays it.</p>
+        <p>Open an explicit search in the matching app or browser. CodaKiller never downloads or autoplays it.</p>
       </div>
       <div className="reference-actions">
         <button type="button" disabled={opening != null} onClick={() => void open("spotify")}>

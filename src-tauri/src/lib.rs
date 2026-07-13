@@ -644,7 +644,6 @@ fn voice_state(voice: State<'_, Arc<VoiceLoop>>) -> VoiceStatus {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // DB lives under Tauri's per-app data dir; parent dirs may not exist
             // on first launch, so create them before opening.

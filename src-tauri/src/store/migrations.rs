@@ -399,6 +399,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             let _ = conn.execute_batch("ROLLBACK;");
             return Err(error);
         }
+    } else {
+        // The live session feed and canonical event log were historically two
+        // independent writes. Reconcile on every schema-v6 open so a crash
+        // between those writes cannot permanently hide practice from Universe.
+        let reconciliation = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN;")?;
+            super::history_backfill::backfill_history(conn)?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = reconciliation {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
     }
 
     Ok(())
@@ -964,8 +978,8 @@ mod v3_tests {
         assert_eq!(
             c.query_row("SELECT count(*) FROM event", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            events_before + 1,
-            "only the unmatched valid rep is inserted"
+            events_before + 2,
+            "the unmatched rep and exact piece-level deleted-block history are inserted"
         );
         assert_eq!(
             c.query_row("SELECT count(*) FROM session_event_backfill", [], |row| row
@@ -1036,9 +1050,17 @@ mod v3_tests {
                 (4, "malformed_payload".into()),
                 (5, "cross_piece_block".into()),
                 (6, "missing_piece".into()),
-                (7, "missing_block".into()),
                 (8, "missing_piece_id".into()),
             ]
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT reason FROM session_event_backfill WHERE legacy_session_event_id=7",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "backfilled_deleted_block"
         );
 
         let event_count: i64 = c
@@ -1055,6 +1077,29 @@ mod v3_tests {
             super::super::history_backfill::backfill_history(&c).unwrap(),
             super::super::history_backfill::BackfillStats::default(),
             "the ledger also makes the worker itself idempotent"
+        );
+        c.execute(
+            "INSERT INTO session_event (id,session_id,ts,kind,payload)
+             VALUES (9,1,'2026-07-11 09:08:00','rep',
+                     '{\"piece_id\":1,\"block_id\":1,\"verdict\":\"clean\"}')",
+            [],
+        )
+        .unwrap();
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM session_event_backfill WHERE legacy_session_event_id=9",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1,
+            "every schema-v6 open reconciles a live-feed write missed by the canonical log"
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM event", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            event_count + 1
         );
         assert_eq!(
             c.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {

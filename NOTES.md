@@ -2,6 +2,40 @@
 
 ## Decisions
 
+- **P6 / v1.0.0 finish (2026-07-12):**
+  - **Schema v6 backfills history without inventing it.** `session_event_backfill` is the
+    one-row-per-legacy-event ledger. The v5→v6 migration maps only typed `rep` and `rep_open`
+    rows whose canonical ownership can be proven, preserving the exact timestamp, session,
+    piece, kind, and payload. Unsupported or orphaned rows are ledgered with a skip reason;
+    the entire migration, including `PRAGMA user_version`, is one transaction. A fresh copy
+    of the real v0.6 database preserved 5 pieces / 24 Regions / 20 blocks / 165 reps / 4 Goals,
+    ledgered all 249 source rows, mapped 190, explicitly skipped 59, reached 193 total canonical
+    events, passed integrity/FKs, and added zero rows on a second open.
+    New block-open and rep writes go further: the authoritative `rep_block`/`rep` row, live
+    `session_event`, canonical `event`, reconciliation ledger, and any simultaneous tempo step
+    share one SQLite transaction. Injected ledger-failure tests prove every source/history row
+    rolls back together, and in-memory Rep state changes only after commit.
+  - **The Practice Universe visualizes only defensible signals.** Star radius is focused time;
+    continuity is distinct active days in an inclusive 28-local-day window; planets are Regions
+    with recorded work; halos require work on 2+ distinct dates. Self-reported verdict quality
+    changes brightness only inside a deliberately narrow 0.92–1.00 band. The same values and
+    definitions are rendered as visible text; admin Calendar/Goal/recovery events are excluded.
+  - **Settings have a typed native boundary.** Theme, TTS/voice, Brain provider, wake word,
+    metronome, ladder defaults, Calendar capacity, vault path, and verdict aliases are bounded
+    before one atomic settings write. Verdict aliases are normalized, unique across verdicts,
+    limited to 12 per group, and cannot steal built-in deterministic commands. React can read
+    API-key configured/source status only. Key values are piped to `/usr/bin/security` through
+    stdin and cleared from the UI immediately when save begins; they never enter SQLite.
+  - **Reference buttons are explicit handoffs, not media integrations.** Spotify and YouTube
+    origins are compiled in; the piece/composer query is UTF-8 percent-encoded and passed to
+    `/usr/bin/open` as an argument. There is no arbitrary URL, shell interpolation, scraping,
+    download, autoplay, or OAuth claim.
+  - **The Mac release is one fail-fast script.** `npm run release:mac` checks version agreement,
+    runs frontend/Rust/build/strict-clippy gates, builds the `.app`, installs and ad-hoc seals the
+    canonical `/Applications/CodaKiller.app`, creates a staged drag-to-Applications DMG + SHA-256,
+    cleans LaunchServices/build copies, and rejects duplicates. This machine has no Developer ID;
+    the v1 artifact is local ad-hoc signed and is not notarized.
+
 - **Foundation T8/T9/T18 (2026-07-12, Opus 4.8 takeover):**
   - **Export reads the canonical graph, not frozen event payloads (T8).**
     `sessions/export.rs::write_session_md` now enumerates a session's blocks from the

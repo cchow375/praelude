@@ -180,7 +180,7 @@ export function UniverseWorkspace({ onOpenPractice }: UniverseWorkspaceProps) {
                     className="universe-star-target"
                     role="button"
                     tabIndex={0}
-                    aria-label={`Open ${piece.title}${piece.composer ? ` by ${piece.composer}` : ""} in Practice. ${formatDuration(piece.focused_seconds)} focused time, ${piece.active_days_28} active days in the last 28, ${piece.regions_practiced} of ${piece.regions_total} Regions practiced, ${piece.regions_revisited} revisited.`}
+                    aria-label={`Open ${piece.title}${piece.composer ? ` by ${piece.composer}` : ""} in Practice. ${formatDuration(piece.focused_seconds)} focused time, ${piece.active_days_28} active days in the last 28, ${piece.regions_practiced} of ${piece.regions_total} Regions practiced, ${piece.regions_revisited} revisited, ${brightnessPercent(piece.quality_brightness)} visual brightness tint, not a grade.`}
                     onClick={() => void openPiece(piece)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
@@ -294,6 +294,7 @@ function PieceSignals({ piece, opening, onOpen }: { piece: UniversePiece; openin
         <div><dt>Active days · 28</dt><dd>{piece.active_days_28}</dd></div>
         <div><dt>Regions practiced</dt><dd>{piece.regions_practiced} of {piece.regions_total}</dd></div>
         <div><dt>Regions revisited</dt><dd>{piece.regions_revisited}</dd></div>
+        <div><dt>Visual brightness</dt><dd>{brightnessPercent(piece.quality_brightness)} tint · not a grade</dd></div>
         <div><dt>Last practiced</dt><dd>{formatDate(piece.last_practiced)}</dd></div>
       </dl>
       {piece.region_signals.length > 0 ? (
@@ -323,3 +324,7 @@ function PieceSignals({ piece, opening, onOpen }: { piece: UniversePiece; openin
 }
 
 export { formatDuration, starPosition, starRadius };
+
+function brightnessPercent(value: number) {
+  return `${Math.round(Math.max(0.92, Math.min(1, value)) * 100)}%`;
+}

@@ -48,16 +48,18 @@ afterEach(() => {
 function Harness({
   align,
   onClose = () => {},
+  size = "default",
 }: {
   align?: "start" | "center" | "end";
   onClose?: () => void;
+  size?: "default" | "wide";
 }) {
   const anchorRef = useRef<HTMLButtonElement>(null);
   return (
     <>
       <button ref={anchorRef}>anchor</button>
       <button data-testid="outside">outside</button>
-      <Popover anchorRef={anchorRef} open onClose={onClose} align={align} label="Test">
+      <Popover anchorRef={anchorRef} open onClose={onClose} align={align} label="Test" size={size}>
         <button data-testid="inside">inside</button>
       </Popover>
     </>
@@ -92,6 +94,11 @@ describe("Popover — viewport clamping", () => {
     const panel = screen.getByRole("dialog", { name: "Test" });
     // window.innerWidth (1024 in jsdom) - panel width (200) - margin (8) = 816
     expect(panel.style.left).toBe("816px");
+  });
+
+  it("marks a wide surface so its measured CSS width controls clamping", () => {
+    render(<Harness size="wide" />);
+    expect(screen.getByRole("dialog", { name: "Test" }).getAttribute("data-size")).toBe("wide");
   });
 });
 
