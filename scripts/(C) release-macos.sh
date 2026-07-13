@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+# Stock macOS tools (notably hdiutil's Perl helper) do not provide C.UTF-8.
+# Pin the release process to the portable C locale instead of inheriting a
+# shell/package-manager locale that can make DMG creation abort after install.
+export LC_ALL=C
+export LANG=C
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(cd "$ROOT" && node -p "require('./package.json').version")"
 IDENTIFIER="com.christian.codakiller"
