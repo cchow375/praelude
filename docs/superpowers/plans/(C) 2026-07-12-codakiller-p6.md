@@ -1,6 +1,6 @@
 # CodaKiller P6 — Home, Practice Universe + v1 Finish
 
-> **Status:** active · **Target:** v1.0.0 · **Branch:** `p6-universe`
+> **Status:** shipped 2026-07-12 · **Target:** v1.0.0 · **Branch:** `p6-universe`
 > **Goal:** make accumulated real work visible, finish the daily product surface, and produce one
 > honest, repeatable Mac release without turning self-reported quality into a gameable score.
 
@@ -49,9 +49,9 @@
   calm hierarchy, reduced motion, contrast, focus order, narrow layout, no decorative clutter.
 - [x] **P6.8 — Automated release path.** Fail-fast script for app/DMG, ad-hoc seal, identifier/
   version checks, staged DMG contents, checksum, LaunchServices cleanup, duplicate rejection.
-- [ ] **P6.9 — Adversarial + real-copy gate.** Fresh security/data/accessibility reviews, full
+- [x] **P6.9 — Adversarial + real-copy gate.** Fresh security/data/accessibility reviews, full
   suites/build/clippy, migration on fresh v0.6 DB backup, installed launch/relaunch/data checks.
-- [ ] **P6.10 — Ship v1.0.0.** Tutorial/flaws/changelog/portable summary/version record, one sealed
+- [x] **P6.10 — Ship v1.0.0.** Tutorial/flaws/changelog/portable summary/version record, one sealed
   app + verified DMG, schema integrity/FKs, checksum, tag, fast-forward `main`.
 
 ## 🔌 Runtime contracts
@@ -92,5 +92,5 @@ Developer ID/notarization claim, WebGL, or Universe physics simulator.
 
 ## Next action
 
-Resolve the fresh adversarial reviews, then run the v1 release script against the preserved
-schema-v5 live database and verify the installed app, migrated data, DMG, and checksum.
+Run Christian's complete v1 at-piano acceptance session, record friction immediately, and tune
+only what that real use proves. Then create the private off-disk git remote.
