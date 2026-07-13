@@ -60,9 +60,20 @@ export interface BrainIntakeApplyResult {
   saved_at: string;
 }
 
+export interface WorkSuggestion {
+  id: string;
+  kind: "goal" | "open_block" | "revisit" | string;
+  title: string;
+  m_start: number | null;
+  m_end: number | null;
+  score: number;
+  reasons: string[];
+}
+
 export interface BrainApi {
   ask: (request: BrainAskRequest) => Promise<BrainAnswer>;
   applyIntakeReview: (request: BrainIntakeApplyRequest) => Promise<BrainIntakeApplyResult>;
+  planPreview: () => Promise<WorkSuggestion[]>;
 }
 
 export interface WakeQuestion {

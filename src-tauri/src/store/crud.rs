@@ -1057,22 +1057,38 @@ impl Store {
     /// Update any of a piece's inline-editable intake fields (absent =
     /// unchanged). Deliberately appends NO event — see [`PieceFieldPatch`].
     pub fn piece_field_update(&self, piece_id: i64, patch: PieceFieldPatch) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let PieceFieldPatch {
+            current_state,
+            deadline,
+            target_tempo,
+            notes,
+        } = patch;
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        let old_deadline: Option<String> = if deadline.is_some() {
+            tx.query_row(
+                "SELECT deadline FROM piece WHERE id = ?1",
+                [piece_id],
+                |row| row.get(0),
+            )?
+        } else {
+            None
+        };
         let mut sets: Vec<String> = Vec::new();
         let mut vals: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-        if let Some(v) = patch.current_state {
+        if let Some(v) = current_state {
             sets.push(format!("current_state = ?{}", vals.len() + 2));
             vals.push(Box::new(v));
         }
-        if let Some(v) = patch.deadline {
+        if let Some(v) = deadline.clone() {
             sets.push(format!("deadline = ?{}", vals.len() + 2));
             vals.push(Box::new(v));
         }
-        if let Some(v) = patch.target_tempo {
+        if let Some(v) = target_tempo {
             sets.push(format!("target_tempo = ?{}", vals.len() + 2));
             vals.push(Box::new(v));
         }
-        if let Some(v) = patch.notes {
+        if let Some(v) = notes {
             sets.push(format!("notes = ?{}", vals.len() + 2));
             vals.push(Box::new(v));
         }
@@ -1082,9 +1098,20 @@ impl Store {
             for v in &vals {
                 params.push(v.as_ref());
             }
-            conn.execute(&sql, params.as_slice())?;
+            tx.execute(&sql, params.as_slice())?;
         }
-        Ok(())
+        if let Some(new_deadline) = deadline {
+            // A piece deadline is the default inherited by its canonical root
+            // goals. Move only rows that still match the previous default;
+            // preserve explicit per-goal dates the user set independently.
+            tx.execute(
+                "UPDATE goal SET target_date = ?2
+                 WHERE piece_id = ?1 AND parent_goal_id IS NULL
+                   AND target_date IS ?3",
+                rusqlite::params![piece_id, new_deadline, old_deadline],
+            )?;
+        }
+        tx.commit()
     }
 }
 // ── T7: piece_field tests ────────────────────────────────────────────────
@@ -1104,5 +1131,38 @@ mod piece_field {
         let p = s.get_piece(1).unwrap().unwrap();
         assert_eq!(p.current_state.as_deref(), Some("mm.1-40 solid"));
         assert_eq!(p.deadline, None); // untouched
+    }
+
+    #[test]
+    fn piece_deadline_moves_only_goals_inheriting_the_previous_default() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        s.piece_field_update(1, PieceFieldPatch {
+            deadline: Some(Some("2026-08-01".into())),
+            ..Default::default()
+        }).unwrap();
+        s.goal_create(GoalCreate {
+            piece_id: 1,
+            text: "Inherited".into(),
+            kind: "big".into(),
+            parent_goal_id: None,
+            target_date: Some("2026-08-01".into()),
+        }).unwrap();
+        s.goal_create(GoalCreate {
+            piece_id: 1,
+            text: "Custom".into(),
+            kind: "big".into(),
+            parent_goal_id: None,
+            target_date: Some("2026-07-20".into()),
+        }).unwrap();
+
+        s.piece_field_update(1, PieceFieldPatch {
+            deadline: Some(Some("2026-09-01".into())),
+            ..Default::default()
+        }).unwrap();
+
+        let goals = s.goal_list(1).unwrap();
+        assert_eq!(goals[0].target_date.as_deref(), Some("2026-09-01"));
+        assert_eq!(goals[1].target_date.as_deref(), Some("2026-07-20"));
     }
 }

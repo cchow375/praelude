@@ -8,9 +8,10 @@ mod context;
 mod library;
 mod provider;
 
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +24,7 @@ use library::{EmbeddedLibrary, PracticeLibrary};
 use provider::{NativeTransport, ProviderChain, ProviderName, ProviderOutput, Transport};
 
 const MAX_QUESTION_CHARS: usize = 2_000;
+const INTAKE_REVIEW_TTL: Duration = Duration::from_secs(15 * 60);
 static ANSWER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -83,6 +85,63 @@ pub struct BrainIntakeApplyRequest {
 pub struct BrainIntakeApplyResult {
     pub piece_id: i64,
     pub saved_at: String,
+}
+
+#[derive(Debug)]
+struct PendingIntakeReview {
+    piece_id: i64,
+    allowed_fields: HashSet<String>,
+    expires_at: Instant,
+}
+
+/// Process-local authorization ledger for explicit intake review saves.
+/// Reviews are one-time, expire quickly, and are bound to the answer, piece,
+/// and exact fields the deterministic parser actually proposed.
+#[derive(Debug)]
+pub struct PendingIntakeReviews {
+    entries: Mutex<HashMap<String, PendingIntakeReview>>,
+    ttl: Duration,
+}
+
+impl Default for PendingIntakeReviews {
+    fn default() -> Self {
+        Self {
+            entries: Mutex::new(HashMap::new()),
+            ttl: INTAKE_REVIEW_TTL,
+        }
+    }
+}
+
+impl PendingIntakeReviews {
+    pub fn register_answer(&self, answer: &BrainAnswer) {
+        let Some(review) = &answer.intake_review else {
+            return;
+        };
+        let allowed_fields = review
+            .fields
+            .iter()
+            .map(|field| field.field.clone())
+            .collect();
+        let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        let now = Instant::now();
+        entries.retain(|_, pending| pending.expires_at > now);
+        entries.insert(
+            answer.id.clone(),
+            PendingIntakeReview {
+                piece_id: review.piece_id,
+                allowed_fields,
+                expires_at: now + self.ttl,
+            },
+        );
+    }
+
+    #[cfg(test)]
+    fn with_ttl(ttl: Duration) -> Self {
+        Self {
+            entries: Mutex::new(HashMap::new()),
+            ttl,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -379,9 +438,9 @@ fn valid_date(value: &str) -> bool {
 pub fn apply_intake_review(
     request: BrainIntakeApplyRequest,
     store: &Store,
+    pending_reviews: &PendingIntakeReviews,
 ) -> Result<BrainIntakeApplyResult, BrainError> {
-    if !request.answer_id.starts_with("brain-")
-        || request.changes.is_empty()
+    if request.changes.is_empty()
         || request.changes.len() > 4
         || store
             .get_piece(request.piece_id)
@@ -389,6 +448,25 @@ pub fn apply_intake_review(
             .is_none()
     {
         return Err(BrainError::InvalidQuestion("Invalid intake review request".into()));
+    }
+    let mut pending = pending_reviews
+        .entries
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let now = Instant::now();
+    pending.retain(|_, review| review.expires_at > now);
+    let authorization = pending
+        .get(&request.answer_id)
+        .ok_or_else(|| BrainError::InvalidQuestion("Intake review expired or was already saved".into()))?;
+    if authorization.piece_id != request.piece_id
+        || request
+            .changes
+            .iter()
+            .any(|change| !authorization.allowed_fields.contains(&change.field))
+    {
+        return Err(BrainError::InvalidQuestion(
+            "Intake review does not authorize this piece or field".into(),
+        ));
     }
     let mut patch = PieceFieldPatch::default();
     let mut seen = std::collections::HashSet::new();
@@ -428,6 +506,7 @@ pub fn apply_intake_review(
     store
         .piece_field_update(request.piece_id, patch)
         .map_err(|_| BrainError::Context("Could not save intake review".into()))?;
+    pending.remove(&request.answer_id);
     Ok(BrainIntakeApplyResult {
         piece_id: request.piece_id,
         saved_at: store
@@ -447,33 +526,6 @@ fn next_answer_id() -> String {
 
 fn output_crosses_policy(answer: &str) -> bool {
     let normalized = answer.to_ascii_lowercase();
-    let fixed_phrases = [
-        "your rep was clean",
-        "your rep was flawed",
-        "your rep failed",
-        "mark the rep clean",
-        "mark the rep flawed",
-        "mark the rep failed",
-        "start the metronome",
-        "stop the metronome",
-        "set the tempo",
-        "set bpm",
-        "increase the bpm",
-        "decrease the bpm",
-        "raise the bpm",
-        "lower the bpm",
-        "go to page",
-        "go to measure",
-        "update your intake",
-        "save this change",
-        "reschedule",
-    ];
-    if fixed_phrases
-        .iter()
-        .any(|phrase| normalized.contains(phrase))
-    {
-        return true;
-    }
     if [
         "api key",
         "apikey",
@@ -497,19 +549,44 @@ fn output_crosses_policy(answer: &str) -> bool {
     {
         return true;
     }
-    let mutation_verbs = ["delete", "edit", "save", "update", "create", "remove"];
-    let graph_objects = ["goal", "block", "rep", "region"];
-    if normalized.split(['.', '!', '?', '\n']).any(|sentence| {
-        mutation_verbs.iter().any(|word| sentence.contains(word))
-            && graph_objects.iter().any(|word| sentence.contains(word))
-    }) {
-        return true;
-    }
-    let verdicts = ["clean", "flawed", "failed"];
-    let attempt_terms = ["rep", "attempt", "playing", "performance", "sounded"];
     normalized.split(['.', '!', '?', '\n']).any(|sentence| {
-        verdicts.iter().any(|word| sentence.contains(word))
-            && attempt_terms.iter().any(|word| sentence.contains(word))
+        let words = sentence
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .collect::<HashSet<_>>();
+        let has = |terms: &[&str]| terms.iter().any(|term| words.contains(term));
+
+        // Provider prose is explanation only. These verb/object pairs are
+        // rejected regardless of wording order, so synonyms cannot turn prose
+        // into apparent app commands.
+        let navigation = has(&["go", "jump", "navigate", "open", "show", "scroll"])
+            && has(&["page", "measure", "score", "region"]);
+        let tempo_control = has(&[
+            "start", "stop", "set", "change", "raise", "lower", "increase", "decrease",
+            "bump", "retune", "adjust",
+        ]) && has(&["tempo", "bpm", "metronome", "click"]);
+        let graph_mutation = has(&[
+            "delete", "edit", "save", "update", "create", "remove", "add", "mark",
+            "reschedule", "move", "apply",
+        ]) && has(&["goal", "block", "rep", "region", "intake", "deadline", "schedule"]);
+
+        // The app has no piano-audio perception. Reject both first-person
+        // sensory claims and verdict language tied to an attempt/performance.
+        let sensory_claim = has(&["i", "we"])
+            && has(&["hear", "heard", "listen", "listened", "detect", "detected"])
+            && has(&[
+                "playing", "performance", "piano", "take", "rep", "attempt", "tension",
+                "rhythm", "tone",
+            ]);
+        let sounded_claim = sentence.contains("your playing sounds")
+            || sentence.contains("your performance sounds")
+            || sentence.contains("that sounded");
+        let verdict = has(&[
+            "clean", "flawed", "failed", "sloppy", "rough", "shaky", "perfect", "correct",
+            "incorrect",
+        ]) && has(&["rep", "attempt", "playing", "performance", "take", "sounded"]);
+
+        navigation || tempo_control || graph_mutation || sensory_claim || sounded_claim || verdict
     })
 }
 
@@ -604,6 +681,8 @@ mod tests {
             "asking alone never mutates intake"
         );
 
+        let pending = PendingIntakeReviews::default();
+        pending.register_answer(&answer);
         apply_intake_review(BrainIntakeApplyRequest {
             answer_id: answer.id,
             piece_id,
@@ -612,7 +691,7 @@ mod tests {
                 IntakeChange { field: "deadline".into(), value: Some("2026-08-01".into()) },
                 IntakeChange { field: "target_tempo".into(), value: Some("144".into()) },
             ],
-        }, store.as_ref()).unwrap();
+        }, store.as_ref(), &pending).unwrap();
         let piece = store.get_piece(piece_id).unwrap().unwrap();
         assert_eq!(piece.current_state.as_deref(), Some("hands together"));
         assert_eq!(piece.deadline.as_deref(), Some("2026-08-01"));
@@ -621,16 +700,95 @@ mod tests {
 
     #[test]
     fn intake_apply_rejects_provider_invented_fields() {
-        let (store, _sessions, piece_id) = fixture();
+        let (store, sessions, piece_id) = fixture();
+        let answer = ask_with(
+            request("Review my intake: notes to keep this bounded"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &ProviderChain::default(),
+            &FakeTransport::default(),
+        ).unwrap();
+        let pending = PendingIntakeReviews::default();
+        pending.register_answer(&answer);
         let result = apply_intake_review(BrainIntakeApplyRequest {
-            answer_id: "brain-test".into(),
+            answer_id: answer.id,
             piece_id,
             changes: vec![IntakeChange {
                 field: "goals".into(),
                 value: Some("delete everything".into()),
             }],
-        }, store.as_ref());
+        }, store.as_ref(), &pending);
         assert!(matches!(result, Err(BrainError::InvalidQuestion(_))));
+    }
+
+    #[test]
+    fn intake_review_is_bound_to_piece_and_is_one_time() {
+        let (store, sessions, piece_id) = fixture();
+        let other_piece = store.upsert_piece(&ScanPiece {
+            folder_path: "/vault/Other".into(),
+            title: "Other".into(),
+            composer: None,
+            xml_path: None,
+            pdf_path: None,
+        }).unwrap();
+        let answer = ask_with(
+            request("Review my intake: notes to practice the landing"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &ProviderChain::default(),
+            &FakeTransport::default(),
+        ).unwrap();
+        let pending = PendingIntakeReviews::default();
+        pending.register_answer(&answer);
+
+        let cross_piece = apply_intake_review(BrainIntakeApplyRequest {
+            answer_id: answer.id.clone(),
+            piece_id: other_piece,
+            changes: vec![IntakeChange {
+                field: "notes".into(),
+                value: Some("wrong piece".into()),
+            }],
+        }, store.as_ref(), &pending);
+        assert!(matches!(cross_piece, Err(BrainError::InvalidQuestion(_))));
+
+        let request = BrainIntakeApplyRequest {
+            answer_id: answer.id,
+            piece_id,
+            changes: vec![IntakeChange {
+                field: "notes".into(),
+                value: Some("practice the landing".into()),
+            }],
+        };
+        apply_intake_review(request.clone(), store.as_ref(), &pending).unwrap();
+        let replay = apply_intake_review(request, store.as_ref(), &pending);
+        assert!(matches!(replay, Err(BrainError::InvalidQuestion(_))));
+    }
+
+    #[test]
+    fn expired_intake_review_cannot_mutate() {
+        let (store, sessions, piece_id) = fixture();
+        let answer = ask_with(
+            request("Review my intake: current state to secure"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &ProviderChain::default(),
+            &FakeTransport::default(),
+        ).unwrap();
+        let pending = PendingIntakeReviews::with_ttl(Duration::ZERO);
+        pending.register_answer(&answer);
+        let result = apply_intake_review(BrainIntakeApplyRequest {
+            answer_id: answer.id,
+            piece_id,
+            changes: vec![IntakeChange {
+                field: "current_state".into(),
+                value: Some("secure".into()),
+            }],
+        }, store.as_ref(), &pending);
+        assert!(matches!(result, Err(BrainError::InvalidQuestion(_))));
+        assert_eq!(store.get_piece(piece_id).unwrap().unwrap().current_state, None);
     }
 
     #[test]
@@ -706,6 +864,18 @@ mod tests {
         ));
         assert!(output_crosses_policy(
             "Click the button to update the Region."
+        ));
+        assert!(output_crosses_policy(
+            "Navigate to measure 42 and change the tempo to 90."
+        ));
+        assert!(output_crosses_policy(
+            "I heard tension in your performance."
+        ));
+        assert!(output_crosses_policy(
+            "Jump to page 8, then retune the metronome."
+        ));
+        assert!(output_crosses_policy(
+            "Move the goal to tomorrow and apply the schedule."
         ));
         assert!(!output_crosses_policy(
             "Try three silent landings at a comfortable tempo."

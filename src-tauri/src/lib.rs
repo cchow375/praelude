@@ -481,6 +481,7 @@ async fn brain_ask(
     store: State<'_, Arc<Store>>,
     sessions: State<'_, Arc<SessionService>>,
     voice: State<'_, Arc<VoiceLoop>>,
+    pending_reviews: State<'_, Arc<brain::PendingIntakeReviews>>,
 ) -> Result<brain::BrainAnswer, String> {
     let should_speak = matches!(request.source, brain::QuestionSource::Voice);
     let store = store.inner().clone();
@@ -491,6 +492,7 @@ async fn brain_ask(
         .await
         .map_err(|_| "Brain worker stopped unexpectedly".to_string())?
         .map_err(|error| error.to_string())?;
+    pending_reviews.register_answer(&answer);
     if should_speak {
         // Non-blocking queue into the existing gated TTS owner. A visual answer
         // still returns if voice shut down while the provider was working.
@@ -503,8 +505,10 @@ async fn brain_ask(
 fn brain_intake_apply(
     request: brain::BrainIntakeApplyRequest,
     store: State<'_, Arc<Store>>,
+    pending_reviews: State<'_, Arc<brain::PendingIntakeReviews>>,
 ) -> Result<brain::BrainIntakeApplyResult, String> {
-    brain::apply_intake_review(request, &store).map_err(|error| error.to_string())
+    brain::apply_intake_review(request, &store, &pending_reviews)
+        .map_err(|error| error.to_string())
 }
 
 /// Mute (`true`) or unmute the mic. Gates STT and blocks any action while muted.
@@ -564,6 +568,7 @@ pub fn run() {
             app.manage(store.clone());
             app.manage(sessions.clone());
             app.manage(rep.clone());
+            app.manage(Arc::new(brain::PendingIntakeReviews::default()));
 
             // Start the end-to-end voice loop (STT → intent → metronome + spoken
             // confirmation). Managed so `voice_mute`/`voice_state` reach it and so

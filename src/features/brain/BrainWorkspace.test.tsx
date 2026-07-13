@@ -45,12 +45,33 @@ function makeApi(answer: BrainAnswer = groundedAnswer): BrainApi {
       piece_id: 7,
       saved_at: "2026-07-12T22:00:00Z",
     }),
+    planPreview: vi.fn().mockResolvedValue([
+      {
+        id: "region:4",
+        kind: "revisit",
+        title: "Coda landing",
+        m_start: null,
+        m_end: null,
+        score: 72,
+        reasons: ["3 of the last 5 attempts were flawed or failed"],
+      },
+    ]),
   };
 }
 
 afterEach(cleanup);
 
 describe("BrainWorkspace", () => {
+  it("shows the deterministic next-work trace independently of AI answers", async () => {
+    const api = makeApi();
+    render(<BrainWorkspace api={api} />);
+
+    expect(await screen.findByRole("heading", { name: "Ranked from your real practice graph" })).toBeTruthy();
+    expect(await screen.findByText("Coda landing")).toBeTruthy();
+    expect(screen.getByText("3 of the last 5 attempts were flawed or failed")).toBeTruthy();
+    expect(api.ask).not.toHaveBeenCalled();
+  });
+
   it("asks a typed question and renders a grounded answer, method, and citation", async () => {
     const api = makeApi();
     render(<BrainWorkspace api={api} />);

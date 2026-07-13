@@ -5,7 +5,7 @@ let lastIntent: { kind: string; text: string; bpm: number | null } | null = null
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockImplementation((command: string) =>
-    Promise.resolve(command === "pieces_list" ? [] : command === "brain_ask" ? {
+    Promise.resolve(command === "pieces_list" || command === "brain_plan_preview" ? [] : command === "brain_ask" ? {
       id: "voice-answer",
       answer: "Try three slow landings.",
       provider: "offline",

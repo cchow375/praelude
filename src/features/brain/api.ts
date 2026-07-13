@@ -5,6 +5,7 @@ import type {
   BrainAskRequest,
   BrainIntakeApplyRequest,
   BrainIntakeApplyResult,
+  WorkSuggestion,
 } from "./types";
 
 /** Thin, injectable IPC boundary. No provider credentials ever reach React. */
@@ -13,4 +14,6 @@ export const brainApi: BrainApi = {
     invoke<BrainAnswer>("brain_ask", { request }),
   applyIntakeReview: (request: BrainIntakeApplyRequest) =>
     invoke<BrainIntakeApplyResult>("brain_intake_apply", { request }),
+  planPreview: () =>
+    invoke<WorkSuggestion[]>("brain_plan_preview", { pieceId: null }),
 };

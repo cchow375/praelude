@@ -4,18 +4,28 @@
 //! never writes. Every score component is exposed in `reasons`, so a suggestion
 //! can be audited instead of arriving as an opaque AI instruction.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
-use crate::store::model::{BlockHistory, Goal, RegionMastery};
+use crate::store::model::{BlockHistory, BlockMeta, Goal, RegionMastery, Rep};
 use crate::store::Store;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlanInput {
-    /// User-local `YYYY-MM-DD`, supplied by the UI rather than inferred from UTC.
+    /// User-local `YYYY-MM-DD`, loaded from SQLite/macOS rather than inferred from UTC.
     pub today: String,
     pub goals: Vec<Goal>,
     pub blocks: Vec<BlockHistory>,
     pub regions: Vec<RegionMastery>,
+    pub region_signals: Vec<RegionSignal>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegionSignal {
+    pub region_id: i64,
+    pub recent_attempts: u32,
+    pub recent_misses: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -35,17 +45,54 @@ pub fn preview_for_piece(
     piece_id: i64,
 ) -> rusqlite::Result<Vec<WorkSuggestion>> {
     let progress = crate::metrics::progress_summary(store, piece_id)?;
+    let block_meta = store.blocks_meta(piece_id)?;
+    let reps = store.reps_for_piece(piece_id)?;
     Ok(preview(&PlanInput {
         today: store.local_today()?,
         goals: store.goal_list(piece_id)?,
         blocks: store.block_history(piece_id)?,
         regions: progress.per_region_mastery,
+        region_signals: recent_region_signals(&block_meta, &reps),
     }))
+}
+
+fn recent_region_signals(blocks: &[BlockMeta], reps: &[Rep]) -> Vec<RegionSignal> {
+    let region_of = blocks
+        .iter()
+        .filter_map(|block| block.region_id.map(|region| (block.block_id, region)))
+        .collect::<HashMap<_, _>>();
+    let mut by_region: HashMap<i64, Vec<&Rep>> = HashMap::new();
+    for rep in reps {
+        if let Some(region_id) = region_of.get(&rep.block_id) {
+            by_region.entry(*region_id).or_default().push(rep);
+        }
+    }
+    let mut signals = by_region
+        .into_iter()
+        .map(|(region_id, region_reps)| {
+            let recent = region_reps.iter().rev().take(5).copied().collect::<Vec<_>>();
+            RegionSignal {
+                region_id,
+                recent_attempts: recent.len() as u32,
+                recent_misses: recent
+                    .iter()
+                    .filter(|rep| rep.verdict == "flawed" || rep.verdict == "failed")
+                    .count() as u32,
+            }
+        })
+        .collect::<Vec<_>>();
+    signals.sort_by_key(|signal| signal.region_id);
+    signals
 }
 
 /// Rank at most seven concrete next actions. Ties are stable by id.
 pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
     let today = parse_date_days(&input.today);
+    let signals = input
+        .region_signals
+        .iter()
+        .map(|signal| (signal.region_id, signal))
+        .collect::<HashMap<_, _>>();
     let mut output = Vec::new();
 
     for goal in input.goals.iter().filter(|goal| !goal.done) {
@@ -100,20 +147,44 @@ pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
     }
 
     for region in input.regions.iter().filter(|region| region.reps > 0) {
-        let Some(today) = today else { continue };
-        let Some(last) = region
-            .last_practiced
-            .as_deref()
-            .and_then(|value| value.get(0..10))
-            .and_then(parse_date_days)
-        else {
-            continue;
-        };
-        let age = today - last;
-        if age < 3 {
+        let mut score = 40;
+        let mut reasons = Vec::new();
+        if region.reps >= 3 && region.clean_ratio < 0.75 {
+            score += ((0.75 - region.clean_ratio) * 40.0).round() as i32;
+            reasons.push(format!(
+                "{}% clean across {} reps; this Region is not consolidated",
+                (region.clean_ratio * 100.0).round() as u32,
+                region.reps
+            ));
+        }
+        if let Some(signal) = signals.get(&region.region_id) {
+            if signal.recent_misses > 0 {
+                score += signal.recent_misses.min(3) as i32 * 8;
+                reasons.push(format!(
+                    "{} of the last {} attempts were flawed or failed",
+                    signal.recent_misses, signal.recent_attempts
+                ));
+            }
+        }
+        if let (Some(today), Some(last)) = (
+            today,
+            region
+                .last_practiced
+                .as_deref()
+                .and_then(|value| value.get(0..10))
+                .and_then(parse_date_days),
+        ) {
+            let age = today - last;
+            if age >= 3 {
+                score += age.min(21) as i32;
+                reasons.push(format!(
+                    "last practiced {age} days ago; revisit for consolidation"
+                ));
+            }
+        }
+        if reasons.is_empty() {
             continue;
         }
-        let score = 42 + (age.min(21) as i32);
         output.push(WorkSuggestion {
             id: format!("region:{}", region.region_id),
             kind: "revisit".into(),
@@ -121,9 +192,7 @@ pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
             m_start: None,
             m_end: None,
             score,
-            reasons: vec![format!(
-                "last practiced {age} days ago; revisit for consolidation"
-            )],
+            reasons,
         });
     }
 
@@ -201,6 +270,7 @@ mod tests {
             goals: vec![goal(1, "Memorize", Some("2026-07-10"))],
             blocks: vec![block(2, 5, 10)],
             regions: vec![],
+            region_signals: vec![],
         };
         let out = preview(&input);
         assert_eq!(out[0].id, "goal:1");
@@ -215,7 +285,7 @@ mod tests {
             name: format!("R{id}"),
             blocks: 1,
             reps: 8,
-            clean_ratio: 0.5,
+            clean_ratio: 1.0,
             best_bpm: Some(80.0),
             last_practiced: Some(format!("{date}T12:00:00Z")),
         };
@@ -224,6 +294,7 @@ mod tests {
             goals: vec![],
             blocks: vec![],
             regions: vec![mk(1, "2026-07-11"), mk(2, "2026-07-05")],
+            region_signals: vec![],
         });
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].id, "region:2");
@@ -238,6 +309,7 @@ mod tests {
             goals,
             blocks: vec![],
             regions: vec![],
+            region_signals: vec![],
         });
         assert_eq!(out.len(), 7);
         assert!(out.iter().all(|item| item.kind == "goal"));
@@ -250,8 +322,42 @@ mod tests {
             goals: vec![goal(1, "Invalid due date", Some("2026-02-31"))],
             blocks: vec![],
             regions: vec![],
+            region_signals: vec![],
         });
         assert_eq!(out[0].score, 35);
         assert_eq!(out[0].reasons, vec!["unfinished goal"]);
+    }
+
+    #[test]
+    fn weak_region_and_recent_misses_are_exposed_even_when_practiced_today() {
+        let out = preview(&PlanInput {
+            today: "2026-07-12".into(),
+            goals: vec![],
+            blocks: vec![],
+            regions: vec![RegionMastery {
+                region_id: 7,
+                name: "Coda landing".into(),
+                blocks: 1,
+                reps: 10,
+                clean_ratio: 0.4,
+                best_bpm: Some(92.0),
+                last_practiced: Some("2026-07-12T18:00:00Z".into()),
+            }],
+            region_signals: vec![RegionSignal {
+                region_id: 7,
+                recent_attempts: 5,
+                recent_misses: 3,
+            }],
+        });
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "region:7");
+        assert!(out[0]
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("40% clean")));
+        assert!(out[0]
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("3 of the last 5")));
     }
 }

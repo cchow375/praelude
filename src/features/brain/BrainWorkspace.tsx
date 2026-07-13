@@ -8,6 +8,7 @@ import type {
   BrainQuestionSource,
   IntakeChange,
   WakeQuestion,
+  WorkSuggestion,
 } from "./types";
 import "./BrainWorkspace.css";
 
@@ -34,8 +35,28 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
   const [thread, setThread] = useState<ThreadEntry[]>([]);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [plan, setPlan] = useState<WorkSuggestion[]>([]);
+  const [planLoading, setPlanLoading] = useState(true);
+  const [planError, setPlanError] = useState<string | null>(null);
   const handledWakeId = useRef<number | null>(null);
   const threadEnd = useRef<HTMLDivElement>(null);
+
+  const refreshPlan = useCallback(async () => {
+    setPlanLoading(true);
+    setPlanError(null);
+    try {
+      setPlan(await api.planPreview());
+    } catch (cause) {
+      setPlan([]);
+      setPlanError(errorMessage(cause, "Pick a piece in Practice to load next work."));
+    } finally {
+      setPlanLoading(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void refreshPlan();
+  }, [refreshPlan]);
 
   const ask = useCallback(async (rawQuestion: string, source: BrainQuestionSource) => {
     const question = rawQuestion.trim();
@@ -90,6 +111,12 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
       </header>
 
       <section className="brain-thread" aria-label="Conversation" aria-live="polite">
+        <PlanPreview
+          suggestions={plan}
+          loading={planLoading}
+          error={planError}
+          onRefresh={refreshPlan}
+        />
         {thread.length === 0 && (
           <div className="brain-empty">
             <p className="brain-empty-title">Start with the failure, not a vague goal.</p>
@@ -175,6 +202,55 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
         <p className="brain-privacy">Answers may be wrong. Sources and your verdict stay visible; your writing changes only when you press Save.</p>
       </div>
     </main>
+  );
+}
+
+function PlanPreview({
+  suggestions,
+  loading,
+  error,
+  onRefresh,
+}: {
+  suggestions: WorkSuggestion[];
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => Promise<void>;
+}) {
+  return (
+    <section className="brain-plan" aria-label="Deterministic next work">
+      <header>
+        <div>
+          <p className="brain-eyebrow">Next work</p>
+          <h2>Ranked from your real practice graph</h2>
+        </div>
+        <button type="button" onClick={() => void onRefresh()} disabled={loading}>
+          {loading ? "Checking…" : "Refresh"}
+        </button>
+      </header>
+      <p className="brain-plan-boundary">The rules own this order. The AI may explain it, but cannot rewrite it.</p>
+      {error && <p className="brain-plan-empty">{error}</p>}
+      {!loading && !error && suggestions.length === 0 && (
+        <p className="brain-plan-empty">No unfinished, weak, missed, or spaced work is currently ranked.</p>
+      )}
+      {suggestions.length > 0 && (
+        <ol>
+          {suggestions.map((suggestion) => (
+            <li key={suggestion.id}>
+              <span className="brain-plan-rank" aria-hidden="true" />
+              <div>
+                <strong>{suggestion.title}</strong>
+                {suggestion.m_start != null && suggestion.m_end != null && (
+                  <span className="brain-plan-measures">mm. {suggestion.m_start}–{suggestion.m_end}</span>
+                )}
+                <ul>
+                  {suggestion.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                </ul>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
