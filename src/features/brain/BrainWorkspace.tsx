@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { brainApi } from "./api";
+import { todayLocal } from "../calendar/dates";
 import type {
   BrainAnswer,
   BrainApi,
@@ -116,6 +117,7 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
           loading={planLoading}
           error={planError}
           onRefresh={refreshPlan}
+          onSchedule={api.schedule}
         />
         {thread.length === 0 && (
           <div className="brain-empty">
@@ -210,11 +212,13 @@ function PlanPreview({
   loading,
   error,
   onRefresh,
+  onSchedule,
 }: {
   suggestions: WorkSuggestion[];
   loading: boolean;
   error: string | null;
   onRefresh: () => Promise<void>;
+  onSchedule: BrainApi["schedule"];
 }) {
   return (
     <section className="brain-plan" aria-label="Deterministic next work">
@@ -245,12 +249,69 @@ function PlanPreview({
                 <ul>
                   {suggestion.reasons.map((reason) => <li key={reason}>{reason}</li>)}
                 </ul>
+                {suggestion.goal_id != null && (
+                  <PlannerSchedule suggestion={suggestion} onSchedule={onSchedule} />
+                )}
               </div>
             </li>
           ))}
         </ol>
       )}
     </section>
+  );
+}
+
+function PlannerSchedule({
+  suggestion,
+  onSchedule,
+}: {
+  suggestion: WorkSuggestion;
+  onSchedule: BrainApi["schedule"];
+}) {
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(todayLocal);
+  const [minutes, setMinutes] = useState(20);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (suggestion.goal_id == null) return null;
+  if (saved) return <p className="brain-plan-saved" role="status">Added to Calendar.</p>;
+  if (!open) {
+    return (
+      <button className="brain-plan-schedule" type="button" onClick={() => setOpen(true)}>
+        Schedule
+      </button>
+    );
+  }
+
+  return (
+    <form
+      className="brain-plan-schedule-form"
+      aria-label={`Schedule ${suggestion.title}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (saving) return;
+        setSaving(true);
+        setError(null);
+        void onSchedule({
+          goal_id: suggestion.goal_id!,
+          title: suggestion.title,
+          minutes,
+          date,
+        }).then(() => {
+          setSaved(true);
+        }).catch((cause) => {
+          setError(errorMessage(cause, "Could not add this work to Calendar."));
+        }).finally(() => setSaving(false));
+      }}
+    >
+      <label><span>Date</span><input aria-label={`Date for ${suggestion.title}`} type="date" required value={date} onChange={(event) => setDate(event.target.value)} /></label>
+      <label><span>Minutes</span><input aria-label={`Minutes for ${suggestion.title}`} type="number" min={1} max={240} required value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} /></label>
+      <button type="submit" disabled={saving}>{saving ? "Adding…" : "Add to Calendar"}</button>
+      <button type="button" onClick={() => setOpen(false)} disabled={saving}>Cancel</button>
+      {error && <p className="brain-plan-schedule-error" role="alert">{error}</p>}
+    </form>
   );
 }
 

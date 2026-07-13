@@ -49,6 +49,7 @@ function makeApi(answer: BrainAnswer = groundedAnswer): BrainApi {
       {
         id: "region:4",
         kind: "revisit",
+        goal_id: null,
         title: "Coda landing",
         m_start: null,
         m_end: null,
@@ -56,6 +57,7 @@ function makeApi(answer: BrainAnswer = groundedAnswer): BrainApi {
         reasons: ["3 of the last 5 attempts were flawed or failed"],
       },
     ]),
+    schedule: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -70,6 +72,35 @@ describe("BrainWorkspace", () => {
     expect(await screen.findByText("Coda landing")).toBeTruthy();
     expect(screen.getByText("3 of the last 5 attempts were flawed or failed")).toBeTruthy();
     expect(api.ask).not.toHaveBeenCalled();
+  });
+
+  it("adds a Goal suggestion to Calendar only after explicit confirmation", async () => {
+    const api = makeApi();
+    vi.mocked(api.planPreview).mockResolvedValue([{
+      id: "goal:9",
+      kind: "goal",
+      goal_id: 9,
+      title: "Secure the coda",
+      m_start: null,
+      m_end: null,
+      score: 80,
+      reasons: ["due in 2 days"],
+    }]);
+    render(<BrainWorkspace api={api} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Schedule" }));
+    expect(api.schedule).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Date for Secure the coda"), { target: { value: "2026-07-14" } });
+    fireEvent.change(screen.getByLabelText("Minutes for Secure the coda"), { target: { value: "25" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to Calendar" }));
+
+    await waitFor(() => expect(api.schedule).toHaveBeenCalledWith({
+      goal_id: 9,
+      title: "Secure the coda",
+      minutes: 25,
+      date: "2026-07-14",
+    }));
+    expect(await screen.findByText("Added to Calendar.")).toBeTruthy();
   });
 
   it("asks a typed question and renders a grounded answer, method, and citation", async () => {

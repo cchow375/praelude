@@ -33,6 +33,11 @@ pub struct RegionSignal {
 pub struct WorkSuggestion {
     pub id: String,
     pub kind: String,
+    /// Present only when the suggestion already has canonical Goal ownership
+    /// and can therefore be explicitly added to Calendar without inventing a
+    /// relationship. Other suggestion kinds remain read-only until the user
+    /// connects that work to a Goal.
+    pub goal_id: Option<i64>,
     pub title: String,
     pub m_start: Option<u32>,
     pub m_end: Option<u32>,
@@ -118,6 +123,7 @@ pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
         output.push(WorkSuggestion {
             id: format!("goal:{}", goal.id),
             kind: "goal".into(),
+            goal_id: Some(goal.id),
             title: goal.text.clone(),
             m_start: None,
             m_end: None,
@@ -137,6 +143,7 @@ pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
         output.push(WorkSuggestion {
             id: format!("block:{}", block.block_id),
             kind: "open_block".into(),
+            goal_id: None,
             title: block.label.clone().unwrap_or_else(|| {
                 format!("Measures {}–{}", block.m_start, block.m_end)
             }),
@@ -189,6 +196,7 @@ pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
         output.push(WorkSuggestion {
             id: format!("region:{}", region.region_id),
             kind: "revisit".into(),
+            goal_id: None,
             title: region.name.clone(),
             m_start: None,
             m_end: None,

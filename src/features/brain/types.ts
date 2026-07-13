@@ -63,6 +63,7 @@ export interface BrainIntakeApplyResult {
 export interface WorkSuggestion {
   id: string;
   kind: "goal" | "open_block" | "revisit" | string;
+  goal_id: number | null;
   title: string;
   m_start: number | null;
   m_end: number | null;
@@ -70,10 +71,18 @@ export interface WorkSuggestion {
   reasons: string[];
 }
 
+export interface PlannerScheduleRequest {
+  goal_id: number;
+  title: string;
+  minutes: number;
+  date: string;
+}
+
 export interface BrainApi {
   ask: (request: BrainAskRequest) => Promise<BrainAnswer>;
   applyIntakeReview: (request: BrainIntakeApplyRequest) => Promise<BrainIntakeApplyResult>;
   planPreview: () => Promise<WorkSuggestion[]>;
+  schedule: (request: PlannerScheduleRequest) => Promise<void>;
 }
 
 export interface WakeQuestion {
