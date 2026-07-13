@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="170" y1="120" x2="850" y2="910" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#111A33"/>
+      <stop offset="1" stop-color="#07101F"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="230" y1="730" x2="770" y2="270" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#20BED2"/>
+      <stop offset="1" stop-color="#63E4E7"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="420" y1="220" x2="790" y2="660" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD15A"/>
+      <stop offset="1" stop-color="#F7A928"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="54" y="54" width="916" height="916" rx="222" fill="url(#bg)"/>
+  <path d="M760 714A326 326 0 1 1 740 287" fill="none" stroke="url(#cyan)" stroke-width="104" stroke-linecap="round"/>
+  <path d="M356 298A236 236 0 1 1 718 621" fill="none" stroke="url(#gold)" stroke-width="92" stroke-linecap="round"/>
+  <circle cx="672" cy="350" r="59" fill="#FFC043" filter="url(#glow)"/>
+  <circle cx="368" cy="652" r="66" fill="#27C7D8" filter="url(#glow)"/>
+  <g fill="#EAF7FF" opacity=".78">
+    <circle cx="225" cy="318" r="9"/><circle cx="805" cy="235" r="7"/>
+    <circle cx="829" cy="738" r="10"/><circle cx="262" cy="785" r="6"/>
+  </g>
+  <g transform="translate(442 425)" opacity=".9">
+    <rect width="42" height="172" rx="12" fill="#F4F7FF"/>
+    <rect x="50" width="42" height="172" rx="12" fill="#F4F7FF"/>
+    <rect x="100" width="42" height="172" rx="12" fill="#F4F7FF"/>
+    <rect x="35" width="30" height="102" rx="10" fill="#162542"/>
+    <rect x="85" width="30" height="102" rx="10" fill="#162542"/>
+  </g>
+</svg>
