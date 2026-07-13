@@ -75,6 +75,7 @@ export interface Region {
   id: number;
   piece_id: number;
   name: string;
+  notes: string | null;
   m_start: number;
   m_end: number;
   kind: string;

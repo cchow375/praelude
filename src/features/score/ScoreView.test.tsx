@@ -132,14 +132,50 @@ afterEach(() => {
 });
 
 describe("ScoreView", () => {
+  it("orders sections by measure and expands controls directly beneath only the chosen row", async () => {
+    const regions = [
+      { id: 3, piece_id: 7, name: "Coda", notes: null, m_start: 724, m_end: 732, kind: "hard_spot", order: 0, color: null, pdf_anchor: null },
+      { id: 1, piece_id: 7, name: "Opening", notes: null, m_start: 1, m_end: 8, kind: "hard_spot", order: 9, color: null, pdf_anchor: null },
+      { id: 2, piece_id: 7, name: "Middle", notes: null, m_start: 334, m_end: 365, kind: "hard_spot", order: 2, color: null, pdf_anchor: null },
+    ];
+    render(<ScoreView pieceId={7} api={makeApi({ regions: vi.fn().mockResolvedValue(regions) })} adapter={makePdf(1).adapter} />);
+    await screen.findByLabelText("Score page 1");
+    const rows = screen.getAllByRole("button").filter((button) => button.classList.contains("score-region-row"));
+    expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+      "Opening, measures 1 to 8",
+      "Middle, measures 334 to 365",
+      "Coda, measures 724 to 732",
+    ]);
+
+    fireEvent.click(rows[1]);
+    expect(rows[1].closest(".score-region-item")?.querySelector('[role="tablist"]')).toBeTruthy();
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
+    fireEvent.click(rows[2]);
+    expect(rows[2].closest(".score-region-item")?.querySelector('[role="tablist"]')).toBeTruthy();
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
+  });
+
+  it("offers whole-page, two-page, slider, and section visibility controls", async () => {
+    render(<ScoreView pieceId={7} api={makeApi()} adapter={makePdf(2).adapter} />);
+    await screen.findByLabelText("Score page 2");
+    fireEvent.click(screen.getByRole("button", { name: "Fit page" }));
+    expect(screen.getByRole("button", { name: "Fit page" }).className).toContain("is-active");
+    fireEvent.click(screen.getByRole("button", { name: "2-page view" }));
+    expect(document.querySelector(".score-pages")?.className).toContain("is-overview");
+    fireEvent.change(screen.getByLabelText("Score zoom slider"), { target: { value: "55" } });
+    expect(screen.getByLabelText("Zoom level").textContent).toBe("55%");
+    fireEvent.click(screen.getByRole("button", { name: "Hide sections" }));
+    expect(document.querySelector(".score-body")?.className).toContain("is-sections-hidden");
+  });
+
   it("maps a selected Region with normalized edition-specific rectangles", async () => {
     const api = makeApi({
       regions: vi.fn().mockResolvedValue([{
-        id: 4, piece_id: 7, name: "Development", m_start: 40, m_end: 56,
+        id: 4, piece_id: 7, name: "Development", notes: "Even groups", m_start: 40, m_end: 56,
         kind: "section", order: 0, color: "#8b7cf6", pdf_anchor: null,
       }]),
       updateRegion: vi.fn().mockImplementation(async (_id, pdfAnchor) => ({
-        id: 4, piece_id: 7, name: "Development", m_start: 40, m_end: 56,
+        id: 4, piece_id: 7, name: "Development", notes: "Even groups", m_start: 40, m_end: 56,
         kind: "section", order: 0, color: "#8b7cf6", pdf_anchor: pdfAnchor,
       })),
     });
@@ -147,6 +183,7 @@ describe("ScoreView", () => {
     await screen.findByLabelText("Score page 2");
 
     fireEvent.click(await screen.findByRole("button", { name: "Development, measures 40 to 56" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Score marks" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit score annotations for Development" }));
     fireEvent.click(screen.getByRole("radio", { name: "Highlight" }));
     const overlay = screen.getByTestId("page-overlay-1");
@@ -171,15 +208,32 @@ describe("ScoreView", () => {
     }));
   });
 
-  it("edits the same canonical tricky-section note and measures from the score", async () => {
+  it("keeps score-mark Save and Cancel visible when a section switch is rejected", async () => {
+    const regions = [
+      { id: 4, piece_id: 7, name: "Development", notes: null, m_start: 40, m_end: 56, kind: "section", order: 0, color: null, pdf_anchor: null },
+      { id: 5, piece_id: 7, name: "Coda", notes: null, m_start: 80, m_end: 92, kind: "section", order: 1, color: null, pdf_anchor: null },
+    ];
+    render(<ScoreView pieceId={7} api={makeApi({ regions: vi.fn().mockResolvedValue(regions) })} adapter={makePdf(1).adapter} />);
+    await screen.findByLabelText("Score page 1");
+    fireEvent.click(screen.getByRole("button", { name: "Development, measures 40 to 56" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Score marks" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit score annotations for Development" }));
+    fireEvent.click(screen.getByRole("button", { name: "Coda, measures 80 to 92" }));
+    expect(screen.getByText(/Save or cancel the open score-mark edits/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save score annotations" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+  });
+
+  it("edits the same canonical tricky-section title, notes, and measures from the score", async () => {
     const original = {
-      id: 4, piece_id: 7, name: "Development", m_start: 40, m_end: 56,
+      id: 4, piece_id: 7, name: "Development", notes: "Even groups", m_start: 40, m_end: 56,
       kind: "hard_spot", order: 0, color: "#8b7cf6", pdf_anchor: null,
     };
-    const updated = { ...original, name: "LH leap", m_start: 42, m_end: 58 };
+    const updated = { ...original, name: "LH leap", notes: "Look before landing", m_start: 42, m_end: 58 };
     const regions = vi.fn().mockResolvedValueOnce([original]).mockResolvedValue([updated]);
     const api = makeApi({ regions });
     const onRegionsChanged = vi.fn();
+    const onOpenBlock = vi.fn();
     invokeMock.mockImplementation((command: string) => {
       if (command === "region_update") return Promise.resolve(updated);
       return Promise.resolve(undefined);
@@ -191,27 +245,35 @@ describe("ScoreView", () => {
         api={api}
         adapter={makePdf(1).adapter}
         onRegionsChanged={onRegionsChanged}
+        onOpenBlock={onOpenBlock}
       />,
     );
     await screen.findByLabelText("Score page 1");
     fireEvent.click(await screen.findByRole("button", { name: "Development, measures 40 to 56" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Edit" }));
 
-    fireEvent.change(screen.getByLabelText("Tricky section note"), { target: { value: "LH leap" } });
+    fireEvent.change(screen.getByLabelText("Tricky section title"), { target: { value: "LH leap" } });
+    fireEvent.change(screen.getByLabelText("Tricky section practice notes"), { target: { value: "Look before landing" } });
     fireEvent.change(screen.getByLabelText("Tricky section start measure"), { target: { value: "42" } });
     fireEvent.change(screen.getByLabelText("Tricky section end measure"), { target: { value: "58" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save note + measures" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save section" }));
 
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("region_update", {
       id: 4,
-      patch: { name: "LH leap", m_start: 42, m_end: 58 },
+      patch: { name: "LH leap", notes: "Look before landing", m_start: 42, m_end: 58 },
     }));
     await waitFor(() => expect(onRegionsChanged).toHaveBeenCalledTimes(1));
     expect(await screen.findByRole("button", { name: "LH leap, measures 42 to 58" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Practice" }));
+    expect((screen.getByLabelText("From measure") as HTMLInputElement).value).toBe("42");
+    expect((screen.getByLabelText("To measure") as HTMLInputElement).value).toBe("58");
+    expect(screen.queryByText("Block label (optional)")).toBeNull();
+    expect(screen.getByText("LH leap", { selector: ".block-region-lock" })).toBeTruthy();
   });
 
   it("opens practice reps from the selected score section with its canonical Region id", async () => {
     const region = {
-      id: 4, piece_id: 7, name: "Development", m_start: 40, m_end: 56,
+      id: 4, piece_id: 7, name: "Development", notes: "Even groups", m_start: 40, m_end: 56,
       kind: "hard_spot", order: 0, color: "#8b7cf6", pdf_anchor: null,
     };
     const onOpenBlock = vi.fn();
@@ -238,11 +300,11 @@ describe("ScoreView", () => {
 
   it("ignores a stale graph response after switching pieces", async () => {
     const oldRegion = {
-      id: 4, piece_id: 7, name: "Old piece section", m_start: 1, m_end: 8,
+      id: 4, piece_id: 7, name: "Old piece section", notes: null, m_start: 1, m_end: 8,
       kind: "section", order: 0, color: null, pdf_anchor: null,
     };
     const newRegion = {
-      id: 8, piece_id: 8, name: "New piece section", m_start: 9, m_end: 16,
+      id: 8, piece_id: 8, name: "New piece section", notes: null, m_start: 9, m_end: 16,
       kind: "section", order: 0, color: null, pdf_anchor: null,
     };
     let resolveOld!: (value: typeof oldRegion[]) => void;

@@ -101,7 +101,7 @@ impl Store {
 
     fn region_list_conn(conn: &Connection, piece_id: i64) -> rusqlite::Result<Vec<Region>> {
         let mut stmt = conn.prepare(
-            "SELECT id, piece_id, name, m_start, m_end, kind, sort_order, color, pdf_anchor
+            "SELECT id, piece_id, name, m_start, m_end, kind, sort_order, color, pdf_anchor, notes
              FROM region WHERE piece_id = ?1 ORDER BY sort_order",
         )?;
         let rows = stmt.query_map([piece_id], Self::region_from_row)?;
@@ -114,6 +114,7 @@ impl Store {
             id: row.get(0)?,
             piece_id: row.get(1)?,
             name: row.get(2)?,
+            notes: row.get(9)?,
             m_start: row.get(3)?,
             m_end: row.get(4)?,
             kind: row.get(5)?,
@@ -134,7 +135,7 @@ impl Store {
 
     fn region_get(conn: &Connection, id: i64) -> rusqlite::Result<Region> {
         conn.query_row(
-            "SELECT id, piece_id, name, m_start, m_end, kind, sort_order, color, pdf_anchor
+            "SELECT id, piece_id, name, m_start, m_end, kind, sort_order, color, pdf_anchor, notes
              FROM region WHERE id = ?1",
             [id],
             Self::region_from_row,
@@ -149,6 +150,14 @@ impl Store {
         Ok(value)
     }
 
+    fn normalized_region_notes(value: Option<String>) -> rusqlite::Result<Option<String>> {
+        let value = value.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+        if value.as_ref().is_some_and(|value| value.chars().count() > 10_000) {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        Ok(value)
+    }
+
     fn valid_region_kind(value: &str) -> bool {
         matches!(value, "section" | "phrase" | "group" | "hard_spot" | "custom")
     }
@@ -157,16 +166,17 @@ impl Store {
     /// the end of the piece's ordering (`sort_order = MAX(sort_order)+1`).
     pub fn region_create(&self, args: RegionCreate) -> rusqlite::Result<Region> {
         let name = Self::normalized_region_name(args.name)?;
+        let notes = Self::normalized_region_notes(args.notes)?;
         if args.m_start < 1 || args.m_end < args.m_start || !Self::valid_region_kind(&args.kind) {
             return Err(rusqlite::Error::InvalidQuery);
         }
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let id: i64 = conn.query_row(
-            "INSERT INTO region (piece_id, name, m_start, m_end, kind, sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5,
+            "INSERT INTO region (piece_id, name, notes, m_start, m_end, kind, sort_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6,
                  COALESCE((SELECT MAX(sort_order) + 1 FROM region WHERE piece_id = ?1), 0))
              RETURNING id",
-            rusqlite::params![args.piece_id, name, args.m_start, args.m_end, args.kind],
+            rusqlite::params![args.piece_id, name, notes, args.m_start, args.m_end, args.kind],
             |row| row.get(0),
         )?;
         let region = Self::region_get(&conn, id)?;
@@ -189,6 +199,11 @@ impl Store {
         if let Some(v) = patch.name {
             let v = Self::normalized_region_name(v)?;
             sets.push(format!("name = ?{}", vals.len() + 2));
+            vals.push(Box::new(v));
+        }
+        if let Some(v) = patch.notes {
+            let v = Self::normalized_region_notes(v)?;
+            sets.push(format!("notes = ?{}", vals.len() + 2));
             vals.push(Box::new(v));
         }
         if patch.m_start.is_some() || patch.m_end.is_some() {
@@ -268,6 +283,13 @@ impl Store {
             [id],
         )?;
         tx.execute("DELETE FROM region WHERE id = ?1", [id])?;
+        tx.execute(
+            "DELETE FROM tutorial_chapter
+             WHERE NOT EXISTS (
+               SELECT 1 FROM tutorial_clip WHERE chapter_id=tutorial_chapter.id
+             )",
+            [],
+        )?;
         tx.commit()?;
         Self::append_event_conn(
             &conn,
@@ -297,6 +319,7 @@ impl Store {
         let new_end = keep.m_end.max(absorb.m_end);
         let merged_anchor = merge_pdf_anchors(keep.pdf_anchor, absorb.pdf_anchor);
         let merged_anchor_sql = merged_anchor.as_ref().map(json_to_sql).transpose()?;
+        let merged_notes = merge_region_notes(keep.notes.as_deref(), absorb.notes.as_deref())?;
 
         let tx = conn.transaction()?;
         tx.execute(
@@ -307,11 +330,25 @@ impl Store {
             "UPDATE daily_work SET region_id = ?1 WHERE region_id = ?2",
             rusqlite::params![id_keep, id_absorb],
         )?;
+        // Preserve tutorial coverage. If both Regions already point at the
+        // same shared chapter, keep the destination link and let the absorbed
+        // duplicate cascade away with its Region.
         tx.execute(
-            "UPDATE region SET m_start = ?2, m_end = ?3, pdf_anchor = ?4 WHERE id = ?1",
-            rusqlite::params![id_keep, new_start, new_end, merged_anchor_sql],
+            "UPDATE OR IGNORE tutorial_clip SET region_id = ?1 WHERE region_id = ?2",
+            rusqlite::params![id_keep, id_absorb],
+        )?;
+        tx.execute(
+            "UPDATE region SET m_start = ?2, m_end = ?3, pdf_anchor = ?4, notes = ?5 WHERE id = ?1",
+            rusqlite::params![id_keep, new_start, new_end, merged_anchor_sql, merged_notes],
         )?;
         tx.execute("DELETE FROM region WHERE id = ?1", [id_absorb])?;
+        tx.execute(
+            "DELETE FROM tutorial_chapter
+             WHERE NOT EXISTS (
+               SELECT 1 FROM tutorial_clip WHERE chapter_id=tutorial_chapter.id
+             )",
+            [],
+        )?;
         tx.commit()?;
 
         let region = Self::region_get(&conn, id_keep)?;
@@ -346,8 +383,8 @@ impl Store {
         )?;
         let second_id: i64 = tx.query_row(
             "INSERT INTO region
-                 (piece_id,name,m_start,m_end,kind,sort_order,color,pdf_anchor)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,NULL)
+                 (piece_id,name,m_start,m_end,kind,sort_order,color,pdf_anchor,notes)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,NULL,?8)
              RETURNING id",
             rusqlite::params![
                 current.piece_id,
@@ -357,6 +394,7 @@ impl Store {
                 current.kind,
                 current.order + 1,
                 current.color,
+                current.notes,
             ],
             |row| row.get(0),
         )?;
@@ -395,6 +433,24 @@ impl Store {
         tx.commit()?;
         Ok(vec![first, second])
     }
+}
+
+/// Preserve both detailed instructions when organizational Regions are merged.
+/// Refuse an over-limit merge instead of silently truncating the user's text.
+fn merge_region_notes(
+    keep: Option<&str>,
+    absorb: Option<&str>,
+) -> rusqlite::Result<Option<String>> {
+    let merged = match (keep.filter(|value| !value.trim().is_empty()), absorb.filter(|value| !value.trim().is_empty())) {
+        (None, None) => None,
+        (Some(value), None) | (None, Some(value)) => Some(value.trim().to_string()),
+        (Some(left), Some(right)) if left.trim() == right.trim() => Some(left.trim().to_string()),
+        (Some(left), Some(right)) => Some(format!("{}\n\n{}", left.trim(), right.trim())),
+    };
+    if merged.as_ref().is_some_and(|value| value.chars().count() > 10_000) {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    Ok(merged)
 }
 
 /// Merge the P4 anchor contract without guessing across changed PDF editions.
@@ -462,10 +518,10 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let a = s
-            .region_create(RegionCreate { piece_id: 1, name: "A".into(), m_start: 1, m_end: 8, kind: "section".into() })
+            .region_create(RegionCreate { piece_id: 1, name: "A".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() })
             .unwrap();
         let b = s
-            .region_create(RegionCreate { piece_id: 1, name: "B".into(), m_start: 20, m_end: 28, kind: "section".into() })
+            .region_create(RegionCreate { piece_id: 1, name: "B".into(), notes: None, m_start: 20, m_end: 28, kind: "section".into() })
             .unwrap();
         let bid = seed_block(&s, 1, 22, 26); // block in region B
         s.block_set_region(bid, Some(b.id)).unwrap();
@@ -489,10 +545,10 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let a = s
-            .region_create(RegionCreate { piece_id: 1, name: "A".into(), m_start: 1, m_end: 8, kind: "section".into() })
+            .region_create(RegionCreate { piece_id: 1, name: "A".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() })
             .unwrap();
         let b = s
-            .region_create(RegionCreate { piece_id: 1, name: "B".into(), m_start: 9, m_end: 16, kind: "section".into() })
+            .region_create(RegionCreate { piece_id: 1, name: "B".into(), notes: None, m_start: 9, m_end: 16, kind: "section".into() })
             .unwrap();
         let rect_a = serde_json::json!({ "page": 1, "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1 });
         let rect_b = serde_json::json!({ "page": 2, "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1 });
@@ -513,10 +569,10 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let a = s
-            .region_create(RegionCreate { piece_id: 1, name: "A".into(), m_start: 1, m_end: 8, kind: "section".into() })
+            .region_create(RegionCreate { piece_id: 1, name: "A".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() })
             .unwrap();
         let b = s
-            .region_create(RegionCreate { piece_id: 1, name: "B".into(), m_start: 9, m_end: 16, kind: "section".into() })
+            .region_create(RegionCreate { piece_id: 1, name: "B".into(), notes: None, m_start: 9, m_end: 16, kind: "section".into() })
             .unwrap();
         for (region, fingerprint) in [(a.id, "old"), (b.id, "new")] {
             let anchor = serde_json::json!({ "v": 1, "editions": { "score.pdf": { "fingerprint": fingerprint, "rects": [{ "page": 1, "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1 }] } } });
@@ -532,7 +588,7 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let r = s
-            .region_create(RegionCreate { piece_id: 1, name: "A".into(), m_start: 1, m_end: 8, kind: "section".into() })
+            .region_create(RegionCreate { piece_id: 1, name: "A".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() })
             .unwrap();
         let bid = seed_block(&s, 1, 1, 8);
         s.block_set_region(bid, Some(r.id)).unwrap();
@@ -553,9 +609,9 @@ mod region {
 
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
-        let keep = s.region_create(RegionCreate { piece_id: 1, name: "Keep".into(), m_start: 1, m_end: 8, kind: "section".into() }).unwrap();
-        let absorb = s.region_create(RegionCreate { piece_id: 1, name: "Absorb".into(), m_start: 9, m_end: 16, kind: "section".into() }).unwrap();
-        let remove = s.region_create(RegionCreate { piece_id: 1, name: "Remove".into(), m_start: 17, m_end: 24, kind: "section".into() }).unwrap();
+        let keep = s.region_create(RegionCreate { piece_id: 1, name: "Keep".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() }).unwrap();
+        let absorb = s.region_create(RegionCreate { piece_id: 1, name: "Absorb".into(), notes: None, m_start: 9, m_end: 16, kind: "section".into() }).unwrap();
+        let remove = s.region_create(RegionCreate { piece_id: 1, name: "Remove".into(), notes: None, m_start: 17, m_end: 24, kind: "section".into() }).unwrap();
         let goal = s.goal_create(GoalCreate { piece_id: 1, text: "Goal".into(), kind: "big".into(), parent_goal_id: None, target_date: None }).unwrap();
         for (region_id, title) in [(absorb.id, "Merge me"), (remove.id, "Unlink me")] {
             s.daily_work_create(DailyWorkCreate {
@@ -577,7 +633,7 @@ mod region {
 
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
-        let region = s.region_create(RegionCreate { piece_id: 1, name: "Phrase".into(), m_start: 1, m_end: 12, kind: "section".into() }).unwrap();
+        let region = s.region_create(RegionCreate { piece_id: 1, name: "Phrase".into(), notes: Some("Rotate instead of reaching".into()), m_start: 1, m_end: 12, kind: "section".into() }).unwrap();
         let early = seed_block(&s, 1, 1, 4);
         let late = seed_block(&s, 1, 7, 12);
         s.block_set_region(early, Some(region.id)).unwrap();
@@ -606,6 +662,8 @@ mod region {
         let halves = s.region_split(region.id, 7).unwrap();
         assert_eq!((halves[0].m_start, halves[0].m_end), (1, 6));
         assert_eq!((halves[1].m_start, halves[1].m_end), (7, 12));
+        assert_eq!(halves[0].notes.as_deref(), Some("Rotate instead of reaching"));
+        assert_eq!(halves[1].notes.as_deref(), Some("Rotate instead of reaching"));
         assert_eq!(s.block_row(early).unwrap().unwrap().region_id, Some(halves[0].id));
         assert_eq!(s.block_row(late).unwrap().unwrap().region_id, Some(halves[1].id));
         let work = s.daily_work_list("2026-07-13", "2026-07-13", None).unwrap();
@@ -617,7 +675,7 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let r = s
-            .region_create(RegionCreate { piece_id: 1, name: "A".into(), m_start: 1, m_end: 8, kind: "section".into() })
+            .region_create(RegionCreate { piece_id: 1, name: "A".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() })
             .unwrap();
         let updated = s
             .region_update(r.id, RegionPatch { name: Some("Intro".into()), color: Some(Some("#fff".into())), ..Default::default() })
@@ -629,6 +687,18 @@ mod region {
         // Some(None) clears color.
         let cleared = s.region_update(r.id, RegionPatch { color: Some(None), ..Default::default() }).unwrap();
         assert_eq!(cleared.color, None);
+
+        let with_notes = s.region_update(r.id, RegionPatch {
+            notes: Some(Some("  Keep the wrist loose  ".into())),
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(with_notes.name, "Intro", "notes do not overwrite the header");
+        assert_eq!(with_notes.notes.as_deref(), Some("Keep the wrist loose"));
+        let notes_cleared = s.region_update(r.id, RegionPatch {
+            notes: Some(None),
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(notes_cleared.notes, None);
 
         let anchor = serde_json::json!({
             "v": 1,
@@ -653,16 +723,16 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         for args in [
-            RegionCreate { piece_id: 1, name: "   ".into(), m_start: 1, m_end: 8, kind: "section".into() },
-            RegionCreate { piece_id: 1, name: "zero".into(), m_start: 0, m_end: 8, kind: "section".into() },
-            RegionCreate { piece_id: 1, name: "backwards".into(), m_start: 8, m_end: 1, kind: "section".into() },
-            RegionCreate { piece_id: 1, name: "unknown".into(), m_start: 1, m_end: 8, kind: "mystery".into() },
+            RegionCreate { piece_id: 1, name: "   ".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() },
+            RegionCreate { piece_id: 1, name: "zero".into(), notes: None, m_start: 0, m_end: 8, kind: "section".into() },
+            RegionCreate { piece_id: 1, name: "backwards".into(), notes: None, m_start: 8, m_end: 1, kind: "section".into() },
+            RegionCreate { piece_id: 1, name: "unknown".into(), notes: None, m_start: 1, m_end: 8, kind: "mystery".into() },
         ] {
             assert!(s.region_create(args).is_err());
         }
 
         let region = s.region_create(RegionCreate {
-            piece_id: 1, name: "  Canonical note  ".into(), m_start: 1, m_end: 8,
+            piece_id: 1, name: "  Canonical note  ".into(), notes: None, m_start: 1, m_end: 8,
             kind: "hard_spot".into(),
         }).unwrap();
         assert_eq!(region.name, "Canonical note");
@@ -685,7 +755,7 @@ mod region {
             let store = Store::open(&db).unwrap();
             seed_piece(&store, 1);
             let region = store.region_create(RegionCreate {
-                piece_id: 1, name: "Intro".into(), m_start: 1, m_end: 8,
+                piece_id: 1, name: "Intro".into(), notes: None, m_start: 1, m_end: 8,
                 kind: "section".into()
             }).unwrap();
             store.region_update(region.id, RegionPatch {
@@ -713,10 +783,10 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let a = s
-            .region_create(RegionCreate { piece_id: 1, name: "A".into(), m_start: 1, m_end: 8, kind: "section".into() })
+            .region_create(RegionCreate { piece_id: 1, name: "A".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() })
             .unwrap();
         let b = s
-            .region_create(RegionCreate { piece_id: 1, name: "B".into(), m_start: 9, m_end: 16, kind: "section".into() })
+            .region_create(RegionCreate { piece_id: 1, name: "B".into(), notes: None, m_start: 9, m_end: 16, kind: "section".into() })
             .unwrap();
         s.region_update(a.id, RegionPatch { order: Some(5), ..Default::default() }).unwrap();
         let ids: Vec<i64> = s.region_list(1).unwrap().into_iter().map(|r| r.id).collect();

@@ -17,6 +17,17 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
+/// Serde normally collapses both an omitted field and an explicit JSON null
+/// for nested Options. Patch commands need three states, so every present
+/// field is wrapped in the outer Some here.
+fn deserialize_nullable_patch<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
 /// A piece as discovered by a read-only vault scan (see `vault::scan_pieces`).
 ///
 /// This is the *only* input to [`Store::upsert_piece`](crate::store::Store::upsert_piece):
@@ -323,7 +334,10 @@ pub struct ExportResult {
 pub struct Region {
     pub id: i64,
     pub piece_id: i64,
+    /// Short, scannable header shown in the Tricky Sections list.
     pub name: String,
+    /// Longer practice instruction, deliberately independent from `name`.
+    pub notes: Option<String>,
     pub m_start: u32,
     pub m_end: u32,
     pub kind: String,
@@ -339,6 +353,8 @@ pub struct Region {
 pub struct RegionCreate {
     pub piece_id: i64,
     pub name: String,
+    #[serde(default)]
+    pub notes: Option<String>,
     pub m_start: u32,
     pub m_end: u32,
     pub kind: String,
@@ -350,13 +366,94 @@ pub struct RegionCreate {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct RegionPatch {
     pub name: Option<String>,
+    /// Outer `None` leaves notes unchanged; `Some(None)` clears them.
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
+    pub notes: Option<Option<String>>,
     pub m_start: Option<u32>,
     pub m_end: Option<u32>,
     pub kind: Option<String>,
     #[serde(rename = "order")]
     pub order: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub color: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub pdf_anchor: Option<Option<serde_json::Value>>,
+}
+
+// ── Local tutorial videos and per-Region clips ───────────────────────────
+
+/// One seekable excerpt of a local tutorial video mapped to a Region.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TutorialClip {
+    pub id: i64,
+    pub chapter_id: i64,
+    pub video_id: i64,
+    pub region_id: i64,
+    pub start_seconds: f64,
+    pub end_seconds: f64,
+    pub title: String,
+    pub notes: Option<String>,
+    #[serde(rename = "order")]
+    pub order: i64,
+}
+
+/// Metadata for a local video. `file_path` is streamed through Tauri's asset
+/// protocol by the frontend; video bytes never cross IPC.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TutorialVideo {
+    pub id: i64,
+    pub piece_id: i64,
+    pub title: String,
+    pub file_path: String,
+    pub duration_seconds: Option<f64>,
+    pub clips: Vec<TutorialClip>,
+}
+
+/// Explicit registration/upsert boundary for a file already inside the
+/// piece's `tutorials/` directory.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TutorialVideoUpsert {
+    pub piece_id: i64,
+    pub title: String,
+    pub file_path: String,
+    #[serde(default)]
+    pub duration_seconds: Option<f64>,
+}
+
+/// Mutable video metadata. `duration_seconds: null` clears a value populated
+/// from the HTML video element after metadata loads.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TutorialVideoPatch {
+    pub title: Option<String>,
+    pub file_path: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
+    pub duration_seconds: Option<Option<f64>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TutorialClipCreate {
+    pub video_id: i64,
+    pub region_id: i64,
+    pub start_seconds: f64,
+    pub end_seconds: f64,
+    pub title: String,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(rename = "order")]
+    pub order: i64,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TutorialClipPatch {
+    pub video_id: Option<i64>,
+    pub region_id: Option<i64>,
+    pub start_seconds: Option<f64>,
+    pub end_seconds: Option<f64>,
+    pub title: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
+    pub notes: Option<Option<String>>,
+    #[serde(rename = "order")]
+    pub order: Option<i64>,
 }
 
 /// A single logged rep, as read back by [`reps_for_block`](crate::store::Store::reps_for_block).
@@ -380,15 +477,20 @@ pub struct Rep {
 /// `use_metronome`) use a plain `Option<T>` (absent = unchanged).
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct BlockPatch {
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub label: Option<Option<String>>,
     pub m_start: Option<u32>,
     pub m_end: Option<u32>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub start_bpm: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub target_bpm: Option<Option<f64>>,
     pub planned_reps: Option<u32>,
     pub focus: Option<String>,
     pub use_metronome: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub region_id: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub increment_rule: Option<Option<IncrementRule>>,
 }
 
@@ -396,6 +498,7 @@ pub struct BlockPatch {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct RepPatch {
     pub verdict: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub note: Option<Option<String>>,
 }
 
@@ -430,7 +533,9 @@ pub struct GoalCreate {
 pub struct GoalPatch {
     pub text: Option<String>,
     pub done: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub target_date: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub parent_goal_id: Option<Option<i64>>,
 }
 
@@ -455,7 +560,9 @@ pub struct DailyWorkCreate {
 /// and Goal ownership are intentionally absent and therefore immutable.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct DailyWorkPatch {
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub region_id: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub block_id: Option<Option<i64>>,
     pub title: Option<String>,
     pub planned_minutes: Option<u32>,
@@ -470,9 +577,13 @@ pub struct DailyWorkPatch {
 /// the practice-event stream metrics derive from.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct PieceFieldPatch {
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub current_state: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub deadline: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub target_tempo: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub notes: Option<Option<String>>,
 }
 
@@ -557,8 +668,7 @@ pub(crate) fn sqlite_ts_to_rfc3339(ts: &str) -> String {
 /// Serialize a value into the TEXT form stored in a JSON-shaped column,
 /// mapping any serde failure into a `rusqlite` error (never a panic).
 pub(crate) fn json_to_sql<T: Serialize + ?Sized>(value: &T) -> rusqlite::Result<String> {
-    serde_json::to_string(value)
-        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+    serde_json::to_string(value).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
 }
 
 /// Deserialize a value out of a JSON-shaped TEXT column, mapping any serde
@@ -567,4 +677,72 @@ pub(crate) fn json_from_sql<T: DeserializeOwned>(text: &str) -> rusqlite::Result
     serde_json::from_str(text).map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
     })
+}
+
+#[cfg(test)]
+mod nullable_patch_tests {
+    use super::*;
+
+    #[test]
+    fn json_patch_distinguishes_omitted_null_and_value() {
+        let omitted: RegionPatch = serde_json::from_str("{}").unwrap();
+        assert!(omitted.notes.is_none());
+        assert!(omitted.color.is_none());
+        assert!(omitted.pdf_anchor.is_none());
+
+        let cleared: RegionPatch = serde_json::from_str(
+            r#"{"notes":null,"color":null,"pdf_anchor":null}"#,
+        )
+        .unwrap();
+        assert!(matches!(cleared.notes, Some(None)));
+        assert!(matches!(cleared.color, Some(None)));
+        assert!(matches!(cleared.pdf_anchor, Some(None)));
+
+        let set: RegionPatch = serde_json::from_str(
+            r##"{"notes":"cue","color":"#fff","pdf_anchor":{"v":1}}"##,
+        )
+        .unwrap();
+        assert_eq!(set.notes.as_ref().and_then(Option::as_deref), Some("cue"));
+        assert_eq!(set.color.as_ref().and_then(Option::as_deref), Some("#fff"));
+        assert_eq!(set.pdf_anchor.flatten(), Some(serde_json::json!({"v": 1})));
+    }
+
+    #[test]
+    fn every_nullable_command_patch_preserves_explicit_null() {
+        let video: TutorialVideoPatch = serde_json::from_str(r#"{"duration_seconds":null}"#).unwrap();
+        assert!(matches!(video.duration_seconds, Some(None)));
+        let clip: TutorialClipPatch = serde_json::from_str(r#"{"notes":null}"#).unwrap();
+        assert!(matches!(clip.notes, Some(None)));
+        let block: BlockPatch = serde_json::from_str(
+            r#"{"label":null,"start_bpm":null,"target_bpm":null,"region_id":null,"increment_rule":null}"#,
+        )
+        .unwrap();
+        assert!(matches!(block.label, Some(None)));
+        assert!(matches!(block.start_bpm, Some(None)));
+        assert!(matches!(block.target_bpm, Some(None)));
+        assert!(matches!(block.region_id, Some(None)));
+        assert!(matches!(block.increment_rule, Some(None)));
+        let rep: RepPatch = serde_json::from_str(r#"{"note":null}"#).unwrap();
+        assert!(matches!(rep.note, Some(None)));
+        let goal: GoalPatch = serde_json::from_str(
+            r#"{"target_date":null,"parent_goal_id":null}"#,
+        )
+        .unwrap();
+        assert!(matches!(goal.target_date, Some(None)));
+        assert!(matches!(goal.parent_goal_id, Some(None)));
+        let work: DailyWorkPatch = serde_json::from_str(
+            r#"{"region_id":null,"block_id":null}"#,
+        )
+        .unwrap();
+        assert!(matches!(work.region_id, Some(None)));
+        assert!(matches!(work.block_id, Some(None)));
+        let piece: PieceFieldPatch = serde_json::from_str(
+            r#"{"current_state":null,"deadline":null,"target_tempo":null,"notes":null}"#,
+        )
+        .unwrap();
+        assert!(matches!(piece.current_state, Some(None)));
+        assert!(matches!(piece.deadline, Some(None)));
+        assert!(matches!(piece.target_tempo, Some(None)));
+        assert!(matches!(piece.notes, Some(None)));
+    }
 }

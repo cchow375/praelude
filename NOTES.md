@@ -2,6 +2,43 @@
 
 ## Decisions
 
+- **P6 workflow / v1.2.0 actionable Score and tutorial chapters (2026-07-13):**
+  - **A Region's title and notes are different data.** `region.name` is the concise visible header;
+    `region.notes` is longer practice guidance. Score and Details edit the same row. Score renders
+    Regions in measure order as one-open-at-a-time accordions with local Practice/Edit/Score marks/
+    Tutorial tabs; the Region-linked block form does not ask for another copy of its label.
+  - **Nullable patch fields need custom serde.** Rust `Option<Option<T>>` with derived
+    `Deserialize` collapses both an absent JSON key and explicit `null` to outer `None`. The shared
+    `deserialize_nullable_patch` helper makes absent → unchanged and explicit `null` → clear.
+    Apply it to every nullable patch seam, not just Region notes: score anchors/color, tutorial
+    notes/duration, block optional values, rep notes, Goals, Daily Work links, and piece fields.
+  - **Tutorial media stays a file; the database stores a graph.** Schema 7 normalizes
+    `tutorial_video` → reusable `tutorial_chapter` → many-to-many `tutorial_clip` Region links.
+    This avoids copying a 111 MB video into SQLite and lets overlapping Regions share one chapter.
+    A shared chapter edit is explicitly global and transactional; unlink is Region-local.
+  - **Tutorial paths use the same distrust boundary as scores.** Scanning canonicalizes regular,
+    non-symlink `.mp4/.mov/.m4v/.webm` files under `<piece>/tutorials` and rejects escape. Tauri's
+    static asset scope stays empty; the parent directory is authorized dynamically only after a
+    validated DB path is loaded. Finder reveal accepts a video ID and executes `open -R` with an
+    argument, never a caller-controlled shell/path string.
+  - **Region graph mutations include tutorial ownership.** Merge transfers and deduplicates clip
+    links. Delete removes Region links and orphan chapters. Shared chapter update and link mutation
+    are one transaction; injected failures prove rollback. A stale/renamed media path is not
+    recoverable by wishful Rescan, so the player exposes a confirmed **Forget broken video** action
+    that removes the DB graph but never the source file.
+  - **Score density is a workflow feature.** The 25–200% slider plus Fit page, Fit width, 2-page,
+    and Hide sections controls are explicit state, not CSS-only tricks. Unsaved mark edits block a
+    section switch; saved marks are clickable. Details uses the same measure ordering.
+  - **Scherzo source facts.** `/Users/c3/Desktop/scherzo tut.mp4` is H.264/AAC 1280×720/25 fps,
+    2397.019 s, 111,336,990 bytes, SHA-256
+    `b83c5a2e1c100caa5f0172ad5d6442fa541b64a98cfe6b76330da04bff2ff8a1`. It has no embedded
+    chapters/title/source. Twenty title-card sections were identified; 11 stored chapters + 13
+    links cover all 12 live Scherzo Regions. The presenter says Paul only; do not invent a surname.
+  - **Release/data facts.** Pre-release backup is
+    `~/Library/Application Support/com.christian.codakiller/backups/(C) pre-v1.2.0-2026-07-13.db`.
+    Installed launch migrated schema 6→7 with integrity/FKs clean and preserved 5 pieces, 24
+    Regions, 20 blocks, 165 reps, 9 Goals, and 9 Daily Work rows; tutorial graph is 1/11/13.
+
 - **P6 coherence / v1.1.0 unified editing and navigation (2026-07-13):**
   - **Region is the canonical Tricky Section record.** Intake hard spots are converted into Regions
     once and deduplicated; Score, Details, history, practice forms, Brain context, PDF marks, and

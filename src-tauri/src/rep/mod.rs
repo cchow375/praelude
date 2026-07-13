@@ -678,6 +678,7 @@ mod tests {
         let region = store.region_create(crate::store::model::RegionCreate {
             piece_id: pid,
             name: "LH landing".into(),
+            notes: None,
             m_start: 38,
             m_end: 60,
             kind: "hard_spot".into(),
@@ -693,6 +694,7 @@ mod tests {
         let region = store.region_create(crate::store::model::RegionCreate {
             piece_id: pid,
             name: "RH shape".into(),
+            notes: None,
             m_start: 40,
             m_end: 56,
             kind: "hard_spot".into(),

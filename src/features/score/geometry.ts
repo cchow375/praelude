@@ -1,7 +1,7 @@
 import type { PdfPageSize } from "./types";
 
 export const DEFAULT_PAGE_SIZE: PdfPageSize = { width: 612, height: 792 };
-export const MIN_ZOOM = 0.35;
+export const MIN_ZOOM = 0.25;
 export const MAX_ZOOM = 3;
 export const MAX_DPR = 2;
 
@@ -18,6 +18,22 @@ export function fitWidthScale(
   if (!Number.isFinite(availableWidth) || availableWidth <= 0) return 1;
   if (!Number.isFinite(pageWidth) || pageWidth <= 0) return 1;
   return clampZoom((availableWidth - horizontalPadding) / pageWidth);
+}
+
+/** Fit an entire page inside the score viewport, accounting for both axes. */
+export function fitPageScale(
+  availableWidth: number,
+  availableHeight: number,
+  pageWidth: number,
+  pageHeight: number,
+  horizontalPadding = 32,
+  verticalPadding = 32,
+): number {
+  if (![availableWidth, availableHeight, pageWidth, pageHeight].every((value) => Number.isFinite(value) && value > 0)) return 1;
+  return clampZoom(Math.min(
+    (availableWidth - horizontalPadding) / pageWidth,
+    (availableHeight - verticalPadding) / pageHeight,
+  ));
 }
 
 export function cappedDevicePixelRatio(value: number): number {

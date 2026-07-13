@@ -163,16 +163,20 @@ export function BlockForm({
         </label>
       </div>
 
-      <label className="ck-field">
-        <span className="ck-label">Label (optional)</span>
-        <input
-          className="ck-input"
-          type="text"
-          value={label}
-          placeholder="e.g. left-hand leaps"
-          onChange={(e) => setLabel(e.target.value)}
-        />
-      </label>
+      {regionId == null ? (
+        <label className="ck-field">
+          <span className="ck-label">Block label (optional)</span>
+          <input
+            className="ck-input"
+            type="text"
+            value={label}
+            placeholder="e.g. left-hand leaps"
+            onChange={(e) => setLabel(e.target.value)}
+          />
+        </label>
+      ) : (
+        <p className="block-region-lock"><strong>Section:</strong> {defaultLabel}<span>Edit the section title in the row’s Edit tab.</span></p>
+      )}
 
       {(focus === "tempo" || useMetronome) && <div className="ck-field-grid">
         <label className="ck-field">
@@ -216,6 +220,8 @@ export function BlockForm({
         />
       </label>
 
+      <details className="block-advanced">
+        <summary>Advanced ladder + variants</summary>
       {focus === "tempo" && <fieldset className="ck-field">
         <legend className="ck-label">Tempo increment</legend>
         <div className="ck-segmented" role="radiogroup" aria-label="Increment mode">
@@ -304,6 +310,7 @@ export function BlockForm({
           + Add variant
         </button>
       </fieldset>
+      </details>
 
       <button type="submit" className="ck-primary" disabled={opening}>
         {opening ? "Opening…" : "Open block"}

@@ -7,7 +7,7 @@ import type { BlockHistory, Region } from "./types";
 
 afterEach(cleanup);
 
-const region: Region = { id: 1, piece_id: 1, name: "legato section", m_start: 544, m_end: 570, kind: "section", order: 0, color: null, pdf_anchor: null };
+const region: Region = { id: 1, piece_id: 1, name: "legato section", notes: null, m_start: 544, m_end: 570, kind: "section", order: 0, color: null, pdf_anchor: null };
 const block: BlockHistory = { block_id: 9, region_id: 1, m_start: 544, m_end: 552, label: "bridge", start_bpm: 40, bpm: 44, target_bpm: 80, planned_reps: 10, reps_done: 6, status: "done", verdicts: { clean: 3, flawed: 2, failed: 1 }, focus: "tempo", use_metronome: true };
 
 describe("HistoryPanel", () => {

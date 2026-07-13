@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   cappedDevicePixelRatio,
   clampZoom,
+  fitPageScale,
   displaySize,
   fitWidthScale,
   renderWindow,
@@ -9,9 +10,14 @@ import {
 
 describe("score geometry", () => {
   it("clamps zoom and rejects non-finite values", () => {
-    expect(clampZoom(0.1)).toBe(0.35);
+    expect(clampZoom(0.1)).toBe(0.25);
     expect(clampZoom(9)).toBe(3);
     expect(clampZoom(Number.NaN)).toBe(1);
+  });
+
+  it("fits a whole page using the tighter viewport axis", () => {
+    expect(fitPageScale(1000, 700, 600, 800, 40, 40)).toBeCloseTo(0.825);
+    expect(fitPageScale(500, 1000, 600, 800, 40, 40)).toBeCloseTo(0.7667, 3);
   });
 
   it("fits a page inside the available width with padding", () => {

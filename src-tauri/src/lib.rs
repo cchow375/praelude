@@ -32,7 +32,8 @@ use store::model::{
     BlockHistory, BlockPatch, CheckOutcome, ExportResult, Goal, GoalCreate, GoalPatch,
     DailyWorkCreate, DailyWorkPatch, Intake, PanelLayout, PieceDetail, PieceFieldPatch,
     PieceSummary, ProgressSummary, Region, RegionCreate, RegionPatch, Rep, RepOpenArgs, RepPatch,
-    RepSnapshot, SessionView,
+    RepSnapshot, SessionView, TutorialClip, TutorialClipCreate, TutorialClipPatch, TutorialVideo,
+    TutorialVideoPatch, TutorialVideoUpsert,
 };
 use store::Store;
 use tauri::path::BaseDirectory;
@@ -383,6 +384,153 @@ fn region_split(
     store: State<'_, Arc<Store>>,
 ) -> Result<Vec<Region>, String> {
     store.region_split(id, split_at).map_err(|e| e.to_string())
+}
+
+// ── Local tutorial video metadata + Region clip mappings ───────────────────
+
+/// Authorize only directories containing paths that already passed the Store's
+/// canonical `<piece>/tutorials/` containment check. This keeps the static
+/// asset-protocol scope empty and never grants access to the whole home/vault.
+fn tutorial_media_directories(
+    videos: &[TutorialVideo],
+) -> Result<std::collections::HashSet<PathBuf>, String> {
+    let mut directories = std::collections::HashSet::new();
+    for video in videos {
+        let Some(directory) = std::path::Path::new(&video.file_path).parent() else {
+            return Err("Tutorial video has no parent directory".into());
+        };
+        directories.insert(directory.to_path_buf());
+    }
+    Ok(directories)
+}
+
+fn authorize_tutorial_media(app: &AppHandle, videos: &[TutorialVideo]) -> Result<(), String> {
+    for directory in tutorial_media_directories(videos)? {
+        app.asset_protocol_scope()
+            .allow_directory(directory, false)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tutorial_asset_scope_tests {
+    use super::*;
+
+    fn video(path: &str) -> TutorialVideo {
+        TutorialVideo {
+            id: 1,
+            piece_id: 1,
+            title: "Lesson".into(),
+            file_path: path.into(),
+            duration_seconds: None,
+            clips: vec![],
+        }
+    }
+
+    #[test]
+    fn asset_scope_uses_only_deduplicated_validated_parent_directories() {
+        let directories = tutorial_media_directories(&[
+            video("/vault/Pieces/Scherzo/tutorials/full.mp4"),
+            video("/vault/Pieces/Scherzo/tutorials/overview.mov"),
+            video("/vault/Pieces/Scherzo/tutorials/chapters/coda.mp4"),
+        ])
+        .unwrap();
+        assert_eq!(directories.len(), 2);
+        assert!(directories.contains(std::path::Path::new(
+            "/vault/Pieces/Scherzo/tutorials"
+        )));
+        assert!(directories.contains(std::path::Path::new(
+            "/vault/Pieces/Scherzo/tutorials/chapters"
+        )));
+    }
+}
+
+#[tauri::command]
+fn tutorial_video_list(
+    piece_id: i64,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<Vec<TutorialVideo>, String> {
+    let videos = store.tutorial_video_list(piece_id).map_err(|error| error.to_string())?;
+    authorize_tutorial_media(&app, &videos)?;
+    Ok(videos)
+}
+
+#[tauri::command]
+fn tutorial_video_scan(
+    piece_id: i64,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<Vec<TutorialVideo>, String> {
+    let videos = store.tutorial_video_scan(piece_id).map_err(|error| error.to_string())?;
+    authorize_tutorial_media(&app, &videos)?;
+    Ok(videos)
+}
+
+#[tauri::command]
+fn tutorial_video_upsert(
+    args: TutorialVideoUpsert,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<TutorialVideo, String> {
+    let video = store.tutorial_video_upsert(args).map_err(|error| error.to_string())?;
+    authorize_tutorial_media(&app, std::slice::from_ref(&video))?;
+    Ok(video)
+}
+
+#[tauri::command]
+fn tutorial_video_update(
+    id: i64,
+    patch: TutorialVideoPatch,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<TutorialVideo, String> {
+    let video = store.tutorial_video_update(id, patch).map_err(|error| error.to_string())?;
+    authorize_tutorial_media(&app, std::slice::from_ref(&video))?;
+    Ok(video)
+}
+
+#[tauri::command]
+fn tutorial_video_delete(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    store.tutorial_video_delete(id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn tutorial_video_reveal(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    let path = store.tutorial_video_file_path(id).map_err(|error| error.to_string())?;
+    let status = std::process::Command::new("open")
+        .arg("-R")
+        .arg(path)
+        .status()
+        .map_err(|error| format!("Could not open Finder: {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Finder could not reveal the tutorial video".into())
+    }
+}
+
+#[tauri::command]
+fn tutorial_clip_create(
+    args: TutorialClipCreate,
+    store: State<'_, Arc<Store>>,
+) -> Result<TutorialClip, String> {
+    store.tutorial_clip_create(args).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn tutorial_clip_update(
+    id: i64,
+    patch: TutorialClipPatch,
+    store: State<'_, Arc<Store>>,
+) -> Result<TutorialClip, String> {
+    store.tutorial_clip_update(id, patch).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn tutorial_clip_delete(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    store.tutorial_clip_delete(id).map_err(|error| error.to_string())
 }
 
 // ── T4: Block update/delete ─────────────────────────────────────────────────
@@ -818,6 +966,15 @@ pub fn run() {
             region_delete,
             region_merge,
             region_split,
+            tutorial_video_list,
+            tutorial_video_scan,
+            tutorial_video_upsert,
+            tutorial_video_update,
+            tutorial_video_delete,
+            tutorial_video_reveal,
+            tutorial_clip_create,
+            tutorial_clip_update,
+            tutorial_clip_delete,
             block_update,
             block_delete,
             rep_update,

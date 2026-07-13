@@ -780,6 +780,7 @@ mod tests {
             .region_create(crate::store::model::RegionCreate {
                 piece_id: other,
                 name: "Other region".into(),
+                notes: None,
                 m_start: 1,
                 m_end: 4,
                 kind: "section".into(),

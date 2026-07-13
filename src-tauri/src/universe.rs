@@ -416,6 +416,7 @@ mod tests {
             id,
             piece_id,
             name: name.into(),
+            notes: None,
             m_start: 1,
             m_end: 8,
             kind: "section".into(),

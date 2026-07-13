@@ -56,9 +56,10 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**v1.1.0 shipped (P6 coherence release, tag `v1.1.0`, 2026-07-13): one canonical Region/Tricky
-Section now drives Score, Details, practice blocks, Calendar links, and editable color-coded PDF
-marks; Big Goal milestones appear on Calendar target dates; constellation stars open the exact
-piece; destructive actions confirm and preserve or explicitly cascade linked history. Schema remains
-v6. The sealed app is installed at `/Applications/CodaKiller.app`; at-piano acceptance and an
-off-disk backup remain open.** Next: run the v1.1.0 coherence acceptance path at the piano.
+**v1.2.0 shipped (P6 workflow release, tag `v1.2.0`, 2026-07-13): Tricky Section titles and
+Practice notes are separate canonical Region fields; the measure-sorted Score accordion puts
+Practice/Edit/Score marks/Tutorial beside each section and adds fit/density controls. Schema 7 maps
+validated local video chapters many-to-many to Regions; all 12 live Scherzo Regions have useful
+mapped clips. The sealed app is installed at `/Applications/CodaKiller.app`; native score + inline
+video playback passed. Full at-piano voice/metronome acceptance and an off-disk backup remain
+open.** Next: run the v1.2.0 Scherzo section workflow at the piano.

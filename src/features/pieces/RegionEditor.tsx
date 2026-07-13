@@ -14,10 +14,13 @@ export const REGION_COLORS = [
   "#c05a5a",
 ];
 
+const REGION_TITLE_MAX = 500;
+const REGION_NOTES_MAX = 10_000;
+
 /**
  * The one editor for a Tricky Section. `Region` is the canonical record used by
  * Score, Details, Calendar links, Brain context, and practice history. The UI
- * deliberately edits note + measures together so those screens cannot drift.
+ * deliberately edits title + notes + measures together so those screens cannot drift.
  */
 export function RegionEditor({
   region,
@@ -34,7 +37,8 @@ export function RegionEditor({
 }) {
   const crud = useCrud();
   const [open, setOpen] = useState(alwaysOpen);
-  const [note, setNote] = useState(region.name);
+  const [title, setTitle] = useState(region.name);
+  const [notes, setNotes] = useState(region.notes ?? "");
   const [start, setStart] = useState(String(region.m_start));
   const [end, setEnd] = useState(String(region.m_end));
   const [mergeTarget, setMergeTarget] = useState("");
@@ -43,10 +47,11 @@ export function RegionEditor({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setNote(region.name);
+    setTitle(region.name);
+    setNotes(region.notes ?? "");
     setStart(String(region.m_start));
     setEnd(String(region.m_end));
-  }, [region.m_end, region.m_start, region.name]);
+  }, [region.m_end, region.m_start, region.name, region.notes]);
 
   async function run(action: () => Promise<unknown>) {
     setError(null);
@@ -61,13 +66,15 @@ export function RegionEditor({
 
   const nextStart = Number(start);
   const nextEnd = Number(end);
-  const fieldsValid = note.trim().length > 0
-    && note.trim().length <= 500
+  const fieldsValid = title.trim().length > 0
+    && title.trim().length <= REGION_TITLE_MAX
+    && notes.trim().length <= REGION_NOTES_MAX
     && Number.isInteger(nextStart)
     && Number.isInteger(nextEnd)
     && nextStart >= 1
     && nextEnd >= nextStart;
-  const dirty = note.trim() !== region.name
+  const dirty = title.trim() !== region.name
+    || (notes.trim() || null) !== region.notes
     || nextStart !== region.m_start
     || nextEnd !== region.m_end;
 
@@ -76,7 +83,8 @@ export function RegionEditor({
     setSaving(true);
     try {
       await run(() => crud.regionUpdate(region.id, {
-        name: note.trim(),
+        name: title.trim(),
+        notes: notes.trim() || null,
         m_start: nextStart,
         m_end: nextEnd,
       }));
@@ -102,14 +110,26 @@ export function RegionEditor({
         aria-label={`Edit tricky section ${region.name}`}
         onSubmit={(event) => { event.preventDefault(); void saveFields(); }}
       >
-        <label className="region-note-field">
-          <span className="ck-label">Note / label</span>
+        <label className="region-title-field">
+          <span className="ck-label">Section title</span>
           <input
             className="ck-input"
-            aria-label="Tricky section note"
-            value={note}
-            maxLength={500}
-            onChange={(event) => setNote(event.target.value)}
+            aria-label="Tricky section title"
+            value={title}
+            maxLength={REGION_TITLE_MAX}
+            onChange={(event) => setTitle(event.target.value)}
+          />
+        </label>
+        <label className="region-notes-field">
+          <span className="ck-label">Practice notes</span>
+          <textarea
+            className="ck-input"
+            aria-label="Tricky section practice notes"
+            value={notes}
+            maxLength={REGION_NOTES_MAX}
+            rows={3}
+            placeholder="What breaks here? What should you remember?"
+            onChange={(event) => setNotes(event.target.value)}
           />
         </label>
         <div className="region-measure-fields">
@@ -123,7 +143,7 @@ export function RegionEditor({
           </label>
         </div>
         <button className="region-save" type="submit" disabled={!fieldsValid || !dirty || saving}>
-          {saving ? "Saving…" : "Save note + measures"}
+          {saving ? "Saving…" : "Save section"}
         </button>
       </form>
 
@@ -142,10 +162,12 @@ export function RegionEditor({
           ))}
           <button type="button" className="region-color-clear" onClick={() => void run(() => crud.regionUpdate(region.id, { color: null })).catch(() => undefined)}>Clear</button>
         </div>
-        <small>The same color identifies this note in Details and on every saved score annotation.</small>
+        <small>The same color identifies this section in Details and on every saved score annotation.</small>
       </div>
 
-      {!alwaysOpen && regions.some((item) => item.id !== region.id) && (
+      <details className="region-advanced-tools">
+        <summary>Advanced section tools</summary>
+      {regions.some((item) => item.id !== region.id) && (
         <div className="region-editor-row region-advanced-row">
           <label>
             <span className="ck-label">Merge this into</span>
@@ -154,30 +176,31 @@ export function RegionEditor({
               {regions.filter((item) => item.id !== region.id).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </label>
-          <ConfirmDelete label={`Merge “${region.name}” into the selected section? Its practice blocks, linked Calendar work, and compatible score annotations will move there.`} onConfirm={() => run(() => crud.regionMerge(Number(mergeTarget), region.id))}>
+          <ConfirmDelete label={`Merge “${region.name}” into the selected section? Its practice blocks, linked Calendar work, tutorial mappings, and compatible score annotations will move there.`} onConfirm={() => run(() => crud.regionMerge(Number(mergeTarget), region.id))}>
             <button type="button" disabled={!mergeTarget}>Merge</button>
           </ConfirmDelete>
         </div>
       )}
 
-      {!alwaysOpen && region.m_end > region.m_start && (
+      {region.m_end > region.m_start && (
         <div className="region-editor-row region-advanced-row">
           <label>
             <span className="ck-label">Split before measure</span>
             <input aria-label="Split measure" type="number" min={region.m_start + 1} max={region.m_end} value={splitAt} onChange={(event) => setSplitAt(event.target.value)} />
           </label>
-          <ConfirmDelete label={`Split “${region.name}” before measure ${splitAt || "…"}? Practice blocks beginning at or after that measure will move to the new half. All score boxes, highlights, and notes for this section will be cleared because their geometry cannot be divided safely; remap both halves afterward.`} onConfirm={split}>
+          <ConfirmDelete label={`Split “${region.name}” before measure ${splitAt || "…"}? Practice blocks beginning at or after that measure will move to the new half. Tutorial mappings stay on the first half; map the new half if needed. All score boxes, highlights, and notes for this section will be cleared because their geometry cannot be divided safely; remap both halves afterward.`} onConfirm={split}>
             <button type="button" disabled={!splitAt}>Split</button>
           </ConfirmDelete>
         </div>
       )}
 
       <ConfirmDelete
-        label={`Delete “${region.name}”? Its score boxes, highlights, and annotations will be deleted. Its ${blocks.length} practice block${blocks.length === 1 ? "" : "s"} will stay in history as Ungrouped. Any linked Calendar work will stay but lose this section link.`}
+        label={`Delete “${region.name}”? Its score boxes, highlights, annotations, and tutorial mappings will be deleted; video files stay. Its ${blocks.length} practice block${blocks.length === 1 ? "" : "s"} will stay in history as Ungrouped. Any linked Calendar work will stay but lose this section link.`}
         onConfirm={() => run(() => crud.regionDelete(region.id))}
       >
         <button type="button" className="region-delete">Delete tricky section</button>
       </ConfirmDelete>
+      </details>
       {error && <p className="ck-inline-error" role="alert">{error}</p>}
     </div>
   );
@@ -186,7 +209,7 @@ export function RegionEditor({
     <div className={`region-editor ${alwaysOpen ? "is-always-open" : ""}`} style={{ "--region-color": region.color ?? "var(--accent)" } as React.CSSProperties}>
       {!alwaysOpen && (
         <button type="button" className="region-manage-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-          {open ? "Close editor" : "Edit note, measures, color or delete"}
+          {open ? "Close editor" : "Edit title, notes, measures or color"}
         </button>
       )}
       {(open || alwaysOpen) && body}
@@ -209,7 +232,8 @@ export function TrickySectionsPanel({
   const [regions, setRegions] = useState<Region[]>([]);
   const [blocks, setBlocks] = useState<BlockHistory[]>([]);
   const [adding, setAdding] = useState(false);
-  const [note, setNote] = useState("");
+  const [title, setTitle] = useState("");
+  const [notes, setNotes] = useState("");
   const [start, setStart] = useState("1");
   const [end, setEnd] = useState("1");
   const [loading, setLoading] = useState(true);
@@ -240,6 +264,8 @@ export function TrickySectionsPanel({
     }
     return map;
   }, [blocks]);
+  const sortedRegions = useMemo(() => [...regions].sort((a, b) =>
+    a.m_start - b.m_start || a.m_end - b.m_end || a.name.localeCompare(b.name)), [regions]);
 
   const changed = async () => {
     await load();
@@ -249,15 +275,16 @@ export function TrickySectionsPanel({
   const create = async () => {
     const mStart = Number(start);
     const mEnd = Number(end);
-    if (!note.trim() || !Number.isInteger(mStart) || !Number.isInteger(mEnd) || mStart < 1 || mEnd < mStart) {
-      setError("Enter a note and a valid measure range.");
+    if (!title.trim() || !Number.isInteger(mStart) || !Number.isInteger(mEnd) || mStart < 1 || mEnd < mStart) {
+      setError("Enter a section title and a valid measure range.");
       return;
     }
     setError(null);
     try {
-      const created = await crud.regionCreate({ piece_id: pieceId, name: note.trim(), m_start: mStart, m_end: mEnd, kind: "hard_spot" });
+      const created = await crud.regionCreate({ piece_id: pieceId, name: title.trim(), notes: notes.trim() || null, m_start: mStart, m_end: mEnd, kind: "hard_spot" });
       await crud.regionUpdate(created.id, { color: REGION_COLORS[regions.length % REGION_COLORS.length] });
-      setNote("");
+      setTitle("");
+      setNotes("");
       setStart(String(mEnd + 1));
       setEnd(String(mEnd + 1));
       setAdding(false);
@@ -272,13 +299,14 @@ export function TrickySectionsPanel({
       <div className="piece-section-heading">
         <div>
           <span className="ck-label">Tricky sections</span>
-          <p>One shared note, measure range, color, score annotation, and practice history.</p>
+          <p>One shared title, practice note, measure range, color, score annotation, and history.</p>
         </div>
         <button type="button" className="ck-add" onClick={() => setAdding((value) => !value)}>{adding ? "Cancel" : "+ Add"}</button>
       </div>
       {adding && (
         <form className="tricky-section-add" onSubmit={(event) => { event.preventDefault(); void create(); }}>
-          <label><span className="ck-label">What is tricky?</span><input autoFocus className="ck-input" aria-label="New tricky section note" value={note} onChange={(event) => setNote(event.target.value)} /></label>
+          <label><span className="ck-label">Section title</span><input autoFocus className="ck-input" aria-label="New tricky section title" maxLength={REGION_TITLE_MAX} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+          <label className="tricky-section-add-notes"><span className="ck-label">Practice notes</span><textarea className="ck-input" aria-label="New tricky section practice notes" maxLength={REGION_NOTES_MAX} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
           <label><span className="ck-label">From</span><input aria-label="New tricky section start measure" type="number" min="1" value={start} onChange={(event) => setStart(event.target.value)} /></label>
           <label><span className="ck-label">To</span><input aria-label="New tricky section end measure" type="number" min="1" value={end} onChange={(event) => setEnd(event.target.value)} /></label>
           <button type="submit">Create section</button>
@@ -288,15 +316,16 @@ export function TrickySectionsPanel({
         <p className="history-empty">No tricky sections yet. Add one here or from the score.</p>
       ) : (
         <div className="tricky-section-list">
-          {regions.map((region) => (
+          {sortedRegions.map((region) => (
             <article className="tricky-section-card" key={region.id} style={{ "--region-color": region.color ?? "var(--accent)" } as React.CSSProperties}>
               <div className="tricky-section-card-head">
                 <span className="tricky-section-dot" aria-hidden="true" />
                 <strong>{region.name}</strong>
                 <span>mm. {region.m_start}–{region.m_end}</span>
+                {region.notes && <p>{region.notes}</p>}
                 <small>{blocksByRegion.get(region.id)?.length ?? 0} practice blocks</small>
               </div>
-              <RegionEditor region={region} regions={regions} blocks={blocksByRegion.get(region.id) ?? []} onChanged={changed} />
+              <RegionEditor region={region} regions={sortedRegions} blocks={blocksByRegion.get(region.id) ?? []} onChanged={changed} />
             </article>
           ))}
         </div>

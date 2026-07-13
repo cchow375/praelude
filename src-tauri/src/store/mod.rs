@@ -11,6 +11,7 @@ mod crud;
 mod events;
 mod history_backfill;
 mod migrations;
+mod tutorials;
 pub mod model;
 
 pub use events::EventKind;
@@ -373,17 +374,18 @@ impl Store {
             if note.is_empty() || start < 1 || end < start {
                 continue;
             }
+            let header = format!("mm. {start}–{end}");
             tx.execute(
-                "INSERT INTO region (piece_id,name,m_start,m_end,kind,sort_order,color)
-                 SELECT ?1,?2,?3,?4,'hard_spot',
+                "INSERT INTO region (piece_id,name,notes,m_start,m_end,kind,sort_order,color)
+                 SELECT ?1,?2,?3,?4,?5,'hard_spot',
                     COALESCE((SELECT MAX(sort_order) + 1 FROM region WHERE piece_id = ?1),0),
                     '#c05a5a'
                  WHERE NOT EXISTS (
                     SELECT 1 FROM region
-                    WHERE piece_id = ?1 AND m_start = ?3 AND m_end = ?4
-                      AND lower(trim(name)) = lower(?2)
+                    WHERE piece_id = ?1 AND m_start = ?4 AND m_end = ?5
+                      AND lower(trim(COALESCE(notes,''))) = lower(?3)
                  )",
-                rusqlite::params![id, note, start, end],
+                rusqlite::params![id, header, note, start, end],
             )?;
         }
         tx.commit()?;
@@ -923,8 +925,8 @@ mod tests {
     }
 
     #[test]
-    fn fresh_store_is_at_schema_version_6() {
-        assert_eq!(mem().schema_version().unwrap(), 6);
+    fn fresh_store_is_at_schema_version_7() {
+        assert_eq!(mem().schema_version().unwrap(), 7);
     }
 
     #[test]
@@ -976,6 +978,9 @@ mod tests {
             "event",
             "daily_work",
             "session_event_backfill",
+            "tutorial_video",
+            "tutorial_chapter",
+            "tutorial_clip",
         ] {
             let found: String = conn
                 .query_row(
@@ -1135,7 +1140,7 @@ mod tests {
         // (e.g. duplicate CREATE TABLE) and must leave the version untouched.
         let store = mem();
         migrations::migrate(&store.conn.lock().unwrap()).expect("re-migrate is a no-op");
-        assert_eq!(store.schema_version().unwrap(), 6);
+        assert_eq!(store.schema_version().unwrap(), 7);
     }
 
     /// Release-gate rehearsal against an operator-created backup of the real DB.
@@ -1288,7 +1293,7 @@ mod tests {
         .unwrap();
 
         let store = Store::from_connection(conn).expect("v1 db upgrades cleanly");
-        assert_eq!(store.schema_version().unwrap(), 6, "reaches v6");
+        assert_eq!(store.schema_version().unwrap(), 7, "reaches v7");
         assert_eq!(
             store.get_setting("theme").unwrap(),
             Some("dark".into()),
@@ -1430,7 +1435,8 @@ mod tests {
         store.save_intake(id, &intake).unwrap();
         let regions = store.region_list(id).unwrap();
         assert_eq!(regions.len(), 1);
-        assert_eq!(regions[0].name, "LH landing");
+        assert_eq!(regions[0].name, "mm. 12–16");
+        assert_eq!(regions[0].notes.as_deref(), Some("LH landing"));
         assert_eq!((regions[0].m_start, regions[0].m_end), (12, 16));
         assert_eq!(regions[0].color.as_deref(), Some("#c05a5a"));
     }

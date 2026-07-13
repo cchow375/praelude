@@ -8,7 +8,7 @@
 use rusqlite::Connection;
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 6;
+pub const SCHEMA_VERSION: i32 = 7;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -301,6 +301,94 @@ CREATE TABLE session_event_backfill (
 );
 ";
 
+/// Schema v7 — separate the short Region header (`name`) from nullable,
+/// detailed practice notes and add reusable, path-backed tutorial videos.
+///
+/// Existing Region text remains in `name` verbatim. Authored prose is also
+/// copied into `notes`; generated `mm. …` labels leave `notes` NULL. Tutorial
+/// media stays on disk: SQLite stores only the canonical path and chapter/clip
+/// metadata, never video bytes.
+pub(crate) const SCHEMA_V7: &str = "\
+ALTER TABLE region ADD COLUMN notes TEXT
+  CHECK(notes IS NULL OR length(notes) <= 10000);
+-- v6 had only one text field. Keep every header byte-for-byte and seed detailed
+-- notes from authored prose; generated `mm. …` labels carry no extra meaning.
+UPDATE region SET notes = name
+WHERE lower(trim(name)) NOT GLOB 'mm. *';
+
+CREATE TABLE tutorial_video (
+  id INTEGER PRIMARY KEY,
+  piece_id INTEGER NOT NULL REFERENCES piece(id) ON DELETE CASCADE,
+  title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 500),
+  file_path TEXT NOT NULL CHECK(length(trim(file_path)) BETWEEN 1 AND 4096),
+  duration_seconds REAL CHECK(duration_seconds IS NULL OR duration_seconds > 0),
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(piece_id, file_path)
+);
+CREATE INDEX tutorial_video_piece_idx
+  ON tutorial_video(piece_id, title COLLATE NOCASE, id);
+
+CREATE TABLE tutorial_chapter (
+  id INTEGER PRIMARY KEY,
+  video_id INTEGER NOT NULL REFERENCES tutorial_video(id) ON DELETE CASCADE,
+  start_seconds REAL NOT NULL CHECK(start_seconds >= 0),
+  end_seconds REAL NOT NULL CHECK(end_seconds > start_seconds),
+  title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 500),
+  notes TEXT CHECK(notes IS NULL OR length(notes) <= 10000),
+  sort_order INTEGER NOT NULL DEFAULT 0 CHECK(sort_order >= 0),
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_ts TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX tutorial_chapter_video_idx
+  ON tutorial_chapter(video_id, sort_order, start_seconds, id);
+
+-- A clip is the lightweight mapping from one reusable chapter to one Region.
+-- This avoids duplicating timestamps/title/notes when a chapter demonstrates
+-- more than one Tricky Section while retaining a flat IPC representation.
+CREATE TABLE tutorial_clip (
+  id INTEGER PRIMARY KEY,
+  chapter_id INTEGER NOT NULL REFERENCES tutorial_chapter(id) ON DELETE CASCADE,
+  region_id INTEGER NOT NULL REFERENCES region(id) ON DELETE CASCADE,
+  UNIQUE(chapter_id, region_id)
+);
+CREATE INDEX tutorial_clip_region_idx
+  ON tutorial_clip(region_id, id);
+CREATE INDEX tutorial_clip_chapter_idx
+  ON tutorial_clip(chapter_id, id);
+
+-- A clip may only connect a Region to a video belonging to the same Piece.
+-- Ordinary independent FKs cannot express that invariant without duplicating
+-- piece_id on the clip, so enforce it for both insert and reassignment.
+CREATE TRIGGER tutorial_clip_same_piece_insert
+BEFORE INSERT ON tutorial_clip
+WHEN (SELECT v.piece_id FROM tutorial_chapter c
+      JOIN tutorial_video v ON v.id=c.video_id WHERE c.id=NEW.chapter_id) !=
+     (SELECT piece_id FROM region WHERE id = NEW.region_id)
+BEGIN
+  SELECT RAISE(ABORT, 'tutorial clip video and region must belong to the same piece');
+END;
+CREATE TRIGGER tutorial_clip_same_piece_update
+BEFORE UPDATE OF chapter_id, region_id ON tutorial_clip
+WHEN (SELECT v.piece_id FROM tutorial_chapter c
+      JOIN tutorial_video v ON v.id=c.video_id WHERE c.id=NEW.chapter_id) !=
+     (SELECT piece_id FROM region WHERE id = NEW.region_id)
+BEGIN
+  SELECT RAISE(ABORT, 'tutorial clip video and region must belong to the same piece');
+END;
+CREATE TRIGGER tutorial_chapter_same_piece_update
+BEFORE UPDATE OF video_id ON tutorial_chapter
+WHEN EXISTS (
+  SELECT 1 FROM tutorial_clip l
+  JOIN region r ON r.id=l.region_id
+  WHERE l.chapter_id=NEW.id AND r.piece_id !=
+    (SELECT piece_id FROM tutorial_video WHERE id=NEW.video_id)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'shared tutorial chapter cannot move across linked pieces');
+END;
+";
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
@@ -391,7 +479,9 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             conn.execute_batch("BEGIN;")?;
             conn.execute_batch(SCHEMA_V6)?;
             super::history_backfill::backfill_history(conn)?;
-            conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
+            // Keep this stamp tied to the step. Using SCHEMA_VERSION here would
+            // skip later migrations when a fresh database runs all steps.
+            conn.execute_batch("PRAGMA user_version = 6;")?;
             conn.execute_batch("COMMIT;")?;
             Ok(())
         })();
@@ -410,6 +500,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             Ok(())
         })();
         if let Err(error) = reconciliation {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
+    if version < 7 {
+        let v7 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN;")?;
+            conn.execute_batch(SCHEMA_V7)?;
+            conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v7 {
             let _ = conn.execute_batch("ROLLBACK;");
             return Err(error);
         }
@@ -499,6 +603,181 @@ mod v3_tests {
         c
     }
 
+    fn seed_v6() -> Connection {
+        let c = seed_v5();
+        c.execute_batch("BEGIN;").unwrap();
+        c.execute_batch(SCHEMA_V6).unwrap();
+        super::super::history_backfill::backfill_history(&c).unwrap();
+        c.execute_batch("PRAGMA user_version = 6; COMMIT;").unwrap();
+        c
+    }
+
+    #[test]
+    fn migrate_v6_to_v7_preserves_region_headers_and_adds_tutorial_graph_once() {
+        let c = seed_v6();
+        let region_id: i64 = c
+            .query_row(
+                "SELECT id FROM region WHERE piece_id=1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        c.execute(
+            "UPDATE region SET name='Left hand voicing — keep this exact text' WHERE id=?1",
+            [region_id],
+        )
+        .unwrap();
+
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            7
+        );
+        let (name, notes): (String, Option<String>) = c
+            .query_row(
+                "SELECT name,notes FROM region WHERE id=?1",
+                [region_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "Left hand voicing — keep this exact text");
+        assert_eq!(
+            notes.as_deref(),
+            Some("Left hand voicing — keep this exact text"),
+            "authored v6 prose is copied into notes without changing the header"
+        );
+        let generated_notes: Option<String> = c
+            .query_row(
+                "SELECT notes FROM region WHERE name GLOB 'mm. *' LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            generated_notes, None,
+            "generated measure labels are not duplicated into fake notes"
+        );
+
+        c.execute(
+            "UPDATE region SET notes='Drop the wrist before the octave' WHERE id=?1",
+            [region_id],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO tutorial_video(piece_id,title,file_path,duration_seconds)
+             VALUES (1,'Lesson','/piece/tutorials/lesson.mp4',60)",
+            [],
+        )
+        .unwrap();
+        let video_id = c.last_insert_rowid();
+        c.execute(
+            "INSERT INTO tutorial_chapter
+             (video_id,start_seconds,end_seconds,title,sort_order)
+             VALUES (?1,5,12,'Opening shape',0)",
+            [video_id],
+        )
+        .unwrap();
+        let chapter_id = c.last_insert_rowid();
+        c.execute(
+            "INSERT INTO tutorial_clip(chapter_id,region_id) VALUES (?1,?2)",
+            rusqlite::params![chapter_id, region_id],
+        )
+        .unwrap();
+
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("SELECT notes FROM region WHERE id=?1", [region_id], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+            "Drop the wrist before the octave"
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM tutorial_video", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM tutorial_clip", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn v7_constraints_reject_cross_piece_and_invalid_clips_and_cascade() {
+        let c = seed_v6();
+        migrate(&c).unwrap();
+        c.execute(
+            "INSERT INTO piece(id,title,folder_path) VALUES (2,'Other','/p/2')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO region(piece_id,name,m_start,m_end,kind) VALUES (2,'Other',1,4,'section')",
+            [],
+        )
+        .unwrap();
+        let other_region = c.last_insert_rowid();
+        c.execute(
+            "INSERT INTO tutorial_video(piece_id,title,file_path,duration_seconds)
+             VALUES (1,'Lesson','/p/1/tutorials/lesson.mp4',60)",
+            [],
+        )
+        .unwrap();
+        let video = c.last_insert_rowid();
+        c.execute(
+            "INSERT INTO tutorial_chapter(video_id,start_seconds,end_seconds,title)
+             VALUES (?1,0,5,'Chapter')",
+            [video],
+        )
+        .unwrap();
+        let chapter = c.last_insert_rowid();
+        assert!(c
+            .execute(
+                "INSERT INTO tutorial_clip(chapter_id,region_id) VALUES (?1,?2)",
+                rusqlite::params![chapter, other_region],
+            )
+            .is_err());
+        let own_region: i64 = c
+            .query_row(
+                "SELECT id FROM region WHERE piece_id=1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(c
+            .execute(
+                "INSERT INTO tutorial_chapter(video_id,start_seconds,end_seconds,title)
+                 VALUES (?1,5,5,'Empty')",
+                [video],
+            )
+            .is_err());
+        c.execute(
+            "INSERT INTO tutorial_clip(chapter_id,region_id) VALUES (?1,?2)",
+            rusqlite::params![chapter, own_region],
+        )
+        .unwrap();
+        c.execute("DELETE FROM tutorial_video WHERE id=?1", [video])
+            .unwrap();
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM tutorial_clip", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+
     #[test]
     fn migrate_v3_to_v4_preserves_graph_and_adds_pdf_preference() {
         let c = seed_v3();
@@ -519,7 +798,7 @@ mod v3_tests {
         let version: i32 = c
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
         let after: (i64, i64, i64, i64) = c
             .query_row(
                 "SELECT
@@ -565,7 +844,7 @@ mod v3_tests {
         let v: i32 = c
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 6);
+        assert_eq!(v, 7);
 
         // v4 adds a user-owned edition preference without disturbing the
         // scanner-owned pdf_path.
@@ -711,7 +990,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            6
+            7
         );
         let after = tables
             .iter()
@@ -960,7 +1239,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            6
+            7
         );
         let after: Vec<i64> = preserved_tables
             .iter()
@@ -1166,7 +1445,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            6
+            7
         );
         assert_eq!(
             c.query_row("SELECT count(*) FROM session_event_backfill", [], |row| row
