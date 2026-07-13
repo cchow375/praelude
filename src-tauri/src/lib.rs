@@ -17,6 +17,7 @@ mod sysvol;
 pub mod tts;
 pub mod vault;
 mod voice_loop;
+mod universe;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -456,6 +457,12 @@ fn progress_summary(piece_id: i64, store: State<'_, Arc<Store>>) -> Result<Progr
     metrics::progress_summary(&store, piece_id).map_err(|e| e.to_string())
 }
 
+/// Read-only, all-piece Practice Universe signals derived from canonical work.
+#[tauri::command]
+fn universe_snapshot(store: State<'_, Arc<Store>>) -> Result<universe::UniverseSnapshot, String> {
+    universe::snapshot(&store).map_err(|error| error.to_string())
+}
+
 /// Read-only, deterministic next-work ranking. The brain can narrate this
 /// trace, but it cannot change the ordering or write a schedule.
 #[tauri::command]
@@ -756,6 +763,7 @@ pub fn run() {
             goal_reorder,
             piece_field_update,
             progress_summary,
+            universe_snapshot,
             brain_plan_preview,
             brain_ask,
             brain_intake_apply,
