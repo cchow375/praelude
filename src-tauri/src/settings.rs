@@ -116,7 +116,7 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
     if let Some(value) = patch.brain_provider {
         writes.push((
             "brain.provider",
-            validate_choice(value, &["auto", "claude", "gemini", "offline"] )?,
+            validate_choice(value, &["auto", "claude", "gemini", "offline"])?,
         ));
     }
     if let Some(value) = patch.wake_word_enabled {
