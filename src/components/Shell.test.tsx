@@ -1,9 +1,18 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const invokeMock = vi.fn().mockImplementation((command: string) =>
-  Promise.resolve(command === "pieces_list" ? [] : null),
-);
+const invokeMock = vi.fn().mockImplementation((command: string) => {
+  if (command === "pieces_list" || command === "daily_work_list") return Promise.resolve([]);
+  if (command === "recovery_preview") {
+    return Promise.resolve({
+      today: "2026-07-12",
+      capacity_minutes: 60,
+      items: [],
+      days: [],
+    });
+  }
+  return Promise.resolve(null);
+});
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invokeMock(...args) }));
 vi.mock("../features/voice/useVoice", () => ({
   useVoice: () => ({ status: "live", mute: vi.fn(), lastIntent: null, downGuidance: null }),
@@ -28,7 +37,7 @@ afterEach(cleanup);
 describe("Shell floating workspace", () => {
   it("hosts active surfaces in movable panels without removing main practice", async () => {
     render(<Shell />);
-    expect(screen.getByLabelText("Version 0.4.0")).toBeTruthy();
+    expect(screen.getByLabelText("Version 0.5.0")).toBeTruthy();
     await waitFor(() => expect(screen.getByTestId("panel-rep")).toBeTruthy());
     expect(screen.getByTestId("panel-session")).toBeTruthy();
     expect(screen.getByTestId("main-practice")).toBeTruthy();
@@ -41,5 +50,12 @@ describe("Shell floating workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(await screen.findByRole("button", { name: "Reset panel layout" }));
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("layout_set", expect.anything()), { timeout: 1000 });
+  });
+
+  it("opens Calendar as a top-level workspace", async () => {
+    render(<Shell />);
+    fireEvent.click(screen.getByRole("tab", { name: "Calendar" }));
+    expect(await screen.findByTestId("calendar-workspace")).toBeTruthy();
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("daily_work_list", expect.anything()));
   });
 });

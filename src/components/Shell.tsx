@@ -12,6 +12,7 @@ import { FloatingPanel } from "./FloatingPanel";
 import { usePanels } from "./usePanels";
 import { BrainWorkspace } from "../features/brain/BrainWorkspace";
 import type { WakeQuestion } from "../features/brain/types";
+import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
 import { version as appVersion } from "../../package.json";
 import "./Shell.css";
 
@@ -22,7 +23,7 @@ const VOICE_STATUS_LABEL: Record<VoiceStatus, string> = {
 };
 
 type PanelId = "metronome" | "mic" | "settings";
-type ViewId = "practice" | "brain" | "metronome";
+type ViewId = "practice" | "calendar" | "brain" | "metronome";
 
 /**
  * The app shell: a slim top bar and a large, quiet hero area. Per the CodaKiller
@@ -99,6 +100,15 @@ export function Shell() {
             <button
               type="button"
               role="tab"
+              aria-selected={view === "calendar"}
+              className={`view-tab ${view === "calendar" ? "is-on" : ""}`}
+              onClick={() => setView("calendar")}
+            >
+              Calendar
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={view === "practice"}
               className={`view-tab ${view === "practice" ? "is-on" : ""}`}
               onClick={() => setView("practice")}
@@ -171,6 +181,8 @@ export function Shell() {
         <main className="practice-main" data-testid="main-practice">
           <PiecesPanel onOpenBlock={rep.open} activeRep={rep.snap} />
         </main>
+      ) : view === "calendar" ? (
+        <CalendarWorkspace />
       ) : view === "brain" ? (
         <BrainWorkspace wakeQuestion={wakeQuestion} />
       ) : (
