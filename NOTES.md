@@ -690,3 +690,14 @@ voice at the mic. **Ground-truth findings on this Mac (macOS 15, M2):**
   blocks, and spaced Region revisits; every score component appears in `reasons`, output is capped,
   and the local date comes from SQLite `date('now','localtime')` instead of slicing UTC timestamps.
   The brain receives this plan as context but cannot mutate or reorder it.
+- **P5 review hardened the write and prose boundaries.** Intake drafts are registered in a
+  process-local 15-minute ledger and can be applied once only, against the exact answer, piece,
+  and fields that were proposed. Piece deadlines update only canonical root Goals that still
+  match the previous inherited default; custom per-Goal dates survive. Provider prose is rejected
+  across verb/object families for verdicts, piano-hearing claims, score/tempo control, graph
+  mutation, tools, and secrets. This remains deliberately conservative: a blocked provider answer
+  is safer than text that appears to control the deterministic app.
+- **P5 planning uses both history and recency.** Region ranking combines whole-history clean ratio,
+  flawed/failed count across the latest five persisted reps, and spaced age. The same reason trace
+  is visible directly in Brain, independent of provider availability; it is not hidden inside the
+  prompt or owned by the model.

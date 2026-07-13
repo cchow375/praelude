@@ -56,8 +56,8 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**v0.4.0 shipped (P4, tag `v0.4.0`, 2026-07-12): the editable rep tracker now leads with the
-real PDF score—lazy continuous pages, persistent editions, normalized edition-safe Region
-mapping/highlights, direct practice entry, and deterministic silent page/measure navigation.
-Brain / planner / Practice Universe remain; at-piano acceptance is pending; the repo is
-local-only.** Next: real at-piano score+rep session → tuning round → P5 brain/library.
+**v0.5.0 shipped (P5, tag `v0.5.0`, 2026-07-12): the real-score rep tracker now has a grounded
+Brain—Claude/Gemini/offline cited Q&A, 28-method library, visible deterministic Next work,
+voice-gated playback, and explicit one-time intake reviews. Calendar/recovery (P5.5) and Home /
+Practice Universe / references / polish (P6) remain; at-piano acceptance is pending; the repo is
+local-only.** Next: P5.5 nested goals + seven-day Calendar + explicit missed-day recovery.
