@@ -3,6 +3,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const invokeMock = vi.fn().mockImplementation((command: string) => {
   if (command === "pieces_list" || command === "daily_work_list") return Promise.resolve([]);
+  if (command === "universe_snapshot") {
+    return Promise.resolve({
+      generated_at: "2026-07-12T17:00:00Z",
+      definitions: [],
+      traces: {
+        source: "canonical practice events",
+        practice_event_kinds: ["rep"],
+        idle_threshold_seconds: 300,
+        active_window_start: "2026-06-15",
+        active_window_end: "2026-07-12",
+        quality_formula: "bounded smoothing",
+      },
+      totals: { focused_seconds: 0, active_days_28: 0, regions_practiced: 0, regions_revisited: 0 },
+      pieces: [],
+    });
+  }
   if (command === "recovery_preview") {
     return Promise.resolve({
       today: "2026-07-12",
@@ -35,9 +51,12 @@ import { Shell } from "./Shell";
 afterEach(cleanup);
 
 describe("Shell floating workspace", () => {
-  it("hosts active surfaces in movable panels without removing main practice", async () => {
+  it("lands intentionally on Home, then keeps active surfaces when Practice opens", async () => {
     render(<Shell />);
     expect(screen.getByLabelText("Version 0.6.0")).toBeTruthy();
+    expect(await screen.findByTestId("universe-workspace")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Home" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("tab", { name: "Practice" }));
     await waitFor(() => expect(screen.getByTestId("panel-rep")).toBeTruthy());
     expect(screen.getByTestId("panel-session")).toBeTruthy();
     expect(screen.getByTestId("main-practice")).toBeTruthy();
@@ -57,5 +76,16 @@ describe("Shell floating workspace", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Calendar" }));
     expect(await screen.findByTestId("calendar-workspace")).toBeTruthy();
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("daily_work_list", expect.anything()));
+  });
+
+  it("offers Home, Practice, Calendar, and Brain tabs while metronome stays a tool", async () => {
+    render(<Shell />);
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Home", "Practice", "Calendar", "Brain"]);
+    expect(screen.queryByRole("tab", { name: "Metronome" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Metronome" })).toBeTruthy();
+
+    const home = screen.getByRole("tab", { name: "Home" });
+    fireEvent.keyDown(home, { key: "ArrowRight" });
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Practice" }).getAttribute("aria-selected")).toBe("true"));
   });
 });

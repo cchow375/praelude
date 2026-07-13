@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Popover } from "./Popover";
 import { MetronomePopover } from "../features/metronome/MetronomePopover";
 import { useVoice, type VoiceStatus } from "../features/voice/useVoice";
@@ -13,6 +13,8 @@ import { usePanels } from "./usePanels";
 import { BrainWorkspace } from "../features/brain/BrainWorkspace";
 import type { WakeQuestion } from "../features/brain/types";
 import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
+import { UniverseWorkspace } from "../features/universe/UniverseWorkspace";
+import type { PracticePieceContext } from "../features/universe/types";
 import { version as appVersion } from "../../package.json";
 import "./Shell.css";
 
@@ -23,23 +25,27 @@ const VOICE_STATUS_LABEL: Record<VoiceStatus, string> = {
 };
 
 type PanelId = "metronome" | "mic" | "settings";
-type ViewId = "practice" | "calendar" | "brain" | "metronome";
+type ViewId = "home" | "practice" | "calendar" | "brain";
 
-/**
- * The app shell: a slim top bar and a large, quiet hero area. Per the CodaKiller
- * spec the score will become the hero surface and ALL secondary UI lives in
- * popovers — nothing is pinned on screen. For now the top-bar buttons open empty
- * placeholder popovers.
- */
+const VIEWS: Array<{ id: ViewId; label: string }> = [
+  { id: "home", label: "Home" },
+  { id: "practice", label: "Practice" },
+  { id: "calendar", label: "Calendar" },
+  { id: "brain", label: "Brain" },
+];
+
+/** The app shell: Home plus focused workspaces and always-reachable tools. */
 export function Shell() {
   const [openPanel, setOpenPanel] = useState<PanelId | null>(null);
-  const [view, setView] = useState<ViewId>("practice");
+  const [view, setView] = useState<ViewId>("home");
+  const [practiceContext, setPracticeContext] = useState<PracticePieceContext | null>(null);
   const [wakeQuestion, setWakeQuestion] = useState<WakeQuestion | null>(null);
   const [ending, setEnding] = useState(false);
   const wakeQuestionId = useRef(0);
   const metronomeRef = useRef<HTMLButtonElement>(null);
   const micRef = useRef<HTMLButtonElement>(null);
   const settingsRef = useRef<HTMLButtonElement>(null);
+  const viewTabRefs = useRef<Partial<Record<ViewId, HTMLButtonElement | null>>>({});
   const voice = useVoice();
   const rep = useRep();
   const session = useSession();
@@ -77,6 +83,23 @@ export function Shell() {
     setOpenPanel((cur) => (cur === id ? null : id));
   const close = () => setOpenPanel(null);
 
+  const navigateView = (nextView: ViewId, focus = false) => {
+    setView(nextView);
+    if (focus) requestAnimationFrame(() => viewTabRefs.current[nextView]?.focus());
+  };
+
+  const onViewKeyDown = (event: KeyboardEvent<HTMLButtonElement>, current: ViewId) => {
+    const index = VIEWS.findIndex((item) => item.id === current);
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (index + 1) % VIEWS.length;
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (index - 1 + VIEWS.length) % VIEWS.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = VIEWS.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    navigateView(VIEWS[nextIndex].id, true);
+  };
+
   const endSession = async () => {
     setEnding(true);
     try {
@@ -97,42 +120,23 @@ export function Shell() {
             </span>
           </div>
           <nav className="view-switcher" aria-label="View" role="tablist">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === "calendar"}
-              className={`view-tab ${view === "calendar" ? "is-on" : ""}`}
-              onClick={() => setView("calendar")}
-            >
-              Calendar
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === "practice"}
-              className={`view-tab ${view === "practice" ? "is-on" : ""}`}
-              onClick={() => setView("practice")}
-            >
-              Practice
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === "brain"}
-              className={`view-tab ${view === "brain" ? "is-on" : ""}`}
-              onClick={() => setView("brain")}
-            >
-              Brain
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === "metronome"}
-              className={`view-tab ${view === "metronome" ? "is-on" : ""}`}
-              onClick={() => setView("metronome")}
-            >
-              Metronome
-            </button>
+            {VIEWS.map((item) => (
+              <button
+                key={item.id}
+                ref={(node) => { viewTabRefs.current[item.id] = node; }}
+                id={`tab-${item.id}`}
+                type="button"
+                role="tab"
+                aria-controls={`panel-${item.id}`}
+                aria-selected={view === item.id}
+                tabIndex={view === item.id ? 0 : -1}
+                className={`view-tab ${view === item.id ? "is-on" : ""}`}
+                onClick={() => navigateView(item.id)}
+                onKeyDown={(event) => onViewKeyDown(event, item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
           </nav>
         </div>
         <nav className="topbar-actions" aria-label="Tools">
@@ -177,33 +181,32 @@ export function Shell() {
         </nav>
       </header>
 
-      {view === "practice" ? (
-        <main className="practice-main" data-testid="main-practice">
+      {view === "home" ? (
+        <UniverseWorkspace
+          onOpenPractice={(piece) => {
+            setPracticeContext(piece);
+            navigateView("practice");
+          }}
+        />
+      ) : view === "practice" ? (
+        <main className="practice-main" data-testid="main-practice" id="panel-practice" role="tabpanel" aria-labelledby="tab-practice">
+          {practiceContext && (
+            <div className="practice-context" role="status">
+              <span><strong>{practiceContext.title}</strong> is selected for practice tools.</span>
+              <span>Open its piece card below to view the score and Regions.</span>
+              <button type="button" onClick={() => setPracticeContext(null)} aria-label="Dismiss selected piece context">Dismiss</button>
+            </div>
+          )}
           <PiecesPanel onOpenBlock={rep.open} activeRep={rep.snap} />
         </main>
       ) : view === "calendar" ? (
-        <CalendarWorkspace />
-      ) : view === "brain" ? (
-        <BrainWorkspace wakeQuestion={wakeQuestion} />
+        <div id="panel-calendar" role="tabpanel" aria-labelledby="tab-calendar" className="workspace-panel-reset">
+          <CalendarWorkspace />
+        </div>
       ) : (
-        <main className="hero">
-          <div className="hero-placeholder">
-            <p className="hero-title">Ready when you are.</p>
-            <p className="hero-subtitle">
-              The mic is always listening — no wake word needed. Try saying:
-            </p>
-            <ul className="hero-examples">
-              <li>“metronome ninety-six”</li>
-              <li>“bump it up four” · “faster” · “slower”</li>
-              <li>“accent every three”</li>
-              <li>“stop”</li>
-            </ul>
-            <p className="hero-footnote">
-              Playing, singing, and conversation are ignored. Your score view
-              arrives in a later update.
-            </p>
-          </div>
-        </main>
+        <div id="panel-brain" role="tabpanel" aria-labelledby="tab-brain" className="workspace-panel-reset">
+          <BrainWorkspace wakeQuestion={wakeQuestion} />
+        </div>
       )}
 
       <MetronomePopover
@@ -234,8 +237,8 @@ export function Shell() {
         downGuidance={voice.downGuidance}
       />
 
-      {/* Session + rep surfaces live at shell level so they are visible from
-          both the Practice and Metronome views. */}
+      {/* Session + rep surfaces live at shell level so practice tools remain
+          available while moving between workspaces. */}
       {session.session && panelManager.panels.session && (
         <FloatingPanel
           geometry={panelManager.panels.session}
