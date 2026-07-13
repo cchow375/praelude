@@ -1,0 +1,198 @@
+.score-view {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  color: var(--ink-primary);
+  background: var(--surface-app);
+}
+
+.score-toolbar {
+  position: relative;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto minmax(220px, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 52px;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-topbar);
+}
+
+.score-toolbar button,
+.score-toolbar select,
+.score-toolbar input,
+.score-state button {
+  min-height: 30px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--ink-primary);
+  background: var(--surface-raised);
+  font: inherit;
+}
+
+.score-toolbar button,
+.score-state button {
+  cursor: pointer;
+}
+
+.score-toolbar button:hover:not(:disabled),
+.score-state button:hover {
+  background: var(--surface-hover);
+}
+
+.score-toolbar button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.score-edition {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+}
+
+.score-edition select {
+  min-width: 0;
+  max-width: 320px;
+  padding: 0 var(--space-2);
+}
+
+.score-page-controls,
+.score-zoom,
+.score-page-controls form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.score-page-controls button,
+.score-zoom button {
+  min-width: 32px;
+  padding: 0 var(--space-2);
+}
+
+.score-page-controls input {
+  width: 42px;
+  padding: 0 var(--space-1);
+  text-align: center;
+}
+
+.score-page-controls span,
+.score-zoom span {
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.score-zoom {
+  justify-content: flex-end;
+}
+
+.score-zoom .is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--surface-active);
+}
+
+.score-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+}
+
+.score-pages {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-4) var(--space-8);
+}
+
+.pdf-page {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  background: white;
+  box-shadow: var(--shadow-popover);
+  transition: width var(--duration-fast) var(--ease-standard),
+    height var(--duration-fast) var(--ease-standard);
+}
+
+.pdf-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pdf-page-loading,
+.pdf-page-error {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+
+.pdf-page-error {
+  color: var(--danger);
+}
+
+.pdf-page-number {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+}
+
+.score-state {
+  display: flex;
+  min-height: 240px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  color: var(--ink-secondary);
+  text-align: center;
+}
+
+.score-state strong {
+  color: var(--ink-primary);
+  font-size: var(--text-lg);
+}
+
+.score-state button {
+  margin-top: var(--space-2);
+  padding: 0 var(--space-3);
+}
+
+.score-error span {
+  max-width: 520px;
+  color: var(--danger);
+}
+
+@media (max-width: 900px) {
+  .score-toolbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .score-zoom {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+}
