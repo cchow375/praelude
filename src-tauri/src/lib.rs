@@ -7,9 +7,11 @@ mod keys;
 mod metrics;
 mod metronome;
 mod planner;
+mod references;
 mod recovery;
 mod rep;
 mod score;
+mod settings;
 mod sessions;
 pub mod stt;
 mod store;
@@ -51,13 +53,54 @@ impl StateEmitter for AppEmitter {
 /// Read a persisted setting. Returns `null` when the key has never been set.
 #[tauri::command]
 fn get_setting(key: String, store: State<'_, Arc<Store>>) -> Result<Option<String>, String> {
+    if key != "theme" {
+        return Err("Use the typed settings boundary for this setting.".into());
+    }
     store.get_setting(&key).map_err(|e| e.to_string())
 }
 
 /// Persist a setting value (insert or overwrite).
 #[tauri::command]
 fn set_setting(key: String, value: String, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    if key != "theme" || !matches!(value.as_str(), "auto" | "dark" | "light") {
+        return Err("Use the typed settings boundary for this setting.".into());
+    }
     store.set_setting(&key, &value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn settings_snapshot(store: State<'_, Arc<Store>>) -> settings::SettingsSnapshot {
+    settings::snapshot(&store)
+}
+
+#[tauri::command]
+fn settings_update(
+    patch: settings::SettingsPatch,
+    store: State<'_, Arc<Store>>,
+) -> Result<settings::SettingsSnapshot, String> {
+    settings::update(&store, patch)
+}
+
+#[tauri::command]
+fn api_key_save(
+    provider: keys::ApiKeyProvider,
+    key: String,
+) -> Result<keys::ApiKeyStatus, String> {
+    keys::save_api_key(provider, &key)
+}
+
+#[tauri::command]
+fn api_key_clear(provider: keys::ApiKeyProvider) -> Result<keys::ApiKeyStatus, String> {
+    keys::clear_api_key(provider)
+}
+
+#[tauri::command]
+fn reference_open(
+    piece_id: i64,
+    provider: references::ReferenceProvider,
+    store: State<'_, Arc<Store>>,
+) -> Result<references::ReferenceOpenResult, String> {
+    references::open_reference(&store, piece_id, provider)
 }
 
 #[tauri::command]
@@ -618,11 +661,20 @@ pub fn run() {
             });
             let state = metronome::load_state(&store);
             let boost_level = metronome::load_boost_level(&store);
-            let wake_word = store
-                .get_setting("voice.wake_word")
+            let wake_word = (store
+                .get_setting("voice.wake_word_enabled")
                 .ok()
                 .flatten()
-                .filter(|w| !w.trim().is_empty());
+                .as_deref()
+                == Some("true"))
+                .then(|| {
+                    store
+                        .get_setting("voice.wake_word")
+                        .ok()
+                        .flatten()
+                        .filter(|word| !word.trim().is_empty())
+                })
+                .flatten();
             // Managed behind `Arc` so the async commands can clone a `'static`
             // handle into `spawn_blocking` (the blocking work runs off the main
             // thread). The voice loop shares these same Arcs.
@@ -731,6 +783,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_setting,
             set_setting,
+            settings_snapshot,
+            settings_update,
+            api_key_save,
+            api_key_clear,
+            reference_open,
             layout_get,
             layout_set,
             pieces_scan,

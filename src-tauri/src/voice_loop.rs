@@ -209,7 +209,11 @@ impl ActionCtx {
             wake_word: self.wake_word.clone(),
             metro_running: self.metro.snapshot().running,
         };
-        let intent = Router::route(&t.text, &mode);
+        let routed = mode
+            .rep_block_active
+            .then(|| crate::settings::custom_verdict(&self.store, &t.text))
+            .flatten();
+        let intent = Router::route(routed.unwrap_or(&t.text), &mode);
         if matches!(intent, Intent::Ignored) {
             return; // ambient speech: no event, no action
         }
@@ -618,6 +622,12 @@ impl VoiceLoop {
         wake_word: Option<String>,
     ) -> Arc<VoiceLoop> {
         let emitter: Arc<dyn VoiceEmitter> = Arc::new(TauriEmitter(app.clone()));
+        let provider = store
+            .get_setting("tts.provider")
+            .ok()
+            .flatten()
+            .filter(|value| value != "auto");
+        let voice = store.get_setting("tts.voice").ok().flatten();
         Self::start_with(
             emitter,
             metro,
@@ -626,7 +636,7 @@ impl VoiceLoop {
             sessions,
             stt_config,
             wake_word,
-            |m, g, mu| Self::build_speaker(m, g, mu),
+            move |m, g, mu| Self::build_speaker(m, g, mu, provider, voice),
         )
     }
 
@@ -641,8 +651,10 @@ impl VoiceLoop {
         metro: Arc<Metronome>,
         gate: Arc<AtomicBool>,
         muted: Arc<AtomicBool>,
+        provider_override: Option<String>,
+        voice: Option<String>,
     ) -> Box<dyn Confirm> {
-        let provider = crate::tts::select_provider(None, None, None);
+        let provider = crate::tts::select_provider(provider_override, None, voice);
         let sink: Arc<dyn PcmSink> = Arc::new(MetroSink(metro));
         let gate_seam: Arc<dyn Gate> = Arc::new(AtomicGate { gate, muted });
         Box::new(Speaker::spawn(
@@ -1816,6 +1828,28 @@ mod tests {
                 && p["payload"]["verdict"] == "failed"),
             "the fail note was logged with the rep: {events:?}"
         );
+    }
+
+    #[test]
+    fn configured_verdict_alias_routes_only_inside_an_open_rep_block() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.store
+            .set_setting(
+                "voice.verdict_aliases",
+                r#"{"clean":["solid landing"],"flawed":[],"failed":[]}"#,
+            )
+            .unwrap();
+        ctx.handle_final(&final_t("solid landing"));
+        assert!(rec.events.lock().unwrap().is_empty(), "alias is inert outside rep mode");
+        ctx.handle_final(&final_t("open a rep tracker measures 1 to 8 at 80"));
+        ctx.handle_final(&final_t("solid landing"));
+        let events = rec.events.lock().unwrap();
+        assert!(events.iter().any(|(event, payload)| {
+            event == "session://event"
+                && payload["kind"] == "rep"
+                && payload["payload"]["verdict"] == "clean"
+        }));
     }
 
     #[test]

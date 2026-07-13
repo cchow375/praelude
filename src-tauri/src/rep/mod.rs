@@ -114,8 +114,30 @@ impl RepEngine {
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("piece {} not found", args.piece_id))?;
 
-        let (auto_rule, planned) =
-            ladder::resolve_auto(args.start_bpm, args.target_bpm, args.planned_reps, &args.variants);
+        let default_reps = self
+            .store
+            .get_setting("rep.default_reps")
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|value| (1..=240).contains(value))
+            .unwrap_or(ladder::DEFAULT_PLANNED);
+        let bpm_step = self
+            .store
+            .get_setting("rep.bpm_step")
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse::<f64>().ok())
+            .filter(|value| value.is_finite() && (1.0..=24.0).contains(value))
+            .unwrap_or(ladder::BPM_STEP);
+        let (auto_rule, planned) = ladder::resolve_auto_with_defaults(
+            args.start_bpm,
+            args.target_bpm,
+            args.planned_reps,
+            &args.variants,
+            default_reps,
+            bpm_step,
+        );
         let rule = args.increment.clone().unwrap_or(auto_rule);
 
         let block_id = self

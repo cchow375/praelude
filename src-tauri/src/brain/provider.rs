@@ -104,14 +104,21 @@ pub struct ProviderChain {
 }
 
 impl ProviderChain {
-    pub fn from_native_config() -> Self {
+    pub fn from_native_config_with_preference(preference: Option<&str>) -> Self {
+        if preference == Some("offline") {
+            return Self::default();
+        }
         let claude = resolve_secret("claude", "ANTHROPIC_API_KEY");
         let gemini = resolve_secret("gemini", "GEMINI_API_KEY");
         let claude_model = valid_model_env("CODAKILLER_CLAUDE_MODEL", DEFAULT_CLAUDE_MODEL);
         let gemini_model = valid_model_env("CODAKILLER_GEMINI_MODEL", DEFAULT_GEMINI_MODEL);
         Self {
             configs: select_configs(
-                ProviderPreference::from_env(),
+                match preference {
+                    Some("claude") => ProviderPreference::Claude,
+                    Some("gemini") => ProviderPreference::Gemini,
+                    _ => ProviderPreference::from_env(),
+                },
                 claude,
                 gemini,
                 claude_model,
@@ -486,6 +493,11 @@ mod tests {
 
     fn providers(configs: Vec<ProviderConfig>) -> Vec<ProviderName> {
         configs.into_iter().map(|config| config.provider).collect()
+    }
+
+    #[test]
+    fn explicit_offline_preference_never_resolves_or_builds_a_native_provider() {
+        assert!(ProviderChain::from_native_config_with_preference(Some("offline")).is_empty());
     }
 
     #[test]

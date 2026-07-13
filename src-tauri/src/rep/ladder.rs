@@ -33,16 +33,34 @@ pub const DEFAULT_PLANNED: u32 = 30;
 /// block with more planned reps than rungs demands more cleans per rung — EXCEPT
 /// with no target, where the ladder cannot climb and `clean_needed` is fixed at
 /// 3 (the rule is still returned, for display).
+#[cfg(test)]
 pub fn resolve_auto(
     start: f64,
     target: Option<f64>,
     planned: Option<u32>,
     variants: &[VariantSpec],
 ) -> (IncrementRule, u32) {
+    resolve_auto_with_defaults(start, target, planned, variants, DEFAULT_PLANNED, BPM_STEP)
+}
+
+pub fn resolve_auto_with_defaults(
+    start: f64,
+    target: Option<f64>,
+    planned: Option<u32>,
+    variants: &[VariantSpec],
+    default_planned: u32,
+    bpm_step: f64,
+) -> (IncrementRule, u32) {
+    let default_planned = default_planned.clamp(1, 240);
+    let bpm_step = if bpm_step.is_finite() {
+        bpm_step.clamp(1.0, 24.0)
+    } else {
+        BPM_STEP
+    };
     let planned_reps = if !variants.is_empty() {
         variants.iter().map(|v| v.reps).sum()
     } else {
-        planned.unwrap_or(DEFAULT_PLANNED)
+        planned.unwrap_or(default_planned)
     };
 
     let clean_needed = match target {
@@ -50,7 +68,7 @@ pub fn resolve_auto(
         // is still stored for display; clean_needed is fixed at 3.
         None => 3,
         Some(t) => {
-            let k = rungs(start, t);
+            let k = rungs(start, t, bpm_step);
             let raw = (planned_reps as f64 / k as f64).round() as i64;
             raw.clamp(1, 5) as u32
         }
@@ -59,7 +77,7 @@ pub fn resolve_auto(
     (
         IncrementRule {
             clean_needed,
-            bpm_step: BPM_STEP,
+            bpm_step,
         },
         planned_reps,
     )
@@ -67,11 +85,11 @@ pub fn resolve_auto(
 
 /// The number of rungs between `start` and `target`: `ceil((target-start)/step)`,
 /// at least 1. When `target <= start` there is nowhere to climb, so it is 1.
-fn rungs(start: f64, target: f64) -> u32 {
+fn rungs(start: f64, target: f64, bpm_step: f64) -> u32 {
     if target <= start {
         return 1;
     }
-    (((target - start) / BPM_STEP).ceil() as u32).max(1)
+    (((target - start) / bpm_step).ceil() as u32).max(1)
 }
 
 /// After a clean rep, decide whether the tempo steps and to what value.
@@ -166,6 +184,16 @@ mod tests {
         assert_eq!(planned, 30);
         assert_eq!(rule.clean_needed, 3, "no target → clean_needed fixed at 3");
         assert_eq!(rule.bpm_step, 4.0, "rule still stored for display");
+    }
+
+    #[test]
+    fn configured_defaults_apply_only_when_the_request_omits_them() {
+        let (rule, planned) = resolve_auto_with_defaults(80.0, Some(104.0), None, &[], 40, 6.0);
+        assert_eq!(planned, 40);
+        assert_eq!(rule.bpm_step, 6.0);
+        assert_eq!(rule.clean_needed, 5);
+        let (_, explicit) = resolve_auto_with_defaults(80.0, Some(104.0), Some(12), &[], 40, 6.0);
+        assert_eq!(explicit, 12);
     }
 
     #[test]

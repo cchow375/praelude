@@ -175,7 +175,8 @@ pub fn ask_native(
     sessions: Arc<SessionService>,
 ) -> Result<BrainAnswer, BrainError> {
     let library = EmbeddedLibrary::load();
-    let chain = ProviderChain::from_native_config();
+    let preference = store.get_setting("brain.provider").ok().flatten();
+    let chain = ProviderChain::from_native_config_with_preference(preference.as_deref());
     ask_with(
         request,
         &store,
