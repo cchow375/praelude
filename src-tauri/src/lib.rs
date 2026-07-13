@@ -27,8 +27,9 @@ use sessions::{SessionService, StateEmitter};
 use stt::SttConfig;
 use store::model::{
     BlockHistory, BlockPatch, CheckOutcome, ExportResult, Goal, GoalCreate, GoalPatch,
-    Intake, PanelLayout, PieceDetail, PieceFieldPatch, PieceSummary, ProgressSummary, Region,
-    RegionCreate, RegionPatch, Rep, RepOpenArgs, RepPatch, RepSnapshot, SessionView,
+    DailyWorkCreate, DailyWorkPatch, Intake, PanelLayout, PieceDetail, PieceFieldPatch,
+    PieceSummary, ProgressSummary, Region, RegionCreate, RegionPatch, Rep, RepOpenArgs, RepPatch,
+    RepSnapshot, SessionView,
 };
 use store::Store;
 use tauri::path::BaseDirectory;
@@ -513,6 +514,71 @@ fn brain_intake_apply(
         .map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn daily_work_list(
+    from: String,
+    to: String,
+    piece_id: Option<i64>,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<store::calendar::DailyWorkView>, String> {
+    store
+        .daily_work_list(&from, &to, piece_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn daily_work_create(
+    args: DailyWorkCreate,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::calendar::DailyWorkView, String> {
+    store.daily_work_create(args).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn daily_work_update(
+    id: i64,
+    expected_updated_ts: String,
+    patch: DailyWorkPatch,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::calendar::DailyWorkView, String> {
+    store
+        .daily_work_update(id, &expected_updated_ts, patch)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn daily_work_delete(
+    id: i64,
+    expected_updated_ts: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<(), String> {
+    store
+        .daily_work_delete(id, &expected_updated_ts)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn recovery_preview(
+    store: State<'_, Arc<Store>>,
+) -> Result<store::calendar::CalendarRecoveryPreview, String> {
+    store.recovery_preview().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn recovery_apply(
+    decisions: Vec<store::calendar::RecoveryDecision>,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::calendar::RecoveryApplyResult, String> {
+    store.recovery_apply(decisions).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn calendar_capacity_set(minutes: u32, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    store
+        .calendar_capacity_set(minutes)
+        .map_err(|error| error.to_string())
+}
+
 /// Mute (`true`) or unmute the mic. Gates STT and blocks any action while muted.
 #[tauri::command]
 fn voice_mute(muted: bool, voice: State<'_, Arc<VoiceLoop>>) {
@@ -693,6 +759,13 @@ pub fn run() {
             brain_plan_preview,
             brain_ask,
             brain_intake_apply,
+            daily_work_list,
+            daily_work_create,
+            daily_work_update,
+            daily_work_delete,
+            recovery_preview,
+            recovery_apply,
+            calendar_capacity_set,
             session_current,
             session_end,
             metronome::metro_start,

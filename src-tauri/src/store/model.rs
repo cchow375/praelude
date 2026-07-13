@@ -431,34 +431,10 @@ pub struct GoalPatch {
 
 // ── P5.5 daily-work wire types ─────────────────────────────────────────────
 
-/// One explicit unit of Calendar work. Goal ownership is canonical; optional
-/// Region/block links provide practice context and are validated by the CRUD
-/// boundary before a row is written.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[allow(dead_code)] // consumed by Calendar CRUD in the next integration commit
-pub struct DailyWork {
-    pub id: i64,
-    pub goal_id: i64,
-    pub region_id: Option<i64>,
-    pub block_id: Option<i64>,
-    pub title: String,
-    pub planned_minutes: u32,
-    pub origin_date: String,
-    pub scheduled_date: String,
-    pub status: String,
-    pub source: String,
-    pub reschedule_count: u32,
-    pub sort_order: i64,
-    pub completed_ts: Option<String>,
-    pub created_ts: String,
-    pub updated_ts: String,
-}
-
 /// Exact `daily_work_create` payload. The wire names intentionally match the
 /// public runtime contract (`minutes`, `date`) while the stored row uses the
 /// more explicit `planned_minutes` and `scheduled_date` names.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[allow(dead_code)] // consumed by Calendar CRUD in the next integration commit
 pub struct DailyWorkCreate {
     pub goal_id: i64,
     pub region_id: Option<i64>,
@@ -473,13 +449,12 @@ pub struct DailyWorkCreate {
 /// the existing nullable-patch convention. `origin_date`, provenance `source`,
 /// and Goal ownership are intentionally absent and therefore immutable.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-#[allow(dead_code)] // consumed by Calendar CRUD in the next integration commit
 pub struct DailyWorkPatch {
     pub region_id: Option<Option<i64>>,
     pub block_id: Option<Option<i64>>,
     pub title: Option<String>,
-    pub minutes: Option<u32>,
-    pub date: Option<String>,
+    pub planned_minutes: Option<u32>,
+    pub scheduled_date: Option<String>,
     pub status: Option<String>,
     pub sort_order: Option<i64>,
 }

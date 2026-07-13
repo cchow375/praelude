@@ -28,6 +28,8 @@ impl EventKind {
     pub const REP_EDIT: &'static str = "rep_edit";
     pub const REGION_CHANGE: &'static str = "region_change";
     pub const GOAL_CHANGE: &'static str = "goal_change";
+    pub const DAILY_WORK_CHANGE: &'static str = "daily_work_change";
+    pub const RECOVERY_APPLY: &'static str = "recovery_apply";
 }
 
 impl Store {

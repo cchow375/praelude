@@ -6,6 +6,7 @@
 //! user, low write volume) a global lock is more than adequate.
 
 mod backfill;
+pub(crate) mod calendar;
 mod crud;
 mod events;
 mod migrations;
