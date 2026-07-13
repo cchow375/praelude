@@ -18,11 +18,22 @@ use crate::store::Store;
 /// count in full.
 pub const IDLE_THRESHOLD_SECS: i64 = 120;
 
+fn is_practice_event(event: &Event) -> bool {
+    matches!(
+        event.kind.as_str(),
+        "rep_open" | "rep" | "verdict" | "tempo_change"
+    )
+}
+
 /// Sum the gaps between consecutive events, counting only gaps at or under the
 /// idle threshold (a longer gap means the pianist stepped away — not focused
 /// time, so it contributes 0).
 pub fn focused_seconds(events: &[Event]) -> u64 {
-    let mut ts: Vec<i64> = events.iter().filter_map(|e| parse_ts_secs(&e.ts)).collect();
+    let mut ts: Vec<i64> = events
+        .iter()
+        .filter(|event| is_practice_event(event))
+        .filter_map(|event| parse_ts_secs(&event.ts))
+        .collect();
     ts.sort_unstable();
     ts.windows(2)
         .map(|w| w[1] - w[0])
@@ -118,6 +129,9 @@ pub fn time_by_focus(events: &[Event], blocks: &[BlockMeta]) -> Vec<FocusTime> {
         blocks.iter().map(|b| (b.block_id, b.focus.as_str())).collect();
     let mut by_focus: BTreeMap<String, Vec<Event>> = BTreeMap::new();
     for e in events {
+        if !is_practice_event(e) {
+            continue;
+        }
         if let Some(bid) = e.payload["block_id"].as_i64() {
             if let Some(focus) = focus_of.get(&bid) {
                 by_focus.entry((*focus).to_string()).or_default().push(e.clone());
@@ -145,6 +159,7 @@ pub fn progress_summary(store: &Store, piece_id: i64) -> rusqlite::Result<Progre
     // Distinct practice days for the piece (event date component), for the streak.
     let mut days: Vec<String> = events
         .iter()
+        .filter(|event| is_practice_event(event))
         .filter_map(|e| e.ts.get(0..10).map(str::to_string))
         .collect();
     days.sort();
@@ -268,6 +283,15 @@ mod tests {
     fn focused_seconds_is_empty_for_under_two_events() {
         assert_eq!(focused_seconds(&[]), 0);
         assert_eq!(focused_seconds(&events_at(&[42])), 0);
+    }
+
+    #[test]
+    fn admin_events_do_not_create_focused_time() {
+        let mut first = ev_at(0);
+        first.kind = "goal_change".into();
+        let mut second = ev_at(60);
+        second.kind = "block_edit".into();
+        assert_eq!(focused_seconds(&[first, second]), 0);
     }
 
     #[test]

@@ -839,6 +839,21 @@ impl Store {
     /// end of the piece's ordering (`sort_order = MAX(sort_order)+1`).
     pub fn goal_create(&self, args: GoalCreate) -> rusqlite::Result<Goal> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        if !matches!(args.kind.as_str(), "big" | "sub") {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        if args.kind == "big" && args.parent_goal_id.is_some() {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        if let Some(parent_id) = args.parent_goal_id {
+            let parent = Self::goal_get(&conn, parent_id)?;
+            if parent.piece_id != args.piece_id
+                || parent.kind != "big"
+                || parent.parent_goal_id.is_some()
+            {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+        }
         let id: i64 = conn.query_row(
             "INSERT INTO goal (piece_id, text, kind, parent_goal_id, target_date, sort_order)
              VALUES (?1, ?2, ?3, ?4, ?5,
@@ -867,6 +882,25 @@ impl Store {
     /// Apply a partial patch to a goal; appends a `goal_change` event.
     pub fn goal_update(&self, id: i64, patch: GoalPatch) -> rusqlite::Result<Goal> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let current = Self::goal_get(&conn, id)?;
+        if let Some(Some(parent_id)) = patch.parent_goal_id {
+            if parent_id == id {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+            let parent = Self::goal_get(&conn, parent_id)?;
+            let has_children: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM goal WHERE parent_goal_id = ?1)",
+                [id],
+                |row| row.get(0),
+            )?;
+            if parent.piece_id != current.piece_id
+                || parent.kind != "big"
+                || parent.parent_goal_id.is_some()
+                || has_children
+            {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+        }
         let mut sets: Vec<String> = Vec::new();
         let mut vals: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
         if let Some(v) = patch.text {
@@ -986,6 +1020,35 @@ mod goal {
             .unwrap();
         s.goal_delete(g.id).unwrap();
         assert!(s.goal_list(1).unwrap().is_empty());
+    }
+
+    #[test]
+    fn goal_parent_must_be_a_root_goal_from_the_same_piece() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        seed_piece(&s, 2);
+        let root = s.goal_create(GoalCreate {
+            piece_id: 1, text: "root".into(), kind: "big".into(),
+            parent_goal_id: None, target_date: None,
+        }).unwrap();
+        let other = s.goal_create(GoalCreate {
+            piece_id: 2, text: "other".into(), kind: "big".into(),
+            parent_goal_id: None, target_date: None,
+        }).unwrap();
+        assert!(s.goal_create(GoalCreate {
+            piece_id: 1, text: "cross".into(), kind: "sub".into(),
+            parent_goal_id: Some(other.id), target_date: None,
+        }).is_err());
+        let child = s.goal_create(GoalCreate {
+            piece_id: 1, text: "child".into(), kind: "sub".into(),
+            parent_goal_id: Some(root.id), target_date: None,
+        }).unwrap();
+        assert!(s.goal_update(root.id, GoalPatch {
+            parent_goal_id: Some(Some(child.id)), ..Default::default()
+        }).is_err());
+        assert!(s.goal_update(child.id, GoalPatch {
+            parent_goal_id: Some(Some(child.id)), ..Default::default()
+        }).is_err());
     }
 }
 // ── T7: Inline piece-field update ───────────────────────────────────────────

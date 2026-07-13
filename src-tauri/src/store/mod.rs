@@ -251,8 +251,9 @@ impl Store {
 
     /// Persist a piece's intake payload and mark intake complete.
     pub fn save_intake(&self, id: i64, intake: &Intake) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        conn.execute(
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE piece SET
                  goals         = ?2,
                  deadline      = ?3,
@@ -270,6 +271,28 @@ impl Store {
                 intake.current_state,
             ],
         )?;
+
+        // The legacy JSON summary remains for backward-compatible PieceDetail
+        // reads, but canonical Goal rows are what P5+ planners consume. Intake
+        // is additive: never delete a Goal merely because a later review omits
+        // it, since that could erase user-managed structure.
+        let mut seen = std::collections::HashSet::new();
+        for text in &intake.goals {
+            let text = text.trim();
+            if text.is_empty() || !seen.insert(text.to_lowercase()) {
+                continue;
+            }
+            tx.execute(
+                "INSERT INTO goal (piece_id, text, kind, parent_goal_id, target_date, sort_order)
+                 SELECT ?1, ?2, 'big', NULL, ?3,
+                    COALESCE((SELECT MAX(sort_order) + 1 FROM goal WHERE piece_id = ?1), 0)
+                 WHERE NOT EXISTS (
+                    SELECT 1 FROM goal WHERE piece_id = ?1 AND lower(trim(text)) = lower(?2)
+                 )",
+                rusqlite::params![id, text, intake.deadline],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -819,6 +842,12 @@ mod tests {
             current_state: Some("hands separate".into()),
         };
         store.save_intake(id, &intake).unwrap();
+        let canonical_goals = store.goal_list(id).unwrap();
+        assert_eq!(canonical_goals.len(), 2);
+        assert!(canonical_goals.iter().all(|goal| goal.kind == "big"));
+        assert!(canonical_goals
+            .iter()
+            .all(|goal| goal.target_date.as_deref() == Some("2026-09-01")));
         store
             .set_preferred_pdf_path(id, "/v/Chopin - Scherzo/score/preferred.pdf")
             .unwrap();
@@ -856,6 +885,26 @@ mod tests {
             Some("/v/Chopin - Scherzo/score/preferred.pdf"),
             "rescan never overwrites the user preference"
         );
+    }
+
+    #[test]
+    fn intake_goal_sync_is_additive_deduplicated_and_never_deletes() {
+        let store = mem();
+        let id = store.upsert_piece(&scan("/v/A", "A", None)).unwrap();
+        let intake = Intake {
+            goals: vec!["Memorize".into(), " memorize ".into(), "Perform".into()],
+            deadline: None,
+            target_tempo: None,
+            hard_spots: vec![],
+            current_state: None,
+        };
+        store.save_intake(id, &intake).unwrap();
+        assert_eq!(store.goal_list(id).unwrap().len(), 2);
+
+        let shorter = Intake { goals: vec!["Perform".into()], ..intake };
+        store.save_intake(id, &shorter).unwrap();
+        let goals = store.goal_list(id).unwrap();
+        assert_eq!(goals.len(), 2, "omitting a goal from review must not erase it");
     }
 
     #[test]
