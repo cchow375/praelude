@@ -4,6 +4,7 @@ mod keys;
 mod metrics;
 mod metronome;
 mod rep;
+mod score;
 mod sessions;
 pub mod stt;
 mod store;
@@ -154,6 +155,44 @@ fn piece_get(id: i64, store: State<'_, Arc<Store>>) -> Result<PieceDetail, Strin
         .get_piece(id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("piece {id} not found"))
+}
+
+/// Every real PDF edition directly inside this piece's `score/` folder or
+/// piece root. Edition ids are stable piece-relative paths, never arbitrary
+/// filesystem paths supplied by the frontend.
+#[tauri::command]
+fn score_pdf_editions(
+    piece_id: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<score::PdfEdition>, String> {
+    score::pdf_editions(&store, piece_id)
+}
+
+/// Choose one of the securely re-discovered editions as this piece's default.
+#[tauri::command]
+fn score_pdf_select(
+    piece_id: i64,
+    edition_id: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<score::PdfEdition, String> {
+    score::select_pdf(&store, piece_id, &edition_id)
+}
+
+/// Return the selected edition's bytes over Tauri's raw binary response path.
+/// The filesystem read runs off the main thread because real editions reach
+/// tens of megabytes.
+#[tauri::command]
+async fn score_pdf_bytes(
+    piece_id: i64,
+    edition_id: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<tauri::ipc::Response, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        score::pdf_bytes(&store, piece_id, &edition_id).map(tauri::ipc::Response::new)
+    })
+    .await
+    .map_err(|e| format!("PDF read worker failed: {e}"))?
 }
 
 /// Persist a piece's intake payload (sets `intake_done`) and return the updated
@@ -560,6 +599,9 @@ pub fn run() {
             pieces_scan,
             pieces_list,
             piece_get,
+            score_pdf_editions,
+            score_pdf_select,
+            score_pdf_bytes,
             piece_intake_save,
             piece_select,
             rep_open,

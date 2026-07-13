@@ -6,8 +6,8 @@
 use rusqlite::Connection;
 
 use super::model::{
-    BlockPatch, Goal, GoalCreate, GoalPatch, PieceFieldPatch, Region, RegionCreate, RegionPatch,
-    RepPatch, VerdictCounts,
+    json_to_sql, BlockPatch, Goal, GoalCreate, GoalPatch, PieceFieldPatch, Region, RegionCreate,
+    RegionPatch, RepPatch, VerdictCounts,
 };
 use super::{EventKind, Store};
 // ── Shared: append_event over an already-locked connection ─────────────────
@@ -193,6 +193,11 @@ impl Store {
             sets.push(format!("color = ?{}", vals.len() + 2));
             vals.push(Box::new(v));
         }
+        if let Some(v) = patch.pdf_anchor {
+            sets.push(format!("pdf_anchor = ?{}", vals.len() + 2));
+            let raw = v.map(|value| json_to_sql(&value)).transpose()?;
+            vals.push(Box::new(raw));
+        }
         if !sets.is_empty() {
             let sql = format!("UPDATE region SET {} WHERE id = ?1", sets.join(", "));
             let mut params: Vec<&dyn rusqlite::ToSql> = vec![&id];
@@ -351,6 +356,61 @@ mod region {
         // Some(None) clears color.
         let cleared = s.region_update(r.id, RegionPatch { color: Some(None), ..Default::default() }).unwrap();
         assert_eq!(cleared.color, None);
+
+        let anchor = serde_json::json!({
+            "v": 1,
+            "editions": {"score/urtext.pdf": {"fingerprint": "abc", "rects": [
+                {"page": 2, "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1}
+            ]}}
+        });
+        let anchored = s.region_update(r.id, RegionPatch {
+            pdf_anchor: Some(Some(anchor.clone())),
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(anchored.pdf_anchor, Some(anchor));
+        let cleared = s.region_update(r.id, RegionPatch {
+            pdf_anchor: Some(None),
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(cleared.pdf_anchor, None);
+    }
+
+    #[test]
+    fn pdf_anchor_save_clear_survives_reopen() {
+        let td = tempfile::TempDir::new().unwrap();
+        let db = td.path().join("codakiller.db");
+        let anchor = serde_json::json!({
+            "v": 1,
+            "editions": {"score/urtext.pdf": {"fingerprint": "5-a", "rects": [
+                {"page": 1, "x": 0.2, "y": 0.3, "w": 0.4, "h": 0.1}
+            ]}}
+        });
+
+        let region_id = {
+            let store = Store::open(&db).unwrap();
+            seed_piece(&store, 1);
+            let region = store.region_create(RegionCreate {
+                piece_id: 1, name: "Intro".into(), m_start: 1, m_end: 8,
+                kind: "section".into()
+            }).unwrap();
+            store.region_update(region.id, RegionPatch {
+                pdf_anchor: Some(Some(anchor.clone())),
+                ..Default::default()
+            }).unwrap();
+            region.id
+        };
+        {
+            let reopened = Store::open(&db).unwrap();
+            let region = reopened.region_list(1).unwrap().remove(0);
+            assert_eq!(region.id, region_id);
+            assert_eq!(region.pdf_anchor, Some(anchor));
+            reopened.region_update(region_id, RegionPatch {
+                pdf_anchor: Some(None),
+                ..Default::default()
+            }).unwrap();
+        }
+        let reopened = Store::open(&db).unwrap();
+        assert_eq!(reopened.region_list(1).unwrap()[0].pdf_anchor, None);
     }
 
     #[test]

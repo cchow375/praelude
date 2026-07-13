@@ -29,6 +29,15 @@ pub struct Store {
     conn: Mutex<Connection>,
 }
 
+/// Scanner-owned and user-owned score paths kept separate for secure edition
+/// discovery. Crate-private: the frontend receives
+/// [`PdfEdition`](crate::score::PdfEdition), never this raw filesystem record.
+pub(crate) struct PiecePdfPaths {
+    pub folder_path: String,
+    pub scanned_pdf_path: Option<String>,
+    pub preferred_pdf_path: Option<String>,
+}
+
 impl Store {
     /// Open (creating if absent) the database at `path` and migrate it to the
     /// current schema version. Pass `":memory:"` for an ephemeral test database.
@@ -123,7 +132,8 @@ impl Store {
 
     /// Insert a scanned piece, or refresh an existing one keyed on `folder_path`.
     /// Returns the piece's row id. On conflict, title/composer/xml_path/pdf_path
-    /// are refreshed and every intake field is preserved.
+    /// are refreshed and every intake field plus `preferred_pdf_path` is
+    /// preserved.
     pub fn upsert_piece(&self, piece: &ScanPiece) -> rusqlite::Result<i64> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let xml = piece.xml_path.as_ref().map(|p| p.to_string_lossy().into_owned());
@@ -147,7 +157,9 @@ impl Store {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut stmt = conn.prepare(
             "SELECT id, title, composer,
-                    xml_path IS NOT NULL, pdf_path IS NOT NULL, intake_done
+                    xml_path IS NOT NULL,
+                    COALESCE(preferred_pdf_path, pdf_path) IS NOT NULL,
+                    intake_done
              FROM piece
              ORDER BY title COLLATE NOCASE",
         )?;
@@ -168,7 +180,8 @@ impl Store {
     pub fn get_piece(&self, id: i64) -> rusqlite::Result<Option<PieceDetail>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         conn.query_row(
-            "SELECT id, title, composer, folder_path, xml_path, pdf_path,
+            "SELECT id, title, composer, folder_path, xml_path,
+                    COALESCE(preferred_pdf_path, pdf_path),
                     goals, deadline, target_tempo, hard_spots, current_state,
                     intake_done, notes
              FROM piece WHERE id = ?1",
@@ -198,6 +211,42 @@ impl Store {
             },
         )
         .optional()
+    }
+
+    /// Filesystem roots needed by the score module. The scanned PDF and the
+    /// explicit preference stay separate so edition discovery can mark the
+    /// correct selected row and fall back cleanly when no preference exists.
+    pub(crate) fn piece_pdf_paths(
+        &self,
+        id: i64,
+    ) -> rusqlite::Result<Option<PiecePdfPaths>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row(
+            "SELECT folder_path, pdf_path, preferred_pdf_path FROM piece WHERE id = ?1",
+            [id],
+            |row| {
+                Ok(PiecePdfPaths {
+                    folder_path: row.get(0)?,
+                    scanned_pdf_path: row.get(1)?,
+                    preferred_pdf_path: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+    }
+
+    /// Persist a validated PDF path chosen by the user. Validation belongs to
+    /// the score module; this method only owns the database mutation.
+    pub(crate) fn set_preferred_pdf_path(
+        &self,
+        id: i64,
+        path: &str,
+    ) -> rusqlite::Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        Ok(conn.execute(
+            "UPDATE piece SET preferred_pdf_path = ?2 WHERE id = ?1",
+            rusqlite::params![id, path],
+        )? == 1)
     }
 
     /// Persist a piece's intake payload and mark intake complete.
@@ -616,8 +665,8 @@ mod tests {
     }
 
     #[test]
-    fn fresh_store_is_at_schema_version_3() {
-        assert_eq!(mem().schema_version().unwrap(), 3);
+    fn fresh_store_is_at_schema_version_4() {
+        assert_eq!(mem().schema_version().unwrap(), 4);
     }
 
     #[test]
@@ -699,7 +748,7 @@ mod tests {
         // (e.g. duplicate CREATE TABLE) and must leave the version untouched.
         let store = mem();
         migrations::migrate(&store.conn.lock().unwrap()).expect("re-migrate is a no-op");
-        assert_eq!(store.schema_version().unwrap(), 3);
+        assert_eq!(store.schema_version().unwrap(), 4);
     }
 
     // ── v1 → v3 migration ─────────────────────────────────────────────────
@@ -722,7 +771,7 @@ mod tests {
         .unwrap();
 
         let store = Store::from_connection(conn).expect("v1 db upgrades cleanly");
-        assert_eq!(store.schema_version().unwrap(), 3, "reaches v3");
+        assert_eq!(store.schema_version().unwrap(), 4, "reaches v4");
         assert_eq!(
             store.get_setting("theme").unwrap(),
             Some("dark".into()),
@@ -770,6 +819,9 @@ mod tests {
             current_state: Some("hands separate".into()),
         };
         store.save_intake(id, &intake).unwrap();
+        store
+            .set_preferred_pdf_path(id, "/v/Chopin - Scherzo/score/preferred.pdf")
+            .unwrap();
 
         // Rescan discovers the same folder, now also with a PDF and refreshed title.
         let mut p2 = scan("/v/Chopin - Scherzo", "Scherzo No.2 Op.31", Some("Chopin"));
@@ -792,6 +844,18 @@ mod tests {
         assert_eq!(d.hard_spots[0].measures, "61-72");
         assert_eq!(d.current_state.as_deref(), Some("hands separate"));
         assert!(d.intake_done);
+        assert_eq!(
+            d.pdf_path.as_deref(),
+            Some("/v/Chopin - Scherzo/score/preferred.pdf"),
+            "get_piece resolves the user preference over the refreshed scan"
+        );
+        let paths = store.piece_pdf_paths(id).unwrap().unwrap();
+        assert_eq!(paths.scanned_pdf_path.as_deref(), Some("/v/Chopin - Scherzo/score/s.pdf"));
+        assert_eq!(
+            paths.preferred_pdf_path.as_deref(),
+            Some("/v/Chopin - Scherzo/score/preferred.pdf"),
+            "rescan never overwrites the user preference"
+        );
     }
 
     #[test]

@@ -340,7 +340,7 @@ pub struct RegionCreate {
 }
 
 /// A partial region update. Every field is `Option`-absent-means-unchanged;
-/// `color` is additionally nullable (`Option<Option<String>>`: absent = leave,
+/// `color` and `pdf_anchor` are additionally nullable (outer `None` = leave,
 /// `Some(None)` = clear, `Some(Some(v))` = set).
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct RegionPatch {
@@ -351,6 +351,7 @@ pub struct RegionPatch {
     #[serde(rename = "order")]
     pub order: Option<i64>,
     pub color: Option<Option<String>>,
+    pub pdf_anchor: Option<Option<serde_json::Value>>,
 }
 
 /// A single logged rep, as read back by [`reps_for_block`](crate::store::Store::reps_for_block).

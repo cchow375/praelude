@@ -8,7 +8,7 @@
 use rusqlite::Connection;
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 3;
+pub const SCHEMA_VERSION: i32 = 4;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -201,10 +201,17 @@ ALTER TABLE rep_block_v3 RENAME TO rep_block;
 ALTER TABLE session ADD COLUMN focused_seconds INTEGER;
 ";
 
+/// Schema v4 — remember the user's chosen PDF edition separately from the
+/// scanner-owned `pdf_path`. Rescans may refresh `pdf_path`; they must never
+/// overwrite this explicit preference.
+pub(crate) const SCHEMA_V4: &str = "\
+ALTER TABLE piece ADD COLUMN preferred_pdf_path TEXT;
+";
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
-/// all converge on the same v3 schema.
+/// all converge on the same current schema.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
@@ -247,13 +254,23 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             return Err(e);
         }
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-    } else if version != SCHEMA_VERSION {
-        // Fresh/v1/v2 databases that reached their target schema above but whose
-        // stamp is still behind (e.g. a brand-new db at v0 → v2, or a v1 → v2
-        // upgrade). The v3 branch stamps its own version inside its transaction,
-        // so this only runs when the v3 step did not.
-        // PRAGMA user_version does not accept bound parameters.
-        conn.execute_batch(&format!("PRAGMA user_version = {}", SCHEMA_VERSION))?;
+    }
+
+    if version < 4 {
+        // Add the preference and its version stamp atomically. This runs after
+        // the v3 transaction above for fresh/v1/v2 databases and directly for
+        // shipped v3 databases.
+        let v4 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN;")?;
+            conn.execute_batch(SCHEMA_V4)?;
+            conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(e) = v4 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(e);
+        }
     }
 
     Ok(())
@@ -285,6 +302,78 @@ mod v3_tests {
         c
     }
 
+    fn seed_v3() -> Connection {
+        let c = seed_v2();
+        c.execute_batch("PRAGMA foreign_keys = OFF; BEGIN;").unwrap();
+        c.execute_batch(SCHEMA_V3).unwrap();
+        super::super::backfill::backfill_v3(&c).unwrap();
+        c.execute_batch("PRAGMA user_version = 3; COMMIT; PRAGMA foreign_keys = ON;")
+            .unwrap();
+        c.execute(
+            "UPDATE piece SET pdf_path='/p/1/score/scanned.pdf' WHERE id=1",
+            [],
+        )
+        .unwrap();
+        c
+    }
+
+    #[test]
+    fn migrate_v3_to_v4_preserves_graph_and_adds_pdf_preference() {
+        let c = seed_v3();
+        let before: (i64, i64, i64, i64) = c
+            .query_row(
+                "SELECT
+                    (SELECT count(*) FROM rep_block),
+                    (SELECT count(*) FROM rep),
+                    (SELECT count(*) FROM region),
+                    (SELECT count(*) FROM goal)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+
+        migrate(&c).unwrap();
+
+        let version: i32 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, 4);
+        let after: (i64, i64, i64, i64) = c
+            .query_row(
+                "SELECT
+                    (SELECT count(*) FROM rep_block),
+                    (SELECT count(*) FROM rep),
+                    (SELECT count(*) FROM region),
+                    (SELECT count(*) FROM goal)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(after, before, "v4 is additive over the full v3 graph");
+        let paths: (Option<String>, Option<String>) = c
+            .query_row(
+                "SELECT pdf_path, preferred_pdf_path FROM piece WHERE id=1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(paths.0.as_deref(), Some("/p/1/score/scanned.pdf"));
+        assert_eq!(paths.1, None);
+
+        c.execute(
+            "UPDATE piece SET preferred_pdf_path='/p/1/score/urtext.pdf' WHERE id=1",
+            [],
+        )
+        .unwrap();
+        migrate(&c).unwrap();
+        let preferred: String = c
+            .query_row(
+                "SELECT preferred_pdf_path FROM piece WHERE id=1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(preferred, "/p/1/score/urtext.pdf");
+    }
+
     #[test]
     fn migrate_v2_to_v3_is_additive_and_backfills() {
         let c = seed_v2();
@@ -292,7 +381,19 @@ mod v3_tests {
 
         // schema stamped
         let v: i32 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(v, 3);
+        assert_eq!(v, 4);
+
+        // v4 adds a user-owned edition preference without disturbing the
+        // scanner-owned pdf_path.
+        let (scanned, preferred): (Option<String>, Option<String>) = c
+            .query_row(
+                "SELECT pdf_path, preferred_pdf_path FROM piece WHERE id=1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(scanned, None);
+        assert_eq!(preferred, None);
 
         // new tables exist
         for t in ["region", "goal", "event"] {
