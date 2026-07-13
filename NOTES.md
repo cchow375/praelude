@@ -2,6 +2,25 @@
 
 ## Decisions
 
+- **P6 patch / v1.0.2 scanned-PDF paint repair (2026-07-13):**
+  - **v1.0.1 fixed startup but its acceptance gate was incomplete.** Page count and a fulfilled
+    `render()` promise do not prove that a PDF page painted visible pixels. The native smoke used
+    Scherzo page 1, a vector cover; Christian's real score pages are scanned images. Inspection
+    found CCITT pages in Beethoven/Griffes, JBIG2 pages in the Scherzo, and JPEG + ICC content in
+    Prokofiev. Those image paths require PDF.js's version-matched external runtime assets.
+  - **All decoder inputs are now packaged and explicitly addressed.** The exact `pdfjs-dist`
+    6.1.200 `wasm/`, `cmaps/`, `standard_fonts/`, and `iccs/` trees are vendored byte-for-byte
+    under `public/pdfjs/`. `getDocument()` receives same-origin URLs for every tree, enables WASM
+    and worker-side fetching, and disables WebKit's less-reliable OffscreenCanvas/ImageDecoder
+    paths. The restrictive CSP adds only same-origin fetches and WebAssembly compilation
+    (`'wasm-unsafe-eval'`), not general `'unsafe-eval'`.
+  - **The release gate now tests painted pixels from real scores.** An isolated packaged WKWebView
+    used the production adapter, native Tauri byte IPC, custom app protocol, and bundled assets.
+    Scherzo page 2 (JBIG2) painted 1,971 sampled ink pixels; Prokofiev page 1 (JPEG/ICC) painted
+    10,726; Beethoven page 3 (CCITT) painted 2,078. All three pages were visibly inspected. The
+    temporary diagnostic UI/data override was removed. Schema remains v6 and Christian's database
+    was never used by that diagnostic run.
+
 - **P6 patch / v1.0.1 PDF viewer repair (2026-07-13):**
   - **The hang was the renderer bootstrap, not the score file or SQLite.** On this Mac's
     macOS 15 WKWebView, PDF.js 6's modern display build waited indefinitely for an ES-module

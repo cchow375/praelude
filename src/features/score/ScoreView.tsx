@@ -30,7 +30,18 @@ const PDF_LOAD_TIMEOUT_MS = 30_000;
 const PDF_RENDER_TIMEOUT_MESSAGE = "PDF rendering did not start in time. Try again or choose another edition.";
 
 interface PdfJsRuntime {
-  getDocument: (options: { data: Uint8Array }) => PDFDocumentLoadingTask;
+  getDocument: (options: {
+    data: Uint8Array;
+    cMapUrl: string;
+    cMapPacked: boolean;
+    iccUrl: string;
+    standardFontDataUrl: string;
+    wasmUrl: string;
+    useWorkerFetch: boolean;
+    useWasm: boolean;
+    isOffscreenCanvasSupported: boolean;
+    isImageDecoderSupported: boolean;
+  }) => PDFDocumentLoadingTask;
 }
 
 type PdfJsRuntimeLoader = () => Promise<PdfJsRuntime>;
@@ -99,7 +110,7 @@ export function createPdfJsAdapter(
       const taskRef: { current: PDFDocumentLoadingTask | null } = { current: null };
       let timedOut = false;
       try {
-        const document = await withTimeout((async () => {
+        const pdfDocument = await withTimeout((async () => {
           // CodaKiller runs inside WKWebView. PDF.js's modern build targets only
           // the newest browser engines, and WebKit does not reliably start an ES
           // module Worker from Tauri's custom app protocol. Loading the matching
@@ -107,11 +118,28 @@ export function createPdfJsAdapter(
           // PDF.js then uses its supported loopback worker instead of waiting on a
           // custom-protocol Worker handshake that may never answer.
           const { getDocument } = await loadRuntime();
+          const pdfAssetRoot = new URL("./pdfjs/", document.baseURI);
           const task = getDocument({
             // Uint8Array accepts ArrayBuffers from a different JS realm too; an
             // `instanceof ArrayBuffer` check does not (WKWebView's IPC response is
             // created by Tauri's injected realm).
             data: new Uint8Array(bytes).slice(),
+            // Most of Christian's editions are scanned CCITT/JBIG2/JPEG pages.
+            // PDF.js otherwise resolves page metadata but silently paints white
+            // when its external decoders are absent. These assets are vendored
+            // under public/pdfjs and copied verbatim into every app build.
+            cMapUrl: new URL("cmaps/", pdfAssetRoot).href,
+            cMapPacked: true,
+            iccUrl: new URL("iccs/", pdfAssetRoot).href,
+            standardFontDataUrl: new URL("standard_fonts/", pdfAssetRoot).href,
+            wasmUrl: new URL("wasm/", pdfAssetRoot).href,
+            useWorkerFetch: true,
+            useWasm: true,
+            // WKWebView exposes some newer canvas/image APIs before their worker
+            // implementations are reliable enough for PDF.js. The DOM + bundled
+            // decoder path is slower but deterministic for a local piano score.
+            isOffscreenCanvasSupported: false,
+            isImageDecoderSupported: false,
           });
           taskRef.current = task;
           // Dynamic imports cannot be cancelled. If the outer deadline elapsed
@@ -125,8 +153,8 @@ export function createPdfJsAdapter(
         })(), timeoutMs, PDF_RENDER_TIMEOUT_MESSAGE);
 
         return {
-          numPages: document.numPages,
-          getPage: async (pageNumber) => wrapPage(await document.getPage(pageNumber)),
+          numPages: pdfDocument.numPages,
+          getPage: async (pageNumber) => wrapPage(await pdfDocument.getPage(pageNumber)),
           destroy: async () => { await taskRef.current?.destroy(); },
         };
       } catch (error) {

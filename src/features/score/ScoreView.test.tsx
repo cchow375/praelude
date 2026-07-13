@@ -219,6 +219,31 @@ describe("ScoreView", () => {
     await document.destroy();
   });
 
+  it("configures every bundled decoder path for scanned score pages", async () => {
+    const destroy = vi.fn().mockResolvedValue(undefined);
+    const getDocument = vi.fn((_options: unknown) => ({
+      promise: Promise.resolve({ numPages: 1, getPage: vi.fn() }),
+      destroy,
+    }) as unknown as PDFDocumentLoadingTask);
+    const adapter = createPdfJsAdapter(async () => ({ getDocument }));
+
+    const document = await adapter.load(makeMinimalPdf(), { timeoutMs: 1_000 });
+    const options = getDocument.mock.calls[0][0] as Record<string, unknown>;
+    expect(options.cMapUrl).toMatch(/\/pdfjs\/cmaps\/$/);
+    expect(options.iccUrl).toMatch(/\/pdfjs\/iccs\/$/);
+    expect(options.standardFontDataUrl).toMatch(/\/pdfjs\/standard_fonts\/$/);
+    expect(options.wasmUrl).toMatch(/\/pdfjs\/wasm\/$/);
+    expect(options).toMatchObject({
+      cMapPacked: true,
+      useWorkerFetch: true,
+      useWasm: true,
+      isOffscreenCanvasSupported: false,
+      isImageDecoderSupported: false,
+    });
+    await document.destroy();
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects on deadline even when PDF.js startup and cleanup both never settle", async () => {
     const destroy = vi.fn(() => new Promise<void>(() => undefined));
     const task = {
