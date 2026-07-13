@@ -61,8 +61,10 @@ export function GoalsPanel({ pieceId, api: injectedApi }: { pieceId: number; api
     try {
       await operation();
       await load();
+      return true;
     } catch (cause) {
       setError(errorMessage(cause));
+      return false;
     }
   }
 
@@ -123,14 +125,14 @@ export function GoalsPanel({ pieceId, api: injectedApi }: { pieceId: number; api
         event.preventDefault();
         const text = draft.trim();
         if (!text) return;
-        await mutate(() => api.goalCreate({
+        const saved = await mutate(() => api.goalCreate({
           piece_id: pieceId,
           text,
           kind: "big",
           parent_goal_id: null,
           target_date: null,
         }));
-        setDraft("");
+        if (saved) setDraft("");
       }}>
         <input className="ck-input" value={draft} aria-label="New big goal" placeholder="Add a big goal…" onChange={(event) => setDraft(event.target.value)} />
         <button className="ck-add" type="submit">Add goal</button>
@@ -157,7 +159,7 @@ function GoalBranch({
   dailyWork: DailyWork[];
   pieceId: number;
   api: GoalsApi;
-  onMutate: (operation: () => Promise<unknown>) => Promise<void>;
+  onMutate: (operation: () => Promise<unknown>) => Promise<boolean>;
   onReorder: (siblings: Goal[], index: number, direction: -1 | 1) => Promise<void>;
 }) {
   const [addingSubgoal, setAddingSubgoal] = useState(false);
@@ -188,15 +190,17 @@ function GoalBranch({
           event.preventDefault();
           const text = subgoalDraft.trim();
           if (!text) return;
-          await onMutate(() => api.goalCreate({
+          const saved = await onMutate(() => api.goalCreate({
             piece_id: pieceId,
             text,
             kind: "sub",
             parent_goal_id: goal.id,
             target_date: null,
           }));
-          setSubgoalDraft("");
-          setAddingSubgoal(false);
+          if (saved) {
+            setSubgoalDraft("");
+            setAddingSubgoal(false);
+          }
         }}>
           <input autoFocus className="ck-input" aria-label={`New subgoal for ${goal.text}`} value={subgoalDraft} onChange={(event) => setSubgoalDraft(event.target.value)} />
           <button className="ck-add" type="submit">Add</button>
@@ -226,13 +230,13 @@ function GoalRow({
   siblings: Goal[];
   index: number;
   api: GoalsApi;
-  onMutate: (operation: () => Promise<unknown>) => Promise<void>;
+  onMutate: (operation: () => Promise<unknown>) => Promise<boolean>;
   onReorder: (siblings: Goal[], index: number, direction: -1 | 1) => Promise<void>;
 }) {
   return (
     <div className="goal-row">
       <input type="checkbox" checked={goal.done} aria-label={`Complete ${goal.text}`} onChange={(event) => void onMutate(() => api.goalUpdate(goal.id, { done: event.target.checked }))} />
-      <EditableField value={goal.text} ariaLabel="goal text" onSave={(text) => onMutate(() => api.goalUpdate(goal.id, { text }))} />
+      <EditableField value={goal.text} ariaLabel="goal text" onSave={async (text) => { await onMutate(() => api.goalUpdate(goal.id, { text })); }} />
       <label className="goal-date">
         <span className="sr-only">Target date for {goal.text}</span>
         <input
@@ -246,7 +250,7 @@ function GoalRow({
         <button type="button" disabled={index === 0} aria-label={`Move ${goal.text} up`} onClick={() => void onReorder(siblings, index, -1)}>↑</button>
         <button type="button" disabled={index === siblings.length - 1} aria-label={`Move ${goal.text} down`} onClick={() => void onReorder(siblings, index, 1)}>↓</button>
       </span>
-      <ConfirmDelete label="Delete this goal?" onConfirm={() => onMutate(() => api.goalDelete(goal.id))}>
+      <ConfirmDelete label="Delete this goal?" onConfirm={async () => { await onMutate(() => api.goalDelete(goal.id)); }}>
         <button type="button" className="history-delete" aria-label={`Delete goal ${goal.text}`}>×</button>
       </ConfirmDelete>
     </div>

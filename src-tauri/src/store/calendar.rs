@@ -364,6 +364,9 @@ impl Store {
                 )?;
                 push_set!("sort_order", next);
             }
+            if date != current.scheduled_date {
+                sets.push("reschedule_count = reschedule_count + 1".into());
+            }
         }
         if let Some(status) = patch.status {
             push_set!("status", status.clone());
@@ -734,6 +737,30 @@ mod tests {
             })
             .unwrap();
         assert_eq!(done.status, "done");
+        let moved = store
+            .daily_work_update(
+                done.id,
+                &done.updated_ts,
+                DailyWorkPatch {
+                    scheduled_date: Some("2026-07-13".into()),
+                    status: Some("planned".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(moved.reschedule_count, 1);
+        let edited = store
+            .daily_work_update(
+                moved.id,
+                &moved.updated_ts,
+                DailyWorkPatch {
+                    title: Some("Coda ladder retry".into()),
+                    scheduled_date: Some("2026-07-13".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(edited.reschedule_count, 1, "same-date edits are not moves");
         assert_eq!(crate::metrics::progress_summary(&store, piece_id).unwrap().focused_seconds, 0);
     }
 

@@ -84,4 +84,24 @@ describe("GoalsPanel", () => {
     rejectList("Goal tree is stale.");
     expect((await screen.findByRole("alert")).textContent).toContain("Goal tree is stale");
   });
+
+  it("keeps rejected big-goal and subgoal drafts open for retry", async () => {
+    const goalsApi = api();
+    vi.mocked(goalsApi.goalCreate).mockRejectedValue("Goal write rejected.");
+    render(<GoalsPanel pieceId={5} api={goalsApi} />);
+    await screen.findByText("Shape phrase");
+
+    const bigDraft = screen.getByLabelText("New big goal") as HTMLInputElement;
+    fireEvent.change(bigDraft, { target: { value: "Keep big goal draft" } });
+    fireEvent.submit(bigDraft.closest("form")!);
+    expect((await screen.findByRole("alert")).textContent).toContain("Goal write rejected");
+    expect((screen.getByLabelText("New big goal") as HTMLInputElement).value).toBe("Keep big goal draft");
+
+    fireEvent.click(screen.getByRole("button", { name: "Add subgoal to Shape phrase" }));
+    const subDraft = screen.getByLabelText("New subgoal for Shape phrase") as HTMLInputElement;
+    fireEvent.change(subDraft, { target: { value: "Keep subgoal draft" } });
+    fireEvent.submit(subDraft.closest("form")!);
+    await waitFor(() => expect(goalsApi.goalCreate).toHaveBeenCalledTimes(2));
+    expect((screen.getByLabelText("New subgoal for Shape phrase") as HTMLInputElement).value).toBe("Keep subgoal draft");
+  });
 });
