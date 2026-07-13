@@ -91,9 +91,9 @@ use crate::intent::{Intent, MetroSetArgs, Mode, RepOpenSpec, Router, Verdict};
 use crate::metronome::{MetroState, Metronome};
 use crate::rep::{RepEngine, RepVerdict};
 use crate::sessions::SessionService;
-use crate::stt::{DownReason, SttConfig, SttEvent, SttHandle, SttSupervisor, Transcript};
 use crate::store::model::RepOpenArgs;
 use crate::store::Store;
+use crate::stt::{DownReason, SttConfig, SttEvent, SttHandle, SttSupervisor, Transcript};
 use crate::tts::{Gate, PcmSink, Speaker, SpeakerConfig};
 
 /// How long an identical final is treated as a spurious repeat. Sized to cover
@@ -225,10 +225,9 @@ impl ActionCtx {
             .collect::<Vec<_>>()
             .join(" ")
             .to_lowercase();
-        let suppress = self
-            .last
-            .as_ref()
-            .is_some_and(|(prev, at)| *prev == norm && t.at.saturating_duration_since(*at) < DEDUP_WINDOW);
+        let suppress = self.last.as_ref().is_some_and(|(prev, at)| {
+            *prev == norm && t.at.saturating_duration_since(*at) < DEDUP_WINDOW
+        });
         self.last = Some((norm, t.at));
         if suppress {
             return;
@@ -243,6 +242,8 @@ impl ActionCtx {
             Intent::RepStatus => self.act_rep_status(&t.text),
             Intent::RepClose => self.act_rep_close(&t.text),
             Intent::SessionEnd => self.act_session_end(&t.text),
+            Intent::ScorePage(value) => self.act_score_navigation("page", value, &t.text),
+            Intent::ScoreMeasure(value) => self.act_score_navigation("measure", value, &t.text),
             Intent::Question(q) => {
                 self.emit_intent("question", &q, None);
             }
@@ -304,7 +305,13 @@ impl ActionCtx {
             // "accent", not "set" — this is a beats-per-bar/accent change, not a
             // tempo change, and the UI toast label should say so instead of
             // mislabeling it "Tempo set".
-            (s, r, format!("Accent every {}.", cardinal(bp as i64)), None, "accent")
+            (
+                s,
+                r,
+                format!("Accent every {}.", cardinal(bp as i64)),
+                None,
+                "accent",
+            )
         } else {
             return;
         };
@@ -472,8 +479,20 @@ impl ActionCtx {
     }
 
     fn emit_intent(&self, kind: &str, text: &str, bpm: Option<f64>) {
+        self.emitter.emit(
+            "voice://intent",
+            json!({ "kind": kind, "text": text, "bpm": bpm }),
+        );
+    }
+
+    /// Score navigation is intentionally silent: a spoken acknowledgement would
+    /// cover the practice the user is trying to inspect. The score event is a
+    /// stateless absolute destination, so replaying it is harmless; the global
+    /// transcript de-dup above suppresses `hear`'s common duplicate finals too.
+    fn act_score_navigation(&self, kind: &str, value: u32, text: &str) {
         self.emitter
-            .emit("voice://intent", json!({ "kind": kind, "text": text, "bpm": bpm }));
+            .emit("score://navigate", json!({ "kind": kind, "value": value }));
+        self.emit_intent(&format!("score_{kind}"), text, None);
     }
 }
 
@@ -502,8 +521,25 @@ fn bpm_to_speech(bpm: f64) -> String {
 /// English cardinal for 0..=1000 (the metronome's clamp range).
 fn cardinal(n: i64) -> String {
     const ONES: [&str; 20] = [
-        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
-        "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen",
+        "zero",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "thirteen",
+        "fourteen",
+        "fifteen",
+        "sixteen",
+        "seventeen",
+        "eighteen",
         "nineteen",
     ];
     const TENS: [&str; 10] = [
@@ -909,7 +945,10 @@ mod tests {
         ctx.handle_final(&final_t("metronome ninety six"));
         assert!(ctx.metro.snapshot().running, "metronome started");
         assert_eq!(ctx.metro.snapshot().bpm, 96.0);
-        assert_eq!(rec.said.lock().unwrap().as_slice(), &["Ninety-six.".to_string()]);
+        assert_eq!(
+            rec.said.lock().unwrap().as_slice(),
+            &["Ninety-six.".to_string()]
+        );
         // An intent event was emitted.
         assert!(rec
             .events
@@ -945,7 +984,7 @@ mod tests {
         let mut ctx = test_ctx(&rec);
         ctx.handle_final(&final_t("metronome 100"));
         ctx.handle_final(&final_t("metronome 100")); // spurious repeat
-        // Only one confirmation despite two identical finals.
+                                                     // Only one confirmation despite two identical finals.
         assert_eq!(rec.said.lock().unwrap().len(), 1);
     }
 
@@ -1019,7 +1058,10 @@ mod tests {
         voice.shutdown();
         let _ = std::fs::remove_file(&script);
 
-        assert!(started, "fake-hear command started the metronome end-to-end");
+        assert!(
+            started,
+            "fake-hear command started the metronome end-to-end"
+        );
         assert_eq!(metro.snapshot().bpm, 96.0);
         assert!(
             rec.said.lock().unwrap().iter().any(|s| s == "Ninety-six."),
@@ -1078,7 +1120,9 @@ mod tests {
                 pdf_path: None,
             })
             .unwrap();
-        store.set_setting("ui.current_piece", &pid.to_string()).unwrap();
+        store
+            .set_setting("ui.current_piece", &pid.to_string())
+            .unwrap();
         let sessions = Arc::new(SessionService::new(store.clone()));
         let rep = Arc::new(RepEngine::new(store.clone(), sessions.clone()));
 
@@ -1128,7 +1172,10 @@ mod tests {
         assert_eq!(hist[0].verdicts.clean, 2);
         // Spoken acks recorded end-to-end.
         let said = rec.said.lock().unwrap();
-        assert!(said.iter().any(|s| s == "Measures 40 to 56 at 80. Go."), "said: {said:?}");
+        assert!(
+            said.iter().any(|s| s == "Measures 40 to 56 at 80. Go."),
+            "said: {said:?}"
+        );
         assert!(said.iter().any(|s| s == "1 of 30."), "said: {said:?}");
         assert!(said.iter().any(|s| s == "2 of 30."), "said: {said:?}");
     }
@@ -1174,12 +1221,27 @@ mod tests {
         cfg.settle = Duration::from_millis(200);
 
         // REAL Speaker (say provider, offline-safe) wired to the metronome engine.
-        let voice = VoiceLoop::start_with(emitter, metro.clone(), store, rep, sessions, cfg, None, |m, g, mu| {
-            let provider: Box<dyn crate::tts::TtsProvider> = Box::new(crate::tts::say::SayTts::new());
-            let sink: Arc<dyn PcmSink> = Arc::new(MetroSink(m));
-            let gate: Arc<dyn Gate> = Arc::new(AtomicGate { gate: g, muted: mu });
-            Box::new(Speaker::spawn(provider, sink, gate, SpeakerConfig::default()))
-        });
+        let voice = VoiceLoop::start_with(
+            emitter,
+            metro.clone(),
+            store,
+            rep,
+            sessions,
+            cfg,
+            None,
+            |m, g, mu| {
+                let provider: Box<dyn crate::tts::TtsProvider> =
+                    Box::new(crate::tts::say::SayTts::new());
+                let sink: Arc<dyn PcmSink> = Arc::new(MetroSink(m));
+                let gate: Arc<dyn Gate> = Arc::new(AtomicGate { gate: g, muted: mu });
+                Box::new(Speaker::spawn(
+                    provider,
+                    sink,
+                    gate,
+                    SpeakerConfig::default(),
+                ))
+            },
+        );
 
         let mut started = false;
         for _ in 0..120 {
@@ -1197,7 +1259,10 @@ mod tests {
 
         assert!(started, "real metronome started from fake-hear command");
         assert_eq!(metro.snapshot().bpm, 96.0);
-        assert!(gate_open, "half-duplex gate reopened after the confirmation");
+        assert!(
+            gate_open,
+            "half-duplex gate reopened after the confirmation"
+        );
         eprintln!("LIVE OK: clicks at 96, spoke 'Ninety-six.', gate reopened");
     }
 
@@ -1373,11 +1438,20 @@ mod tests {
 
         let emitter: Arc<dyn VoiceEmitter> = Arc::new(RecEmitter(rec.clone()));
         let started = Instant::now();
-        let voice = VoiceLoop::start_with(emitter, metro, store, rep, sessions, cfg, None, move |_m, _g, _mu| {
-            // A slow provider-builder: sleeps well past the 50ms budget.
-            std::thread::sleep(Duration::from_millis(500));
-            Box::new(RecConfirm(rec)) as Box<dyn Confirm>
-        });
+        let voice = VoiceLoop::start_with(
+            emitter,
+            metro,
+            store,
+            rep,
+            sessions,
+            cfg,
+            None,
+            move |_m, _g, _mu| {
+                // A slow provider-builder: sleeps well past the 50ms budget.
+                std::thread::sleep(Duration::from_millis(500));
+                Box::new(RecConfirm(rec)) as Box<dyn Confirm>
+            },
+        );
         let elapsed = started.elapsed();
         voice.shutdown();
         let _ = std::fs::remove_file(&script);
@@ -1435,7 +1509,10 @@ mod tests {
     fn feed_spaced(ctx: &mut ActionCtx, text: &str, n: usize) {
         let base = Instant::now();
         for i in 0..n {
-            ctx.handle_final(&final_at(text, base + Duration::from_millis(4000 * i as u64)));
+            ctx.handle_final(&final_at(
+                text,
+                base + Duration::from_millis(4000 * i as u64),
+            ));
         }
     }
 
@@ -1450,9 +1527,72 @@ mod tests {
         assert!(ctx.metro.snapshot().running, "metronome started");
         assert_eq!(ctx.metro.snapshot().bpm, 80.0);
         assert!(
-            rec.said.lock().unwrap().iter().any(|s| s == "Measures 40 to 56 at 80. Go."),
+            rec.said
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|s| s == "Measures 40 to 56 at 80. Go."),
             "said: {:?}",
             rec.said.lock().unwrap()
+        );
+    }
+
+    #[test]
+    fn voice_score_navigation_emits_navigation_and_intent_without_speaking() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+
+        ctx.handle_final(&final_t("show measure eighty three"));
+
+        assert!(
+            rec.said.lock().unwrap().is_empty(),
+            "score navigation must stay silent"
+        );
+        let events = rec.events.lock().unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|(event, payload)| event == "score://navigate"
+                    && payload == &json!({ "kind": "measure", "value": 83 })),
+            "navigation event missing: {events:?}"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|(event, payload)| event == "voice://intent"
+                    && payload["kind"] == "score_measure"
+                    && payload["text"] == "show measure eighty three"),
+            "voice intent missing: {events:?}"
+        );
+    }
+
+    #[test]
+    fn duplicate_score_navigation_delivery_is_idempotent() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+
+        ctx.handle_final(&final_at("go to page 12", at));
+        ctx.handle_final(&final_at("go to page 12", at + Duration::from_millis(500)));
+
+        let events = rec.events.lock().unwrap();
+        let navigation: Vec<_> = events
+            .iter()
+            .filter(|(event, _)| event == "score://navigate")
+            .collect();
+        assert_eq!(
+            navigation.len(), 1,
+            "STT duplicate must emit one navigation event"
+        );
+        assert_eq!(
+            navigation[0].1,
+            json!({ "kind": "page", "value": 12 }),
+            "page navigation payload must be absolute and typed"
+        );
+        drop(events);
+        assert!(
+            rec.said.lock().unwrap().is_empty(),
+            "duplicate navigation must stay silent"
         );
     }
 
@@ -1463,7 +1603,10 @@ mod tests {
         ctx.store.set_setting("ui.current_piece", "").unwrap(); // deselect
         ctx.handle_final(&final_t("open a rep tracker measures 1 to 8 at 80"));
         assert!(!ctx.rep.active(), "no block opened without a piece");
-        assert_eq!(rec.said.lock().unwrap().last().unwrap(), "Pick a piece first.");
+        assert_eq!(
+            rec.said.lock().unwrap().last().unwrap(),
+            "Pick a piece first."
+        );
     }
 
     #[test]
@@ -1474,9 +1617,17 @@ mod tests {
             "open a rep tracker measures 40 to 56 start at 80 target 120",
         )); // starts metro at 80
         feed_spaced(&mut ctx, "done", 3); // 3rd clean steps 80 → 84
-        assert_eq!(ctx.metro.snapshot().bpm, 84.0, "metro follows the step while running");
+        assert_eq!(
+            ctx.metro.snapshot().bpm,
+            84.0,
+            "metro follows the step while running"
+        );
         assert!(
-            rec.said.lock().unwrap().iter().any(|s| s == "3 of 30. Up to 84."),
+            rec.said
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|s| s == "3 of 30. Up to 84."),
             "said: {:?}",
             rec.said.lock().unwrap()
         );
@@ -1504,9 +1655,16 @@ mod tests {
             .unwrap();
         assert!(!ctx.metro.snapshot().running);
         feed_spaced(&mut ctx, "done", 3);
-        assert!(!ctx.metro.snapshot().running, "a stopped metronome is not started by a step");
         assert!(
-            rec.said.lock().unwrap().iter().any(|s| s == "3 of 30. Up to 84."),
+            !ctx.metro.snapshot().running,
+            "a stopped metronome is not started by a step"
+        );
+        assert!(
+            rec.said
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|s| s == "3 of 30. Up to 84."),
             "the step is still spoken: {:?}",
             rec.said.lock().unwrap()
         );
@@ -1561,9 +1719,17 @@ mod tests {
         // (a) the ladder DID advance — new_bpm was Some(84) (feed_spaced routes
         // through act_rep and does not surface the CheckOutcome, so the engine's
         // advanced working tempo + the spoken "Up to 84." line are the proxy).
-        assert_eq!(ctx.rep.snapshot().unwrap().bpm, 84.0, "engine tempo advanced");
+        assert_eq!(
+            ctx.rep.snapshot().unwrap().bpm,
+            84.0,
+            "engine tempo advanced"
+        );
         assert!(
-            rec.said.lock().unwrap().iter().any(|s| s == "3 of 30. Up to 84."),
+            rec.said
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|s| s == "3 of 30. Up to 84."),
             "step spoken: {:?}",
             rec.said.lock().unwrap()
         );

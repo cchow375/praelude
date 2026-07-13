@@ -120,6 +120,10 @@ pub enum Intent {
     RepClose,
     /// "End the session" — end + export the session (any mode).
     SessionEnd,
+    /// Navigate the score viewer to a one-based PDF page.
+    ScorePage(u32),
+    /// Navigate the score viewer to a one-based musical measure.
+    ScoreMeasure(u32),
     /// A spoken question for a future assistant path (only produced in wake-word
     /// mode for a wake-prefixed utterance that is not a command).
     Question(String),
@@ -174,6 +178,9 @@ impl Router {
         //    block is currently active.
         if is_session_end(&words) {
             return Intent::SessionEnd;
+        }
+        if let Some(nav) = route_score_navigation(&words) {
+            return nav;
         }
         if let Some(spec) = route_rep_open(&words) {
             return Intent::RepOpen(spec);
@@ -254,24 +261,33 @@ const MAX_NOTE_WORDS: usize = 12;
 fn rep_check(words: &[&str]) -> Option<(Verdict, Option<String>)> {
     let joined = words.join(" ");
     const PASS: &[&str] = &[
-        "done", "clean", "got it", "get it", "nailed it", "perfect", "good", "yes", "yep",
+        "done",
+        "clean",
+        "got it",
+        "get it",
+        "nailed it",
+        "perfect",
+        "good",
+        "yes",
+        "yep",
     ];
     if PASS.contains(&joined.as_str()) {
         return Some((Verdict::Pass, None));
     }
 
     // Leading verdict token(s): two-word forms first, then single tokens.
-    let (verdict, lead) = if words.starts_with(&["messed", "up"]) || words.starts_with(&["mess", "up"]) {
-        (Verdict::Fail, 2)
-    } else {
-        match words.first().copied() {
-            Some("again" | "nope" | "no" | "failed" | "fail" | "miss" | "missed" | "retry") => {
-                (Verdict::Fail, 1)
+    let (verdict, lead) =
+        if words.starts_with(&["messed", "up"]) || words.starts_with(&["mess", "up"]) {
+            (Verdict::Fail, 2)
+        } else {
+            match words.first().copied() {
+                Some("again" | "nope" | "no" | "failed" | "fail" | "miss" | "missed" | "retry") => {
+                    (Verdict::Fail, 1)
+                }
+                Some("sloppy" | "rough" | "shaky" | "almost") => (Verdict::Flawed, 1),
+                _ => return None,
             }
-            Some("sloppy" | "rough" | "shaky" | "almost") => (Verdict::Flawed, 1),
-            _ => return None,
-        }
-    };
+        };
 
     let rest = &words[lead..];
     if rest.is_empty() {
@@ -319,6 +335,30 @@ fn is_rep_close(words: &[&str]) -> bool {
     )
 }
 
+/// Strict score-navigation grammar. The entire utterance must be one of the
+/// command shapes below followed by one positive integer number phrase. This is
+/// deliberately narrower than keyword matching: ambient practice talk such as
+/// "page 12 is hard" and "measure 83 is hard" must remain inert.
+fn route_score_navigation(words: &[&str]) -> Option<Intent> {
+    let (kind, number_words) = match words {
+        ["go", "to", "page", rest @ ..] | ["show", "page", rest @ ..] => ("page", rest),
+        ["go", "to", "measure", rest @ ..] | ["show", "measure", rest @ ..] => ("measure", rest),
+        _ => return None,
+    };
+    if number_words.is_empty() {
+        return None;
+    }
+    let parsed = numbers::parse_number(&number_words.join(" "))?;
+    if !parsed.is_finite() || parsed.fract() != 0.0 || !(1.0..=u32::MAX as f64).contains(&parsed) {
+        return None;
+    }
+    let value = parsed as u32;
+    Some(match kind {
+        "page" => Intent::ScorePage(value),
+        _ => Intent::ScoreMeasure(value),
+    })
+}
+
 /// Parse a rep-open utterance: `open a rep tracker measures 40 to 56 start at 80
 /// target 120`. Requires a rep-open cue (`tracker`/`rep`/`block`) AND the word
 /// `measures`/`measure` followed by a two-number range; both range numbers must
@@ -340,9 +380,9 @@ fn route_rep_open(words: &[&str]) -> Option<RepOpenSpec> {
     // block. A genuine command ("open a rep tracker measures 40 to 56 start at 80
     // target 120") is built entirely from this vocabulary.
     const VOCAB: &[&str] = &[
-        "open", "start", "new", "up", "a", "an", "the", "please", "lets", "let", "us", "go",
-        "rep", "reps", "tracker", "block", "measures", "measure", "to", "through", "thru", "at",
-        "target", "and",
+        "open", "start", "new", "up", "a", "an", "the", "please", "lets", "let", "us", "go", "rep",
+        "reps", "tracker", "block", "measures", "measure", "to", "through", "thru", "at", "target",
+        "and",
     ];
     if !words
         .iter()
@@ -560,7 +600,16 @@ fn is_bare_stop(words: &[&str]) -> bool {
 /// ("i turned the metronome off and went home") has out-of-vocab words and fails.
 fn is_explicit_metro_stop(words: &[&str]) -> bool {
     const VOCAB: &[&str] = &[
-        "metronome", "off", "stop", "turn", "the", "please", "halt", "kill", "it", "now",
+        "metronome",
+        "off",
+        "stop",
+        "turn",
+        "the",
+        "please",
+        "halt",
+        "kill",
+        "it",
+        "now",
     ];
     let has_cue = words.contains(&"off")
         || words.contains(&"stop")
@@ -746,7 +795,10 @@ mod tests {
     // ------------------------------------------------------------------ START
     #[test]
     fn start_with_digit() {
-        assert_eq!(r("metronome 96", &stopped()), Intent::MetroStart(Some(96.0)));
+        assert_eq!(
+            r("metronome 96", &stopped()),
+            Intent::MetroStart(Some(96.0))
+        );
     }
     #[test]
     fn start_with_words() {
@@ -765,7 +817,10 @@ mod tests {
     #[test]
     fn start_bare_resume() {
         assert_eq!(r("metronome on", &stopped()), Intent::MetroStart(None));
-        assert_eq!(r("start the metronome", &stopped()), Intent::MetroStart(None));
+        assert_eq!(
+            r("start the metronome", &stopped()),
+            Intent::MetroStart(None)
+        );
         assert_eq!(r("metronome", &stopped()), Intent::MetroStart(None));
         assert_eq!(r("metronome please", &stopped()), Intent::MetroStart(None));
     }
@@ -798,6 +853,36 @@ mod tests {
             r("Metronome, ninety-six!", &stopped()),
             Intent::MetroStart(Some(96.0))
         );
+    }
+
+    // ------------------------------------------------------- SCORE NAVIGATION
+    #[test]
+    fn score_navigation_accepts_only_command_shaped_page_and_measure_forms() {
+        assert_eq!(r("go to page 12", &stopped()), Intent::ScorePage(12));
+        assert_eq!(r("show page twelve", &stopped()), Intent::ScorePage(12));
+        assert_eq!(r("go to measure 83", &stopped()), Intent::ScoreMeasure(83));
+        assert_eq!(
+            r("show measure eighty three", &stopped()),
+            Intent::ScoreMeasure(83)
+        );
+    }
+
+    #[test]
+    fn score_navigation_rejects_ambient_mentions_and_invalid_locations() {
+        for phrase in [
+            "page 12 is hard",
+            "measure 83 is hard",
+            "the turn on page twelve is awkward",
+            "show me why measure eighty three is hard",
+            "go to page zero",
+            "show measure 0",
+        ] {
+            assert_eq!(
+                r(phrase, &stopped()),
+                Intent::Ignored,
+                "ambient or invalid score phrase must be ignored: {phrase:?}"
+            );
+        }
     }
 
     // ------------------------------------------------------------------- STOP
@@ -835,7 +920,10 @@ mod tests {
     #[test]
     fn stop_inside_unrelated_sentence_ignored() {
         assert_eq!(r("stop the store", &running()), Intent::Ignored);
-        assert_eq!(r("we should stop for lunch soon", &running()), Intent::Ignored);
+        assert_eq!(
+            r("we should stop for lunch soon", &running()),
+            Intent::Ignored
+        );
     }
 
     // -------------------------------------------------------------------- SET
@@ -926,8 +1014,16 @@ mod tests {
         assert_eq!(r("what is this for", &stopped()), Intent::Ignored);
         assert_eq!(r("I bumped into her", &running()), Intent::Ignored);
         assert_eq!(r("I bumped into her", &stopped()), Intent::Ignored);
-        assert_eq!(r("take two", &running()), Intent::Ignored, "no direction cue");
-        assert_eq!(r("take two", &stopped()), Intent::Ignored, "no direction cue");
+        assert_eq!(
+            r("take two", &running()),
+            Intent::Ignored,
+            "no direction cue"
+        );
+        assert_eq!(
+            r("take two", &stopped()),
+            Intent::Ignored,
+            "no direction cue"
+        );
     }
     #[test]
     fn accent_every_n() {
@@ -950,8 +1046,8 @@ mod tests {
             "uh um yeah so anyway",
             "the metronome in the corner looked old",
             "i really need a new metronome someday",
-            "ninety six",             // number with no command
-            "one twenty",             // number with no command
+            "ninety six", // number with no command
+            "one twenty", // number with no command
             "can you pass the salt",
             "what a beautiful day today",
             "mmm hmm okay right",
@@ -1284,7 +1380,13 @@ mod tests {
     #[test]
     fn non_rep_mode_ignores_bare_verdict_and_flawed_words() {
         // Outside a block these are ambient.
-        for phrase in ["sloppy", "rough", "almost", "nope", "that was so clean of him"] {
+        for phrase in [
+            "sloppy",
+            "rough",
+            "almost",
+            "nope",
+            "that was so clean of him",
+        ] {
             assert_eq!(
                 Router::route(phrase, &running()),
                 Intent::Ignored,
