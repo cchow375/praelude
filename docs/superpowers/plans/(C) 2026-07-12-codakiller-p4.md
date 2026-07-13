@@ -1,6 +1,6 @@
 # CodaKiller P4 — Real-PDF Score Workspace
 
-> **Status:** release gate · **Target:** v0.4.0 · **Branch:** `p4-score`
+> **Status:** shipped 2026-07-12 · **Target:** v0.4.0 · **Branch:** `p4-score`
 > **Goal:** make the chosen real score edition the practice hero surface, lightly mapped to the
 > existing Region → block → rep graph without pretending MusicXML knows PDF geometry.
 
@@ -43,7 +43,7 @@
   the complete map/save/practice interaction passed the browser visual harness on this 8 GB M2.
 - [x] **P4.11 — Whole-diff review.** Resolve all high/medium findings; frontend/Rust suites,
   strict clippy, production build, dark/light visual pass.
-- [ ] **P4.12 — Ship v0.4.0.** Migrate the real DB, install one app, clean generated duplicate,
+- [x] **P4.12 — Ship v0.4.0.** Migrate the real DB, install one app, clean generated duplicate,
   update the full vault protocol, commit, tag, and fast-forward `main`.
 
 ## Verification invariants
