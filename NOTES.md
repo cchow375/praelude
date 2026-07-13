@@ -701,3 +701,24 @@ voice at the mic. **Ground-truth findings on this Mac (macOS 15, M2):**
   flawed/failed count across the latest five persisted reps, and spaced age. The same reason trace
   is visible directly in Brain, independent of provider availability; it is not hidden inside the
   prompt or owned by the model.
+
+## P5.5 Goals, Calendar, and recovery (v0.6.0, 2026-07-12)
+
+- **Calendar work is planning metadata, never practice evidence.** `daily_work_change` and
+  `recovery_apply` are administrative events. They do not create focused time, active practice
+  days, reps, verdicts, or Goal completion. Marking “Done—I did it” means only that the planned
+  card was handled.
+- **Recovery preview and Apply are separate trust boundaries.** Preview is pure/read-only and
+  ranks by earliest applicable deadline, oldest missed date, Goal order, then work id. Apply
+  re-reads every row and validates optimistic tokens, strict dates, the seven-day horizon, the
+  earliest parent/subgoal deadline, total capacity, and the exact half-capacity recovery ceiling
+  in one SQLite transaction. One stale or invalid decision rolls back the whole batch.
+- **Origin is provenance.** `origin_date` is protected by a database trigger and never changes;
+  each recovery Move increments `reschedule_count`. The UI never moves missed cards until the
+  user explicitly chooses Move/Done/Dismiss/Leave and presses Apply.
+- **Schema v5 was rehearsed on a SQLite backup of the installed v4 database.** The real-copy gate
+  preserved 5 pieces, 24 Regions, 20 blocks, 165 reps, 4 Goals, 3 canonical events, and 249
+  session events; `integrity_check` returned `ok` and `foreign_key_check` returned zero rows.
+- **Deterministic suggestions can schedule only canonical Goals.** The explicit Brain “Schedule”
+  form writes a `source=planner` card only when a suggestion already has Goal ownership. Block
+  and Region suggestions remain read-only instead of silently inventing a Goal relationship.

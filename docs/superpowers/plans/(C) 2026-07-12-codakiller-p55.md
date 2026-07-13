@@ -42,25 +42,25 @@ Add append-only `daily_work_change` and `recovery_apply` events; previews never 
 
 ## ✅ Execution checklist
 
-- [ ] **P5.5.1 — Shared strict dates.** One Gregorian date utility; remove planner/metrics/Brain
+- [x] **P5.5.1 — Shared strict dates.** One Gregorian date utility; remove planner/metrics/Brain
   parser duplication; leap/month/year/local-midnight tests.
-- [ ] **P5.5.2 — Schema v5.** Crash-atomic migration, preservation/idempotence tests, indexes,
+- [x] **P5.5.2 — Schema v5.** Crash-atomic migration, preservation/idempotence tests, indexes,
   constraints, real-DB backup rehearsal.
-- [ ] **P5.5.3 — Harden Goal tree.** Big/sub invariants, strict dates, safe delete, exact sibling
+- [x] **P5.5.3 — Harden Goal tree.** Big/sub invariants, strict dates, safe delete, exact sibling
   reorder, no orphan/cycle/cross-piece parent.
-- [ ] **P5.5.4 — Daily-work CRUD.** Ownership, minutes/status/source validation, optimistic
+- [x] **P5.5.4 — Daily-work CRUD.** Ownership, minutes/status/source validation, optimistic
   timestamps, immutable origin, events, exact list ranges.
-- [ ] **P5.5.5 — Pure recovery engine.** Capacity/deadline bounded stable proposals, explicit
+- [x] **P5.5.5 — Pure recovery engine.** Capacity/deadline bounded stable proposals, explicit
   reasons, unresolved cases, zero writes.
-- [ ] **P5.5.6 — Atomic recovery Apply.** Move/Done/Dismiss/Leave decisions, stale all-or-nothing,
+- [x] **P5.5.6 — Atomic recovery Apply.** Move/Done/Dismiss/Leave decisions, stale all-or-nothing,
   origin/reschedule audit, no practice-metric or Goal side effects.
-- [ ] **P5.5.7 — Nested Goals UI.** Two-level tree, dates, Add subgoal, completion and daily-work
+- [x] **P5.5.7 — Nested Goals UI.** Two-level tree, dates, Add subgoal, completion and daily-work
   summaries, keyboard/dark/light/narrow gates.
-- [ ] **P5.5.8 — Calendar workspace.** Seven-day strip, piece + goal path + minutes, create/edit/
+- [x] **P5.5.8 — Calendar workspace.** Seven-day strip, piece + goal path + minutes, create/edit/
   move/complete/dismiss/delete, capacity display, previous/next week.
-- [ ] **P5.5.9 — Recovery review UI.** Neutral grouped misses, visible proposal/reason, editable
+- [x] **P5.5.9 — Recovery review UI.** Neutral grouped misses, visible proposal/reason, editable
   action/date, Cancel=zero writes, one Apply.
-- [ ] **P5.5.10 — Planner bridge.** Explicit Schedule action from deterministic suggestions;
+- [x] **P5.5.10 — Planner bridge.** Explicit Schedule action from deterministic suggestions;
   non-punitive active-day copy; no provider-authored schedule.
 - [ ] **P5.5.11 — Adversarial + live gate.** Fresh review, full suites/build/clippy, migration on
   copied real DB, installed create/miss/cancel/apply/relaunch flow.
@@ -94,4 +94,4 @@ schedules, automatic recovery writes, punishment streaks, or `spot_review` reuse
 
 ## Next action
 
-Land the strict shared date seam and schema v5 preservation gate before any Calendar UI.
+Complete the installed v0.6.0 create/miss/cancel/apply/relaunch gate, then seal and tag the release.
