@@ -816,6 +816,61 @@ mod tests {
         assert_eq!(store.schema_version().unwrap(), 5);
     }
 
+    /// Release-gate rehearsal against an operator-created backup of the real DB.
+    /// The ignored test never chooses or copies a database itself; it only opens
+    /// the explicit `CODAKILLER_MIGRATION_COPY` path supplied by the release run.
+    #[test]
+    #[ignore = "requires CODAKILLER_MIGRATION_COPY pointing to a disposable backup"]
+    fn rehearse_migration_on_real_database_copy() {
+        let path = std::env::var("CODAKILLER_MIGRATION_COPY")
+            .expect("set CODAKILLER_MIGRATION_COPY to a disposable database backup");
+        let core_tables = [
+            "piece",
+            "region",
+            "rep_block",
+            "rep",
+            "goal",
+            "event",
+            "session_event",
+        ];
+        let before_conn = Connection::open(&path).expect("open migration rehearsal copy");
+        let before_version: i32 = before_conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert!(before_version <= migrations::SCHEMA_VERSION);
+        let before: Vec<i64> = core_tables
+            .iter()
+            .map(|table| {
+                before_conn
+                    .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+                    .unwrap()
+            })
+            .collect();
+        drop(before_conn);
+
+        let store = Store::open(&path).expect("migrate rehearsal copy");
+        assert_eq!(store.schema_version().unwrap(), migrations::SCHEMA_VERSION);
+        let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let after: Vec<i64> = core_tables
+            .iter()
+            .map(|table| {
+                conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(after, before, "migration must preserve all core row counts");
+        assert_eq!(
+            conn.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        drop(conn);
+        drop(store);
+
+        let reopened = Store::open(&path).expect("migration is idempotent on second open");
+        assert_eq!(reopened.schema_version().unwrap(), migrations::SCHEMA_VERSION);
+    }
+
     // ── v1 → v3 migration ─────────────────────────────────────────────────
 
     /// Build a raw v1 database (the old placeholder schema) with a settings row,
