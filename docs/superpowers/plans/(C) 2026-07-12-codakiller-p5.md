@@ -1,6 +1,6 @@
 # CodaKiller P5 — Grounded Brain + Practice Library
 
-> **Status:** release gate passed · **Target:** v0.5.0 · **Branch:** `p5-brain`
+> **Status:** shipped 2026-07-12 · **Target:** v0.5.0 · **Branch:** `p5-brain`
 > **Goal:** answer practice questions from the selected piece, real history, and a cited method
 > graph—without putting an LLM in verdicts, navigation, or scheduling authority.
 
@@ -46,7 +46,7 @@
   synchronization; practice metrics ignore admin-only events; historical graph limitations stated.
 - [x] **P5.11 — Whole-diff + live gate.** Injection/adversarial tests, provider failure/fallback,
   offline retrieval, voice nonblocking, full suites/build, real key smoke without logging output.
-- [ ] **P5.12 — Ship v0.5.0.** Install one sealed app, migrate real DB, docs/tutorial/flaws/
+- [x] **P5.12 — Ship v0.5.0.** Install one sealed app, migrate real DB, docs/tutorial/flaws/
   version record, tag, fast-forward `main`.
 
 ## Runtime contracts
