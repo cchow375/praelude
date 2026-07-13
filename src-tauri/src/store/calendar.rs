@@ -765,7 +765,7 @@ mod tests {
     }
 
     #[test]
-    fn create_rejects_cross_piece_context_and_goal_delete_is_restricted() {
+    fn create_rejects_cross_piece_context_and_goal_delete_cascades_after_confirmation() {
         let (store, _piece_id, goal_id) = fixture();
         let other = store
             .upsert_piece(&ScanPiece {
@@ -803,9 +803,31 @@ mod tests {
             date: "2026-07-12".into(),
             source: "manual".into(),
         }).unwrap();
-        assert!(store.goal_delete(goal_id).is_err());
-        store.daily_work_delete(work.id, &work.updated_ts).unwrap();
         store.goal_delete(goal_id).unwrap();
+        assert!(store.daily_work_list("0001-01-01", "9999-12-31", None).unwrap().is_empty());
+        assert!(store.goal_list(_piece_id).unwrap().is_empty());
+        assert!(store.daily_work_delete(work.id, &work.updated_ts).is_err());
+    }
+
+    #[test]
+    fn calendar_cards_read_the_live_goal_text_instead_of_copying_it() {
+        let (store, _piece_id, goal_id) = fixture();
+        store.daily_work_create(DailyWorkCreate {
+            goal_id,
+            region_id: None,
+            block_id: None,
+            title: "Slow repetitions".into(),
+            minutes: 15,
+            date: "2026-07-12".into(),
+            source: "manual".into(),
+        }).unwrap();
+        store.goal_update(goal_id, GoalPatch {
+            text: Some("Renamed Big Goal".into()),
+            ..Default::default()
+        }).unwrap();
+        let cards = store.daily_work_list("2026-07-12", "2026-07-12", None).unwrap();
+        assert_eq!(cards[0].goal_text, "Renamed Big Goal");
+        assert_eq!(cards[0].title, "Slow repetitions", "work step remains a distinct field");
     }
 
     #[test]

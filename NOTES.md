@@ -2,6 +2,35 @@
 
 ## Decisions
 
+- **P6 coherence / v1.1.0 unified editing and navigation (2026-07-13):**
+  - **Region is the canonical Tricky Section record.** Intake hard spots are converted into Regions
+    once and deduplicated; Score, Details, history, practice forms, Brain context, PDF marks, and
+    Calendar links all use the same Region ID. The legacy intake JSON is retained only as historical
+    source data and is no longer presented as a second editable truth.
+  - **Score-started practice uses explicit ownership.** Opening a practice block from a selected
+    Tricky Section sends its Region ID, so later edits to the block's measure range do not silently
+    disconnect it. General/voice-created blocks still use the deterministic smallest-containing-
+    Region rule.
+  - **PDF annotations are persistent, edition-specific overlays, not destructive PDF rewrites.** A
+    Region may own box, highlight, and text-note marks; existing marks can be moved, resized,
+    retyped, recolored through the Region, or deleted. The source PDF bytes stay immutable because
+    rewriting them would invalidate the fingerprint and risk Christian's score file.
+  - **Region graph mutations are transaction-safe.** Split is one backend transaction and clears
+    geometry on both resulting Regions because division is ambiguous. Delete preserves rep blocks
+    and Calendar work while nulling their Region link; merge reassigns both. Goal deletion explicitly
+    cascades its linked Calendar rows after confirmation. Injected-failure and FK tests cover these
+    promises.
+  - **Calendar text has one owner.** Goal names are read by join, so renaming a Big Goal updates its
+    Calendar display; a Daily Work title remains a deliberately separate exact work step. Big Goals
+    with target dates render as milestones even when no work card exists.
+  - **Async navigation rejects stale responses.** Direct constellation selection fetches and selects
+    the requested piece, and both piece and score loaders use request generations so slower earlier
+    responses cannot replace the latest selection.
+  - **Release/data facts.** Schema stays v6. Before release, the live database was copied to
+    `~/Library/Application Support/com.christian.codakiller/backups/(C) pre-v1.1.0-2026-07-13.db`.
+    After installed-app launch it passed integrity/FKs with 5 pieces, 24 Regions, 20 blocks, 165 reps,
+    9 Goals, and 9 Daily Work rows.
+
 - **P6 patch / v1.0.2 scanned-PDF paint repair (2026-07-13):**
   - **v1.0.1 fixed startup but its acceptance gate was incomplete.** Page count and a fulfilled
     `render()` promise do not prove that a PDF page painted visible pixels. The native smoke used

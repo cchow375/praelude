@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { PieceDetailData, PieceSummary } from "./types";
 import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
@@ -15,6 +15,9 @@ import "./Pieces.css";
 interface PiecesPanelProps {
   onOpenBlock: (args: RepOpenArgs) => Promise<void>;
   activeRep?: RepSnapshot | null;
+  /** A Home-star selection opens this piece directly, bypassing the library. */
+  initialPieceId?: number | null;
+  onLeavePiece?: () => void;
 }
 
 function messageOf(e: unknown): string {
@@ -23,12 +26,13 @@ function messageOf(e: unknown): string {
   return String(e);
 }
 
-export function PiecesPanel({ onOpenBlock, activeRep = null }: PiecesPanelProps) {
+export function PiecesPanel({ onOpenBlock, activeRep = null, initialPieceId = null, onLeavePiece }: PiecesPanelProps) {
   const [pieces, setPieces] = useState<PieceSummary[]>([]);
   const [selected, setSelected] = useState<PieceDetailData | null>(null);
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const selectionGeneration = useRef(0);
 
   const loadList = useCallback(async () => {
     try {
@@ -59,15 +63,21 @@ export function PiecesPanel({ onOpenBlock, activeRep = null }: PiecesPanelProps)
   }, []);
 
   const select = useCallback(async (id: number) => {
+    const generation = ++selectionGeneration.current;
     setError(null);
     try {
-      await invoke("piece_select", { id });
       const detail = await invoke<PieceDetailData>("piece_get", { id });
-      if (detail) setSelected(detail);
+      if (!detail || generation !== selectionGeneration.current) return;
+      await invoke("piece_select", { id });
+      if (generation === selectionGeneration.current) setSelected(detail);
     } catch (e) {
-      setError(messageOf(e));
+      if (generation === selectionGeneration.current) setError(messageOf(e));
     }
   }, []);
+
+  useEffect(() => {
+    if (initialPieceId != null) void select(initialPieceId);
+  }, [initialPieceId, select]);
 
   // Reflect an intake save / detail edit back into the list badges.
   const onPieceUpdated = useCallback((updated: PieceDetailData) => {
@@ -93,7 +103,11 @@ export function PiecesPanel({ onOpenBlock, activeRep = null }: PiecesPanelProps)
         <PieceDetail
           key={selected.id}
           piece={selected}
-          onBack={() => setSelected(null)}
+          onBack={() => {
+            selectionGeneration.current += 1;
+            setSelected(null);
+            onLeavePiece?.();
+          }}
           onOpenBlock={onOpenBlock}
           activeRep={activeRep}
           onUpdated={onPieceUpdated}

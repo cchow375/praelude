@@ -353,6 +353,7 @@ mod tests {
         // Piece A: a block with a step and a note.
         rep.open(RepOpenArgs {
             piece_id: pa,
+            region_id: None,
             m_start: 40,
             m_end: 56,
             label: None,
@@ -374,6 +375,7 @@ mod tests {
         // Piece B: a second block.
         rep.open(RepOpenArgs {
             piece_id: pb,
+            region_id: None,
             m_start: 1,
             m_end: 8,
             label: None,
@@ -407,6 +409,7 @@ mod tests {
         // Appending a second session must add a new section, not overwrite.
         rep.open(RepOpenArgs {
             piece_id: pa,
+            region_id: None,
             m_start: 57,
             m_end: 64,
             label: None,

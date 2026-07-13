@@ -361,6 +361,31 @@ impl Store {
                 rusqlite::params![id, text, intake.deadline],
             )?;
         }
+
+        // Intake is the one entry point that still speaks in the old
+        // `{measures,note}` shape. Convert each usable item into the canonical
+        // Region graph immediately. After intake, every screen edits Region;
+        // the legacy JSON remains compatibility-only and is never displayed as
+        // a second editable copy.
+        for spot in &intake.hard_spots {
+            let note = spot.note.trim();
+            let (start, end) = backfill::parse_measure_range(&spot.measures);
+            if note.is_empty() || start < 1 || end < start {
+                continue;
+            }
+            tx.execute(
+                "INSERT INTO region (piece_id,name,m_start,m_end,kind,sort_order,color)
+                 SELECT ?1,?2,?3,?4,'hard_spot',
+                    COALESCE((SELECT MAX(sort_order) + 1 FROM region WHERE piece_id = ?1),0),
+                    '#c05a5a'
+                 WHERE NOT EXISTS (
+                    SELECT 1 FROM region
+                    WHERE piece_id = ?1 AND m_start = ?3 AND m_end = ?4
+                      AND lower(trim(name)) = lower(?2)
+                 )",
+                rusqlite::params![id, note, start, end],
+            )?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -395,8 +420,11 @@ impl Store {
         conn.query_row(
             "INSERT INTO rep_block
                  (piece_id, m_start, m_end, label, start_bpm, target_bpm,
-                  increment_rule, planned_reps, variants, focus, use_metronome)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                  increment_rule, planned_reps, variants, focus, use_metronome, region_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                (SELECT id FROM region
+                 WHERE piece_id = ?1 AND m_start <= ?2 AND m_end >= ?3
+                 ORDER BY (m_end - m_start), sort_order, id LIMIT 1))
              RETURNING id",
             rusqlite::params![
                 piece_id,
@@ -433,6 +461,7 @@ impl Store {
         variants: &[VariantSpec],
         focus: &str,
         use_metronome: bool,
+        explicit_region_id: Option<i64>,
         build: F,
     ) -> rusqlite::Result<(i64, i64, T)>
     where
@@ -440,11 +469,24 @@ impl Store {
     {
         let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let tx = conn.transaction()?;
+        if let Some(region_id) = explicit_region_id {
+            let belongs_to_piece: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM region WHERE id = ?1 AND piece_id = ?2)",
+                rusqlite::params![region_id, piece_id],
+                |row| row.get(0),
+            )?;
+            if !belongs_to_piece {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+        }
         let block_id = tx.query_row(
             "INSERT INTO rep_block
                  (piece_id,m_start,m_end,label,start_bpm,target_bpm,
-                  increment_rule,planned_reps,variants,focus,use_metronome)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                  increment_rule,planned_reps,variants,focus,use_metronome,region_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,
+                COALESCE(?12, (SELECT id FROM region
+                  WHERE piece_id = ?1 AND m_start <= ?2 AND m_end >= ?3
+                  ORDER BY (m_end - m_start), sort_order, id LIMIT 1)))
              RETURNING id",
             rusqlite::params![
                 piece_id,
@@ -458,6 +500,7 @@ impl Store {
                 json_to_sql(variants)?,
                 focus,
                 use_metronome,
+                explicit_region_id,
             ],
             |row| row.get(0),
         )?;
@@ -1040,6 +1083,7 @@ mod tests {
                 &[],
                 "tempo",
                 true,
+                None,
                 |block_id| Ok((serde_json::json!({"piece_id":piece_id,"block_id":block_id}), ())),
             )
             .is_err());
@@ -1365,6 +1409,30 @@ mod tests {
             2,
             "omitting a goal from review must not erase it"
         );
+    }
+
+    #[test]
+    fn intake_hard_spots_become_canonical_regions_once() {
+        let store = mem();
+        let id = store.upsert_piece(&scan("/v/A", "A", None)).unwrap();
+        let intake = Intake {
+            goals: vec![],
+            deadline: None,
+            target_tempo: None,
+            hard_spots: vec![
+                HardSpot { measures: "12–16".into(), note: "LH landing".into() },
+                HardSpot { measures: "12-16".into(), note: " lh landing ".into() },
+                HardSpot { measures: "?".into(), note: "Not mappable".into() },
+            ],
+            current_state: None,
+        };
+        store.save_intake(id, &intake).unwrap();
+        store.save_intake(id, &intake).unwrap();
+        let regions = store.region_list(id).unwrap();
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].name, "LH landing");
+        assert_eq!((regions[0].m_start, regions[0].m_end), (12, 16));
+        assert_eq!(regions[0].color.as_deref(), Some("#c05a5a"));
     }
 
     #[test]

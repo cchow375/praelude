@@ -141,16 +141,32 @@ impl Store {
         )
     }
 
+    fn normalized_region_name(value: String) -> rusqlite::Result<String> {
+        let value = value.trim().to_string();
+        if value.is_empty() || value.chars().count() > 500 {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        Ok(value)
+    }
+
+    fn valid_region_kind(value: &str) -> bool {
+        matches!(value, "section" | "phrase" | "group" | "hard_spot" | "custom")
+    }
+
     /// Create a region; appends a `region_change` event. New regions land at
     /// the end of the piece's ordering (`sort_order = MAX(sort_order)+1`).
     pub fn region_create(&self, args: RegionCreate) -> rusqlite::Result<Region> {
+        let name = Self::normalized_region_name(args.name)?;
+        if args.m_start < 1 || args.m_end < args.m_start || !Self::valid_region_kind(&args.kind) {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let id: i64 = conn.query_row(
             "INSERT INTO region (piece_id, name, m_start, m_end, kind, sort_order)
              VALUES (?1, ?2, ?3, ?4, ?5,
                  COALESCE((SELECT MAX(sort_order) + 1 FROM region WHERE piece_id = ?1), 0))
              RETURNING id",
-            rusqlite::params![args.piece_id, args.name, args.m_start, args.m_end, args.kind],
+            rusqlite::params![args.piece_id, name, args.m_start, args.m_end, args.kind],
             |row| row.get(0),
         )?;
         let region = Self::region_get(&conn, id)?;
@@ -167,11 +183,20 @@ impl Store {
     /// Apply a partial patch to a region; appends a `region_change` event.
     pub fn region_update(&self, id: i64, patch: RegionPatch) -> rusqlite::Result<Region> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let current = Self::region_get(&conn, id)?;
         let mut sets: Vec<String> = Vec::new();
         let mut vals: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
         if let Some(v) = patch.name {
+            let v = Self::normalized_region_name(v)?;
             sets.push(format!("name = ?{}", vals.len() + 2));
             vals.push(Box::new(v));
+        }
+        if patch.m_start.is_some() || patch.m_end.is_some() {
+            let next_start = patch.m_start.unwrap_or(current.m_start);
+            let next_end = patch.m_end.unwrap_or(current.m_end);
+            if next_start < 1 || next_end < next_start {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
         }
         if let Some(v) = patch.m_start {
             sets.push(format!("m_start = ?{}", vals.len() + 2));
@@ -182,10 +207,16 @@ impl Store {
             vals.push(Box::new(v));
         }
         if let Some(v) = patch.kind {
+            if !Self::valid_region_kind(&v) {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
             sets.push(format!("kind = ?{}", vals.len() + 2));
             vals.push(Box::new(v));
         }
         if let Some(v) = patch.order {
+            if v < 0 {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
             sets.push(format!("sort_order = ?{}", vals.len() + 2));
             vals.push(Box::new(v));
         }
@@ -232,6 +263,10 @@ impl Store {
             "UPDATE rep_block SET region_id = NULL WHERE region_id = ?1",
             [id],
         )?;
+        tx.execute(
+            "UPDATE daily_work SET region_id = NULL WHERE region_id = ?1",
+            [id],
+        )?;
         tx.execute("DELETE FROM region WHERE id = ?1", [id])?;
         tx.commit()?;
         Self::append_event_conn(
@@ -269,6 +304,10 @@ impl Store {
             rusqlite::params![id_keep, id_absorb],
         )?;
         tx.execute(
+            "UPDATE daily_work SET region_id = ?1 WHERE region_id = ?2",
+            rusqlite::params![id_keep, id_absorb],
+        )?;
+        tx.execute(
             "UPDATE region SET m_start = ?2, m_end = ?3, pdf_anchor = ?4 WHERE id = ?1",
             rusqlite::params![id_keep, new_start, new_end, merged_anchor_sql],
         )?;
@@ -284,6 +323,77 @@ impl Store {
             &serde_json::json!({ "action": "merge", "kept": id_keep, "absorbed": id_absorb }),
         )?;
         Ok(region)
+    }
+
+    /// Split one Region before `split_at` as one transaction. Printed score
+    /// geometry cannot be divided safely from a measure number alone, so both
+    /// halves deliberately require remapping after the UI's explicit warning.
+    pub fn region_split(&self, id: i64, split_at: u32) -> rusqlite::Result<Vec<Region>> {
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let current = Self::region_get(&conn, id)?;
+        if split_at <= current.m_start || split_at > current.m_end {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        let suffix = " · part 2";
+        let keep_chars = 500usize.saturating_sub(suffix.chars().count());
+        let second_name = format!("{}{}", current.name.chars().take(keep_chars).collect::<String>(), suffix);
+
+        let tx = conn.transaction()?;
+        tx.execute(
+            "UPDATE region SET sort_order = sort_order + 1
+             WHERE piece_id = ?1 AND sort_order > ?2",
+            rusqlite::params![current.piece_id, current.order],
+        )?;
+        let second_id: i64 = tx.query_row(
+            "INSERT INTO region
+                 (piece_id,name,m_start,m_end,kind,sort_order,color,pdf_anchor)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,NULL)
+             RETURNING id",
+            rusqlite::params![
+                current.piece_id,
+                second_name,
+                split_at,
+                current.m_end,
+                current.kind,
+                current.order + 1,
+                current.color,
+            ],
+            |row| row.get(0),
+        )?;
+        tx.execute(
+            "UPDATE region SET m_end = ?2, pdf_anchor = NULL WHERE id = ?1",
+            rusqlite::params![id, split_at - 1],
+        )?;
+        tx.execute(
+            "UPDATE daily_work SET region_id = ?2
+             WHERE region_id = ?1 AND block_id IN (
+                 SELECT id FROM rep_block WHERE region_id = ?1 AND m_start >= ?3
+             )",
+            rusqlite::params![id, second_id, split_at],
+        )?;
+        let moved_blocks = tx.execute(
+            "UPDATE rep_block SET region_id = ?2
+             WHERE region_id = ?1 AND m_start >= ?3",
+            rusqlite::params![id, second_id, split_at],
+        )?;
+        Self::append_event_conn(
+            &tx,
+            EventKind::REGION_CHANGE,
+            None,
+            Some(current.piece_id),
+            &serde_json::json!({
+                "action": "split",
+                "original": id,
+                "created": second_id,
+                "split_at": split_at,
+                "moved_blocks": moved_blocks,
+                "score_annotations_cleared": true,
+            }),
+        )?;
+        let first = Self::region_get(&tx, id)?;
+        let second = Self::region_get(&tx, second_id)?;
+        tx.commit()?;
+        Ok(vec![first, second])
     }
 }
 
@@ -438,6 +548,71 @@ mod region {
     }
 
     #[test]
+    fn region_delete_and_merge_keep_calendar_work_valid() {
+        use crate::store::model::DailyWorkCreate;
+
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let keep = s.region_create(RegionCreate { piece_id: 1, name: "Keep".into(), m_start: 1, m_end: 8, kind: "section".into() }).unwrap();
+        let absorb = s.region_create(RegionCreate { piece_id: 1, name: "Absorb".into(), m_start: 9, m_end: 16, kind: "section".into() }).unwrap();
+        let remove = s.region_create(RegionCreate { piece_id: 1, name: "Remove".into(), m_start: 17, m_end: 24, kind: "section".into() }).unwrap();
+        let goal = s.goal_create(GoalCreate { piece_id: 1, text: "Goal".into(), kind: "big".into(), parent_goal_id: None, target_date: None }).unwrap();
+        for (region_id, title) in [(absorb.id, "Merge me"), (remove.id, "Unlink me")] {
+            s.daily_work_create(DailyWorkCreate {
+                goal_id: goal.id, region_id: Some(region_id), block_id: None,
+                title: title.into(), minutes: 10, date: "2026-07-13".into(), source: "manual".into(),
+            }).unwrap();
+        }
+
+        s.region_merge(keep.id, absorb.id).unwrap();
+        s.region_delete(remove.id).unwrap();
+        let work = s.daily_work_list("2026-07-13", "2026-07-13", None).unwrap();
+        assert_eq!(work.iter().find(|item| item.title == "Merge me").unwrap().region_id, Some(keep.id));
+        assert_eq!(work.iter().find(|item| item.title == "Unlink me").unwrap().region_id, None);
+    }
+
+    #[test]
+    fn region_split_is_atomic_and_moves_only_later_blocks() {
+        use crate::store::model::DailyWorkCreate;
+
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let region = s.region_create(RegionCreate { piece_id: 1, name: "Phrase".into(), m_start: 1, m_end: 12, kind: "section".into() }).unwrap();
+        let early = seed_block(&s, 1, 1, 4);
+        let late = seed_block(&s, 1, 7, 12);
+        s.block_set_region(early, Some(region.id)).unwrap();
+        s.block_set_region(late, Some(region.id)).unwrap();
+        let goal = s.goal_create(GoalCreate { piece_id: 1, text: "Goal".into(), kind: "big".into(), parent_goal_id: None, target_date: None }).unwrap();
+        s.daily_work_create(DailyWorkCreate {
+            goal_id: goal.id, region_id: Some(region.id), block_id: Some(late),
+            title: "Later half".into(), minutes: 10, date: "2026-07-13".into(), source: "manual".into(),
+        }).unwrap();
+        {
+            let conn = s_conn(&s);
+            conn.execute_batch(
+                "CREATE TRIGGER fail_region_split BEFORE UPDATE OF region_id ON rep_block
+                 BEGIN SELECT RAISE(ABORT,'injected split failure'); END;",
+            ).unwrap();
+        }
+        assert!(s.region_split(region.id, 7).is_err());
+        let unchanged = s.region_list(1).unwrap();
+        assert_eq!(unchanged.len(), 1);
+        assert_eq!((unchanged[0].m_start, unchanged[0].m_end), (1, 12));
+        {
+            let conn = s_conn(&s);
+            conn.execute_batch("DROP TRIGGER fail_region_split;").unwrap();
+        }
+
+        let halves = s.region_split(region.id, 7).unwrap();
+        assert_eq!((halves[0].m_start, halves[0].m_end), (1, 6));
+        assert_eq!((halves[1].m_start, halves[1].m_end), (7, 12));
+        assert_eq!(s.block_row(early).unwrap().unwrap().region_id, Some(halves[0].id));
+        assert_eq!(s.block_row(late).unwrap().unwrap().region_id, Some(halves[1].id));
+        let work = s.daily_work_list("2026-07-13", "2026-07-13", None).unwrap();
+        assert_eq!(work[0].region_id, Some(halves[1].id));
+    }
+
+    #[test]
     fn region_update_applies_partial_patch() {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
@@ -471,6 +646,28 @@ mod region {
             ..Default::default()
         }).unwrap();
         assert_eq!(cleared.pdf_anchor, None);
+    }
+
+    #[test]
+    fn region_create_and_measure_edits_reject_invalid_canonical_fields() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        for args in [
+            RegionCreate { piece_id: 1, name: "   ".into(), m_start: 1, m_end: 8, kind: "section".into() },
+            RegionCreate { piece_id: 1, name: "zero".into(), m_start: 0, m_end: 8, kind: "section".into() },
+            RegionCreate { piece_id: 1, name: "backwards".into(), m_start: 8, m_end: 1, kind: "section".into() },
+            RegionCreate { piece_id: 1, name: "unknown".into(), m_start: 1, m_end: 8, kind: "mystery".into() },
+        ] {
+            assert!(s.region_create(args).is_err());
+        }
+
+        let region = s.region_create(RegionCreate {
+            piece_id: 1, name: "  Canonical note  ".into(), m_start: 1, m_end: 8,
+            kind: "hard_spot".into(),
+        }).unwrap();
+        assert_eq!(region.name, "Canonical note");
+        assert!(s.region_update(region.id, RegionPatch { m_start: Some(9), ..Default::default() }).is_err());
+        assert!(s.region_update(region.id, RegionPatch { name: Some("".into()), ..Default::default() }).is_err());
     }
 
     #[test]
@@ -975,20 +1172,33 @@ impl Store {
         Ok(goal)
     }
 
-    /// Delete one childless Goal. Root deletion is refused while subgoals
-    /// exist, and v5's FK refuses deletion while daily work owns the Goal.
+    /// Delete one Goal after the UI's explicit destructive confirmation.
+    /// A root deletion also removes its direct subgoals and every Calendar row
+    /// owned by that branch. This is one transaction: Calendar can never retain
+    /// an orphaned card and Goals can never retain a half-deleted tree.
     pub fn goal_delete(&self, id: i64) -> rusqlite::Result<()> {
         let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let tx = conn.transaction()?;
         let goal = Self::goal_get(&tx, id)?;
-        let has_children: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM goal WHERE parent_goal_id = ?1)",
+        let removed_work: Vec<i64> = {
+            let mut statement = tx.prepare(
+                "SELECT id FROM daily_work
+                 WHERE goal_id = ?1
+                    OR goal_id IN (SELECT id FROM goal WHERE parent_goal_id = ?1)
+                 ORDER BY id",
+            )?;
+            let ids = statement
+                .query_map([id], |row| row.get(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            ids
+        };
+        tx.execute(
+            "DELETE FROM daily_work
+             WHERE goal_id = ?1
+                OR goal_id IN (SELECT id FROM goal WHERE parent_goal_id = ?1)",
             [id],
-            |row| row.get(0),
         )?;
-        if has_children {
-            return Err(rusqlite::Error::InvalidQuery);
-        }
+        let removed_children = tx.execute("DELETE FROM goal WHERE parent_goal_id = ?1", [id])?;
         tx.execute("DELETE FROM goal WHERE id = ?1", [id])?;
         tx.execute(
             "UPDATE goal SET sort_order = sort_order - 1
@@ -1000,8 +1210,26 @@ impl Store {
             EventKind::GOAL_CHANGE,
             None,
             Some(goal.piece_id),
-            &serde_json::json!({ "action": "delete", "goal_id": id }),
+            &serde_json::json!({
+                "action": "delete_tree",
+                "goal_id": id,
+                "removed_subgoals": removed_children,
+                "removed_daily_work": removed_work,
+            }),
         )?;
+        if !removed_work.is_empty() {
+            Self::append_event_conn(
+                &tx,
+                EventKind::DAILY_WORK_CHANGE,
+                None,
+                Some(goal.piece_id),
+                &serde_json::json!({
+                    "action": "delete_for_goal_tree",
+                    "goal_id": id,
+                    "daily_work_ids": removed_work,
+                }),
+            )?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -1153,13 +1381,16 @@ mod goal {
             piece_id: 1, text: "child".into(), kind: "sub".into(),
             parent_goal_id: Some(a.id), target_date: None,
         }).unwrap();
-        assert!(s.goal_delete(a.id).is_err(), "a root with children must survive");
         assert!(s.goal_reorder(1, vec![a.id]).is_err(), "partial sibling order must fail");
         assert!(s.goal_reorder(1, vec![a.id, a.id]).is_err(), "duplicates must fail");
         assert!(s.goal_reorder(1, vec![a.id, child.id, b.id]).is_err(), "mixed levels must fail");
         assert!(s.goal_update(a.id, GoalPatch {
             target_date: Some(Some("2026-04-31".into())), ..Default::default()
         }).is_err());
+        s.goal_delete(a.id).unwrap();
+        let surviving = s.goal_list(1).unwrap();
+        assert_eq!(surviving.len(), 1, "confirmed root deletion removes its subgoals");
+        assert_eq!(surviving[0].id, b.id);
     }
 
     #[test]

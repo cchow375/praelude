@@ -37,6 +37,24 @@ describe("score Region anchors", () => {
     expect(validAnchorMap(second)).toBe(true);
   });
 
+  it("stores highlight and note overlays while old rectangles remain boxes", () => {
+    expect(normalizeDrag(10, 20, 60, 50, 100, 100, 2, "highlight")).toEqual({
+      page: 2, x: 0.1, y: 0.2, w: 0.5, h: 0.3, kind: "highlight",
+    });
+    expect(validAnchorMap({
+      v: 1,
+      editions: {
+        score: {
+          fingerprint: "fp",
+          rects: [
+            { page: 1, x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+            { page: 1, x: 0.4, y: 0.4, w: 0.2, h: 0.2, kind: "note" },
+          ],
+        },
+      },
+    })).toBe(true);
+  });
+
   it("treats malformed legacy/foreign JSON as unmapped", () => {
     expect(validAnchorMap({ page: 1, x: 4 })).toBe(false);
     expect(anchorForEdition("garbage", "x", "y")).toBeNull();

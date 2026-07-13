@@ -11,6 +11,8 @@ import { GoalsPanel } from "./GoalsPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { ScoreView } from "../score/ScoreView";
 import { ReferenceButtons } from "../references/ReferenceButtons";
+import { TrickySectionsPanel } from "./RegionEditor";
+import { ConfirmDelete } from "../../components/ConfirmDelete";
 
 // ---------------------------------------------------------------------------
 // The detail surface for a selected piece. Before intake is done it shows the
@@ -45,6 +47,7 @@ export function PieceDetail({
   const crud = useCrud();
   const [piece, setPiece] = useState<PieceDetailData>(initial);
   const [historyRevision, setHistoryRevision] = useState(0);
+  const [regionRevision, setRegionRevision] = useState(0);
   const [saving, setSaving] = useState(false);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -155,13 +158,19 @@ export function PieceDetail({
           defaultTargetBpm={piece.target_tempo}
           onOpenBlock={openBlock}
           opening={opening}
+          onRegionsChanged={() => setRegionRevision((revision) => revision + 1)}
         />
       ) : (
         <>
           <PieceSummary piece={piece} onUpdate={updatePieceField} />
           <ReferenceButtons pieceId={piece.id} />
           <GoalsPanel pieceId={piece.id} />
-          <HistoryPanel pieceId={piece.id} refreshToken={historyRevision} />
+          <TrickySectionsPanel
+            pieceId={piece.id}
+            refreshToken={regionRevision}
+            onChanged={() => setRegionRevision((revision) => revision + 1)}
+          />
+          <HistoryPanel pieceId={piece.id} refreshToken={historyRevision + regionRevision} />
           <BlockForm
             pieceId={piece.id}
             defaultTargetBpm={piece.target_tempo}
@@ -204,21 +213,15 @@ function PieceSummary({
           <span>♩ = <EditableNumber value={piece.target_tempo} min={1} allowNull ariaLabel="target tempo" onSave={(target_tempo) => onUpdate({ target_tempo })} /></span>
         </div>
       </div>
-      {piece.hard_spots.length > 0 && (
-        <div className="piece-summary-block">
-          <span className="ck-label">Hard spots</span>
-          <ul className="piece-hardspots">
-            {piece.hard_spots.map((s, i) => (
-              <li key={i}>
-                <span className="piece-hardspot-mm">{s.measures}</span>
-                {s.note && <span className="piece-hardspot-note">{s.note}</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       <div className="piece-summary-block">
-        <span className="ck-label">Notes</span>
+        <div className="piece-notes-heading">
+          <span className="ck-label">Piece-wide notes</span>
+          {piece.notes && (
+            <ConfirmDelete label="Delete the piece-wide note? Tricky Section notes and practice-rep notes are separate and will stay." onConfirm={() => onUpdate({ notes: null })}>
+              <button type="button" className="piece-note-delete">Delete note</button>
+            </ConfirmDelete>
+          )}
+        </div>
         <EditableField value={piece.notes ?? ""} placeholder="Double-click to add notes" ariaLabel="piece notes" onSave={(notes) => onUpdate({ notes: notes || null })} />
       </div>
     </div>

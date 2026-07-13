@@ -162,6 +162,7 @@ impl RepEngine {
                 &args.variants,
                 &args.focus,
                 args.use_metronome,
+                args.region_id,
                 |block_id| {
                     let snap = RepSnapshot {
                         block_id,
@@ -529,6 +530,7 @@ mod tests {
     fn open_args(pid: i64) -> RepOpenArgs {
         RepOpenArgs {
             piece_id: pid,
+            region_id: None,
             m_start: 40,
             m_end: 56,
             label: None,
@@ -556,6 +558,7 @@ mod tests {
     fn open_args_tempo(use_metronome: bool, clean_needed: u32, step: f64, start: f64) -> RepOpenArgs {
         RepOpenArgs {
             piece_id: 1,
+            region_id: None,
             m_start: 1,
             m_end: 8,
             label: None,
@@ -575,6 +578,7 @@ mod tests {
     fn open_args_focus(focus: &str) -> RepOpenArgs {
         RepOpenArgs {
             piece_id: 1,
+            region_id: None,
             m_start: 1,
             m_end: 8,
             label: None,
@@ -669,6 +673,41 @@ mod tests {
     }
 
     #[test]
+    fn opening_reps_inside_a_tricky_section_links_the_same_canonical_region() {
+        let (engine, pid, store, _rec) = engine_with_piece();
+        let region = store.region_create(crate::store::model::RegionCreate {
+            piece_id: pid,
+            name: "LH landing".into(),
+            m_start: 38,
+            m_end: 60,
+            kind: "hard_spot".into(),
+        }).unwrap();
+        let snap = engine.open(open_args(pid)).unwrap();
+        let history = store.block_row(snap.block_id).unwrap().unwrap();
+        assert_eq!(history.region_id, Some(region.id));
+    }
+
+    #[test]
+    fn score_selected_tricky_section_remains_linked_after_measure_adjustment() {
+        let (engine, pid, store, _rec) = engine_with_piece();
+        let region = store.region_create(crate::store::model::RegionCreate {
+            piece_id: pid,
+            name: "RH shape".into(),
+            m_start: 40,
+            m_end: 56,
+            kind: "hard_spot".into(),
+        }).unwrap();
+        let mut args = open_args(pid);
+        args.region_id = Some(region.id);
+        args.m_start = 38;
+        args.m_end = 58;
+
+        let snap = engine.open(args).unwrap();
+        let history = store.block_row(snap.block_id).unwrap().unwrap();
+        assert_eq!(history.region_id, Some(region.id));
+    }
+
+    #[test]
     fn double_open_is_rejected() {
         let (engine, pid, _store, _rec) = engine_with_piece();
         engine.open(open_args(pid)).unwrap();
@@ -733,6 +772,7 @@ mod tests {
         let (engine, pid, _store, _rec) = engine_with_piece();
         let args = RepOpenArgs {
             piece_id: pid,
+            region_id: None,
             m_start: 1,
             m_end: 4,
             label: None,

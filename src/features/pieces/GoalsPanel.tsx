@@ -171,7 +171,15 @@ function GoalBranch({
   const doneWork = branchWork.filter((item) => item.status === "done").length;
   return (
     <li className={`goal-branch ${goal.done ? "is-done" : ""}`}>
-      <GoalRow goal={goal} siblings={siblings} index={index} onMutate={onMutate} onReorder={onReorder} api={api} />
+      <GoalRow
+        goal={goal}
+        siblings={siblings}
+        index={index}
+        onMutate={onMutate}
+        onReorder={onReorder}
+        api={api}
+        deleteLabel={`Delete the Big Goal “${goal.text}”, its ${children.length} subgoal${children.length === 1 ? "" : "s"}, and ${branchWork.length} linked Calendar item${branchWork.length === 1 ? "" : "s"}? Practice history is not affected.`}
+      />
       <div className="goal-summary" aria-label={`Summary for ${goal.text}`}>
         <span>{children.length === 0 ? "No subgoals" : `${doneChildren}/${children.length} subgoals done`}</span>
         <span>{branchWork.length === 0 ? "No calendar work" : `${branchWork.length} calendar ${branchWork.length === 1 ? "item" : "items"} · ${plannedWork} planned · ${doneWork} done`}</span>
@@ -180,7 +188,15 @@ function GoalBranch({
         <ul className="goal-children">
           {children.map((child, childIndex) => (
             <li key={child.id} className={child.done ? "is-done" : ""}>
-              <GoalRow goal={child} siblings={children} index={childIndex} onMutate={onMutate} onReorder={onReorder} api={api} />
+              <GoalRow
+                goal={child}
+                siblings={children}
+                index={childIndex}
+                onMutate={onMutate}
+                onReorder={onReorder}
+                api={api}
+                deleteLabel={`Delete the subgoal “${child.text}” and its ${dailyWork.filter((item) => item.goal_id === child.id).length} linked Calendar item${dailyWork.filter((item) => item.goal_id === child.id).length === 1 ? "" : "s"}?`}
+              />
             </li>
           ))}
         </ul>
@@ -225,6 +241,7 @@ function GoalRow({
   api,
   onMutate,
   onReorder,
+  deleteLabel,
 }: {
   goal: Goal;
   siblings: Goal[];
@@ -232,6 +249,7 @@ function GoalRow({
   api: GoalsApi;
   onMutate: (operation: () => Promise<unknown>) => Promise<boolean>;
   onReorder: (siblings: Goal[], index: number, direction: -1 | 1) => Promise<void>;
+  deleteLabel: string;
 }) {
   return (
     <div className="goal-row">
@@ -250,7 +268,7 @@ function GoalRow({
         <button type="button" disabled={index === 0} aria-label={`Move ${goal.text} up`} onClick={() => void onReorder(siblings, index, -1)}>↑</button>
         <button type="button" disabled={index === siblings.length - 1} aria-label={`Move ${goal.text} down`} onClick={() => void onReorder(siblings, index, 1)}>↓</button>
       </span>
-      <ConfirmDelete label="Delete this goal?" onConfirm={async () => { await onMutate(() => api.goalDelete(goal.id)); }}>
+      <ConfirmDelete label={deleteLabel} onConfirm={async () => { await onMutate(() => api.goalDelete(goal.id)); }}>
         <button type="button" className="history-delete" aria-label={`Delete goal ${goal.text}`}>×</button>
       </ConfirmDelete>
     </div>

@@ -43,7 +43,7 @@ function makeApi(overrides: Partial<CalendarApi> = {}): CalendarApi {
     setCapacity: vi.fn().mockResolvedValue(undefined),
     listPieces: vi.fn().mockResolvedValue([{ id: 2, title: "Scherzo No. 2", composer: "Chopin", has_xml: true, has_pdf: true, intake_done: true }]),
     listGoals: vi.fn().mockResolvedValue([
-      { id: 3, piece_id: 2, text: "Performance ready", kind: "big", parent_goal_id: null, done: false, order: 0, target_date: null, created_ts: "now" },
+      { id: 3, piece_id: 2, text: "Performance ready", kind: "big", parent_goal_id: null, done: false, order: 0, target_date: "2026-07-15", created_ts: "now" },
       { id: 4, piece_id: 2, text: "Secure the coda", kind: "sub", parent_goal_id: 3, done: false, order: 0, target_date: null, created_ts: "now" },
     ]),
     ...overrides,
@@ -61,7 +61,7 @@ describe("CalendarWorkspace", () => {
     expect(screen.getByRole("status").textContent).toContain("Loading this week");
     resolveList([]);
     expect(await screen.findByLabelText("Week of 2026-07-13")).toBeTruthy();
-    expect(within(screen.getByLabelText("Week of 2026-07-13")).getAllByText("No work planned.")).toHaveLength(7);
+    expect(within(screen.getByLabelText("Week of 2026-07-13")).getAllByText("No work planned.")).toHaveLength(6);
     expect((screen.getByLabelText("Daily capacity") as HTMLInputElement).value).toBe("60");
   });
 
@@ -74,6 +74,15 @@ describe("CalendarWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save daily capacity" }));
 
     await waitFor(() => expect(api.setCapacity).toHaveBeenCalledWith(90));
+  });
+
+  it("shows a big Goal on its live target date without duplicating its text into daily work", async () => {
+    const api = makeApi({ list: vi.fn().mockResolvedValue([]) });
+    render(<CalendarWorkspace api={api} initialToday="2026-07-15" />);
+    const milestone = await screen.findByLabelText("Big goal deadlines on 2026-07-15");
+    expect(within(milestone).getByText("Performance ready")).toBeTruthy();
+    expect(within(milestone).getByText("Scherzo No. 2")).toBeTruthy();
+    expect(screen.queryByText("Landing shapes")).toBeNull();
   });
 
   it("navigates weeks and creates work from a keyboard-submitted form", async () => {

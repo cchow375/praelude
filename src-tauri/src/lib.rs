@@ -375,6 +375,16 @@ fn region_merge(
         .map_err(|e| e.to_string())
 }
 
+/// Split one Region before a measure as one atomic graph mutation.
+#[tauri::command]
+fn region_split(
+    id: i64,
+    split_at: u32,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<Region>, String> {
+    store.region_split(id, split_at).map_err(|e| e.to_string())
+}
+
 // ── T4: Block update/delete ─────────────────────────────────────────────────
 
 /// Apply a partial patch to a rep block. If the block is the active one, the
@@ -807,6 +817,7 @@ pub fn run() {
             region_update,
             region_delete,
             region_merge,
+            region_split,
             block_update,
             block_delete,
             rep_update,

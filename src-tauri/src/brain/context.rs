@@ -80,15 +80,10 @@ pub(super) fn build(
             "id": piece.id,
             "title": cap(&piece.title),
             "composer": piece.composer.as_deref().map(cap),
-            "goals_summary": piece.goals.iter().take(MAX_GOALS).map(|value| cap(value)).collect::<Vec<_>>(),
             "deadline": piece.deadline.as_deref().map(cap),
             "target_tempo": piece.target_tempo,
             "current_state": piece.current_state.as_deref().map(cap),
             "notes": piece.notes.as_deref().map(cap),
-            "hard_spots": piece.hard_spots.iter().take(MAX_REGIONS).map(|spot| json!({
-                "measures": cap(&spot.measures),
-                "note": cap(&spot.note),
-            })).collect::<Vec<_>>(),
         })),
         "regions": regions.iter().take(MAX_REGIONS).map(|region| json!({
             "id": region.id,

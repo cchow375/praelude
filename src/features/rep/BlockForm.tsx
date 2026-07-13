@@ -16,6 +16,7 @@ interface BlockFormProps {
   /** Pre-fill target tempo from the piece's intake, when available. */
   defaultTargetBpm?: number | null;
   /** Pre-fill a score Region's measure range and label. */
+  regionId?: number | null;
   defaultMeasureStart?: number;
   defaultMeasureEnd?: number;
   defaultLabel?: string;
@@ -37,6 +38,7 @@ function parseNumOr(raw: string, fallback: number): number {
 
 export function BlockForm({
   pieceId,
+  regionId = null,
   defaultStartBpm,
   defaultTargetBpm,
   defaultMeasureStart,
@@ -77,6 +79,7 @@ export function BlockForm({
     e.preventDefault();
     const args: RepOpenArgs = {
       piece_id: pieceId,
+      region_id: regionId,
       m_start: parseIntOrNull(mStart) ?? 1,
       m_end: parseIntOrNull(mEnd) ?? parseIntOrNull(mStart) ?? 1,
       label: label.trim() === "" ? null : label.trim(),

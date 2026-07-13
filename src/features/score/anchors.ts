@@ -1,5 +1,6 @@
 import type {
   PdfAnchorMap,
+  PdfAnchorKind,
   PdfAnchorRect,
   PdfEditionAnchors,
 } from "./types";
@@ -25,7 +26,12 @@ function validRect(value: unknown): value is PdfAnchorRect {
     rect.h >= MIN_RECT_SPAN &&
     rect.x + rect.w <= 1.000001 &&
     rect.y + rect.h <= 1.000001
+    && (rect.kind === undefined || ["box", "highlight", "note"].includes(rect.kind))
   );
+}
+
+export function anchorKind(rect: PdfAnchorRect): PdfAnchorKind {
+  return rect.kind ?? "box";
 }
 
 export function validAnchorMap(value: unknown): value is PdfAnchorMap {
@@ -79,6 +85,7 @@ export function normalizeDrag(
   width: number,
   height: number,
   page: number,
+  kind: PdfAnchorKind = "box",
 ): PdfAnchorRect | null {
   if (
     ![startX, startY, endX, endY, width, height].every(Number.isFinite) ||
@@ -99,6 +106,7 @@ export function normalizeDrag(
     y: Math.min(y1, y2) / height,
     w: Math.abs(x2 - x1) / width,
     h: Math.abs(y2 - y1) / height,
+    ...(kind === "box" ? {} : { kind }),
   };
   return validRect(rect) ? rect : null;
 }

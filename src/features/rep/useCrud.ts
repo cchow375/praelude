@@ -54,6 +54,8 @@ export function useCrud() {
     regionDelete: (id: number) => invoke<void>("region_delete", { id }),
     regionMerge: (idKeep: number, idAbsorb: number) =>
       invoke<Region>("region_merge", { idKeep, idAbsorb }),
+    regionSplit: (id: number, splitAt: number) =>
+      invoke<Region[]>("region_split", { id, splitAt }),
   };
 }
 

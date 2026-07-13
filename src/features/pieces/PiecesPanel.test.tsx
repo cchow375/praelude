@@ -108,6 +108,47 @@ describe("PiecesPanel", () => {
     expect(invokeMock).toHaveBeenCalledWith("piece_get", { id: 1 });
   });
 
+  it("opens a constellation star's exact piece without stopping on the piece library", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "pieces_list") return Promise.resolve([LISZT, SATIE]);
+      if (cmd === "piece_select") return Promise.resolve(undefined);
+      if (cmd === "piece_get") return Promise.resolve(detailOf(SATIE));
+      if (cmd === "rep_blocks_for_piece" || cmd === "region_list" || cmd === "goal_list") return Promise.resolve([]);
+      return Promise.resolve([]);
+    });
+
+    render(<PiecesPanel initialPieceId={SATIE.id} onOpenBlock={vi.fn()} />);
+
+    expect(await screen.findByRole("heading", { name: "Gymnopédie No. 1" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Pieces" })).toBeNull();
+    expect(invokeMock).toHaveBeenCalledWith("piece_select", { id: SATIE.id });
+    expect(invokeMock).toHaveBeenCalledWith("piece_get", { id: SATIE.id });
+  });
+
+  it("ignores a stale slower piece response after a newer selection wins", async () => {
+    let resolveLiszt!: (value: PieceDetailData) => void;
+    const slowLiszt = new Promise<PieceDetailData>((resolve) => { resolveLiszt = resolve; });
+    invokeMock.mockImplementation((cmd: string, payload?: { id?: number }) => {
+      if (cmd === "pieces_list") return Promise.resolve([LISZT, SATIE]);
+      if (cmd === "piece_get" && payload?.id === LISZT.id) return slowLiszt;
+      if (cmd === "piece_get" && payload?.id === SATIE.id) return Promise.resolve(detailOf(SATIE));
+      if (cmd === "piece_select") return Promise.resolve(undefined);
+      if (cmd === "rep_blocks_for_piece" || cmd === "region_list" || cmd === "goal_list") return Promise.resolve([]);
+      return Promise.resolve([]);
+    });
+    render(<PiecesPanel onOpenBlock={vi.fn()} />);
+    await screen.findByText("Liebestraum No. 3");
+
+    fireEvent.click(screen.getByRole("button", { name: /Liebestraum No\. 3/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Gymnopédie No\. 1/ }));
+    expect(await screen.findByRole("heading", { name: "Gymnopédie No. 1" })).toBeTruthy();
+    resolveLiszt(detailOf(LISZT));
+    await Promise.resolve();
+
+    expect(screen.getByRole("heading", { name: "Gymnopédie No. 1" })).toBeTruthy();
+    expect(invokeMock).not.toHaveBeenCalledWith("piece_select", { id: LISZT.id });
+  });
+
   it("shows summary + block form (not intake) for a piece with intake done", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "pieces_list") return Promise.resolve([SATIE]);

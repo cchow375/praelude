@@ -80,6 +80,7 @@ export interface CheckOutcome {
 /** Argument bag for `rep_open` (passed as the single `args` command param). */
 export interface RepOpenArgs {
   piece_id: number;
+  region_id?: number | null;
   m_start: number;
   m_end: number;
   label: string | null;

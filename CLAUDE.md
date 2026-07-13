@@ -56,7 +56,9 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**v0.6.0 shipped (P5.5, tag `v0.6.0`, 2026-07-12): nested Goals, a seven-day Calendar,
-explicit deterministic scheduling, and atomic non-punitive missed-day recovery now sit on schema
-v5. Home / Practice Universe / references / settings / packaging (P6) remain; at-piano acceptance
-is pending; the repo is local-only.** Next: safely backfill reconstructable history, then ship P6.
+**v1.1.0 shipped (P6 coherence release, tag `v1.1.0`, 2026-07-13): one canonical Region/Tricky
+Section now drives Score, Details, practice blocks, Calendar links, and editable color-coded PDF
+marks; Big Goal milestones appear on Calendar target dates; constellation stars open the exact
+piece; destructive actions confirm and preserve or explicitly cascade linked history. Schema remains
+v6. The sealed app is installed at `/Applications/CodaKiller.app`; at-piano acceptance and an
+off-disk backup remain open.** Next: run the v1.1.0 coherence acceptance path at the piano.

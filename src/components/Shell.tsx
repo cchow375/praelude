@@ -192,14 +192,12 @@ export function Shell({ onThemeChange }: { onThemeChange?: (theme: ThemePref) =>
         />
       ) : view === "practice" ? (
         <main className="practice-main" data-testid="main-practice" id="panel-practice" role="tabpanel" aria-labelledby="tab-practice">
-          {practiceContext && (
-            <div className="practice-context" role="status">
-              <span><strong>{practiceContext.title}</strong> is selected for practice tools.</span>
-              <span>Open its piece card below to view the score and Regions.</span>
-              <button type="button" onClick={() => setPracticeContext(null)} aria-label="Dismiss selected piece context">Dismiss</button>
-            </div>
-          )}
-          <PiecesPanel onOpenBlock={rep.open} activeRep={rep.snap} />
+          <PiecesPanel
+            onOpenBlock={rep.open}
+            activeRep={rep.snap}
+            initialPieceId={practiceContext?.piece_id ?? null}
+            onLeavePiece={() => setPracticeContext(null)}
+          />
         </main>
       ) : view === "calendar" ? (
         <div id="panel-calendar" role="tabpanel" aria-labelledby="tab-calendar" className="workspace-panel-reset">

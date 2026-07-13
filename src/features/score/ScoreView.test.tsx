@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { PDFDocumentLoadingTask } from "pdfjs-dist";
+
+const invokeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
+}));
 
 import { createPdfJsAdapter, pdfJsAdapter, ScoreView } from "./ScoreView";
 import type {
@@ -109,6 +115,8 @@ function makeMinimalPdf(): ArrayBuffer {
 }
 
 beforeEach(() => {
+  invokeMock.mockReset();
+  invokeMock.mockResolvedValue(undefined);
   FakeIntersectionObserver.latest = null;
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
   Object.defineProperty(HTMLElement.prototype, "scrollTo", {
@@ -139,7 +147,8 @@ describe("ScoreView", () => {
     await screen.findByLabelText("Score page 2");
 
     fireEvent.click(await screen.findByRole("button", { name: "Development, measures 40 to 56" }));
-    fireEvent.click(screen.getByRole("button", { name: "Map Development" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit score annotations for Development" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Highlight" }));
     const overlay = screen.getByTestId("page-overlay-1");
     vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 800,
@@ -148,17 +157,111 @@ describe("ScoreView", () => {
     fireEvent.pointerDown(overlay, { pointerId: 1, clientX: 100, clientY: 200 });
     fireEvent.pointerMove(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
     fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
-    fireEvent.click(screen.getByRole("button", { name: "Save mapping" }));
+    fireEvent.change(screen.getByLabelText("Annotation 1 type"), { target: { value: "note" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save score annotations" }));
 
     await waitFor(() => expect(api.updateRegion).toHaveBeenCalledWith(4, {
       v: 1,
       editions: {
         urtext: {
           fingerprint: "a",
-          rects: [{ page: 1, x: 0.1, y: 0.25, w: 0.4, h: 0.25 }],
+          rects: [{ page: 1, x: 0.1, y: 0.25, w: 0.4, h: 0.25, kind: "note" }],
         },
       },
     }));
+  });
+
+  it("edits the same canonical tricky-section note and measures from the score", async () => {
+    const original = {
+      id: 4, piece_id: 7, name: "Development", m_start: 40, m_end: 56,
+      kind: "hard_spot", order: 0, color: "#8b7cf6", pdf_anchor: null,
+    };
+    const updated = { ...original, name: "LH leap", m_start: 42, m_end: 58 };
+    const regions = vi.fn().mockResolvedValueOnce([original]).mockResolvedValue([updated]);
+    const api = makeApi({ regions });
+    const onRegionsChanged = vi.fn();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "region_update") return Promise.resolve(updated);
+      return Promise.resolve(undefined);
+    });
+
+    render(
+      <ScoreView
+        pieceId={7}
+        api={api}
+        adapter={makePdf(1).adapter}
+        onRegionsChanged={onRegionsChanged}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+    fireEvent.click(await screen.findByRole("button", { name: "Development, measures 40 to 56" }));
+
+    fireEvent.change(screen.getByLabelText("Tricky section note"), { target: { value: "LH leap" } });
+    fireEvent.change(screen.getByLabelText("Tricky section start measure"), { target: { value: "42" } });
+    fireEvent.change(screen.getByLabelText("Tricky section end measure"), { target: { value: "58" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save note + measures" }));
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("region_update", {
+      id: 4,
+      patch: { name: "LH leap", m_start: 42, m_end: 58 },
+    }));
+    await waitFor(() => expect(onRegionsChanged).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("button", { name: "LH leap, measures 42 to 58" })).toBeTruthy();
+  });
+
+  it("opens practice reps from the selected score section with its canonical Region id", async () => {
+    const region = {
+      id: 4, piece_id: 7, name: "Development", m_start: 40, m_end: 56,
+      kind: "hard_spot", order: 0, color: "#8b7cf6", pdf_anchor: null,
+    };
+    const onOpenBlock = vi.fn();
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ regions: vi.fn().mockResolvedValue([region]) })}
+        adapter={makePdf(1).adapter}
+        onOpenBlock={onOpenBlock}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+    fireEvent.click(await screen.findByRole("button", { name: "Development, measures 40 to 56" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open block" }));
+
+    expect(onOpenBlock).toHaveBeenCalledWith(expect.objectContaining({
+      piece_id: 7,
+      region_id: 4,
+      m_start: 40,
+      m_end: 56,
+      label: "Development",
+    }));
+  });
+
+  it("ignores a stale graph response after switching pieces", async () => {
+    const oldRegion = {
+      id: 4, piece_id: 7, name: "Old piece section", m_start: 1, m_end: 8,
+      kind: "section", order: 0, color: null, pdf_anchor: null,
+    };
+    const newRegion = {
+      id: 8, piece_id: 8, name: "New piece section", m_start: 9, m_end: 16,
+      kind: "section", order: 0, color: null, pdf_anchor: null,
+    };
+    let resolveOld!: (value: typeof oldRegion[]) => void;
+    const oldRequest = new Promise<typeof oldRegion[]>((resolve) => { resolveOld = resolve; });
+    const regions = vi.fn((pieceId: number) => pieceId === 7 ? oldRequest : Promise.resolve([newRegion]));
+    const api = makeApi({ regions });
+    const pdf = makePdf(1);
+    const view = render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+    await waitFor(() => expect(regions).toHaveBeenCalledWith(7));
+
+    view.rerender(<ScoreView pieceId={8} api={api} adapter={pdf.adapter} />);
+    expect(await screen.findByRole("button", { name: "New piece section, measures 9 to 16" })).toBeTruthy();
+    await act(async () => {
+      resolveOld([oldRegion]);
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByRole("button", { name: "Old piece section, measures 1 to 8" })).toBeNull();
+    expect(screen.getByRole("button", { name: "New piece section, measures 9 to 16" })).toBeTruthy();
   });
 
   it("shows an honest no-PDF state", async () => {

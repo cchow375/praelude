@@ -177,6 +177,11 @@ pub struct Event {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RepOpenArgs {
     pub piece_id: i64,
+    /// When the block is opened from a selected score Tricky Section, preserve
+    /// that explicit canonical relationship even if the user adjusts measures.
+    /// Voice/general forms omit it and retain deterministic range-based linking.
+    #[serde(default)]
+    pub region_id: Option<i64>,
     pub m_start: u32,
     pub m_end: u32,
     #[serde(default)]

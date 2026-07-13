@@ -14,12 +14,16 @@ export interface PdfPageSize {
   height: number;
 }
 
+export type PdfAnchorKind = "box" | "highlight" | "note";
+
 export interface PdfAnchorRect {
   page: number;
   x: number;
   y: number;
   w: number;
   h: number;
+  /** Optional for backward compatibility; old saved rectangles are boxes. */
+  kind?: PdfAnchorKind;
 }
 
 export interface PdfEditionAnchors {

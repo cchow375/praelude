@@ -5,9 +5,12 @@ import type { PDFDocumentLoadingTask, PDFPageProxy } from "pdfjs-dist";
 import type { BlockHistory, Region } from "../pieces/types";
 import type { RepOpenArgs } from "../rep/useRep";
 import { BlockForm } from "../rep/BlockForm";
-import { anchorForEdition, replaceEditionRects, validAnchorMap } from "./anchors";
+import { anchorForEdition, anchorKind, replaceEditionRects, validAnchorMap } from "./anchors";
 import { PdfPage } from "./PdfPage";
 import { RegionOverlay, type RegionOverlayItem } from "./RegionOverlay";
+import { REGION_COLORS, RegionEditor } from "../pieces/RegionEditor";
+import { useCrud } from "../rep/useCrud";
+import { ConfirmDelete } from "../../components/ConfirmDelete";
 import {
   clampZoom,
   DEFAULT_PAGE_SIZE,
@@ -16,6 +19,7 @@ import {
 } from "./geometry";
 import type {
   PdfAdapter,
+  PdfAnchorKind,
   PdfAnchorMap,
   PdfAnchorRect,
   PdfDocumentHandle,
@@ -179,6 +183,7 @@ export interface ScoreViewProps {
   defaultTargetBpm?: number | null;
   onOpenBlock?: (args: RepOpenArgs) => void;
   opening?: boolean;
+  onRegionsChanged?: () => void;
   api?: ScorePdfApi;
   adapter?: PdfAdapter;
   loadTimeoutMs?: number;
@@ -187,6 +192,7 @@ export interface ScoreViewProps {
 interface MappingDraft {
   regionId: number;
   rects: PdfAnchorRect[];
+  tool: PdfAnchorKind;
 }
 
 interface ScoreNavigate {
@@ -218,13 +224,16 @@ export function ScoreView({
   defaultTargetBpm = null,
   onOpenBlock,
   opening = false,
+  onRegionsChanged,
   api = defaultApi,
   adapter = pdfJsAdapter,
   loadTimeoutMs = PDF_LOAD_TIMEOUT_MS,
 }: ScoreViewProps) {
+  const crud = useCrud();
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageSizesRef = useRef(new Map<number, PdfPageSize>());
   const intersectionRatios = useRef(new Map<number, number>());
+  const graphGeneration = useRef(0);
   const [phase, setPhase] = useState<ViewerPhase>("loading-editions");
   const [error, setError] = useState<string | null>(null);
   const [graphError, setGraphError] = useState<string | null>(null);
@@ -246,25 +255,34 @@ export function ScoreView({
   const [maxPageWidth, setMaxPageWidth] = useState(DEFAULT_PAGE_SIZE.width);
   const [reloadToken, setReloadToken] = useState(0);
   const [selecting, setSelecting] = useState(false);
+  const [addingRegion, setAddingRegion] = useState(false);
+  const [newRegionNote, setNewRegionNote] = useState("");
+  const [newRegionStart, setNewRegionStart] = useState("1");
+  const [newRegionEnd, setNewRegionEnd] = useState("1");
+  const [creatingRegion, setCreatingRegion] = useState(false);
+
+  const loadGraph = useCallback(async () => {
+    const generation = ++graphGeneration.current;
+    setGraphError(null);
+    try {
+      const [nextRegions, nextBlocks] = await Promise.all([api.regions(pieceId), api.blocks(pieceId)]);
+      if (generation !== graphGeneration.current) return;
+      const safeRegions = nextRegions ?? [];
+      setRegions(safeRegions);
+      setBlocks(nextBlocks ?? []);
+      setSelectedRegionId((current) => current != null && safeRegions.some((region) => region.id === current) ? current : null);
+    } catch (caught) {
+      if (generation === graphGeneration.current) setGraphError(messageOf(caught));
+    }
+  }, [api, pieceId]);
 
   useEffect(() => {
-    let alive = true;
-    setGraphError(null);
     setRegions([]);
     setBlocks([]);
     setSelectedRegionId(null);
     setMapping(null);
-    void Promise.all([api.regions(pieceId), api.blocks(pieceId)])
-      .then(([nextRegions, nextBlocks]) => {
-        if (!alive) return;
-        setRegions(nextRegions ?? []);
-        setBlocks(nextBlocks ?? []);
-      })
-      .catch((caught) => {
-        if (alive) setGraphError(messageOf(caught));
-      });
-    return () => { alive = false; };
-  }, [api, pieceId, reloadToken]);
+    void loadGraph();
+  }, [loadGraph, reloadToken]);
 
   useEffect(() => {
     let alive = true;
@@ -446,8 +464,48 @@ export function ScoreView({
     if (!edition) return;
     const existing = anchorForEdition(region.pdf_anchor, edition.id, edition.fingerprint)?.rects ?? [];
     setSelectedRegionId(region.id);
-    setMapping({ regionId: region.id, rects: [...existing] });
-    setNavigationNotice("Drag a box around this Region on one or more score pages.");
+    setMapping({ regionId: region.id, rects: [...existing], tool: "box" });
+    setNavigationNotice("Choose Box, Highlight, or Note, then drag directly on the score.");
+  };
+
+  const graphChanged = async () => {
+    await loadGraph();
+    onRegionsChanged?.();
+  };
+
+  const createRegion = async () => {
+    const mStart = Number(newRegionStart);
+    const mEnd = Number(newRegionEnd);
+    if (!newRegionNote.trim() || !Number.isInteger(mStart) || !Number.isInteger(mEnd) || mStart < 1 || mEnd < mStart) {
+      setGraphError("Enter a note and a valid measure range.");
+      return;
+    }
+    setCreatingRegion(true);
+    setGraphError(null);
+    try {
+      const created = await crud.regionCreate({
+        piece_id: pieceId,
+        name: newRegionNote.trim(),
+        m_start: mStart,
+        m_end: mEnd,
+        kind: "hard_spot",
+      });
+      const colored = await crud.regionUpdate(created.id, {
+        color: REGION_COLORS[regions.length % REGION_COLORS.length],
+      });
+      await graphChanged();
+      setSelectedRegionId(colored.id);
+      setMapping({ regionId: colored.id, rects: [], tool: "box" });
+      setNewRegionNote("");
+      setNewRegionStart(String(mEnd + 1));
+      setNewRegionEnd(String(mEnd + 1));
+      setAddingRegion(false);
+      setNavigationNotice("New tricky section saved. Drag its first score annotation.");
+    } catch (caught) {
+      setGraphError(messageOf(caught));
+    } finally {
+      setCreatingRegion(false);
+    }
   };
 
   const persistMapping = async (rects: PdfAnchorRect[]) => {
@@ -570,9 +628,14 @@ export function ScoreView({
                         label: mappingRegion.name,
                         color: mappingRegion.color,
                         draftRects: mapping.rects,
+                        tool: mapping.tool,
                         onAddRect: (rect) => setMapping((current) =>
                           current ? { ...current, rects: [...current.rects, rect] } : current,
                         ),
+                        onUpdateRect: (index, rect) => setMapping((current) => current ? {
+                          ...current,
+                          rects: current.rects.map((item, itemIndex) => itemIndex === index ? rect : item),
+                        } : current),
                       } : null}
                       onSelect={selectRegion}
                     />
@@ -586,7 +649,7 @@ export function ScoreView({
             <div className="score-region-panel-head">
               <div>
                 <span className="ck-label">Score map</span>
-                <h3>Regions</h3>
+                <h3>Tricky sections</h3>
               </div>
               <span>{regions.length}</span>
             </div>
@@ -607,32 +670,99 @@ export function ScoreView({
                     <span className="score-region-dot" style={{ background: region.color ?? "var(--accent)" }} />
                     <span><strong>{region.name}</strong><small>mm. {region.m_start}–{region.m_end}</small></span>
                     <em className={stale ? "is-stale" : mapped ? "is-mapped" : ""}>
-                      {stale ? "remap" : mapped ? `${mapped.rects.length} box${mapped.rects.length === 1 ? "" : "es"}` : "unmapped"}
+                      {stale ? "remap" : mapped ? `${mapped.rects.length} mark${mapped.rects.length === 1 ? "" : "s"}` : "unmapped"}
                     </em>
                   </button>
                 );
               })}
             </div>
 
+            <div className="score-add-region">
+              <button type="button" aria-expanded={addingRegion} onClick={() => setAddingRegion((value) => !value)}>
+                {addingRegion ? "Cancel new section" : "+ Add tricky section"}
+              </button>
+              {addingRegion && (
+                <form onSubmit={(event) => { event.preventDefault(); void createRegion(); }}>
+                  <label><span>What is tricky?</span><input autoFocus aria-label="New score tricky section note" value={newRegionNote} onChange={(event) => setNewRegionNote(event.target.value)} /></label>
+                  <div>
+                    <label><span>From measure</span><input aria-label="New score tricky section start measure" type="number" min="1" value={newRegionStart} onChange={(event) => setNewRegionStart(event.target.value)} /></label>
+                    <label><span>To measure</span><input aria-label="New score tricky section end measure" type="number" min="1" value={newRegionEnd} onChange={(event) => setNewRegionEnd(event.target.value)} /></label>
+                  </div>
+                  <button type="submit" disabled={creatingRegion}>{creatingRegion ? "Creating…" : "Create + annotate"}</button>
+                </form>
+              )}
+            </div>
+
             {selectedRegion && edition && (
               <div className="score-region-inspector">
                 <div>
                   <span className="ck-label">Selected</span>
-                  <h4>{selectedRegion.name}</h4>
-                  <p>Measures {selectedRegion.m_start}–{selectedRegion.m_end} · {selectedBlocks.length} block{selectedBlocks.length === 1 ? "" : "s"}</p>
+                  <p>{selectedBlocks.length} practice block{selectedBlocks.length === 1 ? "" : "s"} linked to this same record.</p>
                 </div>
+                <RegionEditor
+                  region={selectedRegion}
+                  regions={regions}
+                  blocks={selectedBlocks}
+                  alwaysOpen
+                  onChanged={graphChanged}
+                />
                 {mapping?.regionId === selectedRegion.id ? (
                   <div className="score-map-actions">
-                    <p>Drag rectangles on every system or page this Region occupies.</p>
-                    <button type="button" aria-label="Undo last mapping box" disabled={mapping.rects.length === 0} onClick={() => setMapping((current) => current ? { ...current, rects: current.rects.slice(0, -1) } : current)}>Undo box</button>
-                    <button type="button" aria-label="Save mapping" disabled={savingMap || mapping.rects.length === 0} onClick={() => void persistMapping(mapping.rects)}>Save mapping</button>
+                    <p>Choose what you are placing, then drag on the score. Drag an existing mark to move it; drag its corner to resize. Note text and color come from the shared Tricky Section above.</p>
+                    <div className="score-annotation-tools" role="radiogroup" aria-label="Score annotation tool">
+                      {(["box", "highlight", "note"] as PdfAnchorKind[]).map((tool) => (
+                        <button key={tool} type="button" role="radio" aria-checked={mapping.tool === tool} className={mapping.tool === tool ? "is-on" : ""} onClick={() => setMapping((current) => current ? { ...current, tool } : current)}>
+                          {tool === "box" ? "Selection box" : tool === "highlight" ? "Highlight" : "Note"}
+                        </button>
+                      ))}
+                    </div>
+                    {mapping.rects.length > 0 && (
+                      <ol className="score-annotation-list">
+                        {mapping.rects.map((rect, index) => (
+                          <li key={`${rect.page}-${index}`}>
+                            <span>{anchorKind(rect) === "box" ? "Selection box" : anchorKind(rect) === "highlight" ? "Highlight" : "Note"} · page {rect.page}</span>
+                            <div className="score-annotation-row-actions">
+                              <select
+                                aria-label={`Annotation ${index + 1} type`}
+                                value={anchorKind(rect)}
+                                onChange={(event) => setMapping((current) => {
+                                  if (!current) return current;
+                                  const kind = event.target.value as PdfAnchorKind;
+                                  return {
+                                    ...current,
+                                    rects: current.rects.map((item, itemIndex) => {
+                                      if (itemIndex !== index) return item;
+                                      const { kind: _oldKind, ...geometry } = item;
+                                      return kind === "box" ? geometry : { ...geometry, kind };
+                                    }),
+                                  };
+                                })}
+                              >
+                                <option value="box">Selection box</option>
+                                <option value="highlight">Highlight</option>
+                                <option value="note">Note</option>
+                              </select>
+                              <ConfirmDelete label={`Remove this ${anchorKind(rect)} from page ${rect.page}? This remains a draft until Save changes.`} onConfirm={async () => setMapping((current) => current ? { ...current, rects: current.rects.filter((_, itemIndex) => itemIndex !== index) } : current)}>
+                                <button type="button">Remove</button>
+                              </ConfirmDelete>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                    <button type="button" aria-label="Undo last score annotation" disabled={mapping.rects.length === 0} onClick={() => setMapping((current) => current ? { ...current, rects: current.rects.slice(0, -1) } : current)}>Undo last</button>
+                    <button type="button" aria-label="Save score annotations" disabled={savingMap} onClick={() => void persistMapping(mapping.rects)}>Save changes</button>
                     <button type="button" onClick={() => setMapping(null)}>Cancel</button>
                   </div>
                 ) : (
                   <div className="score-map-actions">
-                    <button type="button" aria-label={`Map ${selectedRegion.name}`} onClick={() => beginMapping(selectedRegion)}>Map on score</button>
+                    <button type="button" aria-label={`Edit score annotations for ${selectedRegion.name}`} onClick={() => beginMapping(selectedRegion)}>
+                      {anchorForEdition(selectedRegion.pdf_anchor, edition.id, edition.fingerprint) ? "Edit boxes, highlights + notes" : "Add to score"}
+                    </button>
                     {anchorForEdition(selectedRegion.pdf_anchor, edition.id, edition.fingerprint) && (
-                      <button type="button" className="is-danger" onClick={() => void persistMapping([])}>Clear this edition</button>
+                      <ConfirmDelete label={`Delete every score box, highlight, and note for “${selectedRegion.name}” in this edition? The Tricky Section and its practice history will stay.`} onConfirm={() => persistMapping([])}>
+                        <button type="button" className="is-danger">Clear this edition</button>
+                      </ConfirmDelete>
                     )}
                   </div>
                 )}
@@ -644,11 +774,15 @@ export function ScoreView({
                   </ul>
                 )}
                 {onOpenBlock && (
-                  <details className="score-practice-region">
-                    <summary>Practice this Region</summary>
+                  <section className="score-practice-region" aria-label="Add practice reps">
+                    <div className="score-practice-region-head">
+                      <strong>Add practice reps</strong>
+                      <span>The new block is automatically linked to this Tricky Section.</span>
+                    </div>
                     <BlockForm
                       key={selectedRegion.id}
                       pieceId={pieceId}
+                      regionId={selectedRegion.id}
                       defaultMeasureStart={selectedRegion.m_start}
                       defaultMeasureEnd={selectedRegion.m_end}
                       defaultLabel={selectedRegion.name}
@@ -656,7 +790,7 @@ export function ScoreView({
                       onOpen={onOpenBlock}
                       opening={opening}
                     />
-                  </details>
+                  </section>
                 )}
               </div>
             )}

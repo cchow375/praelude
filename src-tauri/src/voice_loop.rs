@@ -378,6 +378,7 @@ impl ActionCtx {
         let start_bpm = spec.start_bpm.unwrap_or_else(|| self.metro.snapshot().bpm);
         let args = RepOpenArgs {
             piece_id,
+            region_id: None,
             m_start: spec.m_start,
             m_end: spec.m_end,
             label: None,
@@ -1344,6 +1345,7 @@ mod tests {
         ctx.rep
             .open(crate::store::model::RepOpenArgs {
                 piece_id: 1,
+                region_id: None,
                 m_start: 1,
                 m_end: 4,
                 label: None,
@@ -1705,6 +1707,7 @@ mod tests {
         ctx.rep
             .open(crate::store::model::RepOpenArgs {
                 piece_id: 1,
+                region_id: None,
                 m_start: 40,
                 m_end: 56,
                 label: None,
@@ -1763,6 +1766,7 @@ mod tests {
         ctx.rep
             .open(crate::store::model::RepOpenArgs {
                 piece_id: pid,
+                region_id: None,
                 m_start: 40,
                 m_end: 56,
                 label: None,

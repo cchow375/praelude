@@ -167,12 +167,16 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
             const items = work
               .filter((item) => item.scheduled_date === date)
               .sort((left, right) => left.sort_order - right.sort_order || left.id - right.id);
+            const milestones = references.goals
+              .filter((goal) => goal.kind === "big" && goal.parent_goal_id === null && goal.target_date === date)
+              .sort((left, right) => left.order - right.order || left.id - right.id);
             return (
               <CalendarDay
                 key={date}
                 date={date}
                 today={today}
                 items={items}
+                milestones={milestones}
                 capacity={capacity}
                 references={references}
                 api={api}
@@ -190,6 +194,7 @@ function CalendarDay({
   date,
   today,
   items,
+  milestones,
   capacity,
   references,
   api,
@@ -198,6 +203,7 @@ function CalendarDay({
   date: string;
   today: string;
   items: DailyWork[];
+  milestones: Goal[];
   capacity: number;
   references: References;
   api: CalendarApi;
@@ -213,8 +219,22 @@ function CalendarDay({
         <div><span>{label.weekday}</span><strong>{label.date}</strong></div>
         <span className={used > capacity ? "is-over" : ""}>{used}/{capacity} min</span>
       </header>
+      {milestones.length > 0 && (
+        <div className="calendar-goal-milestones" aria-label={`Big goal deadlines on ${date}`}>
+          {milestones.map((goal) => {
+            const piece = references.pieces.find((candidate) => candidate.id === goal.piece_id);
+            return (
+              <article key={goal.id} className={`calendar-goal-milestone ${goal.done ? "is-done" : ""}`}>
+                <span>Big Goal deadline</span>
+                <strong>{goal.text}</strong>
+                <small>{piece?.title ?? "Piece"}{goal.done ? " · complete" : ""}</small>
+              </article>
+            );
+          })}
+        </div>
+      )}
       <div className="calendar-day-work">
-        {items.length === 0 && <p className="calendar-day-empty">No work planned.</p>}
+        {items.length === 0 && milestones.length === 0 && <p className="calendar-day-empty">No work planned.</p>}
         {items.map((item) => editing === item.id ? (
           <WorkForm
             key={item.id}
@@ -354,7 +374,7 @@ function WorkForm({
           </select>
         </label>
       )}
-      <label><span>Work</span><input autoFocus value={title} aria-label="Work title" onChange={(event) => setTitle(event.target.value)} /></label>
+      <label><span>Exact work step (separate from the Goal)</span><input autoFocus value={title} aria-label="Work title" onChange={(event) => setTitle(event.target.value)} /></label>
       <div className="calendar-form-row">
         <label><span>Minutes</span><input type="number" min="1" max="240" value={minutes} aria-label="Planned minutes" onChange={(event) => setMinutes(Number(event.target.value))} /></label>
         <label><span>Date</span><input type="date" value={scheduledDate} aria-label="Scheduled date" onChange={(event) => setScheduledDate(event.target.value)} /></label>

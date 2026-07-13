@@ -97,7 +97,7 @@ fn backfill_goals_for_piece(conn: &Connection, pid: i64) -> rusqlite::Result<()>
 }
 
 /// "12-16" → (12,16); "12" → (12,12); unparseable → (0,0).
-fn parse_measure_range(s: &str) -> (i64, i64) {
+pub(super) fn parse_measure_range(s: &str) -> (i64, i64) {
     let clean: String = s.chars().filter(|c| c.is_ascii_digit() || *c == '-' || *c == '–').collect();
     let norm = clean.replace('–', "-");
     let mut parts = norm.split('-').filter(|p| !p.is_empty());
