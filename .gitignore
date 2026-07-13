@@ -1,6 +1,7 @@
 node_modules/
 target/
 dist/
+releases/
 .DS_Store
 *.local
 .superpowers/
