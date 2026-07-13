@@ -10,6 +10,7 @@ import { useCrud } from "../rep/useCrud";
 import { GoalsPanel } from "./GoalsPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { ScoreView } from "../score/ScoreView";
+import { ReferenceButtons } from "../references/ReferenceButtons";
 
 // ---------------------------------------------------------------------------
 // The detail surface for a selected piece. Before intake is done it shows the
@@ -158,6 +159,7 @@ export function PieceDetail({
       ) : (
         <>
           <PieceSummary piece={piece} onUpdate={updatePieceField} />
+          <ReferenceButtons pieceId={piece.id} />
           <GoalsPanel pieceId={piece.id} />
           <HistoryPanel pieceId={piece.id} refreshToken={historyRevision} />
           <BlockForm

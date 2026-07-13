@@ -15,6 +15,8 @@ import type { WakeQuestion } from "../features/brain/types";
 import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
 import { UniverseWorkspace } from "../features/universe/UniverseWorkspace";
 import type { PracticePieceContext } from "../features/universe/types";
+import { SettingsPanel } from "../features/settings/SettingsPanel";
+import type { ThemePref } from "../design/theme";
 import { version as appVersion } from "../../package.json";
 import "./Shell.css";
 
@@ -35,7 +37,7 @@ const VIEWS: Array<{ id: ViewId; label: string }> = [
 ];
 
 /** The app shell: Home plus focused workspaces and always-reachable tools. */
-export function Shell() {
+export function Shell({ onThemeChange }: { onThemeChange?: (theme: ThemePref) => void }) {
   const [openPanel, setOpenPanel] = useState<PanelId | null>(null);
   const [view, setView] = useState<ViewId>("home");
   const [practiceContext, setPracticeContext] = useState<PracticePieceContext | null>(null);
@@ -228,7 +230,7 @@ export function Shell() {
         onClose={close}
         label="Settings"
       >
-        <SettingsPanel onResetLayout={panelManager.resetLayout} />
+        <SettingsPanel onResetLayout={panelManager.resetLayout} onThemeSaved={onThemeChange} />
       </Popover>
 
       <VoiceToast
@@ -289,16 +291,6 @@ function VoiceMicPanel({
       >
         {isMuted ? "Unmute" : "Mute"}
       </button>
-    </div>
-  );
-}
-
-function SettingsPanel({ onResetLayout }: { onResetLayout: () => void }) {
-  return (
-    <div className="panel-placeholder">
-      <p className="panel-title">Workspace</p>
-      <p className="panel-hint">Moved a window somewhere awkward?</p>
-      <button type="button" className="voice-panel-button" onClick={onResetLayout}>Reset panel layout</button>
     </div>
   );
 }

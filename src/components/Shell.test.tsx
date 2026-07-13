@@ -27,6 +27,20 @@ const invokeMock = vi.fn().mockImplementation((command: string) => {
       days: [],
     });
   }
+  if (command === "settings_snapshot") {
+    return Promise.resolve({
+      theme: "auto", tts_provider: "auto", tts_voice: "Kore", brain_provider: "auto",
+      wake_word_enabled: false, wake_word: "coda", metronome_sound: "woodblock",
+      metronome_boost: false, metronome_boost_level: 85, ladder_default_reps: 30,
+      ladder_bpm_step: 4, calendar_capacity_minutes: 60,
+      vault_pieces_dir: "/vault/Pieces",
+      verdict_aliases: { clean: [], flawed: [], failed: [] },
+      api_keys: [
+        { provider: "claude", configured: false, source: "none" },
+        { provider: "gemini", configured: true, source: "keychain" },
+      ],
+    });
+  }
   return Promise.resolve(null);
 });
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invokeMock(...args) }));
