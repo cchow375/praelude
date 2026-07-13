@@ -15,6 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::sessions::SessionService;
+use crate::store::model::PieceFieldPatch;
 use crate::store::Store;
 
 pub use library::{Citation, MethodCard};
@@ -63,6 +64,25 @@ pub struct BrainAnswer {
     pub citations: Vec<Citation>,
     pub methods: Vec<MethodCard>,
     pub intake_review: Option<IntakeReview>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct IntakeChange {
+    pub field: String,
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BrainIntakeApplyRequest {
+    pub answer_id: String,
+    pub piece_id: i64,
+    pub changes: Vec<IntakeChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BrainIntakeApplyResult {
+    pub piece_id: i64,
+    pub saved_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,14 +147,15 @@ fn ask_with(
         )));
     }
 
+    let intake_review = build_intake_review(question, store, request.piece_id)?;
     let methods = library.retrieve(question, 3);
     if methods.is_empty() {
-        return Ok(offline_answer(methods));
+        return Ok(offline_answer(methods, intake_review));
     }
     let context = context::build(store, sessions, request.piece_id, &methods)?;
 
     if chain.is_empty() {
-        return Ok(offline_answer(methods));
+        return Ok(offline_answer(methods, intake_review));
     }
 
     let ProviderOutput {
@@ -143,7 +164,9 @@ fn ask_with(
         citation_ids,
     } = match chain.ask(question, request.source, &context, transport) {
         Ok(output) => output,
-        Err(BrainError::ProviderUnavailable) => return Ok(offline_answer(methods)),
+        Err(BrainError::ProviderUnavailable) => {
+            return Ok(offline_answer(methods, intake_review))
+        }
         Err(error) => return Err(error),
     };
 
@@ -173,7 +196,7 @@ fn ask_with(
     // grounded answer. Fall back to the deterministic library card instead of
     // putting uncited prose in the UI.
     if citations.is_empty() {
-        return Ok(offline_answer(methods));
+        return Ok(offline_answer(methods, intake_review));
     }
 
     Ok(BrainAnswer {
@@ -182,11 +205,14 @@ fn ask_with(
         provider,
         citations,
         methods,
-        intake_review: None,
+        intake_review,
     })
 }
 
-fn offline_answer(methods: Vec<MethodCard>) -> BrainAnswer {
+fn offline_answer(
+    methods: Vec<MethodCard>,
+    intake_review: Option<IntakeReview>,
+) -> BrainAnswer {
     let citations = methods
         .iter()
         .flat_map(|method| method.citations.iter().cloned())
@@ -200,7 +226,12 @@ fn offline_answer(methods: Vec<MethodCard>) -> BrainAnswer {
             acc
         });
     let answer = methods.first().map_or_else(
-        || "No online brain provider is configured, and the local library has no grounded match for this question.".to_string(),
+        || if intake_review.is_some() {
+            "I prepared a field-by-field intake draft. Nothing changes until you press Save."
+                .to_string()
+        } else {
+            "No online brain provider is configured, and the local library has no grounded match for this question.".to_string()
+        },
         |method| format!(
             "Offline library match: {}. Dose: {} Watch for: {}",
             method.name, method.dose, method.watch_for
@@ -212,8 +243,197 @@ fn offline_answer(methods: Vec<MethodCard>) -> BrainAnswer {
         provider: ProviderName::Offline,
         citations,
         methods,
-        intake_review: None,
+        intake_review,
     }
+}
+
+fn build_intake_review(
+    question: &str,
+    store: &Store,
+    requested_piece_id: Option<i64>,
+) -> Result<Option<IntakeReview>, BrainError> {
+    let normalized = question.to_ascii_lowercase();
+    if !(normalized.contains("intake")
+        && ["review", "update", "change", "set"]
+            .iter()
+            .any(|word| normalized.contains(word)))
+    {
+        return Ok(None);
+    }
+    let piece_id = requested_piece_id.or_else(|| {
+        store
+            .get_setting("ui.current_piece")
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse().ok())
+    });
+    let Some(piece_id) = piece_id else {
+        return Ok(None);
+    };
+    let piece = store
+        .get_piece(piece_id)
+        .map_err(|_| BrainError::Context("Could not read the selected piece".into()))?
+        .ok_or_else(|| BrainError::Context(format!("piece {piece_id} not found")))?;
+    let mut fields = Vec::new();
+
+    if let Some(value) = extract_change(question, &["current state to "]) {
+        fields.push(IntakeReviewField {
+            field: "current_state".into(),
+            label: "Current state".into(),
+            current: piece.current_state.unwrap_or_default(),
+            proposed: value,
+        });
+    }
+    if let Some(value) = extract_change(question, &["deadline to "])
+        .and_then(|value| value.split_whitespace().next().map(str::to_string))
+        .filter(|value| valid_date(value))
+    {
+        fields.push(IntakeReviewField {
+            field: "deadline".into(),
+            label: "Deadline".into(),
+            current: piece.deadline.unwrap_or_default(),
+            proposed: value,
+        });
+    }
+    if let Some(value) = extract_change(question, &["target tempo to ", "target bpm to "])
+        .and_then(|value| value.split_whitespace().next().map(str::to_string))
+        .and_then(|value| value.parse::<f64>().ok().map(|tempo| (value, tempo)))
+        .filter(|(_, tempo)| (1.0..=1_000.0).contains(tempo))
+        .map(|(value, _)| value)
+    {
+        fields.push(IntakeReviewField {
+            field: "target_tempo".into(),
+            label: "Target tempo".into(),
+            current: piece.target_tempo.map(|value| value.to_string()).unwrap_or_default(),
+            proposed: value,
+        });
+    }
+    if let Some(value) = extract_change(question, &["notes to "]) {
+        fields.push(IntakeReviewField {
+            field: "notes".into(),
+            label: "Notes".into(),
+            current: piece.notes.unwrap_or_default(),
+            proposed: value,
+        });
+    }
+
+    if fields.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(IntakeReview {
+        piece_id,
+        piece_title: piece.title,
+        summary: "These are proposed intake edits, not saved changes.".into(),
+        fields,
+    }))
+}
+
+fn extract_change(question: &str, markers: &[&str]) -> Option<String> {
+    let normalized = question.to_ascii_lowercase();
+    let (index, marker) = markers
+        .iter()
+        .filter_map(|marker| normalized.find(marker).map(|index| (index, *marker)))
+        .min_by_key(|(index, _)| *index)?;
+    let value = question[index + marker.len()..]
+        .split([';', '\n'])
+        .next()?
+        .trim()
+        .chars()
+        .take(500)
+        .collect::<String>();
+    (!value.is_empty()).then_some(value)
+}
+
+fn valid_date(value: &str) -> bool {
+    let parts = value.split('-').collect::<Vec<_>>();
+    if parts.len() != 3
+        || parts[0].len() != 4
+        || parts[1].len() != 2
+        || parts[2].len() != 2
+        || !parts.iter().all(|part| part.chars().all(|ch| ch.is_ascii_digit()))
+    {
+        return false;
+    }
+    let Ok(year) = parts[0].parse::<u32>() else {
+        return false;
+    };
+    let Ok(month) = parts[1].parse::<u32>() else {
+        return false;
+    };
+    let Ok(day) = parts[2].parse::<u32>() else {
+        return false;
+    };
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=days).contains(&day)
+}
+
+/// Apply only the fields that the review UI explicitly submits. Provider text
+/// cannot call this function, and unknown fields fail the whole request.
+pub fn apply_intake_review(
+    request: BrainIntakeApplyRequest,
+    store: &Store,
+) -> Result<BrainIntakeApplyResult, BrainError> {
+    if !request.answer_id.starts_with("brain-")
+        || request.changes.is_empty()
+        || request.changes.len() > 4
+        || store
+            .get_piece(request.piece_id)
+            .map_err(|_| BrainError::Context("Could not read the selected piece".into()))?
+            .is_none()
+    {
+        return Err(BrainError::InvalidQuestion("Invalid intake review request".into()));
+    }
+    let mut patch = PieceFieldPatch::default();
+    let mut seen = std::collections::HashSet::new();
+    for change in request.changes {
+        if !seen.insert(change.field.clone())
+            || change
+                .value
+                .as_ref()
+                .is_some_and(|value| value.chars().count() > 500)
+        {
+            return Err(BrainError::InvalidQuestion("Invalid intake review field".into()));
+        }
+        let value = change.value.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+        match change.field.as_str() {
+            "current_state" => patch.current_state = Some(value),
+            "deadline" => {
+                if value.as_ref().is_some_and(|date| !valid_date(date)) {
+                    return Err(BrainError::InvalidQuestion("Deadline must be YYYY-MM-DD".into()));
+                }
+                patch.deadline = Some(value);
+            }
+            "target_tempo" => {
+                let tempo = value
+                    .as_deref()
+                    .map(str::parse::<f64>)
+                    .transpose()
+                    .map_err(|_| BrainError::InvalidQuestion("Target tempo must be a number".into()))?;
+                if tempo.is_some_and(|tempo| !(1.0..=1_000.0).contains(&tempo)) {
+                    return Err(BrainError::InvalidQuestion("Target tempo is out of range".into()));
+                }
+                patch.target_tempo = Some(tempo);
+            }
+            "notes" => patch.notes = Some(value),
+            _ => return Err(BrainError::InvalidQuestion("Unsupported intake review field".into())),
+        }
+    }
+    store
+        .piece_field_update(request.piece_id, patch)
+        .map_err(|_| BrainError::Context("Could not save intake review".into()))?;
+    Ok(BrainIntakeApplyResult {
+        piece_id: request.piece_id,
+        saved_at: store
+            .now_rfc3339()
+            .map_err(|_| BrainError::Context("Could not timestamp intake review".into()))?,
+    })
 }
 
 fn next_answer_id() -> String {
@@ -363,6 +583,79 @@ mod tests {
         assert_eq!(answer.provider, ProviderName::Offline);
         assert_eq!(answer.methods[0].id, "silent-landing");
         assert_eq!(answer.citations[0].source_id, "source-1");
+    }
+
+    #[test]
+    fn conversational_intake_is_a_draft_until_explicit_apply() {
+        let (store, sessions, piece_id) = fixture();
+        let answer = ask_with(
+            request("Review my intake: current state to hands together; deadline to 2026-08-01; target tempo to 144; notes to prioritize the coda"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &ProviderChain::default(),
+            &FakeTransport::default(),
+        ).unwrap();
+        let review = answer.intake_review.as_ref().expect("draft is returned");
+        assert_eq!(review.fields.len(), 4);
+        assert_eq!(
+            store.get_piece(piece_id).unwrap().unwrap().current_state,
+            None,
+            "asking alone never mutates intake"
+        );
+
+        apply_intake_review(BrainIntakeApplyRequest {
+            answer_id: answer.id,
+            piece_id,
+            changes: vec![
+                IntakeChange { field: "current_state".into(), value: Some("hands together".into()) },
+                IntakeChange { field: "deadline".into(), value: Some("2026-08-01".into()) },
+                IntakeChange { field: "target_tempo".into(), value: Some("144".into()) },
+            ],
+        }, store.as_ref()).unwrap();
+        let piece = store.get_piece(piece_id).unwrap().unwrap();
+        assert_eq!(piece.current_state.as_deref(), Some("hands together"));
+        assert_eq!(piece.deadline.as_deref(), Some("2026-08-01"));
+        assert_eq!(piece.target_tempo, Some(144.0));
+    }
+
+    #[test]
+    fn intake_apply_rejects_provider_invented_fields() {
+        let (store, _sessions, piece_id) = fixture();
+        let result = apply_intake_review(BrainIntakeApplyRequest {
+            answer_id: "brain-test".into(),
+            piece_id,
+            changes: vec![IntakeChange {
+                field: "goals".into(),
+                value: Some("delete everything".into()),
+            }],
+        }, store.as_ref());
+        assert!(matches!(result, Err(BrainError::InvalidQuestion(_))));
+    }
+
+    #[test]
+    fn intake_dates_must_be_real_calendar_dates() {
+        assert!(valid_date("2028-02-29"));
+        assert!(!valid_date("2026-02-29"));
+        assert!(!valid_date("2026-04-31"));
+        assert!(!valid_date("2026-13-01"));
+    }
+
+    /// Manual release gate: uses the configured Keychain/environment provider,
+    /// never prints the key or answer, and proves a live response remains cited.
+    #[test]
+    #[ignore = "requires a configured API key and network"]
+    fn live_native_provider_returns_cited_answer() {
+        let (store, sessions, _) = fixture();
+        let answer = ask_native(
+            request("How should I practice a leap whose landing keeps missing?"),
+            store,
+            Arc::new(sessions),
+        )
+        .expect("live provider answers");
+        assert_ne!(answer.provider, ProviderName::Offline);
+        assert!(!answer.answer.trim().is_empty());
+        assert!(!answer.citations.is_empty());
     }
 
     #[test]

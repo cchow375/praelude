@@ -16,7 +16,7 @@ const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/
 // https://ai.google.dev/api/generate-content
 const DEFAULT_CLAUDE_MODEL: &str = "claude-sonnet-4-6";
 const DEFAULT_GEMINI_MODEL: &str = "gemini-3.5-flash";
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_ANSWER_CHARS: usize = 4_000;
 
 const SYSTEM_POLICY: &str = r#"You are Coda, a grounded piano-practice explainer.
@@ -143,9 +143,14 @@ impl ProviderChain {
                 ProviderName::Offline => continue,
             };
             let Ok(response) = transport.send(request) else {
+                eprintln!("brain: {:?} provider transport failed", config.provider);
                 continue;
             };
             if !(200..300).contains(&response.status) {
+                eprintln!(
+                    "brain: {:?} provider returned HTTP {}",
+                    config.provider, response.status
+                );
                 continue;
             }
             let parsed = match config.provider {
@@ -153,12 +158,17 @@ impl ProviderChain {
                 ProviderName::Gemini => parse_gemini(&response.body),
                 ProviderName::Offline => unreachable!(),
             };
-            if let Ok(raw) = parsed {
-                return Ok(ProviderOutput {
-                    provider: config.provider,
-                    answer: raw.answer,
-                    citation_ids: raw.citation_ids,
-                });
+            match parsed {
+                Ok(raw) => {
+                    return Ok(ProviderOutput {
+                        provider: config.provider,
+                        answer: raw.answer,
+                        citation_ids: raw.citation_ids,
+                    });
+                }
+                Err(_) => {
+                    eprintln!("brain: {:?} provider response was invalid", config.provider);
+                }
             }
         }
         Err(BrainError::ProviderUnavailable)
@@ -333,9 +343,9 @@ fn gemini_request(
             "systemInstruction": {"parts": [{"text": SYSTEM_POLICY}]},
             "contents": [{"role": "user", "parts": [{"text": user_prompt(question, source, context)}]}],
             "generationConfig": {
-                "temperature": 0.2,
-                "maxOutputTokens": 900,
-                "responseMimeType": "application/json"
+                "maxOutputTokens": 4096,
+                "responseMimeType": "application/json",
+                "thinkingConfig": {"thinkingLevel": "minimal"}
             }
         }),
     }
@@ -391,11 +401,44 @@ fn parse_claude(body: &[u8]) -> Result<RawAnswer, BrainError> {
 
 fn parse_gemini(body: &[u8]) -> Result<RawAnswer, BrainError> {
     let value: Value = serde_json::from_slice(body).map_err(|_| BrainError::ProviderResponse)?;
-    let text = value
-        .pointer("/candidates/0/content/parts/0/text")
-        .and_then(Value::as_str)
-        .ok_or(BrainError::ProviderResponse)?;
-    parse_json_answer(text)
+    // Gemini 3.5 may prepend a reasoning/thought part. Find the first text part
+    // that actually satisfies our strict JSON contract instead of assuming
+    // `parts[0]` is the user-visible answer.
+    let parsed = value
+        .pointer("/candidates/0/content/parts")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|part| part.get("text").and_then(Value::as_str))
+        .find_map(|text| parse_json_answer(text).ok());
+    if parsed.is_none() {
+        let shapes = value
+            .pointer("/candidates/0/content/parts")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|part| {
+                let length = part
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(str::len)
+                    .unwrap_or(0);
+                let keys = part
+                    .as_object()
+                    .map(|object| object.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                (keys, length)
+            })
+            .collect::<Vec<_>>();
+        let finish = value
+            .pointer("/candidates/0/finishReason")
+            .and_then(Value::as_str)
+            .unwrap_or("missing");
+        eprintln!(
+            "brain: Gemini response shape was not usable (finish={finish}, parts={shapes:?})"
+        );
+    }
+    parsed.ok_or(BrainError::ProviderResponse)
 }
 
 pub struct ProviderOutput {
@@ -443,6 +486,21 @@ mod tests {
 
     fn providers(configs: Vec<ProviderConfig>) -> Vec<ProviderName> {
         configs.into_iter().map(|config| config.provider).collect()
+    }
+
+    #[test]
+    fn gemini_parser_skips_reasoning_parts_before_json_answer() {
+        let body = serde_json::to_vec(&json!({
+            "candidates": [{
+                "content": {"parts": [
+                    {"text": "I should reason about the passage first", "thought": true},
+                    {"text": "{\"answer\":\"Use blocking.\",\"citation_ids\":[\"sandor_1981\"]}"}
+                ]}
+            }]
+        })).unwrap();
+        let answer = parse_gemini(&body).unwrap();
+        assert_eq!(answer.answer, "Use blocking.");
+        assert_eq!(answer.citation_ids, ["sandor_1981"]);
     }
 
     #[test]

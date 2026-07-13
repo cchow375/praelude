@@ -5,6 +5,7 @@ mod knowledge;
 mod keys;
 mod metrics;
 mod metronome;
+mod planner;
 mod rep;
 mod score;
 mod sessions;
@@ -452,6 +453,25 @@ fn progress_summary(piece_id: i64, store: State<'_, Arc<Store>>) -> Result<Progr
     metrics::progress_summary(&store, piece_id).map_err(|e| e.to_string())
 }
 
+/// Read-only, deterministic next-work ranking. The brain can narrate this
+/// trace, but it cannot change the ordering or write a schedule.
+#[tauri::command]
+fn brain_plan_preview(
+    piece_id: Option<i64>,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<planner::WorkSuggestion>, String> {
+    let id = piece_id
+        .or_else(|| {
+            store
+                .get_setting("ui.current_piece")
+                .ok()
+                .flatten()
+                .and_then(|value| value.parse().ok())
+        })
+        .ok_or_else(|| "Pick a piece before asking what to practice next".to_string())?;
+    planner::preview_for_piece(&store, id).map_err(|error| error.to_string())
+}
+
 /// Answer an open practice question from a bounded, read-only context. This is
 /// intentionally asynchronous and separate from the deterministic voice/rep
 /// loop; provider calls can never block a verdict or metronome command.
@@ -460,13 +480,31 @@ async fn brain_ask(
     request: brain::BrainAskRequest,
     store: State<'_, Arc<Store>>,
     sessions: State<'_, Arc<SessionService>>,
+    voice: State<'_, Arc<VoiceLoop>>,
 ) -> Result<brain::BrainAnswer, String> {
+    let should_speak = matches!(request.source, brain::QuestionSource::Voice);
     let store = store.inner().clone();
     let sessions = sessions.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || brain::ask_native(request, store, sessions))
+    let answer = tauri::async_runtime::spawn_blocking(move || {
+        brain::ask_native(request, store, sessions)
+    })
         .await
         .map_err(|_| "Brain worker stopped unexpectedly".to_string())?
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    if should_speak {
+        // Non-blocking queue into the existing gated TTS owner. A visual answer
+        // still returns if voice shut down while the provider was working.
+        let _ = voice.speak_brain_answer(&answer.answer);
+    }
+    Ok(answer)
+}
+
+#[tauri::command]
+fn brain_intake_apply(
+    request: brain::BrainIntakeApplyRequest,
+    store: State<'_, Arc<Store>>,
+) -> Result<brain::BrainIntakeApplyResult, String> {
+    brain::apply_intake_review(request, &store).map_err(|error| error.to_string())
 }
 
 /// Mute (`true`) or unmute the mic. Gates STT and blocks any action while muted.
@@ -645,7 +683,9 @@ pub fn run() {
             goal_reorder,
             piece_field_update,
             progress_summary,
+            brain_plan_preview,
             brain_ask,
+            brain_intake_apply,
             session_current,
             session_end,
             metronome::metro_start,

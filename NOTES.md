@@ -675,3 +675,18 @@ voice at the mic. **Ground-truth findings on this Mac (macOS 15, M2):**
 - **The brain has no hot-loop authority.** Output is rejected if it assigns a rep verdict, claims
   app control, proposes graph mutations, or requests secrets/filesystem/terminal access. It has no
   tools and cannot start a metronome, navigate a score, save intake, or schedule work.
+- **Gemini 3.5 thinking tokens count against `maxOutputTokens`.** The first real-key smoke used
+  900 tokens and ended `MAX_TOKENS` with only a thought part—no structured answer. For this short
+  grounded JSON task, use `generationConfig.thinkingConfig.thinkingLevel = minimal`, remove the
+  no-longer-recommended temperature override, allow 4096 output tokens, and parse the first text
+  part that satisfies the strict JSON schema (thought parts may precede it). Official reference:
+  [Gemini thinking](https://ai.google.dev/gemini-api/docs/generate-content/thinking). The corrected
+  real Keychain Gemini smoke passed without printing the key or answer.
+- **Voice brain answers reuse the owning TTS path.** Network work stays on Tauri's blocking pool;
+  after a voice-sourced answer returns, only the bounded policy-checked text is queued to the
+  VoiceLoop action owner. Its existing `Speaker` closes/reopens the STT gate around playback. Do
+  not add Web Speech synthesis or a second ungated TTS path.
+- **The deterministic planner is read-only and traceable.** It ranks unfinished/due goals, open
+  blocks, and spaced Region revisits; every score component appears in `reasons`, output is capped,
+  and the local date comes from SQLite `date('now','localtime')` instead of slicing UTC timestamps.
+  The brain receives this plan as context but cannot mutate or reorder it.

@@ -76,6 +76,20 @@ impl Store {
         .optional()
     }
 
+    /// User-local calendar date according to SQLite/macOS. Planner code uses
+    /// this instead of slicing UTC timestamps, which is wrong near midnight in
+    /// America/New_York and other non-UTC zones.
+    pub fn local_today(&self) -> rusqlite::Result<String> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row("SELECT date('now', 'localtime')", [], |row| row.get(0))
+    }
+
+    pub fn now_rfc3339(&self) -> rusqlite::Result<String> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let value: String = conn.query_row("SELECT datetime('now')", [], |row| row.get(0))?;
+        Ok(model::sqlite_ts_to_rfc3339(&value))
+    }
+
     /// Insert-or-replace several settings atomically in a single transaction.
     /// Used by write-through paths (e.g. `metro_set` persisting all metronome
     /// settings) so the six writes commit as one unit and take one lock, rather

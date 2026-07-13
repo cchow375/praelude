@@ -192,6 +192,11 @@ struct ActionCtx {
     last: Option<(String, Instant)>,
 }
 
+enum ActionMessage {
+    Transcript(Transcript),
+    SpeakBrain(String),
+}
+
 impl ActionCtx {
     fn handle_final(&mut self, t: &Transcript) {
         if self.muted.load(Ordering::Acquire) {
@@ -591,7 +596,7 @@ pub struct VoiceStatus {
 /// no zombie processes or hung joins.
 pub struct VoiceLoop {
     stt: Mutex<Option<SttHandle>>,
-    action_tx: Mutex<Option<mpsc::Sender<Transcript>>>,
+    action_tx: Mutex<Option<mpsc::Sender<ActionMessage>>>,
     action_thread: Mutex<Option<JoinHandle<()>>>,
     gate: Arc<AtomicBool>,
     muted: Arc<AtomicBool>,
@@ -683,7 +688,7 @@ impl VoiceLoop {
             muted: false,
             down: None,
         }));
-        let (tx, rx) = mpsc::channel::<Transcript>();
+        let (tx, rx) = mpsc::channel::<ActionMessage>();
 
         // on_event: emit transcript/status for the UI; forward finals to the action
         // thread. Non-blocking (the settler thread calls this).
@@ -697,7 +702,7 @@ impl VoiceLoop {
                     json!({ "text": t.text, "is_final": t.is_final }),
                 );
                 if t.is_final {
-                    let _ = fwd_tx.send(t);
+                    let _ = fwd_tx.send(ActionMessage::Transcript(t));
                 }
             }
             SttEvent::Down(reason) => {
@@ -750,8 +755,14 @@ impl VoiceLoop {
                     muted: action_muted,
                     last: None,
                 };
-                for t in rx.iter() {
-                    ctx.handle_final(&t);
+                for message in rx.iter() {
+                    match message {
+                        ActionMessage::Transcript(transcript) => ctx.handle_final(&transcript),
+                        // Reuse the exact same Speaker → PCM sink → STT gate as
+                        // command confirmations. A provider answer can never be
+                        // played through an ungated WebView speech API.
+                        ActionMessage::SpeakBrain(answer) => ctx.speaker.say(&answer),
+                    }
                 }
                 // Channel closed: drop ctx (and its Speaker → TTS worker join).
             })
@@ -792,6 +803,23 @@ impl VoiceLoop {
                 muted: self.muted.load(Ordering::Acquire),
                 down: None,
             })
+    }
+
+    /// Queue a completed wake-word answer for half-duplex speech. Provider work
+    /// happens elsewhere; this method is non-blocking and only accepts a bounded
+    /// already-policy-checked answer.
+    pub fn speak_brain_answer(&self, answer: &str) -> Result<(), String> {
+        let answer = answer.trim();
+        if answer.is_empty() || answer.chars().count() > 4_000 {
+            return Err("Brain answer is empty or too long to speak".into());
+        }
+        self.action_tx
+            .lock()
+            .map_err(|_| "Voice action queue is unavailable".to_string())?
+            .as_ref()
+            .ok_or_else(|| "Voice loop is shut down".to_string())?
+            .send(ActionMessage::SpeakBrain(answer.to_string()))
+            .map_err(|_| "Voice action queue is closed".to_string())
     }
 
     /// Tear the whole pipeline down: stop `hear` (SIGTERM + reap), close the action
@@ -976,6 +1004,30 @@ mod tests {
         assert!(rec.said.lock().unwrap().is_empty(), "no confirmation");
         assert!(rec.events.lock().unwrap().is_empty(), "no intent event");
         assert!(!ctx.metro.snapshot().running);
+    }
+
+    #[test]
+    fn brain_answer_is_bounded_and_queued_for_the_voice_owner() {
+        let recorder = Arc::new(Recorder::default());
+        let (tx, rx) = mpsc::channel();
+        let voice = VoiceLoop {
+            stt: Mutex::new(None),
+            action_tx: Mutex::new(Some(tx)),
+            action_thread: Mutex::new(None),
+            gate: Arc::new(AtomicBool::new(true)),
+            muted: Arc::new(AtomicBool::new(false)),
+            status: Arc::new(Mutex::new(VoiceStatus { muted: false, down: None })),
+            emitter: Arc::new(RecEmitter(recorder)),
+        };
+        voice.speak_brain_answer("Use three silent landings.").unwrap();
+        match rx.recv().unwrap() {
+            ActionMessage::SpeakBrain(answer) => {
+                assert_eq!(answer, "Use three silent landings.")
+            }
+            ActionMessage::Transcript(_) => panic!("expected a brain speech message"),
+        }
+        assert!(voice.speak_brain_answer("").is_err());
+        assert!(voice.speak_brain_answer(&"x".repeat(4_001)).is_err());
     }
 
     #[test]
