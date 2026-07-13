@@ -5,6 +5,7 @@ export interface BrainCitation {
   source_id: string;
   label: string;
   excerpt: string;
+  url?: string;
 }
 
 export interface BrainMethod {

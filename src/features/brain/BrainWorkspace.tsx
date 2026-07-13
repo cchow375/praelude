@@ -129,7 +129,10 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
                     {entry.answer.citations.map((citation) => (
                       <li key={citation.source_id}>
                         <span className="brain-citation-id">[{citation.source_id}]</span>{" "}
-                        <span><strong>{citation.label}</strong> — {citation.excerpt}</span>
+                        <span>
+                          <strong>{citation.label}</strong> — {citation.excerpt}
+                          {citation.url && <small className="brain-citation-url">{citation.url}</small>}
+                        </span>
                       </li>
                     ))}
                   </ol>

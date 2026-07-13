@@ -167,6 +167,18 @@
 .brain-citations li { color: var(--ink-secondary); font-size: var(--text-sm); }
 .brain-citations li + li { margin-top: var(--space-1); }
 .brain-citations a { color: var(--accent); text-underline-offset: 2px; }
+.brain-citation-url {
+  display: block;
+  max-width: 100%;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--ink-tertiary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
 .brain-citation-id { color: var(--ink-tertiary); }
 
 .brain-intake-review {
