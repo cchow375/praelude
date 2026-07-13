@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::date::Date;
 use crate::store::model::{BlockHistory, BlockMeta, Goal, RegionMastery, Rep};
 use crate::store::Store;
 
@@ -87,7 +88,7 @@ fn recent_region_signals(blocks: &[BlockMeta], reps: &[Rep]) -> Vec<RegionSignal
 
 /// Rank at most seven concrete next actions. Ties are stable by id.
 pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
-    let today = parse_date_days(&input.today);
+    let today = Date::parse(&input.today);
     let signals = input
         .region_signals
         .iter()
@@ -100,9 +101,9 @@ pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
         let mut reasons = vec!["unfinished goal".to_string()];
         if let (Some(today), Some(target)) = (
             today,
-            goal.target_date.as_deref().and_then(parse_date_days),
+            goal.target_date.as_deref().and_then(Date::parse),
         ) {
-            let days = target - today;
+            let days = target.days_since_epoch() - today.days_since_epoch();
             if days < 0 {
                 score += 65;
                 reasons.push(format!("overdue by {} day{}", -days, if days == -1 { "" } else { "s" }));
@@ -172,9 +173,9 @@ pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
                 .last_practiced
                 .as_deref()
                 .and_then(|value| value.get(0..10))
-                .and_then(parse_date_days),
+                .and_then(Date::parse),
         ) {
-            let age = today - last;
+            let age = today.days_since_epoch() - last.days_since_epoch();
             if age >= 3 {
                 score += age.min(21) as i32;
                 reasons.push(format!(
@@ -199,30 +200,6 @@ pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
     output.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
     output.truncate(7);
     output
-}
-
-fn parse_date_days(date: &str) -> Option<i64> {
-    let mut parts = date.split('-');
-    let year: i64 = parts.next()?.parse().ok()?;
-    let month: i64 = parts.next()?.parse().ok()?;
-    let day: i64 = parts.next()?.parse().ok()?;
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let days_in_month = match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if leap => 29,
-        2 => 28,
-        _ => return None,
-    };
-    if parts.next().is_some() || !(1..=days_in_month).contains(&day) {
-        return None;
-    }
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let yoe = year - era * 400;
-    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    Some(era * 146_097 + doe - 719_468)
 }
 
 #[cfg(test)]

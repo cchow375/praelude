@@ -806,7 +806,7 @@ impl Store {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut stmt = conn.prepare(
             "SELECT id, piece_id, text, kind, parent_goal_id, done, sort_order, target_date, created_ts
-             FROM goal WHERE piece_id = ?1 ORDER BY sort_order",
+             FROM goal WHERE piece_id = ?1 ORDER BY sort_order, id",
         )?;
         let rows = stmt.query_map([piece_id], Self::goal_from_row)?;
         rows.collect()
@@ -835,18 +835,26 @@ impl Store {
         )
     }
 
-    /// Create a goal; appends a `goal_change` event. New goals land at the
-    /// end of the piece's ordering (`sort_order = MAX(sort_order)+1`).
+    /// Create a root `big` goal or one `sub` goal beneath a same-piece root.
+    /// Ordering is sibling-local and mutation + event append commit atomically.
     pub fn goal_create(&self, args: GoalCreate) -> rusqlite::Result<Goal> {
-        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        if !matches!(args.kind.as_str(), "big" | "sub") {
+        let text = args.text.trim();
+        if text.is_empty()
+            || text.chars().count() > 500
+            || !matches!(args.kind.as_str(), "big" | "sub")
+            || args
+                .target_date
+                .as_deref()
+                .is_some_and(|date| !crate::date::is_valid(date))
+            || (args.kind == "big" && args.parent_goal_id.is_some())
+            || (args.kind == "sub" && args.parent_goal_id.is_none())
+        {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        if args.kind == "big" && args.parent_goal_id.is_some() {
-            return Err(rusqlite::Error::InvalidQuery);
-        }
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
         if let Some(parent_id) = args.parent_goal_id {
-            let parent = Self::goal_get(&conn, parent_id)?;
+            let parent = Self::goal_get(&tx, parent_id)?;
             if parent.piece_id != args.piece_id
                 || parent.kind != "big"
                 || parent.parent_goal_id.is_some()
@@ -854,58 +862,69 @@ impl Store {
                 return Err(rusqlite::Error::InvalidQuery);
             }
         }
-        let id: i64 = conn.query_row(
+        let id: i64 = tx.query_row(
             "INSERT INTO goal (piece_id, text, kind, parent_goal_id, target_date, sort_order)
              VALUES (?1, ?2, ?3, ?4, ?5,
-                 COALESCE((SELECT MAX(sort_order) + 1 FROM goal WHERE piece_id = ?1), 0))
+                 COALESCE((SELECT MAX(sort_order) + 1 FROM goal
+                           WHERE piece_id = ?1 AND parent_goal_id IS ?4), 0))
              RETURNING id",
             rusqlite::params![
                 args.piece_id,
-                args.text,
+                text,
                 args.kind,
                 args.parent_goal_id,
                 args.target_date
             ],
             |row| row.get(0),
         )?;
-        let goal = Self::goal_get(&conn, id)?;
+        let goal = Self::goal_get(&tx, id)?;
         Self::append_event_conn(
-            &conn,
+            &tx,
             EventKind::GOAL_CHANGE,
             None,
             Some(args.piece_id),
             &serde_json::json!({ "action": "create", "goal_id": id }),
         )?;
+        tx.commit()?;
         Ok(goal)
     }
 
     /// Apply a partial patch to a goal; appends a `goal_change` event.
     pub fn goal_update(&self, id: i64, patch: GoalPatch) -> rusqlite::Result<Goal> {
-        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let current = Self::goal_get(&conn, id)?;
-        if let Some(Some(parent_id)) = patch.parent_goal_id {
-            if parent_id == id {
-                return Err(rusqlite::Error::InvalidQuery);
-            }
-            let parent = Self::goal_get(&conn, parent_id)?;
-            let has_children: bool = conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM goal WHERE parent_goal_id = ?1)",
-                [id],
-                |row| row.get(0),
-            )?;
-            if parent.piece_id != current.piece_id
-                || parent.kind != "big"
-                || parent.parent_goal_id.is_some()
-                || has_children
-            {
-                return Err(rusqlite::Error::InvalidQuery);
-            }
+        if patch.text.as_deref().is_some_and(|text| {
+            text.trim().is_empty() || text.trim().chars().count() > 500
+        }) || patch
+            .target_date
+            .as_ref()
+            .and_then(|date| date.as_deref())
+            .is_some_and(|date| !crate::date::is_valid(date))
+        {
+            return Err(rusqlite::Error::InvalidQuery);
         }
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        let current = Self::goal_get(&tx, id)?;
+        let requested_parent = patch.parent_goal_id.unwrap_or(current.parent_goal_id);
+        match (current.kind.as_str(), requested_parent) {
+            ("big", None) => {}
+            ("sub", Some(parent_id)) if parent_id != id => {
+                let parent = Self::goal_get(&tx, parent_id)?;
+                if parent.piece_id != current.piece_id
+                    || parent.kind != "big"
+                    || parent.parent_goal_id.is_some()
+                {
+                    return Err(rusqlite::Error::InvalidQuery);
+                }
+            }
+            _ => return Err(rusqlite::Error::InvalidQuery),
+        }
+        let parent_changed = patch.parent_goal_id.is_some()
+            && requested_parent != current.parent_goal_id;
         let mut sets: Vec<String> = Vec::new();
         let mut vals: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
         if let Some(v) = patch.text {
             sets.push(format!("text = ?{}", vals.len() + 2));
-            vals.push(Box::new(v));
+            vals.push(Box::new(v.trim().to_string()));
         }
         if let Some(v) = patch.done {
             sets.push(format!("done = ?{}", vals.len() + 2));
@@ -918,6 +937,16 @@ impl Store {
         if let Some(v) = patch.parent_goal_id {
             sets.push(format!("parent_goal_id = ?{}", vals.len() + 2));
             vals.push(Box::new(v));
+            if parent_changed {
+                let next_order: i64 = tx.query_row(
+                    "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM goal
+                     WHERE piece_id = ?1 AND parent_goal_id IS ?2",
+                    rusqlite::params![current.piece_id, requested_parent],
+                    |row| row.get(0),
+                )?;
+                sets.push(format!("sort_order = ?{}", vals.len() + 2));
+                vals.push(Box::new(next_order));
+            }
         }
         if !sets.is_empty() {
             let sql = format!("UPDATE goal SET {} WHERE id = ?1", sets.join(", "));
@@ -925,54 +954,103 @@ impl Store {
             for v in &vals {
                 params.push(v.as_ref());
             }
-            conn.execute(&sql, params.as_slice())?;
+            tx.execute(&sql, params.as_slice())?;
         }
-        let goal = Self::goal_get(&conn, id)?;
+        if parent_changed {
+            tx.execute(
+                "UPDATE goal SET sort_order = sort_order - 1
+                 WHERE piece_id = ?1 AND parent_goal_id IS ?2 AND sort_order > ?3",
+                rusqlite::params![current.piece_id, current.parent_goal_id, current.order],
+            )?;
+        }
+        let goal = Self::goal_get(&tx, id)?;
         Self::append_event_conn(
-            &conn,
+            &tx,
             EventKind::GOAL_CHANGE,
             None,
             Some(goal.piece_id),
             &serde_json::json!({ "action": "update", "goal_id": id }),
         )?;
+        tx.commit()?;
         Ok(goal)
     }
 
-    /// Delete a goal; appends a `goal_change` event.
+    /// Delete one childless Goal. Root deletion is refused while subgoals
+    /// exist, and v5's FK refuses deletion while daily work owns the Goal.
     pub fn goal_delete(&self, id: i64) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let piece_id: i64 =
-            conn.query_row("SELECT piece_id FROM goal WHERE id = ?1", [id], |r| r.get(0))?;
-        conn.execute("DELETE FROM goal WHERE id = ?1", [id])?;
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        let goal = Self::goal_get(&tx, id)?;
+        let has_children: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM goal WHERE parent_goal_id = ?1)",
+            [id],
+            |row| row.get(0),
+        )?;
+        if has_children {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        tx.execute("DELETE FROM goal WHERE id = ?1", [id])?;
+        tx.execute(
+            "UPDATE goal SET sort_order = sort_order - 1
+             WHERE piece_id = ?1 AND parent_goal_id IS ?2 AND sort_order > ?3",
+            rusqlite::params![goal.piece_id, goal.parent_goal_id, goal.order],
+        )?;
         Self::append_event_conn(
-            &conn,
+            &tx,
             EventKind::GOAL_CHANGE,
             None,
-            Some(piece_id),
+            Some(goal.piece_id),
             &serde_json::json!({ "action": "delete", "goal_id": id }),
         )?;
+        tx.commit()?;
         Ok(())
     }
 
-    /// Assign `sort_order` by array index, in one transaction. Appends a
-    /// single `goal_change` event for the whole reorder.
+    /// Reorder exactly one complete sibling set. Partial, duplicate, missing,
+    /// mixed-parent, and cross-piece arrays reject without changing any row.
     pub fn goal_reorder(&self, piece_id: i64, ordered_ids: Vec<i64>) -> rusqlite::Result<()> {
+        if ordered_ids.is_empty() {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        let unique = ordered_ids.iter().copied().collect::<std::collections::HashSet<_>>();
+        if unique.len() != ordered_ids.len() {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let tx = conn.transaction()?;
+        let first = Self::goal_get(&tx, ordered_ids[0])?;
+        if first.piece_id != piece_id {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        let mut stmt = tx.prepare(
+            "SELECT id FROM goal
+             WHERE piece_id = ?1 AND parent_goal_id IS ?2 ORDER BY sort_order, id",
+        )?;
+        let sibling_ids = stmt
+            .query_map(rusqlite::params![piece_id, first.parent_goal_id], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<std::collections::HashSet<_>>>()?;
+        drop(stmt);
+        if sibling_ids != unique {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         for (idx, id) in ordered_ids.iter().enumerate() {
             tx.execute(
                 "UPDATE goal SET sort_order = ?2 WHERE id = ?1 AND piece_id = ?3",
                 rusqlite::params![id, idx as i64, piece_id],
             )?;
         }
-        tx.commit()?;
         Self::append_event_conn(
-            &conn,
+            &tx,
             EventKind::GOAL_CHANGE,
             None,
             Some(piece_id),
-            &serde_json::json!({ "action": "reorder", "order": ordered_ids }),
+            &serde_json::json!({
+                "action": "reorder",
+                "parent_goal_id": first.parent_goal_id,
+                "order": ordered_ids,
+            }),
         )?;
+        tx.commit()?;
         Ok(())
     }
 }
@@ -1050,6 +1128,69 @@ mod goal {
             parent_goal_id: Some(Some(child.id)), ..Default::default()
         }).is_err());
     }
+
+    #[test]
+    fn goal_shapes_dates_deletes_and_reorders_are_strict() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        assert!(s.goal_create(GoalCreate {
+            piece_id: 1, text: "orphan".into(), kind: "sub".into(),
+            parent_goal_id: None, target_date: None,
+        }).is_err());
+        assert!(s.goal_create(GoalCreate {
+            piece_id: 1, text: "bad date".into(), kind: "big".into(),
+            parent_goal_id: None, target_date: Some("2026-02-30".into()),
+        }).is_err());
+        let a = s.goal_create(GoalCreate {
+            piece_id: 1, text: "A".into(), kind: "big".into(),
+            parent_goal_id: None, target_date: Some("2026-08-01".into()),
+        }).unwrap();
+        let b = s.goal_create(GoalCreate {
+            piece_id: 1, text: "B".into(), kind: "big".into(),
+            parent_goal_id: None, target_date: None,
+        }).unwrap();
+        let child = s.goal_create(GoalCreate {
+            piece_id: 1, text: "child".into(), kind: "sub".into(),
+            parent_goal_id: Some(a.id), target_date: None,
+        }).unwrap();
+        assert!(s.goal_delete(a.id).is_err(), "a root with children must survive");
+        assert!(s.goal_reorder(1, vec![a.id]).is_err(), "partial sibling order must fail");
+        assert!(s.goal_reorder(1, vec![a.id, a.id]).is_err(), "duplicates must fail");
+        assert!(s.goal_reorder(1, vec![a.id, child.id, b.id]).is_err(), "mixed levels must fail");
+        assert!(s.goal_update(a.id, GoalPatch {
+            target_date: Some(Some("2026-04-31".into())), ..Default::default()
+        }).is_err());
+    }
+
+    #[test]
+    fn moving_a_subgoal_compacts_old_siblings_and_appends_to_new_parent() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let a = s.goal_create(GoalCreate {
+            piece_id: 1, text: "A".into(), kind: "big".into(),
+            parent_goal_id: None, target_date: None,
+        }).unwrap();
+        let b = s.goal_create(GoalCreate {
+            piece_id: 1, text: "B".into(), kind: "big".into(),
+            parent_goal_id: None, target_date: None,
+        }).unwrap();
+        let one = s.goal_create(GoalCreate {
+            piece_id: 1, text: "one".into(), kind: "sub".into(),
+            parent_goal_id: Some(a.id), target_date: None,
+        }).unwrap();
+        let two = s.goal_create(GoalCreate {
+            piece_id: 1, text: "two".into(), kind: "sub".into(),
+            parent_goal_id: Some(a.id), target_date: None,
+        }).unwrap();
+
+        let moved = s.goal_update(one.id, GoalPatch {
+            parent_goal_id: Some(Some(b.id)), ..Default::default()
+        }).unwrap();
+        assert_eq!(moved.parent_goal_id, Some(b.id));
+        assert_eq!(moved.order, 0);
+        let remaining = s.goal_list(1).unwrap().into_iter().find(|goal| goal.id == two.id).unwrap();
+        assert_eq!(remaining.order, 0);
+    }
 }
 // ── T7: Inline piece-field update ───────────────────────────────────────────
 
@@ -1063,6 +1204,13 @@ impl Store {
             target_tempo,
             notes,
         } = patch;
+        if deadline
+            .as_ref()
+            .and_then(|date| date.as_deref())
+            .is_some_and(|date| !crate::date::is_valid(date))
+        {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let tx = conn.transaction()?;
         let old_deadline: Option<String> = if deadline.is_some() {

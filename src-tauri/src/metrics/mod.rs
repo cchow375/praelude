@@ -8,6 +8,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use crate::date::Date;
 use crate::store::model::{
     BlockMeta, Event, FocusTime, ProgressSummary, Region, RegionMastery, Rep,
 };
@@ -45,7 +46,10 @@ pub fn focused_seconds(events: &[Event]) -> u64 {
 /// recent practice day. Dates are `"YYYY-MM-DD"`; duplicates and gaps are handled
 /// (a gap breaks the streak). Returns 0 for no days.
 pub fn streak(session_days: &[String]) -> u32 {
-    let mut days: Vec<i64> = session_days.iter().filter_map(|d| parse_date_days(d)).collect();
+    let mut days: Vec<i64> = session_days
+        .iter()
+        .filter_map(|date| Date::parse(date).map(Date::days_since_epoch))
+        .collect();
     days.sort_unstable();
     days.dedup();
     let Some(&latest) = days.last() else {
@@ -186,35 +190,12 @@ fn parse_ts_secs(ts: &str) -> Option<i64> {
     }
     // "YYYY-MM-DD[ T]HH:MM:SS"
     let (date, time) = ts.split_once(['T', ' '])?;
-    let days = parse_date_days(date)?;
+    let days = Date::parse(date)?.days_since_epoch();
     let mut parts = time.split(':');
     let h: i64 = parts.next()?.parse().ok()?;
     let m: i64 = parts.next()?.parse().ok()?;
     let s: i64 = parts.next().unwrap_or("0").parse().ok()?;
     Some(days * 86_400 + h * 3_600 + m * 60 + s)
-}
-
-/// Parse a `"YYYY-MM-DD"` date into days since the Unix epoch (1970-01-01 == 0).
-fn parse_date_days(date: &str) -> Option<i64> {
-    let mut parts = date.split('-');
-    let y: i64 = parts.next()?.parse().ok()?;
-    let m: i64 = parts.next()?.parse().ok()?;
-    let d: i64 = parts.next()?.parse().ok()?;
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
-        return None;
-    }
-    Some(days_from_civil(y, m, d))
-}
-
-/// Days since 1970-01-01 for a proleptic-Gregorian date (Howard Hinnant's
-/// `days_from_civil`). Handles month/year rollovers without a date library.
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400; // [0, 399]
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1; // [0, 365]
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // [0, 146096]
-    era * 146_097 + doe - 719_468
 }
 
 #[cfg(test)]

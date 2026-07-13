@@ -1,11 +1,13 @@
 pub mod audio;
 mod brain;
+mod date;
 pub mod intent;
 mod knowledge;
 mod keys;
 mod metrics;
 mod metronome;
 mod planner;
+mod recovery;
 mod rep;
 mod score;
 mod sessions;

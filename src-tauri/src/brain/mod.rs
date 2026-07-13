@@ -345,7 +345,7 @@ fn build_intake_review(
     }
     if let Some(value) = extract_change(question, &["deadline to "])
         .and_then(|value| value.split_whitespace().next().map(str::to_string))
-        .filter(|value| valid_date(value))
+        .filter(|value| crate::date::is_valid(value))
     {
         fields.push(IntakeReviewField {
             field: "deadline".into(),
@@ -403,36 +403,6 @@ fn extract_change(question: &str, markers: &[&str]) -> Option<String> {
     (!value.is_empty()).then_some(value)
 }
 
-fn valid_date(value: &str) -> bool {
-    let parts = value.split('-').collect::<Vec<_>>();
-    if parts.len() != 3
-        || parts[0].len() != 4
-        || parts[1].len() != 2
-        || parts[2].len() != 2
-        || !parts.iter().all(|part| part.chars().all(|ch| ch.is_ascii_digit()))
-    {
-        return false;
-    }
-    let Ok(year) = parts[0].parse::<u32>() else {
-        return false;
-    };
-    let Ok(month) = parts[1].parse::<u32>() else {
-        return false;
-    };
-    let Ok(day) = parts[2].parse::<u32>() else {
-        return false;
-    };
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let days = match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if leap => 29,
-        2 => 28,
-        _ => return false,
-    };
-    (1..=days).contains(&day)
-}
-
 /// Apply only the fields that the review UI explicitly submits. Provider text
 /// cannot call this function, and unknown fields fail the whole request.
 pub fn apply_intake_review(
@@ -483,7 +453,7 @@ pub fn apply_intake_review(
         match change.field.as_str() {
             "current_state" => patch.current_state = Some(value),
             "deadline" => {
-                if value.as_ref().is_some_and(|date| !valid_date(date)) {
+                if value.as_ref().is_some_and(|date| !crate::date::is_valid(date)) {
                     return Err(BrainError::InvalidQuestion("Deadline must be YYYY-MM-DD".into()));
                 }
                 patch.deadline = Some(value);
@@ -813,10 +783,10 @@ mod tests {
 
     #[test]
     fn intake_dates_must_be_real_calendar_dates() {
-        assert!(valid_date("2028-02-29"));
-        assert!(!valid_date("2026-02-29"));
-        assert!(!valid_date("2026-04-31"));
-        assert!(!valid_date("2026-13-01"));
+        assert!(crate::date::is_valid("2028-02-29"));
+        assert!(!crate::date::is_valid("2026-02-29"));
+        assert!(!crate::date::is_valid("2026-04-31"));
+        assert!(!crate::date::is_valid("2026-13-01"));
     }
 
     /// Manual release gate: uses the configured Keychain/environment provider,

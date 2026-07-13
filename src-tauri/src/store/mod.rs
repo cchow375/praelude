@@ -265,6 +265,13 @@ impl Store {
 
     /// Persist a piece's intake payload and mark intake complete.
     pub fn save_intake(&self, id: i64, intake: &Intake) -> rusqlite::Result<()> {
+        if intake
+            .deadline
+            .as_deref()
+            .is_some_and(|date| !crate::date::is_valid(date))
+        {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let tx = conn.transaction()?;
         let old_deadline: Option<String> = tx.query_row(
@@ -314,7 +321,8 @@ impl Store {
             tx.execute(
                 "INSERT INTO goal (piece_id, text, kind, parent_goal_id, target_date, sort_order)
                  SELECT ?1, ?2, 'big', NULL, ?3,
-                    COALESCE((SELECT MAX(sort_order) + 1 FROM goal WHERE piece_id = ?1), 0)
+                    COALESCE((SELECT MAX(sort_order) + 1 FROM goal
+                              WHERE piece_id = ?1 AND parent_goal_id IS NULL), 0)
                  WHERE NOT EXISTS (
                     SELECT 1 FROM goal WHERE piece_id = ?1 AND lower(trim(text)) = lower(?2)
                  )",
@@ -717,8 +725,8 @@ mod tests {
     }
 
     #[test]
-    fn fresh_store_is_at_schema_version_4() {
-        assert_eq!(mem().schema_version().unwrap(), 4);
+    fn fresh_store_is_at_schema_version_5() {
+        assert_eq!(mem().schema_version().unwrap(), 5);
     }
 
     #[test]
@@ -754,7 +762,7 @@ mod tests {
     }
 
     #[test]
-    fn all_seven_schema_tables_exist() {
+    fn all_core_schema_tables_exist() {
         let store = mem();
         let conn = store.conn.lock().unwrap();
         for table in [
@@ -765,6 +773,10 @@ mod tests {
             "session_event",
             "spot_review",
             "setting",
+            "region",
+            "goal",
+            "event",
+            "daily_work",
         ] {
             let found: String = conn
                 .query_row(
@@ -800,7 +812,7 @@ mod tests {
         // (e.g. duplicate CREATE TABLE) and must leave the version untouched.
         let store = mem();
         migrations::migrate(&store.conn.lock().unwrap()).expect("re-migrate is a no-op");
-        assert_eq!(store.schema_version().unwrap(), 4);
+        assert_eq!(store.schema_version().unwrap(), 5);
     }
 
     // ── v1 → v3 migration ─────────────────────────────────────────────────
@@ -823,7 +835,7 @@ mod tests {
         .unwrap();
 
         let store = Store::from_connection(conn).expect("v1 db upgrades cleanly");
-        assert_eq!(store.schema_version().unwrap(), 4, "reaches v4");
+        assert_eq!(store.schema_version().unwrap(), 5, "reaches v5");
         assert_eq!(
             store.get_setting("theme").unwrap(),
             Some("dark".into()),
