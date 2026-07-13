@@ -653,3 +653,25 @@ voice at the mic. **Ground-truth findings on this Mac (macOS 15, M2):**
   run `codesign --force --deep --sign - --identifier com.christian.codakiller
   /Applications/CodaKiller.app`, then strict-verify. v0.4.0's installed bundle is sealed and uses
   the correct identifier; P6 packaging must automate this instead of relying on release memory.
+
+## P5 grounded brain provider boundary (2026-07-12)
+
+- **The API boundary is native keys, never a Claude Code login.** Brain secrets resolve from the
+  macOS Keychain (`codakiller` service, `claude` / `gemini` accounts), then the
+  `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` environment fallbacks. The provider, model, fixed URL,
+  and headers are assembled in Rust; no secret enters IPC, SQLite, prompts, errors, or logs.
+- **Provider order is Claude → Gemini → cited offline library.** `CODAKILLER_BRAIN_PROVIDER`
+  supports `auto`, `claude`, or `gemini`; model overrides are explicit env vars. Defaults were
+  verified 2026-07-12 against Anthropic's official
+  [model IDs](https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions) and
+  [Messages API](https://platform.claude.com/docs/en/api/messages/create), plus Google's official
+  [Gemini 3.5 model guide](https://ai.google.dev/gemini-api/docs/generate-content/whats-new-gemini-3.5)
+  and [generateContent reference](https://ai.google.dev/api/generate-content):
+  `claude-sonnet-4-6` and `gemini-3.5-flash`.
+- **Grounding is an allowlist join, not a prompt promise.** Only a bounded selected-piece/session
+  projection and deterministic method cards cross the provider boundary. Provider citation ids
+  are joined back to the validated local library; unknown ids never become frontend citations.
+  When providers fail, the same retrieved method cards remain useful as a cited offline answer.
+- **The brain has no hot-loop authority.** Output is rejected if it assigns a rep verdict, claims
+  app control, proposes graph mutations, or requests secrets/filesystem/terminal access. It has no
+  tools and cannot start a metronome, navigate a score, save intake, or schedule work.
