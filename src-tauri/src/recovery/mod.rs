@@ -12,7 +12,12 @@ use serde::{Deserialize, Serialize};
 use crate::date::Date;
 
 pub const RECOVERY_HORIZON_DAYS: u8 = 7;
-pub const MIN_RECOVERY_SHARE_MINUTES: u32 = 15;
+
+/// Locked recovery ceiling: recovered work may consume at most half of the
+/// visible daily capacity. Integer capacities round down, never up.
+pub const fn recovery_limit_minutes(capacity_minutes: u32) -> u32 {
+    capacity_minutes / 2
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecoveryInput {
@@ -177,7 +182,7 @@ pub fn preview(input: &RecoveryInput) -> Result<RecoveryPreview, RecoveryError> 
     let today = Date::parse(&input.today).ok_or_else(|| RecoveryError::InvalidToday {
         value: input.today.clone(),
     })?;
-    let recovery_limit = MIN_RECOVERY_SHARE_MINUTES.max(input.capacity_minutes / 2);
+    let recovery_limit = recovery_limit_minutes(input.capacity_minutes);
 
     let horizon = (0..RECOVERY_HORIZON_DAYS)
         .map(|offset| today.add_days(offset.into()))
@@ -580,7 +585,7 @@ mod tests {
     }
 
     #[test]
-    fn respects_total_capacity_and_recovery_share_with_minimum_fifteen() {
+    fn respects_total_capacity_and_exact_half_recovery_share() {
         let mut snapshot = input(
             "2026-07-12",
             20,
@@ -593,11 +598,12 @@ mod tests {
         }];
 
         let result = preview(&snapshot).unwrap();
-        assert_eq!(result.recovery_limit_minutes, 15);
-        assert_eq!(result.items[0].proposed_date.as_deref(), Some("2026-07-12"));
-        assert_eq!(result.items[1].proposed_date.as_deref(), Some("2026-07-13"));
-        assert_eq!(result.days[0].total_after_preview_minutes, 20);
-        assert_eq!(result.days[0].proposed_recovery_minutes, 15);
+        assert_eq!(result.recovery_limit_minutes, 10);
+        assert_eq!(result.items[0].proposed_date, None);
+        assert_eq!(result.items[0].unresolved.as_ref().unwrap().code, UnresolvedReason::OversizedForRecoveryShare);
+        assert_eq!(result.items[1].proposed_date.as_deref(), Some("2026-07-12"));
+        assert_eq!(result.days[0].total_after_preview_minutes, 11);
+        assert_eq!(result.days[0].proposed_recovery_minutes, 6);
         assert!(result.days.iter().all(|day| {
             day.total_after_preview_minutes <= day.capacity_minutes
                 && day.existing_recovery_minutes + day.proposed_recovery_minutes

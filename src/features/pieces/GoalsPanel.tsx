@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
 import { EditableField } from "../../components/EditableField";
 import { useCrud } from "../rep/useCrud";
 import type { Goal } from "./types";
+import type { DailyWork } from "../calendar/types";
 
 export interface GoalsApi {
   goalList: (pieceId: number) => Promise<Goal[]>;
@@ -16,12 +18,21 @@ export interface GoalsApi {
   goalUpdate: (id: number, patch: Partial<Pick<Goal, "text" | "done" | "target_date" | "parent_goal_id">>) => Promise<Goal>;
   goalDelete: (id: number) => Promise<void>;
   goalReorder: (pieceId: number, orderedIds: number[]) => Promise<void>;
+  dailyWorkList: (pieceId: number) => Promise<DailyWork[]>;
 }
 
 export function GoalsPanel({ pieceId, api: injectedApi }: { pieceId: number; api?: GoalsApi }) {
   const defaultApi = useCrud();
-  const api = injectedApi ?? defaultApi;
+  const api: GoalsApi = injectedApi ?? {
+    ...defaultApi,
+    dailyWorkList: (id) => invoke<DailyWork[]>("daily_work_list", {
+      from: "0001-01-01",
+      to: "9999-12-31",
+      pieceId: id,
+    }),
+  };
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [dailyWork, setDailyWork] = useState<DailyWork[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +41,12 @@ export function GoalsPanel({ pieceId, api: injectedApi }: { pieceId: number; api
     setLoading(true);
     setError(null);
     try {
-      setGoals((await api.goalList(pieceId)) ?? []);
+      const [nextGoals, nextWork] = await Promise.all([
+        api.goalList(pieceId),
+        api.dailyWorkList(pieceId),
+      ]);
+      setGoals(nextGoals ?? []);
+      setDailyWork(nextWork ?? []);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -93,6 +109,7 @@ export function GoalsPanel({ pieceId, api: injectedApi }: { pieceId: number; api
                 siblings={bigGoals}
                 index={index}
                 children={children}
+                dailyWork={dailyWork}
                 pieceId={pieceId}
                 api={api}
                 onMutate={mutate}
@@ -127,6 +144,7 @@ function GoalBranch({
   siblings,
   index,
   children,
+  dailyWork,
   pieceId,
   api,
   onMutate,
@@ -136,6 +154,7 @@ function GoalBranch({
   siblings: Goal[];
   index: number;
   children: Goal[];
+  dailyWork: DailyWork[];
   pieceId: number;
   api: GoalsApi;
   onMutate: (operation: () => Promise<unknown>) => Promise<void>;
@@ -144,11 +163,16 @@ function GoalBranch({
   const [addingSubgoal, setAddingSubgoal] = useState(false);
   const [subgoalDraft, setSubgoalDraft] = useState("");
   const doneChildren = children.filter((child) => child.done).length;
+  const branchGoalIds = new Set([goal.id, ...children.map((child) => child.id)]);
+  const branchWork = dailyWork.filter((item) => branchGoalIds.has(item.goal_id));
+  const plannedWork = branchWork.filter((item) => item.status === "planned").length;
+  const doneWork = branchWork.filter((item) => item.status === "done").length;
   return (
     <li className={`goal-branch ${goal.done ? "is-done" : ""}`}>
       <GoalRow goal={goal} siblings={siblings} index={index} onMutate={onMutate} onReorder={onReorder} api={api} />
       <div className="goal-summary" aria-label={`Summary for ${goal.text}`}>
         <span>{children.length === 0 ? "No subgoals" : `${doneChildren}/${children.length} subgoals done`}</span>
+        <span>{branchWork.length === 0 ? "No calendar work" : `${branchWork.length} calendar ${branchWork.length === 1 ? "item" : "items"} · ${plannedWork} planned · ${doneWork} done`}</span>
       </div>
       {children.length > 0 && (
         <ul className="goal-children">

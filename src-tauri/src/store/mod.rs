@@ -864,6 +864,11 @@ mod tests {
                 .unwrap(),
             "ok"
         );
+        {
+            let mut statement = conn.prepare("PRAGMA foreign_key_check").unwrap();
+            let mut rows = statement.query([]).unwrap();
+            assert!(rows.next().unwrap().is_none(), "migration must leave no FK violations");
+        }
         drop(conn);
         drop(store);
 

@@ -153,4 +153,18 @@ describe("CalendarWorkspace", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("Calendar is stale");
     expect(screen.getByRole("button", { name: "Previous week" })).toBeTruthy();
   });
+
+  it("keeps a rejected create draft open for correction or retry", async () => {
+    const api = makeApi({ create: vi.fn().mockRejectedValue("Daily capacity exceeded.") });
+    render(<CalendarWorkspace api={api} initialToday="2026-07-15" />);
+    await screen.findByText("Landing shapes");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "+ Add work" })[0]);
+    const title = screen.getByLabelText("Work title") as HTMLInputElement;
+    fireEvent.change(title, { target: { value: "Keep this draft" } });
+    fireEvent.submit(title.closest("form")!);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Daily capacity exceeded");
+    expect((screen.getByLabelText("Work title") as HTMLInputElement).value).toBe("Keep this draft");
+  });
 });

@@ -81,8 +81,10 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
     try {
       await operation();
       await Promise.all([loadWeek(), loadPreview()]);
+      return true;
     } catch (cause) {
       setError(errorMessage(cause));
+      return false;
     }
   };
 
@@ -199,7 +201,7 @@ function CalendarDay({
   capacity: number;
   references: References;
   api: CalendarApi;
-  onMutate: (operation: () => Promise<unknown>) => Promise<void>;
+  onMutate: (operation: () => Promise<unknown>) => Promise<boolean>;
 }) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
@@ -221,12 +223,12 @@ function CalendarDay({
             work={item}
             onCancel={() => setEditing(null)}
             onSave={async (draft) => {
-              await onMutate(() => api.update(item.id, item.updated_ts, {
+              const saved = await onMutate(() => api.update(item.id, item.updated_ts, {
                 title: draft.title,
                 planned_minutes: draft.minutes,
                 scheduled_date: draft.date,
               }));
-              setEditing(null);
+              if (saved) setEditing(null);
             }}
           />
         ) : (
@@ -235,8 +237,8 @@ function CalendarDay({
             item={item}
             onEdit={() => setEditing(item.id)}
             onMove={() => setEditing(item.id)}
-            onPatch={(patch) => onMutate(() => api.update(item.id, item.updated_ts, patch))}
-            onDelete={() => onMutate(() => api.delete(item.id, item.updated_ts))}
+            onPatch={async (patch) => { await onMutate(() => api.update(item.id, item.updated_ts, patch)); }}
+            onDelete={async () => { await onMutate(() => api.delete(item.id, item.updated_ts)); }}
           />
         ))}
       </div>
@@ -246,7 +248,7 @@ function CalendarDay({
           references={references}
           onCancel={() => setCreating(false)}
           onSave={async (draft) => {
-            await onMutate(() => api.create({
+            const saved = await onMutate(() => api.create({
               goal_id: draft.goalId,
               region_id: null,
               block_id: null,
@@ -255,7 +257,7 @@ function CalendarDay({
               date: draft.date,
               source: "manual",
             }));
-            setCreating(false);
+            if (saved) setCreating(false);
           }}
         />
       ) : (

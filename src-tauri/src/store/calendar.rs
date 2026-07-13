@@ -151,6 +151,26 @@ fn capacity(conn: &Connection) -> rusqlite::Result<u32> {
         .unwrap_or(DEFAULT_CAPACITY_MINUTES))
 }
 
+fn effective_deadline(
+    goal_deadline: Option<String>,
+    parent_deadline: Option<String>,
+) -> rusqlite::Result<Option<String>> {
+    let parse = |raw: Option<String>| match raw {
+        Some(raw) => Date::parse(&raw)
+            .map(Some)
+            .ok_or(rusqlite::Error::InvalidQuery),
+        None => Ok(None),
+    };
+    let goal = parse(goal_deadline)?;
+    let parent = parse(parent_deadline)?;
+    Ok(match (goal, parent) {
+        (Some(goal), Some(parent)) => Some(goal.min(parent).to_string()),
+        (Some(goal), None) => Some(goal.to_string()),
+        (None, Some(parent)) => Some(parent.to_string()),
+        (None, None) => None,
+    })
+}
+
 fn goal_piece(conn: &Connection, goal_id: i64) -> rusqlite::Result<i64> {
     conn.query_row(
         "SELECT piece_id FROM goal WHERE id = ?1",
@@ -426,7 +446,7 @@ impl Store {
             .add_days((recovery::RECOVERY_HORIZON_DAYS - 1).into())
             .ok_or(rusqlite::Error::InvalidQuery)?;
         let capacity_minutes = capacity(&tx)?;
-        let recovery_limit = recovery::MIN_RECOVERY_SHARE_MINUTES.max(capacity_minutes / 2);
+        let recovery_limit = recovery::recovery_limit_minutes(capacity_minutes);
 
         let mut total_load = HashMap::<String, u32>::new();
         let mut recovery_load = HashMap::<String, u32>::new();
@@ -471,13 +491,14 @@ impl Store {
                 "move" => {
                     let date_text = decision.date.as_deref().ok_or(rusqlite::Error::InvalidQuery)?;
                     let date = Date::parse(date_text).ok_or(rusqlite::Error::InvalidQuery)?;
-                    let deadline: Option<String> = tx.query_row(
-                        "SELECT COALESCE(g.target_date,parent.target_date)
+                    let (goal_deadline, parent_deadline): (Option<String>, Option<String>) = tx.query_row(
+                        "SELECT g.target_date,parent.target_date
                          FROM goal g LEFT JOIN goal parent ON parent.id=g.parent_goal_id
                          WHERE g.id=?1",
                         [work.goal_id],
-                        |row| row.get(0),
+                        |row| Ok((row.get(0)?, row.get(1)?)),
                     )?;
+                    let deadline = effective_deadline(goal_deadline, parent_deadline)?;
                     if date < today
                         || date > horizon_end
                         || deadline
@@ -571,7 +592,7 @@ fn recovery_preview_conn(conn: &Connection) -> rusqlite::Result<CalendarRecovery
     let missed_work = {
         let mut statement = conn.prepare(
             "SELECT w.id,w.goal_id,w.planned_minutes,w.origin_date,w.scheduled_date,
-                    COALESCE(g.target_date,parent.target_date),g.sort_order,w.updated_ts,
+                    g.target_date,parent.target_date,g.sort_order,w.updated_ts,
                     w.reschedule_count
              FROM daily_work w
              JOIN goal g ON g.id=w.goal_id
@@ -586,10 +607,10 @@ fn recovery_preview_conn(conn: &Connection) -> rusqlite::Result<CalendarRecovery
                 planned_minutes: row.get(2)?,
                 origin_date: row.get(3)?,
                 scheduled_date: row.get(4)?,
-                effective_deadline: row.get(5)?,
-                goal_order: row.get(6)?,
-                expected_updated_ts: row.get(7)?,
-                reschedule_count: row.get(8)?,
+                effective_deadline: effective_deadline(row.get(5)?, row.get(6)?)?,
+                goal_order: row.get(7)?,
+                expected_updated_ts: row.get(8)?,
+                reschedule_count: row.get(9)?,
             })
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()?
@@ -658,7 +679,7 @@ fn recovery_preview_conn(conn: &Connection) -> rusqlite::Result<CalendarRecovery
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::model::{GoalCreate, ScanPiece};
+    use crate::store::model::{GoalCreate, GoalPatch, ScanPiece};
 
     fn fixture() -> (Store, i64, i64) {
         let store = Store::open(":memory:").unwrap();
@@ -811,5 +832,56 @@ mod tests {
         assert_eq!(by_title["Done"].status, "done");
         assert_eq!(by_title["Dismiss"].status, "dismissed");
         assert_eq!(by_title["Leave"].status, "planned");
+    }
+
+    #[test]
+    fn recovery_uses_earliest_parent_or_child_deadline_and_rejects_invalid_legacy_dates() {
+        let (store, piece_id, parent_id) = fixture();
+        let today_text = store.local_today().unwrap();
+        let today = Date::parse(&today_text).unwrap();
+        let yesterday = today.add_days(-1).unwrap().to_string();
+        let parent_deadline = today.add_days(1).unwrap().to_string();
+        let child_deadline = today.add_days(4).unwrap().to_string();
+        store.goal_update(parent_id, GoalPatch {
+            target_date: Some(Some(parent_deadline.clone())),
+            ..Default::default()
+        }).unwrap();
+        let child = store.goal_create(GoalCreate {
+            piece_id,
+            text: "Child".into(),
+            kind: "sub".into(),
+            parent_goal_id: Some(parent_id),
+            target_date: Some(child_deadline),
+        }).unwrap();
+        let work = store.daily_work_create(DailyWorkCreate {
+            goal_id: child.id,
+            region_id: None,
+            block_id: None,
+            title: "Deadline-bound work".into(),
+            minutes: 10,
+            date: yesterday,
+            source: "manual".into(),
+        }).unwrap();
+
+        let preview = store.recovery_preview().unwrap();
+        assert_eq!(preview.items[0].effective_deadline.as_deref(), Some(parent_deadline.as_str()));
+        let after_parent = today.add_days(2).unwrap().to_string();
+        assert!(store.recovery_apply(vec![RecoveryDecision {
+            id: work.id,
+            expected_updated_ts: work.updated_ts.clone(),
+            action: "move".into(),
+            date: Some(after_parent),
+        }]).is_err());
+
+        {
+            let conn = store.conn.lock().unwrap();
+            conn.execute("UPDATE goal SET target_date='2026-02-30' WHERE id=?1", [child.id]).unwrap();
+        }
+        assert!(store.recovery_apply(vec![RecoveryDecision {
+            id: work.id,
+            expected_updated_ts: work.updated_ts,
+            action: "move".into(),
+            date: Some(today_text),
+        }]).is_err());
     }
 }

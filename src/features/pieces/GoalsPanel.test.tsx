@@ -14,6 +14,11 @@ const goals = [
   { id: 3, piece_id: 5, text: "Voice the return", kind: "sub", parent_goal_id: 1, done: true, order: 0, target_date: "2026-07-20", created_ts: "now" },
 ];
 
+const dailyWork = [
+  { id: 10, goal_id: 1, status: "planned" },
+  { id: 11, goal_id: 3, status: "done" },
+] as never[];
+
 function api(): GoalsApi {
   return {
     goalList: vi.fn().mockResolvedValue(goals),
@@ -21,13 +26,16 @@ function api(): GoalsApi {
     goalUpdate: vi.fn().mockResolvedValue(goals[0]),
     goalDelete: vi.fn().mockResolvedValue(undefined),
     goalReorder: vi.fn().mockResolvedValue(undefined),
+    dailyWorkList: vi.fn().mockResolvedValue(dailyWork),
   } as GoalsApi;
 }
 
 describe("GoalsPanel", () => {
   beforeEach(() => {
     invokeMock.mockReset().mockImplementation((command: string) =>
-      command === "goal_list" ? Promise.resolve(goals) : Promise.resolve(null),
+      command === "goal_list" ? Promise.resolve(goals)
+        : command === "daily_work_list" ? Promise.resolve(dailyWork)
+        : Promise.resolve(null),
     );
   });
 
@@ -46,6 +54,7 @@ describe("GoalsPanel", () => {
     await screen.findByText("Shape phrase");
     expect(screen.getByText("Voice the return")).toBeTruthy();
     expect(screen.getByText("1/1 subgoals done")).toBeTruthy();
+    expect(screen.getByText("2 calendar items · 1 planned · 1 done")).toBeTruthy();
     expect((screen.getByLabelText("Target date for Voice the return") as HTMLInputElement).value).toBe("2026-07-20");
   });
 
