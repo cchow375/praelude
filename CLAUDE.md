@@ -56,8 +56,7 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**v0.5.0 shipped (P5, tag `v0.5.0`, 2026-07-12): the real-score rep tracker now has a grounded
-Brain—Claude/Gemini/offline cited Q&A, 28-method library, visible deterministic Next work,
-voice-gated playback, and explicit one-time intake reviews. Calendar/recovery (P5.5) and Home /
-Practice Universe / references / polish (P6) remain; at-piano acceptance is pending; the repo is
-local-only.** Next: P5.5 nested goals + seven-day Calendar + explicit missed-day recovery.
+**v0.6.0 shipped (P5.5, tag `v0.6.0`, 2026-07-12): nested Goals, a seven-day Calendar,
+explicit deterministic scheduling, and atomic non-punitive missed-day recovery now sit on schema
+v5. Home / Practice Universe / references / settings / packaging (P6) remain; at-piano acceptance
+is pending; the repo is local-only.** Next: safely backfill reconstructable history, then ship P6.

@@ -1,6 +1,6 @@
 # CodaKiller P5.5 — Goals, Calendar + Missed-Day Recovery
 
-> **Status:** active · **Target:** v0.6.0 · **Branch:** `p55-calendar`
+> **Status:** shipped 2026-07-12 · **Target:** v0.6.0 · **Branch:** `p55-calendar`
 > **Goal:** turn big goals into explicit daily work and recover missed days without punishment,
 > silent rescheduling, fake practice credit, or AI scheduling authority.
 
@@ -62,9 +62,9 @@ Add append-only `daily_work_change` and `recovery_apply` events; previews never 
   action/date, Cancel=zero writes, one Apply.
 - [x] **P5.5.10 — Planner bridge.** Explicit Schedule action from deterministic suggestions;
   non-punitive active-day copy; no provider-authored schedule.
-- [ ] **P5.5.11 — Adversarial + live gate.** Fresh review, full suites/build/clippy, migration on
+- [x] **P5.5.11 — Adversarial + live gate.** Fresh review, full suites/build/clippy, migration on
   copied real DB, installed create/miss/cancel/apply/relaunch flow.
-- [ ] **P5.5.12 — Ship v0.6.0.** Docs/tutorial/flaws/version record, one sealed app, schema 5
+- [x] **P5.5.12 — Ship v0.6.0.** Docs/tutorial/flaws/version record, one sealed app, schema 5
   integrity, exact-one-app check, tag, fast-forward `main`.
 
 ## 🔌 Runtime contracts
@@ -94,4 +94,4 @@ schedules, automatic recovery writes, punishment streaks, or `spot_review` reuse
 
 ## Next action
 
-Complete the installed v0.6.0 create/miss/cancel/apply/relaunch gate, then seal and tag the release.
+Begin P6 with the idempotent historical-event backfill required for an honest Practice Universe.
