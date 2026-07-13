@@ -267,6 +267,11 @@ impl Store {
     pub fn save_intake(&self, id: i64, intake: &Intake) -> rusqlite::Result<()> {
         let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let tx = conn.transaction()?;
+        let old_deadline: Option<String> = tx.query_row(
+            "SELECT deadline FROM piece WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )?;
         tx.execute(
             "UPDATE piece SET
                  goals         = ?2,
@@ -284,6 +289,16 @@ impl Store {
                 json_to_sql(&intake.hard_spots)?,
                 intake.current_state,
             ],
+        )?;
+
+        // Existing root Goals that still carry the previous piece-level
+        // deadline inherited that default. Move those rows with the Piece;
+        // preserve any goal whose date was customized independently.
+        tx.execute(
+            "UPDATE goal SET target_date = ?2
+             WHERE piece_id = ?1 AND parent_goal_id IS NULL
+               AND target_date IS ?3",
+            rusqlite::params![id, intake.deadline, old_deadline],
         )?;
 
         // The legacy JSON summary remains for backward-compatible PieceDetail
@@ -919,6 +934,34 @@ mod tests {
         store.save_intake(id, &shorter).unwrap();
         let goals = store.goal_list(id).unwrap();
         assert_eq!(goals.len(), 2, "omitting a goal from review must not erase it");
+    }
+
+    #[test]
+    fn intake_resave_moves_inherited_goal_deadlines_but_preserves_custom_dates() {
+        let store = mem();
+        let id = store.upsert_piece(&scan("/v/A", "A", None)).unwrap();
+        let initial = Intake {
+            goals: vec!["Memorize".into(), "Perform".into()],
+            deadline: Some("2026-08-01".into()),
+            target_tempo: None,
+            hard_spots: vec![],
+            current_state: None,
+        };
+        store.save_intake(id, &initial).unwrap();
+        let goals = store.goal_list(id).unwrap();
+        store.goal_update(goals[1].id, model::GoalPatch {
+            target_date: Some(Some("2026-07-20".into())),
+            ..Default::default()
+        }).unwrap();
+
+        store.save_intake(id, &Intake {
+            deadline: Some("2026-09-01".into()),
+            ..initial
+        }).unwrap();
+
+        let goals = store.goal_list(id).unwrap();
+        assert_eq!(goals[0].target_date.as_deref(), Some("2026-09-01"));
+        assert_eq!(goals[1].target_date.as_deref(), Some("2026-07-20"));
     }
 
     #[test]

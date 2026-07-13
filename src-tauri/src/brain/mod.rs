@@ -559,15 +559,20 @@ fn output_crosses_policy(answer: &str) -> bool {
         // Provider prose is explanation only. These verb/object pairs are
         // rejected regardless of wording order, so synonyms cannot turn prose
         // into apparent app commands.
-        let navigation = has(&["go", "jump", "navigate", "open", "show", "scroll"])
-            && has(&["page", "measure", "score", "region"]);
+        let navigation = has(&[
+            "go", "jump", "navigate", "open", "show", "scroll", "head", "seek", "view",
+            "move", "turn",
+        ]) && has(&[
+            "page", "measure", "bar", "score", "region", "system", "section", "location",
+        ]);
         let tempo_control = has(&[
             "start", "stop", "set", "change", "raise", "lower", "increase", "decrease",
-            "bump", "retune", "adjust",
+            "bump", "retune", "adjust", "dial", "tune", "switch", "put",
         ]) && has(&["tempo", "bpm", "metronome", "click"]);
         let graph_mutation = has(&[
             "delete", "edit", "save", "update", "create", "remove", "add", "mark",
-            "reschedule", "move", "apply",
+            "reschedule", "move", "apply", "erase", "write", "record", "log", "rename",
+            "clear", "replace", "complete", "dismiss",
         ]) && has(&["goal", "block", "rep", "region", "intake", "deadline", "schedule"]);
 
         // The app has no piano-audio perception. Reject both first-person
@@ -581,12 +586,27 @@ fn output_crosses_policy(answer: &str) -> bool {
         let sounded_claim = sentence.contains("your playing sounds")
             || sentence.contains("your performance sounds")
             || sentence.contains("that sounded");
-        let verdict = has(&[
+        let outcome = has(&[
             "clean", "flawed", "failed", "sloppy", "rough", "shaky", "perfect", "correct",
-            "incorrect",
-        ]) && has(&["rep", "attempt", "playing", "performance", "take", "sounded"]);
+            "incorrect", "success", "successful", "miss", "missed", "pass", "passed",
+            "failure", "mistake", "good", "bad",
+        ]);
+        let attempt = has(&[
+            "rep", "repetition", "attempt", "playing", "performance", "take", "run", "try",
+            "sounded",
+        ]);
+        let verdict = outcome && attempt;
+        let verdict_action = has(&[
+            "count", "record", "log", "classify", "label", "mark", "treat", "call",
+        ]) && attempt && outcome;
 
-        navigation || tempo_control || graph_mutation || sensory_claim || sounded_claim || verdict
+        navigation
+            || tempo_control
+            || graph_mutation
+            || sensory_claim
+            || sounded_claim
+            || verdict
+            || verdict_action
     })
 }
 
@@ -877,6 +897,16 @@ mod tests {
         assert!(output_crosses_policy(
             "Move the goal to tomorrow and apply the schedule."
         ));
+        for bypass in [
+            "Count that repetition as a success.",
+            "That run was shaky, so record it as a miss.",
+            "Dial the metronome to 96.",
+            "Head to bar 42 in the score.",
+            "Erase the old goal.",
+            "Write the deadline as tomorrow.",
+        ] {
+            assert!(output_crosses_policy(bypass), "policy bypass: {bypass}");
+        }
         assert!(!output_crosses_policy(
             "Try three silent landings at a comfortable tempo."
         ));
