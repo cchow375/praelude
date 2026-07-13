@@ -622,3 +622,34 @@ voice at the mic. **Ground-truth findings on this Mac (macOS 15, M2):**
 - A correct invisible update is still a release failure. The top bar now derives its version from
   `package.json`, and the Practice landing surface names the Foundation features. This gives a
   first-screen, user-verifiable signal that the expected build is running.
+
+## P4 real-PDF workspace (v0.4.0, 2026-07-12)
+
+- **The PDF is the visual authority; Regions are the musical authority.** PDF.js renders the
+  user's actual edition. Region measure ranges remain canonical in SQLite; normalized page
+  rectangles are navigation metadata only. Do not infer printed geometry from MusicXML.
+- **PDF bytes cross Tauri IPC as raw binary.** Rust rediscovers and canonicalizes an edition under
+  the selected piece on every request, rejects traversal/symlinks/cross-piece ids, and returns
+  `tauri::ipc::Response`. Never expose a broad asset-protocol filesystem scope or JSON/base64 the
+  file. The frontend bundles the PDF.js worker locally.
+- **Large scores require persistent placeholders but disposable canvases.** All pages keep their
+  layout boxes for continuous scrolling; only visible pages plus one neighbor own a rendered
+  HiDPI canvas. Eviction cancels the render task, calls page cleanup, and sets both canvas backing
+  dimensions to zero. The real fixtures are a 20.3 MB / 28-page Scherzo edition and an 85-page
+  Cortot volume on the 8 GB M2 Air.
+- **Anchors are edition-specific and fingerprinted.** Contract: `{v:1, editions:{id:{fingerprint,
+  rects:[{page,x,y,w,h}]}}}` with 0..1 coordinates. A changed fingerprint is shown as `remap`,
+  never at stale coordinates. Region merge deduplicates compatible rectangles and drops a
+  conflicting edition; split clears the old geometry because both new ranges must be remapped.
+- **Do not use `scrollIntoView` inside the score workspace.** It can scroll outer ancestors and
+  hide the toolbar. Navigate by setting the score pane's own `scrollTop`/`scrollTo` target.
+- **Voice score navigation is intentionally silent.** `go to/show page N` and `go to/show measure
+  N` emit `score://navigate` without TTS over the pianist. This is a deliberate exception to the
+  older assumption that every command acknowledgment closes the STT gate; the 2.5 s duplicate
+  window can therefore suppress an immediate identical repeat.
+- **Tauri's P4 `.app` emerged linker-signed, not bundle-sealed.** `codesign --verify --deep
+  --strict` reported “code has no resources but signature indicates they must be present” and
+  `codesign -d` showed the hash-like linker identifier with `Info.plist=not bound`. After `ditto`,
+  run `codesign --force --deep --sign - --identifier com.christian.codakiller
+  /Applications/CodaKiller.app`, then strict-verify. v0.4.0's installed bundle is sealed and uses
+  the correct identifier; P6 packaging must automate this instead of relying on release memory.
