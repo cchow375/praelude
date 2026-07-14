@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 let lastIntent: { kind: string; text: string; bpm: number | null } | null = null;
@@ -37,9 +37,12 @@ afterEach(() => {
 });
 
 describe("Brain navigation", () => {
-  it("opens the Brain workspace from the top-level view switcher", () => {
+  it("opens the persistent Brain drawer without leaving the current workspace", () => {
     render(<Shell />);
-    fireEvent.click(screen.getByRole("tab", { name: "Brain" }));
+    const trigger = screen.getByRole("button", { name: "Brain" });
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Home" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByTestId("main-brain")).toBeTruthy();
   });
 
@@ -47,7 +50,36 @@ describe("Brain navigation", () => {
     lastIntent = { kind: "question", text: "How do I stabilize this leap?", bpm: null };
     render(<Shell />);
 
-    expect(await screen.findByTestId("main-brain")).toBeTruthy();
+    await screen.findByText("How do I stabilize this leap?");
+    expect(screen.getByRole("button", { name: "Brain" }).getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("How do I stabilize this leap?")).toBeTruthy();
+  });
+
+  it("keeps the conversation mounted across drawer collapse and reopen", async () => {
+    render(<Shell />);
+    fireEvent.click(screen.getByRole("button", { name: "Brain" }));
+    fireEvent.change(screen.getByLabelText("Ask Coda"), { target: { value: "How do I land this leap?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    expect(await screen.findByText("Try three slow landings.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Practice Brain" }));
+    fireEvent.click(screen.getByRole("button", { name: "Brain" }));
+    expect(screen.getByText("Try three slow landings.")).toBeTruthy();
+  });
+
+  it("returns keyboard focus to the Brain tool when the drawer closes", async () => {
+    render(<Shell />);
+    const trigger = screen.getByRole("button", { name: "Brain" });
+    fireEvent.click(trigger);
+    const collapse = screen.getByRole("button", { name: "Collapse Practice Brain" });
+    collapse.focus();
+    fireEvent.click(collapse);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+
+    fireEvent.click(trigger);
+    screen.getByLabelText("Ask Coda").focus();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 });

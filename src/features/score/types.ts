@@ -72,3 +72,17 @@ export interface ScorePdfApi {
   blocks: (pieceId: number) => Promise<BlockHistory[]>;
   updateRegion: (regionId: number, pdfAnchor: PdfAnchorMap | null) => Promise<Region>;
 }
+
+/** Visible score state lifted to the shell for the persistent Practice Brain. */
+export interface ScoreFocusContext {
+  region: {
+    id: number;
+    name: string;
+    notes: string | null;
+    m_start: number;
+    m_end: number;
+  } | null;
+  current_page: number;
+  edition_id: string | null;
+  edition_label: string | null;
+}

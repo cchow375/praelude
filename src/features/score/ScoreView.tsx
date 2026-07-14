@@ -29,6 +29,7 @@ import type {
   PdfPageHandle,
   PdfPageSize,
   ScorePdfApi,
+  ScoreFocusContext,
 } from "./types";
 import "./ScoreView.css";
 
@@ -186,6 +187,7 @@ export interface ScoreViewProps {
   onOpenBlock?: (args: RepOpenArgs) => void;
   opening?: boolean;
   onRegionsChanged?: () => void;
+  onContextChange?: (context: ScoreFocusContext) => void;
   api?: ScorePdfApi;
   adapter?: PdfAdapter;
   loadTimeoutMs?: number;
@@ -230,6 +232,7 @@ export function ScoreView({
   onOpenBlock,
   opening = false,
   onRegionsChanged,
+  onContextChange,
   api = defaultApi,
   adapter = pdfJsAdapter,
   loadTimeoutMs = PDF_LOAD_TIMEOUT_MS,
@@ -418,6 +421,20 @@ export function ScoreView({
         : clampZoom(manualZoom);
   const edition = editions.find((item) => item.id === editionId) ?? null;
   const selectedRegion = regions.find((region) => region.id === selectedRegionId) ?? null;
+  useEffect(() => {
+    onContextChange?.({
+      region: selectedRegion ? {
+        id: selectedRegion.id,
+        name: selectedRegion.name,
+        notes: selectedRegion.notes,
+        m_start: selectedRegion.m_start,
+        m_end: selectedRegion.m_end,
+      } : null,
+      current_page: currentPage,
+      edition_id: edition?.id ?? null,
+      edition_label: edition?.label ?? null,
+    });
+  }, [currentPage, edition?.id, edition?.label, onContextChange, selectedRegion]);
   const displayedRegions = useMemo(() => {
     const query = regionQuery.trim().toLocaleLowerCase();
     return [...regions]
@@ -764,7 +781,6 @@ export function ScoreView({
           <button type="button" className={scaleMode === "width" ? "is-active" : ""} onClick={() => setScaleMode("width")}>Fit width</button>
           <button type="button" className={scaleMode === "page" ? "is-active" : ""} onClick={() => setScaleMode("page")}>Fit page</button>
           <button type="button" className={scaleMode === "overview" ? "is-active" : ""} onClick={() => setScaleMode("overview")}>2-page view</button>
-          <button type="button" className={sectionsVisible ? "is-active" : ""} aria-pressed={sectionsVisible} onClick={() => setSectionsVisible((visible) => !visible)}>{sectionsVisible ? "Hide sections" : "Show sections"}</button>
         </div>
       </header>
 
@@ -813,7 +829,18 @@ export function ScoreView({
             </div>
           </div>
 
-          <aside className="score-region-panel" aria-label="Score Regions">
+          <button
+            type="button"
+            className="score-sidebar-toggle"
+            aria-controls="score-region-panel"
+            aria-expanded={sectionsVisible}
+            aria-label={sectionsVisible ? "Collapse tricky sections" : "Expand tricky sections"}
+            onClick={() => setSectionsVisible((visible) => !visible)}
+          >
+            <span aria-hidden="true">{sectionsVisible ? "›" : "‹"}</span>
+          </button>
+
+          <aside id="score-region-panel" className="score-region-panel" aria-label="Score Regions">
             <div className="score-region-panel-head">
               <div>
                 <span className="ck-label">Score map</span>

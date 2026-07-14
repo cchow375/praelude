@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { PieceDetailData, PieceSummary } from "./types";
 import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
 import { PieceDetail } from "./PieceDetail";
+import type { PracticeBrainContext } from "../brain/types";
 import "./Pieces.css";
 
 // ---------------------------------------------------------------------------
@@ -18,6 +19,7 @@ interface PiecesPanelProps {
   /** A Home-star selection opens this piece directly, bypassing the library. */
   initialPieceId?: number | null;
   onLeavePiece?: () => void;
+  onPracticeContextChange?: (context: PracticeBrainContext | null) => void;
 }
 
 function messageOf(e: unknown): string {
@@ -26,7 +28,13 @@ function messageOf(e: unknown): string {
   return String(e);
 }
 
-export function PiecesPanel({ onOpenBlock, activeRep = null, initialPieceId = null, onLeavePiece }: PiecesPanelProps) {
+export function PiecesPanel({
+  onOpenBlock,
+  activeRep = null,
+  initialPieceId = null,
+  onLeavePiece,
+  onPracticeContextChange,
+}: PiecesPanelProps) {
   const [pieces, setPieces] = useState<PieceSummary[]>([]);
   const [selected, setSelected] = useState<PieceDetailData | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -106,11 +114,13 @@ export function PiecesPanel({ onOpenBlock, activeRep = null, initialPieceId = nu
           onBack={() => {
             selectionGeneration.current += 1;
             setSelected(null);
+            onPracticeContextChange?.(null);
             onLeavePiece?.();
           }}
           onOpenBlock={onOpenBlock}
           activeRep={activeRep}
           onUpdated={onPieceUpdated}
+          onPracticeContextChange={onPracticeContextChange}
         />
       </div>
     );

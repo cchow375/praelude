@@ -10,9 +10,10 @@
 //! A "piece" is a folder directly under the pieces dir. Its display name is
 //! parsed from the folder name (`"Composer - Title"`); its score files are the
 //! first matching `*.musicxml`/`*.mxl` (engraving) and `*.pdf` found under
-//! `score/` (preferred) or the folder root. Everything that is *not* a real
-//! piece folder — loose files (`.DS_Store`), the `_piece-template` scaffold,
-//! dot-directories — is skipped.
+//! `score/` (preferred) or the folder root. A direct `*.xml` file is a final
+//! fallback only when a bounded prefix parses to a MusicXML root element. Everything
+//! that is *not* a real piece folder — loose files (`.DS_Store`), the
+//! `_piece-template` scaffold, dot-directories — is skipped.
 //!
 //! Robustness over strictness: a missing or unreadable pieces dir yields an
 //! empty list, never an error. The startup scan runs on a background thread and
@@ -20,16 +21,23 @@
 //! because the vault happens to be absent (external disk unplugged, fresh
 //! machine, etc.).
 
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
+
+use quick_xml::events::Event;
+use quick_xml::Reader;
 
 /// Re-exported so callers use `vault::ScanPiece` per the P3 contract, while the
 /// type itself lives with the rest of the data-layer serde types in the store.
 pub use crate::store::model::ScanPiece;
 
 /// Score-file extensions treated as machine-readable engravings (drive `has_xml`).
-/// Note `.xml` alone is intentionally NOT here: only true MusicXML (`.musicxml`)
-/// and compressed MusicXML (`.mxl`) count.
+/// A plain `.xml` file is handled separately as a sniffed fallback, so these
+/// unambiguous extensions retain priority.
 const XML_EXTS: &[&str] = &["musicxml", "mxl"];
+/// Plain XML discovery parses only this prefix and never resolves a DTD or
+/// follows a symlink.
+const PLAIN_XML_SNIFF_BYTES: u64 = 16 * 1024;
 /// Score-file extension treated as a printable score (drives `has_pdf`).
 const PDF_EXTS: &[&str] = &["pdf"];
 
@@ -76,8 +84,18 @@ fn scan_folder(path: &Path) -> Option<ScanPiece> {
         folder_path: path.to_string_lossy().into_owned(),
         title,
         composer,
-        xml_path: find_score(path, XML_EXTS),
+        xml_path: find_musicxml_score(path),
         pdf_path: find_score(path, PDF_EXTS),
+    })
+}
+
+/// Prefer unambiguous MusicXML extensions across both supported locations,
+/// then fall back to a content-sniffed direct `.xml` file. This ordering means
+/// an official root-level `.musicxml`/`.mxl` still wins over an ambiguous
+/// `score/*.xml`, while each tier retains the vault's score-dir-first rule.
+fn find_musicxml_score(folder: &Path) -> Option<PathBuf> {
+    find_score(folder, XML_EXTS).or_else(|| {
+        first_plain_xml_musicxml(&folder.join("score")).or_else(|| first_plain_xml_musicxml(folder))
     })
 }
 
@@ -107,6 +125,65 @@ fn first_with_ext(dir: &Path, exts: &[&str]) -> Option<PathBuf> {
     matches.into_iter().next()
 }
 
+/// The alphabetically-first direct, regular, non-symlink `.xml` file whose
+/// bounded prefix parses to a MusicXML document root. `DirEntry::file_type`
+/// inspects the directory entry itself, so a symlink is rejected rather than
+/// followed by `Path::is_file`.
+fn first_plain_xml_musicxml(dir: &Path) -> Option<PathBuf> {
+    let mut matches: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let file_type = entry.file_type().ok()?;
+            if !file_type.is_file() {
+                return None;
+            }
+            let path = entry.path();
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("xml"))
+                .then_some(path)
+        })
+        .collect();
+    matches.sort();
+    matches
+        .into_iter()
+        .find(|path| has_musicxml_root_prefix(path))
+}
+
+fn has_musicxml_root_prefix(path: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut prefix = Vec::with_capacity(PLAIN_XML_SNIFF_BYTES as usize);
+    if file
+        .take(PLAIN_XML_SNIFF_BYTES)
+        .read_to_end(&mut prefix)
+        .is_err()
+    {
+        return false;
+    }
+    let mut reader = Reader::from_reader(Cursor::new(prefix));
+    reader.config_mut().trim_text(true);
+    let mut buffer = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buffer) {
+            Ok(Event::Start(event)) | Ok(Event::Empty(event)) => {
+                let root = event.local_name();
+                return root.as_ref() == b"score-partwise"
+                    || root.as_ref() == b"score-timewise";
+            }
+            // quick-xml reports the external declaration but does not fetch or
+            // resolve it. These prologue events are safe to skip.
+            Ok(Event::DocType(_) | Event::Decl(_) | Event::PI(_) | Event::Comment(_)) => {}
+            Ok(Event::Text(text)) if text.iter().all(u8::is_ascii_whitespace) => {}
+            Ok(Event::Eof) | Err(_) => return false,
+            _ => return false,
+        }
+        buffer.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,9 +192,13 @@ mod tests {
 
     /// Create `dir/rel` as an empty file, making parent dirs as needed.
     fn touch(dir: &Path, rel: &str) {
+        write_file(dir, rel, b"");
+    }
+
+    fn write_file(dir: &Path, rel: &str, contents: &[u8]) {
         let path = dir.join(rel);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, b"").unwrap();
+        fs::write(path, contents).unwrap();
     }
 
     #[test]
@@ -156,7 +237,11 @@ mod tests {
         let pieces = scan_pieces(td.path());
         assert_eq!(pieces.len(), 1);
         let p = &pieces[0];
-        assert!(p.xml_path.as_ref().unwrap().ends_with("score/sonata.musicxml"));
+        assert!(p
+            .xml_path
+            .as_ref()
+            .unwrap()
+            .ends_with("score/sonata.musicxml"));
         assert!(p.pdf_path.as_ref().unwrap().ends_with("score/urtext.pdf"));
     }
 
@@ -174,13 +259,134 @@ mod tests {
     }
 
     #[test]
-    fn plain_xml_extension_is_not_treated_as_musicxml() {
+    fn arbitrary_plain_xml_is_not_treated_as_musicxml() {
         let td = TempDir::new().unwrap();
         let base = "Griffes - The Lake at Evening";
-        touch(td.path(), &format!("{base}/score/lake.xml")); // .xml, not .musicxml
+        write_file(
+            td.path(),
+            &format!("{base}/score/catalog.xml"),
+            br#"<?xml version="1.0"?><catalog><score>not MusicXML</score></catalog>"#,
+        );
         let pieces = scan_pieces(td.path());
         assert_eq!(pieces.len(), 1);
-        assert_eq!(pieces[0].xml_path, None, ".xml alone must not count as MusicXML");
+        assert_eq!(pieces[0].xml_path, None);
+    }
+
+    #[test]
+    fn musicxml_words_in_comments_or_nested_elements_do_not_fake_the_root() {
+        let td = TempDir::new().unwrap();
+        let base = "Griffes - The Lake at Evening";
+        write_file(
+            td.path(),
+            &format!("{base}/score/a-comment.xml"),
+            br#"<!-- <score-partwise version="4.0"/> --><catalog/>"#,
+        );
+        write_file(
+            td.path(),
+            &format!("{base}/score/b-nested.xml"),
+            br#"<catalog><score-partwise version="4.0"/></catalog>"#,
+        );
+        write_file(
+            td.path(),
+            &format!("{base}/score/c-score.xml"),
+            br#"<?xml version="1.0"?><score-partwise version="4.0"/>"#,
+        );
+        let pieces = scan_pieces(td.path());
+        assert!(pieces[0]
+            .xml_path
+            .as_ref()
+            .unwrap()
+            .ends_with("score/c-score.xml"));
+    }
+
+    #[test]
+    fn valid_plain_xml_musicxml_is_accepted() {
+        let td = TempDir::new().unwrap();
+        let base = "Griffes - The Lake at Evening";
+        write_file(
+            td.path(),
+            &format!("{base}/score/lake.xml"),
+            br#"<?xml version="1.0"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="4.0"><part-list/></score-partwise>"#,
+        );
+        let pieces = scan_pieces(td.path());
+        assert!(pieces[0]
+            .xml_path
+            .as_ref()
+            .unwrap()
+            .ends_with("score/lake.xml"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plain_xml_symlink_is_ignored() {
+        use std::os::unix::fs::symlink;
+
+        let td = TempDir::new().unwrap();
+        let base = "Griffes - The Lake at Evening";
+        write_file(
+            td.path(),
+            &format!("{base}/real-score.data"),
+            br#"<score-partwise version="4.0"/>"#,
+        );
+        let link = td.path().join(format!("{base}/score/lake.xml"));
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        symlink(td.path().join(format!("{base}/real-score.data")), &link).unwrap();
+
+        let pieces = scan_pieces(td.path());
+        assert_eq!(pieces[0].xml_path, None);
+    }
+
+    #[test]
+    fn official_musicxml_extension_precedes_plain_xml_fallback() {
+        let td = TempDir::new().unwrap();
+        let base = "Bach - Prelude";
+        touch(td.path(), &format!("{base}/canonical.musicxml"));
+        write_file(
+            td.path(),
+            &format!("{base}/score/alternate.xml"),
+            br#"<score-timewise version="4.0"/>"#,
+        );
+        let pieces = scan_pieces(td.path());
+        assert!(pieces[0]
+            .xml_path
+            .as_ref()
+            .unwrap()
+            .ends_with("canonical.musicxml"));
+    }
+
+    #[test]
+    fn score_subdir_is_preferred_for_plain_xml_fallback() {
+        let td = TempDir::new().unwrap();
+        let base = "Bach - Prelude";
+        write_file(
+            td.path(),
+            &format!("{base}/root.xml"),
+            br#"<score-partwise version="4.0"/>"#,
+        );
+        write_file(
+            td.path(),
+            &format!("{base}/score/canonical.xml"),
+            br#"<score-partwise version="4.0"/>"#,
+        );
+        let pieces = scan_pieces(td.path());
+        assert!(pieces[0]
+            .xml_path
+            .as_ref()
+            .unwrap()
+            .ends_with("score/canonical.xml"));
+    }
+
+    #[test]
+    fn plain_xml_root_beyond_sniff_limit_is_ignored() {
+        let td = TempDir::new().unwrap();
+        let base = "Late - Root";
+        let mut contents = vec![b' '; PLAIN_XML_SNIFF_BYTES as usize];
+        contents.extend_from_slice(br#"<score-partwise version="4.0"/>"#);
+        write_file(td.path(), &format!("{base}/score/late.xml"), &contents);
+        let pieces = scan_pieces(td.path());
+        assert_eq!(pieces[0].xml_path, None);
     }
 
     #[test]
@@ -239,5 +445,21 @@ mod tests {
         assert_eq!(pieces.len(), 1);
         assert_eq!(pieces[0].xml_path, None);
         assert_eq!(pieces[0].pdf_path, None);
+    }
+
+    #[test]
+    #[ignore = "requires Christian's real Pieces vault"]
+    fn real_griffes_plain_xml_is_discovered_as_musicxml() {
+        let pieces = scan_pieces(Path::new(
+            "/Users/c3/Desktop/christian's universe/Piano Practice/Pieces",
+        ));
+        let griffes = pieces
+            .iter()
+            .find(|piece| piece.title == "The Lake at Evening Op.5 No.1")
+            .expect("Griffes piece is present");
+        assert!(griffes
+            .xml_path
+            .as_ref()
+            .is_some_and(|path| path.extension().is_some_and(|ext| ext == "xml")));
     }
 }

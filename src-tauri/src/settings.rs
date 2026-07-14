@@ -11,6 +11,8 @@ use crate::store::Store;
 
 const SOUNDS: &[&str] = &["beep", "clave", "cowbell", "rim", "tick", "woodblock"];
 const VOICES: &[&str] = &["Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"];
+const DEFAULT_KNOWLEDGE_DIR: &str =
+    "/Users/c3/Desktop/christian's universe/Piano Practice/Knowledge and Resources";
 const RESERVED_ALIASES: &[&str] = &[
     "done", "clean", "got it", "nailed it", "perfect", "good", "yes", "yep",
     "sloppy", "rough", "shaky", "almost", "again", "nope", "no", "missed",
@@ -28,9 +30,12 @@ pub struct VerdictAliases {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SettingsSnapshot {
     pub theme: String,
+    pub interface_scale: u16,
     pub tts_provider: String,
     pub tts_voice: String,
     pub brain_provider: String,
+    pub knowledge_dir: String,
+    pub share_retrieved_knowledge: bool,
     pub wake_word_enabled: bool,
     pub wake_word: String,
     pub metronome_sound: String,
@@ -47,9 +52,12 @@ pub struct SettingsSnapshot {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SettingsPatch {
     pub theme: Option<String>,
+    pub interface_scale: Option<u16>,
     pub tts_provider: Option<String>,
     pub tts_voice: Option<String>,
     pub brain_provider: Option<String>,
+    pub knowledge_dir: Option<String>,
+    pub share_retrieved_knowledge: Option<bool>,
     pub wake_word_enabled: Option<bool>,
     pub wake_word: Option<String>,
     pub metronome_sound: Option<String>,
@@ -66,6 +74,7 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
     let wake_word = string(store, "voice.wake_word", "coda");
     SettingsSnapshot {
         theme: choice(store, "theme", "auto", &["auto", "dark", "light"]),
+        interface_scale: integer(store, "ui.interface_scale", 90, 75, 125) as u16,
         tts_provider: choice(store, "tts.provider", "auto", &["auto", "gemini", "say"]),
         tts_voice: choice(store, "tts.voice", "Kore", VOICES),
         brain_provider: choice(
@@ -74,6 +83,11 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
             "auto",
             &["auto", "claude", "gemini", "offline"],
         ),
+        knowledge_dir: string(store, "brain.knowledge_dir", DEFAULT_KNOWLEDGE_DIR),
+        // Christian explicitly requested that the selected local-book passages
+        // ground Claude/Gemini. Only the retrieved, bounded excerpts cross the
+        // provider boundary; the corpus itself is never uploaded or bundled.
+        share_retrieved_knowledge: boolean(store, "brain.share_retrieved_knowledge", true),
         wake_word_enabled: boolean(store, "voice.wake_word_enabled", false),
         wake_word,
         metronome_sound: choice(store, "metronome.sound", "woodblock", SOUNDS),
@@ -107,6 +121,12 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
     if let Some(value) = patch.theme {
         writes.push(("theme", validate_choice(value, &["auto", "dark", "light"])?));
     }
+    if let Some(value) = patch.interface_scale {
+        writes.push((
+            "ui.interface_scale",
+            bounded(u32::from(value), 75, 125, "Interface scale")?.to_string(),
+        ));
+    }
     if let Some(value) = patch.tts_provider {
         writes.push(("tts.provider", validate_choice(value, &["auto", "gemini", "say"])?));
     }
@@ -118,6 +138,17 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
             "brain.provider",
             validate_choice(value, &["auto", "claude", "gemini", "offline"])?,
         ));
+    }
+    if let Some(value) = patch.knowledge_dir {
+        let trimmed = value.trim();
+        let path = std::path::Path::new(trimmed);
+        if trimmed.is_empty() || trimmed.len() > 1_024 || !path.is_absolute() || !path.is_dir() {
+            return Err("Knowledge folder must be an existing absolute directory.".into());
+        }
+        writes.push(("brain.knowledge_dir", trimmed.to_string()));
+    }
+    if let Some(value) = patch.share_retrieved_knowledge {
+        writes.push(("brain.share_retrieved_knowledge", value.to_string()));
     }
     if let Some(value) = patch.wake_word_enabled {
         writes.push(("voice.wake_word_enabled", value.to_string()));
@@ -314,6 +345,9 @@ mod tests {
         store.set_setting("rep.default_reps", "9999").unwrap();
         let value = snapshot(&store);
         assert_eq!(value.theme, "auto");
+        assert_eq!(value.interface_scale, 90);
+        assert_eq!(value.knowledge_dir, DEFAULT_KNOWLEDGE_DIR);
+        assert!(value.share_retrieved_knowledge);
         assert_eq!(value.ladder_default_reps, 30);
         assert_eq!(value.ladder_bpm_step, 4);
         assert!(value.api_keys.iter().all(|status| matches!(status.source, "keychain" | "environment" | "none")));
@@ -324,6 +358,7 @@ mod tests {
         let store = Store::open(":memory:").unwrap();
         let result = update(&store, SettingsPatch {
             theme: Some("dark".into()),
+            interface_scale: Some(85),
             wake_word_enabled: Some(true),
             wake_word: Some(" Hey   Coda ".into()),
             ladder_default_reps: Some(40),
@@ -332,6 +367,7 @@ mod tests {
             ..Default::default()
         }).unwrap();
         assert_eq!(result.theme, "dark");
+        assert_eq!(result.interface_scale, 85);
         assert!(result.wake_word_enabled);
         assert_eq!(result.wake_word, "hey coda");
         assert_eq!(result.ladder_default_reps, 40);
@@ -353,6 +389,11 @@ mod tests {
             ..Default::default()
         }).is_err());
         assert_eq!(store.get_setting("metronome.boost_level").unwrap(), None);
+        assert!(update(&store, SettingsPatch {
+            interface_scale: Some(50),
+            ..Default::default()
+        }).is_err());
+        assert_eq!(store.get_setting("ui.interface_scale").unwrap(), None);
     }
 
     #[test]

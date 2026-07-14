@@ -672,13 +672,6 @@ fn brain_plan_preview(
     store: State<'_, Arc<Store>>,
 ) -> Result<Vec<planner::WorkSuggestion>, String> {
     let id = piece_id
-        .or_else(|| {
-            store
-                .get_setting("ui.current_piece")
-                .ok()
-                .flatten()
-                .and_then(|value| value.parse().ok())
-        })
         .ok_or_else(|| "Pick a piece before asking what to practice next".to_string())?;
     planner::preview_for_piece(&store, id).map_err(|error| error.to_string())
 }
@@ -691,14 +684,18 @@ async fn brain_ask(
     request: brain::BrainAskRequest,
     store: State<'_, Arc<Store>>,
     sessions: State<'_, Arc<SessionService>>,
+    rep: State<'_, Arc<RepEngine>>,
     voice: State<'_, Arc<VoiceLoop>>,
     pending_reviews: State<'_, Arc<brain::PendingIntakeReviews>>,
 ) -> Result<brain::BrainAnswer, String> {
     let should_speak = matches!(request.source, brain::QuestionSource::Voice);
     let store = store.inner().clone();
     let sessions = sessions.inner().clone();
+    // Snapshot before entering the blocking provider worker. This keeps the
+    // RepEngine authoritative without moving live state across that boundary.
+    let active_rep = rep.snapshot();
     let answer = tauri::async_runtime::spawn_blocking(move || {
-        brain::ask_native(request, store, sessions)
+        brain::ask_native(request, store, sessions, active_rep)
     })
         .await
         .map_err(|_| "Brain worker stopped unexpectedly".to_string())?

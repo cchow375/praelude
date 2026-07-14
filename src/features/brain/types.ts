@@ -6,6 +6,8 @@ export interface BrainCitation {
   label: string;
   excerpt: string;
   url?: string;
+  /** Safe book/chapter/page locator; raw filesystem paths never cross IPC. */
+  locator?: string;
 }
 
 export interface BrainMethod {
@@ -37,11 +39,64 @@ export interface BrainAnswer {
   citations: BrainCitation[];
   methods: BrainMethod[];
   intake_review?: BrainIntakeReview | null;
+  grounding?: BrainGroundingSummary;
+}
+
+export interface BrainGroundingSummary {
+  piece_title: string | null;
+  region_name: string | null;
+  measure_range: [number, number] | null;
+  recent_rep_count: number;
+  active_block_included: boolean;
+  knowledge_status: "ready" | "partial" | "unavailable" | string;
+  knowledge_shared_with_provider: boolean;
+  knowledge_sources: string[];
+  musicxml_status: "ready" | "missing" | "not_requested" | "unsupported" | string;
+  warnings: string[];
 }
 
 export interface BrainAskRequest {
   question: string;
   source: BrainQuestionSource;
+  /** Kept explicit for the current backend context resolver. */
+  piece_id: number | null;
+  /** Bounded prior dialogue. The backend must not rely on client-only state. */
+  history: BrainConversationTurn[];
+  /** Exact visible practice state, or null when no piece is active in the UI. */
+  context: PracticeBrainContext | null;
+}
+
+export interface BrainConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface PracticeBrainRegionContext {
+  id: number;
+  name: string;
+  notes: string | null;
+  m_start: number;
+  m_end: number;
+}
+
+export interface PracticeBrainContext {
+  piece_id: number;
+  piece_title: string;
+  composer: string | null;
+  surface: "details" | "score";
+  region: PracticeBrainRegionContext | null;
+  current_page: number | null;
+  edition_id: string | null;
+  edition_label: string | null;
+  active_block?: {
+    m_start: number;
+    m_end: number;
+    bpm: number;
+    target_bpm: number | null;
+    focus: string;
+    reps_done: number;
+    planned_reps: number;
+  } | null;
 }
 
 export interface IntakeChange {
@@ -81,7 +136,7 @@ export interface PlannerScheduleRequest {
 export interface BrainApi {
   ask: (request: BrainAskRequest) => Promise<BrainAnswer>;
   applyIntakeReview: (request: BrainIntakeApplyRequest) => Promise<BrainIntakeApplyResult>;
-  planPreview: () => Promise<WorkSuggestion[]>;
+  planPreview: (pieceId: number | null) => Promise<WorkSuggestion[]>;
   schedule: (request: PlannerScheduleRequest) => Promise<void>;
 }
 

@@ -3,15 +3,19 @@ import { invoke } from "@tauri-apps/api/core";
 import "./SettingsPanel.css";
 
 type Provider = "claude" | "gemini";
+const DEFAULT_KNOWLEDGE_DIR = "/Users/c3/Desktop/christian's universe/Piano Practice/Knowledge and Resources";
 
 interface ApiKeyStatus { provider: Provider; configured: boolean; source: "keychain" | "environment" | "none" }
 interface VerdictAliases { clean: string[]; flawed: string[]; failed: string[] }
 
 export interface SettingsSnapshot {
   theme: "auto" | "dark" | "light";
+  interface_scale: number;
   tts_provider: "auto" | "gemini" | "say";
   tts_voice: string;
   brain_provider: "auto" | "claude" | "gemini" | "offline";
+  knowledge_dir: string;
+  share_retrieved_knowledge: boolean;
   wake_word_enabled: boolean;
   wake_word: string;
   metronome_sound: string;
@@ -42,10 +46,12 @@ const defaultApi: SettingsApi = {
 export function SettingsPanel({
   onResetLayout,
   onThemeSaved,
+  onInterfaceScaleSaved,
   api = defaultApi,
 }: {
   onResetLayout: () => void;
   onThemeSaved?: (theme: "auto" | "dark" | "light") => void;
+  onInterfaceScaleSaved?: (scale: number) => void;
   api?: SettingsApi;
 }) {
   const [value, setValue] = useState<SettingsSnapshot | null>(null);
@@ -56,7 +62,16 @@ export function SettingsPanel({
 
   useEffect(() => {
     let active = true;
-    api.snapshot().then((next) => { if (active) { setValue(next); setAliasDrafts(aliasStrings(next.verdict_aliases)); } }).catch((cause) => {
+    api.snapshot().then((next) => { if (active) {
+      const normalized = {
+        ...next,
+        interface_scale: Number.isFinite(next.interface_scale) ? next.interface_scale : 90,
+        knowledge_dir: next.knowledge_dir || DEFAULT_KNOWLEDGE_DIR,
+        share_retrieved_knowledge: next.share_retrieved_knowledge ?? true,
+      };
+      setValue(normalized);
+      setAliasDrafts(aliasStrings(normalized.verdict_aliases));
+    } }).catch((cause) => {
       if (active) setError(errorMessage(cause));
     });
     return () => { active = false; };
@@ -71,9 +86,12 @@ export function SettingsPanel({
     try {
       const next = await api.update({
         theme: value.theme,
+        interface_scale: value.interface_scale,
         tts_provider: value.tts_provider,
         tts_voice: value.tts_voice,
         brain_provider: value.brain_provider,
+        knowledge_dir: value.knowledge_dir,
+        share_retrieved_knowledge: value.share_retrieved_knowledge,
         wake_word_enabled: value.wake_word_enabled,
         wake_word: value.wake_word,
         metronome_sound: value.metronome_sound,
@@ -92,6 +110,7 @@ export function SettingsPanel({
       setValue(next);
       setAliasDrafts(aliasStrings(next.verdict_aliases));
       onThemeSaved?.(next.theme);
+      onInterfaceScaleSaved?.(next.interface_scale);
       setMessage("Settings saved. Voice/provider changes apply after relaunch.");
     } catch (cause) {
       setError(errorMessage(cause));
@@ -112,6 +131,7 @@ export function SettingsPanel({
 
       <fieldset><legend>Appearance</legend>
         <label><span>Theme</span><select aria-label="Theme" value={value.theme} onChange={(event) => setValue({ ...value, theme: event.target.value as SettingsSnapshot["theme"] })}><option value="auto">Follow Mac</option><option value="dark">Dark</option><option value="light">Light</option></select></label>
+        <label className="settings-scale"><span>Interface scale <strong>{value.interface_scale}%</strong></span><input aria-label="Interface scale" type="range" min="75" max="125" step="5" value={value.interface_scale} onChange={(event) => setValue({ ...value, interface_scale: Number(event.target.value) })} /></label>
         <button type="button" className="settings-secondary" onClick={onResetLayout}>Reset panel layout</button>
       </fieldset>
 
@@ -121,6 +141,8 @@ export function SettingsPanel({
         <label><span>Coach voice</span><select aria-label="Coach voice" value={value.tts_voice} onChange={(event) => setValue({ ...value, tts_voice: event.target.value })}>{["Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"].map((voice) => <option key={voice}>{voice}</option>)}</select></label>
         <label><span>Speech provider</span><select aria-label="Speech provider" value={value.tts_provider} onChange={(event) => setValue({ ...value, tts_provider: event.target.value as SettingsSnapshot["tts_provider"] })}><option value="auto">Auto (Gemini → Mac)</option><option value="gemini">Gemini</option><option value="say">Mac system voice</option></select></label>
         <label><span>Brain provider</span><select aria-label="Brain provider" value={value.brain_provider} onChange={(event) => setValue({ ...value, brain_provider: event.target.value as SettingsSnapshot["brain_provider"] })}><option value="auto">Auto (Claude → Gemini → offline)</option><option value="claude">Prefer Claude</option><option value="gemini">Gemini only</option><option value="offline">Offline library only</option></select></label>
+        <label className="settings-wide"><span>Knowledge folder</span><input aria-label="Knowledge folder" value={value.knowledge_dir} onChange={(event) => setValue({ ...value, knowledge_dir: event.target.value })} /></label>
+        <label className="settings-check settings-wide settings-check-disclosure"><input type="checkbox" checked={value.share_retrieved_knowledge} onChange={(event) => setValue({ ...value, share_retrieved_knowledge: event.target.checked })} /><span><strong>Share retrieved knowledge with Claude/Gemini</strong><small>Only the retrieved passages, your question, and selected practice facts may be sent. The full folder is never uploaded.</small></span></label>
         <AliasField label="Clean verdict aliases" value={aliasDrafts.clean} onChange={(clean) => setAliasDrafts({ ...aliasDrafts, clean })} />
         <AliasField label="Flawed verdict aliases" value={aliasDrafts.flawed} onChange={(flawed) => setAliasDrafts({ ...aliasDrafts, flawed })} />
         <AliasField label="Failed verdict aliases" value={aliasDrafts.failed} onChange={(failed) => setAliasDrafts({ ...aliasDrafts, failed })} />

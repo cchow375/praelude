@@ -6,7 +6,7 @@
   min-height: 120px;
   overflow: hidden;
   border: 1px solid var(--hairline);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--surface-popover) 92%, transparent);
   box-shadow: 0 20px 60px rgb(0 0 0 / 22%), 0 2px 10px rgb(0 0 0 / 12%);
   backdrop-filter: blur(22px) saturate(1.15);
@@ -21,7 +21,7 @@
 .floating-panel-header {
   display: flex;
   align-items: center;
-  min-height: 38px;
+  min-height: 34px;
   padding: 0 8px 0 12px;
   gap: 9px;
   border-bottom: 1px solid var(--hairline);

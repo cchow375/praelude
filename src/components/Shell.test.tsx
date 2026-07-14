@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { RepSnapshot } from "../features/rep/useRep";
 
 const invokeMock = vi.fn().mockImplementation((command: string) => {
   if (command === "pieces_list" || command === "daily_work_list") return Promise.resolve([]);
@@ -60,14 +61,38 @@ vi.mock("../features/session/useSession", () => ({
   }),
 }));
 
-import { Shell } from "./Shell";
+import { Shell, groundPracticeBrainContext } from "./Shell";
 
 afterEach(cleanup);
 
 describe("Shell floating workspace", () => {
+  it("never labels another piece's active rep as the selected piece", () => {
+    const context = {
+      piece_id: 2,
+      piece_title: "Beethoven",
+      composer: "Beethoven",
+      surface: "score" as const,
+      region: null,
+      current_page: 1,
+      edition_id: null,
+      edition_label: null,
+    };
+    const otherPieceRep = {
+      piece_id: 1,
+      m_start: 40,
+      m_end: 56,
+      bpm: 92,
+      target_bpm: 120,
+      focus: "tempo",
+      reps_done: 4,
+      planned_reps: 10,
+    } as RepSnapshot;
+    expect(groundPracticeBrainContext(context, otherPieceRep)?.active_block).toBeNull();
+  });
+
   it("lands intentionally on Home, then keeps active surfaces when Practice opens", async () => {
     render(<Shell />);
-    expect(screen.getByLabelText("Version 1.2.0")).toBeTruthy();
+    expect(screen.getByLabelText("Version 1.3.0")).toBeTruthy();
     expect(await screen.findByTestId("universe-workspace")).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Home" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(screen.getByRole("tab", { name: "Practice" }));
@@ -92,10 +117,14 @@ describe("Shell floating workspace", () => {
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("daily_work_list", expect.anything()));
   });
 
-  it("offers Home, Practice, Calendar, and Brain tabs while metronome stays a tool", async () => {
+  it("keeps Brain as an overlay tool while the three workspaces stay navigable", async () => {
     render(<Shell />);
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Home", "Practice", "Calendar", "Brain"]);
-    expect(screen.queryByRole("tab", { name: "Metronome" })).toBeNull();
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Home", "Practice", "Calendar"]);
+    expect(screen.queryByRole("tab", { name: "Brain" })).toBeNull();
+    const brain = screen.getByRole("button", { name: "Brain" });
+    fireEvent.click(brain);
+    expect(brain.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("complementary", { name: "Practice Brain" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Metronome" })).toBeTruthy();
 
     const home = screen.getByRole("tab", { name: "Home" });

@@ -20,7 +20,7 @@ afterEach(() => {
 
 describe("useSettings", () => {
   it("falls back to defaults when the backend commands are missing", async () => {
-    invokeMock.mockRejectedValue(new Error("command get_setting not found"));
+    invokeMock.mockRejectedValue(new Error("command settings_snapshot not found"));
 
     const { result } = renderHook(() => useSettings());
 
@@ -37,20 +37,19 @@ describe("useSettings", () => {
     act(() => result.current.setSetting("theme", "dark"));
 
     expect(result.current.settings.theme).toBe("dark");
-    // set_setting was attempted despite the backend being unavailable.
-    expect(invokeMock).toHaveBeenCalledWith("set_setting", {
-      key: "theme",
-      value: "dark",
+    expect(invokeMock).toHaveBeenCalledWith("settings_update", {
+      patch: { theme: "dark" },
     });
   });
 
   it("loads a stored value when the backend returns one", async () => {
-    invokeMock.mockResolvedValue("light");
+    invokeMock.mockResolvedValue({ theme: "light", interface_scale: 80 });
 
     const { result } = renderHook(() => useSettings());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.settings.theme).toBe("light");
-    expect(invokeMock).toHaveBeenCalledWith("get_setting", { key: "theme" });
+    expect(result.current.settings.interface_scale).toBe(80);
+    expect(invokeMock).toHaveBeenCalledWith("settings_snapshot");
   });
 });

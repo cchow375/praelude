@@ -23,6 +23,22 @@ const groundedAnswer: BrainAnswer = {
       watch_for: "Keep the wrist loose; stop if it locks.",
     },
   ],
+  grounding: {
+    piece_title: "Scherzo No. 2",
+    region_name: "Coda leap",
+    measure_range: [720, 732],
+    recent_rep_count: 5,
+    active_block_included: true,
+    knowledge_status: "ready",
+    knowledge_shared_with_provider: true,
+    knowledge_sources: [
+      "Gebrian — Learn Faster",
+      "Roskell — The Complete Pianist",
+      "Breth — Effective Practicing",
+    ],
+    musicxml_status: "ready",
+    warnings: ["The MusicXML edition may differ from the open PDF"],
+  },
   intake_review: {
     piece_id: 7,
     piece_title: "Scherzo No. 2",
@@ -71,6 +87,7 @@ describe("BrainWorkspace", () => {
     expect(await screen.findByRole("heading", { name: "Ranked from your real practice graph" })).toBeTruthy();
     expect(await screen.findByText("Coda landing")).toBeTruthy();
     expect(screen.getByText("3 of the last 5 attempts were flawed or failed")).toBeTruthy();
+    expect(api.planPreview).toHaveBeenCalledWith(null);
     expect(api.ask).not.toHaveBeenCalled();
   });
 
@@ -116,6 +133,9 @@ describe("BrainWorkspace", () => {
     expect(api.ask).toHaveBeenCalledWith({
       question: "How should I practice the coda leap?",
       source: "typed",
+      piece_id: null,
+      history: [],
+      context: null,
     });
     expect(screen.getByRole("heading", { name: "Silent landing" })).toBeTruthy();
     expect(screen.getByText(/The Musician's Way, Chapter 9/)).toBeTruthy();
@@ -131,11 +151,51 @@ describe("BrainWorkspace", () => {
     await waitFor(() => expect(api.ask).toHaveBeenCalledWith({
       question: "Why does this leap keep missing?",
       source: "voice",
+      piece_id: null,
+      history: [],
+      context: null,
     }));
     rerender(
       <BrainWorkspace api={api} wakeQuestion={{ id: 1, text: "Why does this leap keep missing?" }} />,
     );
     expect(api.ask).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows exact score grounding and sends bounded prior turns on follow-up", async () => {
+    const api = makeApi();
+    render(<BrainWorkspace compact api={api} practiceContext={{
+      piece_id: 7,
+      piece_title: "Scherzo No. 2",
+      composer: "Chopin",
+      surface: "score",
+      region: { id: 4, name: "Coda leap", notes: "Release before the jump", m_start: 720, m_end: 732 },
+      current_page: 14,
+      edition_id: "urtext",
+      edition_label: "Urtext",
+      active_block: null,
+    }} />);
+
+    expect(screen.getByText("Coda leap · mm. 720–732")).toBeTruthy();
+    await waitFor(() => expect(api.planPreview).toHaveBeenLastCalledWith(7));
+    fireEvent.change(screen.getByLabelText("Ask Coda"), { target: { value: "Why does it miss?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await screen.findByText(groundedAnswer.answer);
+    expect(screen.getByText("3 knowledge books indexed")).toBeTruthy();
+    expect(screen.getByText("MusicXML included")).toBeTruthy();
+    expect(screen.getByText("Retrieved excerpts shared with provider")).toBeTruthy();
+    expect(screen.getByText("Answer context: Scherzo No. 2 · Coda leap · mm. 720–732")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Ask Coda"), { target: { value: "What should I change first?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    await waitFor(() => expect(api.ask).toHaveBeenLastCalledWith(expect.objectContaining({
+      question: "What should I change first?",
+      piece_id: 7,
+      history: [
+        { role: "user", content: "Why does it miss?" },
+        { role: "assistant", content: groundedAnswer.answer },
+      ],
+      context: expect.objectContaining({ piece_id: 7, region: expect.objectContaining({ id: 4 }) }),
+    })));
   });
 
   it("shows offline and error states without discarding the typed question", async () => {

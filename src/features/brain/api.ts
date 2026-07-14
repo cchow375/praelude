@@ -15,8 +15,8 @@ export const brainApi: BrainApi = {
     invoke<BrainAnswer>("brain_ask", { request }),
   applyIntakeReview: (request: BrainIntakeApplyRequest) =>
     invoke<BrainIntakeApplyResult>("brain_intake_apply", { request }),
-  planPreview: () =>
-    invoke<WorkSuggestion[]>("brain_plan_preview", { pieceId: null }),
+  planPreview: (pieceId: number | null) =>
+    invoke<WorkSuggestion[]>("brain_plan_preview", { pieceId }),
   schedule: (request: PlannerScheduleRequest) =>
     invoke("daily_work_create", {
       args: {

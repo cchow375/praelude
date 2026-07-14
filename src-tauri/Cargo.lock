@@ -345,13 +345,14 @@ dependencies = [
 
 [[package]]
 name = "codakiller"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "base64 0.22.1",
  "cpal",
  "crossbeam-queue",
  "hound",
  "libc",
+ "quick-xml",
  "reqwest",
  "rusqlite",
  "serde",

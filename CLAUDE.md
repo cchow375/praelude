@@ -56,10 +56,12 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**v1.2.0 shipped (P6 workflow release, tag `v1.2.0`, 2026-07-13): Tricky Section titles and
-Practice notes are separate canonical Region fields; the measure-sorted Score accordion puts
-Practice/Edit/Score marks/Tutorial beside each section and adds fit/density controls. Schema 7 maps
-validated local video chapters many-to-many to Regions; all 12 live Scherzo Regions have useful
-mapped clips. The sealed app is installed at `/Applications/CodaKiller.app`; native score + inline
-video playback passed. Full at-piano voice/metronome acceptance and an off-disk backup remain
-open.** Next: run the v1.2.0 Scherzo section workflow at the piano.
+**v1.3.0 shipped (P6 intelligence/workspace release, tag `v1.3.0`, 2026-07-13): the interface
+scales 75–125%, the score rail and persistent Brain drawer collapse, and floating Rep work no
+longer reserves a permanent gutter. The contextual Brain performs strict read-only retrieval over
+three external practice books, extracts bounded notated facts from the exact selected MusicXML
+range, uses canonical piece/Region/rep/session/goal state, preserves a bounded back-and-forth
+thread, and shows a per-answer grounding receipt. The sealed app is installed at
+`/Applications/CodaKiller.app`; fresh adversarial review and native release gates passed. Full
+at-piano voice/metronome/Brain acceptance and an off-disk backup remain open.** Next: run the
+v1.3.0 Scherzo contextual-Brain workflow at the piano.

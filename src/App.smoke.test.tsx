@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 
+const setZoomMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockRejectedValue(new Error("no backend")),
+}));
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({ setZoom: setZoomMock }),
 }));
 
 import App from "./App";
@@ -59,5 +64,10 @@ describe("App shell smoke", () => {
         document.documentElement.getAttribute("data-theme"),
       ),
     );
+  });
+
+  it("applies the default interface scale to the native webview", async () => {
+    render(<App />);
+    await waitFor(() => expect(setZoomMock).toHaveBeenCalledWith(0.9));
   });
 });

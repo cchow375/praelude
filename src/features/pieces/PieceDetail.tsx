@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Intake, PieceDetailData } from "./types";
 import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
@@ -13,6 +13,8 @@ import { ScoreView } from "../score/ScoreView";
 import { ReferenceButtons } from "../references/ReferenceButtons";
 import { TrickySectionsPanel } from "./RegionEditor";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
+import type { PracticeBrainContext } from "../brain/types";
+import type { ScoreFocusContext } from "../score/types";
 
 // ---------------------------------------------------------------------------
 // The detail surface for a selected piece. Before intake is done it shows the
@@ -29,6 +31,7 @@ interface PieceDetailProps {
   activeRep?: RepSnapshot | null;
   /** Notifies the parent list when the piece record changes (badges/summary). */
   onUpdated?: (piece: PieceDetailData) => void;
+  onPracticeContextChange?: (context: PracticeBrainContext | null) => void;
 }
 
 function messageOf(e: unknown): string {
@@ -43,6 +46,7 @@ export function PieceDetail({
   onOpenBlock,
   activeRep = null,
   onUpdated,
+  onPracticeContextChange,
 }: PieceDetailProps) {
   const crud = useCrud();
   const [piece, setPiece] = useState<PieceDetailData>(initial);
@@ -104,6 +108,30 @@ export function PieceDetail({
     [crud, onUpdated, piece],
   );
 
+  useEffect(() => {
+    if (piece.intake_done && piece.has_pdf && surface === "score") return;
+    onPracticeContextChange?.({
+      piece_id: piece.id,
+      piece_title: piece.title,
+      composer: piece.composer,
+      surface: "details",
+      region: null,
+      current_page: null,
+      edition_id: null,
+      edition_label: null,
+    });
+  }, [onPracticeContextChange, piece.composer, piece.has_pdf, piece.id, piece.intake_done, piece.title, surface]);
+
+  const onScoreContextChange = useCallback((score: ScoreFocusContext) => {
+    onPracticeContextChange?.({
+      piece_id: piece.id,
+      piece_title: piece.title,
+      composer: piece.composer,
+      surface: "score",
+      ...score,
+    });
+  }, [onPracticeContextChange, piece.composer, piece.id, piece.title]);
+
   return (
     <section
       className={`piece-detail ${piece.intake_done && surface === "score" ? "is-score" : ""}`}
@@ -159,6 +187,7 @@ export function PieceDetail({
           onOpenBlock={openBlock}
           opening={opening}
           onRegionsChanged={() => setRegionRevision((revision) => revision + 1)}
+          onContextChange={onScoreContextChange}
         />
       ) : (
         <>

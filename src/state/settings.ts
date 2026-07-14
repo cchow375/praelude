@@ -5,51 +5,56 @@ import type { ThemePref } from "../design/theme";
 // -----------------------------------------------------------------------------
 // Settings store.
 //
-// Backed by Tauri `get_setting` / `set_setting` commands. Those Rust commands do
-// NOT exist yet — Task 4 wires persistence. Until then every invoke is wrapped in
-// try/catch and we fall back to an in-memory map so the UI is fully usable in
-// `npm run tauri dev` (and in plain `vite` in the browser) today.
+// Backed by the same typed `settings_snapshot` / `settings_update` projection as
+// the Settings form. Every invoke is wrapped so plain Vite and unit tests retain
+// a process-lifetime fallback without creating a second persistence contract.
 // -----------------------------------------------------------------------------
 
 export interface Settings {
   theme: ThemePref;
+  interface_scale: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "auto",
+  interface_scale: 90,
 };
 
 // Process-lifetime fallback store used whenever the Tauri backend is unavailable.
-const memoryStore = new Map<keyof Settings, string>();
+const memoryStore = new Map<keyof Settings, Settings[keyof Settings]>();
 
 export function __resetSettingsForTests() {
   memoryStore.clear();
 }
 
-async function readSetting<K extends keyof Settings>(
-  key: K,
-  fallback: Settings[K],
-): Promise<Settings[K]> {
+function normalizedSnapshot(value: Partial<Settings> | null | undefined): Settings {
+  const theme = value?.theme;
+  const scale = Number(value?.interface_scale);
+  return {
+    theme: theme === "auto" || theme === "dark" || theme === "light"
+      ? theme
+      : (memoryStore.get("theme") as ThemePref | undefined) ?? DEFAULT_SETTINGS.theme,
+    interface_scale: Number.isFinite(scale) && scale >= 75 && scale <= 125
+      ? scale
+      : (memoryStore.get("interface_scale") as number | undefined) ?? DEFAULT_SETTINGS.interface_scale,
+  };
+}
+
+async function readSettings(): Promise<Settings> {
   try {
-    // Task 4 wires persistence: `get_setting` returns the stored string or null.
-    const value = await invoke<string | null>("get_setting", { key });
-    if (value != null) return value as Settings[K];
+    return normalizedSnapshot(await invoke<Partial<Settings>>("settings_snapshot"));
   } catch {
-    // Backend not present yet — use the in-memory value if we have one.
-    const cached = memoryStore.get(key);
-    if (cached != null) return cached as Settings[K];
+    return normalizedSnapshot(null);
   }
-  return fallback;
 }
 
 async function writeSetting<K extends keyof Settings>(
   key: K,
   value: Settings[K],
 ): Promise<void> {
-  memoryStore.set(key, String(value));
+  memoryStore.set(key, value);
   try {
-    // Task 4 wires persistence: `set_setting` persists the string value.
-    await invoke("set_setting", { key, value: String(value) });
+    await invoke("settings_update", { patch: { [key]: value } });
   } catch {
     // Backend not present yet — the in-memory write above is our source of truth.
   }
@@ -74,9 +79,9 @@ export function useSettings(): UseSettings {
   useEffect(() => {
     mounted.current = true;
     (async () => {
-      const theme = await readSetting("theme", DEFAULT_SETTINGS.theme);
+      const snapshot = await readSettings();
       if (mounted.current) {
-        setSettings({ theme });
+        setSettings(snapshot);
         setLoading(false);
       }
     })();

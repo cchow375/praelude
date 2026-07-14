@@ -155,6 +155,20 @@ describe("ScoreView", () => {
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
   });
 
+  it("lifts the visible edition, page, and selected section for Practice Brain grounding", async () => {
+    const region = { id: 4, piece_id: 7, name: "Coda leap", notes: "Release", m_start: 720, m_end: 732, kind: "hard_spot", order: 0, color: null, pdf_anchor: null };
+    const onContextChange = vi.fn();
+    render(<ScoreView pieceId={7} api={makeApi({ regions: vi.fn().mockResolvedValue([region]) })} adapter={makePdf(1).adapter} onContextChange={onContextChange} />);
+    await screen.findByLabelText("Score page 1");
+    fireEvent.click(await screen.findByRole("button", { name: "Coda leap, measures 720 to 732" }));
+    await waitFor(() => expect(onContextChange).toHaveBeenLastCalledWith({
+      region: { id: 4, name: "Coda leap", notes: "Release", m_start: 720, m_end: 732 },
+      current_page: 1,
+      edition_id: "urtext",
+      edition_label: "Urtext",
+    }));
+  });
+
   it("offers whole-page, two-page, slider, and section visibility controls", async () => {
     render(<ScoreView pieceId={7} api={makeApi()} adapter={makePdf(2).adapter} />);
     await screen.findByLabelText("Score page 2");
@@ -164,8 +178,10 @@ describe("ScoreView", () => {
     expect(document.querySelector(".score-pages")?.className).toContain("is-overview");
     fireEvent.change(screen.getByLabelText("Score zoom slider"), { target: { value: "55" } });
     expect(screen.getByLabelText("Zoom level").textContent).toBe("55%");
-    fireEvent.click(screen.getByRole("button", { name: "Hide sections" }));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse tricky sections" }));
     expect(document.querySelector(".score-body")?.className).toContain("is-sections-hidden");
+    fireEvent.click(screen.getByRole("button", { name: "Expand tricky sections" }));
+    expect(document.querySelector(".score-body")?.className).not.toContain("is-sections-hidden");
   });
 
   it("maps a selected Region with normalized edition-specific rectangles", async () => {

@@ -1,6 +1,6 @@
 [package]
 name = "codakiller"
-version = "1.2.0"
+version = "1.3.0"
 description = "Voice-first practice and rep tracker for pianists"
 authors = ["Christian Chow"]
 edition = "2021"
@@ -43,6 +43,10 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking", 
 # Decodes the Gemini `steps[].content[].data` base64 (24 kHz s16le PCM). Already at
 # 0.22.1 in the lock via reqwest.
 base64 = "0.22"
+# Reads MusicXML as a bounded event stream. `quick-xml` never resolves the
+# external DTD declarations present in the real KernScores files, so score
+# context cannot cause a network fetch or entity expansion.
+quick-xml = "0.41"
 
 [dev-dependencies]
 # Tempdir fixtures for the vault scan tests (real vault is never touched by tests).

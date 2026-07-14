@@ -5,8 +5,10 @@
 //! rep verdict, change tempo, navigate the score, or mutate the practice graph.
 
 mod context;
+mod corpus;
 mod library;
 mod provider;
+mod score_context;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,14 +18,20 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::sessions::SessionService;
-use crate::store::model::PieceFieldPatch;
+use crate::store::model::{PieceFieldPatch, RepSnapshot};
 use crate::store::Store;
 
+pub use context::GroundingSummary;
 pub use library::{Citation, MethodCard};
 use library::{EmbeddedLibrary, PracticeLibrary};
 use provider::{NativeTransport, ProviderChain, ProviderName, ProviderOutput, Transport};
 
-const MAX_QUESTION_CHARS: usize = 2_000;
+const MAX_QUESTION_CHARS: usize = 8_000;
+const MAX_HISTORY_TURNS: usize = 10;
+const MAX_HISTORY_TURN_CHARS: usize = 8_000;
+const MAX_HISTORY_CHARS: usize = 24_000;
+const DEFAULT_KNOWLEDGE_DIR: &str =
+    "/Users/c3/Desktop/christian's universe/Piano Practice/Knowledge and Resources";
 const INTAKE_REVIEW_TTL: Duration = Duration::from_secs(15 * 60);
 static ANSWER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -34,12 +42,83 @@ pub enum QuestionSource {
     Voice,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConversationRole {
+    User,
+    Assistant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ConversationTurn {
+    pub role: ConversationRole,
+    pub content: String,
+}
+
+/// Client-visible score context. Only IDs and display-location facts are
+/// deserialized; all extra display/active-block fields are ignored by Serde.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ClientBrainRegion {
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ClientBrainContext {
+    pub piece_id: i64,
+    #[serde(default)]
+    pub surface: Option<String>,
+    #[serde(default)]
+    pub region: Option<ClientBrainRegion>,
+    #[serde(default)]
+    pub current_page: Option<u32>,
+    #[serde(default)]
+    pub edition_label: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct BrainAskRequest {
     pub question: String,
     pub source: QuestionSource,
     #[serde(default)]
+    pub history: Vec<ConversationTurn>,
+    #[serde(default)]
+    pub context: Option<ClientBrainContext>,
+    // Legacy/diagnostic shape retained so existing callers and Rust tests do
+    // not have to fabricate client display context.
+    #[serde(default)]
     pub piece_id: Option<i64>,
+    #[serde(default)]
+    pub region_id: Option<i64>,
+    #[serde(default)]
+    pub measure_start: Option<u32>,
+    #[serde(default)]
+    pub measure_end: Option<u32>,
+}
+
+impl BrainAskRequest {
+    fn selected_piece_id(&self) -> Option<i64> {
+        self.context
+            .as_ref()
+            .map(|context| context.piece_id)
+            .or(self.piece_id)
+    }
+
+    fn selected_region_id(&self) -> Option<i64> {
+        self.context
+            .as_ref()
+            .and_then(|context| context.region.as_ref().map(|region| region.id))
+            .or(self.region_id)
+    }
+
+    fn explicit_measure_range(&self) -> Result<Option<(u32, u32)>, BrainError> {
+        match (self.measure_start, self.measure_end) {
+            (None, None) => Ok(None),
+            (Some(start), Some(end)) if start <= end => Ok(Some((start, end))),
+            _ => Err(BrainError::InvalidQuestion(
+                "Measure context needs both a valid start and end".into(),
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -66,6 +145,7 @@ pub struct BrainAnswer {
     pub citations: Vec<Citation>,
     pub methods: Vec<MethodCard>,
     pub intake_review: Option<IntakeReview>,
+    pub grounding: GroundingSummary,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -173,6 +253,7 @@ pub fn ask_native(
     request: BrainAskRequest,
     store: Arc<Store>,
     sessions: Arc<SessionService>,
+    active_rep: Option<RepSnapshot>,
 ) -> Result<BrainAnswer, BrainError> {
     let library = EmbeddedLibrary::load();
     let preference = store.get_setting("brain.provider").ok().flatten();
@@ -184,6 +265,7 @@ pub fn ask_native(
         &library,
         &chain,
         &NativeTransport::new(),
+        active_rep.as_ref(),
     )
 }
 
@@ -194,6 +276,7 @@ fn ask_with(
     library: &dyn PracticeLibrary,
     chain: &ProviderChain,
     transport: &dyn Transport,
+    active_rep: Option<&RepSnapshot>,
 ) -> Result<BrainAnswer, BrainError> {
     let question = request.question.trim();
     if question.is_empty() {
@@ -207,15 +290,50 @@ fn ask_with(
         )));
     }
 
-    let intake_review = build_intake_review(question, store, request.piece_id)?;
+    let history = validated_history(&request.history)?;
+    let piece_id = request.selected_piece_id();
+    let region_id = request.selected_region_id();
+    let measure_range = request.explicit_measure_range()?;
+    let intake_review = build_intake_review(question, store, piece_id)?;
     let methods = library.retrieve(question, 3);
-    if methods.is_empty() {
-        return Ok(offline_answer(methods, intake_review));
-    }
-    let context = context::build(store, sessions, request.piece_id, &methods)?;
+    let retrieval_query = retrieval_query(question, &history);
+    let share_knowledge = store
+        .get_setting("brain.share_retrieved_knowledge")
+        .ok()
+        .flatten()
+        .as_deref()
+        != Some("false");
+    // Retrieval is always local and remains useful in offline/private mode.
+    // The setting controls only whether bounded hits cross the provider
+    // boundary, never whether Christian can search his own books.
+    let directory = store
+        .get_setting("brain.knowledge_dir")
+        .ok()
+        .flatten()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_KNOWLEDGE_DIR.into());
+    let corpus = corpus::search(std::path::Path::new(&directory), &retrieval_query, 6);
+    let (context, grounding) = context::build(
+        store,
+        sessions,
+        piece_id,
+        region_id,
+        measure_range,
+        active_rep,
+        &methods,
+        &corpus,
+        share_knowledge,
+        &history,
+        request.context.as_ref(),
+    )?;
 
     if chain.is_empty() {
-        return Ok(offline_answer(methods, intake_review));
+        return Ok(offline_answer(
+            methods,
+            corpus.hits,
+            intake_review,
+            grounding,
+        ));
     }
 
     let ProviderOutput {
@@ -225,21 +343,39 @@ fn ask_with(
     } = match chain.ask(question, request.source, &context, transport) {
         Ok(output) => output,
         Err(BrainError::ProviderUnavailable) => {
-            return Ok(offline_answer(methods, intake_review))
+            return Ok(offline_answer(
+                methods,
+                corpus.hits,
+                intake_review,
+                grounding,
+            ))
         }
         Err(error) => return Err(error),
     };
 
-    if output_crosses_policy(&answer) {
+    if let Some(_reason) = output_policy_violation_reason(&answer) {
+        #[cfg(test)]
+        eprintln!("Practice Brain output policy rejected category: {_reason}");
         return Err(BrainError::PolicyViolation);
     }
 
     // Citations are an allowlist join against deterministic local retrieval.
     // Unknown provider-supplied ids are discarded, so it cannot fabricate a
     // source, URL, or locator into frontend state.
-    let citations = methods
+    let allowed_citations = methods
         .iter()
         .flat_map(|method| method.citations.iter())
+        .cloned()
+        .chain(
+            corpus
+                .hits
+                .iter()
+                .filter(|_| share_knowledge)
+                .map(corpus::CorpusHit::citation),
+        )
+        .collect::<Vec<_>>();
+    let citations = allowed_citations
+        .iter()
         .filter(|citation| citation_ids.iter().any(|id| id == &citation.source_id))
         .cloned()
         .fold(Vec::<Citation>::new(), |mut acc, citation| {
@@ -255,8 +391,21 @@ fn ask_with(
     // A provider answer without at least one locally verified source is not a
     // grounded answer. Fall back to the deterministic library card instead of
     // putting uncited prose in the UI.
-    if citations.is_empty() {
-        return Ok(offline_answer(methods, intake_review));
+    let cites_external_library = citations.iter().any(|citation| {
+        corpus
+            .hits
+            .iter()
+            .any(|hit| hit.id == citation.source_id)
+    });
+    if citations.is_empty()
+        || (share_knowledge && !corpus.hits.is_empty() && !cites_external_library)
+    {
+        return Ok(offline_answer(
+            methods,
+            corpus.hits,
+            intake_review,
+            grounding,
+        ));
     }
 
     Ok(BrainAnswer {
@@ -266,16 +415,28 @@ fn ask_with(
         citations,
         methods,
         intake_review,
+        grounding,
     })
 }
 
 fn offline_answer(
     methods: Vec<MethodCard>,
+    corpus_hits: Vec<corpus::CorpusHit>,
     intake_review: Option<IntakeReview>,
+    mut grounding: GroundingSummary,
 ) -> BrainAnswer {
-    let citations = methods
+    // Context construction happens before provider selection. An offline
+    // fallback transmits nothing, even when online sharing is enabled.
+    grounding.knowledge_shared_with_provider = false;
+    let citations = corpus_hits
         .iter()
-        .flat_map(|method| method.citations.iter().cloned())
+        .take(3)
+        .map(corpus::CorpusHit::citation)
+        .chain(
+            methods
+                .iter()
+                .flat_map(|method| method.citations.iter().cloned()),
+        )
         .fold(Vec::<Citation>::new(), |mut acc, citation| {
             if !acc
                 .iter()
@@ -285,7 +446,8 @@ fn offline_answer(
             }
             acc
         });
-    let answer = methods.first().map_or_else(
+    let answer = corpus_hits.first().map_or_else(
+        || methods.first().map_or_else(
         || if intake_review.is_some() {
             "I prepared a field-by-field intake draft. Nothing changes until you press Save."
                 .to_string()
@@ -296,7 +458,11 @@ fn offline_answer(
             "Offline library match: {}. Dose: {} Watch for: {}",
             method.name, method.dose, method.watch_for
         ),
-    );
+    ), |hit| format!(
+        "Offline local-library match: {} — {}. Open its cited section for the full passage; local book text is kept out of conversation history so it cannot cross the provider boundary on a later turn.",
+        hit.author,
+        hit.heading,
+    ));
     BrainAnswer {
         id: next_answer_id(),
         answer,
@@ -304,7 +470,50 @@ fn offline_answer(
         citations,
         methods,
         intake_review,
+        grounding,
     }
+}
+
+fn validated_history(history: &[ConversationTurn]) -> Result<Vec<ConversationTurn>, BrainError> {
+    if history.len() > 40 {
+        return Err(BrainError::InvalidQuestion(
+            "Conversation history is too long".into(),
+        ));
+    }
+    let mut total = 0;
+    let mut output = Vec::new();
+    for turn in history.iter().rev().take(MAX_HISTORY_TURNS).rev() {
+        let content = turn.content.trim();
+        let count = content.chars().count();
+        if content.is_empty() || count > MAX_HISTORY_TURN_CHARS {
+            return Err(BrainError::InvalidQuestion(
+                "A conversation turn is empty or too long".into(),
+            ));
+        }
+        total += count;
+        if total > MAX_HISTORY_CHARS {
+            return Err(BrainError::InvalidQuestion(
+                "Conversation history exceeds the safe context budget".into(),
+            ));
+        }
+        output.push(ConversationTurn {
+            role: turn.role,
+            content: content.to_string(),
+        });
+    }
+    Ok(output)
+}
+
+fn retrieval_query(question: &str, history: &[ConversationTurn]) -> String {
+    history
+        .iter()
+        .rev()
+        .filter(|turn| turn.role == ConversationRole::User)
+        .take(2)
+        .map(|turn| turn.content.as_str())
+        .chain(std::iter::once(question))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn build_intake_review(
@@ -320,14 +529,7 @@ fn build_intake_review(
     {
         return Ok(None);
     }
-    let piece_id = requested_piece_id.or_else(|| {
-        store
-            .get_setting("ui.current_piece")
-            .ok()
-            .flatten()
-            .and_then(|value| value.parse().ok())
-    });
-    let Some(piece_id) = piece_id else {
+    let Some(piece_id) = requested_piece_id else {
         return Ok(None);
     };
     let piece = store
@@ -364,7 +566,10 @@ fn build_intake_review(
         fields.push(IntakeReviewField {
             field: "target_tempo".into(),
             label: "Target tempo".into(),
-            current: piece.target_tempo.map(|value| value.to_string()).unwrap_or_default(),
+            current: piece
+                .target_tempo
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
             proposed: value,
         });
     }
@@ -418,7 +623,9 @@ pub fn apply_intake_review(
             .map_err(|_| BrainError::Context("Could not read the selected piece".into()))?
             .is_none()
     {
-        return Err(BrainError::InvalidQuestion("Invalid intake review request".into()));
+        return Err(BrainError::InvalidQuestion(
+            "Invalid intake review request".into(),
+        ));
     }
     let mut pending = pending_reviews
         .entries
@@ -426,9 +633,9 @@ pub fn apply_intake_review(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let now = Instant::now();
     pending.retain(|_, review| review.expires_at > now);
-    let authorization = pending
-        .get(&request.answer_id)
-        .ok_or_else(|| BrainError::InvalidQuestion("Intake review expired or was already saved".into()))?;
+    let authorization = pending.get(&request.answer_id).ok_or_else(|| {
+        BrainError::InvalidQuestion("Intake review expired or was already saved".into())
+    })?;
     if authorization.piece_id != request.piece_id
         || request
             .changes
@@ -448,14 +655,24 @@ pub fn apply_intake_review(
                 .as_ref()
                 .is_some_and(|value| value.chars().count() > 500)
         {
-            return Err(BrainError::InvalidQuestion("Invalid intake review field".into()));
+            return Err(BrainError::InvalidQuestion(
+                "Invalid intake review field".into(),
+            ));
         }
-        let value = change.value.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+        let value = change
+            .value
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         match change.field.as_str() {
             "current_state" => patch.current_state = Some(value),
             "deadline" => {
-                if value.as_ref().is_some_and(|date| !crate::date::is_valid(date)) {
-                    return Err(BrainError::InvalidQuestion("Deadline must be YYYY-MM-DD".into()));
+                if value
+                    .as_ref()
+                    .is_some_and(|date| !crate::date::is_valid(date))
+                {
+                    return Err(BrainError::InvalidQuestion(
+                        "Deadline must be YYYY-MM-DD".into(),
+                    ));
                 }
                 patch.deadline = Some(value);
             }
@@ -464,14 +681,22 @@ pub fn apply_intake_review(
                     .as_deref()
                     .map(str::parse::<f64>)
                     .transpose()
-                    .map_err(|_| BrainError::InvalidQuestion("Target tempo must be a number".into()))?;
+                    .map_err(|_| {
+                        BrainError::InvalidQuestion("Target tempo must be a number".into())
+                    })?;
                 if tempo.is_some_and(|tempo| !(1.0..=1_000.0).contains(&tempo)) {
-                    return Err(BrainError::InvalidQuestion("Target tempo is out of range".into()));
+                    return Err(BrainError::InvalidQuestion(
+                        "Target tempo is out of range".into(),
+                    ));
                 }
                 patch.target_tempo = Some(tempo);
             }
             "notes" => patch.notes = Some(value),
-            _ => return Err(BrainError::InvalidQuestion("Unsupported intake review field".into())),
+            _ => {
+                return Err(BrainError::InvalidQuestion(
+                    "Unsupported intake review field".into(),
+                ))
+            }
         }
     }
     store
@@ -495,7 +720,12 @@ fn next_answer_id() -> String {
     format!("brain-{millis}-{sequence}")
 }
 
+#[cfg(test)]
 fn output_crosses_policy(answer: &str) -> bool {
+    output_policy_violation_reason(answer).is_some()
+}
+
+fn output_policy_violation_reason(answer: &str) -> Option<&'static str> {
     let normalized = answer.to_ascii_lowercase();
     if [
         "api key",
@@ -518,66 +748,194 @@ fn output_crosses_policy(answer: &str) -> bool {
     .iter()
     .any(|phrase| normalized.contains(phrase))
     {
-        return true;
+        return Some("sensitive_or_direct_control_phrase");
     }
-    normalized.split(['.', '!', '?', '\n']).any(|sentence| {
+    normalized.split(['.', '!', '?', '\n']).find_map(|sentence| {
         let words = sentence
             .split(|ch: char| !ch.is_ascii_alphanumeric())
             .filter(|word| !word.is_empty())
             .collect::<HashSet<_>>();
         let has = |terms: &[&str]| terms.iter().any(|term| words.contains(term));
 
-        // Provider prose is explanation only. These verb/object pairs are
-        // rejected regardless of wording order, so synonyms cannot turn prose
-        // into apparent app commands.
-        let navigation = has(&[
-            "go", "jump", "navigate", "open", "show", "scroll", "head", "seek", "view",
-            "move", "turn",
-        ]) && has(&[
-            "page", "measure", "bar", "score", "region", "system", "section", "location",
-        ]);
-        let tempo_control = has(&[
-            "start", "stop", "set", "change", "raise", "lower", "increase", "decrease",
-            "bump", "retune", "adjust", "dial", "tune", "switch", "put",
-        ]) && has(&["tempo", "bpm", "metronome", "click"]);
-        let graph_mutation = has(&[
-            "delete", "edit", "save", "update", "create", "remove", "add", "mark",
-            "reschedule", "move", "apply", "erase", "write", "record", "log", "rename",
-            "clear", "replace", "complete", "dismiss",
-        ]) && has(&["goal", "block", "rep", "region", "intake", "deadline", "schedule"]);
+        // Advice may tell Christian what to try. Reject these pairs only when
+        // the provider falsely casts itself/the app as the actor.
+        let claimed_app_actor = has(&["i", "we", "coda", "codakiller", "app", "brain"]);
+        let navigation = claimed_app_actor
+            && has(&[
+                "go",
+                "went",
+                "jump",
+                "jumped",
+                "navigate",
+                "navigated",
+                "open",
+                "opened",
+                "show",
+                "showed",
+                "scroll",
+                "scrolled",
+                "head",
+                "headed",
+                "seek",
+                "sought",
+                "view",
+                "viewed",
+                "move",
+                "moved",
+                "turn",
+                "turned",
+            ])
+            && has(&[
+                "page", "measure", "bar", "score", "region", "system", "section", "location",
+            ]);
+        let tempo_control = claimed_app_actor
+            && has(&[
+                "start", "started", "stop", "stopped", "set", "change", "changed", "raise",
+                "raised", "lower", "lowered", "increase", "increased", "decrease",
+                "decreased", "bump", "bumped", "retune", "retuned", "adjust", "adjusted",
+                "dial", "dialed", "tune", "tuned", "switch", "switched", "put", "turn",
+                "turned", "pause", "paused", "resume", "resumed",
+            ])
+            && has(&["tempo", "bpm", "metronome", "click"]);
+        let graph_mutation = claimed_app_actor
+            && has(&[
+                "delete",
+                "deleted",
+                "edit",
+                "edited",
+                "save",
+                "saved",
+                "update",
+                "updated",
+                "create",
+                "created",
+                "remove",
+                "removed",
+                "add",
+                "added",
+                "mark",
+                "marked",
+                "reschedule",
+                "rescheduled",
+                "move",
+                "moved",
+                "apply",
+                "applied",
+                "erase",
+                "erased",
+                "write",
+                "wrote",
+                "record",
+                "recorded",
+                "log",
+                "logged",
+                "rename",
+                "renamed",
+                "clear",
+                "cleared",
+                "replace",
+                "replaced",
+                "complete",
+                "completed",
+                "dismiss",
+                "dismissed",
+            ])
+            && has(&[
+                "goal", "block", "rep", "region", "intake", "deadline", "schedule",
+            ]);
+        let claimed_tempo_state = has(&["metronome", "tempo", "bpm", "click"])
+            && has(&[
+                "now", "currently", "already", "is", "are", "was", "has", "been",
+            ])
+            && has(&[
+                "running", "started", "stopped", "set", "changed", "raised", "lowered",
+                "retuned", "adjusted", "on", "off", "paused", "resumed",
+            ]);
+        let claimed_graph_state = has(&["goal", "block", "region", "intake", "schedule"])
+            && has(&["was", "has", "now", "already"])
+            && has(&[
+                "deleted", "edited", "saved", "updated", "created", "removed", "added",
+                "moved", "applied", "recorded", "renamed", "cleared", "completed",
+                "dismissed",
+            ]);
 
-        // The app has no piano-audio perception. Reject both first-person
+        // The app has no piano-audio perception. Reject app-actor
         // sensory claims and verdict language tied to an attempt/performance.
-        let sensory_claim = has(&["i", "we"])
+        let sensory_claim = claimed_app_actor
             && has(&["hear", "heard", "listen", "listened", "detect", "detected"])
             && has(&[
-                "playing", "performance", "piano", "take", "rep", "attempt", "tension",
-                "rhythm", "tone",
+                "playing",
+                "performance",
+                "piano",
+                "take",
+                "rep",
+                "attempt",
+                "tension",
+                "rhythm",
+                "tone",
             ]);
         let sounded_claim = sentence.contains("your playing sounds")
             || sentence.contains("your performance sounds")
             || sentence.contains("that sounded");
         let outcome = has(&[
-            "clean", "flawed", "failed", "sloppy", "rough", "shaky", "perfect", "correct",
-            "incorrect", "success", "successful", "miss", "missed", "pass", "passed",
-            "failure", "mistake", "good", "bad",
+            "clean",
+            "flawed",
+            "failed",
+            "sloppy",
+            "rough",
+            "shaky",
+            "perfect",
+            "incorrect",
+            "success",
+            "successful",
+            "miss",
+            "missed",
+            "pass",
+            "passed",
+            "failure",
         ]);
         let attempt = has(&[
-            "rep", "repetition", "attempt", "playing", "performance", "take", "run", "try",
+            "rep",
+            "repetition",
+            "attempt",
+            "playing",
+            "performance",
+            "take",
+            "run",
             "sounded",
         ]);
-        let verdict = outcome && attempt;
+        let deictic = has(&["your", "that", "this", "it", "last", "latest", "one"]);
+        let verdict = outcome && attempt && deictic;
+        let deictic_verdict = outcome && deictic;
+        let app_verdict_action = claimed_app_actor
+            && outcome
+            && has(&[
+                "count", "counted", "record", "recorded", "log", "logged", "classify",
+                "classified", "label", "labeled", "mark", "marked", "treat", "treated",
+                "call", "called",
+            ]);
         let verdict_action = has(&[
             "count", "record", "log", "classify", "label", "mark", "treat", "call",
-        ]) && attempt && outcome;
+        ]) && attempt
+            && outcome;
 
-        navigation
-            || tempo_control
-            || graph_mutation
-            || sensory_claim
-            || sounded_claim
-            || verdict
-            || verdict_action
+        if navigation {
+            Some("claimed_navigation")
+        } else if tempo_control {
+            Some("claimed_tempo_control")
+        } else if graph_mutation {
+            Some("claimed_graph_mutation")
+        } else if claimed_tempo_state {
+            Some("claimed_tempo_state")
+        } else if claimed_graph_state {
+            Some("claimed_graph_state")
+        } else if sensory_claim || sounded_claim {
+            Some("claimed_piano_perception")
+        } else if verdict || deictic_verdict || app_verdict_action || verdict_action {
+            Some("claimed_rep_verdict")
+        } else {
+            None
+        }
     })
 }
 
@@ -587,6 +945,8 @@ mod tests {
     use crate::store::model::ScanPiece;
     use provider::{FakeTransport, HttpResponse, ProviderConfig, ProviderPreference};
     use serde_json::json;
+    use std::fs;
+    use tempfile::TempDir;
 
     #[derive(Default)]
     struct TestLibrary;
@@ -623,6 +983,11 @@ mod tests {
         store
             .set_setting("ui.current_piece", &piece_id.to_string())
             .unwrap();
+        // Unit tests stay hermetic. Dedicated corpus/live tests explicitly
+        // opt into the real external library.
+        store
+            .set_setting("brain.knowledge_dir", "/codakiller-test-missing")
+            .unwrap();
         let store = Arc::new(store);
         let sessions = SessionService::new(store.clone());
         (store, sessions, piece_id)
@@ -632,8 +997,35 @@ mod tests {
         BrainAskRequest {
             question: question.into(),
             source: QuestionSource::Typed,
-            piece_id: None,
+            history: vec![],
+            context: None,
+            piece_id: Some(1),
+            region_id: None,
+            measure_start: None,
+            measure_end: None,
         }
+    }
+
+    fn external_corpus_fixture() -> TempDir {
+        let temp = TempDir::new().unwrap();
+        fs::write(
+            temp.path().join("the-complete-pianist.md"),
+            "# Technique\n\nA bounded Roskell passage about lateral movement and a released wrist during leaps.",
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("learn-faster-perform-better.md"),
+            "# Learning\n\nThe private-test phrase explains why a memorized wrong version persists and why unchanged slow repetition can reinforce it.",
+        )
+        .unwrap();
+        fs::write(
+            temp
+                .path()
+                .join("the-piano-students-guide-to-effective-practicing.md"),
+            "# Practice tools\n\nA bounded Breth passage about changing rhythm groupings before returning to the written rhythm.",
+        )
+        .unwrap();
+        temp
     }
 
     #[test]
@@ -646,11 +1038,16 @@ mod tests {
             &TestLibrary,
             &ProviderChain::default(),
             &FakeTransport::default(),
+            None,
         )
         .unwrap();
         assert_eq!(answer.provider, ProviderName::Offline);
+        assert!(!answer.grounding.knowledge_shared_with_provider);
         assert_eq!(answer.methods[0].id, "silent-landing");
-        assert_eq!(answer.citations[0].source_id, "source-1");
+        assert!(answer
+            .citations
+            .iter()
+            .any(|citation| citation.source_id == "source-1"));
     }
 
     #[test]
@@ -663,6 +1060,7 @@ mod tests {
             &TestLibrary,
             &ProviderChain::default(),
             &FakeTransport::default(),
+            None,
         ).unwrap();
         let review = answer.intake_review.as_ref().expect("draft is returned");
         assert_eq!(review.fields.len(), 4);
@@ -674,15 +1072,29 @@ mod tests {
 
         let pending = PendingIntakeReviews::default();
         pending.register_answer(&answer);
-        apply_intake_review(BrainIntakeApplyRequest {
-            answer_id: answer.id,
-            piece_id,
-            changes: vec![
-                IntakeChange { field: "current_state".into(), value: Some("hands together".into()) },
-                IntakeChange { field: "deadline".into(), value: Some("2026-08-01".into()) },
-                IntakeChange { field: "target_tempo".into(), value: Some("144".into()) },
-            ],
-        }, store.as_ref(), &pending).unwrap();
+        apply_intake_review(
+            BrainIntakeApplyRequest {
+                answer_id: answer.id,
+                piece_id,
+                changes: vec![
+                    IntakeChange {
+                        field: "current_state".into(),
+                        value: Some("hands together".into()),
+                    },
+                    IntakeChange {
+                        field: "deadline".into(),
+                        value: Some("2026-08-01".into()),
+                    },
+                    IntakeChange {
+                        field: "target_tempo".into(),
+                        value: Some("144".into()),
+                    },
+                ],
+            },
+            store.as_ref(),
+            &pending,
+        )
+        .unwrap();
         let piece = store.get_piece(piece_id).unwrap().unwrap();
         assert_eq!(piece.current_state.as_deref(), Some("hands together"));
         assert_eq!(piece.deadline.as_deref(), Some("2026-08-01"));
@@ -699,30 +1111,38 @@ mod tests {
             &TestLibrary,
             &ProviderChain::default(),
             &FakeTransport::default(),
-        ).unwrap();
+            None,
+        )
+        .unwrap();
         let pending = PendingIntakeReviews::default();
         pending.register_answer(&answer);
-        let result = apply_intake_review(BrainIntakeApplyRequest {
-            answer_id: answer.id,
-            piece_id,
-            changes: vec![IntakeChange {
-                field: "goals".into(),
-                value: Some("delete everything".into()),
-            }],
-        }, store.as_ref(), &pending);
+        let result = apply_intake_review(
+            BrainIntakeApplyRequest {
+                answer_id: answer.id,
+                piece_id,
+                changes: vec![IntakeChange {
+                    field: "goals".into(),
+                    value: Some("delete everything".into()),
+                }],
+            },
+            store.as_ref(),
+            &pending,
+        );
         assert!(matches!(result, Err(BrainError::InvalidQuestion(_))));
     }
 
     #[test]
     fn intake_review_is_bound_to_piece_and_is_one_time() {
         let (store, sessions, piece_id) = fixture();
-        let other_piece = store.upsert_piece(&ScanPiece {
-            folder_path: "/vault/Other".into(),
-            title: "Other".into(),
-            composer: None,
-            xml_path: None,
-            pdf_path: None,
-        }).unwrap();
+        let other_piece = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/vault/Other".into(),
+                title: "Other".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
         let answer = ask_with(
             request("Review my intake: notes to practice the landing"),
             store.as_ref(),
@@ -730,18 +1150,24 @@ mod tests {
             &TestLibrary,
             &ProviderChain::default(),
             &FakeTransport::default(),
-        ).unwrap();
+            None,
+        )
+        .unwrap();
         let pending = PendingIntakeReviews::default();
         pending.register_answer(&answer);
 
-        let cross_piece = apply_intake_review(BrainIntakeApplyRequest {
-            answer_id: answer.id.clone(),
-            piece_id: other_piece,
-            changes: vec![IntakeChange {
-                field: "notes".into(),
-                value: Some("wrong piece".into()),
-            }],
-        }, store.as_ref(), &pending);
+        let cross_piece = apply_intake_review(
+            BrainIntakeApplyRequest {
+                answer_id: answer.id.clone(),
+                piece_id: other_piece,
+                changes: vec![IntakeChange {
+                    field: "notes".into(),
+                    value: Some("wrong piece".into()),
+                }],
+            },
+            store.as_ref(),
+            &pending,
+        );
         assert!(matches!(cross_piece, Err(BrainError::InvalidQuestion(_))));
 
         let request = BrainIntakeApplyRequest {
@@ -767,19 +1193,28 @@ mod tests {
             &TestLibrary,
             &ProviderChain::default(),
             &FakeTransport::default(),
-        ).unwrap();
+            None,
+        )
+        .unwrap();
         let pending = PendingIntakeReviews::with_ttl(Duration::ZERO);
         pending.register_answer(&answer);
-        let result = apply_intake_review(BrainIntakeApplyRequest {
-            answer_id: answer.id,
-            piece_id,
-            changes: vec![IntakeChange {
-                field: "current_state".into(),
-                value: Some("secure".into()),
-            }],
-        }, store.as_ref(), &pending);
+        let result = apply_intake_review(
+            BrainIntakeApplyRequest {
+                answer_id: answer.id,
+                piece_id,
+                changes: vec![IntakeChange {
+                    field: "current_state".into(),
+                    value: Some("secure".into()),
+                }],
+            },
+            store.as_ref(),
+            &pending,
+        );
         assert!(matches!(result, Err(BrainError::InvalidQuestion(_))));
-        assert_eq!(store.get_piece(piece_id).unwrap().unwrap().current_state, None);
+        assert_eq!(
+            store.get_piece(piece_id).unwrap().unwrap().current_state,
+            None
+        );
     }
 
     #[test]
@@ -800,11 +1235,41 @@ mod tests {
             request("How should I practice a leap whose landing keeps missing?"),
             store,
             Arc::new(sessions),
+            None,
         )
         .expect("live provider answers");
         assert_ne!(answer.provider, ProviderName::Offline);
         assert!(!answer.answer.trim().is_empty());
         assert!(!answer.citations.is_empty());
+    }
+
+    #[test]
+    #[ignore = "requires Christian's external library, a configured API key, and network"]
+    fn live_native_provider_cites_external_book_chunk() {
+        let (store, sessions, _) = fixture();
+        store
+            .set_setting("brain.knowledge_dir", DEFAULT_KNOWLEDGE_DIR)
+            .unwrap();
+        let answer = ask_native(
+            request(
+                "I memorized a wrong version, and repeating it slowly is not correcting it. Why, and what should I try?",
+            ),
+            store,
+            Arc::new(sessions),
+            None,
+        )
+        .expect("live provider answers from the external library");
+        assert_ne!(answer.provider, ProviderName::Offline);
+        assert!(answer.grounding.knowledge_shared_with_provider);
+        assert!(answer.citations.iter().any(|citation| {
+            citation.source_id.starts_with("local:gebrian-learn-faster:")
+                || citation
+                    .source_id
+                    .starts_with("local:roskell-complete-pianist:")
+                || citation
+                    .source_id
+                    .starts_with("local:breth-effective-practicing:")
+        }));
     }
 
     #[test]
@@ -825,6 +1290,7 @@ mod tests {
             &TestLibrary,
             &chain,
             &transport,
+            None,
         )
         .unwrap();
         assert_eq!(answer.provider, ProviderName::Claude);
@@ -841,42 +1307,180 @@ mod tests {
     }
 
     #[test]
+    fn privacy_off_never_sends_or_accepts_a_guessed_external_chunk_id() {
+        let (store, sessions, _) = fixture();
+        let corpus_dir = external_corpus_fixture();
+        store
+            .set_setting(
+                "brain.knowledge_dir",
+                corpus_dir.path().to_str().unwrap(),
+            )
+            .unwrap();
+        store
+            .set_setting("brain.share_retrieved_knowledge", "false")
+            .unwrap();
+        let question = "Why does my memorized wrong version persist?";
+        let retrieved = corpus::search(corpus_dir.path(), question, 6);
+        let guessed_id = retrieved.hits[0].id.clone();
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Claude,
+            "secret-claude",
+            "claude-test",
+        )]);
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type":"text", "text": format!("{{\"answer\":\"Use the guessed source.\",\"citation_ids\":[\"{guessed_id}\"]}}") }]
+        }))]);
+        let answer = ask_with(
+            request(question),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap();
+        assert_eq!(answer.provider, ProviderName::Offline);
+        assert!(!answer.grounding.knowledge_shared_with_provider);
+        let body = transport.requests()[0].body.to_string();
+        assert!(!body.contains(&guessed_id));
+        assert!(!body.contains("private-test phrase"));
+    }
+
+    #[test]
+    fn privacy_off_keeps_offline_book_text_out_of_a_later_online_turn() {
+        let (store, sessions, _) = fixture();
+        let corpus_dir = external_corpus_fixture();
+        store
+            .set_setting("brain.knowledge_dir", corpus_dir.path().to_str().unwrap())
+            .unwrap();
+        store
+            .set_setting("brain.share_retrieved_knowledge", "false")
+            .unwrap();
+        let question = "Why does my memorized wrong version persist?";
+        let offline = ask_with(
+            request(question),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &ProviderChain::default(),
+            &FakeTransport::default(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(offline.provider, ProviderName::Offline);
+        assert!(!offline.answer.contains("private-test phrase"));
+
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Claude,
+            "secret-claude",
+            "claude-test",
+        )]);
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type":"text", "text": "{\"answer\":\"Rebuild the passage from one verified unit.\",\"citation_ids\":[\"source-1\"]}"}]
+        }))]);
+        let mut follow_up = request("What should I try first?");
+        follow_up.history = vec![
+            ConversationTurn {
+                role: ConversationRole::User,
+                content: question.into(),
+            },
+            ConversationTurn {
+                role: ConversationRole::Assistant,
+                content: offline.answer,
+            },
+        ];
+        let online = ask_with(
+            follow_up,
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap();
+        assert_eq!(online.provider, ProviderName::Claude);
+        let body = transport.requests()[0].body.to_string();
+        assert!(!body.contains("private-test phrase"));
+        assert!(!body.contains("unchanged slow repetition"));
+    }
+
+    #[test]
     fn output_allowlist_rejects_verdicts_and_control_commands() {
         assert!(output_crosses_policy("Your rep was clean."));
         assert!(output_crosses_policy("That attempt sounded flawed."));
-        assert!(output_crosses_policy(
-            "Start the metronome and set BPM to 90."
-        ));
+        assert!(output_crosses_policy("I set your metronome to 92 BPM."));
         assert!(output_crosses_policy(
             "Open a terminal and read the API key from the filesystem."
         ));
         assert!(output_crosses_policy(
-            "Delete the old goal and save a new block."
+            "I deleted the old goal and saved a new block."
         ));
         assert!(output_crosses_policy(
             "Click the button to update the Region."
         ));
         assert!(output_crosses_policy(
-            "Navigate to measure 42 and change the tempo to 90."
+            "I navigated to measure 42 and changed the tempo to 90."
         ));
         assert!(output_crosses_policy(
             "I heard tension in your performance."
         ));
         assert!(output_crosses_policy(
-            "Jump to page 8, then retune the metronome."
+            "I jumped to page 8, then retuned the metronome."
         ));
         assert!(output_crosses_policy(
-            "Move the goal to tomorrow and apply the schedule."
+            "I moved the goal to tomorrow and applied the schedule."
         ));
+        assert!(output_crosses_policy(
+            "Coda set the metronome to 92 BPM."
+        ));
+        assert!(output_crosses_policy(
+            "The app moved the goal to tomorrow."
+        ));
+        assert!(output_crosses_policy(
+            "The metronome is now running at 92 BPM."
+        ));
+        assert!(output_crosses_policy(
+            "The metronome has been set to 92 BPM."
+        ));
+        assert!(output_crosses_policy(
+            "The goal was moved to tomorrow."
+        ));
+        assert!(output_crosses_policy(
+            "Coda started the metronome at 92 BPM."
+        ));
+        assert!(output_crosses_policy("I've stopped the metronome."));
+        assert!(output_crosses_policy(
+            "The metronome is running at 92 BPM."
+        ));
+        assert!(output_crosses_policy("Coda turned the metronome on."));
+        assert!(output_crosses_policy(
+            "Coda heard tension in your performance."
+        ));
+        assert!(output_crosses_policy(
+            "The app detected uneven rhythm in your playing."
+        ));
+        assert!(output_crosses_policy("That was clean."));
+        assert!(output_crosses_policy("The last one was failed."));
+        assert!(output_crosses_policy("Coda marked that clean."));
         for bypass in [
             "Count that repetition as a success.",
             "That run was shaky, so record it as a miss.",
-            "Dial the metronome to 96.",
-            "Head to bar 42 in the score.",
-            "Erase the old goal.",
-            "Write the deadline as tomorrow.",
         ] {
             assert!(output_crosses_policy(bypass), "policy bypass: {bypass}");
+        }
+        for advisory in [
+            "Start the metronome at 80 BPM, then increase it by 4 BPM after three secure reps.",
+            "Try 3 reps at 80 BPM, then increase 4 BPM.",
+            "Head to bar 42 in the score and compare the rhythm.",
+            "If the deadline changed, update the goal yourself.",
+            "A clean transition means the written rhythm stayed intact.",
+        ] {
+            assert!(
+                !output_crosses_policy(advisory),
+                "legitimate practice advice was blocked: {advisory}"
+            );
         }
         assert!(!output_crosses_policy(
             "Try three silent landings at a comfortable tempo."
@@ -897,6 +1501,7 @@ mod tests {
             &TestLibrary,
             &ProviderChain::default(),
             &transport,
+            None,
         );
         assert!(matches!(result, Err(BrainError::InvalidQuestion(_))));
         assert!(transport.requests().is_empty());

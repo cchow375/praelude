@@ -1,17 +1,17 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Popover } from "./Popover";
 import { MetronomePopover } from "../features/metronome/MetronomePopover";
 import { useVoice, type VoiceStatus } from "../features/voice/useVoice";
 import { VoiceToast } from "../features/voice/VoiceToast";
 import { PiecesPanel } from "../features/pieces/PiecesPanel";
-import { useRep } from "../features/rep/useRep";
+import { useRep, type RepSnapshot } from "../features/rep/useRep";
 import { RepHud } from "../features/rep/RepHud";
 import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
 import { FloatingPanel } from "./FloatingPanel";
 import { usePanels } from "./usePanels";
 import { BrainWorkspace } from "../features/brain/BrainWorkspace";
-import type { WakeQuestion } from "../features/brain/types";
+import type { PracticeBrainContext, WakeQuestion } from "../features/brain/types";
 import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
 import { UniverseWorkspace } from "../features/universe/UniverseWorkspace";
 import type { PracticePieceContext } from "../features/universe/types";
@@ -27,23 +27,50 @@ const VOICE_STATUS_LABEL: Record<VoiceStatus, string> = {
 };
 
 type PanelId = "metronome" | "mic" | "settings";
-type ViewId = "home" | "practice" | "calendar" | "brain";
+type ViewId = "home" | "practice" | "calendar";
 
 const VIEWS: Array<{ id: ViewId; label: string }> = [
   { id: "home", label: "Home" },
   { id: "practice", label: "Practice" },
   { id: "calendar", label: "Calendar" },
-  { id: "brain", label: "Brain" },
 ];
 
+export function groundPracticeBrainContext(
+  context: PracticeBrainContext | null,
+  snap: RepSnapshot | null,
+): PracticeBrainContext | null {
+  if (!context) return null;
+  return {
+    ...context,
+    active_block: snap?.piece_id === context.piece_id ? {
+      m_start: snap.m_start,
+      m_end: snap.m_end,
+      bpm: snap.bpm,
+      target_bpm: snap.target_bpm,
+      focus: snap.focus,
+      reps_done: snap.reps_done,
+      planned_reps: snap.planned_reps,
+    } : null,
+  };
+}
+
 /** The app shell: Home plus focused workspaces and always-reachable tools. */
-export function Shell({ onThemeChange }: { onThemeChange?: (theme: ThemePref) => void }) {
+export function Shell({
+  onThemeChange,
+  onInterfaceScaleChange,
+}: {
+  onThemeChange?: (theme: ThemePref) => void;
+  onInterfaceScaleChange?: (scale: number) => void;
+}) {
   const [openPanel, setOpenPanel] = useState<PanelId | null>(null);
   const [view, setView] = useState<ViewId>("home");
   const [practiceContext, setPracticeContext] = useState<PracticePieceContext | null>(null);
   const [wakeQuestion, setWakeQuestion] = useState<WakeQuestion | null>(null);
+  const [brainOpen, setBrainOpen] = useState(false);
+  const [brainPracticeContext, setBrainPracticeContext] = useState<PracticeBrainContext | null>(null);
   const [ending, setEnding] = useState(false);
   const wakeQuestionId = useRef(0);
+  const brainRef = useRef<HTMLButtonElement>(null);
   const metronomeRef = useRef<HTMLButtonElement>(null);
   const micRef = useRef<HTMLButtonElement>(null);
   const settingsRef = useRef<HTMLButtonElement>(null);
@@ -52,6 +79,10 @@ export function Shell({ onThemeChange }: { onThemeChange?: (theme: ThemePref) =>
   const rep = useRep();
   const session = useSession();
   const panelManager = usePanels();
+  const groundedBrainContext = useMemo(
+    () => groundPracticeBrainContext(brainPracticeContext, rep.snap),
+    [brainPracticeContext, rep.snap],
+  );
 
   // useVoice owns the one global voice://intent listener. A wake-prefixed
   // non-command arrives as kind=question; open Brain and hand it off once.
@@ -59,7 +90,7 @@ export function Shell({ onThemeChange }: { onThemeChange?: (theme: ThemePref) =>
     if (voice.lastIntent?.kind !== "question") return;
     wakeQuestionId.current += 1;
     setWakeQuestion({ id: wakeQuestionId.current, text: voice.lastIntent.text });
-    setView("brain");
+    setBrainOpen(true);
   }, [voice.lastIntent]);
 
   useEffect(() => {
@@ -84,6 +115,21 @@ export function Shell({ onThemeChange }: { onThemeChange?: (theme: ThemePref) =>
   const toggle = (id: PanelId) =>
     setOpenPanel((cur) => (cur === id ? null : id));
   const close = () => setOpenPanel(null);
+  const closeBrain = useCallback(() => {
+    setBrainOpen(false);
+    requestAnimationFrame(() => brainRef.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    if (!brainOpen) return;
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeBrain();
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [brainOpen, closeBrain]);
 
   const navigateView = (nextView: ViewId, focus = false) => {
     setView(nextView);
@@ -112,7 +158,7 @@ export function Shell({ onThemeChange }: { onThemeChange?: (theme: ThemePref) =>
   };
 
   return (
-    <div className={`shell ${rep.snap ? "has-rep-panel" : ""}`}>
+    <div className="shell">
       <header className="topbar">
         <div className="topbar-left">
           <div className="topbar-identity">
@@ -142,6 +188,17 @@ export function Shell({ onThemeChange }: { onThemeChange?: (theme: ThemePref) =>
           </nav>
         </div>
         <nav className="topbar-actions" aria-label="Tools">
+          <button
+            ref={brainRef}
+            type="button"
+            className={`brain-tool-button ${brainOpen ? "is-on" : ""}`}
+            aria-controls="practice-brain-drawer"
+            aria-expanded={brainOpen}
+            onClick={() => (brainOpen ? closeBrain() : setBrainOpen(true))}
+          >
+            <BrainGlyph />
+            <span>Brain</span>
+          </button>
           <button
             ref={metronomeRef}
             type="button"
@@ -197,15 +254,12 @@ export function Shell({ onThemeChange }: { onThemeChange?: (theme: ThemePref) =>
             activeRep={rep.snap}
             initialPieceId={practiceContext?.piece_id ?? null}
             onLeavePiece={() => setPracticeContext(null)}
+            onPracticeContextChange={setBrainPracticeContext}
           />
         </main>
-      ) : view === "calendar" ? (
+      ) : (
         <div id="panel-calendar" role="tabpanel" aria-labelledby="tab-calendar" className="workspace-panel-reset">
           <CalendarWorkspace />
-        </div>
-      ) : (
-        <div id="panel-brain" role="tabpanel" aria-labelledby="tab-brain" className="workspace-panel-reset">
-          <BrainWorkspace wakeQuestion={wakeQuestion} />
         </div>
       )}
 
@@ -229,8 +283,38 @@ export function Shell({ onThemeChange }: { onThemeChange?: (theme: ThemePref) =>
         label="Settings"
         size="wide"
       >
-        <SettingsPanel onResetLayout={panelManager.resetLayout} onThemeSaved={onThemeChange} />
+        <SettingsPanel
+          onResetLayout={panelManager.resetLayout}
+          onThemeSaved={onThemeChange}
+          onInterfaceScaleSaved={onInterfaceScaleChange}
+        />
       </Popover>
+
+      <aside
+        id="practice-brain-drawer"
+        className={`practice-brain-drawer ${brainOpen ? "is-open" : ""}`}
+        aria-label="Practice Brain"
+        aria-hidden={!brainOpen}
+        inert={brainOpen ? undefined : true}
+      >
+        <header className="practice-brain-drawer-head">
+          <span>Practice Brain</span>
+          <button
+            type="button"
+            aria-label="Collapse Practice Brain"
+            onClick={closeBrain}
+          >
+            <span aria-hidden="true">›</span>
+          </button>
+        </header>
+        <div className="practice-brain-drawer-body">
+          <BrainWorkspace
+            compact
+            wakeQuestion={wakeQuestion}
+            practiceContext={groundedBrainContext}
+          />
+        </div>
+      </aside>
 
       <VoiceToast
         lastIntent={voice.lastIntent}
@@ -295,6 +379,21 @@ function VoiceMicPanel({
 }
 
 /* --- Minimal inline glyphs (stroke follows currentColor) ------------------ */
+
+function BrainGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <path
+        d="M12 3.5c.8 3.8 2.7 5.7 6.5 6.5-3.8.8-5.7 2.7-6.5 6.5-.8-3.8-2.7-5.7-6.5-6.5 3.8-.8 5.7-2.7 6.5-6.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M18.5 16.5c.3 1.5 1.2 2.4 2.7 2.7-1.5.3-2.4 1.2-2.7 2.7-.3-1.5-1.2-2.4-2.7-2.7 1.5-.3 2.4-1.2 2.7-2.7Z" fill="currentColor" />
+    </svg>
+  );
+}
 
 function MetronomeGlyph() {
   return (

@@ -4,10 +4,12 @@ import { todayLocal } from "../calendar/dates";
 import type {
   BrainAnswer,
   BrainApi,
+  BrainGroundingSummary,
   BrainIntakeReview,
   BrainProvider,
   BrainQuestionSource,
   IntakeChange,
+  PracticeBrainContext,
   WakeQuestion,
   WorkSuggestion,
 } from "./types";
@@ -23,6 +25,18 @@ interface ThreadEntry {
 export interface BrainWorkspaceProps {
   api?: BrainApi;
   wakeQuestion?: WakeQuestion | null;
+  compact?: boolean;
+  practiceContext?: PracticeBrainContext | null;
+}
+
+const MAX_HISTORY_EXCHANGES = 6;
+const MAX_HISTORY_CHARS = 2_000;
+
+function boundedHistory(thread: ThreadEntry[]) {
+  return thread.slice(-MAX_HISTORY_EXCHANGES).flatMap((entry) => [
+    { role: "user" as const, content: entry.question.slice(0, MAX_HISTORY_CHARS) },
+    { role: "assistant" as const, content: entry.answer.answer.slice(0, MAX_HISTORY_CHARS) },
+  ]);
 }
 
 const PROVIDER_LABELS: Record<BrainProvider, string> = {
@@ -31,7 +45,12 @@ const PROVIDER_LABELS: Record<BrainProvider, string> = {
   offline: "Offline library",
 };
 
-export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWorkspaceProps) {
+export function BrainWorkspace({
+  api = brainApi,
+  wakeQuestion = null,
+  compact = false,
+  practiceContext = null,
+}: BrainWorkspaceProps) {
   const [draft, setDraft] = useState("");
   const [thread, setThread] = useState<ThreadEntry[]>([]);
   const [asking, setAsking] = useState(false);
@@ -41,22 +60,28 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
   const [planError, setPlanError] = useState<string | null>(null);
   const handledWakeId = useRef<number | null>(null);
   const threadEnd = useRef<HTMLDivElement>(null);
+  const planGeneration = useRef(0);
 
   const refreshPlan = useCallback(async () => {
+    const generation = ++planGeneration.current;
     setPlanLoading(true);
     setPlanError(null);
     try {
-      setPlan(await api.planPreview());
+      const next = (await api.planPreview(practiceContext?.piece_id ?? null)) ?? [];
+      if (generation === planGeneration.current) setPlan(next);
     } catch (cause) {
-      setPlan([]);
-      setPlanError(errorMessage(cause, "Pick a piece in Practice to load next work."));
+      if (generation === planGeneration.current) {
+        setPlan([]);
+        setPlanError(errorMessage(cause, "Pick a piece in Practice to load next work."));
+      }
     } finally {
-      setPlanLoading(false);
+      if (generation === planGeneration.current) setPlanLoading(false);
     }
-  }, [api]);
+  }, [api, practiceContext?.piece_id]);
 
   useEffect(() => {
     void refreshPlan();
+    return () => { planGeneration.current += 1; };
   }, [refreshPlan]);
 
   const ask = useCallback(async (rawQuestion: string, source: BrainQuestionSource) => {
@@ -65,7 +90,13 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
     setAsking(true);
     setError(null);
     try {
-      const answer = await api.ask({ question, source });
+      const answer = await api.ask({
+        question,
+        source,
+        piece_id: practiceContext?.piece_id ?? null,
+        history: boundedHistory(thread),
+        context: practiceContext,
+      });
       if (!isBrainAnswer(answer)) {
         throw new Error("The practice brain returned an invalid response.");
       }
@@ -79,7 +110,7 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
     } finally {
       setAsking(false);
     }
-  }, [api, asking]);
+  }, [api, asking, practiceContext, thread]);
 
   useEffect(() => {
     if (!wakeQuestion || asking || handledWakeId.current === wakeQuestion.id) return;
@@ -99,26 +130,41 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
   const latestProvider = thread[thread.length - 1]?.answer.provider;
 
   return (
-    <main className="brain-workspace" data-testid="main-brain">
+    <main className={`brain-workspace ${compact ? "is-compact" : ""}`} data-testid="main-brain">
       <header className="brain-header">
         <div>
           <p className="brain-eyebrow">Practice brain</p>
-          <h1>Ask what to do next.</h1>
-          <p>Grounded methods, your practice context, and sources you can inspect.</p>
+          <h1>{compact ? "Ask about this practice." : "Ask what to do next."}</h1>
+          {!compact && <p>Grounded methods, your practice context, and sources you can inspect.</p>}
         </div>
         {latestProvider && (
           <ProviderBadge provider={latestProvider} />
         )}
       </header>
 
+      <PracticeGrounding context={practiceContext} />
+
       <section className="brain-thread" aria-label="Conversation" aria-live="polite">
-        <PlanPreview
-          suggestions={plan}
-          loading={planLoading}
-          error={planError}
-          onRefresh={refreshPlan}
-          onSchedule={api.schedule}
-        />
+        {compact ? (
+          <details className="brain-compact-plan">
+            <summary>Suggested next work</summary>
+            <PlanPreview
+              suggestions={plan}
+              loading={planLoading}
+              error={planError}
+              onRefresh={refreshPlan}
+              onSchedule={api.schedule}
+            />
+          </details>
+        ) : (
+          <PlanPreview
+            suggestions={plan}
+            loading={planLoading}
+            error={planError}
+            onRefresh={refreshPlan}
+            onSchedule={api.schedule}
+          />
+        )}
         {thread.length === 0 && (
           <div className="brain-empty">
             <p className="brain-empty-title">Start with the failure, not a vague goal.</p>
@@ -137,6 +183,12 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
                 <ProviderBadge provider={entry.answer.provider} compact />
               </div>
               <p className="brain-answer-copy">{entry.answer.answer}</p>
+              {entry.answer.grounding && (
+                <GroundingReceipt
+                  grounding={entry.answer.grounding}
+                  provider={entry.answer.provider}
+                />
+              )}
               {entry.answer.methods.length > 0 && (
                 <section className="brain-methods" aria-label="Practice methods">
                   {entry.answer.methods.map((method) => (
@@ -152,14 +204,19 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
                 </section>
               )}
               {entry.answer.citations.length > 0 && (
-                <section className="brain-citations" aria-label="Sources">
-                  <h2>Sources</h2>
+                <section className="brain-citations" aria-label="Grounding sources">
+                  <h2>Grounding from the knowledge library</h2>
                   <ol>
                     {entry.answer.citations.map((citation) => (
                       <li key={citation.source_id}>
                         <span className="brain-citation-id">[{citation.source_id}]</span>{" "}
                         <span>
                           <strong>{citation.label}</strong> — {citation.excerpt}
+                          {citation.locator && (
+                            <small className="brain-citation-local">
+                              {citation.locator}
+                            </small>
+                          )}
                           {citation.url && <small className="brain-citation-url">{citation.url}</small>}
                         </span>
                       </li>
@@ -191,6 +248,7 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Describe the exact passage and what breaks…"
             rows={2}
+            maxLength={8_000}
             disabled={asking}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -204,6 +262,82 @@ export function BrainWorkspace({ api = brainApi, wakeQuestion = null }: BrainWor
         <p className="brain-privacy">Answers may be wrong. Sources and your verdict stay visible; your writing changes only when you press Save.</p>
       </div>
     </main>
+  );
+}
+
+function PracticeGrounding({ context }: { context: PracticeBrainContext | null }) {
+  if (!context) {
+    return (
+      <section className="brain-grounding is-empty" aria-label="Practice grounding">
+        <strong>No piece is active.</strong>
+        <span>Open a piece or score for passage-specific grounding. General practice questions still work.</span>
+      </section>
+    );
+  }
+
+  return (
+    <section className="brain-grounding" aria-label="Practice grounding">
+      <span className="brain-grounding-kicker">Grounded in current app state</span>
+      <strong>{context.piece_title}</strong>
+      <span>
+        {context.region
+          ? `${context.region.name} · mm. ${context.region.m_start}–${context.region.m_end}`
+          : context.surface === "score"
+            ? `Score${context.current_page ? ` · page ${context.current_page}` : ""}`
+            : "Piece details"}
+      </span>
+      {context.region?.notes && <small>{context.region.notes}</small>}
+      {context.active_block && (
+        <small>
+          Active {context.active_block.focus} block · {context.active_block.bpm} BPM · {context.active_block.reps_done}/{context.active_block.planned_reps} reps
+        </small>
+      )}
+    </section>
+  );
+}
+
+function GroundingReceipt({
+  grounding,
+  provider,
+}: {
+  grounding: BrainGroundingSummary;
+  provider: BrainProvider;
+}) {
+  const sourceCount = grounding.knowledge_sources.length;
+  const xmlLabel = grounding.musicxml_status === "ready"
+    ? "MusicXML included"
+    : grounding.musicxml_status === "not_requested"
+      ? "MusicXML needs a selected section"
+      : "MusicXML unavailable";
+  const sharingLabel = provider === "offline"
+    ? "Stayed on this Mac"
+    : grounding.knowledge_shared_with_provider
+      ? "Retrieved excerpts shared with provider"
+      : "Book excerpts stayed on this Mac";
+  const answerLocation = [
+    grounding.piece_title,
+    grounding.region_name,
+    grounding.measure_range
+      ? `mm. ${grounding.measure_range[0]}–${grounding.measure_range[1]}`
+      : null,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <section className="brain-evidence" aria-label="Answer grounding">
+      {answerLocation && <strong>Answer context: {answerLocation}</strong>}
+      <div>
+        <span>{sourceCount} knowledge {sourceCount === 1 ? "book" : "books"} indexed</span>
+        <span>{xmlLabel}</span>
+        <span>{grounding.recent_rep_count} recent {grounding.recent_rep_count === 1 ? "rep" : "reps"}</span>
+      </div>
+      <small>{sharingLabel}</small>
+      {grounding.warnings.length > 0 && (
+        <details>
+          <summary>Grounding limits ({grounding.warnings.length})</summary>
+          <ul>{grounding.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+        </details>
+      )}
+    </section>
   );
 }
 

@@ -2,19 +2,22 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsPanel, type SettingsApi, type SettingsSnapshot } from "./SettingsPanel";
 
-const snapshot: SettingsSnapshot = { theme: "auto", tts_provider: "auto", tts_voice: "Kore", brain_provider: "auto", wake_word_enabled: false, wake_word: "coda", metronome_sound: "woodblock", metronome_boost: false, metronome_boost_level: 85, ladder_default_reps: 30, ladder_bpm_step: 4, calendar_capacity_minutes: 60, vault_pieces_dir: "/vault/Pieces", verdict_aliases: { clean: [], flawed: [], failed: [] }, api_keys: [{ provider: "claude", configured: false, source: "none" }, { provider: "gemini", configured: true, source: "keychain" }] };
+const snapshot: SettingsSnapshot = { theme: "auto", interface_scale: 90, tts_provider: "auto", tts_voice: "Kore", brain_provider: "auto", knowledge_dir: "/vault/Knowledge and Resources", share_retrieved_knowledge: true, wake_word_enabled: false, wake_word: "coda", metronome_sound: "woodblock", metronome_boost: false, metronome_boost_level: 85, ladder_default_reps: 30, ladder_bpm_step: 4, calendar_capacity_minutes: 60, vault_pieces_dir: "/vault/Pieces", verdict_aliases: { clean: [], flawed: [], failed: [] }, api_keys: [{ provider: "claude", configured: false, source: "none" }, { provider: "gemini", configured: true, source: "keychain" }] };
 function api(): SettingsApi { return { snapshot: vi.fn().mockResolvedValue(snapshot), update: vi.fn().mockImplementation(async (patch) => ({ ...snapshot, ...patch })), saveKey: vi.fn().mockResolvedValue({ provider: "claude", configured: true, source: "keychain" }), clearKey: vi.fn().mockResolvedValue({ provider: "gemini", configured: false, source: "none" }) }; }
 afterEach(cleanup);
 
 describe("SettingsPanel", () => {
   it("loads typed values and saves one validated projection", async () => {
-    const settingsApi = api(); const onThemeSaved = vi.fn();
-    render(<SettingsPanel api={settingsApi} onResetLayout={vi.fn()} onThemeSaved={onThemeSaved} />);
+    const settingsApi = api(); const onThemeSaved = vi.fn(); const onInterfaceScaleSaved = vi.fn();
+    render(<SettingsPanel api={settingsApi} onResetLayout={vi.fn()} onThemeSaved={onThemeSaved} onInterfaceScaleSaved={onInterfaceScaleSaved} />);
     fireEvent.change(await screen.findByLabelText("Theme"), { target: { value: "dark" } });
+    fireEvent.change(screen.getByLabelText("Interface scale"), { target: { value: "80" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Share retrieved knowledge/ }));
     fireEvent.change(screen.getByLabelText("Default reps"), { target: { value: "40" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(settingsApi.update).toHaveBeenCalledWith(expect.objectContaining({ theme: "dark", ladder_default_reps: 40 })));
+    await waitFor(() => expect(settingsApi.update).toHaveBeenCalledWith(expect.objectContaining({ theme: "dark", interface_scale: 80, ladder_default_reps: 40, knowledge_dir: "/vault/Knowledge and Resources", share_retrieved_knowledge: false })));
     expect(onThemeSaved).toHaveBeenCalledWith("dark");
+    expect(onInterfaceScaleSaved).toHaveBeenCalledWith(80);
   });
 
   it("clears a secret input immediately after native write begins", async () => {

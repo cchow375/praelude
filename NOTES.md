@@ -2,6 +2,47 @@
 
 ## Decisions
 
+- **P6 intelligence/workspace / v1.3.0 contextual Practice Brain (2026-07-13):**
+  - **Context must be explicit and canonical.** A Brain question with no frontend piece selection
+    receives no piece, even if `ui.current_piece` is persisted. A selected Region with zero blocks
+    receives zero unrelated reps. Active Rep state crosses from the native RepEngine only when its
+    piece matches. The frontend's title/page/edition are hints for identity display; Rust re-reads
+    ownership by IDs. The same rule applies to deterministic plan preview.
+  - **The external book corpus is a strict read-only allowlist, not a generic folder crawler.** Open
+    only the three exact converted Markdown filenames directly under the configured absolute
+    directory; require regular non-symlink canonical files; cap 5 MB/book and 12 MB total; clean
+    HTML and Markdown link/image targets; chunk by headings; cache by canonical root + length +
+    mtime. Retrieval is bounded BM25-like lexical ranking with reviewed aliases/source priors,
+    max six hits and two/source. Citations expose source/heading/line locator, never local paths.
+  - **Privacy applies across time, not just one request.** Retrieval always runs locally. The share
+    toggle controls whether retrieved bodies enter provider context and citation authorization.
+    Offline responses name/cite a book section but never embed raw book body, because that answer
+    becomes assistant history if a later turn goes online. Conversation is six exchanges, 2,000
+    characters/turn, process-session-only.
+  - **MusicXML is bounded notation evidence.** Resolve only the canonical DB piece path under its
+    piece folder; reject symlink/escape/invalid root and never resolve DTDs. `.musicxml` and plain
+    `.xml` with a true first root of `score-partwise`/`score-timewise` are accepted; `.mxl` is an
+    honest unsupported status. Caps: 16 MB, 24 selected measures, 1,000,000 events, depth 128,
+    64 distinct parts, 256-character text/attributes, 16 values per fact field and note tokens.
+    Timewise part caps count distinct IDs, not each measure's repeated `<part>` element.
+  - **The Brain advises and may be disagreed with; it has no tools.** Provider output can explain a
+    mechanism and propose optional drills/tempo experiments, but policy rejects claimed hearing,
+    verdicts, navigation, graph mutation, tempo control/state, paths, secrets, and direct UI
+    control. Provider citations join only against the exact current embedded/retrieved allowlist;
+    unsafe, uncited, or ungrounded output falls back offline. A visible grounding receipt exposes
+    piece/Region/mm., MusicXML status, rep count, book hits, sharing, and warnings per answer.
+  - **Compactness uses native zoom plus layout escape hatches.** `interface_scale` is typed 75–125
+    (default 90) and calls Tauri WebView zoom after settings load/save. Native minimum is 720×520.
+    Brain is a mounted overlay drawer, not a route or reserved column; Score rail collapses to zero
+    and overlays below 800 px; active Rep no longer creates a permanent 390–430 px gutter. Drawer
+    collapse/Escape restores focus to its top-bar trigger.
+  - **Release Spotlight registration is asynchronous.** Replacing/registering a sealed app can
+    make an immediate `mdfind` return none even though the bundle is valid and appears moments
+    later. The release gate now calls `mdimport` and polls 20×250 ms before failing; the full
+    v1.3.0 gate was rerun and passed. Pre-release backup: `~/Library/Application Support/
+    com.christian.codakiller/backups/(C) pre-v1.3.0-2026-07-13.db`; schema 7 and counts 5/24/21/
+    169/9/9 plus tutorial 1/11/13 were preserved.
+
 - **P6 workflow / v1.2.0 actionable Score and tutorial chapters (2026-07-13):**
   - **A Region's title and notes are different data.** `region.name` is the concise visible header;
     `region.notes` is longer practice guidance. Score and Details edit the same row. Score renders

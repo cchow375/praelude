@@ -100,7 +100,15 @@ while IFS= read -r -d '' CANDIDATE; do
   fi
 done < <(find /Applications "$HOME" /Users/Shared -type d -name '*.app' -prune -print0 2>/dev/null)
 [[ "$FOUND" == "$INSTALLED_APP" ]] || fail "expected exactly $INSTALLED_APP across /Applications, the user home, and /Users/Shared; found: ${FOUND:-none}"
-SPOTLIGHT="$(mdfind 'kMDItemCFBundleIdentifier == "com.christian.codakiller"' || true)"
+# Bundle replacement and Spotlight indexing are asynchronous. Request an
+# import, then give metadata a short bounded window instead of racing mdfind.
+mdimport "$INSTALLED_APP" >/dev/null 2>&1 || true
+SPOTLIGHT=""
+for _ in {1..20}; do
+  SPOTLIGHT="$(mdfind 'kMDItemCFBundleIdentifier == "com.christian.codakiller"' || true)"
+  [[ "$SPOTLIGHT" == "$INSTALLED_APP" ]] && break
+  sleep 0.25
+done
 [[ "$SPOTLIGHT" == "$INSTALLED_APP" ]] || fail "Spotlight does not resolve to exactly the installed app: ${SPOTLIGHT:-none}"
 
 printf '8/8 Verifying release artifacts...\n'

@@ -46,14 +46,14 @@
   --space-9: 6rem;
 
   /* -- Radii (soft, large) ---------------------------------------------- */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 18px;
-  --radius-xl: 28px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 22px;
   --radius-pill: 999px;
 
   /* -- Layout ------------------------------------------------------------ */
-  --topbar-height: 52px;
+  --topbar-height: 48px;
 
   /* -- Motion (fluid 150–250ms spring feel via ease) --------------------- */
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
