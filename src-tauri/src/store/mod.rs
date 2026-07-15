@@ -12,6 +12,7 @@ mod events;
 mod history_backfill;
 mod migrations;
 mod tutorials;
+mod v8_backfill;
 pub mod model;
 
 pub use events::EventKind;
@@ -925,8 +926,8 @@ mod tests {
     }
 
     #[test]
-    fn fresh_store_is_at_schema_version_7() {
-        assert_eq!(mem().schema_version().unwrap(), 7);
+    fn fresh_store_is_at_current_schema_version() {
+        assert_eq!(mem().schema_version().unwrap(), migrations::SCHEMA_VERSION);
     }
 
     #[test]
@@ -1140,7 +1141,7 @@ mod tests {
         // (e.g. duplicate CREATE TABLE) and must leave the version untouched.
         let store = mem();
         migrations::migrate(&store.conn.lock().unwrap()).expect("re-migrate is a no-op");
-        assert_eq!(store.schema_version().unwrap(), 7);
+        assert_eq!(store.schema_version().unwrap(), migrations::SCHEMA_VERSION);
     }
 
     /// Release-gate rehearsal against an operator-created backup of the real DB.
@@ -1279,7 +1280,7 @@ mod tests {
     /// then hand it to `Store::from_connection` so the normal migrate() path
     /// upgrades it. Proves the upgrade preserves settings and reaches v3.
     #[test]
-    fn v1_to_v3_upgrade_preserves_settings() {
+    fn v1_to_current_upgrade_preserves_settings() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         // Simulate a shipped v1 database: apply v1 schema + stamp version, and
@@ -1293,7 +1294,11 @@ mod tests {
         .unwrap();
 
         let store = Store::from_connection(conn).expect("v1 db upgrades cleanly");
-        assert_eq!(store.schema_version().unwrap(), 7, "reaches v7");
+        assert_eq!(
+            store.schema_version().unwrap(),
+            migrations::SCHEMA_VERSION,
+            "reaches current schema"
+        );
         assert_eq!(
             store.get_setting("theme").unwrap(),
             Some("dark".into()),

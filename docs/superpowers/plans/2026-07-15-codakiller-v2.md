@@ -29,6 +29,22 @@ V2.0 baseline/contracts
 No lane may invent a second mastery calculation, target identity, or mutation path. Rust owns
 semantic truth; React renders typed projections and committed receipts.
 
+## 2026-07-15 foundation checkpoint
+
+**Exact-tree gate passed; release remains open.** Frontend: 39 files / 236 tests and production
+build. Rust: 376 library tests passed / 9 ignored; knowledge 9, narrated firewall 2, STT 9, and TTS
+gate 4 passed; 2 live-TTS tests remained intentionally ignored; strict clippy passed. The ignored
+real four-book corpus and Scherzo/Griffes MusicXML gates passed explicitly. A disposable copy of
+the preserved real backup migrated 7→8, reopened idempotently, preserved every source row, passed
+integrity/FKs, and produced the expected review-only anomalies. Christian's live database was not
+opened and `/Applications/CodaKiller.app` remains v1.3.0.
+
+This checkpoint completes the typed frontend receipt/error adapter, the schema/backfill core, the
+pure contract/effective-ledger derivation, the fourth-book manifest, and a first deterministic
+voice-firewall fixture. It does **not** complete backend receipt IDs/undo, sidecar repositories,
+RepEngine/store/IPC integration, the full narrated replay, or any user-facing v2 release behavior.
+The dependency spine therefore remains at V2.3 integration.
+
 ## V2.0 — Evidence, backup, and contracts
 
 **State: complete.**
@@ -47,6 +63,8 @@ semantic truth; React renders typed projections and committed receipts.
 
 ## V2.1 — Global mutation receipts and typed frontend service
 
+**State: verified frontend foundation; full v2 receipt contract remains open.**
+
 **Purpose:** fix invisible failure before adding new writes.
 
 **Files/modules:** add `src/services/`, `src/features/receipts/`, application receipt provider in
@@ -56,13 +74,15 @@ semantics yet.
 
 **Work:**
 
-1. Add committed/rejected/confirmation-required receipt types, operation/receipt IDs, entity refs,
-   error code/detail, and optional undo descriptor.
-2. Add one typed `invoke` wrapper that normalizes thrown IPC failures and legacy success values.
-3. Add persistent application-level polite/assertive live regions and a compact receipt stack.
-4. Make rep open, session end, and settings save reject to their callers; never advance a revision
-   or show saved state after failure.
-5. Preserve current UI while proving the boundary; new styling arrives in V2.10.
+- [ ] Add the complete cross-process committed/rejected/confirmation-required receipt model with
+  backend operation IDs, entity refs, durable detail, and real undo descriptors. The frontend now
+  has process-local committed/undone/error receipts and normalized error codes; the shared Rust
+  model and operation-backed undo remain open.
+- [x] Add one typed `invoke` wrapper that normalizes thrown IPC failures and legacy success values.
+- [x] Add application-level polite/assertive live regions and a compact dismissible receipt stack.
+- [x] Make rep open, session end, and settings save preserve prior state and surface failures;
+  failed writes no longer advance the affected revision or claim saved state.
+- [x] Preserve current styling while proving the boundary; the redesign remains V2.10.
 
 **Tests/evidence:** injected first-open failure is visible with no block; session-end failure leaves
 the session active and visible; failed setting persistence restores the prior value; keyboard /
@@ -73,7 +93,15 @@ a receipt yet, normalize only at the service boundary and keep its backend comma
 
 **Review gate:** fresh reviewer traces every caught mutation error and finds no disappearing owner.
 
+**Checkpoint evidence:** fresh review fixed settings snapshot races, delayed rep-open/check state
+resurrection, and a late closed-set metronome retune. Successful rep logging emits
+`Attempt N saved — verdict.` exactly; open success followed by metronome failure preserves the
+committed block and exposes both results. Focused and full frontend gates pass. Backend receipt
+identity and command-backed undo are intentionally deferred.
+
 ## V2.2 — Schema-v8 sidecars, provenance, and anomalies
+
+**State: migration/backfill core verified; repository and runtime wiring remain open.**
 
 **Files/modules:** `src-tauri/src/store/migrations.rs`, store model/repositories/tests; add domain
 repositories rather than expanding `store/mod.rs` business logic.
@@ -91,6 +119,12 @@ repositories rather than expanding `store/mod.rs` business logic.
 - Reject newer-than-supported databases safely; migration is one immediate transaction and
   idempotent.
 
+**Checkpoint evidence:** the tables, constraints, transactional v7→v8 step, legacy contracts,
+attempt provenance, and review-only anomaly projection are implemented and adversarially tested.
+Fresh review added cross-piece/self-link rejection, calibration uniqueness, signed legacy sorting,
+nonpositive/negative input facts, deterministic burst IDs, and exact incomplete-provenance facts.
+Sidecar repositories/IPC and new-write integration are not implemented yet.
+
 **Tests/evidence:** v7→v8 fixture preserving every table/ID/value; injected DDL/backfill failures
 roll back version and tables; second open is idempotent; v8 fresh schema constraints/indexes/FKs;
 anomaly fixtures match facts; `pdf_anchor` round-trips byte-for-byte.
@@ -100,6 +134,8 @@ anomaly fixtures match facts; `pdf_anchor` round-trips byte-for-byte.
 **Review gate:** adversarial migration reviewer + strict clippy/Rust suite.
 
 ## V2.3 — PracticeContract and effective Practice Ledger
+
+**State: pure semantic core verified; RepEngine/store transaction integration is next.**
 
 **Files/modules:** add `src-tauri/src/protocol/` and `src-tauri/src/ledger/`; refactor
 `src-tauri/src/rep/` into coordinator; expose derived fields in `store/model.rs` and thin commands.
@@ -125,6 +161,14 @@ transactional outcome; no in-memory advance on rollback.
 
 **Review gate:** fresh practice-semantics reviewer checks implementation against all four books and
 the acceptance matrix P1–P2.
+
+**Checkpoint evidence:** pure Rust modules now evaluate consecutive-clean, total-clean,
+timed-exposure, exploratory, and legacy contracts and fold immutable attempts plus append-only
+void/restore/correction/reversal records. Tests prove deterministic SQLite-ID order,
+`C,C,F → current 0 / best 2`, fifth-following-clean mastery, 10 failures never mastering, 50%
+accuracy staying 50%, adaptive recovery only after error, and legacy completion remaining
+unverified. Ladder profiles, set-state transitions, SQLite repositories, RepEngine coordination,
+atomic event/snapshot writes, Settings defaults, IPC, and the Rep HUD are still open.
 
 ## V2.4 — Corrections, restart, focus, safety, recovery, and retention
 
@@ -154,6 +198,8 @@ transaction.
 
 ## V2.5 — Real-backup migration rehearsal and anomaly report
 
+**State: first foundation rehearsal passed; rerun on the final release tree remains mandatory.**
+
 **Files/modules:** add a read-only/rehearsal QA harness under `src-tauri/tests/` and a record under
 `docs/qa/`; never commit Christian's DB.
 
@@ -167,6 +213,16 @@ same-second bursts. Any difference requires explanation and a new backup—not a
 **Failure/rollback:** delete disposable copies only; leave backup/live DB untouched.
 
 **Review gate:** independent verifier queries the migrated copy directly.
+
+**Checkpoint evidence:** an independent verifier migrated a disposable copy of the preserved
+schema-v7 backup and queried it directly. Exact source counts remained 6 pieces / 27 Regions / 48
+blocks / 481 reps / 8 sessions / 628 session events / 670 events / 21 Goals / 11 Daily Work rows;
+27 target metadata, 48 legacy contracts, 481 legacy provenance, and 628 backfill-ledger rows were
+created. Exactly 792 anomaly rows were projected: 670 incomplete legacy event provenance, 43
+same-second bursts, 30 duplicate candidates, 23 abandoned sets, 13 empty sets, 11 overruns, one
+Region 24 range at 0–0, and one set 45 range at 452–449. Integrity/FKs and second-open idempotency
+passed. The live database stayed untouched. This gate must run again after RepEngine/repository
+integration and immediately before packaging.
 
 ## V2.6 — Score Atlas and selection-first targets
 
@@ -321,7 +377,8 @@ release docs state that voice-over-piano proof remains pending.
 
 ### Next action
 
-Execute **V2.1** and **V2.2/V2.3** as separate review-gated lanes: first make every mutation visible,
-then land the additive schema-v8/protocol/ledger foundation and rehearse it on a disposable copy of
-the preserved backup. Do not begin the visual shell or Universe until the practice-truth gate is
-green.
+Integrate **V2.3/V2.4** through one authoritative transactional path: sidecar repositories →
+RepEngine coordinator → store/IPC commands → typed snapshot → Rep HUD, including real
+undo/correct/restart and contract-based completion. Re-run focused semantic/rollback tests and the
+real-backup rehearsal on a new disposable copy. Do not begin the visual shell or Universe until
+the integrated practice-truth gate is green.

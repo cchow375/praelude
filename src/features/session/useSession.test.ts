@@ -1,5 +1,12 @@
+import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { renderHook, act, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  renderHook,
+  act,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 const invokeMock = vi.fn();
 
@@ -23,6 +30,11 @@ import {
   type SessionView,
   type SessionEventView,
 } from "./useSession";
+import { ReceiptCenterProvider } from "../receipts/ReceiptCenter";
+
+function receiptWrapper({ children }: { children: ReactNode }) {
+  return createElement(ReceiptCenterProvider, null, children);
+}
 
 function makeSession(over: Partial<SessionView> = {}): SessionView {
   return {
@@ -48,6 +60,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cleanup();
   vi.useRealTimers();
 });
 
@@ -114,6 +127,32 @@ describe("useSession — IPC wiring", () => {
     expect(invokeMock).toHaveBeenCalledWith("session_end");
     expect(result.current.session).toBeNull();
     expect(out).toMatchObject({ session_id: 3, reps: 12 });
+  });
+
+  it("keeps a failed session end active and publishes an assertive error", async () => {
+    invokeMock.mockResolvedValueOnce(makeSession({ id: 3 }));
+    const { result } = renderHook(() => useSession(), {
+      wrapper: receiptWrapper,
+    });
+    await waitFor(() => expect(result.current.session?.id).toBe(3));
+
+    invokeMock.mockRejectedValueOnce({
+      code: "export_failed",
+      message: "The session export could not be written.",
+    });
+    await act(async () => {
+      await expect(result.current.endSession()).rejects.toMatchObject({
+        name: "CommandError",
+        command: "session_end",
+        code: "export_failed",
+      });
+    });
+
+    expect(result.current.session?.id).toBe(3);
+    expect(result.current.error).toBe("The session export could not be written.");
+    const alert = screen.getByRole("alert");
+    expect(alert.getAttribute("aria-live")).toBe("assertive");
+    expect(alert.textContent).toBe("The session export could not be written.");
   });
 
   it("caps the timeline at 200 events", async () => {

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useReceipts } from "../receipts/ReceiptCenter";
 import "./SettingsPanel.css";
 
 type Provider = "claude" | "gemini";
@@ -54,6 +55,7 @@ export function SettingsPanel({
   onInterfaceScaleSaved?: (scale: number) => void;
   api?: SettingsApi;
 }) {
+  const receipts = useReceipts();
   const [value, setValue] = useState<SettingsSnapshot | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,8 +114,11 @@ export function SettingsPanel({
       onThemeSaved?.(next.theme);
       onInterfaceScaleSaved?.(next.interface_scale);
       setMessage("Settings saved. Voice/provider changes apply after relaunch.");
+      receipts.committed("Settings saved.");
     } catch (cause) {
-      setError(errorMessage(cause));
+      const message = errorMessage(cause);
+      setError(message);
+      receipts.error(cause, message);
     } finally {
       setSaving(false);
     }
@@ -190,6 +195,15 @@ function KeyControl({ provider, status, api, onStatus }: { provider: Provider; s
   return <section aria-label={`${label} API key`}><header><strong>{label}</strong><span className={status.configured ? "is-configured" : ""}>{status.configured ? `Configured (${status.source})` : "Not configured"}</span></header><label><span className="sr-only">New {label} API key</span><input type="password" aria-label={`New ${label} API key`} autoComplete="off" value={key} onChange={(event) => setKey(event.target.value)} /></label><div><button type="button" disabled={busy || !key.trim()} onClick={() => void save()}>Save key</button><button type="button" disabled={busy || !status.configured} onClick={() => void clear()}>Clear</button></div>{error && <p className="ck-inline-error" role="alert">{error}</p>}</section>;
 }
 
-function errorMessage(cause: unknown) { if (typeof cause === "string") return cause; if (cause instanceof Error) return cause.message; return "Settings could not be updated."; }
+function errorMessage(cause: unknown) {
+  if (typeof cause === "string") return cause;
+  if (cause instanceof Error) return cause.message;
+  if (
+    cause != null
+    && typeof cause === "object"
+    && typeof (cause as { message?: unknown }).message === "string"
+  ) return (cause as { message: string }).message;
+  return "Settings could not be updated.";
+}
 function parseAliases(value: string) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
 function aliasStrings(value: VerdictAliases) { return { clean: value.clean.join(", "), flawed: value.flawed.join(", "), failed: value.failed.join(", ") }; }

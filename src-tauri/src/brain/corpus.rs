@@ -1,7 +1,7 @@
-//! Read-only retrieval over Christian's three local piano-practice books.
+//! Read-only retrieval over Christian's four local piano-practice books.
 //!
 //! The copyrighted source books stay outside the application bundle.  This
-//! module accepts a user-selected directory, opens only three exact Markdown
+//! module accepts a user-selected directory, opens only four exact Markdown
 //! filenames directly beneath it, strips conversion HTML, chunks by heading
 //! and paragraph, and caches an in-memory lexical index keyed by file metadata.
 //! Provider prompts receive only the small set of retrieved chunks.
@@ -53,6 +53,15 @@ const BOOKS: &[BookSpec] = &[
         file_name: "the-piano-students-guide-to-effective-practicing.md",
         title: "The Piano Student's Guide to Effective Practicing",
         author: "Nancy O'Neill Breth",
+        visual_dependency: true,
+    },
+    BookSpec {
+        id: "gieseking-leimer-technique",
+        file_name: "gieseking-leimer-piano-technique.md",
+        title: "Piano Technique",
+        author: "Walter Gieseking and Karl Leimer",
+        // This historical pedagogy includes score examples and should be
+        // treated as one perspective, not a universal modern evidence claim.
         visual_dependency: true,
     },
 ];
@@ -709,6 +718,17 @@ fn source_priorities(query: &str) -> HashMap<&'static str, f64> {
     if has(&["drill", "jump", "rhythm", "voicing", "pedal", "connection"]) {
         output.insert("breth-effective-practicing", 1.8);
     }
+    if has(&[
+        "concentration",
+        "mental",
+        "memory",
+        "memorize",
+        "visualize",
+        "score",
+        "study",
+    ]) {
+        output.insert("gieseking-leimer-technique", 1.7);
+    }
     output
 }
 
@@ -738,6 +758,10 @@ mod tests {
         fs::write(
             temp.path().join(BOOKS[2].file_name),
             "# Tools\n\n## JUMPS\nPractice the landing and connection of a jump.\n\n## RHYTHMS\nChange rhythmic groupings, then return to the written rhythm.\n\n## SUBDIVISION\nCount the smallest pulse before rebuilding the passage.",
+        ).unwrap();
+        fs::write(
+            temp.path().join(BOOKS[3].file_name),
+            "# Foundations\n\n## Concentration and mental study\nStudy the score with full concentration and form a clear mental image before repeating mechanically.\n\n## Memory\nBuild memory from conscious score knowledge rather than relying only on muscular habit.",
         ).unwrap();
         temp
     }
@@ -810,6 +834,20 @@ mod tests {
     }
 
     #[test]
+    fn mental_score_study_can_retrieve_gieseking_and_leimer() {
+        let temp = corpus();
+        let result = search(
+            temp.path(),
+            "How should I mentally study and memorize the score away from the piano?",
+            6,
+        );
+        assert!(result
+            .hits
+            .iter()
+            .any(|hit| hit.source_id == "gieseking-leimer-technique"));
+    }
+
+    #[test]
     fn only_exact_direct_regular_book_files_are_opened() {
         let temp = corpus();
         fs::write(temp.path().join("secret.md"), "secret material").unwrap();
@@ -868,7 +906,7 @@ mod tests {
             6,
         );
         assert_eq!(result.status, CorpusStatus::Ready);
-        assert_eq!(result.indexed_sources.len(), 3);
+        assert_eq!(result.indexed_sources.len(), 4);
         assert!(result
             .hits
             .iter()

@@ -1,0 +1,221 @@
+{
+  "status": "contract_planned_first_firewall_gate",
+  "cases": [
+    {
+      "id": "s1-ambient-repeat-1",
+      "source": "scherzo1@01:13:45",
+      "text": "I'm going to make that mistake.",
+      "mode": "rep",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "s1-ambient-repeat-2",
+      "source": "scherzo1@00:52:05",
+      "text": "I don't have to take that long.",
+      "mode": "rep",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "s1-conversational-again",
+      "source": "scherzo1@00:04:20",
+      "text": "Again, that I might be on console roll, but just obviously speed it up a little bit.",
+      "mode": "rep_running",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "s3-conversational-again-like",
+      "source": "scherzo3@00:23:29",
+      "text": "Again, like, you have to recognize that it's not a set measure.",
+      "mode": "rep",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "s3-conversational-again-just-to",
+      "source": "scherzo3@00:25:13",
+      "text": "Again, just to double check if I'm doing something wrong.",
+      "mode": "rep",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "known-no-thanks-false-positive",
+      "source": "current-NOTES.md",
+      "text": "no thanks",
+      "mode": "rep",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "known-no-thank-you-false-positive",
+      "source": "no-thanks-variant",
+      "text": "no thank you",
+      "mode": "rep",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "ambient-buried-tempo",
+      "source": "scherzo2@00:10:31",
+      "text": "I'm actually gonna turn the metronome tempo up to 60 because that feels under tempo right now.",
+      "mode": "rep_running",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "ambient-tempo-observation",
+      "source": "scherzo3@00:28:49",
+      "text": "tempo 55 is pretty slow",
+      "mode": "running",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "colon-range-ascii-dash",
+      "source": "scherzo1-measure-time-ASR",
+      "text": "open a rep tracker measures 5:16 to 5:30 start at 63",
+      "mode": "idle",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "colon-range-en-dash",
+      "source": "scherzo1-measure-time-ASR",
+      "text": "open a rep tracker measures 5:16–5:30 start at 63",
+      "mode": "idle",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "colon-score-measure",
+      "source": "scherzo1-measure-time-ASR",
+      "text": "show measure 5:16",
+      "mode": "idle",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "colon-tempo-delta",
+      "source": "ASR-corruption-contract-numeric-ambiguity",
+      "text": "bump it up 5:16",
+      "mode": "running",
+      "expected": { "kind": "ignored" }
+    },
+    {
+      "id": "control-clean",
+      "source": "genuine-verdict-control",
+      "text": "done",
+      "mode": "rep",
+      "expected": { "kind": "rep", "verdict": "pass", "note": null }
+    },
+    {
+      "id": "control-exact-again",
+      "source": "genuine-verdict-control",
+      "text": "again",
+      "mode": "rep",
+      "expected": { "kind": "rep", "verdict": "fail", "note": null }
+    },
+    {
+      "id": "control-again-with-domain-note",
+      "source": "genuine-verdict-control",
+      "text": "again fingering fell apart",
+      "mode": "rep",
+      "expected": { "kind": "rep", "verdict": "fail", "note": "fingering fell apart" }
+    },
+    {
+      "id": "control-again-that-i-self-report",
+      "source": "explicit-self-report-control",
+      "text": "again, that I missed the E",
+      "mode": "rep",
+      "expected": { "kind": "rep", "verdict": "fail", "note": "that i missed the e" }
+    },
+    {
+      "id": "control-no-with-narrated-self-report",
+      "source": "scherzo2@00:17:47",
+      "text": "No, shoot, I got it wrong.",
+      "mode": "rep",
+      "expected": { "kind": "rep", "verdict": "fail", "note": "shoot i got it wrong" }
+    },
+    {
+      "id": "control-nope-with-domain-note",
+      "source": "genuine-verdict-control",
+      "text": "nope missed the left hand jump",
+      "mode": "rep",
+      "expected": { "kind": "rep", "verdict": "fail", "note": "missed the left hand jump" }
+    },
+    {
+      "id": "control-flawed-with-domain-note",
+      "source": "genuine-verdict-control",
+      "text": "sloppy rushed the runs",
+      "mode": "rep",
+      "expected": { "kind": "rep", "verdict": "flawed", "note": "rushed the runs" }
+    },
+    {
+      "id": "control-open-digit-measures",
+      "source": "genuine-open-control",
+      "text": "open a rep tracker measures 516 to 530 start at 63 target 80 five reps",
+      "mode": "idle",
+      "expected": {
+        "kind": "rep_open",
+        "m_start": 516,
+        "m_end": 530,
+        "start_bpm": 63.0,
+        "target_bpm": 80.0,
+        "reps": 5
+      }
+    },
+    {
+      "id": "control-open-spoken-measures",
+      "source": "genuine-open-control",
+      "text": "open a rep tracker measures five sixteen to five thirty start at sixty three target 80 five reps",
+      "mode": "idle",
+      "expected": {
+        "kind": "rep_open",
+        "m_start": 516,
+        "m_end": 530,
+        "start_bpm": 63.0,
+        "target_bpm": 80.0,
+        "reps": 5
+      }
+    },
+    {
+      "id": "control-show-spoken-measure",
+      "source": "genuine-navigation-control",
+      "text": "show measure five sixteen",
+      "mode": "idle",
+      "expected": { "kind": "score_measure", "value": 516 }
+    },
+    {
+      "id": "control-metronome-start",
+      "source": "genuine-metronome-control",
+      "text": "metronome 63",
+      "mode": "idle",
+      "expected": { "kind": "metro_start", "bpm": 63.0 }
+    },
+    {
+      "id": "control-observed-four-homophone",
+      "source": "current-live-ASR",
+      "text": "bumped it up for",
+      "mode": "running",
+      "expected": { "kind": "metro_delta", "bpm_delta": 4.0 }
+    }
+  ],
+  "deferred_delivery_observations": [
+    {
+      "id": "progressive-revision-90-to-96",
+      "source": "current-NOTES.md live hear framing",
+      "mode": "idle",
+      "events": [
+        { "at_ms": 0, "text": "Metronome 90" },
+        { "at_ms": 213, "text": "Metronome 96" }
+      ],
+      "required_action_count": 1,
+      "required_final": "metronome 96",
+      "reason": "Settling/delivery identity belongs above the pure intent router."
+    },
+    {
+      "id": "identical-done-resend-chain",
+      "source": "current-NOTES.md live hear framing",
+      "mode": "rep",
+      "events": [
+        { "at_ms": 5441, "text": "Done" },
+        { "at_ms": 5939, "text": "Done" },
+        { "at_ms": 7838, "text": "Done" }
+      ],
+      "required_action_count": 1,
+      "required_final": "done",
+      "reason": "Transport resends and genuine rapid repetitions need delivery identity, not broader intent grammar."
+    }
+  ]
+}

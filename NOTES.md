@@ -2,6 +2,68 @@
 
 ## Decisions
 
+- **P7 / v2.0.0 verified foundation checkpoint (2026-07-15; exact-tree code, not installed):**
+  - **The release boundary has not moved.** `/Applications/CodaKiller.app` is still v1.3.0 and
+    Christian's live database is still schema 7. No v2 process opened or migrated the live path.
+    Every real-data rehearsal used a disposable copy of the verified pre-v2 backup; do not let a
+    development launch reach the live app-data directory before the paired app/database release
+    gate is ready.
+  - **Schema v8 is an additive compatibility foundation, not a switched practice engine.** The
+    migration adds `score_section`, `target_meta`, `score_edition_calibration`,
+    `protocol_template`, `set_contract`, `attempt_provenance`, `attempt_adjustment`,
+    `retention_check`, `data_anomaly`, `action_draft`, `brain_thread`, and `brain_turn`, plus
+    structured event links. The v7→v8 step runs under one `BEGIN IMMEDIATE` transaction, preserves
+    the v1 physical rows/IDs and score-anchor bytes, rejects a newer schema, and is idempotent.
+    Historical blocks receive `legacy_attempt_count` / mastery-`unverified` contracts; historical
+    reps receive `migration_legacy` provenance. Sidecar repositories, IPC, RepEngine writes, and
+    React projections are still unwired, so current runtime practice semantics remain v1 behavior.
+  - **The real-backup migration rehearsal is exact and repeatable.** A disposable copy of backup
+    SHA-256 `4b21549237b6f70de7399444151063bcb3ea35a9067a0ce363ce07d14f8b1aee`
+    migrated 7→8, reopened without additions, passed `quick_check` / `integrity_check`, and had
+    zero FK violations. It preserved exact source counts: 6 pieces, 27 Regions, 48 blocks, 481
+    reps, 8 sessions, 628 session events, 670 canonical events, 21 Goals, and 11 Daily Work rows.
+    Backfill produced 27 target metadata rows, 48 legacy contracts (25 `legacy_closed`, 23
+    `abandoned`), 481 attempt-provenance rows, and 628 reconciliation-ledger rows. Legacy-column
+    content hashing remained exact; the physical `event` table changed only by the additive v8
+    provenance/link columns.
+  - **Anomalies are projected, never silently repaired.** The rehearsal recorded exactly 792
+    review rows: 670 incomplete legacy event-provenance facts, 43 same-second attempt bursts, 30
+    duplicate-looking set pairs, 23 abandoned legacy sets, 13 empty sets, 11 attempt overruns, one
+    nonpositive Region range (Region 24, 0–0), and one reversed set range (set 45, 452–449).
+    Fresh review hardened signed legacy ordering, deterministic burst attempt-ID arrays, actual
+    nullable provenance facts, and negative/nonpositive input detection.
+  - **Practice truth exists as pure code only.** `protocol` evaluates consecutive-clean,
+    total-clean, timed-exposure, exploratory, and legacy contracts; `ledger` folds original
+    attempts plus append-only void/restore/correction/reversal records into tries, verdict totals,
+    current/best streak, resets, accuracy, source mix, tempo path, recovery, and mastery. Durable
+    SQLite IDs define fold order. Self/future/cross-attempt reversals reject, and adaptive recovery
+    activates only after an error. The verifier reproduced `C,C,F → current 0 / best 2`, mastery
+    only on the fifth following clean, 10 failures never mastering, 50% remaining 50%, and legacy
+    completion staying unverified. RepEngine is not yet a coordinator over this projection.
+  - **Visible mutation ownership now has a frontend foundation.** A typed command wrapper
+    normalizes native failures; the application Receipt Center owns visible dismissible committed,
+    undone, and error messages with polite/assertive live regions. Rep-open/session-end/settings
+    failures preserve prior state and remain visible; setting writes roll back; a successful rep
+    says `Attempt N saved — verdict.`; delayed open/check responses cannot resurrect a closed set
+    or retune its metronome. These are process-local legacy adapters—backend operation IDs,
+    durable receipts, and real undo commands remain later work.
+  - **The first narrated firewall fixture is a seed, not the narrated replay.** Deterministic tests
+    now keep `5:16` colon/time forms from becoming measure/tempo mutations and keep `no thanks` or
+    conversational `again ...` from recording failures, while preserving explicit commands such
+    as `again`, `again fingering fell apart`, and `no, shoot, I got it wrong`. Fresh review caught
+    and fixed both a `bump it up 5:16` → `+16` hazard and an over-broad `again` suppression. Delivery
+    identity, progressive `90→96`, all 1,309 raw segments, four stateful sessions, and installed
+    audio/Steinway acceptance remain open.
+  - **The local Brain corpus manifest now recognizes all four actual books.** The exact allowlist
+    adds `gieseking-leimer-piano-technique.md` as `gieseking-leimer-technique`, with mental/
+    concentration/score-study retrieval priority, visual-dependency metadata, and a historical-
+    pedagogy caveat. The ignored real-corpus test passed with four files. The installed v1.3.0 app
+    still exposes its three-book behavior until v2 is packaged.
+  - **Verified exact-tree checkpoint:** frontend 39 files / 236 tests; Rust library 376 passed / 9
+    ignored plus knowledge 9, narrated firewall 2, STT 9, TTS gate 4, and 2 ignored live-TTS tests;
+    production build and strict `clippy -D warnings` passed. The real four-book corpus and Scherzo /
+    Griffes MusicXML ignored gates passed explicitly. This proves the foundation, not V2.4–V2.12.
+
 - **P7 / v2.0.0 Practice OS transformation boundary (2026-07-15; implementation in progress,
   not shipped):**
   - **Real use replaces the stale “never used” assumption.** A consistent July 15 schema-v7

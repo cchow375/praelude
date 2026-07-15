@@ -1,13 +1,14 @@
 # CodaKiller v2 — Narrated Practice Replay Contract
 
-**Status: CONTRACT / PLANNED — NOT IMPLEMENTED, NOT RUN, NOT PASSING**  
+**Status: CONTRACT / PLANNED — SEED FIREWALL FIXTURE PASSING; FULL REPLAY NOT RUN**
+
 **Contract date:** 2026-07-15  
 **Source corpus:** `/Users/c3/piano-coach/test_assets/narrated/`
 
 This document defines the acceptance contract for replaying Christian's four narrated practice
-sessions against CodaKiller v2. It is a specification for future fixtures and tests, not evidence
-that the app currently satisfies them. A checkbox in this file describes required work until a
-future dated run records concrete output beside it.
+sessions against CodaKiller v2. One small deterministic firewall fixture now proves a first subset
+of ambient/colon-time routing behavior; it does not replay the four recordings or satisfy a full
+lane. Every unchecked box remains required until a dated run records concrete output beside it.
 
 ## Binding authority boundary
 
@@ -201,8 +202,26 @@ not incidental prose. Exact spoken-string snapshots belong only to a small speec
 
 ## Planned replay lanes
 
-None of these lanes is passing until a future run records implementation, command, date, and
-result. A unit test that merely loads the fixture is not a passing replay.
+None of these lanes is passing yet. The dated seed result below is narrower than Lane A or C: it
+exercises reviewed strings only, not 1,309 ordered segments, timing/delivery identity, stateful
+sessions, or installed audio. A unit test that merely loads a fixture is not a passing replay.
+
+### Implemented seed — deterministic intent firewall (not a completed lane)
+
+- [x] A committed fixture distinguishes ambient `no thanks`, conversational `again ...`, and
+  colon/time number forms from reviewed explicit hot-loop commands.
+- [x] `5:16` forms cannot open a numbered range, navigate to a measure, or become a tempo delta;
+  fresh review specifically caught and fixed `bump it up 5:16` being interpreted as `+16`.
+- [x] The ambient guard preserves genuine reports such as `again`, `again fingering fell apart`,
+  `again that I missed the E`, and `no, shoot, I got it wrong`; fresh review caught and fixed an
+  over-broad first implementation.
+- [ ] Delivery/utterance identity, progressive `90→96`, repeated-final recovery, all raw segments,
+  the full corruption matrix, Tier B drafts, stateful sessions, and installed audio remain open.
+
+**Evidence:** `src-tauri/tests/fixtures/narrated_voice_firewall.json` and
+`src-tauri/tests/narrated_voice_firewall.rs`; `cargo test --test narrated_voice_firewall` passed
+2/2 on the exact checkpoint tree. Intent unit tests passed 46/46. These strings exercise command
+routing only and make no claim about piano sound or installed recognizer recall.
 
 ### Lane A — raw transcript firewall
 
@@ -292,7 +311,7 @@ When implemented, append—not prefill—one row per run:
 
 | Date | App/build | Lane | Command or installed procedure | Result | Failures/fixes |
 |---|---|---|---|---|---|
-| _not run_ | — | — | — | **PLANNED** | Contract only |
+| 2026-07-15 | v2 working tree; not installed | Seed firewall (pre-Lane A/C) | `cargo test --test narrated_voice_firewall` | **PASS — 2/2 seed tests only** | Fixed colon tempo-delta mutation and over-broad `again` suppression; full lanes remain planned. |
 
 ## Release gate
 

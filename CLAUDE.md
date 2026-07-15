@@ -65,7 +65,13 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 from Christian's substantial real use: 481 attempts exposed wrong completion/recovery semantics,
 unclear writes, score/history friction, real voice false-positive/negative evidence, a verbose
 session-only Brain, and a UI/Universe that failed the user.** A verified schema-v7 snapshot is
-preserved at `(C) pre-v2.0.0-feedback-2026-07-15-163528.db`. Implement in this locked order:
-ledger/protocol → Score Atlas/history → voice replay/drafts/Brain → shell/Universe → full native /
+preserved at `(C) pre-v2.0.0-feedback-2026-07-15-163528.db`. The first exact-tree checkpoint now
+contains global frontend receipts/typed command errors, an additive schema-v8 migration and
+sidecar/anomaly backfill, pure protocol/effective-ledger modules, the fourth-book allowlist entry,
+and a seed narrated-voice firewall. A disposable backup copy migrated 7→8 and reopened with exact
+source counts, integrity `ok`, and FK 0; the live database was never opened. These sidecars and pure
+derivations are **not yet wired into RepEngine, store commands, or React projections**, and the full
+narrated replay remains pending. Next: integrate one transactional RepEngine path over the contract
+and ledger, then continue Score Atlas/history → voice drafts/Brain → shell/Universe → full native /
 adversarial release. v2 is not shipped and the installed app/tutorial remain v1.3.0. Off-disk
 remote and packaged v2 Steinway acceptance remain open.

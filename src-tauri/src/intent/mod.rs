@@ -152,6 +152,15 @@ pub struct Router;
 impl Router {
     /// Route a **final** transcript to an [`Intent`]. Pure and deterministic.
     pub fn route(text: &str, mode: &Mode) -> Intent {
+        // Whisper rendered several three-digit Scherzo measures as clock times
+        // (`5:16`, `5:30`). Normalization turns their colons into spaces, and the
+        // rep-open and delta parsers would otherwise consume separate literals
+        // as a valid but catastrophically wrong range or tempo change. Preserve
+        // that ambiguity signal from the raw transcript and refuse numbered
+        // score/practice/metronome actions. Explicit `516` / `five sixteen`
+        // remains supported.
+        let has_numeric_colon = contains_numeric_colon(text);
+
         // 1. Normalize: lowercase, punctuation & hyphens → spaces, collapse runs.
         let norm = normalize(text);
         if norm.is_empty() {
@@ -179,11 +188,13 @@ impl Router {
         if is_session_end(&words) {
             return Intent::SessionEnd;
         }
-        if let Some(nav) = route_score_navigation(&words) {
-            return nav;
-        }
-        if let Some(spec) = route_rep_open(&words) {
-            return Intent::RepOpen(spec);
+        if !has_numeric_colon {
+            if let Some(nav) = route_score_navigation(&words) {
+                return nav;
+            }
+            if let Some(spec) = route_rep_open(&words) {
+                return Intent::RepOpen(spec);
+            }
         }
 
         // 4. Rep-check grammar takes priority inside an active rep block.
@@ -200,8 +211,10 @@ impl Router {
         }
 
         // 5. Metronome grammar.
-        if let Some(intent) = route_metronome(&words, mode) {
-            return intent;
+        if !has_numeric_colon {
+            if let Some(intent) = route_metronome(&words, mode) {
+                return intent;
+            }
         }
 
         // 6. Wake-prefixed but unmatched → a Question for the future assistant path.
@@ -227,6 +240,16 @@ fn normalize(text: &str) -> String {
         }
     }
     out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Whether the raw transcript contains an ASCII digit-colon-digit shape such
+/// as `5:16`. In practice narration this is an ASR rendering of a three-digit
+/// measure, but it is also valid clock syntax; either way it is too ambiguous to
+/// feed numbered mutation parsers after punctuation is discarded.
+fn contains_numeric_colon(text: &str) -> bool {
+    text.as_bytes()
+        .windows(3)
+        .any(|w| w[0].is_ascii_digit() && w[1] == b':' && w[2].is_ascii_digit())
 }
 
 /// If `norm` leads with the wake word, return the remainder (may be empty). The
@@ -275,6 +298,15 @@ fn rep_check(words: &[&str]) -> Option<(Verdict, Option<String>)> {
         return Some((Verdict::Pass, None));
     }
 
+    // Narrated-practice firewall: a leading fail word can also be a discourse
+    // marker. These exact shapes occurred in Christian's recordings, and the
+    // existing eager note capture turned them into phantom failed reps. Keep the
+    // guard deliberately narrow so real controls (`again`, `again fingering fell
+    // apart`, `no shoot I got it wrong`) continue to work.
+    if conversational_leading_verdict(words) {
+        return None;
+    }
+
     // Leading verdict token(s): two-word forms first, then single tokens.
     let (verdict, lead) =
         if words.starts_with(&["messed", "up"]) || words.starts_with(&["mess", "up"]) {
@@ -299,6 +331,26 @@ fn rep_check(words: &[&str]) -> Option<(Verdict, Option<String>)> {
         return None;
     }
     Some((verdict, Some(rest.join(" "))))
+}
+
+/// Observed conversational phrases that happen to begin with a fail verdict.
+/// This is intentionally an allowlisted rejection, not a broad NLP heuristic.
+fn conversational_leading_verdict(words: &[&str]) -> bool {
+    if words.starts_with(&["no", "thanks"]) || words.starts_with(&["no", "thank", "you"]) {
+        return true;
+    }
+
+    let conversational_again = words.starts_with(&["again", "that", "i"])
+        || words.starts_with(&["again", "like"])
+        || words.starts_with(&["again", "just", "to"]);
+    let has_explicit_failure = words.iter().skip(1).any(|word| {
+        matches!(
+            *word,
+            "fail" | "failed" | "miss" | "missed" | "mess" | "messed"
+        )
+    });
+
+    conversational_again && !has_explicit_failure
 }
 
 /// "End the session" family (any mode).

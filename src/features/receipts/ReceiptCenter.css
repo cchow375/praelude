@@ -1,0 +1,119 @@
+.receipt-center {
+  position: fixed;
+  z-index: 120;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  width: min(24rem, calc(100vw - 2 * var(--space-4)));
+  pointer-events: none;
+}
+
+.receipt-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.receipt-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.receipt-item {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 42px;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--success);
+  border-radius: var(--radius-md);
+  background: var(--surface-popover);
+  color: var(--ink-primary);
+  box-shadow: var(--shadow-popover);
+}
+
+.receipt-item[data-kind="undone"] {
+  border-left-color: var(--accent);
+}
+
+.receipt-item[data-kind="error"] {
+  border-left-color: var(--danger);
+}
+
+.receipt-mark {
+  color: var(--success);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.receipt-item[data-kind="undone"] .receipt-mark {
+  color: var(--accent);
+}
+
+.receipt-item[data-kind="error"] .receipt-mark {
+  color: var(--danger);
+}
+
+.receipt-message {
+  min-width: 0;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.receipt-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-tertiary);
+  font: inherit;
+  font-size: var(--text-lg);
+  cursor: pointer;
+}
+
+.receipt-dismiss:hover {
+  background: var(--surface-hover);
+  color: var(--ink-primary);
+}
+
+.receipt-dismiss:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (max-width: 760px) {
+  .receipt-center {
+    right: var(--space-2);
+    bottom: var(--space-2);
+    width: min(22rem, calc(100vw - 2 * var(--space-2)));
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .receipt-item {
+    animation: receipt-enter var(--duration-base) var(--ease-spring) both;
+  }
+}
+
+@keyframes receipt-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+}

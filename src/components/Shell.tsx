@@ -152,6 +152,9 @@ export function Shell({
     setEnding(true);
     try {
       await session.endSession();
+    } catch {
+      // useSession preserves the active session and publishes the normalized
+      // failure through the application-level Receipt Center.
     } finally {
       setEnding(false);
     }

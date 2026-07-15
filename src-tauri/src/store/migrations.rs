@@ -8,7 +8,7 @@
 use rusqlite::Connection;
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 7;
+pub const SCHEMA_VERSION: i32 = 8;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -389,12 +389,356 @@ BEGIN
 END;
 ";
 
+/// Schema v8 — additive Practice OS sidecars around the immutable v1 graph.
+///
+/// The physical v1 tables and their ids remain authoritative compatibility
+/// anchors. New semantics are attached one-to-one (target_meta, set_contract,
+/// attempt_provenance) or appended (adjustments, anomalies, drafts, threads).
+/// In particular this migration never rebuilds region/rep_block/rep and never
+/// touches region.pdf_anchor.
+pub(crate) const SCHEMA_V8: &str = "\
+CREATE TABLE score_section (
+  id INTEGER PRIMARY KEY,
+  piece_id INTEGER NOT NULL REFERENCES piece(id) ON DELETE CASCADE,
+  name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 500),
+  m_start INTEGER NOT NULL CHECK(m_start >= 1),
+  m_end INTEGER NOT NULL CHECK(m_end >= m_start),
+  source TEXT NOT NULL CHECK(source IN ('musicxml','user','import_review')),
+  source_ref TEXT,
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_ts TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX score_section_piece_range_idx
+  ON score_section(piece_id,m_start,m_end,id);
+
+CREATE TABLE target_meta (
+  region_id INTEGER PRIMARY KEY REFERENCES region(id) ON DELETE CASCADE,
+  parent_region_id INTEGER REFERENCES region(id) ON DELETE SET NULL,
+  score_section_id INTEGER REFERENCES score_section(id) ON DELETE SET NULL,
+  color TEXT,
+  archived_ts TEXT,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  mapping_evidence_version INTEGER NOT NULL DEFAULT 1
+    CHECK(mapping_evidence_version >= 1),
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK(parent_region_id IS NULL OR parent_region_id != region_id)
+);
+CREATE INDEX target_meta_parent_idx
+  ON target_meta(parent_region_id) WHERE parent_region_id IS NOT NULL;
+CREATE INDEX target_meta_section_idx
+  ON target_meta(score_section_id) WHERE score_section_id IS NOT NULL;
+CREATE TRIGGER target_meta_same_piece_insert
+BEFORE INSERT ON target_meta
+WHEN (NEW.parent_region_id IS NOT NULL AND
+      (SELECT piece_id FROM region WHERE id=NEW.parent_region_id) !=
+      (SELECT piece_id FROM region WHERE id=NEW.region_id))
+  OR (NEW.score_section_id IS NOT NULL AND
+      (SELECT piece_id FROM score_section WHERE id=NEW.score_section_id) !=
+      (SELECT piece_id FROM region WHERE id=NEW.region_id))
+BEGIN
+  SELECT RAISE(ABORT, 'target parent and section must belong to the same piece');
+END;
+CREATE TRIGGER target_meta_same_piece_update
+BEFORE UPDATE OF region_id,parent_region_id,score_section_id ON target_meta
+WHEN (NEW.parent_region_id IS NOT NULL AND
+      (SELECT piece_id FROM region WHERE id=NEW.parent_region_id) !=
+      (SELECT piece_id FROM region WHERE id=NEW.region_id))
+  OR (NEW.score_section_id IS NOT NULL AND
+      (SELECT piece_id FROM score_section WHERE id=NEW.score_section_id) !=
+      (SELECT piece_id FROM region WHERE id=NEW.region_id))
+BEGIN
+  SELECT RAISE(ABORT, 'target parent and section must belong to the same piece');
+END;
+
+CREATE TABLE score_edition_calibration (
+  id INTEGER PRIMARY KEY,
+  piece_id INTEGER NOT NULL REFERENCES piece(id) ON DELETE CASCADE,
+  edition_id TEXT NOT NULL CHECK(length(trim(edition_id)) BETWEEN 1 AND 4096),
+  edition_fingerprint TEXT NOT NULL
+    CHECK(length(trim(edition_fingerprint)) BETWEEN 1 AND 500),
+  method TEXT NOT NULL CHECK(method IN ('exact_xml','user_confirmed','calibrated')),
+  confidence REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
+  points_json TEXT NOT NULL DEFAULT '[]',
+  user_verified INTEGER NOT NULL DEFAULT 0 CHECK(user_verified IN (0,1)),
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(piece_id,edition_id,edition_fingerprint)
+);
+CREATE INDEX score_calibration_edition_idx
+  ON score_edition_calibration(piece_id,edition_fingerprint,id);
+
+CREATE TABLE protocol_template (
+  id TEXT PRIMARY KEY CHECK(length(trim(id)) BETWEEN 1 AND 200),
+  contract_version INTEGER NOT NULL CHECK(contract_version >= 1),
+  name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 500),
+  rationale TEXT NOT NULL CHECK(length(trim(rationale)) BETWEEN 1 AND 4000),
+  mastery_basis TEXT NOT NULL CHECK(mastery_basis IN
+    ('consecutive_clean','total_clean','timed_exposure','exploratory','legacy_attempt_count')),
+  required_success INTEGER NOT NULL CHECK(required_success >= 0),
+  reset_on_flawed INTEGER NOT NULL CHECK(reset_on_flawed IN (0,1)),
+  reset_on_failed INTEGER NOT NULL CHECK(reset_on_failed IN (0,1)),
+  recovery_policy TEXT NOT NULL CHECK(recovery_policy IN ('none','fixed','adaptive')),
+  recovery_value INTEGER NOT NULL DEFAULT 0 CHECK(recovery_value >= 0),
+  recovery_minimum INTEGER NOT NULL DEFAULT 0 CHECK(recovery_minimum >= 0),
+  tempo_policy_json TEXT NOT NULL DEFAULT '{}',
+  attempt_ceiling INTEGER CHECK(attempt_ceiling IS NULL OR attempt_ceiling >= 1),
+  planned_seconds INTEGER CHECK(planned_seconds IS NULL OR planned_seconds >= 1),
+  retention_delay_days INTEGER
+    CHECK(retention_delay_days IS NULL OR retention_delay_days >= 0),
+  source_refs_json TEXT NOT NULL DEFAULT '[]',
+  user_editable INTEGER NOT NULL DEFAULT 1 CHECK(user_editable IN (0,1)),
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_ts TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE set_contract (
+  set_id INTEGER PRIMARY KEY REFERENCES rep_block(id) ON DELETE CASCADE,
+  template_id TEXT REFERENCES protocol_template(id) ON DELETE SET NULL,
+  contract_version INTEGER NOT NULL CHECK(contract_version >= 1),
+  name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 500),
+  rationale TEXT NOT NULL CHECK(length(trim(rationale)) BETWEEN 1 AND 4000),
+  mastery_basis TEXT NOT NULL CHECK(mastery_basis IN
+    ('consecutive_clean','total_clean','timed_exposure','exploratory','legacy_attempt_count')),
+  required_success INTEGER NOT NULL CHECK(required_success >= 0),
+  reset_on_flawed INTEGER NOT NULL CHECK(reset_on_flawed IN (0,1)),
+  reset_on_failed INTEGER NOT NULL CHECK(reset_on_failed IN (0,1)),
+  recovery_policy TEXT NOT NULL CHECK(recovery_policy IN ('none','fixed','adaptive')),
+  recovery_value INTEGER NOT NULL DEFAULT 0 CHECK(recovery_value >= 0),
+  recovery_minimum INTEGER NOT NULL DEFAULT 0 CHECK(recovery_minimum >= 0),
+  tempo_policy_json TEXT NOT NULL DEFAULT '{}',
+  attempt_ceiling INTEGER CHECK(attempt_ceiling IS NULL OR attempt_ceiling >= 1),
+  planned_seconds INTEGER CHECK(planned_seconds IS NULL OR planned_seconds >= 1),
+  retention_delay_days INTEGER
+    CHECK(retention_delay_days IS NULL OR retention_delay_days >= 0),
+  source_refs_json TEXT NOT NULL DEFAULT '[]',
+  set_state TEXT NOT NULL CHECK(set_state IN
+    ('draft','active','paused','mastered','closed_unresolved','abandoned','restarted',
+     'legacy_open','legacy_closed')),
+  mastery_verification TEXT NOT NULL CHECK(mastery_verification IN
+    ('verified','unverified','not_applicable')),
+  restart_of_set_id INTEGER REFERENCES rep_block(id) ON DELETE SET NULL,
+  source TEXT NOT NULL CHECK(source IN
+    ('user_click','voice_hot_loop','voice_draft','brain_draft','import_review','migration_legacy','system_schedule')),
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK(restart_of_set_id IS NULL OR restart_of_set_id != set_id)
+);
+CREATE INDEX set_contract_state_idx ON set_contract(set_state,set_id);
+CREATE TRIGGER set_contract_restart_same_piece_insert
+BEFORE INSERT ON set_contract
+WHEN NEW.restart_of_set_id IS NOT NULL AND
+     (SELECT piece_id FROM rep_block WHERE id=NEW.restart_of_set_id) !=
+     (SELECT piece_id FROM rep_block WHERE id=NEW.set_id)
+BEGIN
+  SELECT RAISE(ABORT, 'restarted sets must belong to the same piece');
+END;
+CREATE TRIGGER set_contract_restart_same_piece_update
+BEFORE UPDATE OF set_id,restart_of_set_id ON set_contract
+WHEN NEW.restart_of_set_id IS NOT NULL AND
+     (SELECT piece_id FROM rep_block WHERE id=NEW.restart_of_set_id) !=
+     (SELECT piece_id FROM rep_block WHERE id=NEW.set_id)
+BEGIN
+  SELECT RAISE(ABORT, 'restarted sets must belong to the same piece');
+END;
+
+CREATE TABLE attempt_provenance (
+  rep_id INTEGER PRIMARY KEY REFERENCES rep(id) ON DELETE CASCADE,
+  source TEXT NOT NULL CHECK(source IN
+    ('user_click','voice_hot_loop','voice_draft','brain_draft','import_review','migration_legacy','system_schedule')),
+  command_id TEXT,
+  canonical_event_id INTEGER REFERENCES event(id) ON DELETE SET NULL,
+  recorded_ts TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX attempt_provenance_source_idx ON attempt_provenance(source,rep_id);
+CREATE UNIQUE INDEX attempt_provenance_command_idx
+  ON attempt_provenance(command_id) WHERE command_id IS NOT NULL;
+
+CREATE TABLE attempt_adjustment (
+  id INTEGER PRIMARY KEY,
+  rep_id INTEGER NOT NULL REFERENCES rep(id) ON DELETE RESTRICT,
+  kind TEXT NOT NULL CHECK(kind IN
+    ('void','restore','replace_verdict','replace_note','combined_correction')),
+  before_json TEXT NOT NULL,
+  after_json TEXT NOT NULL,
+  source TEXT NOT NULL CHECK(source IN
+    ('user_click','voice_hot_loop','voice_draft','brain_draft','import_review','migration_legacy','system_schedule')),
+  command_id TEXT NOT NULL CHECK(length(trim(command_id)) BETWEEN 1 AND 200),
+  reason TEXT,
+  reverses_adjustment_id INTEGER REFERENCES attempt_adjustment(id) ON DELETE RESTRICT,
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK(reverses_adjustment_id IS NULL OR reverses_adjustment_id != id),
+  UNIQUE(command_id)
+);
+CREATE INDEX attempt_adjustment_rep_idx ON attempt_adjustment(rep_id,id);
+CREATE TRIGGER attempt_adjustment_same_attempt_insert
+BEFORE INSERT ON attempt_adjustment
+WHEN NEW.reverses_adjustment_id IS NOT NULL AND
+     (SELECT rep_id FROM attempt_adjustment WHERE id=NEW.reverses_adjustment_id) != NEW.rep_id
+BEGIN
+  SELECT RAISE(ABORT, 'an adjustment can reverse only the same attempt');
+END;
+CREATE TRIGGER attempt_adjustment_same_attempt_update
+BEFORE UPDATE OF rep_id,reverses_adjustment_id ON attempt_adjustment
+WHEN NEW.reverses_adjustment_id IS NOT NULL AND
+     (SELECT rep_id FROM attempt_adjustment WHERE id=NEW.reverses_adjustment_id) != NEW.rep_id
+BEGIN
+  SELECT RAISE(ABORT, 'an adjustment can reverse only the same attempt');
+END;
+
+CREATE TABLE retention_check (
+  id INTEGER PRIMARY KEY,
+  region_id INTEGER NOT NULL REFERENCES region(id) ON DELETE CASCADE,
+  source_set_id INTEGER REFERENCES rep_block(id) ON DELETE SET NULL,
+  due_date TEXT NOT NULL,
+  original_due_date TEXT NOT NULL,
+  condition_json TEXT NOT NULL DEFAULT '{}',
+  state TEXT NOT NULL DEFAULT 'due'
+    CHECK(state IN ('due','snoozed','confirmed','lowered','reopened','dismissed')),
+  result_json TEXT,
+  completed_ts TEXT,
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_ts TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX retention_check_due_idx ON retention_check(state,due_date,id);
+CREATE INDEX retention_check_region_idx ON retention_check(region_id,id);
+CREATE TRIGGER retention_check_same_piece_insert
+BEFORE INSERT ON retention_check
+WHEN NEW.source_set_id IS NOT NULL AND
+     (SELECT piece_id FROM rep_block WHERE id=NEW.source_set_id) !=
+     (SELECT piece_id FROM region WHERE id=NEW.region_id)
+BEGIN
+  SELECT RAISE(ABORT, 'retention source set and target must belong to the same piece');
+END;
+CREATE TRIGGER retention_check_same_piece_update
+BEFORE UPDATE OF region_id,source_set_id ON retention_check
+WHEN NEW.source_set_id IS NOT NULL AND
+     (SELECT piece_id FROM rep_block WHERE id=NEW.source_set_id) !=
+     (SELECT piece_id FROM region WHERE id=NEW.region_id)
+BEGIN
+  SELECT RAISE(ABORT, 'retention source set and target must belong to the same piece');
+END;
+
+CREATE TABLE data_anomaly (
+  id INTEGER PRIMARY KEY,
+  fingerprint TEXT NOT NULL UNIQUE
+    CHECK(length(trim(fingerprint)) BETWEEN 1 AND 1000),
+  entity_type TEXT NOT NULL CHECK(entity_type IN
+    ('piece','target','set','attempt','session','event')),
+  entity_id INTEGER NOT NULL,
+  kind TEXT NOT NULL CHECK(length(trim(kind)) BETWEEN 1 AND 200),
+  observed_facts_json TEXT NOT NULL,
+  severity TEXT NOT NULL CHECK(severity IN ('info','warning','error')),
+  review_state TEXT NOT NULL DEFAULT 'open'
+    CHECK(review_state IN ('open','dismissed','resolved')),
+  resolving_event_id INTEGER REFERENCES event(id) ON DELETE SET NULL,
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  reviewed_ts TEXT
+);
+CREATE INDEX data_anomaly_review_idx
+  ON data_anomaly(review_state,severity,entity_type,entity_id);
+
+CREATE TABLE action_draft (
+  id INTEGER PRIMARY KEY,
+  piece_id INTEGER REFERENCES piece(id) ON DELETE CASCADE,
+  region_id INTEGER REFERENCES region(id) ON DELETE SET NULL,
+  set_id INTEGER REFERENCES rep_block(id) ON DELETE SET NULL,
+  source TEXT NOT NULL CHECK(source IN ('voice_draft','brain_draft')),
+  original_text TEXT NOT NULL CHECK(length(trim(original_text)) BETWEEN 1 AND 8000),
+  operations_json TEXT NOT NULL,
+  ambiguities_json TEXT NOT NULL DEFAULT '[]',
+  confidence REAL CHECK(confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
+  risk TEXT NOT NULL CHECK(risk IN ('low','medium','high')),
+  revision_hash TEXT NOT NULL CHECK(length(trim(revision_hash)) BETWEEN 1 AND 500),
+  status TEXT NOT NULL CHECK(status IN
+    ('draft','confirmation_required','applied','rejected','undone')),
+  applied_event_id INTEGER REFERENCES event(id) ON DELETE SET NULL,
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_ts TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX action_draft_piece_status_idx ON action_draft(piece_id,status,id);
+CREATE TRIGGER action_draft_context_insert
+BEFORE INSERT ON action_draft
+WHEN (NEW.piece_id IS NOT NULL AND NEW.region_id IS NOT NULL AND
+      NEW.piece_id != (SELECT piece_id FROM region WHERE id=NEW.region_id))
+  OR (NEW.piece_id IS NOT NULL AND NEW.set_id IS NOT NULL AND
+      NEW.piece_id != (SELECT piece_id FROM rep_block WHERE id=NEW.set_id))
+  OR (NEW.region_id IS NOT NULL AND NEW.set_id IS NOT NULL AND
+      (SELECT piece_id FROM region WHERE id=NEW.region_id) !=
+      (SELECT piece_id FROM rep_block WHERE id=NEW.set_id))
+BEGIN
+  SELECT RAISE(ABORT, 'draft context must belong to one piece');
+END;
+CREATE TRIGGER action_draft_context_update
+BEFORE UPDATE OF piece_id,region_id,set_id ON action_draft
+WHEN (NEW.piece_id IS NOT NULL AND NEW.region_id IS NOT NULL AND
+      NEW.piece_id != (SELECT piece_id FROM region WHERE id=NEW.region_id))
+  OR (NEW.piece_id IS NOT NULL AND NEW.set_id IS NOT NULL AND
+      NEW.piece_id != (SELECT piece_id FROM rep_block WHERE id=NEW.set_id))
+  OR (NEW.region_id IS NOT NULL AND NEW.set_id IS NOT NULL AND
+      (SELECT piece_id FROM region WHERE id=NEW.region_id) !=
+      (SELECT piece_id FROM rep_block WHERE id=NEW.set_id))
+BEGIN
+  SELECT RAISE(ABORT, 'draft context must belong to one piece');
+END;
+
+CREATE TABLE brain_thread (
+  id INTEGER PRIMARY KEY,
+  piece_id INTEGER NOT NULL REFERENCES piece(id) ON DELETE CASCADE,
+  region_id INTEGER REFERENCES region(id) ON DELETE SET NULL,
+  title TEXT,
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  cleared_ts TEXT
+);
+CREATE INDEX brain_thread_piece_idx ON brain_thread(piece_id,updated_ts,id);
+CREATE TRIGGER brain_thread_same_piece_insert
+BEFORE INSERT ON brain_thread
+WHEN NEW.region_id IS NOT NULL AND
+     NEW.piece_id != (SELECT piece_id FROM region WHERE id=NEW.region_id)
+BEGIN
+  SELECT RAISE(ABORT, 'Brain thread region must belong to its piece');
+END;
+CREATE TRIGGER brain_thread_same_piece_update
+BEFORE UPDATE OF piece_id,region_id ON brain_thread
+WHEN NEW.region_id IS NOT NULL AND
+     NEW.piece_id != (SELECT piece_id FROM region WHERE id=NEW.region_id)
+BEGIN
+  SELECT RAISE(ABORT, 'Brain thread region must belong to its piece');
+END;
+
+CREATE TABLE brain_turn (
+  id INTEGER PRIMARY KEY,
+  thread_id INTEGER NOT NULL REFERENCES brain_thread(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+  content TEXT NOT NULL CHECK(length(content) BETWEEN 1 AND 24000),
+  provider TEXT,
+  citations_json TEXT NOT NULL DEFAULT '[]',
+  created_ts TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX brain_turn_thread_idx ON brain_turn(thread_id,id);
+
+ALTER TABLE event ADD COLUMN entity_type TEXT;
+ALTER TABLE event ADD COLUMN entity_id INTEGER;
+ALTER TABLE event ADD COLUMN source TEXT CHECK(source IS NULL OR source IN
+  ('user_click','voice_hot_loop','voice_draft','brain_draft','import_review','migration_legacy','system_schedule'));
+ALTER TABLE event ADD COLUMN command_id TEXT;
+ALTER TABLE event ADD COLUMN draft_id INTEGER REFERENCES action_draft(id) ON DELETE SET NULL;
+CREATE INDEX event_entity_idx ON event(entity_type,entity_id,id);
+CREATE INDEX event_command_idx ON event(command_id) WHERE command_id IS NOT NULL;
+";
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
 /// all converge on the same current schema.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+
+    if version > SCHEMA_VERSION {
+        return Err(rusqlite::Error::InvalidParameterName(format!(
+            "database schema {version} is newer than supported schema {SCHEMA_VERSION}; do not open it with this app — restore the matching app/database pair"
+        )));
+    }
 
     if version < 1 {
         conn.execute_batch(SCHEMA_V1)?;
@@ -489,10 +833,13 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             let _ = conn.execute_batch("ROLLBACK;");
             return Err(error);
         }
-    } else {
+    } else if version != 7 {
         // The live session feed and canonical event log were historically two
         // independent writes. Reconcile on every schema-v6 open so a crash
         // between those writes cannot permanently hide practice from Universe.
+        // A schema-v7 open defers this worker into the one v8 transaction below
+        // so a failed v8 backfill cannot leave pre-migration reconciliation
+        // writes behind.
         let reconciliation = (|| -> rusqlite::Result<()> {
             conn.execute_batch("BEGIN;")?;
             super::history_backfill::backfill_history(conn)?;
@@ -509,11 +856,36 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         let v7 = (|| -> rusqlite::Result<()> {
             conn.execute_batch("BEGIN;")?;
             conn.execute_batch(SCHEMA_V7)?;
-            conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
+            // Keep the v7 stamp tied to this step. Using SCHEMA_VERSION here
+            // would falsely mark a database v8 before the separate v8
+            // transaction and backfill have committed.
+            conn.execute_batch("PRAGMA user_version = 7;")?;
             conn.execute_batch("COMMIT;")?;
             Ok(())
         })();
         if let Err(error) = v7 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
+    if version < 8 {
+        // Every sidecar, mechanically knowable legacy row, anomaly projection,
+        // and the version stamp commits as one immediate transaction. A failure
+        // therefore leaves the source schema-v7 graph untouched and retryable.
+        let v8 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            // This is normally a no-op, but captures any v7 live-feed rows that
+            // were not yet represented in the canonical event table. Keeping it
+            // here makes reconciliation + sidecars + v8 stamp one transaction.
+            super::history_backfill::backfill_history(conn)?;
+            conn.execute_batch(SCHEMA_V8)?;
+            super::v8_backfill::backfill_v8(conn)?;
+            conn.execute_batch("PRAGMA user_version = 8;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v8 {
             let _ = conn.execute_batch("ROLLBACK;");
             return Err(error);
         }
@@ -612,6 +984,15 @@ mod v3_tests {
         c
     }
 
+    fn seed_v7() -> Connection {
+        let c = seed_v6();
+        c.execute_batch("BEGIN;").unwrap();
+        c.execute_batch(SCHEMA_V7).unwrap();
+        c.execute_batch("PRAGMA user_version = 7; COMMIT;")
+            .unwrap();
+        c
+    }
+
     #[test]
     fn migrate_v6_to_v7_preserves_region_headers_and_adds_tutorial_graph_once() {
         let c = seed_v6();
@@ -632,7 +1013,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            7
+            SCHEMA_VERSION
         );
         let (name, notes): (String, Option<String>) = c
             .query_row(
@@ -798,7 +1179,7 @@ mod v3_tests {
         let version: i32 = c
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, SCHEMA_VERSION);
         let after: (i64, i64, i64, i64) = c
             .query_row(
                 "SELECT
@@ -844,7 +1225,7 @@ mod v3_tests {
         let v: i32 = c
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 7);
+        assert_eq!(v, SCHEMA_VERSION);
 
         // v4 adds a user-owned edition preference without disturbing the
         // scanner-owned pdf_path.
@@ -990,7 +1371,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            7
+            SCHEMA_VERSION
         );
         let after = tables
             .iter()
@@ -1239,7 +1620,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            7
+            SCHEMA_VERSION
         );
         let after: Vec<i64> = preserved_tables
             .iter()
@@ -1445,13 +1826,470 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            7
+            SCHEMA_VERSION
         );
         assert_eq!(
             c.query_row("SELECT count(*) FROM session_event_backfill", [], |row| row
                 .get::<_, i64>(0))
                 .unwrap(),
             2
+        );
+    }
+
+    #[test]
+    fn migrate_v7_to_v8_preserves_source_rows_and_projects_legacy_truth() {
+        let c = seed_v7();
+        let region_id: i64 = c
+            .query_row("SELECT min(id) FROM region", [], |row| row.get(0))
+            .unwrap();
+        let other_region_id: i64 = c
+            .query_row("SELECT max(id) FROM region", [], |row| row.get(0))
+            .unwrap();
+        assert_ne!(region_id, other_region_id);
+        let anchor = r#" { "version": 1, "editions": { "score.pdf": { "rects": [] } } } "#;
+        c.execute(
+            "UPDATE region
+             SET m_start=90,m_end=80,pdf_anchor=?2,sort_order=-7 WHERE id=?1",
+            rusqlite::params![region_id, anchor],
+        )
+        .unwrap();
+        c.execute(
+            "UPDATE region SET m_start=0,m_end=1 WHERE id=?1",
+            [other_region_id],
+        )
+        .unwrap();
+        c.execute("UPDATE rep_block SET planned_reps=1 WHERE id=1", [])
+            .unwrap();
+        c.execute("UPDATE rep_block SET planned_reps=-3 WHERE id=2", [])
+            .unwrap();
+        c.execute(
+            "UPDATE rep SET ts='2026-07-15 10:00:00' WHERE block_id=1",
+            [],
+        )
+        .unwrap();
+        c.execute("UPDATE rep_block SET m_start=50,m_end=40 WHERE id=3", [])
+            .unwrap();
+        c.execute(
+            "INSERT INTO rep_block
+             (id,piece_id,m_start,m_end,label,planned_reps,status,focus,use_metronome)
+             VALUES (4,1,1,8,NULL,1,'abandoned','tempo',1)",
+            [],
+        )
+        .unwrap();
+
+        let source_before: (i64, i64, i64, String) = c
+            .query_row(
+                "SELECT
+                   (SELECT count(*) FROM region),
+                   (SELECT count(*) FROM rep_block),
+                   (SELECT count(*) FROM rep),
+                   (SELECT pdf_anchor FROM region WHERE id=?1)",
+                [region_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+
+        migrate(&c).unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+        for table in [
+            "score_section",
+            "target_meta",
+            "score_edition_calibration",
+            "protocol_template",
+            "set_contract",
+            "attempt_provenance",
+            "attempt_adjustment",
+            "retention_check",
+            "data_anomaly",
+            "action_draft",
+            "brain_thread",
+            "brain_turn",
+        ] {
+            assert_eq!(
+                c.query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+                1,
+                "missing schema-v8 sidecar {table}"
+            );
+        }
+
+        let source_after: (i64, i64, i64, String) = c
+            .query_row(
+                "SELECT
+                   (SELECT count(*) FROM region),
+                   (SELECT count(*) FROM rep_block),
+                   (SELECT count(*) FROM rep),
+                   (SELECT pdf_anchor FROM region WHERE id=?1)",
+                [region_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(source_after, source_before, "v8 never rewrites v1 rows");
+        assert_eq!(source_after.3, anchor, "anchor bytes round-trip exactly");
+        assert_eq!(
+            c.query_row(
+                "SELECT group_concat(id,',') FROM (SELECT id FROM rep ORDER BY id)",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "1,2",
+            "physical attempt ids remain unchanged"
+        );
+
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM target_meta", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            source_before.0
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT display_order FROM target_meta WHERE region_id=?1",
+                [region_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            -7,
+            "legacy ordering is copied exactly rather than silently clamped"
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM set_contract", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            source_before.1
+        );
+        let legacy: (String, String, String, String) = c
+            .query_row(
+                "SELECT mastery_basis,mastery_verification,set_state,source
+                 FROM set_contract WHERE set_id=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            legacy,
+            (
+                "legacy_attempt_count".into(),
+                "unverified".into(),
+                "legacy_closed".into(),
+                "migration_legacy".into()
+            )
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM attempt_provenance WHERE source='migration_legacy'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            source_before.2
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT required_success FROM protocol_template
+                 WHERE id='default-consecutive-clean-v1'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            5
+        );
+
+        for kind in [
+            "reversed_range",
+            "nonpositive_range",
+            "invalid_planned_attempts",
+            "attempt_overrun",
+            "empty_set",
+            "abandoned_legacy_set",
+            "duplicate_candidate",
+            "same_second_attempt_burst",
+            "incomplete_event_provenance",
+        ] {
+            assert!(
+                c.query_row(
+                    "SELECT count(*) FROM data_anomaly WHERE kind=?1",
+                    [kind],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+                    > 0,
+                "expected projected anomaly {kind}"
+            );
+        }
+        let burst_facts: String = c
+            .query_row(
+                "SELECT observed_facts_json FROM data_anomaly
+                 WHERE kind='same_second_attempt_burst' AND entity_id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let burst_facts: serde_json::Value = serde_json::from_str(&burst_facts).unwrap();
+        assert_eq!(burst_facts["attempt_ids"], serde_json::json!([1, 2]));
+        assert_eq!(
+            c.query_row(
+                "SELECT m_start FROM rep_block WHERE id=3",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            50,
+            "a projected anomaly does not repair its source"
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
+
+        let anomaly_count: i64 = c
+            .query_row("SELECT count(*) FROM data_anomaly", [], |row| row.get(0))
+            .unwrap();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        let second = super::super::v8_backfill::backfill_v8(&c).unwrap();
+        c.execute_batch("COMMIT;").unwrap();
+        assert_eq!(second, super::super::v8_backfill::BackfillStats::default());
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM data_anomaly", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            anomaly_count,
+            "worker and migration reopen are idempotent"
+        );
+    }
+
+    #[test]
+    fn v8_constraints_reject_cross_piece_context_reversal_and_duplicate_calibration() {
+        let c = seed_v7();
+        c.execute(
+            "INSERT INTO piece(id,title,folder_path) VALUES (100,'Other','/p/other')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO region(id,piece_id,name,m_start,m_end)
+             VALUES (100,100,'Other target',1,4)",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO rep_block
+             (id,piece_id,m_start,m_end,planned_reps,status,focus,use_metronome)
+             VALUES (100,100,1,4,5,'open','tempo',1)",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO rep(id,block_id,bpm,verdict) VALUES (100,100,60,'clean')",
+            [],
+        )
+        .unwrap();
+        migrate(&c).unwrap();
+
+        let piece_one_region: i64 = c
+            .query_row(
+                "SELECT min(id) FROM region WHERE piece_id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let piece_one_set: i64 = c
+            .query_row(
+                "SELECT min(id) FROM rep_block WHERE piece_id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let piece_one_rep: i64 = c
+            .query_row(
+                "SELECT min(r.id) FROM rep r
+                 JOIN rep_block b ON b.id=r.block_id WHERE b.piece_id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert!(c
+            .execute(
+                "UPDATE target_meta SET parent_region_id=100 WHERE region_id=?1",
+                [piece_one_region],
+            )
+            .is_err());
+        c.execute(
+            "INSERT INTO score_section
+             (id,piece_id,name,m_start,m_end,source)
+             VALUES (100,100,'Other section',1,4,'user')",
+            [],
+        )
+        .unwrap();
+        assert!(c
+            .execute(
+                "UPDATE target_meta SET score_section_id=100 WHERE region_id=?1",
+                [piece_one_region],
+            )
+            .is_err());
+        assert!(c
+            .execute(
+                "UPDATE set_contract SET restart_of_set_id=100 WHERE set_id=?1",
+                [piece_one_set],
+            )
+            .is_err());
+        assert!(c
+            .execute(
+                "UPDATE set_contract SET restart_of_set_id=set_id WHERE set_id=?1",
+                [piece_one_set],
+            )
+            .is_err());
+        assert!(c
+            .execute(
+                "INSERT INTO retention_check
+                 (region_id,source_set_id,due_date,original_due_date)
+                 VALUES (?1,100,'2026-07-16','2026-07-16')",
+                [piece_one_region],
+            )
+            .is_err());
+        assert!(c
+            .execute(
+                "INSERT INTO action_draft
+                 (piece_id,region_id,source,original_text,operations_json,
+                  risk,revision_hash,status)
+                 VALUES (1,100,'voice_draft','change it','[]','low','r1','draft')",
+                [],
+            )
+            .is_err());
+        assert!(c
+            .execute(
+                "INSERT INTO brain_thread(piece_id,region_id) VALUES (1,100)",
+                [],
+            )
+            .is_err());
+
+        c.execute(
+            "INSERT INTO attempt_adjustment
+             (id,rep_id,kind,before_json,after_json,source,command_id)
+             VALUES (1,?1,'void','{}','{}','user_click','adj-one')",
+            [piece_one_rep],
+        )
+        .unwrap();
+        assert!(c
+            .execute(
+                "INSERT INTO attempt_adjustment
+                 (id,rep_id,kind,before_json,after_json,source,command_id,
+                  reverses_adjustment_id)
+                 VALUES (2,100,'restore','{}','{}','user_click','adj-two',1)",
+                [],
+            )
+            .is_err());
+
+        c.execute(
+            "INSERT INTO score_edition_calibration
+             (id,piece_id,edition_id,edition_fingerprint,method,confidence)
+             VALUES (1,1,'score.pdf','sha256:one','user_confirmed',1.0)",
+            [],
+        )
+        .unwrap();
+        assert!(c
+            .execute(
+                "INSERT INTO score_edition_calibration
+                 (id,piece_id,edition_id,edition_fingerprint,method,confidence)
+                 VALUES (2,1,'score.pdf','sha256:one','calibrated',0.8)",
+                [],
+            )
+            .is_err());
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn v8_backfill_failure_rolls_back_all_sidecars_and_version() {
+        let c = seed_v7();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        c.execute_batch(SCHEMA_V8).unwrap();
+        c.execute_batch(
+            "CREATE TRIGGER fail_v8_contract_backfill
+             BEFORE INSERT ON set_contract
+             BEGIN SELECT RAISE(ABORT,'simulated v8 backfill interruption'); END;",
+        )
+        .unwrap();
+        assert!(super::super::v8_backfill::backfill_v8(&c).is_err());
+        c.execute_batch("ROLLBACK;").unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            7
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='score_section'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0,
+            "DDL and earlier default/template inserts share the rollback"
+        );
+
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+    }
+
+    #[test]
+    fn newer_schema_fails_before_reconciliation_or_writes() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE sentinel(id INTEGER PRIMARY KEY,value TEXT);
+             INSERT INTO sentinel(id,value) VALUES (1,'preserve me');
+             PRAGMA user_version = 9;",
+        )
+        .unwrap();
+
+        let error = migrate(&c).unwrap_err().to_string();
+        assert!(error.contains("newer than supported"), "{error}");
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            9
+        );
+        assert_eq!(
+            c.query_row("SELECT value FROM sentinel WHERE id=1", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+            "preserve me"
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='score_section'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0
         );
     }
 }

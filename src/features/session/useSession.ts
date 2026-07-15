@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import {
+  commandErrorMessage,
+  defineCommand,
+  executeCommand,
+} from "../../services/command";
+import { useReceipts } from "../receipts/ReceiptCenter";
 
 // ---------------------------------------------------------------------------
 // Practice-session hook.
@@ -43,11 +48,14 @@ export interface ExportResult {
   reps: number;
 }
 
-function messageOf(e: unknown): string {
-  if (typeof e === "string") return e;
-  if (e instanceof Error) return e.message;
-  return String(e);
-}
+const SESSION_CURRENT = defineCommand<undefined, SessionView | null>(
+  "session_current",
+  "The current practice session could not be loaded.",
+);
+const SESSION_END = defineCommand<undefined, ExportResult | null>(
+  "session_end",
+  "The practice session could not be ended.",
+);
 
 export interface UseSession {
   /** The active session, or null when none is running (bar hidden). */
@@ -55,13 +63,14 @@ export interface UseSession {
   /** Last command rejection, shown as a quiet inline notice. Auto-clears. */
   error: string | null;
   clearError: () => void;
-  /** End the current session; resolves to the export result (or null). */
+  /** End the current session; rejects without clearing when native export fails. */
   endSession: () => Promise<ExportResult | null>;
 }
 
 export function useSession(): UseSession {
   const [session, setSession] = useState<SessionView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const receipts = useReceipts();
 
   const sessionRef = useRef<SessionView | null>(null);
   sessionRef.current = session;
@@ -80,7 +89,7 @@ export function useSession(): UseSession {
 
   const refetch = useCallback(async () => {
     try {
-      const s = await invoke<SessionView | null>("session_current");
+      const s = await executeCommand(SESSION_CURRENT, undefined);
       setSession(s ?? null);
     } catch {
       // Backend absent — leave the current state alone.
@@ -121,7 +130,7 @@ export function useSession(): UseSession {
         // No event bus (browser dev) — snapshot fetch still drives the UI.
       }
       try {
-        const s = await invoke<SessionView | null>("session_current");
+        const s = await executeCommand(SESSION_CURRENT, undefined);
         if (alive && !eventArrived) {
           sessionRef.current = s ?? null;
           setSession(s ?? null);
@@ -140,15 +149,26 @@ export function useSession(): UseSession {
 
   const endSession = useCallback(async (): Promise<ExportResult | null> => {
     try {
-      const res = await invoke<ExportResult | null>("session_end");
+      const res = await executeCommand(SESSION_END, undefined);
       sessionRef.current = null;
       setSession(null);
+      setError(null);
+      receipts.committed(
+        res
+          ? `Session saved: ${res.reps} reps across ${res.pieces} piece${res.pieces === 1 ? "" : "s"}.`
+          : "Practice session ended.",
+      );
       return res ?? null;
-    } catch (e) {
-      showError(messageOf(e));
-      return null;
+    } catch (cause) {
+      const message = commandErrorMessage(
+        cause,
+        "The practice session could not be ended.",
+      );
+      showError(message);
+      receipts.error(cause, message);
+      throw cause;
     }
-  }, [showError]);
+  }, [receipts, showError]);
 
   return { session, error, clearError, endSession };
 }

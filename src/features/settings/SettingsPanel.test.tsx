@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsPanel, type SettingsApi, type SettingsSnapshot } from "./SettingsPanel";
+import { ReceiptCenterProvider } from "../receipts/ReceiptCenter";
 
 const snapshot: SettingsSnapshot = { theme: "auto", interface_scale: 90, tts_provider: "auto", tts_voice: "Kore", brain_provider: "auto", knowledge_dir: "/vault/Knowledge and Resources", share_retrieved_knowledge: true, wake_word_enabled: false, wake_word: "coda", metronome_sound: "woodblock", metronome_boost: false, metronome_boost_level: 85, ladder_default_reps: 30, ladder_bpm_step: 4, calendar_capacity_minutes: 60, vault_pieces_dir: "/vault/Pieces", verdict_aliases: { clean: [], flawed: [], failed: [] }, api_keys: [{ provider: "claude", configured: false, source: "none" }, { provider: "gemini", configured: true, source: "keychain" }] };
 function api(): SettingsApi { return { snapshot: vi.fn().mockResolvedValue(snapshot), update: vi.fn().mockImplementation(async (patch) => ({ ...snapshot, ...patch })), saveKey: vi.fn().mockResolvedValue({ provider: "claude", configured: true, source: "keychain" }), clearKey: vi.fn().mockResolvedValue({ provider: "gemini", configured: false, source: "none" }) }; }
@@ -16,6 +17,7 @@ describe("SettingsPanel", () => {
     fireEvent.change(screen.getByLabelText("Default reps"), { target: { value: "40" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(settingsApi.update).toHaveBeenCalledWith(expect.objectContaining({ theme: "dark", interface_scale: 80, ladder_default_reps: 40, knowledge_dir: "/vault/Knowledge and Resources", share_retrieved_knowledge: false })));
+    expect(settingsApi.update).toHaveBeenCalledTimes(1);
     expect(onThemeSaved).toHaveBeenCalledWith("dark");
     expect(onInterfaceScaleSaved).toHaveBeenCalledWith(80);
   });
@@ -44,5 +46,29 @@ describe("SettingsPanel", () => {
     await waitFor(() => expect(settingsApi.update).toHaveBeenCalledWith(expect.objectContaining({
       verdict_aliases: { clean: ["solid landing", "easy arrival"], flawed: [], failed: [] },
     })));
+  });
+
+  it("keeps a failed deep-settings save visible after the popover could close", async () => {
+    const settingsApi = api();
+    settingsApi.update = vi.fn().mockRejectedValue({
+      code: "settings_invalid",
+      message: "The wake word conflicts with a command.",
+    });
+    render(
+      <ReceiptCenterProvider>
+        <SettingsPanel api={settingsApi} onResetLayout={vi.fn()} />
+      </ReceiptCenterProvider>,
+    );
+    await screen.findByLabelText("Theme");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("list", { name: "Recent app activity" }).textContent).toContain(
+        "The wake word conflicts with a command.",
+      );
+    });
+    expect(screen.getAllByRole("alert").some((node) => (
+      node.textContent === "The wake word conflicts with a command."
+    ))).toBe(true);
   });
 });

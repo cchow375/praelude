@@ -89,6 +89,10 @@ export function PieceDetail({
         await onOpenBlock(args);
         // Refresh history so the just-opened block appears.
         setHistoryRevision((revision) => revision + 1);
+      } catch (cause) {
+        // useRep publishes the application-level receipt. Keep this local
+        // context too, and critically do not advance the history revision.
+        setError(messageOf(cause));
       } finally {
         setOpening(false);
       }
