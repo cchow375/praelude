@@ -184,6 +184,7 @@ export interface ScoreViewProps {
   pieceId: number;
   activeRange?: { m_start: number; m_end: number } | null;
   defaultTargetBpm?: number | null;
+  defaultCleanStreak?: number;
   onOpenBlock?: (args: RepOpenArgs) => void;
   opening?: boolean;
   onRegionsChanged?: () => void;
@@ -229,6 +230,7 @@ export function ScoreView({
   pieceId,
   activeRange = null,
   defaultTargetBpm = null,
+  defaultCleanStreak = 5,
   onOpenBlock,
   opening = false,
   onRegionsChanged,
@@ -691,14 +693,22 @@ export function ScoreView({
         ))}
 
         {sectionTab === "practice" && onOpenBlock && (
-          <section className="score-practice-region" aria-label="Add practice reps">
+          <section className="score-practice-region" aria-label="Start a practice set">
             <div className="score-practice-region-head">
               <strong>Practice {region.name}</strong>
               <span>This block stays linked to this section. Change the section itself under Edit.</span>
             </div>
             {regionBlocks.length > 0 && (
               <ul className="score-region-blocks">
-                {regionBlocks.slice(0, 4).map((block) => <li key={block.block_id}>mm. {block.m_start}–{block.m_end}<span>{block.reps_done} reps</span></li>)}
+                {regionBlocks.slice(0, 4).map((block) => {
+                  const attempts = block.attempts_recorded ?? block.tries ?? block.reps_done;
+                  const mastery = block.mastery_verified
+                    ? block.mastery_status === "satisfied"
+                      ? "mastery verified"
+                      : "mastery not yet"
+                    : "mastery unverified";
+                  return <li key={block.block_id}>mm. {block.m_start}–{block.m_end}<span>{attempts} attempts · {mastery}</span></li>;
+                })}
               </ul>
             )}
             <BlockForm
@@ -709,6 +719,7 @@ export function ScoreView({
               defaultMeasureEnd={region.m_end}
               defaultLabel={region.name}
               defaultTargetBpm={defaultTargetBpm}
+              defaultCleanStreak={defaultCleanStreak}
               onOpen={onOpenBlock}
               opening={opening}
             />

@@ -91,11 +91,20 @@ export interface PracticeBrainContext {
   active_block?: {
     m_start: number;
     m_end: number;
-    bpm: number;
+    bpm: number | null;
     target_bpm: number | null;
     focus: string;
+    use_metronome: boolean;
     reps_done: number;
     planned_reps: number;
+    attempts_recorded: number;
+    tries: number;
+    current_clean_streak: number | null;
+    mastery_progress_streak: number | null;
+    required_clean_streak: number | null;
+    mastery_status: "satisfied" | "not_satisfied" | "not_applicable" | "unverified_legacy";
+    mastery_verified: boolean;
+    set_state: string;
   } | null;
 }
 

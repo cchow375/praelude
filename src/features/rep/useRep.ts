@@ -5,6 +5,8 @@ import {
   defineCommand,
   executeCommand,
 } from "../../services/command";
+import type { MetroState } from "../metronome/useMetronome";
+import { readMetroIntentState } from "../metronome/intentGuard";
 import { useReceipts } from "../receipts/ReceiptCenter";
 
 // ---------------------------------------------------------------------------
@@ -20,8 +22,8 @@ import { useReceipts } from "../receipts/ReceiptCenter";
 // Both voice acks ("that was clean") and the HUD verdict buttons flow through
 // the same `rep_check` command, so the snapshot updates identically regardless
 // of input surface. The last-verdict feed (last 5) is derived from successive
-// snapshots — whenever `reps_done` advances we push the snapshot's `last` rep —
-// so voice-driven and button-driven checks both appear in the feed.
+// authoritative snapshots. Attempts, corrections, and reversals all reconcile
+// through this projection; the UI never derives mastery from an attempt count.
 //
 // Command args are camelCase from JS (Tauri maps them to Rust snake_case). The
 // nested `RepOpenArgs` / `Intake` structs are serde-deserialized, so THEIR
@@ -37,7 +39,8 @@ export interface VerdictCounts {
 export interface LastRep {
   verdict: string;
   note: string | null;
-  bpm: number;
+  /** Null means tempo was not part of this attempt; legacy 0-BPM sentinels map here. */
+  bpm: number | null;
 }
 
 export interface IncrementRule {
@@ -58,7 +61,8 @@ export interface RepSnapshot {
   m_start: number;
   m_end: number;
   label: string | null;
-  bpm: number;
+  /** Null when this set has no tempo or metronome dimension. */
+  bpm: number | null;
   start_bpm: number;
   target_bpm: number | null;
   planned_reps: number;
@@ -72,6 +76,113 @@ export interface RepSnapshot {
   status: string;
   focus: string;
   use_metronome: boolean;
+  /** V2 authoritative ledger projection. Absent only on legacy/test payloads. */
+  attempts_recorded?: number;
+  tries?: number;
+  voided_attempts?: number;
+  /** Trailing clean attempts under the current working condition/rung. */
+  current_clean_streak?: number;
+  /** Trailing clean attempts eligible for the captured mastery condition. */
+  mastery_progress_streak?: number;
+  best_clean_streak?: number;
+  reset_count?: number;
+  accuracy?: number | null;
+  required_clean_streak?: number | null;
+  effective_required_clean_streak?: number | null;
+  recovery_remaining?: number;
+  mastery_status?: MasteryStatus;
+  mastery_verified?: boolean;
+  set_state?: string;
+  last_attempt_id?: number | null;
+  last_adjustment_id?: number | null;
+  review_boundary_reached?: boolean;
+}
+
+export type MasteryStatus =
+  | "satisfied"
+  | "not_satisfied"
+  | "not_applicable"
+  | "unverified_legacy";
+
+/** A legacy count is safe to call attempts, but never proves mastery. */
+export function repAttempts(snap: RepSnapshot): number {
+  return snap.attempts_recorded ?? snap.tries ?? snap.reps_done;
+}
+
+export function repTries(snap: RepSnapshot): number {
+  return snap.tries ?? snap.attempts_recorded ?? snap.reps_done;
+}
+
+export function repMasteryStatus(snap: RepSnapshot): MasteryStatus {
+  return snap.mastery_status ?? "unverified_legacy";
+}
+
+export function repMasteryVerified(snap: RepSnapshot): boolean {
+  return snap.mastery_verified === true
+    && repMasteryStatus(snap) !== "unverified_legacy";
+}
+
+function sameRepProjection(current: RepSnapshot, expected: RepSnapshot): boolean {
+  return current.block_id === expected.block_id
+    && current.last_attempt_id === expected.last_attempt_id
+    && current.last_adjustment_id === expected.last_adjustment_id
+    && repTries(current) === repTries(expected)
+    && current.bpm === expected.bpm
+    && current.set_state === expected.set_state;
+}
+
+interface MetroCommandGuard {
+  eventRevision: number;
+  intentRevision: number;
+  pendingIntents: number;
+}
+
+function captureMetroCommandGuard(eventRevision: number): MetroCommandGuard {
+  const intent = readMetroIntentState();
+  return {
+    eventRevision,
+    intentRevision: intent.revision,
+    pendingIntents: intent.pending,
+  };
+}
+
+function metroCommandGuardIsCurrent(
+  guard: MetroCommandGuard,
+  eventRevision: number,
+): boolean {
+  const intent = readMetroIntentState();
+  return guard.eventRevision === eventRevision
+    && guard.intentRevision === intent.revision
+    && guard.pendingIntents === 0
+    && intent.pending === 0;
+}
+
+interface ReadinessLatch {
+  promise: Promise<void>;
+  resolve: () => void;
+}
+
+function createReadinessLatch(): ReadinessLatch {
+  let settle: () => void = () => undefined;
+  let settled = false;
+  const promise = new Promise<void>((resolve) => { settle = resolve; });
+  return {
+    promise,
+    resolve: () => {
+      if (settled) return;
+      settled = true;
+      settle();
+    },
+  };
+}
+
+function isBrowserDevUnavailable(cause: unknown): boolean {
+  const message = commandErrorMessage(cause, "").toLocaleLowerCase();
+  return message.includes("__tauri")
+    || message.includes("outside a tauri")
+    || message.includes("outside of a tauri")
+    || message.includes("tauri is not available")
+    || message.includes("cannot read properties of undefined");
 }
 
 /** Mirrors the backend `CheckOutcome` serde payload. */
@@ -92,6 +203,8 @@ export interface RepOpenArgs {
   start_bpm: number | null;
   target_bpm: number | null;
   planned_reps: number | null;
+  /** Consecutive-clean target. Null delegates to the persisted v2 default. */
+  required_clean_streak?: number | null;
   increment: IncrementRule | null;
   variants: VariantSpec[];
   focus: string;
@@ -108,7 +221,7 @@ const REP_STATE = defineCommand<undefined, RepSnapshot | null>(
 );
 const REP_OPEN = defineCommand<{ args: RepOpenArgs }, RepSnapshot>(
   "rep_open",
-  "The practice block could not be opened.",
+  "The practice set could not be opened.",
 );
 const REP_CHECK = defineCommand<
   { verdict: Verdict; note: string | null },
@@ -116,11 +229,36 @@ const REP_CHECK = defineCommand<
 >("rep_check", "The attempt could not be saved.");
 const REP_CLOSE = defineCommand<undefined, RepSnapshot | null>(
   "rep_close",
-  "The practice block could not be closed.",
+  "The practice set could not be closed.",
 );
+const REP_UNDO = defineCommand<undefined, CheckOutcome>(
+  "rep_undo",
+  "The latest attempt could not be undone.",
+);
+const REP_CORRECT = defineCommand<
+  {
+    attemptId: number | null;
+    verdict: Verdict;
+    note: string | null;
+    replaceNote: boolean;
+  },
+  CheckOutcome
+>("rep_correct", "The latest attempt could not be corrected.");
+const REP_ADJUSTMENT_REVERSE = defineCommand<
+  { adjustmentId: number },
+  CheckOutcome
+>("rep_adjustment_reverse", "The latest adjustment could not be reversed.");
+const REP_RESTART = defineCommand<
+  { requiredCleanStreak: number | null },
+  RepSnapshot
+>("rep_restart", "The practice set could not be restarted.");
 const METRO_START = defineCommand<{ bpm: number }, unknown>(
   "metro_start",
-  "The block opened, but the metronome could not be started.",
+  "The set opened, but the metronome could not be started.",
+);
+const METRO_STATE = defineCommand<undefined, MetroState>(
+  "metro_state",
+  "The metronome state could not be loaded.",
 );
 const METRO_SET = defineCommand<{ bpm: number }, unknown>(
   "metro_set",
@@ -139,6 +277,18 @@ export interface UseRep {
   open: (args: RepOpenArgs) => Promise<void>;
   /** Record a verdict (same path as a voice ack). */
   check: (verdict: Verdict, note?: string | null) => Promise<void>;
+  /** Append a reversal for the latest attempt. No attempt row is deleted. */
+  undo: () => Promise<void>;
+  /** Append a correction, defaulting to the latest attempt when id is null. */
+  correct: (
+    attemptId: number | null,
+    verdict: Verdict,
+    note?: string | null,
+  ) => Promise<void>;
+  /** Reverse an active correction/void through another ledger adjustment. */
+  reverseAdjustment: (adjustmentId: number) => Promise<void>;
+  /** Mark this set restarted and create a fresh set with the same contract. */
+  restart: (requiredCleanStreak?: number | null) => Promise<void>;
   /** Close the active block. */
   close: () => Promise<void>;
 }
@@ -153,26 +303,39 @@ export function useRep(): UseRep {
   const errorTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const announcedAttempts = useRef(new Set<string>());
   const eventRevision = useRef(0);
+  const mutationRevision = useRef(0);
+  const metroRef = useRef<MetroState | null>(null);
+  const metroRevision = useRef(0);
+  const metroReadinessRef = useRef<ReadinessLatch | null>(null);
+  if (metroReadinessRef.current == null) {
+    metroReadinessRef.current = createReadinessLatch();
+  }
+  const metroReadiness = metroReadinessRef.current;
 
   const publishAttemptReceipt = useCallback(
     (next: RepSnapshot, fallbackVerdict?: Verdict) => {
       const verdict = next.last?.verdict ?? fallbackVerdict;
-      if (!verdict || next.reps_done < 1) return;
-      const key = `${next.block_id}:${next.reps_done}`;
+      const tries = repTries(next);
+      if (!verdict || tries < 1) return;
+      const key = next.last_attempt_id != null
+        ? `${next.block_id}:attempt:${next.last_attempt_id}`
+        : `${next.block_id}:legacy-attempt:${tries}`;
       if (announcedAttempts.current.has(key)) return;
       announcedAttempts.current.add(key);
       if (announcedAttempts.current.size > 100) {
         const oldest = announcedAttempts.current.values().next().value;
         if (oldest) announcedAttempts.current.delete(oldest);
       }
-      receipts.committed(`Attempt ${next.reps_done} saved — ${verdict}.`);
+      receipts.committed(`Attempt ${tries} saved — ${verdict}.`);
     },
     [receipts],
   );
 
   // Apply an authoritative snapshot and maintain the derived verdict feed. The
   // feed resets when the block changes (or clears) and grows by one whenever
-  // `reps_done` advances — capturing both voice- and button-driven checks.
+  // the attempt ledger advances — capturing both voice- and button-driven
+  // checks. Reversals remove the voided attempt from the visible feed and a
+  // correction replaces the latest projected verdict.
   const applySnapshot = useCallback((
     next: RepSnapshot | null,
     announceCommittedAttempt = false,
@@ -182,10 +345,18 @@ export function useRep(): UseRep {
       setFeed([]);
     } else if (!prev || prev.block_id !== next.block_id) {
       setFeed(next.last ? [next.last] : []);
-    } else if (next.reps_done > prev.reps_done && next.last) {
+    } else if (next.last_adjustment_id !== prev.last_adjustment_id) {
+      // An adjustment can target any attempt, so the previous short feed can
+      // no longer be reconciled safely by count or position. Collapse to the
+      // authoritative latest effective attempt (or empty after a full void).
+      setFeed(next.last ? [next.last] : []);
+    } else if (repTries(next) > repTries(prev) && next.last) {
       const last = next.last;
       setFeed((f) => [last, ...f].slice(0, FEED_MAX));
       if (announceCommittedAttempt) publishAttemptReceipt(next);
+    } else if (repTries(next) < repTries(prev)) {
+      const removed = Math.max(1, repTries(prev) - repTries(next));
+      setFeed((f) => f.slice(removed));
     }
     snapRef.current = next;
     setSnap(next);
@@ -201,6 +372,65 @@ export function useRep(): UseRep {
     if (errorTimer.current) clearTimeout(errorTimer.current);
     setError(null);
   }, []);
+
+  /**
+   * A returned command snapshot is a fallback for environments without the
+   * event bus. Once a newer rep event or mutation exists, that authoritative
+   * state wins. This is essential for undo/correct because attempt totals may
+   * move backward and therefore cannot be guarded with a monotonic count.
+   */
+  const applyReturnedSnapshot = useCallback((
+    next: RepSnapshot,
+    blockAtStart: number | null,
+    eventsAtStart: number,
+    mutationAtStart: number,
+  ) => {
+    if (mutationRevision.current !== mutationAtStart) return false;
+    if (next.block_id !== blockAtStart) return false;
+    if (snapRef.current?.block_id !== blockAtStart) return false;
+    if (eventRevision.current !== eventsAtStart) return false;
+    applySnapshot(next);
+    return true;
+  }, [applySnapshot]);
+
+  const retuneIfCurrent = useCallback(async (
+    outcome: CheckOutcome,
+    blockAtStart: number | null,
+    mutationAtStart: number,
+    metroAtStart: MetroCommandGuard,
+  ) => {
+    if (outcome.new_bpm == null) return;
+    // The ledger is already committed. If the one-time metronome read is still
+    // in flight, wait only before the optional side effect, then revalidate all
+    // rep, event, and manual-intent ownership before changing tempo.
+    if (metroRef.current == null) await metroReadiness.promise;
+    const current = snapRef.current;
+    const expected = outcome.snap;
+    const responseIsCurrent = (
+      mutationRevision.current === mutationAtStart
+      && metroCommandGuardIsCurrent(metroAtStart, metroRevision.current)
+      && blockAtStart != null
+      && current != null
+      && current.block_id === blockAtStart
+      && sameRepProjection(current, expected)
+    );
+    if (
+      !responseIsCurrent
+      || !current.use_metronome
+      || current.set_state !== "active"
+      || metroRef.current?.running !== true
+    ) return;
+    try {
+      await executeCommand(METRO_SET, { bpm: outcome.new_bpm });
+    } catch (cause) {
+      const message = commandErrorMessage(
+        cause,
+        "The ledger change saved, but the metronome tempo could not be updated.",
+      );
+      showError(message);
+      receipts.error(cause, message);
+    }
+  }, [metroReadiness, receipts, showError]);
 
   // Mount: subscribe to the event bus FIRST, then the one-time initial fetch.
   useEffect(() => {
@@ -219,13 +449,21 @@ export function useRep(): UseRep {
         if (alive) unlisten = un;
         else un();
       } catch {
-        // No event bus (browser dev) — actions still drive the UI optimistically.
+        // No event bus (browser dev) — successful command returns still drive
+        // authoritative state; rejected commands never change the snapshot.
       }
       try {
         const s = await executeCommand(REP_STATE, undefined);
         if (alive && !eventArrived) applySnapshot(s ?? null);
-      } catch {
-        // Backend absent (plain `vite` browser dev) — keep the empty state.
+      } catch (cause) {
+        if (alive && !isBrowserDevUnavailable(cause)) {
+          const message = commandErrorMessage(
+            cause,
+            "The current practice set could not be restored safely.",
+          );
+          showError(message);
+          receipts.error(cause, message);
+        }
       }
     })();
     return () => {
@@ -233,53 +471,110 @@ export function useRep(): UseRep {
       unlisten?.();
       if (errorTimer.current) clearTimeout(errorTimer.current);
     };
-  }, [applySnapshot]);
+  }, [applySnapshot, receipts, showError]);
+
+  // The rep engine and metronome are independent native state machines. Keep
+  // an authoritative metronome snapshot plus a revision so a delayed practice
+  // command can never overwrite a newer manual/voice metronome action.
+  useEffect(() => {
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    let eventArrived = false;
+    (async () => {
+      try {
+        const un = await listen<MetroState>("metro://state", (event) => {
+          eventArrived = true;
+          if (alive) {
+            metroRevision.current += 1;
+            metroRef.current = event.payload;
+            metroReadiness.resolve();
+          }
+        });
+        if (alive) unlisten = un;
+        else un();
+      } catch {
+        // Plain browser development has no event bus.
+      }
+      try {
+        const state = await executeCommand(METRO_STATE, undefined);
+        if (alive && state && !eventArrived) {
+          metroRef.current = state;
+        }
+      } catch {
+        // Without an authoritative metronome state, practice commands simply
+        // skip automatic start/retune; manual metronome control still owns it.
+      } finally {
+        metroReadiness.resolve();
+      }
+    })();
+    return () => {
+      alive = false;
+      unlisten?.();
+      metroReadiness.resolve();
+    };
+  }, [metroReadiness]);
 
   const open = useCallback(
     async (args: RepOpenArgs) => {
       clearError();
       const eventsAtStart = eventRevision.current;
-      let remainsActive = false;
+      const metroAtStart = captureMetroCommandGuard(metroRevision.current);
+      let openedBlockId: number | null = null;
       try {
         const s = await executeCommand(REP_OPEN, { args });
-        remainsActive = (
-          eventRevision.current === eventsAtStart
-          || snapRef.current?.block_id === s.block_id
-        );
-        if (remainsActive) applySnapshot(s);
+        openedBlockId = s.block_id;
+        const noNewerEvent = eventRevision.current === eventsAtStart;
+        // A rep_open return is only the no-event-bus fallback. In native use,
+        // an opened event can already have been followed by a same-block voice
+        // attempt; applying the older zero-attempt return would erase it.
+        if (noNewerEvent) applySnapshot(s);
         receipts.committed(
-          `Practice block opened for measures ${s.m_start}–${s.m_end}.`,
+          `Practice set opened for measures ${s.m_start}–${s.m_end}.`,
         );
       } catch (cause) {
         const message = commandErrorMessage(
           cause,
-          "The practice block could not be opened.",
+          "The practice set could not be opened.",
         );
         showError(message);
         receipts.error(cause, message);
         throw cause;
       }
 
-      if (remainsActive && args.use_metronome && args.start_bpm != null) {
+      if (metroRef.current == null) await metroReadiness.promise;
+      const current = snapRef.current;
+      const authoritativeStartBpm = (
+        metroRef.current != null
+        && metroCommandGuardIsCurrent(metroAtStart, metroRevision.current)
+        && current != null
+        && current.block_id === openedBlockId
+        && current.set_state === "active"
+        && current.use_metronome
+      ) ? current.bpm : null;
+      if (authoritativeStartBpm != null) {
         try {
-          await executeCommand(METRO_START, { bpm: args.start_bpm });
+          await executeCommand(METRO_START, { bpm: authoritativeStartBpm });
         } catch (cause) {
           const message = commandErrorMessage(
             cause,
-            "The block opened, but the metronome could not be started.",
+          "The set opened, but the metronome could not be started.",
           );
           showError(message);
           receipts.error(cause, message);
         }
       }
     },
-    [applySnapshot, clearError, receipts, showError],
+    [applySnapshot, clearError, metroReadiness, receipts, showError],
   );
 
   const check = useCallback(
     async (verdict: Verdict, note?: string | null) => {
       clearError();
       const blockAtStart = snapRef.current?.block_id ?? null;
+      const eventsAtStart = eventRevision.current;
+      const metroAtStart = captureMetroCommandGuard(metroRevision.current);
+      const mutationAtStart = mutationRevision.current + 1;
+      mutationRevision.current = mutationAtStart;
       try {
         const outcome = await executeCommand(REP_CHECK, {
           verdict,
@@ -288,31 +583,14 @@ export function useRep(): UseRep {
         // The native event normally arrives first, but the returned committed
         // snapshot is also enough to update and receipt the write when the
         // event bus is unavailable. The operation key prevents a duplicate.
-        const current = snapRef.current;
-        if (
-          blockAtStart === outcome.snap.block_id
-          && current?.block_id === blockAtStart
-          && outcome.snap.reps_done >= current.reps_done
-        ) {
-          applySnapshot(outcome.snap);
-        }
+        applyReturnedSnapshot(
+          outcome.snap,
+          blockAtStart,
+          eventsAtStart,
+          mutationAtStart,
+        );
         publishAttemptReceipt(outcome.snap, verdict);
-        if (
-          outcome?.new_bpm != null
-          && outcome.snap.use_metronome
-          && blockAtStart === snapRef.current?.block_id
-        ) {
-          try {
-            await executeCommand(METRO_SET, { bpm: outcome.new_bpm });
-          } catch (cause) {
-            const message = commandErrorMessage(
-              cause,
-              "The attempt saved, but the metronome tempo could not be updated.",
-            );
-            showError(message);
-            receipts.error(cause, message);
-          }
-        }
+        await retuneIfCurrent(outcome, blockAtStart, mutationAtStart, metroAtStart);
         // The authoritative `rep://state` event reconciles snap + feed.
       } catch (cause) {
         const message = commandErrorMessage(
@@ -321,34 +599,194 @@ export function useRep(): UseRep {
         );
         showError(message);
         receipts.error(cause, message);
+        throw cause;
       }
     },
-    [applySnapshot, clearError, publishAttemptReceipt, receipts, showError],
+    [applyReturnedSnapshot, clearError, publishAttemptReceipt, receipts, retuneIfCurrent, showError],
   );
 
-  const close = useCallback(async () => {
+  const undo = useCallback(async () => {
     clearError();
+    const blockAtStart = snapRef.current?.block_id ?? null;
+    const attemptOrdinal = snapRef.current == null ? null : repTries(snapRef.current);
     const eventsAtStart = eventRevision.current;
+    const metroAtStart = captureMetroCommandGuard(metroRevision.current);
+    const mutationAtStart = mutationRevision.current + 1;
+    mutationRevision.current = mutationAtStart;
     try {
-      const s = await executeCommand(REP_CLOSE, undefined);
-      const current = snapRef.current;
-      if (
-        eventRevision.current === eventsAtStart
-        || (s == null && current == null)
-        || (s != null && current?.block_id === s.block_id)
-      ) {
-        applySnapshot(s ?? null);
-      }
-      receipts.committed("Practice block closed.");
+      const outcome = await executeCommand(REP_UNDO, undefined);
+      applyReturnedSnapshot(
+        outcome.snap,
+        blockAtStart,
+        eventsAtStart,
+        mutationAtStart,
+      );
+      await retuneIfCurrent(outcome, blockAtStart, mutationAtStart, metroAtStart);
+      receipts.undone(
+        attemptOrdinal == null
+          ? "Latest attempt undone."
+          : `Attempt ${attemptOrdinal} undone.`,
+      );
     } catch (cause) {
       const message = commandErrorMessage(
         cause,
-        "The practice block could not be closed.",
+        "The latest attempt could not be undone.",
+      );
+      showError(message);
+      receipts.error(cause, message);
+      throw cause;
+    }
+  }, [applyReturnedSnapshot, clearError, receipts, retuneIfCurrent, showError]);
+
+  const correct = useCallback(async (
+    attemptId: number | null,
+    verdict: Verdict,
+    note?: string | null,
+  ) => {
+    clearError();
+    const blockAtStart = snapRef.current?.block_id ?? null;
+    const eventsAtStart = eventRevision.current;
+    const metroAtStart = captureMetroCommandGuard(metroRevision.current);
+    const mutationAtStart = mutationRevision.current + 1;
+    mutationRevision.current = mutationAtStart;
+    try {
+      const replaceNote = note !== undefined;
+      const outcome = await executeCommand(REP_CORRECT, {
+        attemptId,
+        verdict,
+        note: note ?? null,
+        replaceNote,
+      });
+      applyReturnedSnapshot(
+        outcome.snap,
+        blockAtStart,
+        eventsAtStart,
+        mutationAtStart,
+      );
+      await retuneIfCurrent(outcome, blockAtStart, mutationAtStart, metroAtStart);
+      receipts.committed(
+        `Latest attempt corrected — ${verdict}.`,
+      );
+    } catch (cause) {
+      const message = commandErrorMessage(
+        cause,
+        "The latest attempt could not be corrected.",
+      );
+      showError(message);
+      receipts.error(cause, message);
+      throw cause;
+    }
+  }, [applyReturnedSnapshot, clearError, receipts, retuneIfCurrent, showError]);
+
+  const reverseAdjustment = useCallback(async (adjustmentId: number) => {
+    clearError();
+    const blockAtStart = snapRef.current?.block_id ?? null;
+    const eventsAtStart = eventRevision.current;
+    const metroAtStart = captureMetroCommandGuard(metroRevision.current);
+    const mutationAtStart = mutationRevision.current + 1;
+    mutationRevision.current = mutationAtStart;
+    try {
+      const outcome = await executeCommand(REP_ADJUSTMENT_REVERSE, {
+        adjustmentId,
+      });
+      applyReturnedSnapshot(
+        outcome.snap,
+        blockAtStart,
+        eventsAtStart,
+        mutationAtStart,
+      );
+      await retuneIfCurrent(outcome, blockAtStart, mutationAtStart, metroAtStart);
+      receipts.undone("Latest adjustment reversed.");
+    } catch (cause) {
+      const message = commandErrorMessage(
+        cause,
+        "The latest adjustment could not be reversed.",
+      );
+      showError(message);
+      receipts.error(cause, message);
+      throw cause;
+    }
+  }, [applyReturnedSnapshot, clearError, receipts, retuneIfCurrent, showError]);
+
+  const restart = useCallback(async (requiredCleanStreak?: number | null) => {
+    clearError();
+    const blockAtStart = snapRef.current?.block_id ?? null;
+    const eventsAtStart = eventRevision.current;
+    const mutationAtStart = mutationRevision.current + 1;
+    mutationRevision.current = mutationAtStart;
+    try {
+      const next = await executeCommand(REP_RESTART, {
+        requiredCleanStreak: requiredCleanStreak ?? null,
+      });
+      // Restart may return a new block id. When the event bus is silent, the
+      // result is accepted only while the set that initiated it remains open.
+      if (
+        mutationRevision.current === mutationAtStart
+        && eventRevision.current === eventsAtStart
+        && snapRef.current?.block_id === blockAtStart
+      ) {
+        applySnapshot(next);
+      }
+      receipts.committed(
+        "Practice set restarted. The previous attempts remain in history.",
+      );
+    } catch (cause) {
+      const message = commandErrorMessage(
+        cause,
+        "The practice set could not be restarted.",
+      );
+      showError(message);
+      receipts.error(cause, message);
+      throw cause;
+    }
+  }, [applySnapshot, clearError, receipts, showError]);
+
+  const close = useCallback(async () => {
+    clearError();
+    const blockAtStart = snapRef.current?.block_id ?? null;
+    const eventsAtStart = eventRevision.current;
+    const mutationAtStart = mutationRevision.current + 1;
+    mutationRevision.current = mutationAtStart;
+    try {
+      // Native rep_close returns the just-closed snapshot for its receipt while
+      // emitting `null` as the active-state event. In eventless/browser tests,
+      // the successful return must therefore still clear the active HUD.
+      await executeCommand(REP_CLOSE, undefined);
+      const current = snapRef.current;
+      if (
+        mutationRevision.current === mutationAtStart
+        && (
+          current == null
+          || (
+            eventRevision.current === eventsAtStart
+            && current.block_id === blockAtStart
+          )
+        )
+      ) {
+        applySnapshot(null);
+      }
+      receipts.committed("Practice set closed.");
+    } catch (cause) {
+      const message = commandErrorMessage(
+        cause,
+        "The practice set could not be closed.",
       );
       showError(message);
       receipts.error(cause, message);
     }
   }, [applySnapshot, clearError, receipts, showError]);
 
-  return { snap, feed, error, clearError, open, check, close };
+  return {
+    snap,
+    feed,
+    error,
+    clearError,
+    open,
+    check,
+    undo,
+    correct,
+    reverseAdjustment,
+    restart,
+    close,
+  };
 }

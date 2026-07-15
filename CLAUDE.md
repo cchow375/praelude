@@ -65,13 +65,13 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 from Christian's substantial real use: 481 attempts exposed wrong completion/recovery semantics,
 unclear writes, score/history friction, real voice false-positive/negative evidence, a verbose
 session-only Brain, and a UI/Universe that failed the user.** A verified schema-v7 snapshot is
-preserved at `(C) pre-v2.0.0-feedback-2026-07-15-163528.db`. The first exact-tree checkpoint now
-contains global frontend receipts/typed command errors, an additive schema-v8 migration and
-sidecar/anomaly backfill, pure protocol/effective-ledger modules, the fourth-book allowlist entry,
-and a seed narrated-voice firewall. A disposable backup copy migrated 7→8 and reopened with exact
-source counts, integrity `ok`, and FK 0; the live database was never opened. These sidecars and pure
-derivations are **not yet wired into RepEngine, store commands, or React projections**, and the full
-narrated replay remains pending. Next: integrate one transactional RepEngine path over the contract
-and ledger, then continue Score Atlas/history → voice drafts/Brain → shell/Universe → full native /
-adversarial release. v2 is not shipped and the installed app/tutorial remain v1.3.0. Off-disk
-remote and packaged v2 Steinway acceptance remain open.
+preserved at `(C) pre-v2.0.0-feedback-2026-07-15-163528.db`. The current exact-tree checkpoint now
+contains schema-v8 sidecars plus schema-v9 one-live-set enforcement; one transactional
+PracticeContract RepEngine/store/IPC/HUD/history path; append-only undo/correct/reverse/restart;
+exact downstream projections; race-safe global React receipts; the fourth-book allowlist; and a
+seed narrated-voice firewall. Disposable backup copies migrate 7→9 and reopen with exact source
+counts/hashes, integrity `ok`, and FK 0; the live database was never opened. Next: durable command
+receipts/idempotency plus pause/focus/safety/recovery/retention and complete deterministic voice
+replay, then Score Atlas/Ledger/Composer → Brain → shell/Universe → full native/adversarial release.
+v2 is not shipped and the installed app/tutorial remain v1.3.0. Off-disk remote and packaged v2
+Steinway acceptance remain open.

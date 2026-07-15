@@ -38,12 +38,15 @@ import {
   type RepOpenArgs,
 } from "./useRep";
 import { ReceiptCenterProvider } from "../receipts/ReceiptCenter";
+import type { MetroState } from "../metronome/useMetronome";
+import { beginMetroIntent } from "../metronome/intentGuard";
 
 function receiptWrapper({ children }: { children: ReactNode }) {
   return createElement(ReceiptCenterProvider, null, children);
 }
 
 function makeSnap(over: Partial<RepSnapshot> = {}): RepSnapshot {
+  const attempts = over.attempts_recorded ?? over.reps_done ?? 0;
   return {
     block_id: 1,
     piece_id: 7,
@@ -65,6 +68,21 @@ function makeSnap(over: Partial<RepSnapshot> = {}): RepSnapshot {
     status: "active",
     focus: "tempo",
     use_metronome: true,
+    attempts_recorded: attempts,
+    tries: over.tries ?? attempts,
+    voided_attempts: 0,
+    current_clean_streak: 0,
+    best_clean_streak: 0,
+    reset_count: 0,
+    accuracy: attempts === 0 ? null : 0,
+    required_clean_streak: 5,
+    effective_required_clean_streak: 5,
+    recovery_remaining: 0,
+    mastery_status: "not_satisfied",
+    mastery_verified: true,
+    set_state: "active",
+    last_attempt_id: attempts > 0 ? attempts : null,
+    last_adjustment_id: null,
     ...over,
   };
 }
@@ -75,10 +93,32 @@ function emit(snap: RepSnapshot | null) {
   });
 }
 
+function makeMetro(over: Partial<MetroState> = {}): MetroState {
+  return {
+    running: false,
+    bpm: 120,
+    beats_per_bar: 4,
+    subdivision: 1,
+    accent_first: true,
+    sound: "woodblock",
+    gain: 1,
+    boost: false,
+    ...over,
+  };
+}
+
+function emitMetro(state: MetroState) {
+  act(() => {
+    listeners["metro://state"]?.({ payload: state });
+  });
+}
+
 beforeEach(() => {
   listeners = {};
   invokeMock.mockReset();
-  invokeMock.mockResolvedValue(null);
+  invokeMock.mockImplementation((command: string) => Promise.resolve(
+    command === "metro_state" ? makeMetro() : null,
+  ));
   listenMock.mockClear();
   unlistenMock.mockClear();
 });
@@ -95,9 +135,33 @@ describe("useRep — IPC wiring", () => {
     expect(listenMock).toHaveBeenCalledWith("rep://state", expect.any(Function));
   });
 
+  it("surfaces a real active-set restore failure inline and in the global receipt center", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "rep_state") {
+        return Promise.reject({
+          code: "multiple_live_sets",
+          message: "Multiple live practice sets require recovery.",
+        });
+      }
+      if (command === "metro_state") return Promise.resolve(makeMetro());
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+
+    await waitFor(() => expect(result.current.error).toBe(
+      "Multiple live practice sets require recovery.",
+    ));
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Multiple live practice sets require recovery.",
+    );
+    expect(screen.getByRole("list", { name: "Recent app activity" }).textContent).toContain(
+      "Multiple live practice sets require recovery.",
+    );
+  });
+
   it("updates snapshot state when a rep://state event arrives", async () => {
     const { result } = renderHook(() => useRep());
-    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+    await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
 
     emit(makeSnap({ reps_done: 5, bpm: 72, piece_title: "Clair de Lune" }));
 
@@ -119,6 +183,13 @@ describe("useRep — IPC wiring", () => {
   });
 
   it("check() invokes rep_check with the verdict and note", async () => {
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "rep_check"
+        ? { snap: makeSnap({ attempts_recorded: 1 }), new_bpm: null, block_done: false, say: "Saved." }
+        : command === "metro_state"
+          ? makeMetro()
+          : null,
+    ));
     const { result } = renderHook(() => useRep());
     await waitFor(() => expect(listenMock).toHaveBeenCalled());
 
@@ -133,6 +204,13 @@ describe("useRep — IPC wiring", () => {
   });
 
   it("check() sends note: null when omitted", async () => {
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "rep_check"
+        ? { snap: makeSnap({ attempts_recorded: 1 }), new_bpm: null, block_done: false, say: "Saved." }
+        : command === "metro_state"
+          ? makeMetro()
+          : null,
+    ));
     const { result } = renderHook(() => useRep());
     await waitFor(() => expect(listenMock).toHaveBeenCalled());
 
@@ -234,12 +312,14 @@ describe("useRep — IPC wiring", () => {
       Promise.resolve(
         command === "rep_open"
           ? makeSnap({ block_id: 42, reps_done: 0 })
+          : command === "metro_state"
+            ? makeMetro()
           : null,
       ),
     );
 
     const { result } = renderHook(() => useRep());
-    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+    await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
 
     await act(async () => {
       await result.current.open(args);
@@ -248,6 +328,45 @@ describe("useRep — IPC wiring", () => {
     expect(invokeMock).toHaveBeenCalledWith("rep_open", { args });
     expect(invokeMock).toHaveBeenCalledWith("metro_start", { bpm: 60 });
     expect(result.current.snap?.block_id).toBe(42);
+  });
+
+  it("starts an opened set after a delayed initial metronome read without delaying the set commit", async () => {
+    const args: RepOpenArgs = {
+      piece_id: 7,
+      m_start: 1,
+      m_end: 8,
+      label: null,
+      start_bpm: 60,
+      target_bpm: 84,
+      planned_reps: null,
+      increment: null,
+      variants: [],
+      focus: "tempo",
+      use_metronome: true,
+    };
+    const opened = makeSnap({ block_id: 42, bpm: 60 });
+    let resolveMetroState: (state: MetroState) => void = () => undefined;
+    const delayedMetroState = new Promise<MetroState>((resolve) => { resolveMetroState = resolve; });
+    invokeMock.mockImplementation((command: string) => (
+      command === "rep_open"
+        ? Promise.resolve(opened)
+        : command === "metro_state"
+          ? delayedMetroState
+          : Promise.resolve(null)
+    ));
+    const { result } = renderHook(() => useRep());
+    await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
+
+    let openPromise!: Promise<void>;
+    act(() => { openPromise = result.current.open(args); });
+    await waitFor(() => expect(result.current.snap?.block_id).toBe(42));
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_start", expect.anything());
+
+    await act(async () => {
+      resolveMetroState(makeMetro({ running: false, bpm: 60 }));
+      await openPromise;
+    });
+    expect(invokeMock).toHaveBeenCalledWith("metro_start", { bpm: 60 });
   });
 
   it("rejects a first-open failure and publishes an assertive receipt while no HUD exists", async () => {
@@ -275,7 +394,7 @@ describe("useRep — IPC wiring", () => {
     const { result } = renderHook(() => useRep(), {
       wrapper: receiptWrapper,
     });
-    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+    await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
 
     await act(async () => {
       await expect(result.current.open(args)).rejects.toMatchObject({
@@ -307,6 +426,7 @@ describe("useRep — IPC wiring", () => {
       use_metronome: true,
     };
     invokeMock.mockImplementation((command: string) => {
+      if (command === "metro_state") return Promise.resolve(makeMetro());
       if (command === "rep_open") {
         return Promise.resolve(makeSnap({ block_id: 44, m_start: 9, m_end: 16, bpm: 72 }));
       }
@@ -321,7 +441,7 @@ describe("useRep — IPC wiring", () => {
     const { result } = renderHook(() => useRep(), {
       wrapper: receiptWrapper,
     });
-    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+    await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
 
     await act(async () => {
       await expect(result.current.open(args)).resolves.toBeUndefined();
@@ -331,7 +451,7 @@ describe("useRep — IPC wiring", () => {
     expect(result.current.error).toBe("The metronome is busy with speech.");
     const activity = screen.getByRole("list", { name: "Recent app activity" });
     expect(within(activity).getByText(
-      "Practice block opened for measures 9–16.",
+      "Practice set opened for measures 9–16.",
     )).toBeTruthy();
     expect(within(activity).getByText(
       "The metronome is busy with speech.",
@@ -358,7 +478,9 @@ describe("useRep — IPC wiring", () => {
       resolveOpen = resolve;
     });
     invokeMock.mockImplementation((command: string) => (
-      command === "rep_open" ? delayedOpen : Promise.resolve(null)
+      command === "rep_open"
+        ? delayedOpen
+        : Promise.resolve(command === "metro_state" ? makeMetro() : null)
     ));
     const { result } = renderHook(() => useRep(), {
       wrapper: receiptWrapper,
@@ -380,6 +502,103 @@ describe("useRep — IPC wiring", () => {
     expect(invokeMock).not.toHaveBeenCalledWith("metro_start", expect.anything());
   });
 
+  it("never overwrites a same-block voice attempt with a delayed zero-attempt open return", async () => {
+    const args: RepOpenArgs = {
+      piece_id: 7,
+      m_start: 9,
+      m_end: 16,
+      label: null,
+      start_bpm: 60,
+      target_bpm: 84,
+      planned_reps: null,
+      increment: null,
+      variants: [],
+      focus: "tempo",
+      use_metronome: true,
+    };
+    const returnedOpen = makeSnap({
+      block_id: 44,
+      m_start: 9,
+      m_end: 16,
+      attempts_recorded: 0,
+      tries: 0,
+      reps_done: 0,
+      last: null,
+      last_attempt_id: null,
+    });
+    const voiceAttempt = makeSnap({
+      ...returnedOpen,
+      bpm: 64,
+      attempts_recorded: 1,
+      tries: 1,
+      reps_done: 1,
+      verdicts: { clean: 1, flawed: 0, failed: 0 },
+      last: { verdict: "clean", note: "voice attempt", bpm: null },
+      last_attempt_id: 801,
+    });
+    let resolveOpen: (snapshot: RepSnapshot) => void = () => undefined;
+    const delayedOpen = new Promise<RepSnapshot>((resolve) => { resolveOpen = resolve; });
+    invokeMock.mockImplementation((command: string) => (
+      command === "rep_open"
+        ? delayedOpen
+        : Promise.resolve(command === "metro_state" ? makeMetro() : null)
+    ));
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
+
+    let openPromise!: Promise<void>;
+    act(() => { openPromise = result.current.open(args); });
+    emit(voiceAttempt);
+    await act(async () => {
+      resolveOpen(returnedOpen);
+      await openPromise;
+    });
+
+    expect(result.current.snap?.block_id).toBe(44);
+    expect(result.current.snap?.tries).toBe(1);
+    expect(result.current.snap?.last?.note).toBe("voice attempt");
+    expect(result.current.feed[0]?.verdict).toBe("clean");
+    expect(invokeMock).toHaveBeenCalledWith("metro_start", { bpm: 64 });
+  });
+
+  it("does not let a delayed open overwrite a newer manual metronome event", async () => {
+    const args: RepOpenArgs = {
+      piece_id: 7,
+      m_start: 9,
+      m_end: 16,
+      label: null,
+      start_bpm: 60,
+      target_bpm: 84,
+      planned_reps: null,
+      increment: null,
+      variants: [],
+      focus: "tempo",
+      use_metronome: true,
+    };
+    const opened = makeSnap({ block_id: 44, bpm: 60, set_state: "active" });
+    let resolveOpen: (snapshot: RepSnapshot) => void = () => undefined;
+    const delayedOpen = new Promise<RepSnapshot>((resolve) => { resolveOpen = resolve; });
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "rep_open") return delayedOpen;
+      if (command === "metro_state") return Promise.resolve(makeMetro({ running: false, bpm: 60 }));
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
+
+    let openPromise!: Promise<void>;
+    act(() => { openPromise = result.current.open(args); });
+    emit(opened);
+    emitMetro(makeMetro({ running: true, bpm: 96 }));
+    await act(async () => {
+      resolveOpen(opened);
+      await openPromise;
+    });
+
+    expect(result.current.snap?.block_id).toBe(44);
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_start", expect.anything());
+  });
+
   it("applies a ladder step to the metronome only when the block opted in", async () => {
     const stepped = makeSnap({ bpm: 64, use_metronome: true });
     invokeMock.mockImplementation((command: string) =>
@@ -388,6 +607,8 @@ describe("useRep — IPC wiring", () => {
           ? { snap: stepped, new_bpm: 64, block_done: false, say: "64" }
           : command === "rep_state"
             ? makeSnap({ use_metronome: true })
+            : command === "metro_state"
+              ? makeMetro({ running: true, bpm: 60 })
             : null,
       ),
     );
@@ -397,12 +618,460 @@ describe("useRep — IPC wiring", () => {
     expect(invokeMock).toHaveBeenCalledWith("metro_set", { bpm: 64 });
   });
 
-  it("close() invokes rep_close and applies the (null) result", async () => {
+  it("retunes after a delayed initial metronome read without delaying the committed attempt", async () => {
+    const initial = makeSnap({ bpm: 60, last_attempt_id: null, tries: 0 });
+    const stepped = makeSnap({
+      bpm: 64,
+      attempts_recorded: 1,
+      tries: 1,
+      last_attempt_id: 83,
+      last: { verdict: "clean", note: null, bpm: 60 },
+    });
+    let resolveMetroState: (state: MetroState) => void = () => undefined;
+    const delayedMetroState = new Promise<MetroState>((resolve) => { resolveMetroState = resolve; });
+    invokeMock.mockImplementation((command: string) => (
+      command === "rep_state"
+        ? Promise.resolve(initial)
+        : command === "metro_state"
+          ? delayedMetroState
+          : command === "rep_check"
+            ? Promise.resolve({ snap: stepped, new_bpm: 64, block_done: false, say: "64" })
+            : Promise.resolve(null)
+    ));
+    const { result } = renderHook(() => useRep());
+    await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
+
+    let checkPromise!: Promise<void>;
+    act(() => { checkPromise = result.current.check("clean"); });
+    await waitFor(() => expect(result.current.snap?.bpm).toBe(64));
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", expect.anything());
+
+    await act(async () => {
+      resolveMetroState(makeMetro({ running: true, bpm: 60 }));
+      await checkPromise;
+    });
+    expect(invokeMock).toHaveBeenCalledWith("metro_set", { bpm: 64 });
+  });
+
+  it("does not retune a delayed check after a newer manual metronome event", async () => {
+    const initial = makeSnap({ bpm: 60, last_attempt_id: null, tries: 0 });
+    const stepped = makeSnap({
+      bpm: 64,
+      attempts_recorded: 1,
+      tries: 1,
+      last_attempt_id: 81,
+      last: { verdict: "clean", note: null, bpm: 60 },
+    });
+    let resolveCheck: (outcome: CheckOutcome) => void = () => undefined;
+    const pending = new Promise<CheckOutcome>((resolve) => { resolveCheck = resolve; });
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "rep_state") return Promise.resolve(initial);
+      if (command === "metro_state") return Promise.resolve(makeMetro({ running: true, bpm: 60 }));
+      if (command === "rep_check") return pending;
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
+    await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
+
+    let checkPromise!: Promise<void>;
+    act(() => { checkPromise = result.current.check("clean"); });
+    emit(stepped);
+    emitMetro(makeMetro({ running: true, bpm: 96 }));
+    await act(async () => {
+      resolveCheck({ snap: stepped, new_bpm: 64, block_done: false, say: "64" });
+      await checkPromise;
+    });
+
+    expect(result.current.snap?.bpm).toBe(64);
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", { bpm: 64 });
+  });
+
+  it("does not retune while a manual metronome command is pending before its event", async () => {
+    const initial = makeSnap({ bpm: 60, last_attempt_id: null, tries: 0 });
+    const stepped = makeSnap({
+      bpm: 64,
+      attempts_recorded: 1,
+      tries: 1,
+      last_attempt_id: 82,
+      last: { verdict: "clean", note: null, bpm: 60 },
+    });
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "rep_state"
+        ? initial
+        : command === "metro_state"
+          ? makeMetro({ running: true, bpm: 60 })
+          : command === "rep_check"
+            ? { snap: stepped, new_bpm: 64, block_done: false, say: "64" }
+            : null,
+    ));
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
+
+    const finishManualIntent = beginMetroIntent();
+    try {
+      await act(async () => { await result.current.check("clean"); });
+    } finally {
+      finishManualIntent();
+    }
+
+    expect(result.current.snap?.bpm).toBe(64);
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", { bpm: 64 });
+  });
+
+  it("does not auto-retune when the authoritative metronome is stopped", async () => {
+    const initial = makeSnap({ bpm: 60 });
+    const stepped = makeSnap({ bpm: 64 });
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "rep_state"
+        ? initial
+        : command === "metro_state"
+          ? makeMetro({ running: false, bpm: 60 })
+          : command === "rep_check"
+            ? { snap: stepped, new_bpm: 64, block_done: false, say: "64" }
+            : null,
+    ));
+    const { result } = renderHook(() => useRep());
+    await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
+
+    await act(async () => { await result.current.check("clean"); });
+
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", { bpm: 64 });
+  });
+
+  it("undoes the latest attempt through an append-only command and receipts its ordinal", async () => {
+    const initial = makeSnap({
+      reps_done: 3,
+      attempts_recorded: 3,
+      tries: 3,
+      current_clean_streak: 2,
+      last_attempt_id: 91,
+      last: { verdict: "clean", note: null, bpm: 60 },
+    });
+    const undone = makeSnap({
+      reps_done: 3,
+      attempts_recorded: 3,
+      tries: 2,
+      voided_attempts: 1,
+      current_clean_streak: 1,
+      last_attempt_id: 90,
+      last_adjustment_id: 8,
+      last: { verdict: "clean", note: null, bpm: 60 },
+    });
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "rep_state"
+        ? initial
+        : command === "metro_state"
+          ? makeMetro({ running: true, bpm: 64 })
+        : command === "rep_undo"
+          ? { snap: undone, new_bpm: null, block_done: false, say: "Undone." }
+          : null,
+    ));
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.attempts_recorded).toBe(3));
+
+    await act(async () => { await result.current.undo(); });
+
+    expect(invokeMock).toHaveBeenCalledWith("rep_undo");
+    expect(result.current.snap?.attempts_recorded).toBe(3);
+    expect(result.current.snap?.tries).toBe(2);
+    expect(result.current.snap?.voided_attempts).toBe(1);
+    expect(screen.getByRole("list", { name: "Recent app activity" }).textContent).toContain(
+      "Attempt 3 undone.",
+    );
+    expect(screen.getByRole("list", { name: "Recent app activity" }).textContent).not.toContain(
+      "Attempt 91",
+    );
+  });
+
+  it("retunes after undo only when the returned projection is still the active metronome set", async () => {
+    const initial = makeSnap({
+      bpm: 64,
+      attempts_recorded: 3,
+      tries: 3,
+      last_attempt_id: 91,
+      last_adjustment_id: null,
+    });
+    const undone = makeSnap({
+      bpm: 60,
+      attempts_recorded: 3,
+      tries: 2,
+      voided_attempts: 1,
+      last_attempt_id: 90,
+      last_adjustment_id: 8,
+      set_state: "active",
+    });
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "rep_state"
+        ? initial
+        : command === "metro_state"
+          ? makeMetro({ running: true, bpm: 64 })
+        : command === "rep_undo"
+          ? { snap: undone, new_bpm: 60, block_done: false, say: "Undone." }
+          : null,
+    ));
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.bpm).toBe(64));
+
+    await act(async () => { await result.current.undo(); });
+
+    expect(result.current.snap?.bpm).toBe(60);
+    expect(invokeMock).toHaveBeenCalledWith("metro_set", { bpm: 60 });
+  });
+
+  it("corrects the latest attempt with top-level typed args and no optimistic write", async () => {
+    const initial = makeSnap({
+      reps_done: 2,
+      attempts_recorded: 2,
+      tries: 2,
+      current_clean_streak: 0,
+      last_attempt_id: 77,
+      last: { verdict: "failed", note: "wrong note", bpm: 60 },
+    });
+    const corrected = makeSnap({
+      reps_done: 2,
+      attempts_recorded: 2,
+      tries: 2,
+      current_clean_streak: 1,
+      last_attempt_id: 77,
+      last_adjustment_id: 12,
+      last: { verdict: "clean", note: "misheard", bpm: 60 },
+    });
+    let resolveCorrection: (outcome: CheckOutcome) => void = () => undefined;
+    const pending = new Promise<CheckOutcome>((resolve) => { resolveCorrection = resolve; });
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "rep_state") return Promise.resolve(initial);
+      if (command === "rep_correct") return pending;
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.last?.verdict).toBe("failed"));
+
+    let correction!: Promise<void>;
+    act(() => { correction = result.current.correct(77, "clean", "misheard"); });
+    expect(result.current.snap?.last?.verdict).toBe("failed");
+    await act(async () => {
+      resolveCorrection({ snap: corrected, new_bpm: null, block_done: false, say: "Corrected." });
+      await correction;
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("rep_correct", {
+      attemptId: 77,
+      verdict: "clean",
+      note: "misheard",
+      replaceNote: true,
+    });
+    expect(result.current.snap?.last?.verdict).toBe("clean");
+    expect(screen.getByRole("list", { name: "Recent app activity" }).textContent).toContain(
+      "Latest attempt corrected — clean.",
+    );
+  });
+
+  it("preserves the existing note for a verdict-only correction", async () => {
+    const initial = makeSnap({
+      attempts_recorded: 1,
+      tries: 1,
+      last_attempt_id: 77,
+      last: { verdict: "failed", note: "keep this", bpm: 60 },
+    });
+    const corrected = makeSnap({
+      attempts_recorded: 1,
+      tries: 1,
+      last_attempt_id: 77,
+      last_adjustment_id: 12,
+      last: { verdict: "clean", note: "keep this", bpm: 60 },
+    });
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "rep_state"
+        ? initial
+        : command === "rep_correct"
+          ? { snap: corrected, new_bpm: null, block_done: false, say: "Corrected." }
+          : null,
+    ));
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.last?.note).toBe("keep this"));
+
+    await act(async () => { await result.current.correct(77, "clean"); });
+
+    expect(invokeMock).toHaveBeenCalledWith("rep_correct", {
+      attemptId: 77,
+      verdict: "clean",
+      note: null,
+      replaceNote: false,
+    });
+    expect(result.current.snap?.last?.note).toBe("keep this");
+  });
+
+  it("reverses the latest adjustment and retunes its still-current active projection", async () => {
+    const initial = makeSnap({
+      bpm: 64,
+      attempts_recorded: 2,
+      tries: 2,
+      last_attempt_id: 77,
+      last_adjustment_id: 12,
+    });
+    const reversed = makeSnap({
+      bpm: 60,
+      attempts_recorded: 2,
+      tries: 2,
+      last_attempt_id: 77,
+      last_adjustment_id: 13,
+      set_state: "active",
+    });
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "rep_state"
+        ? initial
+        : command === "metro_state"
+          ? makeMetro({ running: true, bpm: 64 })
+        : command === "rep_adjustment_reverse"
+          ? { snap: reversed, new_bpm: 60, block_done: false, say: "Reversed." }
+          : null,
+    ));
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.last_adjustment_id).toBe(12));
+
+    await act(async () => { await result.current.reverseAdjustment(12); });
+
+    expect(invokeMock).toHaveBeenCalledWith("rep_adjustment_reverse", { adjustmentId: 12 });
+    expect(result.current.snap?.last_adjustment_id).toBe(13);
+    expect(invokeMock).toHaveBeenCalledWith("metro_set", { bpm: 60 });
+  });
+
+  it("never retunes from a stale reversal after the set is paused", async () => {
+    const initial = makeSnap({ bpm: 64, last_attempt_id: 77, last_adjustment_id: 12 });
+    const reversed = makeSnap({
+      bpm: 60,
+      last_attempt_id: 77,
+      last_adjustment_id: 13,
+      set_state: "active",
+    });
+    let resolveReverse: (outcome: CheckOutcome) => void = () => undefined;
+    const pending = new Promise<CheckOutcome>((resolve) => { resolveReverse = resolve; });
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "rep_state") return Promise.resolve(initial);
+      if (command === "metro_state") return Promise.resolve(makeMetro({ running: true, bpm: 64 }));
+      if (command === "rep_adjustment_reverse") return pending;
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.last_adjustment_id).toBe(12));
+
+    let reversal!: Promise<void>;
+    act(() => { reversal = result.current.reverseAdjustment(12); });
+    emit(makeSnap({
+      bpm: 64,
+      last_attempt_id: 77,
+      last_adjustment_id: 12,
+      set_state: "paused",
+      status: "paused",
+    }));
+    await act(async () => {
+      resolveReverse({ snap: reversed, new_bpm: 60, block_done: false, say: "Reversed." });
+      await reversal;
+    });
+
+    expect(result.current.snap?.set_state).toBe("paused");
+    expect(result.current.snap?.bpm).toBe(64);
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", { bpm: 60 });
+  });
+
+  it("restarts into the returned fresh set and preserves an explicit streak target", async () => {
+    const initial = makeSnap({ block_id: 1, attempts_recorded: 6, tries: 6 });
+    const restarted = makeSnap({
+      block_id: 2,
+      attempts_recorded: 0,
+      tries: 0,
+      current_clean_streak: 0,
+      required_clean_streak: 7,
+      effective_required_clean_streak: 7,
+      set_state: "active",
+    });
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "rep_state" ? initial : command === "rep_restart" ? restarted : null,
+    ));
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
+
+    await act(async () => { await result.current.restart(7); });
+
+    expect(invokeMock).toHaveBeenCalledWith("rep_restart", { requiredCleanStreak: 7 });
+    expect(result.current.snap?.block_id).toBe(2);
+    expect(result.current.snap?.current_clean_streak).toBe(0);
+    expect(screen.getByRole("list", { name: "Recent app activity" }).textContent).toContain(
+      "Practice set restarted. The previous attempts remain in history.",
+    );
+  });
+
+  it("keeps authoritative state when an older undo response arrives after a new-set event", async () => {
+    const initial = makeSnap({ block_id: 1, attempts_recorded: 3, tries: 3 });
+    let resolveUndo: (outcome: CheckOutcome) => void = () => undefined;
+    const pending = new Promise<CheckOutcome>((resolve) => { resolveUndo = resolve; });
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "rep_state") return Promise.resolve(initial);
+      if (command === "rep_undo") return pending;
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
+    let undo!: Promise<void>;
+    act(() => { undo = result.current.undo(); });
+
+    emit(makeSnap({ block_id: 2, attempts_recorded: 0, tries: 0 }));
+    await act(async () => {
+      resolveUndo({
+        snap: makeSnap({ block_id: 1, attempts_recorded: 2, tries: 2 }),
+        new_bpm: null,
+        block_done: false,
+        say: "Undone.",
+      });
+      await undo;
+    });
+
+    expect(result.current.snap?.block_id).toBe(2);
+    expect(result.current.snap?.attempts_recorded).toBe(0);
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", expect.anything());
+  });
+
+  it("rejects failed adjustment commands without changing the visible snapshot", async () => {
+    const initial = makeSnap({ attempts_recorded: 2, tries: 2, current_clean_streak: 1 });
+    invokeMock.mockImplementation((command: string) => (
+      command === "rep_state"
+        ? Promise.resolve(initial)
+        : command === "rep_undo"
+          ? Promise.reject({ code: "ledger_conflict", message: "The attempt was already undone." })
+          : Promise.resolve(null)
+    ));
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.attempts_recorded).toBe(2));
+
+    await act(async () => {
+      await expect(result.current.undo()).rejects.toMatchObject({ code: "ledger_conflict" });
+    });
+
+    expect(result.current.snap?.attempts_recorded).toBe(2);
+    expect(result.current.snap?.current_clean_streak).toBe(1);
+    expect(screen.getByRole("alert").textContent).toBe("The attempt was already undone.");
+  });
+
+  it("close() clears the HUD without an event even though native returns the closed snapshot", async () => {
+    const closed = makeSnap({
+      reps_done: 4,
+      attempts_recorded: 4,
+      tries: 4,
+      status: "closed",
+      set_state: "closed_unresolved",
+    });
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "metro_state"
+        ? makeMetro()
+        : command === "rep_close"
+          ? closed
+          : null,
+    ));
     const { result } = renderHook(() => useRep());
     await waitFor(() => expect(listenMock).toHaveBeenCalled());
     emit(makeSnap({ reps_done: 4 }));
 
-    invokeMock.mockResolvedValueOnce(null);
     await act(async () => {
       await result.current.close();
     });
@@ -436,13 +1105,77 @@ describe("useRep — IPC wiring", () => {
     expect(result.current.feed).toEqual([]);
   });
 
-  it("surfaces a command rejection as an inline error", async () => {
+  it("collapses feed to the authoritative latest attempt after a non-latest correction", async () => {
     const { result } = renderHook(() => useRep());
     await waitFor(() => expect(listenMock).toHaveBeenCalled());
 
-    invokeMock.mockRejectedValueOnce("no active block");
+    emit(makeSnap({
+      attempts_recorded: 1,
+      tries: 1,
+      last_attempt_id: 1,
+      last: { verdict: "clean", note: "older", bpm: 60 },
+    }));
+    emit(makeSnap({
+      attempts_recorded: 2,
+      tries: 2,
+      last_attempt_id: 2,
+      last: { verdict: "failed", note: "authoritative latest", bpm: 60 },
+    }));
+    expect(result.current.feed.map((item) => item.note)).toEqual([
+      "authoritative latest",
+      "older",
+    ]);
+
+    emit(makeSnap({
+      attempts_recorded: 2,
+      tries: 2,
+      last_attempt_id: 2,
+      last_adjustment_id: 21,
+      last: { verdict: "failed", note: "authoritative latest", bpm: 60 },
+    }));
+
+    expect(result.current.feed).toEqual([
+      { verdict: "failed", note: "authoritative latest", bpm: 60 },
+    ]);
+  });
+
+  it("does not drop the latest feed item when a non-latest attempt is voided", async () => {
+    const { result } = renderHook(() => useRep());
+    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+
+    emit(makeSnap({ attempts_recorded: 1, tries: 1, last_attempt_id: 1, last: { verdict: "flawed", note: "first", bpm: 60 } }));
+    emit(makeSnap({ attempts_recorded: 2, tries: 2, last_attempt_id: 2, last: { verdict: "failed", note: "middle", bpm: 60 } }));
+    emit(makeSnap({ attempts_recorded: 3, tries: 3, last_attempt_id: 3, last: { verdict: "clean", note: "latest remains", bpm: 60 } }));
+
+    emit(makeSnap({
+      attempts_recorded: 3,
+      tries: 2,
+      voided_attempts: 1,
+      last_attempt_id: 3,
+      last_adjustment_id: 22,
+      last: { verdict: "clean", note: "latest remains", bpm: 60 },
+    }));
+
+    expect(result.current.feed).toEqual([
+      { verdict: "clean", note: "latest remains", bpm: 60 },
+    ]);
+  });
+
+  it("surfaces a command rejection as an inline error", async () => {
+    invokeMock.mockImplementation((command: string) => (
+      command === "rep_check"
+        ? Promise.reject("no active block")
+        : command === "metro_state"
+          ? Promise.resolve(makeMetro())
+          : Promise.resolve(null)
+    ));
+    const { result } = renderHook(() => useRep());
+    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+
     await act(async () => {
-      await result.current.check("clean");
+      await expect(result.current.check("clean")).rejects.toMatchObject({
+        message: "no active block",
+      });
     });
 
     await waitFor(() => expect(result.current.error).toContain("no active block"));

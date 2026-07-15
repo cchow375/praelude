@@ -29,6 +29,7 @@ interface PieceDetailProps {
   onBack: () => void;
   onOpenBlock: (args: RepOpenArgs) => Promise<void>;
   activeRep?: RepSnapshot | null;
+  defaultCleanStreak?: number;
   /** Notifies the parent list when the piece record changes (badges/summary). */
   onUpdated?: (piece: PieceDetailData) => void;
   onPracticeContextChange?: (context: PracticeBrainContext | null) => void;
@@ -45,6 +46,7 @@ export function PieceDetail({
   onBack,
   onOpenBlock,
   activeRep = null,
+  defaultCleanStreak = 5,
   onUpdated,
   onPracticeContextChange,
 }: PieceDetailProps) {
@@ -188,6 +190,7 @@ export function PieceDetail({
           pieceId={piece.id}
           activeRange={activeRep ? { m_start: activeRep.m_start, m_end: activeRep.m_end } : null}
           defaultTargetBpm={piece.target_tempo}
+          defaultCleanStreak={defaultCleanStreak}
           onOpenBlock={openBlock}
           opening={opening}
           onRegionsChanged={() => setRegionRevision((revision) => revision + 1)}
@@ -207,6 +210,7 @@ export function PieceDetail({
           <BlockForm
             pieceId={piece.id}
             defaultTargetBpm={piece.target_tempo}
+            defaultCleanStreak={defaultCleanStreak}
             onOpen={openBlock}
             opening={opening}
           />
@@ -250,7 +254,7 @@ function PieceSummary({
         <div className="piece-notes-heading">
           <span className="ck-label">Piece-wide notes</span>
           {piece.notes && (
-            <ConfirmDelete label="Delete the piece-wide note? Tricky Section notes and practice-rep notes are separate and will stay." onConfirm={() => onUpdate({ notes: null })}>
+            <ConfirmDelete label="Delete the piece-wide note? Tricky Section notes and practice-attempt notes are separate and will stay." onConfirm={() => onUpdate({ notes: null })}>
               <button type="button" className="piece-note-delete">Delete note</button>
             </ConfirmDelete>
           )}

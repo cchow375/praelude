@@ -147,7 +147,30 @@ pub struct BlockHistory {
     pub bpm: Option<f64>,
     pub target_bpm: Option<f64>,
     pub planned_reps: u32,
+    /// Semantic v2 review boundary captured by the immutable contract. The
+    /// physical `planned_reps` column is compatibility storage only.
+    pub attempt_ceiling: Option<u32>,
+    /// Provenance of the captured contract (`user_click`, `voice_hot_loop`, or
+    /// `migration_legacy`); distinct from attempt provenance.
+    pub contract_source: String,
     pub reps_done: u32,
+    pub attempts_recorded: u32,
+    pub tries: u32,
+    pub voided_attempts: u32,
+    pub current_clean_streak: u32,
+    pub mastery_progress_streak: u32,
+    pub best_clean_streak: u32,
+    pub reset_count: u32,
+    pub accuracy: Option<f64>,
+    pub required_clean_streak: u32,
+    pub effective_required_clean_streak: u32,
+    pub recovery_remaining: u32,
+    pub review_boundary_reached: bool,
+    pub mastery_status: String,
+    pub mastery_verified: bool,
+    pub set_state: String,
+    pub last_attempt_id: Option<i64>,
+    pub last_adjustment_id: Option<i64>,
     pub status: String,
     pub verdicts: VerdictCounts,
     pub region_id: Option<i64>,
@@ -205,6 +228,10 @@ pub struct RepOpenArgs {
     pub target_bpm: Option<f64>,
     #[serde(default)]
     pub planned_reps: Option<u32>,
+    /// v2 mastery target. Omitted snapshots the validated global default when
+    /// the set opens; later setting changes cannot rewrite an existing set.
+    #[serde(default)]
+    pub required_clean_streak: Option<u32>,
     #[serde(default)]
     pub increment: Option<IncrementRule>,
     #[serde(default)]
@@ -260,7 +287,7 @@ pub(crate) fn default_use_metronome() -> bool {
 pub struct LastRep {
     pub verdict: String,
     pub note: Option<String>,
-    pub bpm: f64,
+    pub bpm: Option<f64>,
 }
 
 /// The full live state of the active rep block. Emitted as `rep://state`,
@@ -273,12 +300,35 @@ pub struct RepSnapshot {
     pub m_start: u32,
     pub m_end: u32,
     pub label: Option<String>,
-    /// The block's current working tempo (steps up the ladder as reps land clean).
-    pub bpm: f64,
+    /// The block's current working tempo. Non-tempo sets carry no fabricated BPM.
+    pub bpm: Option<f64>,
     pub start_bpm: f64,
     pub target_bpm: Option<f64>,
     pub planned_reps: u32,
+    /// Semantic review boundary from the immutable contract. `planned_reps` is
+    /// retained only for physical v1 compatibility.
+    pub attempt_ceiling: Option<u32>,
+    pub contract_source: String,
     pub reps_done: u32,
+    /// Durable v2 ledger projection. `reps_done` remains a compatibility alias
+    /// for `tries`; physical `planned_reps` is never a mastery condition.
+    pub attempts_recorded: u32,
+    pub tries: u32,
+    pub voided_attempts: u32,
+    pub current_clean_streak: u32,
+    pub mastery_progress_streak: u32,
+    pub best_clean_streak: u32,
+    pub reset_count: u32,
+    pub accuracy: Option<f64>,
+    pub required_clean_streak: u32,
+    pub effective_required_clean_streak: u32,
+    pub recovery_remaining: u32,
+    pub review_boundary_reached: bool,
+    pub mastery_status: String,
+    pub mastery_verified: bool,
+    pub set_state: String,
+    pub last_attempt_id: Option<i64>,
+    pub last_adjustment_id: Option<i64>,
     /// Clean reps accumulated at the current rung; resets to 0 on a step.
     pub cleans_at_step: u32,
     pub rule: IncrementRule,
@@ -465,16 +515,20 @@ pub struct Rep {
     pub id: i64,
     pub block_id: i64,
     pub ts: String,
-    pub bpm: f64,
+    pub bpm: Option<f64>,
     pub variant: Option<String>,
     pub verdict: String,
     pub note: Option<String>,
+    pub original_verdict: String,
+    pub voided: bool,
+    pub source: String,
+    pub active_adjustment_ids: Vec<i64>,
 }
 
-/// A rep block's mutable fields. Nullable columns use `Option<Option<T>>`
-/// (absent = unchanged, `Some(None)` = set NULL, `Some(Some(v))` = set `v`);
-/// non-nullable columns (`m_start`/`m_end`/`planned_reps`/`focus`/
-/// `use_metronome`) use a plain `Option<T>` (absent = unchanged).
+/// Compatibility wire shape for the retired physical block-edit endpoint.
+/// Deserialization remains stable for old callers, but the store now rejects
+/// every patch because practice-set source rows are immutable evidence.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct BlockPatch {
     #[serde(default, deserialize_with = "deserialize_nullable_patch")]

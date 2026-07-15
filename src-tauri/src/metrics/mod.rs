@@ -72,8 +72,8 @@ pub fn streak(session_days: &[String]) -> u32 {
 /// actually achieved. `None` when no clean rep exists.
 pub fn best_tempo_reached(reps: &[Rep]) -> Option<f64> {
     reps.iter()
-        .filter(|r| r.verdict == "clean")
-        .map(|r| r.bpm)
+        .filter(|r| !r.voided && r.verdict == "clean")
+        .filter_map(|r| r.bpm)
         .fold(None, |acc, b| Some(acc.map_or(b, |a: f64| a.max(b))))
 }
 
@@ -100,7 +100,9 @@ pub fn per_region_mastery(
                 .count() as u32;
             let region_reps: Vec<&Rep> = reps
                 .iter()
-                .filter(|r| region_of.get(&r.block_id) == Some(&region.id))
+                .filter(|r| {
+                    !r.voided && region_of.get(&r.block_id) == Some(&region.id)
+                })
                 .collect();
             let total = region_reps.len() as u32;
             let clean = region_reps.iter().filter(|r| r.verdict == "clean").count() as u32;
@@ -226,10 +228,14 @@ mod tests {
             id: 0,
             block_id,
             ts: ts.into(),
-            bpm,
+            bpm: Some(bpm),
             variant: None,
             verdict: verdict.into(),
             note: None,
+            original_verdict: verdict.into(),
+            voided: false,
+            source: "user_click".into(),
+            active_adjustment_ids: vec![],
         }
     }
 
@@ -335,12 +341,19 @@ mod tests {
 
     #[test]
     fn best_tempo_reached_is_fastest_clean_rep() {
+        let mut voided_fast = rep(1, 200.0, "clean", "2026-07-12 10:03:00");
+        voided_fast.voided = true;
         let reps = vec![
             rep(1, 80.0, "clean", "2026-07-12 10:00:00"),
             rep(1, 96.0, "flawed", "2026-07-12 10:01:00"), // faster but not clean
             rep(1, 88.0, "clean", "2026-07-12 10:02:00"),
+            voided_fast,
         ];
-        assert_eq!(best_tempo_reached(&reps), Some(88.0));
+        assert_eq!(
+            best_tempo_reached(&reps),
+            Some(88.0),
+            "voided clean evidence cannot become the best tempo"
+        );
         // No clean reps → None.
         assert_eq!(
             best_tempo_reached(&[rep(1, 100.0, "failed", "2026-07-12 10:00:00")]),
@@ -359,12 +372,15 @@ mod tests {
             block_meta(20, Some(2), "notes"),
             block_meta(30, None, "tempo"),
         ];
+        let mut voided = rep(10, 160.0, "failed", "2026-07-12 13:00:00");
+        voided.voided = true;
         let reps = vec![
             rep(10, 80.0, "clean", "2026-07-12 10:00:00"),
             rep(10, 84.0, "clean", "2026-07-12 10:01:00"),
             rep(11, 88.0, "flawed", "2026-07-12 10:05:00"), // region 1, not clean
             rep(20, 60.0, "clean", "2026-07-12 11:00:00"),
             rep(30, 200.0, "clean", "2026-07-12 12:00:00"), // unassigned block, ignored
+            voided,
         ];
         let out = per_region_mastery(&regions, &blocks, &reps);
         assert_eq!(out.len(), 2);

@@ -23,6 +23,7 @@ export interface SettingsSnapshot {
   metronome_boost: boolean;
   metronome_boost_level: number;
   ladder_default_reps: number;
+  practice_default_clean_streak: number;
   ladder_bpm_step: number;
   calendar_capacity_minutes: number;
   vault_pieces_dir: string;
@@ -48,11 +49,13 @@ export function SettingsPanel({
   onResetLayout,
   onThemeSaved,
   onInterfaceScaleSaved,
+  onPracticeDefaultCleanStreakSaved,
   api = defaultApi,
 }: {
   onResetLayout: () => void;
   onThemeSaved?: (theme: "auto" | "dark" | "light") => void;
   onInterfaceScaleSaved?: (scale: number) => void;
+  onPracticeDefaultCleanStreakSaved?: (target: number) => void;
   api?: SettingsApi;
 }) {
   const receipts = useReceipts();
@@ -70,6 +73,12 @@ export function SettingsPanel({
         interface_scale: Number.isFinite(next.interface_scale) ? next.interface_scale : 90,
         knowledge_dir: next.knowledge_dir || DEFAULT_KNOWLEDGE_DIR,
         share_retrieved_knowledge: next.share_retrieved_knowledge ?? true,
+        practice_default_clean_streak:
+          Number.isInteger(next.practice_default_clean_streak)
+          && next.practice_default_clean_streak >= 1
+          && next.practice_default_clean_streak <= 100
+            ? next.practice_default_clean_streak
+            : 5,
       };
       setValue(normalized);
       setAliasDrafts(aliasStrings(normalized.verdict_aliases));
@@ -99,7 +108,7 @@ export function SettingsPanel({
         metronome_sound: value.metronome_sound,
         metronome_boost: value.metronome_boost,
         metronome_boost_level: value.metronome_boost_level,
-        ladder_default_reps: value.ladder_default_reps,
+        practice_default_clean_streak: value.practice_default_clean_streak,
         ladder_bpm_step: value.ladder_bpm_step,
         calendar_capacity_minutes: value.calendar_capacity_minutes,
         vault_pieces_dir: value.vault_pieces_dir,
@@ -113,6 +122,7 @@ export function SettingsPanel({
       setAliasDrafts(aliasStrings(next.verdict_aliases));
       onThemeSaved?.(next.theme);
       onInterfaceScaleSaved?.(next.interface_scale);
+      onPracticeDefaultCleanStreakSaved?.(next.practice_default_clean_streak);
       setMessage("Settings saved. Voice/provider changes apply after relaunch.");
       receipts.committed("Settings saved.");
     } catch (cause) {
@@ -159,7 +169,7 @@ export function SettingsPanel({
         <label><span>Click sound</span><select aria-label="Default click sound" value={value.metronome_sound} onChange={(event) => setValue({ ...value, metronome_sound: event.target.value })}>{["woodblock", "tick", "clave", "rim", "cowbell", "beep"].map((sound) => <option key={sound}>{sound}</option>)}</select></label>
         <label className="settings-check"><input type="checkbox" checked={value.metronome_boost} onChange={(event) => setValue({ ...value, metronome_boost: event.target.checked })} /><span>Boost Mac volume while clicking</span></label>
         <NumberField label="Boost level" value={value.metronome_boost_level} min={0} max={100} onChange={(metronome_boost_level) => setValue({ ...value, metronome_boost_level })} />
-        <NumberField label="Default reps" value={value.ladder_default_reps} min={1} max={240} onChange={(ladder_default_reps) => setValue({ ...value, ladder_default_reps })} />
+        <NumberField label="Default clean streak" value={value.practice_default_clean_streak} min={1} max={100} onChange={(practice_default_clean_streak) => setValue({ ...value, practice_default_clean_streak })} />
         <NumberField label="BPM step" value={value.ladder_bpm_step} min={1} max={24} onChange={(ladder_bpm_step) => setValue({ ...value, ladder_bpm_step })} />
         <NumberField label="Calendar capacity" value={value.calendar_capacity_minutes} min={1} max={1440} onChange={(calendar_capacity_minutes) => setValue({ ...value, calendar_capacity_minutes })} />
       </fieldset>

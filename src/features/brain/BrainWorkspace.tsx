@@ -289,7 +289,9 @@ function PracticeGrounding({ context }: { context: PracticeBrainContext | null }
       {context.region?.notes && <small>{context.region.notes}</small>}
       {context.active_block && (
         <small>
-          Active {context.active_block.focus} block · {context.active_block.bpm} BPM · {context.active_block.reps_done}/{context.active_block.planned_reps} reps
+          Active {context.active_block.focus} set · {(context.active_block.focus === "tempo" || context.active_block.use_metronome) && context.active_block.bpm != null ? `${context.active_block.bpm} BPM · ` : ""}{context.active_block.tries} tries · {context.active_block.mastery_verified
+            ? `mastery proof ${context.active_block.mastery_progress_streak ?? 0}/${context.active_block.required_clean_streak ?? "—"} · ${context.active_block.mastery_status === "satisfied" ? "mastery verified" : context.active_block.mastery_status === "not_applicable" ? "mastery not applicable" : "mastery not yet satisfied"}`
+            : "mastery unverified"}
         </small>
       )}
     </section>
@@ -328,7 +330,7 @@ function GroundingReceipt({
       <div>
         <span>{sourceCount} knowledge {sourceCount === 1 ? "book" : "books"} indexed</span>
         <span>{xmlLabel}</span>
-        <span>{grounding.recent_rep_count} recent {grounding.recent_rep_count === 1 ? "rep" : "reps"}</span>
+        <span>{grounding.recent_rep_count} recent {grounding.recent_rep_count === 1 ? "attempt" : "attempts"}</span>
       </div>
       <small>{sharingLabel}</small>
       {grounding.warnings.length > 0 && (

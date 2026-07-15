@@ -289,16 +289,51 @@ fn rep_check(
     rep.check(v, note)
 }
 
-/// Close the active block (`done` if the plan was met, else `abandoned`).
 #[tauri::command]
-fn rep_close(rep: State<'_, Arc<RepEngine>>) -> Option<RepSnapshot> {
+fn rep_undo(rep: State<'_, Arc<RepEngine>>) -> Result<CheckOutcome, String> {
+    rep.undo()
+}
+
+#[tauri::command]
+fn rep_correct(
+    attempt_id: Option<i64>,
+    verdict: String,
+    note: Option<String>,
+    replace_note: bool,
+    rep: State<'_, Arc<RepEngine>>,
+) -> Result<CheckOutcome, String> {
+    let verdict =
+        RepVerdict::parse(&verdict).ok_or_else(|| format!("unknown verdict '{verdict}'"))?;
+    rep.correct(attempt_id, verdict, note, replace_note)
+}
+
+#[tauri::command]
+fn rep_adjustment_reverse(
+    adjustment_id: i64,
+    rep: State<'_, Arc<RepEngine>>,
+) -> Result<CheckOutcome, String> {
+    rep.reverse_adjustment(adjustment_id)
+}
+
+#[tauri::command]
+fn rep_restart(
+    required_clean_streak: Option<u32>,
+    rep: State<'_, Arc<RepEngine>>,
+) -> Result<RepSnapshot, String> {
+    rep.restart(required_clean_streak)
+}
+
+/// Close the active set as contract-mastered or closed-unresolved. Persistence
+/// failure rejects the command and leaves the active set intact.
+#[tauri::command]
+fn rep_close(rep: State<'_, Arc<RepEngine>>) -> Result<Option<RepSnapshot>, String> {
     rep.close()
 }
 
 /// The current active-block snapshot, or `null` when no block is open.
 #[tauri::command]
-fn rep_state(rep: State<'_, Arc<RepEngine>>) -> Option<RepSnapshot> {
-    rep.snapshot()
+fn rep_state(rep: State<'_, Arc<RepEngine>>) -> Result<Option<RepSnapshot>, String> {
+    rep.state()
 }
 
 /// Every rep block for a piece (newest first) with its per-verdict rep tallies.
@@ -581,7 +616,7 @@ fn rep_update(
     Ok(())
 }
 
-/// Delete a rep. Resyncs the owning block's active snapshot afterward.
+/// Compatibility name for append-only voiding; the source rep remains intact.
 #[tauri::command]
 fn rep_delete(
     rep_id: i64,
@@ -956,6 +991,10 @@ pub fn run() {
             piece_select,
             rep_open,
             rep_check,
+            rep_undo,
+            rep_correct,
+            rep_adjustment_reverse,
+            rep_restart,
             rep_close,
             rep_state,
             rep_blocks_for_piece,

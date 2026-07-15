@@ -59,16 +59,38 @@ export interface BlockHistory {
   region_id: number | null;
   focus: string;
   use_metronome: boolean;
+  attempts_recorded?: number;
+  tries?: number;
+  voided_attempts?: number;
+  current_clean_streak?: number;
+  mastery_progress_streak?: number;
+  best_clean_streak?: number;
+  reset_count?: number;
+  accuracy?: number | null;
+  required_clean_streak?: number | null;
+  effective_required_clean_streak?: number | null;
+  recovery_remaining?: number;
+  mastery_status?: "satisfied" | "not_satisfied" | "not_applicable" | "unverified_legacy";
+  mastery_verified?: boolean;
+  set_state?: string;
+  /** Optional review prompt; reaching it never proves mastery. */
+  attempt_ceiling?: number | null;
+  /** Captured origin of the practice contract, when supplied by v2. */
+  contract_source?: string;
 }
 
 export interface Rep {
   id: number;
   block_id: number;
   ts: string;
-  bpm: number;
+  bpm: number | null;
   variant: string | null;
   verdict: "clean" | "flawed" | "failed";
   note: string | null;
+  original_verdict?: "clean" | "flawed" | "failed";
+  voided?: boolean;
+  source?: string;
+  active_adjustment_ids?: number[];
 }
 
 export interface Region {

@@ -2,6 +2,42 @@
 
 ## Decisions
 
+- **P7 / v2.0.0 authoritative practice-truth cutover (2026-07-15; exact-tree source, not
+  installed):**
+  - **One Rust projection now owns practice meaning.** `RepEngine` coordinates schema-v9
+    `set_contract`, immutable `rep`, provenance, append-only adjustments, canonical/session events,
+    and the typed snapshot in one store transaction. React, voice verdicts, history, metrics,
+    planner, export, and Brain context consume that projection; none may infer mastery from
+    `planned_reps` or raw row counts.
+  - **Schema 9 adds only the one-live-set invariant.** The v8 sidecars remain the compatibility
+    model; v9's partial unique index covers native `active|paused` states and deliberately excludes
+    legacy states. Restore of a malformed multiple-live database returns a durable recovery error
+    from both `rep_state` and `rep_open`; it must never masquerade as an empty engine. The installed
+    app/live DB remain v1.3.0/schema 7.
+  - **Practice contracts and corrections are captured facts.** New sets default to five
+    consecutive cleans through the bounded Settings value; attempt ceilings are review prompts,
+    not mastery. Undo is a void adjustment, correction distinguishes omitted note from explicit
+    clear, reversal restores prior effective state, and restart preserves/links the old set. Never
+    update/delete source attempt rows or historical set metadata. Correcting an explicitly
+    restarted/abandoned/closed-unresolved set preserves that exact terminal lineage.
+  - **Tempo condition is explicit.** Tempo focus alone may ladder/master. Metronome-on non-tempo
+    work keeps factual positive BPM but never earns tempo progress; metronome-free non-tempo writes
+    use the physical v1 `0.0` compatibility sentinel and immediately project it as `None`. Only that
+    exact case is nullable—negative, missing, nonfinite, tempo-zero, and metronome-on-zero evidence
+    is a visible projection error. Corrections/reversals replay tempo from effective attempts.
+  - **Frontend async ownership is part of data truth.** Returned command snapshots are only an
+    eventless fallback; revision guards prevent late open/check/close replies from resurrecting or
+    overwriting newer voice state. HUD verdicts serialize, manual metronome commands hold a shared
+    intent lease until their native event, initial metronome readiness is awaited only after the
+    ledger commit, rejected notes are restored, and stale/partial history never mixes pieces,
+    hides attempts, or exposes database IDs.
+  - **Exact checkpoint gate:** frontend 39 files / 283 tests plus production build; Rust library
+    406 passed / 10 ignored, RepEngine 47, metrics 11, planner 6, export 4, `cargo check --tests`,
+    strict `clippy -D warnings`, and diff checks. Fresh independent Rust and frontend reviewers
+    found no remaining P0–P2 issue in this cutover. Remaining practice-loop work is durable outer
+    receipts/idempotency, pause/focus/safety/recovery/retention, and complete deterministic voice /
+    narrated replay; Score Atlas and the visual transformation still follow.
+
 - **P7 / v2.0.0 verified foundation checkpoint (2026-07-15; exact-tree code, not installed):**
   - **The release boundary has not moved.** `/Applications/CodaKiller.app` is still v1.3.0 and
     Christian's live database is still schema 7. No v2 process opened or migrated the live path.
@@ -32,6 +68,12 @@
     nonpositive Region range (Region 24, 0–0), and one reversed set range (set 45, 452–449).
     Fresh review hardened signed legacy ordering, deterministic burst attempt-ID arrays, actual
     nullable provenance facts, and negative/nonpositive input detection.
+  - **Legacy non-tempo attempts use `0.0` as an exact v1 sentinel.** A read-only query of the
+    verified backup found 127/481 reps with `bpm=0.0`; every one belongs to one of seven
+    `focus='notes'`, `use_metronome=0`, NULL-start-tempo blocks (IDs 30, 33, 44, 45, 46, 49, 50).
+    Do not rewrite those physical rows and do not feed `Some(0.0)` into the strict v2 ledger.
+    The v2 repository projection must map only migration-legacy non-tempo sentinel values to
+    `None`; every new tempo attempt still rejects nonfinite/nonpositive BPM.
   - **Practice truth exists as pure code only.** `protocol` evaluates consecutive-clean,
     total-clean, timed-exposure, exploratory, and legacy contracts; `ledger` folds original
     attempts plus append-only void/restore/correction/reversal records into tries, verdict totals,
@@ -63,6 +105,10 @@
     ignored plus knowledge 9, narrated firewall 2, STT 9, TTS gate 4, and 2 ignored live-TTS tests;
     production build and strict `clippy -D warnings` passed. The real four-book corpus and Scherzo /
     Griffes MusicXML ignored gates passed explicitly. This proves the foundation, not V2.4–V2.12.
+  - **Whole-crate `cargo fmt --check` is not a usable current gate.** The pre-existing Rust tree
+    contains thousands of rustfmt differences outside P7-owned lines even though strict clippy and
+    all tests pass. Do not bulk-format them inside a semantic feature commit; keep new/touched code
+    locally formatted and schedule any full-tree format as its own reviewable mechanical commit.
 
 - **P7 / v2.0.0 Practice OS transformation boundary (2026-07-15; implementation in progress,
   not shipped):**

@@ -134,7 +134,8 @@ pub(super) fn build(
         .into_iter()
         .rev()
         .filter(|rep| {
-            !has_selected_rep_scope || relevant_block_ids.contains(&rep.block_id)
+            !rep.voided
+                && (!has_selected_rep_scope || relevant_block_ids.contains(&rep.block_id))
         })
         .take(MAX_RECENT_REPS)
         .map(|rep| {
@@ -146,7 +147,10 @@ pub(super) fn build(
                 // These are explicitly human-entered historical facts. They
                 // are not a model verdict about a new attempt.
                 "human_verdict": cap(&rep.verdict),
+                "original_human_verdict": cap(&rep.original_verdict),
                 "human_note": rep.note.as_deref().map(cap),
+                "source": cap(&rep.source),
+                "correction_count": rep.active_adjustment_ids.len(),
             })
         })
         .collect::<Vec<_>>();
@@ -200,9 +204,22 @@ pub(super) fn build(
             "focus": cap(&block.focus),
             "bpm": block.bpm,
             "target_bpm": block.target_bpm,
-            "reps_done": block.reps_done,
-            "planned_reps": block.planned_reps,
-            "status": cap(&block.status),
+            "attempts_recorded": block.attempts_recorded,
+            "effective_tries": block.tries,
+            "voided_attempts": block.voided_attempts,
+            "current_condition_streak": block.current_clean_streak,
+            "mastery_progress_streak": block.mastery_progress_streak,
+            "best_clean_streak": block.best_clean_streak,
+            "reset_count": block.reset_count,
+            "accuracy": block.accuracy,
+            "required_clean_streak": block.effective_required_clean_streak,
+            "recovery_remaining": block.recovery_remaining,
+            "review_boundary_reached": block.review_boundary_reached,
+            "attempt_ceiling": block.attempt_ceiling,
+            "contract_source": cap(&block.contract_source),
+            "mastery_status": cap(&block.mastery_status),
+            "mastery_verified": block.mastery_verified,
+            "set_state": cap(&block.set_state),
             "human_verdict_counts": block.verdicts,
         })).collect::<Vec<_>>(),
         "recent_reps_for_selected_context": recent_reps,
@@ -212,8 +229,22 @@ pub(super) fn build(
             "label": snapshot.label.as_deref().map(cap),
             "bpm": snapshot.bpm,
             "target_bpm": snapshot.target_bpm,
-            "planned_reps": snapshot.planned_reps,
-            "reps_done": snapshot.reps_done,
+            "attempts_recorded": snapshot.attempts_recorded,
+            "effective_tries": snapshot.tries,
+            "voided_attempts": snapshot.voided_attempts,
+            "current_condition_streak": snapshot.current_clean_streak,
+            "mastery_progress_streak": snapshot.mastery_progress_streak,
+            "best_clean_streak": snapshot.best_clean_streak,
+            "reset_count": snapshot.reset_count,
+            "accuracy": snapshot.accuracy,
+            "required_clean_streak": snapshot.effective_required_clean_streak,
+            "recovery_remaining": snapshot.recovery_remaining,
+            "review_boundary_reached": snapshot.review_boundary_reached,
+            "attempt_ceiling": snapshot.attempt_ceiling,
+            "contract_source": cap(&snapshot.contract_source),
+            "mastery_status": cap(&snapshot.mastery_status),
+            "mastery_verified": snapshot.mastery_verified,
+            "set_state": cap(&snapshot.set_state),
             "focus": cap(&snapshot.focus),
             "human_verdict_counts": snapshot.verdicts,
             "last_human_report": snapshot.last.as_ref().map(|last| json!({
@@ -324,7 +355,7 @@ fn cap(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::brain::corpus::{CorpusSearch, CorpusStatus};
-    use crate::store::model::{IncrementRule, RegionCreate, ScanPiece};
+    use crate::store::model::{IncrementRule, RegionCreate, RepPatch, ScanPiece};
     use std::sync::Arc;
 
     fn empty_corpus() -> CorpusSearch {
@@ -455,5 +486,79 @@ mod tests {
             0
         );
         assert_eq!(grounding.recent_rep_count, 0);
+    }
+
+    #[test]
+    fn diagnostic_context_uses_effective_attempts_and_excludes_voided_history() {
+        let store = Arc::new(Store::open(":memory:").unwrap());
+        let piece_id = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/vault/Effective Piece".into(),
+                title: "Effective Piece".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+        let block_id = store
+            .insert_rep_block(
+                piece_id,
+                1,
+                4,
+                None,
+                None,
+                None,
+                &IncrementRule {
+                    clean_needed: 3,
+                    bpm_step: 4.0,
+                },
+                5,
+                &[],
+                "notes",
+                false,
+            )
+            .unwrap();
+        let voided = store
+            .insert_rep(block_id, 0.0, None, "failed", Some("misheard"))
+            .unwrap();
+        store.rep_delete(voided).unwrap();
+        let corrected = store
+            .insert_rep(block_id, 0.0, None, "failed", Some("landing"))
+            .unwrap();
+        store
+            .rep_update(
+                corrected,
+                RepPatch {
+                    verdict: Some("clean".into()),
+                    note: None,
+                },
+            )
+            .unwrap();
+
+        let sessions = SessionService::new(store.clone());
+        let (context, grounding) = build(
+            &store,
+            &sessions,
+            Some(piece_id),
+            None,
+            None,
+            None,
+            &[],
+            &empty_corpus(),
+            false,
+            &[],
+            None,
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(context.as_json()).unwrap();
+        let attempts = value["recent_reps_for_selected_context"]
+            .as_array()
+            .unwrap();
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0]["human_verdict"], "clean");
+        assert_eq!(attempts[0]["original_human_verdict"], "failed");
+        assert_eq!(attempts[0]["correction_count"], 1);
+        assert_eq!(attempts[0]["bpm"], serde_json::Value::Null);
+        assert_eq!(grounding.recent_rep_count, 1);
     }
 }

@@ -45,6 +45,24 @@ voice-firewall fixture. It does **not** complete backend receipt IDs/undo, sidec
 RepEngine/store/IPC integration, the full narrated replay, or any user-facing v2 release behavior.
 The dependency spine therefore remains at V2.3 integration.
 
+## 2026-07-15 authoritative practice-truth checkpoint
+
+**Exact-tree gate passed; release remains open.** Schema 9 plus the PracticeContract RepEngine /
+store/IPC/HUD/history cutover, append-only undo/correct/reverse/restart, relaunch recovery, exact
+downstream projections, and async/metronome ownership guards are verified. Frontend: 39 files /
+283 tests and build. Rust: 406 library passed / 10 ignored; focused RepEngine 47, metrics 11,
+planner 6, export 4; check and strict clippy. Independent Rust and React reviewers found no
+remaining P0–P2 defect in the scoped cutover.
+
+A disposable preserved-backup copy migrated 7→9 with exact source row counts and SHA3 hashes,
+integrity `ok`, FK 0, idempotent reopen, 27/48/481/628 expected sidecars, 792 anomalies, and all 127
+physical non-tempo sentinels unchanged. Christian's live schema-7 database and installed v1.3.0 app
+were not opened or changed.
+
+The dependency spine now sits in the remaining half of V2.4: durable backend receipt/idempotency,
+pause/focus/safety/recovery/retention, and full deterministic voice/replay. Score Atlas and visual
+work still wait behind that gate.
+
 ## V2.0 — Evidence, backup, and contracts
 
 **State: complete.**
@@ -75,9 +93,10 @@ semantics yet.
 **Work:**
 
 - [ ] Add the complete cross-process committed/rejected/confirmation-required receipt model with
-  backend operation IDs, entity refs, durable detail, and real undo descriptors. The frontend now
-  has process-local committed/undone/error receipts and normalized error codes; the shared Rust
-  model and operation-backed undo remain open.
+  backend operation IDs, entity refs, durable detail, and undo descriptors. The frontend now has
+  process-local committed/undone/error receipts and normalized error codes; practice attempts have
+  real append-only undo, but the shared Rust outer receipt model and generic operation-backed undo
+  remain open.
 - [x] Add one typed `invoke` wrapper that normalizes thrown IPC failures and legacy success values.
 - [x] Add application-level polite/assertive live regions and a compact dismissible receipt stack.
 - [x] Make rep open, session end, and settings save preserve prior state and surface failures;
@@ -101,7 +120,8 @@ identity and command-backed undo are intentionally deferred.
 
 ## V2.2 — Schema-v8 sidecars, provenance, and anomalies
 
-**State: migration/backfill core verified; repository and runtime wiring remain open.**
+**State: migration/backfill plus practice repositories/runtime wiring verified; later domain
+repositories remain open.**
 
 **Files/modules:** `src-tauri/src/store/migrations.rs`, store model/repositories/tests; add domain
 repositories rather than expanding `store/mod.rs` business logic.
@@ -123,7 +143,9 @@ repositories rather than expanding `store/mod.rs` business logic.
 attempt provenance, and review-only anomaly projection are implemented and adversarially tested.
 Fresh review added cross-piece/self-link rejection, calibration uniqueness, signed legacy sorting,
 nonpositive/negative input facts, deterministic burst IDs, and exact incomplete-provenance facts.
-Sidecar repositories/IPC and new-write integration are not implemented yet.
+PracticeContract/attempt/adjustment repositories, IPC, and new-write integration are now
+implemented through RepEngine. Score Atlas, retention, ActionDraft, and Brain-thread repositories
+remain later tasks.
 
 **Tests/evidence:** v7→v8 fixture preserving every table/ID/value; injected DDL/backfill failures
 roll back version and tables; second open is idempotent; v8 fresh schema constraints/indexes/FKs;
@@ -135,7 +157,7 @@ anomaly fixtures match facts; `pdf_anchor` round-trips byte-for-byte.
 
 ## V2.3 — PracticeContract and effective Practice Ledger
 
-**State: pure semantic core verified; RepEngine/store transaction integration is next.**
+**State: authoritative RepEngine/store/IPC/React integration verified in source.**
 
 **Files/modules:** add `src-tauri/src/protocol/` and `src-tauri/src/ledger/`; refactor
 `src-tauri/src/rep/` into coordinator; expose derived fields in `store/model.rs` and thin commands.
@@ -162,15 +184,25 @@ transactional outcome; no in-memory advance on rollback.
 **Review gate:** fresh practice-semantics reviewer checks implementation against all four books and
 the acceptance matrix P1–P2.
 
-**Checkpoint evidence:** pure Rust modules now evaluate consecutive-clean, total-clean,
+**Foundation evidence:** pure Rust modules evaluate consecutive-clean, total-clean,
 timed-exposure, exploratory, and legacy contracts and fold immutable attempts plus append-only
 void/restore/correction/reversal records. Tests prove deterministic SQLite-ID order,
 `C,C,F → current 0 / best 2`, fifth-following-clean mastery, 10 failures never mastering, 50%
 accuracy staying 50%, adaptive recovery only after error, and legacy completion remaining
-unverified. Ladder profiles, set-state transitions, SQLite repositories, RepEngine coordination,
-atomic event/snapshot writes, Settings defaults, IPC, and the Rep HUD are still open.
+unverified.
+
+**Integrated checkpoint evidence:** schema 9 enforces one active/paused native set; RepEngine
+restores durable state and owns open/check/close/undo/correct/reverse/restart; every set/attempt /
+provenance/event/snapshot write commits transactionally; Settings owns the 3/5/7/10/custom default;
+and React renders only the typed Rust projection. Exact tests cover 0%/50% non-mastery, target
+overshoot, resets/recovery debt, nullable BPM, malformed recovery, rollback/relaunch, terminal
+lineage, review boundaries, and void filtering. Tempo regression as an explicit accepted recovery
+action remains V2.4.
 
 ## V2.4 — Corrections, restart, focus, safety, recovery, and retention
+
+**State: append-only correction/reverse/restart and their HUD/history are verified; focus/pause /
+safety/recovery/retention remain open.**
 
 **Files/modules:** ledger adjustment repository, protocol transitions, rep/voice thin adapters,
 retention repository/commands; frontend Rep HUD/Set Desk tests.
@@ -188,6 +220,13 @@ retention repository/commands; frontend Rep HUD/Set Desk tests.
 - Cold retention checks capture result before warm-up: confirm/lower/reopen; snooze is neutral and
   preserves original due evidence.
 
+**Delivered checkpoint:** original attempts and historical set rows are immutable; undo appends
+void, correction preserves omitted notes versus explicit clear, reversal restores the preceding
+effective state, and restart atomically closes/links a fresh contract. Relauch, rollback, paused and
+terminal lineage, tempo replay, metronome ownership, history provenance, and accessible correction
+controls pass. Voice phrases for these operations and the remaining focus/safety/recovery/retention
+bullets are not yet complete.
+
 **Tests/evidence:** adjustment chains/relaunch/rollback; restart lineage; active timer excludes
 pause; safety stop; clock-controlled next-day checks; no shame/failure semantics on snooze or pain.
 
@@ -198,7 +237,8 @@ transaction.
 
 ## V2.5 — Real-backup migration rehearsal and anomaly report
 
-**State: first foundation rehearsal passed; rerun on the final release tree remains mandatory.**
+**State: foundation and post-RepEngine schema-9 rehearsals passed; rerun on the final release tree
+remains mandatory.**
 
 **Files/modules:** add a read-only/rehearsal QA harness under `src-tauri/tests/` and a record under
 `docs/qa/`; never commit Christian's DB.
@@ -221,8 +261,10 @@ blocks / 481 reps / 8 sessions / 628 session events / 670 events / 21 Goals / 11
 created. Exactly 792 anomaly rows were projected: 670 incomplete legacy event provenance, 43
 same-second bursts, 30 duplicate candidates, 23 abandoned sets, 13 empty sets, 11 overruns, one
 Region 24 range at 0–0, and one set 45 range at 452–449. Integrity/FKs and second-open idempotency
-passed. The live database stayed untouched. This gate must run again after RepEngine/repository
-integration and immediately before packaging.
+passed. A post-integration independent run then migrated v7→v9, preserved all nine source-table
+counts plus SHA3 row hashes, retained all 127 physical non-tempo sentinels, created the expected
+sidecars/index, directly rejected a second live set, and passed integrity/FKs/idempotence. The live
+database stayed untouched. This gate must run again immediately before packaging.
 
 ## V2.6 — Score Atlas and selection-first targets
 
@@ -377,8 +419,8 @@ release docs state that voice-over-piano proof remains pending.
 
 ### Next action
 
-Integrate **V2.3/V2.4** through one authoritative transactional path: sidecar repositories →
-RepEngine coordinator → store/IPC commands → typed snapshot → Rep HUD, including real
-undo/correct/restart and contract-based completion. Re-run focused semantic/rollback tests and the
-real-backup rehearsal on a new disposable copy. Do not begin the visual shell or Universe until
-the integrated practice-truth gate is green.
+Continue **V2.4** through the existing authoritative path: durable command/receipt identity →
+pause/resume and active-time checkpoints → safety stop → accepted recovery actions → cold
+retention → exact deterministic voice commands/replay. Re-run semantic/rollback and real-copy gates
+after the additive migration. Do not begin the visual shell or Universe before this practice-loop
+gate is green.

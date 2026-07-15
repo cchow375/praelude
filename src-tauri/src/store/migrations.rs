@@ -8,7 +8,7 @@
 use rusqlite::Connection;
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 9;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -727,6 +727,15 @@ CREATE INDEX event_entity_idx ON event(entity_type,entity_id,id);
 CREATE INDEX event_command_idx ON event(command_id) WHERE command_id IS NOT NULL;
 ";
 
+/// Schema v9 — structurally enforce RepEngine's single-live-set invariant.
+/// This migration is deliberately additive: the approved v2 boundary forbids
+/// rebuilding any v1 evidence table. Legacy rows use `legacy_open` and remain
+/// untouched; only native v2 `active`/`paused` states participate.
+pub(crate) const SCHEMA_V9: &str = "\
+CREATE UNIQUE INDEX set_contract_one_live_v2_idx
+  ON set_contract((1)) WHERE set_state IN ('active','paused');
+";
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
@@ -886,6 +895,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             Ok(())
         })();
         if let Err(error) = v8 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
+    if version < 9 {
+        let v9 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            conn.execute_batch(SCHEMA_V9)?;
+            conn.execute_batch("PRAGMA user_version = 9;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v9 {
             let _ = conn.execute_batch("ROLLBACK;");
             return Err(error);
         }
@@ -2264,7 +2287,7 @@ mod v3_tests {
         c.execute_batch(
             "CREATE TABLE sentinel(id INTEGER PRIMARY KEY,value TEXT);
              INSERT INTO sentinel(id,value) VALUES (1,'preserve me');
-             PRAGMA user_version = 9;",
+             PRAGMA user_version = 10;",
         )
         .unwrap();
 
@@ -2273,7 +2296,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            9
+            10
         );
         assert_eq!(
             c.query_row("SELECT value FROM sentinel WHERE id=1", [], |row| {

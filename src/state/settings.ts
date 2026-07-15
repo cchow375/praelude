@@ -18,11 +18,13 @@ import { useReceipts } from "../features/receipts/ReceiptCenter";
 export interface Settings {
   theme: ThemePref;
   interface_scale: number;
+  practice_default_clean_streak: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "auto",
   interface_scale: 90,
+  practice_default_clean_streak: 5,
 };
 
 const SETTINGS_SNAPSHOT = defineCommand<undefined, Partial<Settings>>(
@@ -51,6 +53,13 @@ function normalizedSnapshot(value: Partial<Settings> | null | undefined): Settin
     interface_scale: Number.isFinite(scale) && scale >= 75 && scale <= 125
       ? scale
       : (memoryStore.get("interface_scale") as number | undefined) ?? DEFAULT_SETTINGS.interface_scale,
+    practice_default_clean_streak:
+      Number.isInteger(value?.practice_default_clean_streak)
+      && Number(value?.practice_default_clean_streak) >= 1
+      && Number(value?.practice_default_clean_streak) <= 100
+        ? Number(value?.practice_default_clean_streak)
+        : (memoryStore.get("practice_default_clean_streak") as number | undefined)
+          ?? DEFAULT_SETTINGS.practice_default_clean_streak,
   };
 }
 
@@ -121,6 +130,10 @@ export function useSettings(): UseSettings {
         committedRef.current = snapshot;
         memoryStore.set("theme", snapshot.theme);
         memoryStore.set("interface_scale", snapshot.interface_scale);
+        memoryStore.set(
+          "practice_default_clean_streak",
+          snapshot.practice_default_clean_streak,
+        );
         setSettings(snapshot);
         setLoading(false);
       }
@@ -154,7 +167,7 @@ export function useSettings(): UseSettings {
             && mounted.current
           ) {
             receipts.committed(
-              `${key === "theme" ? "Theme" : "Interface scale"} saved.`,
+              `${key === "theme" ? "Theme" : key === "interface_scale" ? "Interface scale" : "Default clean streak"} saved.`,
             );
           }
         })

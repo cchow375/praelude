@@ -119,7 +119,7 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
         <div>
           <p className="calendar-eyebrow">Calendar</p>
           <h1>Make the week explicit.</h1>
-          <p>Plan real work. Completing a card never invents practice time or reps.</p>
+          <p>Plan real work. Completing a card never invents practice time, attempts, or mastery.</p>
         </div>
         <div className="calendar-capacity">
           <label htmlFor="calendar-capacity">Daily capacity</label>

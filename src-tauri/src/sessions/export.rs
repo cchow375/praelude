@@ -151,12 +151,16 @@ fn render_section(
             continue;
         };
         let reps = store.reps_for_block(*block_id).unwrap_or_default();
-        reps_total += reps.len() as u32;
+        reps_total += reps.iter().filter(|rep| !rep.voided).count() as u32;
         // Top tempo reached is the highest bpm any rep landed at (the ladder only
         // climbs, so this is where the block topped out).
         let tempo = if b.focus == "tempo" {
             b.start_bpm.map(|start| {
-                let top_bpm = reps.iter().map(|r| r.bpm).fold(start, f64::max);
+                let top_bpm = reps
+                    .iter()
+                    .filter(|rep| !rep.voided)
+                    .filter_map(|rep| rep.bpm)
+                    .fold(start, f64::max);
                 if top_bpm > start {
                     format!("{}→{}", fmt(start), fmt(top_bpm))
                 } else {
@@ -178,7 +182,7 @@ fn render_section(
             b.verdicts.failed,
             label
         ));
-        for r in &reps {
+        for r in reps.iter().filter(|rep| !rep.voided) {
             if let Some(note) = &r.note {
                 if !note.trim().is_empty() {
                     notes.push((r.verdict.clone(), note.clone()));
@@ -254,7 +258,7 @@ mod tests {
     // piece/block. Block DATA (label, measures, tempo, reps) is read canonically
     // by the exporter, so editing the block after seeding is reflected on export.
 
-    use crate::store::model::{BlockPatch, IncrementRule};
+    use crate::store::model::IncrementRule;
     use crate::store::EventKind;
 
     fn seed_piece_with_folder(store: &Store, title: &str, folder: &str) -> i64 {
@@ -303,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn export_reflects_post_log_block_edit_after_relaunch() {
+    fn export_preserves_immutable_block_identity_after_relaunch() {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("codakiller.db");
         let pieces = dir.path().join("pieces");
@@ -317,21 +321,15 @@ mod tests {
             session_id = store.open_session().unwrap();
             let block_id = seed_block(&store, pid, 1, 8); // label "mm.1-8"
             seed_rep(&store, block_id, "clean");
-            // edit AFTER logging
-            store
-                .block_update(
-                    block_id,
-                    BlockPatch { label: Some(Some("legato section".into())), ..Default::default() },
-                )
-                .unwrap();
+            // Historical labels are immutable; export must retain this exact
+            // captured identity across a process relaunch.
         } // store dropped == "relaunch"
 
         // relaunch: fresh Store on same db, export
         let store2 = Store::open(&db).unwrap();
         let res = write_session_md(&store2, session_id, &pieces);
         let md = std::fs::read_to_string(pieces.join("etude").join("(C) codakiller-sessions.md")).unwrap();
-        assert!(md.contains("legato section"), "export must reflect the post-log edit; got:\n{md}");
-        assert!(!md.contains("mm.1-8"), "stale label must not appear; got:\n{md}");
+        assert!(md.contains("mm.1-8"), "captured label must survive relaunch; got:\n{md}");
         assert!(res.reps >= 1);
     }
 
@@ -360,6 +358,7 @@ mod tests {
             start_bpm: 80.0,
             target_bpm: Some(120.0),
             planned_reps: Some(30),
+            required_clean_streak: None,
             increment: None,
             variants: vec![],
             focus: "tempo".into(),
@@ -370,7 +369,7 @@ mod tests {
             rep.check(crate::rep::RepVerdict::Clean, None).unwrap();
         }
         rep.check(crate::rep::RepVerdict::Failed, Some("LH jump".into())).unwrap();
-        rep.close();
+        rep.close().unwrap();
 
         // Piece B: a second block.
         rep.open(RepOpenArgs {
@@ -382,6 +381,7 @@ mod tests {
             start_bpm: 60.0,
             target_bpm: None,
             planned_reps: Some(5),
+            required_clean_streak: None,
             increment: None,
             variants: vec![],
             focus: "tempo".into(),
@@ -389,7 +389,7 @@ mod tests {
         })
         .unwrap();
         rep.check(crate::rep::RepVerdict::Clean, None).unwrap();
-        rep.close();
+        rep.close().unwrap();
 
         let sid = sessions.current_id().unwrap();
         let result = write_session_md(&store, sid, dir.path());
@@ -416,6 +416,7 @@ mod tests {
             start_bpm: 70.0,
             target_bpm: None,
             planned_reps: Some(2),
+            required_clean_streak: None,
             increment: None,
             variants: vec![],
             focus: "tempo".into(),
@@ -423,7 +424,7 @@ mod tests {
         })
         .unwrap();
         rep.check(crate::rep::RepVerdict::Clean, None).unwrap();
-        rep.close();
+        rep.close().unwrap();
         let sid2 = sessions.current_id().unwrap();
         write_session_md(&store, sid2, dir.path());
 
@@ -433,6 +434,48 @@ mod tests {
             a_md2.matches("## ").count(),
             2,
             "two dated sections after two exports"
+        );
+    }
+
+    #[test]
+    fn rendered_export_excludes_voided_counts_tempo_and_notes() {
+        let store = Store::open(":memory:").unwrap();
+        let pid = seed_piece_with_folder(&store, "Etude", "/v/Etude");
+        store.open_session().unwrap();
+        let block_id = seed_block(&store, pid, 1, 8);
+        store.insert_rep(block_id, 60.0, None, "clean", None).unwrap();
+        let voided = store
+            .insert_rep(
+                block_id,
+                120.0,
+                None,
+                "clean",
+                Some("voided note must not export"),
+            )
+            .unwrap();
+        store.rep_delete(voided).unwrap();
+        let history = store
+            .block_history(pid)
+            .unwrap()
+            .into_iter()
+            .map(|block| (block.block_id, block))
+            .collect::<HashMap<_, _>>();
+
+        let (section, reps) = render_section(
+            &store,
+            "Etude",
+            &[block_id],
+            &history,
+            "2026-07-15 10:00:00",
+            "2026-07-15 10:05:00",
+            0,
+        );
+        assert_eq!(reps, 1);
+        assert!(section.contains("| 1–8 | 60 | 1 (1/0/0) |"), "{section}");
+        assert!(!section.contains("120"), "voided tempo leaked: {section}");
+        assert!(
+            !section.contains("voided note must not export"),
+            "voided note leaked: {section}"
         );
     }
 

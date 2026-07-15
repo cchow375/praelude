@@ -16,6 +16,7 @@ import "./Pieces.css";
 interface PiecesPanelProps {
   onOpenBlock: (args: RepOpenArgs) => Promise<void>;
   activeRep?: RepSnapshot | null;
+  defaultCleanStreak?: number;
   /** A Home-star selection opens this piece directly, bypassing the library. */
   initialPieceId?: number | null;
   onLeavePiece?: () => void;
@@ -31,6 +32,7 @@ function messageOf(e: unknown): string {
 export function PiecesPanel({
   onOpenBlock,
   activeRep = null,
+  defaultCleanStreak = 5,
   initialPieceId = null,
   onLeavePiece,
   onPracticeContextChange,
@@ -119,6 +121,7 @@ export function PiecesPanel({
           }}
           onOpenBlock={onOpenBlock}
           activeRep={activeRep}
+          defaultCleanStreak={defaultCleanStreak}
           onUpdated={onPieceUpdated}
           onPracticeContextChange={onPracticeContextChange}
         />
@@ -145,7 +148,7 @@ export function PiecesPanel({
       <div className="foundation-release" aria-label="Installed Foundation release">
         <span className="foundation-release-kicker">Foundation installed</span>
         <span className="foundation-release-copy">
-          Open a piece for editable Regions, goals, rep history, and floating practice panels.
+          Open a piece for editable Regions, goals, attempt history, and the active practice set.
         </span>
       </div>
 

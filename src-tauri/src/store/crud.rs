@@ -5,9 +5,11 @@
 
 use rusqlite::Connection;
 
+use crate::ledger::MutationSource;
+use crate::rep::RepVerdict;
 use super::model::{
     json_to_sql, BlockPatch, Goal, GoalCreate, GoalPatch, PieceFieldPatch, Region, RegionCreate,
-    RegionPatch, RepPatch, VerdictCounts,
+    RegionPatch, RepPatch,
 };
 use super::{EventKind, Store};
 // ── Shared: append_event over an already-locked connection ─────────────────
@@ -796,103 +798,30 @@ mod region {
 // ── T4: Block update/delete ─────────────────────────────────────────────────
 
 impl Store {
-    /// Apply a partial patch to a rep block; appends a `block_edit` event and
-    /// returns the refreshed [`super::model::BlockHistory`] row. Does NOT
-    /// touch the rep engine's in-memory active snapshot — the command layer
-    /// calls `RepEngine::resync_active_if` after this succeeds.
+    /// Historical set rows are immutable compatibility evidence. Range, tempo,
+    /// contract, and target repairs must land as reviewed additive sidecars or a
+    /// linked restart; this legacy endpoint therefore rejects every physical
+    /// update, including migration-era rows.
     pub fn block_update(
         &self,
         block_id: i64,
-        patch: BlockPatch,
+        _patch: BlockPatch,
     ) -> rusqlite::Result<super::model::BlockHistory> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let mut sets: Vec<String> = Vec::new();
-        let mut vals: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-        if let Some(v) = patch.label {
-            sets.push(format!("label = ?{}", vals.len() + 2));
-            vals.push(Box::new(v));
-        }
-        if let Some(v) = patch.m_start {
-            sets.push(format!("m_start = ?{}", vals.len() + 2));
-            vals.push(Box::new(v));
-        }
-        if let Some(v) = patch.m_end {
-            sets.push(format!("m_end = ?{}", vals.len() + 2));
-            vals.push(Box::new(v));
-        }
-        if let Some(v) = patch.start_bpm {
-            sets.push(format!("start_bpm = ?{}", vals.len() + 2));
-            vals.push(Box::new(v));
-        }
-        if let Some(v) = patch.target_bpm {
-            sets.push(format!("target_bpm = ?{}", vals.len() + 2));
-            vals.push(Box::new(v));
-        }
-        if let Some(v) = patch.planned_reps {
-            sets.push(format!("planned_reps = ?{}", vals.len() + 2));
-            vals.push(Box::new(v));
-        }
-        if let Some(v) = patch.focus {
-            sets.push(format!("focus = ?{}", vals.len() + 2));
-            vals.push(Box::new(v));
-        }
-        if let Some(v) = patch.use_metronome {
-            sets.push(format!("use_metronome = ?{}", vals.len() + 2));
-            vals.push(Box::new(v));
-        }
-        if let Some(v) = patch.region_id {
-            sets.push(format!("region_id = ?{}", vals.len() + 2));
-            vals.push(Box::new(v));
-        }
-        if let Some(v) = patch.increment_rule {
-            let json = v.map(|r| super::model::json_to_sql(&r)).transpose()?;
-            sets.push(format!("increment_rule = ?{}", vals.len() + 2));
-            vals.push(Box::new(json));
-        }
-        if !sets.is_empty() {
-            let sql = format!("UPDATE rep_block SET {} WHERE id = ?1", sets.join(", "));
-            let mut params: Vec<&dyn rusqlite::ToSql> = vec![&block_id];
-            for v in &vals {
-                params.push(v.as_ref());
-            }
-            conn.execute(&sql, params.as_slice())?;
-        }
-        let piece_id: i64 =
-            conn.query_row("SELECT piece_id FROM rep_block WHERE id = ?1", [block_id], |r| {
-                r.get(0)
-            })?;
-        Self::append_event_conn(
-            &conn,
-            EventKind::BLOCK_EDIT,
-            None,
-            Some(piece_id),
-            &serde_json::json!({ "action": "update", "block_id": block_id }),
-        )?;
-        drop(conn);
-        self.block_row(block_id)?
-            .ok_or_else(|| rusqlite::Error::QueryReturnedNoRows)
+        conn.query_row("SELECT 1 FROM rep_block WHERE id=?1", [block_id], |_| Ok(()))?;
+        Err(rusqlite::Error::InvalidParameterName(
+            "practice-set history is immutable; use attempt corrections or restart a set".into(),
+        ))
     }
 
-    /// Delete a block and every rep logged against it (cascade, in one
-    /// transaction). Appends a `block_edit` event.
+    /// No history set may be physically deleted. Attempts remain repairable via
+    /// append-only adjustments; sets can be closed/restarted, never erased.
     pub fn block_delete(&self, block_id: i64) -> rusqlite::Result<()> {
-        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let piece_id: i64 =
-            conn.query_row("SELECT piece_id FROM rep_block WHERE id = ?1", [block_id], |r| {
-                r.get(0)
-            })?;
-        let tx = conn.transaction()?;
-        tx.execute("DELETE FROM rep WHERE block_id = ?1", [block_id])?;
-        tx.execute("DELETE FROM rep_block WHERE id = ?1", [block_id])?;
-        tx.commit()?;
-        Self::append_event_conn(
-            &conn,
-            EventKind::BLOCK_EDIT,
-            None,
-            Some(piece_id),
-            &serde_json::json!({ "action": "delete", "block_id": block_id }),
-        )?;
-        Ok(())
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row("SELECT 1 FROM rep_block WHERE id=?1", [block_id], |_| Ok(()))?;
+        Err(rusqlite::Error::InvalidParameterName(
+            "practice-set history is immutable; close or restart instead".into(),
+        ))
     }
 }
 // ── T4: block tests ──────────────────────────────────────────────────────
@@ -904,24 +833,30 @@ mod block {
     use crate::store::Store;
 
     #[test]
-    fn block_delete_removes_block_and_its_reps() {
+    fn block_delete_rejects_and_preserves_exact_set_and_attempt_rows() {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let bid = seed_block(&s, 1, 1, 8);
         seed_rep(&s, bid, "clean");
         seed_rep(&s, bid, "flawed");
-        s.block_delete(bid).unwrap();
-        assert_eq!(s.block_row(bid).unwrap(), None);
-        let reps = s.reps_for_block(bid).unwrap();
-        assert!(reps.is_empty());
+        let block_before = serde_json::to_string(&s.block_row(bid).unwrap()).unwrap();
+        let reps_before = serde_json::to_string(&s.reps_for_block(bid).unwrap()).unwrap();
+
+        let error = s.block_delete(bid).unwrap_err().to_string();
+        assert!(error.contains("immutable"), "{error}");
+        assert_eq!(serde_json::to_string(&s.block_row(bid).unwrap()).unwrap(), block_before);
+        assert_eq!(serde_json::to_string(&s.reps_for_block(bid).unwrap()).unwrap(), reps_before);
+        assert_eq!(s.test_scalar_i64("SELECT count(*) FROM rep_block").unwrap(), 1);
+        assert_eq!(s.test_scalar_i64("SELECT count(*) FROM rep").unwrap(), 2);
     }
 
     #[test]
-    fn block_update_on_non_active_block_persists() {
+    fn block_update_rejects_and_preserves_exact_legacy_set_row() {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let bid = seed_block(&s, 1, 1, 8);
-        let updated = s
+        let before = serde_json::to_string(&s.block_row(bid).unwrap()).unwrap();
+        let error = s
             .block_update(
                 bid,
                 BlockPatch {
@@ -930,36 +865,14 @@ mod block {
                     ..Default::default()
                 },
             )
-            .unwrap();
-        assert_eq!(updated.label.as_deref(), Some("legato"));
-        assert_eq!(updated.target_bpm, Some(120.0));
-        assert_eq!(updated.m_start, 1, "untouched field unchanged");
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("immutable"), "{error}");
+        assert_eq!(serde_json::to_string(&s.block_row(bid).unwrap()).unwrap(), before);
+        assert_eq!(s.test_scalar_i64("SELECT count(*) FROM rep_block").unwrap(), 1);
     }
 }
 // ── T5: Rep update/delete with verdict-count recompute ─────────────────────
-
-/// Recompute verdict tallies for a block by grouping its surviving `rep`
-/// rows. Counts are always derived live (never a stored/decremented
-/// counter) — see `block_row`, which uses the same derivation for the full
-/// `reps_done`/`bpm` row.
-fn recompute_block_counts(conn: &Connection, block_id: i64) -> rusqlite::Result<VerdictCounts> {
-    let mut counts = VerdictCounts::default();
-    let mut stmt =
-        conn.prepare("SELECT verdict, COUNT(*) FROM rep WHERE block_id = ?1 GROUP BY verdict")?;
-    let rows = stmt.query_map([block_id], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-    })?;
-    for row in rows {
-        let (v, n) = row?;
-        match v.as_str() {
-            "clean" => counts.clean = n as u32,
-            "flawed" => counts.flawed = n as u32,
-            "failed" => counts.failed = n as u32,
-            _ => {}
-        }
-    }
-    Ok(counts)
-}
 
 impl Store {
     /// Apply a partial patch to one rep (verdict replace, nullable note);
@@ -968,66 +881,47 @@ impl Store {
     /// Returns the owning `block_id` so the command layer can resync the rep
     /// engine's active snapshot without a second lookup.
     pub fn rep_update(&self, rep_id: i64, patch: RepPatch) -> rusqlite::Result<i64> {
-        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let mut sets: Vec<String> = Vec::new();
-        let mut vals: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-        if let Some(v) = patch.verdict {
-            sets.push(format!("verdict = ?{}", vals.len() + 2));
-            vals.push(Box::new(v));
-        }
-        if let Some(v) = patch.note {
-            sets.push(format!("note = ?{}", vals.len() + 2));
-            vals.push(Box::new(v));
-        }
-        if !sets.is_empty() {
-            let sql = format!("UPDATE rep SET {} WHERE id = ?1", sets.join(", "));
-            let mut params: Vec<&dyn rusqlite::ToSql> = vec![&rep_id];
-            for v in &vals {
-                params.push(v.as_ref());
-            }
-            conn.execute(&sql, params.as_slice())?;
-        }
-        let block_id: i64 =
-            conn.query_row("SELECT block_id FROM rep WHERE id = ?1", [rep_id], |r| r.get(0))?;
-        // Touch the derived counts (also validates the row exists post-patch);
-        // the actual values are re-derived by whoever reads block_row next.
-        recompute_block_counts(&conn, block_id)?;
-        let piece_id: i64 =
-            conn.query_row("SELECT piece_id FROM rep_block WHERE id = ?1", [block_id], |r| {
-                r.get(0)
-            })?;
-        Self::append_event_conn(
-            &conn,
-            EventKind::REP_EDIT,
+        let block_id = self.v2_block_id_for_attempt(rep_id)?;
+        let current = self.v2_effective_attempt(block_id, rep_id)?;
+        let verdict_text = patch.verdict.unwrap_or(current.verdict);
+        let verdict = RepVerdict::parse(&verdict_text)
+            .ok_or_else(|| rusqlite::Error::InvalidParameterName("unknown verdict".into()))?;
+        let replace_note = patch.note.is_some();
+        let note = patch.note.flatten();
+        let keep_open = self
+            .v2_snapshot(block_id)
+            .map(|snapshot| matches!(snapshot.set_state.as_str(), "active" | "paused"))
+            .unwrap_or(false);
+        let command_id = super::practice_v2::command_id(MutationSource::UserClick, "history_correct");
+        self.v2_correct(
             None,
-            Some(piece_id),
-            &serde_json::json!({ "action": "update", "rep_id": rep_id, "block_id": block_id }),
+            block_id,
+            Some(rep_id),
+            verdict,
+            note.as_deref(),
+            replace_note,
+            MutationSource::UserClick,
+            &command_id,
+            keep_open,
         )?;
         Ok(block_id)
     }
 
-    /// Delete a rep; appends a `rep_edit` event. Verdict counts and
-    /// `reps_done` need no explicit recompute step — they are always derived
-    /// live from surviving `rep` rows by `block_row`. Returns the owning
-    /// `block_id` (see [`Self::rep_update`]).
+    /// Preserve the rep and append a void adjustment. The legacy command name
+    /// remains usable, but no source attempt row is deleted.
     pub fn rep_delete(&self, rep_id: i64) -> rusqlite::Result<i64> {
-        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let block_id: i64 =
-            conn.query_row("SELECT block_id FROM rep WHERE id = ?1", [rep_id], |r| r.get(0))?;
-        let tx = conn.transaction()?;
-        tx.execute("DELETE FROM rep WHERE id = ?1", [rep_id])?;
-        tx.commit()?;
-        recompute_block_counts(&conn, block_id)?;
-        let piece_id: i64 =
-            conn.query_row("SELECT piece_id FROM rep_block WHERE id = ?1", [block_id], |r| {
-                r.get(0)
-            })?;
-        Self::append_event_conn(
-            &conn,
-            EventKind::REP_EDIT,
-            None,
-            Some(piece_id),
-            &serde_json::json!({ "action": "delete", "rep_id": rep_id, "block_id": block_id }),
+        let block_id = self.v2_block_id_for_attempt(rep_id)?;
+        let keep_open = self
+            .v2_snapshot(block_id)
+            .map(|snapshot| matches!(snapshot.set_state.as_str(), "active" | "paused"))
+            .unwrap_or(false);
+        let command_id = super::practice_v2::command_id(MutationSource::UserClick, "history_void");
+        self.v2_void_history_attempt(
+            block_id,
+            rep_id,
+            MutationSource::UserClick,
+            &command_id,
+            keep_open,
         )?;
         Ok(block_id)
     }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { beginMetroIntent } from "./intentGuard";
 
 // ---------------------------------------------------------------------------
 // Metronome hook.
@@ -176,10 +177,13 @@ export function useMetronome(): UseMetronome {
 
   const call = useCallback(
     async (cmd: string, args?: Record<string, unknown>) => {
+      const finishIntent = beginMetroIntent();
       try {
         await invoke(cmd, args);
       } catch (e) {
         showError(messageOf(e));
+      } finally {
+        finishIntent();
       }
     },
     [showError],
@@ -225,7 +229,8 @@ export function useMetronome(): UseMetronome {
       // user has genuinely started the metronome.
       if (preview.current.active) {
         preview.current.active = false;
-        void invoke("metro_stop").catch(() => {});
+        const finishIntent = beginMetroIntent();
+        void invoke("metro_stop").catch(() => {}).finally(finishIntent);
       }
     };
   }, [applyState]);

@@ -1,11 +1,18 @@
-import { useRef, useState } from "react";
+import {
+  cloneElement,
+  useRef,
+  useState,
+  type ComponentPropsWithRef,
+  type MouseEvent,
+  type ReactElement,
+} from "react";
 import { Popover } from "./Popover";
 import "./ConfirmDelete.css";
 
 export interface ConfirmDeleteProps {
   label: string; // "this block and its 9 reps"
   onConfirm: () => Promise<void>;
-  children: React.ReactNode; // the trigger
+  children: ReactElement<ComponentPropsWithRef<"button">>; // the trigger
 }
 
 /**
@@ -14,8 +21,16 @@ export interface ConfirmDeleteProps {
  * or Escape). Confirm invokes `onConfirm` and closes; Cancel just closes.
  */
 export function ConfirmDelete({ label, onConfirm, children }: ConfirmDeleteProps) {
-  const anchorRef = useRef<HTMLSpanElement>(null);
+  const anchorRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+
+  const trigger = cloneElement(children, {
+    ref: anchorRef,
+    onClick: (event: MouseEvent<HTMLButtonElement>) => {
+      children.props.onClick?.(event);
+      if (!event.defaultPrevented) setOpen(true);
+    },
+  });
 
   async function confirm() {
     await onConfirm();
@@ -23,8 +38,8 @@ export function ConfirmDelete({ label, onConfirm, children }: ConfirmDeleteProps
   }
 
   return (
-    <span ref={anchorRef} className="confirm-delete-anchor" onClick={() => setOpen(true)}>
-      {children}
+    <span className="confirm-delete-anchor">
+      {trigger}
       <Popover anchorRef={anchorRef} open={open} onClose={() => setOpen(false)} label="Confirm delete">
         <div className="confirm-delete-body">
           <p className="confirm-delete-label">{label}</p>

@@ -155,7 +155,7 @@ export function useSession(): UseSession {
       setError(null);
       receipts.committed(
         res
-          ? `Session saved: ${res.reps} reps across ${res.pieces} piece${res.pieces === 1 ? "" : "s"}.`
+          ? `Session saved: ${res.reps} attempts across ${res.pieces} piece${res.pieces === 1 ? "" : "s"}.`
           : "Practice session ended.",
       );
       return res ?? null;

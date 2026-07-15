@@ -26,11 +26,15 @@ function AppContent() {
 
   return (
     <Shell
+      defaultCleanStreak={settings.practice_default_clean_streak}
       onThemeChange={(theme) => {
         acceptSetting("theme", theme);
       }}
       onInterfaceScaleChange={(scale) => {
         acceptSetting("interface_scale", scale);
+      }}
+      onPracticeDefaultCleanStreakChange={(target) => {
+        acceptSetting("practice_default_clean_streak", target);
       }}
     />
   );

@@ -4,7 +4,14 @@ import { MetronomePopover } from "../features/metronome/MetronomePopover";
 import { useVoice, type VoiceStatus } from "../features/voice/useVoice";
 import { VoiceToast } from "../features/voice/VoiceToast";
 import { PiecesPanel } from "../features/pieces/PiecesPanel";
-import { useRep, type RepSnapshot } from "../features/rep/useRep";
+import {
+  repAttempts,
+  repMasteryStatus,
+  repMasteryVerified,
+  repTries,
+  useRep,
+  type RepSnapshot,
+} from "../features/rep/useRep";
 import { RepHud } from "../features/rep/RepHud";
 import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
@@ -48,19 +55,36 @@ export function groundPracticeBrainContext(
       bpm: snap.bpm,
       target_bpm: snap.target_bpm,
       focus: snap.focus,
+      use_metronome: snap.use_metronome,
       reps_done: snap.reps_done,
       planned_reps: snap.planned_reps,
+      attempts_recorded: repAttempts(snap),
+      tries: repTries(snap),
+      current_clean_streak: snap.current_clean_streak ?? null,
+      mastery_progress_streak: snap.mastery_progress_streak
+        ?? snap.current_clean_streak
+        ?? null,
+      required_clean_streak: snap.effective_required_clean_streak
+        ?? snap.required_clean_streak
+        ?? null,
+      mastery_status: repMasteryStatus(snap),
+      mastery_verified: repMasteryVerified(snap),
+      set_state: snap.set_state ?? "legacy_unverified",
     } : null,
   };
 }
 
 /** The app shell: Home plus focused workspaces and always-reachable tools. */
 export function Shell({
+  defaultCleanStreak = 5,
   onThemeChange,
   onInterfaceScaleChange,
+  onPracticeDefaultCleanStreakChange,
 }: {
+  defaultCleanStreak?: number;
   onThemeChange?: (theme: ThemePref) => void;
   onInterfaceScaleChange?: (scale: number) => void;
+  onPracticeDefaultCleanStreakChange?: (target: number) => void;
 }) {
   const [openPanel, setOpenPanel] = useState<PanelId | null>(null);
   const [view, setView] = useState<ViewId>("home");
@@ -95,10 +119,10 @@ export function Shell({
 
   useEffect(() => {
     panelManager.register("rep", {
-      x: Math.max(16, panelManager.viewport.w - 430),
+      x: Math.max(16, panelManager.viewport.w - 550),
       y: 68,
-      w: 410,
-      h: 330,
+      w: 530,
+      h: 430,
       collapsed: false,
       z: 42,
     });
@@ -255,6 +279,7 @@ export function Shell({
           <PiecesPanel
             onOpenBlock={rep.open}
             activeRep={rep.snap}
+            defaultCleanStreak={defaultCleanStreak}
             initialPieceId={practiceContext?.piece_id ?? null}
             onLeavePiece={() => setPracticeContext(null)}
             onPracticeContextChange={setBrainPracticeContext}
@@ -290,6 +315,7 @@ export function Shell({
           onResetLayout={panelManager.resetLayout}
           onThemeSaved={onThemeChange}
           onInterfaceScaleSaved={onInterfaceScaleChange}
+          onPracticeDefaultCleanStreakSaved={onPracticeDefaultCleanStreakChange}
         />
       </Popover>
 
@@ -325,6 +351,12 @@ export function Shell({
         downGuidance={voice.downGuidance}
       />
 
+      {/* RepHud owns active-set errors. When restore fails before a snapshot
+          exists, the shell must remain the visible alert owner. */}
+      {rep.error && !rep.snap && (
+        <p className="shell-rep-error" role="alert">{rep.error}</p>
+      )}
+
       {/* Session + rep surfaces live at shell level so practice tools remain
           available while moving between workspaces. */}
       {session.session && panelManager.panels.session && (
@@ -342,13 +374,23 @@ export function Shell({
       {rep.snap && panelManager.panels.rep && (
         <FloatingPanel
           geometry={panelManager.panels.rep}
-          title="Active block"
+          title="Active practice set"
           viewport={panelManager.viewport}
           onGeometryChange={panelManager.update}
           onFocus={panelManager.raise}
           testId="panel-rep"
         >
-          <RepHud snap={rep.snap} feed={rep.feed} error={rep.error} onCheck={rep.check} onClose={rep.close} />
+          <RepHud
+            snap={rep.snap}
+            feed={rep.feed}
+            error={rep.error}
+            onCheck={rep.check}
+            onUndo={rep.undo}
+            onCorrect={rep.correct}
+            onReverseAdjustment={rep.reverseAdjustment}
+            onRestart={rep.restart}
+            onClose={rep.close}
+          />
         </FloatingPanel>
       )}
     </div>

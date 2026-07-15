@@ -11,11 +11,13 @@ mod crud;
 mod events;
 mod history_backfill;
 mod migrations;
+mod practice_v2;
 mod tutorials;
 mod v8_backfill;
 pub mod model;
 
 pub use events::EventKind;
+pub(crate) use practice_v2::{command_id as v2_command_id, validate_open as v2_validate_open};
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -624,8 +626,27 @@ impl Store {
                 start_bpm: row.get(4)?,
                 target_bpm: row.get(5)?,
                 planned_reps: row.get(6)?,
+                attempt_ceiling: None,
+                contract_source: "migration_legacy".into(),
                 status: row.get(7)?,
                 reps_done: row.get(8)?,
+                attempts_recorded: 0,
+                tries: 0,
+                voided_attempts: 0,
+                current_clean_streak: 0,
+                mastery_progress_streak: 0,
+                best_clean_streak: 0,
+                reset_count: 0,
+                accuracy: None,
+                required_clean_streak: 0,
+                effective_required_clean_streak: 0,
+                recovery_remaining: 0,
+                review_boundary_reached: false,
+                mastery_status: "unverified_legacy".into(),
+                mastery_verified: false,
+                set_state: "legacy_open".into(),
+                last_attempt_id: None,
+                last_adjustment_id: None,
                 verdicts: VerdictCounts {
                     clean: row.get(9)?,
                     flawed: row.get(10)?,
@@ -637,7 +658,13 @@ impl Store {
                 use_metronome: row.get(15)?,
             })
         })?;
-        rows.collect()
+        let mut history = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+        drop(conn);
+        for row in &mut history {
+            self.v2_enrich_history(row)?;
+        }
+        Ok(history)
     }
 
     /// A single block's history row (same shape/derivation as [`Self::block_history`],
@@ -645,7 +672,7 @@ impl Store {
     /// by the T4/T5 CRUD mutations and the rep engine's active-snapshot resync.
     pub fn block_row(&self, block_id: i64) -> rusqlite::Result<Option<BlockHistory>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        conn.query_row(
+        let history = conn.query_row(
             "SELECT b.id, b.m_start, b.m_end, b.label,
                     b.start_bpm, b.target_bpm, b.planned_reps, b.status,
                     COUNT(r.id) AS reps_done,
@@ -672,8 +699,27 @@ impl Store {
                     start_bpm: row.get(4)?,
                     target_bpm: row.get(5)?,
                     planned_reps: row.get(6)?,
+                    attempt_ceiling: None,
+                    contract_source: "migration_legacy".into(),
                     status: row.get(7)?,
                     reps_done: row.get(8)?,
+                    attempts_recorded: 0,
+                    tries: 0,
+                    voided_attempts: 0,
+                    current_clean_streak: 0,
+                    mastery_progress_streak: 0,
+                    best_clean_streak: 0,
+                    reset_count: 0,
+                    accuracy: None,
+                    required_clean_streak: 0,
+                    effective_required_clean_streak: 0,
+                    recovery_remaining: 0,
+                    review_boundary_reached: false,
+                    mastery_status: "unverified_legacy".into(),
+                    mastery_verified: false,
+                    set_state: "legacy_open".into(),
+                    last_attempt_id: None,
+                    last_adjustment_id: None,
                     verdicts: VerdictCounts {
                         clean: row.get(9)?,
                         flawed: row.get(10)?,
@@ -686,7 +732,14 @@ impl Store {
                 })
             },
         )
-        .optional()
+        .optional()?;
+        drop(conn);
+        if let Some(mut history) = history {
+            self.v2_enrich_history(&mut history)?;
+            Ok(Some(history))
+        } else {
+            Ok(None)
+        }
     }
 
     /// The resolved ladder rule stored on a block (`increment_rule` JSON), or
@@ -729,17 +782,35 @@ impl Store {
              FROM rep WHERE block_id = ?1 ORDER BY id",
         )?;
         let rows = stmt.query_map([block_id], |row| {
+            let verdict: String = row.get(5)?;
             Ok(Rep {
                 id: row.get(0)?,
                 block_id: row.get(1)?,
                 ts: row.get(2)?,
                 bpm: row.get(3)?,
                 variant: row.get(4)?,
-                verdict: row.get(5)?,
+                verdict: verdict.clone(),
                 note: row.get(6)?,
+                original_verdict: verdict,
+                voided: false,
+                source: "migration_legacy".into(),
+                active_adjustment_ids: Vec::new(),
             })
         })?;
-        rows.collect()
+        let mut reps = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+        drop(conn);
+        for rep in &mut reps {
+            let effective = self.v2_effective_attempt(block_id, rep.id)?;
+            rep.verdict = effective.verdict;
+            rep.note = effective.note;
+            rep.voided = effective.voided;
+            rep.source = effective.source;
+            rep.active_adjustment_ids = effective.active_adjustment_ids;
+            rep.original_verdict = effective.original_verdict;
+            rep.bpm = effective.bpm;
+        }
+        Ok(reps)
     }
 
     /// Minimal per-block metadata (region membership + practice focus) for every
@@ -770,17 +841,35 @@ impl Store {
              WHERE b.piece_id = ?1 ORDER BY r.id",
         )?;
         let rows = stmt.query_map([piece_id], |row| {
+            let verdict: String = row.get(5)?;
             Ok(Rep {
                 id: row.get(0)?,
                 block_id: row.get(1)?,
                 ts: row.get(2)?,
                 bpm: row.get(3)?,
                 variant: row.get(4)?,
-                verdict: row.get(5)?,
+                verdict: verdict.clone(),
                 note: row.get(6)?,
+                original_verdict: verdict,
+                voided: false,
+                source: "migration_legacy".into(),
+                active_adjustment_ids: Vec::new(),
             })
         })?;
-        rows.collect()
+        let mut reps = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+        drop(conn);
+        for rep in &mut reps {
+            let effective = self.v2_effective_attempt(rep.block_id, rep.id)?;
+            rep.verdict = effective.verdict;
+            rep.note = effective.note;
+            rep.voided = effective.voided;
+            rep.source = effective.source;
+            rep.active_adjustment_ids = effective.active_adjustment_ids;
+            rep.original_verdict = effective.original_verdict;
+            rep.bpm = effective.bpm;
+        }
+        Ok(reps)
     }
 
     /// Reassign (or clear) a block's region membership.

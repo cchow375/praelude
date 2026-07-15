@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { defineCommand, executeCommand } from "../../services/command";
 import type {
   BlockHistory,
   Goal,
@@ -18,6 +19,18 @@ export type BlockPatch = Partial<{
   region_id: number | null;
 }>;
 
+type RepHistoryPatch = Partial<Pick<Rep, "verdict" | "note">>;
+
+const REP_HISTORY_UPDATE = defineCommand<
+  { repId: number; patch: RepHistoryPatch },
+  void
+>("rep_update", "The attempt correction could not be saved.");
+
+const REP_HISTORY_VOID = defineCommand<
+  { repId: number },
+  void
+>("rep_delete", "The attempt could not be voided.");
+
 export function useCrud() {
   return {
     blockUpdate: (blockId: number, patch: BlockPatch) =>
@@ -26,9 +39,10 @@ export function useCrud() {
       invoke<void>("block_delete", { blockId }),
     repsForBlock: (blockId: number) =>
       invoke<Rep[]>("reps_for_block", { blockId }),
-    repUpdate: (repId: number, patch: Partial<Pick<Rep, "verdict" | "note">>) =>
-      invoke<void>("rep_update", { repId, patch }),
-    repDelete: (repId: number) => invoke<void>("rep_delete", { repId }),
+    repUpdate: (repId: number, patch: RepHistoryPatch) =>
+      executeCommand(REP_HISTORY_UPDATE, { repId, patch }),
+    repDelete: (repId: number) =>
+      executeCommand(REP_HISTORY_VOID, { repId }),
     goalList: (pieceId: number) => invoke<Goal[]>("goal_list", { pieceId }),
     goalCreate: (args: {
       piece_id: number;

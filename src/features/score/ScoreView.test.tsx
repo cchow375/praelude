@@ -303,7 +303,7 @@ describe("ScoreView", () => {
     );
     await screen.findByLabelText("Score page 1");
     fireEvent.click(await screen.findByRole("button", { name: "Development, measures 40 to 56" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open block" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
 
     expect(onOpenBlock).toHaveBeenCalledWith(expect.objectContaining({
       piece_id: 7,

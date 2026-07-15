@@ -33,6 +33,7 @@ import {
   UI_BPM_MAX,
   type MetroState,
 } from "./useMetronome";
+import { readMetroIntentState } from "./intentGuard";
 
 function emitState(state: MetroState) {
   act(() => {
@@ -76,6 +77,28 @@ describe("useMetronome — IPC wiring", () => {
 
     expect(invokeMock).toHaveBeenCalledWith("metro_start", { bpm: 140 });
     expect(result.current.state.running).toBe(true);
+  });
+
+  it("holds a shared manual-intent lease until the native command settles", async () => {
+    let resolveSet: () => void = () => undefined;
+    const pendingSet = new Promise<void>((resolve) => { resolveSet = resolve; });
+    invokeMock.mockImplementation((command: string) => (
+      command === "metro_state"
+        ? Promise.resolve(DEFAULT_METRO_STATE)
+        : command === "metro_set"
+          ? pendingSet
+          : Promise.resolve(null)
+    ));
+    const { result } = renderHook(() => useMetronome());
+    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+    const before = readMetroIntentState();
+
+    act(() => result.current.setBpm(132));
+
+    expect(readMetroIntentState().pending).toBe(before.pending + 1);
+    resolveSet();
+    await waitFor(() => expect(readMetroIntentState().pending).toBe(before.pending));
+    expect(readMetroIntentState().revision).toBeGreaterThan(before.revision);
   });
 
   it("stop() invokes metro_stop and optimistically stops", async () => {

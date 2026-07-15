@@ -346,7 +346,7 @@ impl ActionCtx {
             Verdict::Flawed => RepVerdict::Flawed,
             Verdict::Fail => RepVerdict::Failed,
         };
-        match self.rep.check(verdict, note) {
+        match self.rep.check_voice(verdict, note) {
             Ok(outcome) => {
                 // Follow a ladder step on the metronome only if the block uses the
                 // metronome (a metronome-off tempo block still advanced its tempo
@@ -385,12 +385,13 @@ impl ActionCtx {
             start_bpm,
             target_bpm: spec.target_bpm,
             planned_reps: spec.reps,
+            required_clean_streak: None,
             increment: None,
             variants: vec![],
             focus: "tempo".into(),
             use_metronome: true,
         };
-        match self.rep.open(args) {
+        match self.rep.open_voice(args) {
             Ok(snap) => {
                 // Start the metronome at the block tempo if it is idle.
                 if !self.metro.snapshot().running {
@@ -415,12 +416,27 @@ impl ActionCtx {
     fn act_rep_status(&self, text: &str) {
         match self.rep.snapshot() {
             Some(s) => {
-                self.emit_intent("rep_status", text, Some(s.bpm));
+                self.emit_intent("rep_status", text, s.bpm);
+                let below_target = s.focus == "tempo"
+                    && s.target_bpm.is_some_and(|target| {
+                        s.bpm.is_some_and(|bpm| bpm + 0.000_001 < target)
+                    });
+                let (label, progress, required) = if below_target {
+                    ("Rung", s.current_clean_streak, s.rule.clean_needed)
+                } else {
+                    (
+                        "Streak",
+                        s.mastery_progress_streak,
+                        s.effective_required_clean_streak,
+                    )
+                };
+                let tempo = s
+                    .bpm
+                    .map(|bpm| format!(" At {}.", fmt_bpm(bpm)))
+                    .unwrap_or_default();
                 self.speaker.say(&format!(
-                    "{} of {}, at {}.",
-                    s.reps_done,
-                    s.planned_reps,
-                    fmt_bpm(s.bpm)
+                    "{} tries. {} {} of {}.{tempo}",
+                    s.tries, label, progress, required
                 ));
             }
             None => self.speaker.say("No block open."),
@@ -428,8 +444,8 @@ impl ActionCtx {
     }
 
     fn act_rep_close(&self, text: &str) {
-        match self.rep.close() {
-            Some(s) => {
+        match self.rep.close_voice() {
+            Ok(Some(s)) => {
                 self.emit_intent("rep_close", text, None);
                 let verb = if s.status == "done" { "done" } else { "closed" };
                 self.speaker.say(&format!(
@@ -437,7 +453,8 @@ impl ActionCtx {
                     verb, s.reps_done, s.verdicts.clean
                 ));
             }
-            None => self.speaker.say("No block open."),
+            Ok(None) => self.speaker.say("No block open."),
+            Err(error) => eprintln!("voice: rep close failed: {error}"),
         }
     }
 
@@ -1241,8 +1258,14 @@ mod tests {
             said.iter().any(|s| s == "Measures 40 to 56 at 80. Go."),
             "said: {said:?}"
         );
-        assert!(said.iter().any(|s| s == "1 of 30."), "said: {said:?}");
-        assert!(said.iter().any(|s| s == "2 of 30."), "said: {said:?}");
+        assert!(
+            said.iter().any(|s| s == "Attempt 1 saved — clean. Rung 1 of 3."),
+            "said: {said:?}"
+        );
+        assert!(
+            said.iter().any(|s| s == "Attempt 2 saved — clean. Rung 2 of 3."),
+            "said: {said:?}"
+        );
     }
 
     /// LIVE on-device smoke (needs an output device + `say`): fake `hear` →
@@ -1352,6 +1375,7 @@ mod tests {
                 start_bpm: 80.0,
                 target_bpm: None,
                 planned_reps: Some(30),
+                required_clean_streak: None,
                 increment: None,
                 variants: vec![],
                 focus: "tempo".into(),
@@ -1693,7 +1717,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .any(|s| s == "3 of 30. Up to 84."),
+                .any(|s| s == "Attempt 3 saved — clean. Rung 0 of 3. Up to 84."),
             "said: {:?}",
             rec.said.lock().unwrap()
         );
@@ -1714,6 +1738,7 @@ mod tests {
                 start_bpm: 80.0,
                 target_bpm: Some(120.0),
                 planned_reps: Some(30),
+                required_clean_streak: None,
                 increment: None,
                 variants: vec![],
                 focus: "tempo".into(),
@@ -1731,7 +1756,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .any(|s| s == "3 of 30. Up to 84."),
+                .any(|s| s == "Attempt 3 saved — clean. Rung 0 of 3. Up to 84."),
             "the step is still spoken: {:?}",
             rec.said.lock().unwrap()
         );
@@ -1773,6 +1798,7 @@ mod tests {
                 start_bpm: 80.0,
                 target_bpm: Some(120.0),
                 planned_reps: Some(30),
+                required_clean_streak: None,
                 increment: None,
                 variants: vec![],
                 focus: "tempo".into(),
@@ -1789,7 +1815,7 @@ mod tests {
         // advanced working tempo + the spoken "Up to 84." line are the proxy).
         assert_eq!(
             ctx.rep.snapshot().unwrap().bpm,
-            84.0,
+            Some(84.0),
             "engine tempo advanced"
         );
         assert!(
@@ -1797,7 +1823,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .any(|s| s == "3 of 30. Up to 84."),
+                .any(|s| s == "Attempt 3 saved — clean. Rung 0 of 3. Up to 84."),
             "step spoken: {:?}",
             rec.said.lock().unwrap()
         );
@@ -1864,7 +1890,10 @@ mod tests {
             "open a rep tracker measures 40 to 56 start at 80 target 120",
         ));
         ctx.handle_final(&final_t("status"));
-        assert_eq!(rec.said.lock().unwrap().last().unwrap(), "0 of 30, at 80.");
+        assert_eq!(
+            rec.said.lock().unwrap().last().unwrap(),
+            "0 tries. Rung 0 of 3. At 80."
+        );
     }
 
     #[test]

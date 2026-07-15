@@ -1,6 +1,62 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RepSnapshot } from "../features/rep/useRep";
+
+const activeRepSnapshot: RepSnapshot = {
+  block_id: 1,
+  piece_id: 1,
+  piece_title: "Scherzo",
+  m_start: 1,
+  m_end: 8,
+  label: null,
+  bpm: 60,
+  start_bpm: 60,
+  target_bpm: 90,
+  planned_reps: 10,
+  reps_done: 2,
+  attempts_recorded: 2,
+  tries: 2,
+  current_clean_streak: 2,
+  mastery_progress_streak: 0,
+  best_clean_streak: 2,
+  reset_count: 0,
+  accuracy: 1,
+  required_clean_streak: 5,
+  effective_required_clean_streak: 5,
+  recovery_remaining: 0,
+  mastery_status: "not_satisfied",
+  mastery_verified: true,
+  set_state: "active",
+  last_attempt_id: 2,
+  last_adjustment_id: null,
+  cleans_at_step: 0,
+  rule: { clean_needed: 3, bpm_step: 4 },
+  variant: null,
+  variants: [],
+  verdicts: { clean: 2, flawed: 0, failed: 0 },
+  last: null,
+  status: "open",
+  focus: "tempo",
+  use_metronome: true,
+};
+
+function defaultRepState() {
+  return {
+    snap: activeRepSnapshot as RepSnapshot | null,
+    feed: [],
+    error: null as string | null,
+    open: vi.fn(),
+    check: vi.fn().mockResolvedValue(undefined),
+    undo: vi.fn().mockResolvedValue(undefined),
+    correct: vi.fn().mockResolvedValue(undefined),
+    reverseAdjustment: vi.fn().mockResolvedValue(undefined),
+    restart: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+    clearError: vi.fn(),
+  };
+}
+
+const useRepMock = vi.fn(defaultRepState);
 
 const invokeMock = vi.fn().mockImplementation((command: string) => {
   if (command === "pieces_list" || command === "daily_work_list") return Promise.resolve([]);
@@ -33,6 +89,7 @@ const invokeMock = vi.fn().mockImplementation((command: string) => {
       theme: "auto", tts_provider: "auto", tts_voice: "Kore", brain_provider: "auto",
       wake_word_enabled: false, wake_word: "coda", metronome_sound: "woodblock",
       metronome_boost: false, metronome_boost_level: 85, ladder_default_reps: 30,
+      practice_default_clean_streak: 5,
       ladder_bpm_step: 4, calendar_capacity_minutes: 60,
       vault_pieces_dir: "/vault/Pieces",
       verdict_aliases: { clean: [], flawed: [], failed: [] },
@@ -49,10 +106,11 @@ vi.mock("../features/voice/useVoice", () => ({
   useVoice: () => ({ status: "live", mute: vi.fn(), lastIntent: null, downGuidance: null }),
 }));
 vi.mock("../features/rep/useRep", () => ({
-  useRep: () => ({
-    snap: { block_id: 1, piece_id: 1, piece_title: "Scherzo", m_start: 1, m_end: 8, label: null, bpm: 60, start_bpm: 60, target_bpm: 90, planned_reps: 10, reps_done: 2, cleans_at_step: 0, rule: { clean_needed: 3, bpm_step: 4 }, variant: null, variants: [], verdicts: { clean: 2, flawed: 0, failed: 0 }, last: null, status: "open", focus: "tempo", use_metronome: true },
-    feed: [], error: null, open: vi.fn(), check: vi.fn(), close: vi.fn(), clearError: vi.fn(),
-  }),
+  repAttempts: (snap: RepSnapshot) => snap.attempts_recorded ?? snap.reps_done,
+  repTries: (snap: RepSnapshot) => snap.tries ?? snap.attempts_recorded ?? snap.reps_done,
+  repMasteryStatus: (snap: RepSnapshot) => snap.mastery_status ?? "unverified_legacy",
+  repMasteryVerified: (snap: RepSnapshot) => snap.mastery_verified === true,
+  useRep: () => useRepMock(),
 }));
 vi.mock("../features/session/useSession", () => ({
   useSession: () => ({
@@ -64,6 +122,7 @@ vi.mock("../features/session/useSession", () => ({
 import { Shell, groundPracticeBrainContext } from "./Shell";
 
 afterEach(cleanup);
+beforeEach(() => useRepMock.mockReset().mockImplementation(defaultRepState));
 
 describe("Shell floating workspace", () => {
   it("never labels another piece's active rep as the selected piece", () => {
@@ -130,5 +189,35 @@ describe("Shell floating workspace", () => {
     const home = screen.getByRole("tab", { name: "Home" });
     fireEvent.keyDown(home, { key: "ArrowRight" });
     await waitFor(() => expect(screen.getByRole("tab", { name: "Practice" }).getAttribute("aria-selected")).toBe("true"));
+  });
+
+  it("keeps a restore error visible when no active snapshot exists", () => {
+    useRepMock.mockReturnValue({
+      ...defaultRepState(),
+      snap: null,
+      error: "Multiple live practice sets require recovery.",
+    });
+
+    render(<Shell />);
+
+    expect(screen.queryByTestId("panel-rep")).toBeNull();
+    const alerts = screen.getAllByRole("alert").filter((alert) =>
+      alert.textContent?.includes("Multiple live practice sets require recovery."),
+    );
+    expect(alerts).toHaveLength(1);
+  });
+
+  it("does not duplicate an active-set error between Shell and RepHud", () => {
+    useRepMock.mockReturnValue({
+      ...defaultRepState(),
+      error: "The attempt could not be saved.",
+    });
+
+    render(<Shell />);
+
+    const alerts = screen.getAllByRole("alert").filter((alert) =>
+      alert.textContent?.includes("The attempt could not be saved."),
+    );
+    expect(alerts).toHaveLength(1);
   });
 });

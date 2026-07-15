@@ -68,7 +68,7 @@ fn recent_region_signals(blocks: &[BlockMeta], reps: &[Rep]) -> Vec<RegionSignal
         .filter_map(|block| block.region_id.map(|region| (block.block_id, region)))
         .collect::<HashMap<_, _>>();
     let mut by_region: HashMap<i64, Vec<&Rep>> = HashMap::new();
-    for rep in reps {
+    for rep in reps.iter().filter(|rep| !rep.voided) {
         if let Some(region_id) = region_of.get(&rep.block_id) {
             by_region.entry(*region_id).or_default().push(rep);
         }
@@ -132,11 +132,22 @@ pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
         });
     }
 
-    for block in input.blocks.iter().filter(|block| block.status == "open") {
-        let remaining = block.planned_reps.saturating_sub(block.reps_done);
-        let mut score = 58 + remaining.min(20) as i32;
-        let mut reasons = vec![format!("{remaining} planned reps remain")];
-        if block.reps_done > 0 {
+    for block in input
+        .blocks
+        .iter()
+        .filter(|block| matches!(block.set_state.as_str(), "active" | "paused" | "legacy_open"))
+    {
+        let remaining = block
+            .attempt_ceiling
+            .map(|ceiling| ceiling.saturating_sub(block.tries));
+        let mut score = 58 + remaining.unwrap_or(0).min(20) as i32;
+        let mut reasons = match remaining {
+            Some(remaining) => vec![format!(
+                "{remaining} attempts until the optional review boundary"
+            )],
+            None => vec!["unresolved mastery contract; no attempt ceiling".into()],
+        };
+        if block.tries > 0 {
             score += 8;
             reasons.push("resume existing work instead of starting over".into());
         }
@@ -238,8 +249,27 @@ mod tests {
             start_bpm: Some(80.0),
             target_bpm: Some(120.0),
             planned_reps,
+            attempt_ceiling: Some(planned_reps),
+            contract_source: "native_v2".into(),
             status: "open".into(),
             reps_done,
+            attempts_recorded: reps_done,
+            tries: reps_done,
+            voided_attempts: 0,
+            current_clean_streak: 0,
+            mastery_progress_streak: 0,
+            best_clean_streak: 0,
+            reset_count: 0,
+            accuracy: None,
+            required_clean_streak: 5,
+            effective_required_clean_streak: 5,
+            recovery_remaining: 5,
+            review_boundary_reached: false,
+            mastery_status: "not_satisfied".into(),
+            mastery_verified: true,
+            set_state: "active".into(),
+            last_attempt_id: None,
+            last_adjustment_id: None,
             verdicts: VerdictCounts { clean: 0, flawed: 0, failed: 0 },
             bpm: Some(80.0),
             region_id: Some(1),
@@ -344,5 +374,39 @@ mod tests {
             .reasons
             .iter()
             .any(|reason| reason.contains("3 of the last 5")));
+    }
+
+    #[test]
+    fn recent_region_signals_exclude_voided_attempts() {
+        let blocks = [BlockMeta {
+            block_id: 10,
+            region_id: Some(7),
+            focus: "notes".into(),
+        }];
+        let attempt = |id, verdict: &str, voided| Rep {
+            id,
+            block_id: 10,
+            ts: format!("2026-07-12 10:00:0{id}"),
+            bpm: None,
+            variant: None,
+            verdict: verdict.into(),
+            note: None,
+            original_verdict: verdict.into(),
+            voided,
+            source: "user_click".into(),
+            active_adjustment_ids: vec![],
+        };
+        let signals = recent_region_signals(&blocks, &[
+            attempt(1, "clean", false),
+            attempt(2, "failed", true),
+        ]);
+        assert_eq!(
+            signals,
+            vec![RegionSignal {
+                region_id: 7,
+                recent_attempts: 1,
+                recent_misses: 0,
+            }]
+        );
     }
 }

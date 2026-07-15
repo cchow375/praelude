@@ -198,6 +198,42 @@ describe("BrainWorkspace", () => {
     })));
   });
 
+  it("omits the BPM label when the active set has no captured BPM", async () => {
+    const api = makeApi();
+    render(<BrainWorkspace api={api} practiceContext={{
+      piece_id: 7,
+      piece_title: "Scherzo No. 2",
+      composer: "Chopin",
+      surface: "details",
+      region: null,
+      current_page: null,
+      edition_id: null,
+      edition_label: null,
+      active_block: {
+        m_start: 720,
+        m_end: 732,
+        bpm: null,
+        target_bpm: null,
+        focus: "tempo",
+        use_metronome: true,
+        reps_done: 0,
+        planned_reps: 5,
+        attempts_recorded: 0,
+        tries: 0,
+        current_clean_streak: 0,
+        mastery_progress_streak: 0,
+        required_clean_streak: 3,
+        mastery_status: "not_satisfied",
+        mastery_verified: true,
+        set_state: "active",
+      },
+    }} />);
+
+    expect(screen.getByText("Active tempo set · 0 tries · mastery proof 0/3 · mastery not yet satisfied")).toBeTruthy();
+    expect(screen.queryByText(/null BPM/)).toBeNull();
+    await waitFor(() => expect(api.planPreview).toHaveBeenCalledWith(7));
+  });
+
   it("shows offline and error states without discarding the typed question", async () => {
     const offline = makeApi({ ...groundedAnswer, provider: "offline" });
     const { unmount } = render(<BrainWorkspace api={offline} />);

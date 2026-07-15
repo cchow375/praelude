@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RepOpenArgs, VariantSpec } from "./useRep";
 
 // ---------------------------------------------------------------------------
 // Compose a practice block, then open it. Measures + start/target tempo define
-// the drill; planned reps default to the backend's 30 when left blank (sent as
-// null). Increment is "auto" by default — the backend resolves the rule — or
-// manual (N cleans in a row bumps the tempo by S bpm). Optional variant rows
-// carve the rep budget into named sub-drills (e.g. "hands separate": 5).
+// the drill. Mastery is an explicit consecutive-clean target, while the
+// optional legacy planned-reps field is only a neutral review boundary; it
+// neither blocks continued attempts nor proves mastery. Increment is "auto"
+// by default — the backend resolves the tempo rule — or manual.
 // ---------------------------------------------------------------------------
 
 interface BlockFormProps {
@@ -20,6 +20,8 @@ interface BlockFormProps {
   defaultMeasureStart?: number;
   defaultMeasureEnd?: number;
   defaultLabel?: string;
+  /** Persisted practice default; v2 defaults to five consecutive cleans. */
+  defaultCleanStreak?: number;
   onOpen: (args: RepOpenArgs) => void;
   opening?: boolean;
 }
@@ -44,6 +46,7 @@ export function BlockForm({
   defaultMeasureStart,
   defaultMeasureEnd,
   defaultLabel,
+  defaultCleanStreak = 5,
   onOpen,
   opening = false,
 }: BlockFormProps) {
@@ -61,12 +64,31 @@ export function BlockForm({
     defaultTargetBpm != null ? String(defaultTargetBpm) : "",
   );
   const [plannedReps, setPlannedReps] = useState<string>("");
+  const initialTarget = [3, 5, 7, 10].includes(defaultCleanStreak)
+    ? String(defaultCleanStreak)
+    : "custom";
+  const [streakChoice, setStreakChoice] = useState(initialTarget);
+  const [customStreak, setCustomStreak] = useState(String(defaultCleanStreak));
+  const streakEdited = useRef(false);
   const [mode, setMode] = useState<"auto" | "manual">("auto");
   const [cleanNeeded, setCleanNeeded] = useState<string>("3");
   const [bpmStep, setBpmStep] = useState<string>("4");
   const [variants, setVariants] = useState<VariantSpec[]>([]);
   const [focus, setFocus] = useState("tempo");
   const [useMetronome, setUseMetronome] = useState(true);
+
+  // Settings can finish saving while this form remains mounted. Adopt that
+  // saved default until the pianist has started editing this form's target;
+  // after that, the draft wins over later preference updates.
+  useEffect(() => {
+    if (streakEdited.current) return;
+    setStreakChoice(
+      [3, 5, 7, 10].includes(defaultCleanStreak)
+        ? String(defaultCleanStreak)
+        : "custom",
+    );
+    setCustomStreak(String(defaultCleanStreak));
+  }, [defaultCleanStreak]);
 
   const setVariant = (i: number, patch: Partial<VariantSpec>) =>
     setVariants((v) => v.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
@@ -85,7 +107,13 @@ export function BlockForm({
       label: label.trim() === "" ? null : label.trim(),
       start_bpm: focus === "tempo" || useMetronome ? parseNumOr(startBpm, 60) : null,
       target_bpm: focus === "tempo" ? parseIntOrNull(targetBpm) : null,
-      planned_reps: parseIntOrNull(plannedReps), // null -> backend default (30)
+      planned_reps: parseIntOrNull(plannedReps),
+      required_clean_streak: Math.max(
+        1,
+        streakChoice === "custom"
+          ? parseIntOrNull(customStreak) ?? defaultCleanStreak
+          : Number(streakChoice),
+      ),
       increment:
         focus !== "tempo" || mode === "auto"
           ? null // auto -> backend resolves the rule
@@ -104,7 +132,7 @@ export function BlockForm({
 
   return (
     <form className="block-form" onSubmit={submit}>
-      <h3 className="ck-form-heading">New practice block</h3>
+      <h3 className="ck-form-heading">New practice set</h3>
 
       <div className="ck-field-grid block-mode-row">
         <label className="ck-field">
@@ -130,7 +158,7 @@ export function BlockForm({
         </label>
         <label className="ck-toggle-field">
           <input type="checkbox" aria-label="Use metronome" checked={useMetronome} onChange={(event) => setUseMetronome(event.target.checked)} />
-          <span><strong>Metronome</strong><small>{useMetronome ? "On for this block" : "Off — reps still count"}</small></span>
+          <span><strong>Metronome</strong><small>{useMetronome ? "On for this set" : "Off — attempts are still recorded"}</small></span>
         </label>
       </div>
 
@@ -206,19 +234,76 @@ export function BlockForm({
         </label>}
       </div>}
 
-      <label className="ck-field">
-        <span className="ck-label">Planned reps</span>
-        <input
-          className="ck-input"
-          type="number"
-          inputMode="numeric"
-          min={1}
-          value={plannedReps}
-          placeholder="30"
-          aria-label="Planned reps"
-          onChange={(e) => setPlannedReps(e.target.value)}
-        />
-      </label>
+      <div className="ck-field-grid">
+        <label className="ck-field">
+          <span className="ck-label">Clean streak target</span>
+          <select
+            className="ck-input"
+            aria-label="Clean streak target"
+            value={streakChoice}
+            onChange={(event) => {
+              streakEdited.current = true;
+              setStreakChoice(event.target.value);
+            }}
+          >
+            <option value="3">3 consecutive cleans</option>
+            <option value="5">5 consecutive cleans</option>
+            <option value="7">7 consecutive cleans</option>
+            <option value="10">10 consecutive cleans</option>
+            <option value="custom">Custom…</option>
+          </select>
+          <small>Mastery requires this streak; total tries do not complete the set.</small>
+        </label>
+        {streakChoice === "custom" ? (
+          <label className="ck-field">
+            <span className="ck-label">Custom clean streak</span>
+            <input
+              className="ck-input"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={100}
+              value={customStreak}
+              aria-label="Custom clean streak"
+              onChange={(event) => {
+                streakEdited.current = true;
+                setCustomStreak(event.target.value);
+              }}
+            />
+          </label>
+        ) : (
+          <label className="ck-field">
+            <span className="ck-label">Attempt review boundary (optional)</span>
+            <input
+              className="ck-input"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={plannedReps}
+              placeholder="No boundary"
+              aria-label="Attempt review boundary"
+              onChange={(event) => setPlannedReps(event.target.value)}
+            />
+            <small>At this try count, review whether to continue, change strategy, restart, or close. Attempts remain available; this never proves mastery.</small>
+          </label>
+        )}
+      </div>
+      {streakChoice === "custom" && (
+        <label className="ck-field">
+          <span className="ck-label">Attempt review boundary (optional)</span>
+          <input
+            className="ck-input"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            value={plannedReps}
+            placeholder="No boundary"
+            aria-label="Attempt review boundary"
+            onChange={(event) => setPlannedReps(event.target.value)}
+          />
+          <small>At this try count, review whether to continue, change strategy, restart, or close. Attempts remain available; this never proves mastery.</small>
+        </label>
+      )}
 
       <details className="block-advanced">
         <summary>Advanced ladder + variants</summary>
@@ -247,7 +332,7 @@ export function BlockForm({
         {mode === "manual" && (
           <div className="ck-field-grid ck-manual-rule">
             <label className="ck-field">
-              <span className="ck-label">Cleans needed</span>
+              <span className="ck-label">Clean attempts before tempo step</span>
               <input
                 className="ck-input"
                 type="number"
@@ -291,7 +376,7 @@ export function BlockForm({
               inputMode="numeric"
               min={1}
               value={v.reps}
-              aria-label={`Variant ${i + 1} reps`}
+              aria-label={`Variant ${i + 1} attempts`}
               onChange={(e) =>
                 setVariant(i, { reps: parseIntOrNull(e.target.value) ?? 1 })
               }
@@ -313,7 +398,7 @@ export function BlockForm({
       </details>
 
       <button type="submit" className="ck-primary" disabled={opening}>
-        {opening ? "Opening…" : "Open block"}
+        {opening ? "Starting…" : "Start set"}
       </button>
     </form>
   );

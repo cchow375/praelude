@@ -121,7 +121,11 @@ describe("useSettings", () => {
     });
 
     expect(writes.map((write) => write.status)).toEqual(["rejected", "fulfilled"]);
-    expect(result.current.settings).toEqual({ theme: "light", interface_scale: 100 });
+    expect(result.current.settings).toEqual({
+      theme: "light",
+      interface_scale: 100,
+      practice_default_clean_streak: 5,
+    });
   });
 
   it("does not let an older failed write roll back a newer value for the same key", async () => {
@@ -184,6 +188,10 @@ describe("useSettings", () => {
       await Promise.resolve();
     });
 
-    expect(result.current.settings).toEqual({ theme: "dark", interface_scale: 80 });
+    expect(result.current.settings).toEqual({
+      theme: "dark",
+      interface_scale: 80,
+      practice_default_clean_streak: 5,
+    });
   });
 });

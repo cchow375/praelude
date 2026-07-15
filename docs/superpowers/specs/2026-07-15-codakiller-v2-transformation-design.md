@@ -6,8 +6,9 @@
 > **Source contracts:** (C) v2 Transformation Brief · (C) v2 Acceptance Matrix  
 > **Baseline:** installed v1.3.0, schema 7, and the preserved pre-v2 feedback backup
 
-This specification turns Christian's July 15 feedback into an implementation boundary. It is not a
-claim that any v2 behavior exists yet. When this document conflicts with an older phase plan, this
+This specification turns Christian's July 15 feedback into an implementation boundary. Its
+practice-truth slice now exists and is verified in source, but nothing here claims an installed v2
+until the release gates pass. When this document conflicts with an older phase plan, this
 document controls v2; the user-as-sensor thesis and deterministic hot-loop rules still control the
 whole product.
 
@@ -232,6 +233,12 @@ The v8 storage boundary adds:
 Current region.pdf_anchor remains the canonical edition-specific mark geometry. Its JSON schema may
 gain versioned mapping evidence, but existing version-1 payloads must still round-trip byte-for-byte
 until Christian explicitly changes a mark.
+
+Schema v9 is a deliberately narrow additive follow-up: a partial unique index permits only one
+native `active`/`paused` set while excluding preserved legacy states. A malformed database that
+somehow contains multiple native live sets is a visible recovery error; the runtime may not choose
+one silently or report an empty engine. Later additive schemas may implement focus intervals,
+receipts, recovery, and retention, but may not rebuild the v1 evidence tables.
 
 ### 5.2 Provenance
 
@@ -772,6 +779,7 @@ success alone does not close a native or human requirement.
 
 ### Next steps
 
-Implement schema v8 and the PracticeContract/effective-ledger boundary first. Attach concrete test
-names and evidence to D1–D3 and P1–P3 before building Score Atlas, Brain actions, or Universe growth
-on top of the new semantics.
+Schema 9 plus the PracticeContract/effective-ledger RepEngine boundary and P1/P3 evidence are now
+green in source. Finish D3 and P2/P4–P6 next: durable command receipts/idempotency, pause/focus /
+safety/recovery/retention, and the complete deterministic voice/replay path. Then build Score Atlas,
+Brain actions, Composer, and Universe on the single authoritative projection.

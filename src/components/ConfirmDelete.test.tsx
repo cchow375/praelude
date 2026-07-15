@@ -43,4 +43,21 @@ describe("ConfirmDelete", () => {
     expect(onConfirm).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog").getAttribute("data-visible")).toBe("false");
   });
+
+  it("restores focus to the actual delete button after cancel", async () => {
+    const onConfirm = vi.fn();
+    render(
+      <ConfirmDelete label="this block and its 9 reps" onConfirm={onConfirm}>
+        <button type="button">Delete block</button>
+      </ConfirmDelete>,
+    );
+    const trigger = screen.getByRole("button", { name: "Delete block" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
 });

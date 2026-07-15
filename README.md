@@ -18,14 +18,15 @@ actions, concise durable Brain, scalable navigation, a handcrafted shell, and ea
 Universe. Canonical status and contracts live in the Obsidian vault; start at
 `~/Desktop/christian's universe/Piano Practice/CodaKiller/(C) CodaKiller Command Center.md`.
 
-The first verified v2 checkpoint has landed in the working tree: a typed frontend command/error
-boundary with global receipts, additive schema-v8 sidecars/backfill/anomaly projection, pure
-protocol/effective-ledger derivation, a four-book corpus manifest, and a small deterministic voice
-firewall fixture. A disposable copy of the preserved schema-v7 backup migrated and reopened cleanly
-with every source row preserved. **The schema-v8/ledger foundation is not yet wired into RepEngine
-or UI projections, the full narrated replay has not run, Christian's live database remains
-untouched, and the installed app remains v1.3.0.** The next implementation gate is one
-transactional RepEngine/store/IPC path over the v2 contract and ledger projection.
+The current verified v2 checkpoint has landed in the working tree: additive schema-v8 sidecars
+plus the schema-v9 one-live-set invariant; one transactional PracticeContract RepEngine/store/IPC
+path; exact typed HUD/history/metrics/planner/export/Brain projections; append-only undo/correct /
+reverse/restart; global React receipts and metronome/state race guards; a four-book corpus manifest;
+and the first deterministic voice-firewall fixture. Disposable copies of the preserved schema-v7
+backup migrate and reopen cleanly with every source row/hash preserved. **Pause-aware focus,
+safety/recovery/retention, durable backend receipts, the full narrated voice cutover, later v2
+systems, native packaging, and live migration are still open. Christian's live database remains
+untouched and the installed app remains v1.3.0.**
 
 ## Build / run
 

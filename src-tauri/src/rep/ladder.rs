@@ -19,6 +19,7 @@ use crate::store::model::{IncrementRule, VariantSpec};
 pub const BPM_STEP: f64 = 4.0;
 
 /// The default total reps for a plain block (no variants, no explicit count).
+#[allow(dead_code)] // retained by the legacy resolve_auto compatibility helper
 pub const DEFAULT_PLANNED: u32 = 30;
 
 /// Resolve an "auto" ladder spec into a concrete [`IncrementRule`] and total
