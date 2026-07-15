@@ -2,6 +2,82 @@
 
 ## Decisions
 
+- **P7 / v2.0.0 Practice OS transformation boundary (2026-07-15; implementation in progress,
+  not shipped):**
+  - **Real use replaces the stale “never used” assumption.** A consistent July 15 schema-v7
+    snapshot contains 6 pieces / 27 Regions / 48 blocks / 481 reps / 8 sessions / 670 events / 21
+    Goals / 11 Daily Work rows. It passes `quick_check` and has zero FK violations. Preserve it at
+    `~/Library/Application Support/com.christian.codakiller/backups/(C)
+    pre-v2.0.0-feedback-2026-07-15-163528.db` (442,368 bytes; SHA-256
+    `4b21549237b6f70de7399444151063bcb3ea35a9067a0ce363ce07d14f8b1aee`). Never rehearse a
+    migration against the live database; copy this backup again for each destructive rehearsal.
+  - **The v1 completion model is semantically invalid for Christian's goal.** Every verdict
+    increments `reps_done`; flawed/failed do not reset `cleans_at_step`; planned attempts can be
+    exhausted with zero clean reps; variants also advance by attempts. v2 stores immutable attempt
+    evidence and derives attempts, clean totals, current/best consecutive streak, resets, recovery
+    target, accuracy, and completion. Undo/correct/restart are compensating/audited events, never
+    invisible history deletion. “100%” means satisfying the chosen consecutive-clean contract,
+    not rewriting prior errors or claiming global perfection.
+  - **Book mechanics are stage-specific, never one magic rule.** The shared model is
+    `Decode → Stabilize → Retrieve → Perform → Retain`, with safety, explicit focus, self-judgment,
+    and journaling across every stage. Five consecutive cleans is an evidence-aligned default, not
+    a universal law. Support configurable fixed/adaptive recovery, down-step/reset ladders,
+    blocked→serial→random work, variable practice after stabilization, sparse-click pulse modes,
+    cold retention checks, microbreaks, and user-selected safety stops. Suggested, never imposed.
+  - **The supported corpus must account for all four actual files.** v1's strict three-file
+    allowlist omits `gieseking-leimer-piano-technique.md`. v2 may add it only through the existing
+    canonical-file/read-only/capped retrieval boundary and must label historical pedagogy rather
+    than treating every assertion as modern evidence. Update corpus code, protocol, UI copy,
+    tests, specs, and every “three-book” claim together.
+  - **Score identity has two honest lanes.** A compatible structured MusicXML-rendered/linked
+    surface can provide exact measures. A scanned PDF or mismatched edition cannot become
+    “perfectly mapped” by assertion: it needs edition calibration, a visible confidence state,
+    correction before low-confidence save, and persistent normalized geometry. Drag-first target
+    creation is required in both lanes; exactness claims are conditional on source compatibility.
+  - **Voice has three authority tiers.** Tier A deterministic hot-loop actions (verdict, status,
+    undo/restart, pause/resume, tempo/metronome, close) remain local and terse. Tier B natural
+    structured requests produce typed validated drafts and require concise confirmation when
+    ambiguous/risky. Tier C coaching questions remain read-only until an explicit typed action is
+    previewed/confirmed. The model never writes SQLite or enters the rep loop directly.
+  - **Narrated PianoCoach WAVs are state-machine evidence, never music evidence.** The four files
+    total 3:23:24.885 / 1,309 Whisper segments; long segments and repeated hallucinations make raw
+    transcript bounds unreliable. Use a raw firewall replay, curated semantic moments, ASR
+    corruption matrix, four stateful session fixtures, mastery/property tests, and a separate
+    installed-STT audio lane. Piano, looping, searching, page turns, phones, and silence must be
+    inert. Never infer notes, hands, range, tempo, or quality from audio.
+  - **Observed voice hazards now have production evidence.** Christian reports missed `done` over
+    the piano. Three failed-rep notes contain ambient phrases. Current leading-fail grammar makes
+    `no thanks` / `again, ...` dangerous; 2.5-second identical-final dedup can swallow genuine
+    rapid micro-drill verdicts; colon/time ASR such as `5:16` can become the wrong range. Ambiguous
+    numbers never mutate without confirmation. User correction always wins.
+  - **Every mutation needs one global receipt/error surface.** `useRep.open` and
+    `useSession.end` currently catch errors that can have no visible renderer; lightweight setting
+    writes optimistically update memory and suppress failure. Callers must not advance query
+    revisions after failed writes. The new shell owns concise saved/failed/undone receipts with
+    operation IDs and an undo path where defined.
+  - **Brain memory/actions are constrained systems, not “full control.”** Default answers fit one
+    glance: hypothesis, one action, dose, stop condition, sources. Per-piece bounded threads may
+    persist and clear. Context joins selected score/MusicXML, explicit symptom, ledger/retention,
+    and four-book retrieval. Tools are an allowlist of typed drafts with validate → preview →
+    confirm → transaction → receipt → undo/audit. On the 8 GB M2 Air, offline baseline means local
+    retrieval/structured memory/protocol routing/templates—not an always-resident local LLM.
+  - **Interface direction is a locked product constraint.** Operational UI uses Cloud Dancer
+    off-white, ink, one deep-terracotta action accent, editorial serif + structured utility face,
+    asymmetrical negative space, matte filled artifacts, one staggered workspace reveal, and fast
+    physical micro-responses. No violet/purple gradient, generic three-card symmetry, glow/
+    glassmorphism, ambient loops, or component-library collage. Color is primarily score marks /
+    earned Universe. `prefers-reduced-motion`, 720×520, keyboard, screen reader, and 75–125% scale
+    remain release gates.
+  - **Current live anomalies are evidence, not cleanup permission.** Snapshot includes one reversed
+    range (452–449), 11 overrun blocks, repeated range/label groups, 13 empty abandoned blocks, and
+    same-second bursts up to seven attempts. Future writes must reject invalid ranges and record
+    input provenance. Migration retains every row and produces an anomaly report; archival or
+    correction requires Christian-visible audited action.
+  - **Baseline before v2 edits:** clean `main` at `fb7125c` / tag `v1.3.0`; npm 36 files / 217
+    passed; Rust 380 normal tests passed with 11 hardware/network/real-data ignores; the three safe
+    real-data gates passed explicitly; strict clippy and production build passed. No git remote.
+    Vite warns that the 1.24 MB PDF worker would benefit from code splitting.
+
 - **P6 intelligence/workspace / v1.3.0 contextual Practice Brain (2026-07-13):**
   - **Context must be explicit and canonical.** A Brain question with no frontend piece selection
     receives no piece, even if `ui.current_piece` is persisted. A selected Region with zero blocks

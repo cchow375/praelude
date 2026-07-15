@@ -37,6 +37,11 @@ version history live in the Obsidian vault**, not here:
 - `NOTES.md` — engineering decisions, gotchas, hard-won empirical facts (read before touching
   `src-tauri/src/audio`, `stt`, `tts`, `metronome`).
 - `docs/superpowers/specs/2026-07-09-codakiller-design.md` — the approved design spec.
+- `docs/superpowers/specs/2026-07-15-codakiller-v2-transformation-design.md` — active P7/v2
+  architecture and compatibility contract.
+- `docs/superpowers/plans/2026-07-15-codakiller-v2.md` — active dependency-ordered execution plan.
+- `docs/qa/(C) v2-narrated-replay-contract.md` — old-session speech/state-machine regression
+  boundary; never a piano-grading benchmark.
 - `docs/superpowers/plans/2026-07-09-codakiller-p0-p2.md` — the P0–P2 execution plan.
 - `docs/qa/` — acceptance records + screenshots (incl. the pending at-piano checklist).
 - `.superpowers/sdd/progress.md` — per-task ledger + carry-notes.
@@ -56,12 +61,11 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**v1.3.0 shipped (P6 intelligence/workspace release, tag `v1.3.0`, 2026-07-13): the interface
-scales 75–125%, the score rail and persistent Brain drawer collapse, and floating Rep work no
-longer reserves a permanent gutter. The contextual Brain performs strict read-only retrieval over
-three external practice books, extracts bounded notated facts from the exact selected MusicXML
-range, uses canonical piece/Region/rep/session/goal state, preserves a bounded back-and-forth
-thread, and shows a per-answer grounding receipt. The sealed app is installed at
-`/Applications/CodaKiller.app`; fresh adversarial review and native release gates passed. Full
-at-piano voice/metronome/Brain acceptance and an off-disk backup remain open.** Next: run the
-v1.3.0 Scherzo contextual-Brain workflow at the piano.
+**Installed is v1.3.0 (tag `v1.3.0`, 2026-07-13). Active work is P7 / v2.0.0, started 2026-07-15
+from Christian's substantial real use: 481 attempts exposed wrong completion/recovery semantics,
+unclear writes, score/history friction, real voice false-positive/negative evidence, a verbose
+session-only Brain, and a UI/Universe that failed the user.** A verified schema-v7 snapshot is
+preserved at `(C) pre-v2.0.0-feedback-2026-07-15-163528.db`. Implement in this locked order:
+ledger/protocol → Score Atlas/history → voice replay/drafts/Brain → shell/Universe → full native /
+adversarial release. v2 is not shipped and the installed app/tutorial remain v1.3.0. Off-disk
+remote and packaged v2 Steinway acceptance remain open.
