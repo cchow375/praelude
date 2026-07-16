@@ -30,3 +30,4 @@ dist-ssr
 # Agent tooling scratch
 .claude/
 .claude-flow/
+.gstack/

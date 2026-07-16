@@ -176,7 +176,7 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
       {preview && preview.items.length > 0 && (
         <section className="recovery-banner" aria-label="Missed work available for review">
           <div>
-            <strong>{preview.items.length} missed {preview.items.length === 1 ? "item" : "items"} need a decision.</strong>
+            <strong>{preview.items.length} missed {preview.items.length === 1 ? "item" : "items"} {preview.items.length === 1 ? "needs" : "need"} a decision.</strong>
             <span>Reviewing is not a penalty. Nothing moves automatically.</span>
           </div>
           <button type="button" onClick={() => setReviewing(true)}>Review missed work</button>
