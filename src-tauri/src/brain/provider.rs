@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::context::GroundedContext;
-use super::{BrainError, ProposedAction, ProposedActionBody, ProposedVerdict, QuestionSource};
+use super::{
+    BrainError, OfflineCause, ProposedAction, ProposedActionBody, ProposedVerdict, QuestionSource,
+};
 
 const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
 const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -146,6 +148,22 @@ impl ProviderChain {
         self.configs.is_empty()
     }
 
+    /// The provider name of the first configured provider, if any. Used by the
+    /// no-network status contract to report which provider is configured.
+    pub fn primary_provider(&self) -> Option<ProviderName> {
+        self.configs.first().map(|config| config.provider)
+    }
+
+    /// A truthful, static offline reason for a chain with no usable provider.
+    /// Only meaningful when the chain is empty; the online path never calls it.
+    pub fn offline_reason(&self) -> &'static str {
+        if self.is_empty() {
+            "no key configured"
+        } else {
+            "provider configured"
+        }
+    }
+
     pub fn ask(
         &self,
         question: &str,
@@ -153,6 +171,9 @@ impl ProviderChain {
         context: &GroundedContext,
         transport: &dyn Transport,
     ) -> Result<ProviderOutput, BrainError> {
+        // Tracks why the chain fell through, so a truthful reason is returned
+        // (via `BrainError::reason()`) instead of only printed to stderr.
+        let mut last_cause = OfflineCause::NoProvider;
         'config: for config in &self.configs {
             if config.provider == ProviderName::Offline {
                 continue;
@@ -170,6 +191,7 @@ impl ProviderChain {
                     Ok(response) => response,
                     Err(()) => {
                         eprintln!("brain: {:?} provider transport failed", config.provider);
+                        last_cause = OfflineCause::Transport;
                         continue; // retry the same provider, or fall through
                     }
                 };
@@ -178,6 +200,7 @@ impl ProviderChain {
                         "brain: {:?} provider returned HTTP {}",
                         config.provider, response.status
                     );
+                    last_cause = OfflineCause::HttpStatus(response.status);
                     continue; // transient upstream error: retry the same provider
                 }
                 if !(200..300).contains(&response.status) {
@@ -185,6 +208,7 @@ impl ProviderChain {
                         "brain: {:?} provider returned HTTP {}",
                         config.provider, response.status
                     );
+                    last_cause = OfflineCause::HttpStatus(response.status);
                     continue 'config; // client error: won't fix itself, next provider
                 }
                 let parsed = match config.provider {
@@ -197,6 +221,7 @@ impl ProviderChain {
                         let proposed_action = parse_proposed_action(raw.proposed_action);
                         return Ok(ProviderOutput {
                             provider: config.provider,
+                            model: config.model.clone(),
                             answer: raw.answer,
                             citation_ids: raw.citation_ids,
                             proposed_action,
@@ -204,12 +229,13 @@ impl ProviderChain {
                     }
                     Err(_) => {
                         eprintln!("brain: {:?} provider response was invalid", config.provider);
+                        last_cause = OfflineCause::BadResponse;
                         continue 'config; // unusable body: next provider, no retry
                     }
                 }
             }
         }
-        Err(BrainError::ProviderUnavailable)
+        Err(BrainError::ProviderUnavailable(last_cause))
     }
 }
 
@@ -580,8 +606,10 @@ fn parse_gemini(body: &[u8]) -> Result<RawAnswer, BrainError> {
     parsed.ok_or(BrainError::ProviderResponse)
 }
 
+#[derive(Debug)]
 pub struct ProviderOutput {
     pub provider: ProviderName,
+    pub model: String,
     pub answer: String,
     pub citation_ids: Vec<String>,
     pub proposed_action: Option<ProposedAction>,
@@ -639,6 +667,37 @@ mod tests {
     #[test]
     fn explicit_offline_preference_never_resolves_or_builds_a_native_provider() {
         assert!(ProviderChain::from_native_config_with_preference(Some("offline")).is_empty());
+    }
+
+    #[test]
+    fn empty_chain_reports_no_key_reason() {
+        let chain = ProviderChain::default();
+        assert!(chain.is_empty());
+        assert_eq!(chain.offline_reason(), "no key configured");
+    }
+
+    #[test]
+    fn exhausted_chain_reports_last_transport_reason() {
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Gemini,
+            "k",
+            "m",
+        )]);
+        let transport = FakeTransport::responses(vec![
+            HttpResponse {
+                status: 503,
+                body: b"x".to_vec(),
+            },
+            HttpResponse {
+                status: 503,
+                body: b"x".to_vec(),
+            },
+        ]);
+        let context = GroundedContext { json: "{}".into() };
+        let err = chain
+            .ask("q", QuestionSource::Typed, &context, &transport)
+            .unwrap_err();
+        assert_eq!(err.reason(), "provider error: HTTP 503");
     }
 
     #[test]

@@ -306,13 +306,46 @@ impl PendingIntakeReviews {
     }
 }
 
+/// Why the provider chain ended up offline. Carried by
+/// `BrainError::ProviderUnavailable` so the UI can show a truthful reason
+/// instead of a swallowed `eprintln!`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OfflineCause {
+    /// No provider was configured, or none was ever attempted.
+    NoProvider,
+    /// A configured provider's transport failed (network unreachable).
+    Transport,
+    /// A configured provider returned a non-2xx HTTP status.
+    HttpStatus(u16),
+    /// A configured provider returned a 2xx body we could not use.
+    BadResponse,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BrainError {
     InvalidQuestion(String),
     Context(String),
-    ProviderUnavailable,
+    ProviderUnavailable(OfflineCause),
     ProviderResponse,
     PolicyViolation,
+}
+
+impl BrainError {
+    /// A short, truthful, human-readable cause the frontend can surface.
+    /// Never contains a secret; the HTTP variant carries only the status code.
+    pub fn reason(&self) -> String {
+        match self {
+            Self::ProviderUnavailable(cause) => match cause {
+                OfflineCause::NoProvider => "no key configured".to_string(),
+                OfflineCause::Transport => "key present but network unreachable".to_string(),
+                OfflineCause::HttpStatus(status) => format!("provider error: HTTP {status}"),
+                OfflineCause::BadResponse => "provider returned an unusable response".to_string(),
+            },
+            Self::ProviderResponse => "provider returned an unusable response".to_string(),
+            Self::InvalidQuestion(message) | Self::Context(message) => message.clone(),
+            Self::PolicyViolation => "the brain response crossed a safety boundary".to_string(),
+        }
+    }
 }
 
 impl std::fmt::Display for BrainError {
@@ -320,7 +353,9 @@ impl std::fmt::Display for BrainError {
         match self {
             Self::InvalidQuestion(message) => write!(f, "{message}"),
             Self::Context(message) => write!(f, "{message}"),
-            Self::ProviderUnavailable => write!(f, "No brain provider is configured or available"),
+            Self::ProviderUnavailable(_) => {
+                write!(f, "No brain provider is configured or available")
+            }
             Self::ProviderResponse => write!(f, "The brain provider returned an invalid response"),
             Self::PolicyViolation => write!(f, "The brain response crossed a safety boundary"),
         }
@@ -421,12 +456,13 @@ fn ask_with(
 
     let ProviderOutput {
         provider,
+        model: _,
         answer,
         citation_ids,
         proposed_action,
     } = match chain.ask(question, request.source, &context, transport) {
         Ok(output) => output,
-        Err(BrainError::ProviderUnavailable) => {
+        Err(BrainError::ProviderUnavailable(_)) => {
             return Ok(offline_answer(
                 methods,
                 corpus.hits,
@@ -1722,7 +1758,10 @@ mod tests {
         ] {
             let answer = ask_voice_action(bad.clone(), QuestionSource::Voice);
             assert!(answer.proposed_action.is_none(), "should drop: {bad}");
-            assert!(!answer.answer.trim().is_empty(), "answer still returned: {bad}");
+            assert!(
+                !answer.answer.trim().is_empty(),
+                "answer still returned: {bad}"
+            );
         }
     }
 

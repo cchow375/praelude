@@ -116,6 +116,12 @@ fn keychain_has_key(account: &str) -> bool {
 /// the final `security` argument makes the tool read the password from stdin.
 pub fn save_api_key(provider: ApiKeyProvider, raw_key: &str) -> Result<ApiKeyStatus, String> {
     let key = raw_key.trim();
+    // Reject a blank / whitespace-only key explicitly so it can never overwrite a
+    // real stored key with an empty value (the root cause of the offline-brain
+    // bug). This runs before any `security` subprocess.
+    if key.is_empty() {
+        return Err("API key must not be empty.".into());
+    }
     if !(8..=512).contains(&key.len()) || key.chars().any(char::is_control) {
         return Err("API key must be 8–512 printable characters.".into());
     }
@@ -209,6 +215,17 @@ mod tests {
         assert_eq!(ApiKeyProvider::Claude.env_name(), "ANTHROPIC_API_KEY");
         assert_eq!(ApiKeyProvider::Gemini.account(), "gemini");
         assert_eq!(ApiKeyProvider::Gemini.env_name(), "GEMINI_API_KEY");
+    }
+
+    #[test]
+    fn empty_or_whitespace_key_is_rejected_without_touching_the_keychain() {
+        // A blank / whitespace-only save must never reach `security`, so a blank
+        // can never overwrite a real stored key. The guard returns Err before any
+        // subprocess runs.
+        for blank in ["", "   ", "\t\n", "     \n  "] {
+            let result = save_api_key(ApiKeyProvider::Gemini, blank);
+            assert!(result.is_err(), "blank key should be rejected: {blank:?}");
+        }
     }
 
     #[test]
