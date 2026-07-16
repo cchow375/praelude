@@ -1,85 +1,64 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-let lastIntent: { kind: string; text: string; bpm: number | null } | null = null;
-
+// The Brain workspace and its status line drive themselves off the native
+// Tauri invoke seam. Mock it to answer the load-path commands the workspace
+// issues on mount (status + pieces + plan) and a typed question (brain_ask).
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn().mockImplementation((command: string) =>
-    Promise.resolve(command === "pieces_list" || command === "brain_plan_preview" ? [] : command === "brain_ask" ? {
-      id: "voice-answer",
-      answer: "Try three slow landings.",
-      provider: "offline",
-      citations: [],
-      methods: [],
-      intake_review: null,
-    } : null)),
-}));
-vi.mock("../voice/useVoice", () => ({
-  useVoice: () => ({
-    status: "live",
-    mute: vi.fn(),
-    lastIntent,
-    downGuidance: null,
+  invoke: vi.fn().mockImplementation((command: string) => {
+    switch (command) {
+      case "brain_status":
+        return Promise.resolve({
+          online: true,
+          provider: "gemini",
+          reason: null,
+        });
+      case "pieces_list":
+        return Promise.resolve([]);
+      case "brain_plan_preview":
+        return Promise.resolve([]);
+      case "brain_ask":
+        return Promise.resolve({
+          id: "voice-answer",
+          answer: "Try three slow landings.",
+          provider: "offline",
+          citations: [],
+          methods: [],
+          intake_review: null,
+        });
+      default:
+        return Promise.resolve(null);
+    }
   }),
 }));
-vi.mock("../rep/useRep", () => ({
-  useRep: () => ({ snap: null, feed: [], error: null, open: vi.fn(), check: vi.fn(), close: vi.fn() }),
-}));
-vi.mock("../session/useSession", () => ({
-  useSession: () => ({ session: null, endSession: vi.fn() }),
-}));
 
-import { Shell } from "../../components/Shell";
+import { Shell } from "../../shell/Shell";
 
-afterEach(() => {
-  cleanup();
-  lastIntent = null;
-});
+afterEach(cleanup);
 
-describe("Brain navigation", () => {
-  it("opens the persistent Brain drawer without leaving the current workspace", () => {
+describe("Brain navigation (v3 shell)", () => {
+  it("navigates to the Brain workspace from the shell nav", async () => {
     render(<Shell />);
-    const trigger = screen.getByRole("button", { name: "Brain" });
-    fireEvent.click(trigger);
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByRole("tab", { name: "Today" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByTestId("main-brain")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Brain" }));
+    expect(await screen.findByTestId("workspace-brain")).toBeTruthy();
+    // Today is no longer mounted once Brain is the active tab.
+    expect(screen.queryByTestId("workspace-today")).toBeNull();
   });
 
-  it("opens Brain and forwards a wake-word question from the global voice listener", async () => {
-    lastIntent = { kind: "question", text: "How do I stabilize this leap?", bpm: null };
+  it("answers a typed question inside the Brain workspace", async () => {
     render(<Shell />);
+    fireEvent.click(screen.getByRole("tab", { name: "Brain" }));
 
-    await screen.findByText("How do I stabilize this leap?");
-    expect(screen.getByRole("button", { name: "Brain" }).getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("How do I stabilize this leap?")).toBeTruthy();
-  });
-
-  it("keeps the conversation mounted across drawer collapse and reopen", async () => {
-    render(<Shell />);
-    fireEvent.click(screen.getByRole("button", { name: "Brain" }));
-    fireEvent.change(screen.getByLabelText("Ask Coda"), { target: { value: "How do I land this leap?" } });
+    fireEvent.change(await screen.findByLabelText("Ask Coda"), {
+      target: { value: "How do I land this leap?" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
     expect(await screen.findByText("Try three slow landings.")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Collapse Practice Brain" }));
-    fireEvent.click(screen.getByRole("button", { name: "Brain" }));
-    expect(screen.getByText("Try three slow landings.")).toBeTruthy();
   });
 
-  it("returns keyboard focus to the Brain tool when the drawer closes", async () => {
+  it("shows the persistent Brain status line", async () => {
     render(<Shell />);
-    const trigger = screen.getByRole("button", { name: "Brain" });
-    fireEvent.click(trigger);
-    const collapse = screen.getByRole("button", { name: "Collapse Practice Brain" });
-    collapse.focus();
-    fireEvent.click(collapse);
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
-
-    fireEvent.click(trigger);
-    screen.getByLabelText("Ask Coda").focus();
-    fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(screen.getByRole("tab", { name: "Brain" }));
+    expect(await screen.findByText("● online — gemini")).toBeTruthy();
   });
 });

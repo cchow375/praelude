@@ -1,63 +1,83 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { brainApi } from "./api";
 import { todayLocal } from "../calendar/dates";
+import { Button, Disclosure, Receipt } from "../../ui";
 import {
-  parseProposedAction,
-  type ProposedAction,
-} from "../voice/domain/proposedAction";
+  brainStatus,
+  commandErrorMessage,
+  defineCommand,
+  executeCommand,
+  type BrainStatus,
+  type CommandInvoker,
+} from "../../services/command";
+import type { PieceSummary } from "../pieces/types";
 import type {
   BrainAnswer,
   BrainApi,
-  BrainCitation,
   BrainGroundingSummary,
   BrainIntakeReview,
   BrainProvider,
-  BrainQuestionSource,
   BrainTurnRow,
   IntakeChange,
   PracticeBrainContext,
-  WakeQuestion,
   WorkSuggestion,
 } from "./types";
-import "./BrainWorkspace.css";
+import "./brain.css";
+
+/**
+ * The v3 Brain workspace: a single-column transcript with a persistent status
+ * line at the top and ONE primary action (the question input). Secondary
+ * surfaces — grounding, methods, intake review, and the deterministic next-work
+ * suggestions — live behind Disclosures so no screen is a wall of controls.
+ *
+ * Two seams: `api` (the BrainApi IPC boundary for ask/thread/intake/plan) and
+ * `invoker` (the command.ts seam for `brain_status` + `pieces_list`). Both are
+ * injectable for tests; production uses the real Tauri paths.
+ */
 
 interface ThreadEntry {
   id: string;
   question: string;
-  source: BrainQuestionSource;
   answer: BrainAnswer;
-}
-
-export interface BrainProposedActionEvent {
-  readonly answerId: string;
-  readonly action: ProposedAction;
 }
 
 export interface BrainWorkspaceProps {
   api?: BrainApi;
-  wakeQuestion?: WakeQuestion | null;
-  compact?: boolean;
-  practiceContext?: PracticeBrainContext | null;
-  /** Fires when a *voice* answer carries a well-formed confirm-gated action.
-   *  The parent owns the slim card and the confirm→command mapping. */
-  onProposedAction?: (event: BrainProposedActionEvent) => void;
+  invoker?: CommandInvoker;
 }
 
 const MAX_HISTORY_EXCHANGES = 6;
 const MAX_HISTORY_CHARS = 2_000;
 
-function boundedHistory(thread: ThreadEntry[]) {
-  return thread.slice(-MAX_HISTORY_EXCHANGES).flatMap((entry) => [
-    { role: "user" as const, content: entry.question.slice(0, MAX_HISTORY_CHARS) },
-    { role: "assistant" as const, content: entry.answer.answer.slice(0, MAX_HISTORY_CHARS) },
-  ]);
-}
+const piecesListCommand = defineCommand<undefined, PieceSummary[]>(
+  "pieces_list",
+  "Pieces could not be loaded.",
+);
 
 const PROVIDER_LABELS: Record<BrainProvider, string> = {
   claude: "Claude",
-  gemini: "Gemini fallback",
+  gemini: "Gemini",
   offline: "Offline library",
 };
+
+function boundedHistory(thread: ThreadEntry[]) {
+  return thread.slice(-MAX_HISTORY_EXCHANGES).flatMap((entry) => [
+    {
+      role: "user" as const,
+      content: entry.question.slice(0, MAX_HISTORY_CHARS),
+    },
+    {
+      role: "assistant" as const,
+      content: entry.answer.answer.slice(0, MAX_HISTORY_CHARS),
+    },
+  ]);
+}
 
 function isProvider(value: string | null): value is BrainProvider {
   return value === "claude" || value === "gemini" || value === "offline";
@@ -76,12 +96,11 @@ function seedThreadFromTurns(turns: BrainTurnRow[]): ThreadEntry[] {
       entries.push({
         id,
         question: pendingQuestion,
-        source: "typed",
         answer: {
           id,
           answer: turn.content,
           provider: isProvider(turn.provider) ? turn.provider : "offline",
-          citations: Array.isArray(turn.citations) ? (turn.citations as BrainCitation[]) : [],
+          citations: Array.isArray(turn.citations) ? turn.citations : [],
           methods: [],
           intake_review: null,
         },
@@ -92,13 +111,31 @@ function seedThreadFromTurns(turns: BrainTurnRow[]): ThreadEntry[] {
   return entries;
 }
 
+/** Minimal grounded context from the selected piece. The backend context
+ *  resolver keys off `piece_id`; region/active-block are resolved server-side. */
+function pieceContext(piece: PieceSummary | null): PracticeBrainContext | null {
+  if (!piece) return null;
+  return {
+    piece_id: piece.id,
+    piece_title: piece.title,
+    composer: piece.composer,
+    surface: "details",
+    region: null,
+    current_page: null,
+    edition_id: null,
+    edition_label: null,
+    active_block: null,
+  };
+}
+
 export function BrainWorkspace({
   api = brainApi,
-  wakeQuestion = null,
-  compact = false,
-  practiceContext = null,
-  onProposedAction,
+  invoker,
 }: BrainWorkspaceProps) {
+  const [status, setStatus] = useState<BrainStatus | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [pieces, setPieces] = useState<PieceSummary[]>([]);
+  const [pieceId, setPieceId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [thread, setThread] = useState<ThreadEntry[]>([]);
   const [threadId, setThreadId] = useState<number | null>(null);
@@ -107,37 +144,74 @@ export function BrainWorkspace({
   const [plan, setPlan] = useState<WorkSuggestion[]>([]);
   const [planLoading, setPlanLoading] = useState(true);
   const [planError, setPlanError] = useState<string | null>(null);
-  const handledWakeId = useRef<number | null>(null);
   const threadEnd = useRef<HTMLDivElement>(null);
   const planGeneration = useRef(0);
+
+  const selectedPiece = pieces.find((piece) => piece.id === pieceId) ?? null;
+  const context = pieceContext(selectedPiece);
+
+  // Persistent status line (no network — key presence + settings only).
+  useEffect(() => {
+    let active = true;
+    executeCommand(brainStatus, undefined, invoker)
+      .then((next) => {
+        if (!active) return;
+        setStatus(next);
+        setStatusError(null);
+      })
+      .catch((cause) => {
+        if (!active) return;
+        setStatus(null);
+        setStatusError(commandErrorMessage(cause, "Brain status unavailable."));
+      });
+    return () => {
+      active = false;
+    };
+  }, [invoker]);
+
+  // Piece list for the per-piece thread selector.
+  useEffect(() => {
+    let active = true;
+    executeCommand(piecesListCommand, undefined, invoker)
+      .then((list) => {
+        if (active) setPieces(list ?? []);
+      })
+      .catch(() => {
+        if (active) setPieces([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [invoker]);
 
   const refreshPlan = useCallback(async () => {
     const generation = ++planGeneration.current;
     setPlanLoading(true);
     setPlanError(null);
     try {
-      const next = (await api.planPreview(practiceContext?.piece_id ?? null)) ?? [];
+      const next = (await api.planPreview(pieceId)) ?? [];
       if (generation === planGeneration.current) setPlan(next);
     } catch (cause) {
       if (generation === planGeneration.current) {
         setPlan([]);
-        setPlanError(errorMessage(cause, "Pick a piece in Practice to load next work."));
+        setPlanError(errorMessage(cause, "Could not load next work."));
       }
     } finally {
       if (generation === planGeneration.current) setPlanLoading(false);
     }
-  }, [api, practiceContext?.piece_id]);
+  }, [api, pieceId]);
 
   useEffect(() => {
     void refreshPlan();
-    return () => { planGeneration.current += 1; };
+    return () => {
+      planGeneration.current += 1;
+    };
   }, [refreshPlan]);
 
-  // Durable memory: on opening the drawer for a piece, resume (or create) its
-  // thread and seed the displayed history. Switching pieces resets first, so a
-  // late resume can never seed one piece's turns onto another.
+  // Durable memory: selecting a piece resumes (or creates) its thread and seeds
+  // the transcript. Switching pieces resets first, so a late resume can never
+  // seed one piece's turns onto another.
   useEffect(() => {
-    const pieceId = practiceContext?.piece_id ?? null;
     setThreadId(null);
     setThread([]);
     if (pieceId == null) return;
@@ -152,48 +226,46 @@ export function BrainWorkspace({
         );
       })
       .catch(() => {
-        // Persistence is best-effort; the drawer still answers without memory.
+        // Persistence is best-effort; the workspace still answers without memory.
       });
-    return () => { active = false; };
-  }, [api, practiceContext?.piece_id]);
+    return () => {
+      active = false;
+    };
+  }, [api, pieceId]);
 
-  const ask = useCallback(async (rawQuestion: string, source: BrainQuestionSource) => {
-    const question = rawQuestion.trim();
-    if (!question || asking) return;
-    setAsking(true);
-    setError(null);
-    try {
-      const answer = await api.ask({
-        question,
-        source,
-        piece_id: practiceContext?.piece_id ?? null,
-        thread_id: threadId,
-        history: boundedHistory(thread),
-        context: practiceContext,
-      });
-      if (!isBrainAnswer(answer)) {
-        throw new Error("The practice brain returned an invalid response.");
+  const ask = useCallback(
+    async (rawQuestion: string) => {
+      const question = rawQuestion.trim();
+      if (!question || asking) return;
+      setAsking(true);
+      setError(null);
+      try {
+        const answer = await api.ask({
+          question,
+          source: "typed",
+          piece_id: pieceId,
+          thread_id: threadId,
+          history: boundedHistory(thread),
+          context,
+        });
+        if (!isBrainAnswer(answer)) {
+          throw new Error("The practice brain returned an invalid response.");
+        }
+        setThread((current) => [
+          ...current,
+          { id: `${answer.id}:${current.length}`, question, answer },
+        ]);
+        setDraft("");
+      } catch (cause) {
+        setError(errorMessage(cause, "The practice brain could not answer."));
+      } finally {
+        setAsking(false);
       }
-      setThread((current) => [
-        ...current,
-        { id: `${answer.id}:${current.length}`, question, source, answer },
-      ]);
-      // Voice-only, defense-in-depth: even though the backend gates on Voice, a
-      // draft surfaces only for a spoken exchange and a re-narrowed action.
-      if (source === "voice" && onProposedAction) {
-        const action = parseProposedAction(answer.proposed_action);
-        if (action) onProposedAction({ answerId: answer.id, action });
-      }
-      if (source === "typed") setDraft("");
-    } catch (cause) {
-      setError(errorMessage(cause, "The practice brain could not answer."));
-    } finally {
-      setAsking(false);
-    }
-  }, [api, asking, onProposedAction, practiceContext, thread, threadId]);
+    },
+    [api, asking, context, pieceId, thread, threadId],
+  );
 
   const clearConversation = useCallback(async () => {
-    const pieceId = practiceContext?.piece_id ?? null;
     setError(null);
     if (pieceId == null) {
       setThread([]);
@@ -208,13 +280,7 @@ export function BrainWorkspace({
     } catch (cause) {
       setError(errorMessage(cause, "Could not clear the conversation."));
     }
-  }, [api, practiceContext?.piece_id]);
-
-  useEffect(() => {
-    if (!wakeQuestion || asking || handledWakeId.current === wakeQuestion.id) return;
-    handledWakeId.current = wakeQuestion.id;
-    void ask(wakeQuestion.text, "voice");
-  }, [ask, asking, wakeQuestion]);
+  }, [api, pieceId]);
 
   useEffect(() => {
     threadEnd.current?.scrollIntoView?.({ behavior: "auto", block: "nearest" });
@@ -222,135 +288,159 @@ export function BrainWorkspace({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    void ask(draft, "typed");
+    void ask(draft);
   };
 
-  const latestProvider = thread[thread.length - 1]?.answer.provider;
+  const online = status?.online === true;
+  const statusLine = statusError
+    ? `○ status unavailable — ${statusError}`
+    : status == null
+      ? "Checking Brain connection…"
+      : online
+        ? `● online — ${status.provider ?? "provider configured"}`
+        : `○ offline — ${status.reason ?? "no provider configured"}`;
 
   return (
-    <main className={`brain-workspace ${compact ? "is-compact" : ""}`} data-testid="main-brain">
-      <header className="brain-header">
-        <div>
-          <p className="brain-eyebrow">Practice brain</p>
-          <h1>{compact ? "Ask about this practice." : "Ask what to do next."}</h1>
-          {!compact && <p>Grounded methods, your practice context, and sources you can inspect.</p>}
-        </div>
-        {latestProvider && (
-          <ProviderBadge provider={latestProvider} />
-        )}
+    <section
+      className="brain"
+      data-testid="workspace-brain"
+      aria-label="Brain workspace"
+    >
+      <header className="brain-head">
+        <p
+          className={`brain-status-line is-${online ? "online" : "offline"}`}
+          role="status"
+          data-online={online}
+        >
+          {statusLine}
+        </p>
+        <label className="brain-piece-picker">
+          <span>Piece</span>
+          <select
+            aria-label="Piece thread"
+            value={pieceId ?? ""}
+            onChange={(event) =>
+              setPieceId(event.target.value ? Number(event.target.value) : null)
+            }
+          >
+            <option value="">General question</option>
+            {pieces.map((piece) => (
+              <option key={piece.id} value={piece.id}>
+                {piece.title}
+              </option>
+            ))}
+          </select>
+        </label>
       </header>
 
-      <PracticeGrounding context={practiceContext} />
-
-      <section className="brain-thread" aria-label="Conversation" aria-live="polite">
-        {compact ? (
-          <details className="brain-compact-plan">
-            <summary>Suggested next work</summary>
-            <PlanPreview
-              suggestions={plan}
-              loading={planLoading}
-              error={planError}
-              onRefresh={refreshPlan}
-              onSchedule={api.schedule}
-            />
-          </details>
-        ) : (
-          <PlanPreview
-            suggestions={plan}
-            loading={planLoading}
-            error={planError}
-            onRefresh={refreshPlan}
-            onSchedule={api.schedule}
-          />
-        )}
-        {thread.length === 0 && (
-          <div className="brain-empty">
-            <p className="brain-empty-title">Start with the failure, not a vague goal.</p>
-            <p>Try “Why does the coda leap miss above 92 BPM?” or say “Coda” followed by your question.</p>
-          </div>
+      <section
+        className="brain-transcript"
+        aria-label="Conversation"
+        aria-live="polite"
+      >
+        {thread.length === 0 && !asking && (
+          <p className="brain-empty">
+            Start with the failure, not a vague goal. Try “Why does the coda
+            leap miss above 92 BPM?”
+          </p>
         )}
         {thread.map((entry) => (
-          <article className="brain-exchange" key={entry.id}>
-            <div className="brain-question">
-              <span>{entry.source === "voice" ? "Voice" : "You"}</span>
-              <p>{entry.question}</p>
-            </div>
-            <div className="brain-answer">
-              <div className="brain-answer-meta">
-                <span>Coda</span>
-                <ProviderBadge provider={entry.answer.provider} compact />
-              </div>
-              <p className="brain-answer-copy">{entry.answer.answer}</p>
+          <article className="brain-turn" key={entry.id}>
+            <p className="brain-q">
+              <span className="brain-who">You</span>
+              {entry.question}
+            </p>
+            <div className="brain-a">
+              <p className="brain-a-text">{entry.answer.answer}</p>
+              {entry.answer.citations.length > 0 && (
+                <ul className="brain-chips" aria-label="Citations">
+                  {entry.answer.citations.map((citation) => (
+                    <li
+                      className="brain-chip"
+                      key={citation.source_id}
+                      title={citation.excerpt}
+                    >
+                      <span className="brain-chip-id">
+                        [{citation.source_id}]
+                      </span>{" "}
+                      {citation.label}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <span className="brain-provider">
+                {PROVIDER_LABELS[entry.answer.provider]}
+              </span>
               {entry.answer.grounding && (
-                <GroundingReceipt
-                  grounding={entry.answer.grounding}
-                  provider={entry.answer.provider}
-                />
+                <Disclosure
+                  className="brain-secondary"
+                  summary={`Grounding (${entry.answer.grounding.knowledge_sources.length} sources)`}
+                >
+                  <GroundingReceipt
+                    grounding={entry.answer.grounding}
+                    provider={entry.answer.provider}
+                  />
+                </Disclosure>
               )}
               {entry.answer.methods.length > 0 && (
-                <section className="brain-methods" aria-label="Practice methods">
-                  {entry.answer.methods.map((method) => (
-                    <article className="brain-method" key={method.id}>
-                      <h2>{method.name}</h2>
-                      <p>{method.why}</p>
-                      <dl>
-                        <div><dt>Dose</dt><dd>{method.dose}</dd></div>
-                        <div><dt>Watch for</dt><dd>{method.watch_for}</dd></div>
-                      </dl>
-                    </article>
-                  ))}
-                </section>
-              )}
-              {entry.answer.citations.length > 0 && (
-                <section className="brain-citations" aria-label="Grounding sources">
-                  <h2>Grounding from the knowledge library</h2>
-                  <ol>
-                    {entry.answer.citations.map((citation) => (
-                      <li key={citation.source_id}>
-                        <span className="brain-citation-id">[{citation.source_id}]</span>{" "}
-                        <span>
-                          <strong>{citation.label}</strong> — {citation.excerpt}
-                          {citation.locator && (
-                            <small className="brain-citation-local">
-                              {citation.locator}
-                            </small>
-                          )}
-                          {citation.url && <small className="brain-citation-url">{citation.url}</small>}
-                        </span>
-                      </li>
+                <Disclosure
+                  className="brain-secondary"
+                  summary={`Methods (${entry.answer.methods.length})`}
+                >
+                  <div className="brain-methods">
+                    {entry.answer.methods.map((method) => (
+                      <article className="brain-method" key={method.id}>
+                        <h3>{method.name}</h3>
+                        <p>{method.why}</p>
+                        <dl>
+                          <div>
+                            <dt>Dose</dt>
+                            <dd>{method.dose}</dd>
+                          </div>
+                          <div>
+                            <dt>Watch for</dt>
+                            <dd>{method.watch_for}</dd>
+                          </div>
+                        </dl>
+                      </article>
                     ))}
-                  </ol>
-                </section>
+                  </div>
+                </Disclosure>
               )}
               {entry.answer.intake_review && (
-                <IntakeReviewCard
-                  answerId={entry.answer.id}
-                  review={entry.answer.intake_review}
-                  api={api}
-                />
+                <Disclosure
+                  className="brain-secondary"
+                  summary={`Review intake suggestion · ${entry.answer.intake_review.piece_title}`}
+                >
+                  <IntakeReviewCard
+                    answerId={entry.answer.id}
+                    review={entry.answer.intake_review}
+                    api={api}
+                  />
+                </Disclosure>
               )}
             </div>
           </article>
         ))}
-        {asking && <p className="brain-thinking" role="status">Checking the library and your practice context…</p>}
+        {asking && (
+          <p className="brain-thinking" role="status">
+            Checking the library and your practice context…
+          </p>
+        )}
         <div ref={threadEnd} />
       </section>
 
       <div className="brain-composer-wrap">
-        {error && <p className="brain-error" role="alert">{error}</p>}
-        {thread.length > 0 && (
-          <div className="brain-conversation-controls">
-            <button
-              type="button"
-              className="brain-clear-conversation"
-              data-testid="brain-clear-conversation"
-              onClick={() => void clearConversation()}
-            >
-              Clear / new conversation
-            </button>
-          </div>
+        {error && (
+          <p className="brain-error" role="alert">
+            {error}
+          </p>
         )}
-        <form className="brain-composer" aria-label="Ask the practice brain" onSubmit={submit}>
+        <form
+          className="brain-composer"
+          aria-label="Ask the practice brain"
+          onSubmit={submit}
+        >
           <label htmlFor="brain-question">Ask Coda</label>
           <textarea
             id="brain-question"
@@ -367,43 +457,43 @@ export function BrainWorkspace({
               }
             }}
           />
-          <button type="submit" disabled={asking || draft.trim().length === 0}>Ask</button>
+          <div className="brain-composer-actions">
+            {thread.length > 0 && (
+              <Button
+                variant="text"
+                data-testid="brain-clear-conversation"
+                onClick={() => void clearConversation()}
+              >
+                Clear conversation
+              </Button>
+            )}
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={asking || draft.trim().length === 0}
+            >
+              Ask
+            </Button>
+          </div>
         </form>
-        <p className="brain-privacy">Answers may be wrong. Sources and your verdict stay visible; your writing changes only when you press Save.</p>
+        <p className="brain-privacy">
+          Answers may be wrong. Sources and your verdict stay visible; your
+          writing changes only when you press Save.
+        </p>
       </div>
-    </main>
-  );
-}
 
-function PracticeGrounding({ context }: { context: PracticeBrainContext | null }) {
-  if (!context) {
-    return (
-      <section className="brain-grounding is-empty" aria-label="Practice grounding">
-        <strong>No piece is active.</strong>
-        <span>Open a piece or score for passage-specific grounding. General practice questions still work.</span>
-      </section>
-    );
-  }
-
-  return (
-    <section className="brain-grounding" aria-label="Practice grounding">
-      <span className="brain-grounding-kicker">Grounded in current app state</span>
-      <strong>{context.piece_title}</strong>
-      <span>
-        {context.region
-          ? `${context.region.name} · mm. ${context.region.m_start}–${context.region.m_end}`
-          : context.surface === "score"
-            ? `Score${context.current_page ? ` · page ${context.current_page}` : ""}`
-            : "Piece details"}
-      </span>
-      {context.region?.notes && <small>{context.region.notes}</small>}
-      {context.active_block && (
-        <small>
-          Active {context.active_block.focus} set · {(context.active_block.focus === "tempo" || context.active_block.use_metronome) && context.active_block.bpm != null ? `${context.active_block.bpm} BPM · ` : ""}{context.active_block.tries} tries · {context.active_block.mastery_verified
-            ? `mastery proof ${context.active_block.mastery_progress_streak ?? 0}/${context.active_block.required_clean_streak ?? "—"} · ${context.active_block.mastery_status === "satisfied" ? "mastery verified" : context.active_block.mastery_status === "not_applicable" ? "mastery not applicable" : "mastery not yet satisfied"}`
-            : "mastery unverified"}
-        </small>
-      )}
+      <Disclosure
+        className="brain-secondary brain-plan-disclosure"
+        summary="Suggested next work"
+      >
+        <PlanPreview
+          suggestions={plan}
+          loading={planLoading}
+          error={planError}
+          onRefresh={refreshPlan}
+          onSchedule={api.schedule}
+        />
+      </Disclosure>
     </section>
   );
 }
@@ -416,40 +506,51 @@ function GroundingReceipt({
   provider: BrainProvider;
 }) {
   const sourceCount = grounding.knowledge_sources.length;
-  const xmlLabel = grounding.musicxml_status === "ready"
-    ? "MusicXML included"
-    : grounding.musicxml_status === "not_requested"
-      ? "MusicXML needs a selected section"
-      : "MusicXML unavailable";
-  const sharingLabel = provider === "offline"
-    ? "Stayed on this Mac"
-    : grounding.knowledge_shared_with_provider
-      ? "Retrieved excerpts shared with provider"
-      : "Book excerpts stayed on this Mac";
+  const xmlLabel =
+    grounding.musicxml_status === "ready"
+      ? "MusicXML included"
+      : grounding.musicxml_status === "not_requested"
+        ? "MusicXML needs a selected section"
+        : "MusicXML unavailable";
+  const sharingLabel =
+    provider === "offline"
+      ? "Stayed on this Mac"
+      : grounding.knowledge_shared_with_provider
+        ? "Retrieved excerpts shared with provider"
+        : "Book excerpts stayed on this Mac";
   const answerLocation = [
     grounding.piece_title,
     grounding.region_name,
     grounding.measure_range
       ? `mm. ${grounding.measure_range[0]}–${grounding.measure_range[1]}`
       : null,
-  ].filter(Boolean).join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <section className="brain-evidence" aria-label="Answer grounding">
+    <div className="brain-evidence">
       {answerLocation && <strong>Answer context: {answerLocation}</strong>}
-      <div>
-        <span>{sourceCount} knowledge {sourceCount === 1 ? "book" : "books"} indexed</span>
+      <div className="brain-evidence-facts">
+        <span>
+          <span className="brain-num">{sourceCount}</span> knowledge{" "}
+          {sourceCount === 1 ? "book" : "books"} indexed
+        </span>
         <span>{xmlLabel}</span>
-        <span>{grounding.recent_rep_count} recent {grounding.recent_rep_count === 1 ? "attempt" : "attempts"}</span>
+        <span>
+          <span className="brain-num">{grounding.recent_rep_count}</span> recent{" "}
+          {grounding.recent_rep_count === 1 ? "attempt" : "attempts"}
+        </span>
       </div>
       <small>{sharingLabel}</small>
       {grounding.warnings.length > 0 && (
-        <details>
-          <summary>Grounding limits ({grounding.warnings.length})</summary>
-          <ul>{grounding.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
-        </details>
+        <ul className="brain-warnings">
+          {grounding.warnings.map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -467,43 +568,52 @@ function PlanPreview({
   onSchedule: BrainApi["schedule"];
 }) {
   return (
-    <section className="brain-plan" aria-label="Deterministic next work">
-      <header>
-        <div>
-          <p className="brain-eyebrow">Next work</p>
-          <h2>Ranked from your real practice graph</h2>
-        </div>
-        <button type="button" onClick={() => void onRefresh()} disabled={loading}>
+    <div className="brain-plan">
+      <div className="brain-plan-head">
+        <p className="brain-plan-boundary">
+          The rules own this order. The AI may explain it, but cannot rewrite
+          it.
+        </p>
+        <Button
+          variant="text"
+          onClick={() => void onRefresh()}
+          disabled={loading}
+        >
           {loading ? "Checking…" : "Refresh"}
-        </button>
-      </header>
-      <p className="brain-plan-boundary">The rules own this order. The AI may explain it, but cannot rewrite it.</p>
+        </Button>
+      </div>
       {error && <p className="brain-plan-empty">{error}</p>}
       {!loading && !error && suggestions.length === 0 && (
-        <p className="brain-plan-empty">No unfinished, weak, missed, or spaced work is currently ranked.</p>
+        <p className="brain-plan-empty">
+          No unfinished, weak, missed, or spaced work is currently ranked.
+        </p>
       )}
       {suggestions.length > 0 && (
-        <ol>
+        <ol className="brain-plan-list">
           {suggestions.map((suggestion) => (
             <li key={suggestion.id}>
-              <span className="brain-plan-rank" aria-hidden="true" />
-              <div>
-                <strong>{suggestion.title}</strong>
-                {suggestion.m_start != null && suggestion.m_end != null && (
-                  <span className="brain-plan-measures">mm. {suggestion.m_start}–{suggestion.m_end}</span>
-                )}
-                <ul>
-                  {suggestion.reasons.map((reason) => <li key={reason}>{reason}</li>)}
-                </ul>
-                {suggestion.goal_id != null && (
-                  <PlannerSchedule suggestion={suggestion} onSchedule={onSchedule} />
-                )}
-              </div>
+              <strong>{suggestion.title}</strong>
+              {suggestion.m_start != null && suggestion.m_end != null && (
+                <span className="brain-num brain-plan-measures">
+                  mm. {suggestion.m_start}–{suggestion.m_end}
+                </span>
+              )}
+              <ul className="brain-plan-reasons">
+                {suggestion.reasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+              {suggestion.goal_id != null && (
+                <PlannerSchedule
+                  suggestion={suggestion}
+                  onSchedule={onSchedule}
+                />
+              )}
             </li>
           ))}
         </ol>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -522,12 +632,17 @@ function PlannerSchedule({
   const [error, setError] = useState<string | null>(null);
 
   if (suggestion.goal_id == null) return null;
-  if (saved) return <p className="brain-plan-saved" role="status">Added to Calendar.</p>;
+  if (saved)
+    return (
+      <p className="brain-plan-saved" role="status">
+        Added to Calendar.
+      </p>
+    );
   if (!open) {
     return (
-      <button className="brain-plan-schedule" type="button" onClick={() => setOpen(true)}>
+      <Button variant="text" onClick={() => setOpen(true)}>
         Schedule
-      </button>
+      </Button>
     );
   }
 
@@ -545,39 +660,72 @@ function PlannerSchedule({
           title: suggestion.title,
           minutes,
           date,
-        }).then(() => {
-          setSaved(true);
-        }).catch((cause) => {
-          setError(errorMessage(cause, "Could not add this work to Calendar."));
-        }).finally(() => setSaving(false));
+        })
+          .then(() => {
+            setSaved(true);
+          })
+          .catch((cause) => {
+            setError(
+              errorMessage(cause, "Could not add this work to Calendar."),
+            );
+          })
+          .finally(() => setSaving(false));
       }}
     >
-      <label><span>Date</span><input aria-label={`Date for ${suggestion.title}`} type="date" required value={date} onChange={(event) => setDate(event.target.value)} /></label>
-      <label><span>Minutes</span><input aria-label={`Minutes for ${suggestion.title}`} type="number" min={1} max={240} required value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} /></label>
-      <button type="submit" disabled={saving}>{saving ? "Adding…" : "Add to Calendar"}</button>
-      <button type="button" onClick={() => setOpen(false)} disabled={saving}>Cancel</button>
-      {error && <p className="brain-plan-schedule-error" role="alert">{error}</p>}
+      <label>
+        <span>Date</span>
+        <input
+          aria-label={`Date for ${suggestion.title}`}
+          type="date"
+          required
+          value={date}
+          onChange={(event) => setDate(event.target.value)}
+        />
+      </label>
+      <label>
+        <span>Minutes</span>
+        <input
+          aria-label={`Minutes for ${suggestion.title}`}
+          type="number"
+          min={1}
+          max={240}
+          required
+          value={minutes}
+          onChange={(event) => setMinutes(Number(event.target.value))}
+        />
+      </label>
+      <Button type="submit" variant="primary" disabled={saving}>
+        {saving ? "Adding…" : "Add to Calendar"}
+      </Button>
+      <Button
+        type="button"
+        variant="text"
+        onClick={() => setOpen(false)}
+        disabled={saving}
+      >
+        Cancel
+      </Button>
+      {error && (
+        <p className="brain-plan-schedule-error" role="alert">
+          {error}
+        </p>
+      )}
     </form>
-  );
-}
-
-function ProviderBadge({ provider, compact = false }: { provider: BrainProvider; compact?: boolean }) {
-  return (
-    <span className={`brain-provider is-${provider} ${compact ? "is-compact" : ""}`}>
-      <span aria-hidden="true" />
-      {PROVIDER_LABELS[provider]}
-    </span>
   );
 }
 
 function isBrainAnswer(value: unknown): value is BrainAnswer {
   if (!value || typeof value !== "object") return false;
   const answer = value as Partial<BrainAnswer>;
-  return typeof answer.id === "string"
-    && typeof answer.answer === "string"
-    && (answer.provider === "claude" || answer.provider === "gemini" || answer.provider === "offline")
-    && Array.isArray(answer.citations)
-    && Array.isArray(answer.methods);
+  return (
+    typeof answer.id === "string" &&
+    typeof answer.answer === "string" &&
+    (answer.provider === "claude" ||
+      answer.provider === "gemini" ||
+      answer.provider === "offline") &&
+    Array.isArray(answer.citations) &&
+    Array.isArray(answer.methods)
+  );
 }
 
 function IntakeReviewCard({
@@ -590,7 +738,9 @@ function IntakeReviewCard({
   api: BrainApi;
 }) {
   const [values, setValues] = useState<Record<string, string | null>>(() =>
-    Object.fromEntries(review.fields.map((field) => [field.field, field.proposed])),
+    Object.fromEntries(
+      review.fields.map((field) => [field.field, field.proposed]),
+    ),
   );
   const [selected, setSelected] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(review.fields.map((field) => [field.field, true])),
@@ -601,7 +751,10 @@ function IntakeReviewCard({
 
   const changes: IntakeChange[] = review.fields
     .filter((field) => selected[field.field])
-    .map((field) => ({ field: field.field, value: values[field.field] ?? null }));
+    .map((field) => ({
+      field: field.field,
+      value: values[field.field] ?? null,
+    }));
 
   const save = async () => {
     if (changes.length === 0 || saving) return;
@@ -622,15 +775,11 @@ function IntakeReviewCard({
   };
 
   return (
-    <section className="brain-intake-review" aria-label={`Intake review for ${review.piece_title}`}>
-      <div className="brain-intake-heading">
-        <div>
-          <p className="brain-intake-kicker">Intake review · {review.piece_title}</p>
-          <h2>Review before anything changes</h2>
-        </div>
-        <span>Draft only</span>
-      </div>
-      <p>{review.summary}</p>
+    <div
+      className="brain-intake-review"
+      aria-label={`Intake review for ${review.piece_title}`}
+    >
+      <p className="brain-intake-summary">{review.summary}</p>
       <div className="brain-intake-fields">
         {review.fields.map((field) => (
           <div className="brain-intake-field" key={field.field}>
@@ -638,10 +787,12 @@ function IntakeReviewCard({
               <input
                 type="checkbox"
                 checked={selected[field.field] ?? false}
-                onChange={(event) => setSelected((current) => ({
-                  ...current,
-                  [field.field]: event.target.checked,
-                }))}
+                onChange={(event) =>
+                  setSelected((current) => ({
+                    ...current,
+                    [field.field]: event.target.checked,
+                  }))
+                }
               />
               {field.label}
             </label>
@@ -657,30 +808,35 @@ function IntakeReviewCard({
                   value={values[field.field] ?? ""}
                   disabled={!selected[field.field] || saved}
                   rows={3}
-                  onChange={(event) => setValues((current) => ({
-                    ...current,
-                    [field.field]: event.target.value || null,
-                  }))}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      [field.field]: event.target.value || null,
+                    }))
+                  }
                 />
               </label>
             </div>
           </div>
         ))}
       </div>
-      {saveError && <p className="brain-error" role="alert">{saveError}</p>}
+      {saveError && (
+        <p className="brain-error" role="alert">
+          {saveError}
+        </p>
+      )}
       {saved ? (
-        <p className="brain-intake-saved" role="status">Saved to intake.</p>
+        <Receipt status="success" message="Saved to intake." />
       ) : (
-        <button
-          type="button"
-          className="brain-intake-save"
+        <Button
+          variant="primary"
           disabled={saving || changes.length === 0}
           onClick={() => void save()}
         >
           {saving ? "Saving…" : "Save suggested changes"}
-        </button>
+        </Button>
       )}
-    </section>
+    </div>
   );
 }
 

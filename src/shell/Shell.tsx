@@ -41,7 +41,11 @@ function stub(id: WorkspaceId, name: string): ComponentType {
 const WORKSPACE_COMPONENTS: Record<WorkspaceId, ComponentType> = {
   today: lazy(async () => ({ default: stub("today", "Today") })),
   score: lazy(async () => ({ default: stub("score", "Score") })),
-  brain: lazy(async () => ({ default: stub("brain", "Brain") })),
+  brain: lazy(() =>
+    import("../features/brain/BrainWorkspace").then((m) => ({
+      default: m.BrainWorkspace,
+    })),
+  ),
   ledger: lazy(async () => ({ default: stub("ledger", "Ledger") })),
   universe: lazy(async () => ({ default: stub("universe", "Universe") })),
 };

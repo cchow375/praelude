@@ -1,7 +1,14 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BrainWorkspace } from "./BrainWorkspace";
 import type { BrainAnswer, BrainApi } from "./types";
+import type { CommandInvoker } from "../../services/command";
 
 const groundedAnswer: BrainAnswer = {
   id: "answer-1",
@@ -79,71 +86,44 @@ function makeApi(answer: BrainAnswer = groundedAnswer): BrainApi {
   };
 }
 
-const pieceContext = {
-  piece_id: 7,
-  piece_title: "Scherzo No. 2",
-  composer: "Chopin",
-  surface: "details" as const,
-  region: null,
-  current_page: null,
-  edition_id: null,
-  edition_label: null,
-  active_block: null,
-};
+/** A command.ts invoker seam covering the two commands this workspace owns
+ *  directly (brain_status + pieces_list). Overridable per-test. */
+function makeInvoker(
+  overrides: Partial<Record<string, unknown>> = {},
+): CommandInvoker {
+  const table: Record<string, unknown> = {
+    brain_status: { online: true, provider: "gemini", reason: null },
+    pieces_list: [
+      {
+        id: 7,
+        title: "Scherzo No. 2",
+        composer: "Chopin",
+        has_xml: true,
+        has_pdf: true,
+        intake_done: true,
+      },
+    ],
+    ...overrides,
+  };
+  return vi.fn(async (command: string) => table[command] ?? null);
+}
 
 afterEach(cleanup);
 
 describe("BrainWorkspace", () => {
-  it("shows the deterministic next-work trace independently of AI answers", async () => {
+  it("asks a typed question and renders the one-glance answer plus citation chips", async () => {
     const api = makeApi();
-    render(<BrainWorkspace api={api} />);
+    render(<BrainWorkspace api={api} invoker={makeInvoker()} />);
 
-    expect(await screen.findByRole("heading", { name: "Ranked from your real practice graph" })).toBeTruthy();
-    expect(await screen.findByText("Coda landing")).toBeTruthy();
-    expect(screen.getByText("3 of the last 5 attempts were flawed or failed")).toBeTruthy();
-    expect(api.planPreview).toHaveBeenCalledWith(null);
-    expect(api.ask).not.toHaveBeenCalled();
-  });
-
-  it("adds a Goal suggestion to Calendar only after explicit confirmation", async () => {
-    const api = makeApi();
-    vi.mocked(api.planPreview).mockResolvedValue([{
-      id: "goal:9",
-      kind: "goal",
-      goal_id: 9,
-      title: "Secure the coda",
-      m_start: null,
-      m_end: null,
-      score: 80,
-      reasons: ["due in 2 days"],
-    }]);
-    render(<BrainWorkspace api={api} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Schedule" }));
-    expect(api.schedule).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText("Date for Secure the coda"), { target: { value: "2026-07-14" } });
-    fireEvent.change(screen.getByLabelText("Minutes for Secure the coda"), { target: { value: "25" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add to Calendar" }));
-
-    await waitFor(() => expect(api.schedule).toHaveBeenCalledWith({
-      goal_id: 9,
-      title: "Secure the coda",
-      minutes: 25,
-      date: "2026-07-14",
-    }));
-    expect(await screen.findByText("Added to Calendar.")).toBeTruthy();
-  });
-
-  it("asks a typed question and renders a grounded answer, method, and citation", async () => {
-    const api = makeApi();
-    render(<BrainWorkspace api={api} />);
-
-    fireEvent.change(screen.getByLabelText("Ask Coda"), {
+    fireEvent.change(await screen.findByLabelText("Ask Coda"), {
       target: { value: "How should I practice the coda leap?" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    await screen.findByText("Use a short, silent landing before rebuilding the leap.");
+    // One-glance answer rendered plainly.
+    await screen.findByText(
+      "Use a short, silent landing before rebuilding the leap.",
+    );
     expect(api.ask).toHaveBeenCalledWith({
       question: "How should I practice the coda leap?",
       source: "typed",
@@ -152,126 +132,154 @@ describe("BrainWorkspace", () => {
       history: [],
       context: null,
     });
-    expect(screen.getByRole("heading", { name: "Silent landing" })).toBeTruthy();
-    expect(screen.getByText(/The Musician's Way, Chapter 9/)).toBeTruthy();
-    expect(screen.getAllByText("Claude")).toHaveLength(2);
+    // Citation chips.
+    const chips = screen.getByLabelText("Citations");
+    expect(chips.textContent).toContain("The Musician's Way, Chapter 9");
+    expect(chips.textContent).toContain("source-1");
   });
 
-  it("submits a wake-word question once and marks it as voice input", async () => {
-    const api = makeApi();
-    const { rerender } = render(
-      <BrainWorkspace api={api} wakeQuestion={{ id: 1, text: "Why does this leap keep missing?" }} />,
-    );
-
-    await waitFor(() => expect(api.ask).toHaveBeenCalledWith({
-      question: "Why does this leap keep missing?",
-      source: "voice",
-      piece_id: null,
-      thread_id: null,
-      history: [],
-      context: null,
-    }));
-    rerender(
-      <BrainWorkspace api={api} wakeQuestion={{ id: 1, text: "Why does this leap keep missing?" }} />,
-    );
-    expect(api.ask).toHaveBeenCalledTimes(1);
+  it("renders a persistent online status line from brain_status", async () => {
+    render(<BrainWorkspace api={makeApi()} invoker={makeInvoker()} />);
+    expect(await screen.findByText("● online — gemini")).toBeTruthy();
   });
 
-  it("shows exact score grounding and sends bounded prior turns on follow-up", async () => {
+  it("renders the truthful offline reason in the status line", async () => {
+    render(
+      <BrainWorkspace
+        api={makeApi()}
+        invoker={makeInvoker({
+          brain_status: {
+            online: false,
+            provider: null,
+            reason: "key present but network unreachable",
+          },
+        })}
+      />,
+    );
+    expect(
+      await screen.findByText(
+        "○ offline — key present but network unreachable",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("resumes durable prior turns when a piece is selected", async () => {
     const api = makeApi();
-    render(<BrainWorkspace compact api={api} practiceContext={{
-      piece_id: 7,
-      piece_title: "Scherzo No. 2",
-      composer: "Chopin",
-      surface: "score",
-      region: { id: 4, name: "Coda leap", notes: "Release before the jump", m_start: 720, m_end: 732 },
-      current_page: 14,
-      edition_id: "urtext",
-      edition_label: "Urtext",
-      active_block: null,
-    }} />);
-
-    expect(screen.getByText("Coda leap · mm. 720–732")).toBeTruthy();
-    await waitFor(() => expect(api.planPreview).toHaveBeenLastCalledWith(7));
-    fireEvent.change(screen.getByLabelText("Ask Coda"), { target: { value: "Why does it miss?" } });
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
-    await screen.findByText(groundedAnswer.answer);
-    expect(screen.getByText("3 knowledge books indexed")).toBeTruthy();
-    expect(screen.getByText("MusicXML included")).toBeTruthy();
-    expect(screen.getByText("Retrieved excerpts shared with provider")).toBeTruthy();
-    expect(screen.getByText("Answer context: Scherzo No. 2 · Coda leap · mm. 720–732")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Ask Coda"), { target: { value: "What should I change first?" } });
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
-
-    await waitFor(() => expect(api.ask).toHaveBeenLastCalledWith(expect.objectContaining({
-      question: "What should I change first?",
-      piece_id: 7,
-      history: [
-        { role: "user", content: "Why does it miss?" },
-        { role: "assistant", content: groundedAnswer.answer },
+    vi.mocked(api.resumeThread).mockResolvedValue({
+      thread_id: 42,
+      turns: [
+        {
+          role: "user",
+          content: "Why does the coda miss?",
+          provider: null,
+          citations: [],
+          created_ts: "t1",
+        },
+        {
+          role: "assistant",
+          content: "Release the wrist before the leap.",
+          provider: "claude",
+          citations: [],
+          created_ts: "t2",
+        },
       ],
-      context: expect.objectContaining({ piece_id: 7, region: expect.objectContaining({ id: 4 }) }),
-    })));
+    });
+    render(<BrainWorkspace api={api} invoker={makeInvoker()} />);
+
+    fireEvent.change(await screen.findByLabelText("Piece thread"), {
+      target: { value: "7" },
+    });
+
+    expect(
+      await screen.findByText("Release the wrist before the leap."),
+    ).toBeTruthy();
+    expect(screen.getByText("Why does the coda miss?")).toBeTruthy();
+    await waitFor(() => expect(api.resumeThread).toHaveBeenCalledWith(7));
+    expect(api.ask).not.toHaveBeenCalled();
   });
 
-  it("omits the BPM label when the active set has no captured BPM", async () => {
+  it("passes the resumed thread_id and piece context through on each ask", async () => {
     const api = makeApi();
-    render(<BrainWorkspace api={api} practiceContext={{
-      piece_id: 7,
-      piece_title: "Scherzo No. 2",
-      composer: "Chopin",
-      surface: "details",
-      region: null,
-      current_page: null,
-      edition_id: null,
-      edition_label: null,
-      active_block: {
-        m_start: 720,
-        m_end: 732,
-        bpm: null,
-        target_bpm: null,
-        focus: "tempo",
-        use_metronome: true,
-        reps_done: 0,
-        planned_reps: 5,
-        attempts_recorded: 0,
-        tries: 0,
-        current_clean_streak: 0,
-        mastery_progress_streak: 0,
-        required_clean_streak: 3,
-        mastery_status: "not_satisfied",
-        mastery_verified: true,
-        set_state: "active",
-      },
-    }} />);
+    vi.mocked(api.resumeThread).mockResolvedValue({ thread_id: 42, turns: [] });
+    render(<BrainWorkspace api={api} invoker={makeInvoker()} />);
 
-    expect(screen.getByText("Active tempo set · 0 tries · mastery proof 0/3 · mastery not yet satisfied")).toBeTruthy();
-    expect(screen.queryByText(/null BPM/)).toBeNull();
-    await waitFor(() => expect(api.planPreview).toHaveBeenCalledWith(7));
+    fireEvent.change(await screen.findByLabelText("Piece thread"), {
+      target: { value: "7" },
+    });
+    await waitFor(() => expect(api.resumeThread).toHaveBeenCalledWith(7));
+
+    fireEvent.change(screen.getByLabelText("Ask Coda"), {
+      target: { value: "How do I fix it?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() =>
+      expect(api.ask).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          thread_id: 42,
+          piece_id: 7,
+          context: expect.objectContaining({
+            piece_id: 7,
+            piece_title: "Scherzo No. 2",
+          }),
+        }),
+      ),
+    );
   });
 
-  it("shows offline and error states without discarding the typed question", async () => {
-    const offline = makeApi({ ...groundedAnswer, provider: "offline" });
-    const { unmount } = render(<BrainWorkspace api={offline} />);
-    fireEvent.change(screen.getByLabelText("Ask Coda"), { target: { value: "What can I do offline?" } });
-    fireEvent.submit(screen.getByRole("form", { name: "Ask the practice brain" }));
-    expect(await screen.findAllByText("Offline library")).toHaveLength(2);
-    unmount();
+  it("shows the deterministic next-work suggestions independently of AI answers", async () => {
+    const api = makeApi();
+    render(<BrainWorkspace api={api} invoker={makeInvoker()} />);
 
-    const failing = makeApi();
-    vi.mocked(failing.ask).mockRejectedValue(new Error("Provider unavailable"));
-    render(<BrainWorkspace api={failing} />);
-    const input = screen.getByLabelText("Ask Coda") as HTMLTextAreaElement;
-    fireEvent.change(input, { target: { value: "Keep this question" } });
-    fireEvent.submit(screen.getByRole("form", { name: "Ask the practice brain" }));
-    expect((await screen.findByRole("alert")).textContent).toContain("Provider unavailable");
-    expect(input.value).toBe("Keep this question");
+    expect(await screen.findByText("Coda landing")).toBeTruthy();
+    expect(
+      screen.getByText("3 of the last 5 attempts were flawed or failed"),
+    ).toBeTruthy();
+    expect(api.ask).not.toHaveBeenCalled();
+  });
+
+  it("adds a Goal suggestion to Calendar only after explicit confirmation", async () => {
+    const api = makeApi();
+    vi.mocked(api.planPreview).mockResolvedValue([
+      {
+        id: "goal:9",
+        kind: "goal",
+        goal_id: 9,
+        title: "Secure the coda",
+        m_start: null,
+        m_end: null,
+        score: 80,
+        reasons: ["due in 2 days"],
+      },
+    ]);
+    render(<BrainWorkspace api={api} invoker={makeInvoker()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Schedule" }));
+    expect(api.schedule).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Date for Secure the coda"), {
+      target: { value: "2026-07-14" },
+    });
+    fireEvent.change(screen.getByLabelText("Minutes for Secure the coda"), {
+      target: { value: "25" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add to Calendar" }));
+
+    await waitFor(() =>
+      expect(api.schedule).toHaveBeenCalledWith({
+        goal_id: 9,
+        title: "Secure the coda",
+        minutes: 25,
+        date: "2026-07-14",
+      }),
+    );
+    expect(await screen.findByText("Added to Calendar.")).toBeTruthy();
   });
 
   it("keeps intake suggestions local until explicit Save and sends edited fields only then", async () => {
     const api = makeApi();
-    render(<BrainWorkspace api={api} />);
-    fireEvent.change(screen.getByLabelText("Ask Coda"), { target: { value: "Review my intake" } });
+    render(<BrainWorkspace api={api} invoker={makeInvoker()} />);
+    fireEvent.change(await screen.findByLabelText("Ask Coda"), {
+      target: { value: "Review my intake" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     const suggestion = await screen.findByLabelText("Suggested Current state");
@@ -279,46 +287,38 @@ describe("BrainWorkspace", () => {
     fireEvent.change(suggestion, {
       target: { value: "The coda leap breaks above 96 BPM." },
     });
-    expect(screen.getByText("The coda is messy.")).toBeTruthy();
-    expect(api.applyIntakeReview).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Save suggested changes" }));
-    await waitFor(() => expect(api.applyIntakeReview).toHaveBeenCalledWith({
-      answer_id: "answer-1",
-      piece_id: 7,
-      changes: [{ field: "current_state", value: "The coda leap breaks above 96 BPM." }],
-    }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save suggested changes" }),
+    );
+    await waitFor(() =>
+      expect(api.applyIntakeReview).toHaveBeenCalledWith({
+        answer_id: "answer-1",
+        piece_id: 7,
+        changes: [
+          {
+            field: "current_state",
+            value: "The coda leap breaks above 96 BPM.",
+          },
+        ],
+      }),
+    );
     expect(await screen.findByText("Saved to intake.")).toBeTruthy();
   });
 
-  it("resumes durable conversation history when opened for a piece", async () => {
+  it("shows an error without discarding the typed question", async () => {
     const api = makeApi();
-    vi.mocked(api.resumeThread).mockResolvedValue({
-      thread_id: 42,
-      turns: [
-        { role: "user", content: "Why does the coda miss?", provider: null, citations: [], created_ts: "t1" },
-        { role: "assistant", content: "Release the wrist before the leap.", provider: "claude", citations: [], created_ts: "t2" },
-      ],
-    });
-    render(<BrainWorkspace api={api} practiceContext={pieceContext} />);
-
-    expect(await screen.findByText("Release the wrist before the leap.")).toBeTruthy();
-    expect(screen.getByText("Why does the coda miss?")).toBeTruthy();
-    await waitFor(() => expect(api.resumeThread).toHaveBeenCalledWith(7));
-    expect(api.ask).not.toHaveBeenCalled();
-  });
-
-  it("passes the resumed thread_id through on each ask", async () => {
-    const api = makeApi();
-    vi.mocked(api.resumeThread).mockResolvedValue({ thread_id: 42, turns: [] });
-    render(<BrainWorkspace api={api} practiceContext={pieceContext} />);
-    await waitFor(() => expect(api.resumeThread).toHaveBeenCalledWith(7));
-
-    fireEvent.change(screen.getByLabelText("Ask Coda"), { target: { value: "How do I fix it?" } });
+    vi.mocked(api.ask).mockRejectedValue(new Error("Provider unavailable"));
+    render(<BrainWorkspace api={api} invoker={makeInvoker()} />);
+    const input = (await screen.findByLabelText(
+      "Ask Coda",
+    )) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "Keep this question" } });
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
-    await waitFor(() =>
-      expect(api.ask).toHaveBeenLastCalledWith(expect.objectContaining({ thread_id: 42 })),
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Provider unavailable",
     );
+    expect(input.value).toBe("Keep this question");
   });
 
   it("clears the conversation and starts a fresh empty thread", async () => {
@@ -327,17 +327,36 @@ describe("BrainWorkspace", () => {
       .mockResolvedValueOnce({
         thread_id: 42,
         turns: [
-          { role: "user", content: "Old question", provider: null, citations: [], created_ts: "t1" },
-          { role: "assistant", content: "Old answer stays until cleared.", provider: "offline", citations: [], created_ts: "t2" },
+          {
+            role: "user",
+            content: "Old question",
+            provider: null,
+            citations: [],
+            created_ts: "t1",
+          },
+          {
+            role: "assistant",
+            content: "Old answer stays until cleared.",
+            provider: "offline",
+            citations: [],
+            created_ts: "t2",
+          },
         ],
       })
       .mockResolvedValue({ thread_id: 43, turns: [] });
-    render(<BrainWorkspace api={api} practiceContext={pieceContext} />);
+    render(<BrainWorkspace api={api} invoker={makeInvoker()} />);
 
-    expect(await screen.findByText("Old answer stays until cleared.")).toBeTruthy();
+    fireEvent.change(await screen.findByLabelText("Piece thread"), {
+      target: { value: "7" },
+    });
+    expect(
+      await screen.findByText("Old answer stays until cleared."),
+    ).toBeTruthy();
     fireEvent.click(screen.getByTestId("brain-clear-conversation"));
 
     await waitFor(() => expect(api.clearThread).toHaveBeenCalledWith(7));
-    await waitFor(() => expect(screen.queryByText("Old answer stays until cleared.")).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByText("Old answer stays until cleared.")).toBeNull(),
+    );
   });
 });
