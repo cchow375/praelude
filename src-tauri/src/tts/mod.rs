@@ -529,7 +529,11 @@ pub fn select_provider(
     let has_key = key.is_some();
     // Only probe the network when the decision might actually need it.
     let needs_probe = provider_override.is_none();
-    let has_network = if needs_probe { network_available() } else { true };
+    let has_network = if needs_probe {
+        network_available()
+    } else {
+        true
+    };
 
     match decide_provider(provider_override.as_deref(), has_key, has_network) {
         ProviderKind::Gemini => {
@@ -601,7 +605,11 @@ mod tests {
     impl TtsProvider for Arc<FakeProvider> {
         fn synth(&self, _text: &str) -> Result<Pcm> {
             let n = self.calls.fetch_add(1, Ordering::AcqRel);
-            let ok = *self.script.get(n).or_else(|| self.script.last()).unwrap_or(&true);
+            let ok = *self
+                .script
+                .get(n)
+                .or_else(|| self.script.last())
+                .unwrap_or(&true);
             if ok {
                 Ok(Pcm {
                     rate: 24_000,
@@ -609,7 +617,10 @@ mod tests {
                     mono_f32: vec![if self.tag == "primary" { 1.0 } else { -1.0 }],
                 })
             } else {
-                Err(TtsError::Transport(format!("{} scripted failure", self.tag)))
+                Err(TtsError::Transport(format!(
+                    "{} scripted failure",
+                    self.tag
+                )))
             }
         }
     }
@@ -625,17 +636,21 @@ mod tests {
     fn fallback_used_on_single_primary_failure() {
         let primary = FakeProvider::new("primary", vec![false, true]);
         let fallback = FakeProvider::new("fallback", vec![true]);
-        let fb = FallbackTts::with_threshold(
-            Box::new(primary.clone()),
-            Box::new(fallback.clone()),
-            2,
-        );
+        let fb =
+            FallbackTts::with_threshold(Box::new(primary.clone()), Box::new(fallback.clone()), 2);
 
         let pcm = fb.synth("hi").expect("fallback covers the failed primary");
-        assert!(is_fallback(&pcm), "utterance should be spoken by the fallback");
+        assert!(
+            is_fallback(&pcm),
+            "utterance should be spoken by the fallback"
+        );
         assert_eq!(primary.call_count(), 1, "primary was tried once");
         assert_eq!(fallback.call_count(), 1, "fallback was used once");
-        assert_eq!(fb.primary_fails.load(Ordering::Acquire), 1, "one consecutive fail");
+        assert_eq!(
+            fb.primary_fails.load(Ordering::Acquire),
+            1,
+            "one consecutive fail"
+        );
         assert!(
             !fb.primary_disabled.load(Ordering::Acquire),
             "one failure (< threshold 2) must not disable the primary"
@@ -650,11 +665,8 @@ mod tests {
         // fail, then succeed, then fail again.
         let primary = FakeProvider::new("primary", vec![false, true, false]);
         let fallback = FakeProvider::new("fallback", vec![true]);
-        let fb = FallbackTts::with_threshold(
-            Box::new(primary.clone()),
-            Box::new(fallback.clone()),
-            2,
-        );
+        let fb =
+            FallbackTts::with_threshold(Box::new(primary.clone()), Box::new(fallback.clone()), 2);
 
         // 1st: primary fails -> counter 1, fallback used.
         assert!(is_fallback(&fb.synth("a").unwrap()));
@@ -662,7 +674,11 @@ mod tests {
         // 2nd: primary succeeds -> counter reset to 0.
         let pcm = fb.synth("b").unwrap();
         assert!(!is_fallback(&pcm), "primary spoke this one");
-        assert_eq!(fb.primary_fails.load(Ordering::Acquire), 0, "success resets");
+        assert_eq!(
+            fb.primary_fails.load(Ordering::Acquire),
+            0,
+            "success resets"
+        );
         // 3rd: primary fails again -> counter 1, NOT 2 (reset happened), primary
         // still enabled.
         assert!(is_fallback(&fb.synth("c").unwrap()));
@@ -679,15 +695,15 @@ mod tests {
         // never be reached.
         let primary = FakeProvider::new("primary", vec![false, false, true, true]);
         let fallback = FakeProvider::new("fallback", vec![true]);
-        let fb = FallbackTts::with_threshold(
-            Box::new(primary.clone()),
-            Box::new(fallback.clone()),
-            2,
-        );
+        let fb =
+            FallbackTts::with_threshold(Box::new(primary.clone()), Box::new(fallback.clone()), 2);
 
         assert!(is_fallback(&fb.synth("1").unwrap())); // fail 1
         assert!(is_fallback(&fb.synth("2").unwrap())); // fail 2 -> disabled
-        assert!(fb.primary_disabled.load(Ordering::Acquire), "disabled at threshold");
+        assert!(
+            fb.primary_disabled.load(Ordering::Acquire),
+            "disabled at threshold"
+        );
 
         // Two more utterances: the primary must NOT be called again.
         assert!(is_fallback(&fb.synth("3").unwrap()));
@@ -706,11 +722,8 @@ mod tests {
     fn both_failing_propagates_error() {
         let primary = FakeProvider::new("primary", vec![false]);
         let fallback = FakeProvider::new("fallback", vec![false]);
-        let fb = FallbackTts::with_threshold(
-            Box::new(primary.clone()),
-            Box::new(fallback.clone()),
-            2,
-        );
+        let fb =
+            FallbackTts::with_threshold(Box::new(primary.clone()), Box::new(fallback.clone()), 2);
         assert!(fb.synth("x").is_err(), "no backend could synthesize");
         assert_eq!(primary.call_count(), 1);
         assert_eq!(fallback.call_count(), 1);
@@ -719,7 +732,10 @@ mod tests {
     #[test]
     fn decide_override_say_always_say() {
         assert_eq!(decide_provider(Some("say"), true, true), ProviderKind::Say);
-        assert_eq!(decide_provider(Some("say"), false, false), ProviderKind::Say);
+        assert_eq!(
+            decide_provider(Some("say"), false, false),
+            ProviderKind::Say
+        );
     }
 
     #[test]

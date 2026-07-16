@@ -99,8 +99,15 @@ pub fn write_session_md(store: &Store, session_id: i64, pieces_dir: &Path) -> Ex
             .collect();
         let block_ids = blocks_by_piece.get(piece_id).cloned().unwrap_or_default();
 
-        let (section, reps) =
-            render_section(store, &detail.title, &block_ids, &hist, &start_ts, &end_ts, metro_actions);
+        let (section, reps) = render_section(
+            store,
+            &detail.title,
+            &block_ids,
+            &hist,
+            &start_ts,
+            &end_ts,
+            metro_actions,
+        );
         total_reps += reps;
 
         let path = Path::new(&detail.folder_path).join(SESSIONS_FILE);
@@ -283,7 +290,10 @@ mod tests {
                 Some(&label),
                 Some(60.0),
                 None,
-                &IncrementRule { clean_needed: 3, bpm_step: 2.0 },
+                &IncrementRule {
+                    clean_needed: 3,
+                    bpm_step: 2.0,
+                },
                 10,
                 &[],
                 "tempo",
@@ -303,7 +313,9 @@ mod tests {
     }
 
     fn seed_rep(store: &Store, block_id: i64, verdict: &str) -> i64 {
-        store.insert_rep(block_id, 60.0, None, verdict, None).unwrap()
+        store
+            .insert_rep(block_id, 60.0, None, verdict, None)
+            .unwrap()
     }
 
     #[test]
@@ -317,7 +329,8 @@ mod tests {
         let session_id;
         {
             let store = Store::open(&db).unwrap();
-            let pid = seed_piece_with_folder(&store, "Etude", pieces.join("etude").to_str().unwrap());
+            let pid =
+                seed_piece_with_folder(&store, "Etude", pieces.join("etude").to_str().unwrap());
             session_id = store.open_session().unwrap();
             let block_id = seed_block(&store, pid, 1, 8); // label "mm.1-8"
             seed_rep(&store, block_id, "clean");
@@ -328,8 +341,12 @@ mod tests {
         // relaunch: fresh Store on same db, export
         let store2 = Store::open(&db).unwrap();
         let res = write_session_md(&store2, session_id, &pieces);
-        let md = std::fs::read_to_string(pieces.join("etude").join("(C) codakiller-sessions.md")).unwrap();
-        assert!(md.contains("mm.1-8"), "captured label must survive relaunch; got:\n{md}");
+        let md = std::fs::read_to_string(pieces.join("etude").join("(C) codakiller-sessions.md"))
+            .unwrap();
+        assert!(
+            md.contains("mm.1-8"),
+            "captured label must survive relaunch; got:\n{md}"
+        );
         assert!(res.reps >= 1);
     }
 
@@ -368,7 +385,8 @@ mod tests {
         for _ in 0..3 {
             rep.check(crate::rep::RepVerdict::Clean, None).unwrap();
         }
-        rep.check(crate::rep::RepVerdict::Failed, Some("LH jump".into())).unwrap();
+        rep.check(crate::rep::RepVerdict::Failed, Some("LH jump".into()))
+            .unwrap();
         rep.close().unwrap();
 
         // Piece B: a second block.
@@ -398,13 +416,25 @@ mod tests {
         assert_eq!(result.files.len(), 2);
 
         let a_md = std::fs::read_to_string(fa.join(SESSIONS_FILE)).unwrap();
-        assert!(a_md.starts_with("# CodaKiller session log"), "one-line header");
-        assert!(a_md.contains("| 40–56 | 80→84 |"), "tempo ladder start→top: {a_md}");
-        assert!(a_md.contains("(3/0/1)"), "verdict tallies in the table: {a_md}");
+        assert!(
+            a_md.starts_with("# CodaKiller session log"),
+            "one-line header"
+        );
+        assert!(
+            a_md.contains("| 40–56 | 80→84 |"),
+            "tempo ladder start→top: {a_md}"
+        );
+        assert!(
+            a_md.contains("(3/0/1)"),
+            "verdict tallies in the table: {a_md}"
+        );
         assert!(a_md.contains("- failed: LH jump"), "note bullet: {a_md}");
 
         let b_md = std::fs::read_to_string(fb.join(SESSIONS_FILE)).unwrap();
-        assert!(b_md.contains("| 1–8 | 60 |"), "no-step tempo shows single value: {b_md}");
+        assert!(
+            b_md.contains("| 1–8 | 60 |"),
+            "no-step tempo shows single value: {b_md}"
+        );
 
         // Appending a second session must add a new section, not overwrite.
         rep.open(RepOpenArgs {
@@ -429,7 +459,10 @@ mod tests {
         write_session_md(&store, sid2, dir.path());
 
         let a_md2 = std::fs::read_to_string(fa.join(SESSIONS_FILE)).unwrap();
-        assert!(a_md2.contains("| 40–56 |") && a_md2.contains("| 57–64 |"), "both sections present");
+        assert!(
+            a_md2.contains("| 40–56 |") && a_md2.contains("| 57–64 |"),
+            "both sections present"
+        );
         assert_eq!(
             a_md2.matches("## ").count(),
             2,
@@ -443,7 +476,9 @@ mod tests {
         let pid = seed_piece_with_folder(&store, "Etude", "/v/Etude");
         store.open_session().unwrap();
         let block_id = seed_block(&store, pid, 1, 8);
-        store.insert_rep(block_id, 60.0, None, "clean", None).unwrap();
+        store
+            .insert_rep(block_id, 60.0, None, "clean", None)
+            .unwrap();
         let voided = store
             .insert_rep(
                 block_id,
@@ -489,6 +524,9 @@ mod tests {
         let sid = sessions.current_id().unwrap();
         let result = write_session_md(&store, sid, dir.path());
         assert_eq!(result.pieces, 0);
-        assert!(result.files.is_empty(), "no vault write with zero rep activity");
+        assert!(
+            result.files.is_empty(),
+            "no vault write with zero rep activity"
+        );
     }
 }

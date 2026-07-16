@@ -118,10 +118,20 @@ mod tests {
     #[test]
     fn append_and_read_back_ordered() {
         let (s, sid, pid) = seeded();
-        s.append_event(super::EventKind::REP_OPEN, Some(sid), Some(pid), &json!({"block_id":7}))
-            .unwrap();
-        s.append_event(super::EventKind::REP, Some(sid), Some(pid), &json!({"verdict":"clean"}))
-            .unwrap();
+        s.append_event(
+            super::EventKind::REP_OPEN,
+            Some(sid),
+            Some(pid),
+            &json!({"block_id":7}),
+        )
+        .unwrap();
+        s.append_event(
+            super::EventKind::REP,
+            Some(sid),
+            Some(pid),
+            &json!({"verdict":"clean"}),
+        )
+        .unwrap();
         let evs = s.events_for_session(sid).unwrap();
         assert_eq!(evs.len(), 2);
         assert_eq!(evs[0].kind, "rep_open");

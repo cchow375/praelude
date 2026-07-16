@@ -82,8 +82,7 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let year = if month <= 2 { year - 1 } else { year };
     let era = if year >= 0 { year } else { year - 399 } / 400;
     let year_of_era = year - era * 400;
-    let day_of_year =
-        (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     era * 146_097 + day_of_era - 719_468
 }
@@ -94,8 +93,7 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let day_of_era = z - era * 146_097;
     let year_of_era =
-        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096)
-            / 365;
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
     let mut year = year_of_era + era * 400;
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_prime = (5 * day_of_year + 2) / 153;
@@ -115,9 +113,18 @@ mod tests {
             assert!(Date::parse(valid).is_some(), "{valid}");
         }
         for invalid in [
-            "", "2026-1-01", "2026-01-1", " 2026-01-01", "0000-01-01",
-            "1900-02-29", "2026-02-29", "2026-04-31", "2026-00-10",
-            "2026-13-01", "2026-01-00", "2026-01-32",
+            "",
+            "2026-1-01",
+            "2026-01-1",
+            " 2026-01-01",
+            "0000-01-01",
+            "1900-02-29",
+            "2026-02-29",
+            "2026-04-31",
+            "2026-00-10",
+            "2026-13-01",
+            "2026-01-00",
+            "2026-01-32",
         ] {
             assert!(Date::parse(invalid).is_none(), "{invalid}");
         }
@@ -125,20 +132,61 @@ mod tests {
 
     #[test]
     fn day_arithmetic_crosses_month_year_and_leap_boundaries() {
-        assert_eq!(Date::parse("2024-02-28").unwrap().add_days(1).unwrap().to_string(), "2024-02-29");
-        assert_eq!(Date::parse("2024-02-29").unwrap().add_days(1).unwrap().to_string(), "2024-03-01");
-        assert_eq!(Date::parse("2026-12-31").unwrap().add_days(1).unwrap().to_string(), "2027-01-01");
-        assert_eq!(Date::parse("2026-01-01").unwrap().add_days(-1).unwrap().to_string(), "2025-12-31");
+        assert_eq!(
+            Date::parse("2024-02-28")
+                .unwrap()
+                .add_days(1)
+                .unwrap()
+                .to_string(),
+            "2024-02-29"
+        );
+        assert_eq!(
+            Date::parse("2024-02-29")
+                .unwrap()
+                .add_days(1)
+                .unwrap()
+                .to_string(),
+            "2024-03-01"
+        );
+        assert_eq!(
+            Date::parse("2026-12-31")
+                .unwrap()
+                .add_days(1)
+                .unwrap()
+                .to_string(),
+            "2027-01-01"
+        );
+        assert_eq!(
+            Date::parse("2026-01-01")
+                .unwrap()
+                .add_days(-1)
+                .unwrap()
+                .to_string(),
+            "2025-12-31"
+        );
     }
 
     #[test]
     fn local_midnight_uses_calendar_days_not_utc_date_slices() {
         // 2026-07-12 02:30 UTC is still July 11 at UTC-04:00.
-        let utc = Date::parse("2026-07-12").unwrap().days_since_epoch() * 86_400 + 2 * 3_600 + 30 * 60;
+        let utc =
+            Date::parse("2026-07-12").unwrap().days_since_epoch() * 86_400 + 2 * 3_600 + 30 * 60;
         let new_york_day = (utc - 4 * 3_600).div_euclid(86_400);
         let tokyo_day = (utc + 9 * 3_600).div_euclid(86_400);
-        assert_eq!(Date { days_since_epoch: new_york_day }.to_string(), "2026-07-11");
-        assert_eq!(Date { days_since_epoch: tokyo_day }.to_string(), "2026-07-12");
+        assert_eq!(
+            Date {
+                days_since_epoch: new_york_day
+            }
+            .to_string(),
+            "2026-07-11"
+        );
+        assert_eq!(
+            Date {
+                days_since_epoch: tokyo_day
+            }
+            .to_string(),
+            "2026-07-12"
+        );
     }
 
     #[test]

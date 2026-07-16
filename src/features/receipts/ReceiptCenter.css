@@ -47,6 +47,14 @@
   border-left-color: var(--accent);
 }
 
+.receipt-item[data-kind="confirmation"] {
+  border-left-color: var(--warning);
+}
+
+.receipt-item[data-kind="duplicate"] {
+  border-left-color: var(--info);
+}
+
 .receipt-item[data-kind="error"] {
   border-left-color: var(--danger);
 }
@@ -60,6 +68,9 @@
 .receipt-item[data-kind="undone"] .receipt-mark {
   color: var(--accent);
 }
+
+.receipt-item[data-kind="confirmation"] .receipt-mark { color: var(--warning); }
+.receipt-item[data-kind="duplicate"] .receipt-mark { color: var(--info); }
 
 .receipt-item[data-kind="error"] .receipt-mark {
   color: var(--danger);

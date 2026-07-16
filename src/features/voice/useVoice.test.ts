@@ -29,6 +29,7 @@ import {
   type VoiceStatusEvent,
   type VoiceIntent,
 } from "./useVoice";
+import type { TierAContext } from "./domain/tierAIntent";
 
 function emit(event: string, payload: unknown) {
   act(() => {
@@ -76,18 +77,147 @@ describe("useVoice — IPC wiring", () => {
     emit("voice://status", down);
 
     expect(result.current.status).toBe("down");
-    expect(result.current.downReason).toBe("dictation disabled");
     expect(result.current.downGuidance).toContain("Enable Dictation");
   });
 
-  it("updates the latest transcript on every voice://transcript event", async () => {
+  it("surfaces the backend's routing outcome on the accepted final delivery", async () => {
     const { result } = renderHook(() => useVoice());
     await waitFor(() => expect(listenMock).toHaveBeenCalled());
 
-    emit("voice://transcript", { text: "set the tempo", is_final: false });
-    expect(result.current.transcript).toBe("set the tempo");
-    emit("voice://transcript", { text: "set the tempo to 96", is_final: true });
-    expect(result.current.transcript).toBe("set the tempo to 96");
+    emit("voice://transcript", {
+      delivery_id: "speech-9",
+      revision: 0,
+      text: "start a rep tracker measures 40 to 56 at 80",
+      is_final: true,
+      handled: true,
+      source: "macos_speech",
+      confidence: null,
+    });
+    expect(result.current.acceptedFinalDelivery).toMatchObject({
+      delivery_id: "speech-9",
+      handled: true,
+    });
+  });
+
+  it("accepts rich transcript metadata and ignores an exact replay + stale revision", async () => {
+    const context: TierAContext = {
+      practice_state: "active",
+      metronome_running: true,
+      last_attempt_available: true,
+      pending_duplicate_attempt: false,
+      retention_due: false,
+    };
+    const { result } = renderHook(() => useVoice(context));
+    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+
+    emit("voice://transcript", {
+      delivery_id: "speech-8",
+      revision: 2,
+      text: "clean",
+      is_final: true,
+      source: "macos_speech",
+      confidence: 0.82,
+    });
+    expect(result.current.acceptedFinalDelivery).toMatchObject({
+      delivery_id: "speech-8",
+      revision: 2,
+      recognition: { source: "macos_speech", confidence: 0.82 },
+    });
+    expect(result.current.tierAResult).toMatchObject({
+      classification: "matched",
+      intent: { kind: "record_attempt", verdict: "clean" },
+    });
+
+    emit("voice://transcript", {
+      delivery_id: "speech-8",
+      revision: 2,
+      text: "flawed",
+      is_final: true,
+      recognition: { source: "narrated_replay", confidence: 0.2 },
+    });
+    expect(result.current.deliveryDisposition?.kind).toBe("duplicate");
+    expect(result.current.acceptedFinalDelivery?.text).toBe("clean");
+
+    emit("voice://transcript", {
+      delivery_id: "speech-8",
+      revision: 1,
+      text: "miss",
+      is_final: true,
+      source: "narrated_replay",
+      confidence: null,
+    });
+    expect(result.current.deliveryDisposition?.kind).toBe("stale_revision");
+    expect(result.current.acceptedFinalDelivery?.revision).toBe(2);
+    expect(result.current.tierAResult).toMatchObject({
+      intent: { kind: "record_attempt", verdict: "clean" },
+    });
+  });
+
+  it("does not collapse identical words from distinct delivery identities", async () => {
+    const { result } = renderHook(() => useVoice());
+    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+
+    for (const deliveryId of ["utterance-a", "utterance-b"]) {
+      emit("voice://transcript", {
+        delivery_id: deliveryId,
+        revision: 0,
+        text: "practice measures 8 to 12",
+        is_final: true,
+        source: "macos_speech",
+        confidence: null,
+      });
+    }
+
+    expect(result.current.deliveryDisposition).toMatchObject({
+      kind: "accepted_new",
+      identity: { delivery_id: "utterance-b", revision: 0 },
+    });
+    expect(result.current.acceptedFinalDelivery?.delivery_id).toBe("utterance-b");
+  });
+
+  it("keeps interim recognition out of accepted-final state", async () => {
+    const { result } = renderHook(() => useVoice());
+    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+
+    emit("voice://transcript", {
+      delivery_id: "progressive-1",
+      revision: 0,
+      text: "practice measures",
+      is_final: false,
+      source: "macos_speech",
+      confidence: 0.45,
+    });
+
+    expect(result.current.acceptedFinalDelivery).toBeNull();
+    expect(result.current.tierAResult).toMatchObject({
+      classification: "ignored",
+      reason: "non_final",
+    });
+  });
+
+  it("keeps ambient finals inert and marks them unhandled for Lane B", async () => {
+    const { result } = renderHook(() => useVoice());
+    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+
+    emit("voice://transcript", {
+      delivery_id: "ambient-1",
+      revision: 0,
+      text: "I think that sounded warmer",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.91,
+    });
+    expect(result.current.tierAResult).toMatchObject({
+      classification: "ignored",
+      reason: "not_exact_command",
+    });
+    // An unrouted ambient final is accepted (Lane B may then draft it) and
+    // carries the backend's handled=false decision.
+    expect(result.current.acceptedFinalDelivery).toMatchObject({
+      delivery_id: "ambient-1",
+      handled: false,
+    });
   });
 
   it("updates lastIntent on a voice://intent event", async () => {

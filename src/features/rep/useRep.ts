@@ -7,7 +7,11 @@ import {
 } from "../../services/command";
 import type { MetroState } from "../metronome/useMetronome";
 import { readMetroIntentState } from "../metronome/intentGuard";
-import { useReceipts } from "../receipts/ReceiptCenter";
+import {
+  useReceipts,
+  type MutationReceipt,
+} from "../receipts/ReceiptCenter";
+import { createCommandId } from "../../services/commandId";
 
 // ---------------------------------------------------------------------------
 // Rep-engine hook.
@@ -96,7 +100,80 @@ export interface RepSnapshot {
   last_attempt_id?: number | null;
   last_adjustment_id?: number | null;
   review_boundary_reached?: boolean;
+  /** Seconds durably checkpointed as focused practice; paused/relaunch gaps are excluded. */
+  active_seconds?: number;
+  timer_state?: "active" | "paused" | string;
+  intention?: string | null;
+  judging_axis?: string;
+  hands?: string;
+  method?: string;
+  planned_seconds?: number | null;
+  reflection?: string | null;
+  safety_state?: "clear" | "stopped" | string;
+  manual_clean_debt?: number;
+  recovery_actions?: RecoveryActionView[];
+  retention_check?: RetentionCheckView | null;
+  working_m_start?: number;
+  working_m_end?: number;
 }
+
+export interface RecoveryActionView {
+  id: number;
+  kind: RecoveryActionRequest["kind"] | string;
+  after_attempt_id: number | null;
+  payload: unknown;
+  rationale: string;
+  source: string;
+  created_ts: string;
+}
+
+export interface RetentionCheckView {
+  id: number;
+  region_id: number;
+  source_set_id: number | null;
+  due_date: string;
+  original_due_date: string;
+  condition: RetentionCondition;
+  state: string;
+  result: RetentionResult | null;
+  completed_ts: string | null;
+  created_ts: string;
+  updated_ts: string;
+}
+
+export interface RetentionCondition {
+  bpm?: number | null;
+  m_start?: number | null;
+  m_end?: number | null;
+  hands?: string | null;
+  method?: string | null;
+  judging_axis?: string | null;
+  required_clean_streak?: number | null;
+  cold?: boolean | null;
+}
+
+export interface RetentionResult {
+  decision: "confirm_retained" | "lower_working_condition" | "reopen_target";
+  note: string;
+  checked_as_of: string;
+  observed_condition?: RetentionCondition | null;
+  next_condition?: RetentionCondition | null;
+}
+
+export type RecoveryActionRequest =
+  | { kind: "reset_streak"; rationale: string }
+  | { kind: "clean_debt"; clean_count: number; rationale: string }
+  | { kind: "tempo_backoff"; bpm: number; rationale: string }
+  | { kind: "narrow_target"; m_start: number; m_end: number; rationale: string }
+  | { kind: "change_hands"; hands: string; rationale: string }
+  | { kind: "change_method"; method: string; rationale: string }
+  | { kind: "break"; planned_seconds?: number | null; rationale: string }
+  | {
+      kind: "schedule_retention";
+      due_date: string;
+      condition?: RetentionCondition;
+      rationale: string;
+    };
 
 export type MasteryStatus =
   | "satisfied"
@@ -185,12 +262,20 @@ function isBrowserDevUnavailable(cause: unknown): boolean {
     || message.includes("cannot read properties of undefined");
 }
 
+class MutationReceiptRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MutationReceiptRejectedError";
+  }
+}
+
 /** Mirrors the backend `CheckOutcome` serde payload. */
 export interface CheckOutcome {
   snap: RepSnapshot;
   new_bpm: number | null;
   block_done: boolean;
   say: string;
+  receipt?: MutationReceipt<RepSnapshot> | null;
 }
 
 /** Argument bag for `rep_open` (passed as the single `args` command param). */
@@ -211,6 +296,15 @@ export interface RepOpenArgs {
   use_metronome: boolean;
 }
 
+export interface SetFocusContextInput {
+  intention?: string | null;
+  judging_axis?: string | null;
+  hands?: string | null;
+  method?: string | null;
+  planned_seconds?: number | null;
+  reflection?: string | null;
+}
+
 /** Verdict strings accepted by `rep_check`. */
 export type Verdict = "clean" | "flawed" | "failed";
 
@@ -219,12 +313,15 @@ const REP_STATE = defineCommand<undefined, RepSnapshot | null>(
   "rep_state",
   "The current practice block could not be loaded.",
 );
-const REP_OPEN = defineCommand<{ args: RepOpenArgs }, RepSnapshot>(
+const REP_OPEN = defineCommand<{
+  args: RepOpenArgs;
+  context: SetFocusContextInput | null;
+}, RepSnapshot>(
   "rep_open",
   "The practice set could not be opened.",
 );
 const REP_CHECK = defineCommand<
-  { verdict: Verdict; note: string | null },
+  { verdict: Verdict; note: string | null; commandId: string },
   CheckOutcome
 >("rep_check", "The attempt could not be saved.");
 const REP_CLOSE = defineCommand<undefined, RepSnapshot | null>(
@@ -252,6 +349,30 @@ const REP_RESTART = defineCommand<
   { requiredCleanStreak: number | null },
   RepSnapshot
 >("rep_restart", "The practice set could not be restarted.");
+const REP_PAUSE = defineCommand<
+  { commandId: string },
+  MutationReceipt<RepSnapshot>
+>("rep_pause", "The practice timer could not be paused.");
+const REP_RESUME = defineCommand<
+  { commandId: string },
+  MutationReceipt<RepSnapshot>
+>("rep_resume", "The practice timer could not be resumed.");
+const REP_CHECKPOINT = defineCommand<
+  { commandId: string },
+  MutationReceipt<RepSnapshot>
+>("rep_checkpoint", "Focused time could not be checkpointed.");
+const REP_REFLECT = defineCommand<
+  { commandId: string; reflection: string },
+  MutationReceipt<RepSnapshot>
+>("rep_reflect", "The set reflection could not be saved.");
+const REP_SAFETY_STOP = defineCommand<
+  { commandId: string; reason: string | null },
+  MutationReceipt<RepSnapshot>
+>("rep_safety_stop", "The safety stop could not be saved.");
+const REP_RECOVERY = defineCommand<
+  { commandId: string; action: RecoveryActionRequest },
+  MutationReceipt<RepSnapshot>
+>("rep_recovery", "The recovery choice could not be saved.");
 const METRO_START = defineCommand<{ bpm: number }, unknown>(
   "metro_start",
   "The set opened, but the metronome could not be started.",
@@ -274,7 +395,7 @@ export interface UseRep {
   error: string | null;
   clearError: () => void;
   /** Open a new practice block. Applies the returned snapshot immediately. */
-  open: (args: RepOpenArgs) => Promise<void>;
+  open: (args: RepOpenArgs, context?: SetFocusContextInput | null) => Promise<void>;
   /** Record a verdict (same path as a voice ack). */
   check: (verdict: Verdict, note?: string | null) => Promise<void>;
   /** Append a reversal for the latest attempt. No attempt row is deleted. */
@@ -289,6 +410,18 @@ export interface UseRep {
   reverseAdjustment: (adjustmentId: number) => Promise<void>;
   /** Mark this set restarted and create a fresh set with the same contract. */
   restart: (requiredCleanStreak?: number | null) => Promise<void>;
+  /** Close the active timing interval without closing the set. */
+  pause: () => Promise<void>;
+  /** Start a fresh focused timing interval on the same set. */
+  resume: () => Promise<void>;
+  /** Persist elapsed focused time; internal checkpoints do not create UI noise. */
+  checkpoint: () => Promise<void>;
+  /** Save the pianist's own focus/quality reflection. */
+  reflect: (reflection: string) => Promise<void>;
+  /** Commit a pain/weakness stop before stopping the metronome. */
+  safetyStop: (reason?: string | null) => Promise<void>;
+  /** Apply one explicit, deterministic recovery choice. */
+  recover: (action: RecoveryActionRequest) => Promise<void>;
   /** Close the active block. */
   close: () => Promise<void>;
 }
@@ -302,6 +435,8 @@ export function useRep(): UseRep {
   const snapRef = useRef<RepSnapshot | null>(null);
   const errorTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const announcedAttempts = useRef(new Set<string>());
+  const pendingAttemptCommands = useRef(0);
+  const commandIds = useRef(new Map<string, string>());
   const eventRevision = useRef(0);
   const mutationRevision = useRef(0);
   const metroRef = useRef<MetroState | null>(null);
@@ -313,7 +448,11 @@ export function useRep(): UseRep {
   const metroReadiness = metroReadinessRef.current;
 
   const publishAttemptReceipt = useCallback(
-    (next: RepSnapshot, fallbackVerdict?: Verdict) => {
+    (
+      next: RepSnapshot,
+      fallbackVerdict?: Verdict,
+      receipt?: MutationReceipt<RepSnapshot> | null,
+    ) => {
       const verdict = next.last?.verdict ?? fallbackVerdict;
       const tries = repTries(next);
       if (!verdict || tries < 1) return;
@@ -326,7 +465,8 @@ export function useRep(): UseRep {
         const oldest = announcedAttempts.current.values().next().value;
         if (oldest) announcedAttempts.current.delete(oldest);
       }
-      receipts.committed(`Attempt ${tries} saved — ${verdict}.`);
+      if (receipt) receipts.mutation(receipt);
+      else receipts.committed(`Attempt ${tries} saved — ${verdict}.`);
     },
     [receipts],
   );
@@ -371,6 +511,22 @@ export function useRep(): UseRep {
   const clearError = useCallback(() => {
     if (errorTimer.current) clearTimeout(errorTimer.current);
     setError(null);
+  }, []);
+
+  const commandId = useCallback((operation: string) => {
+    const existing = commandIds.current.get(operation);
+    if (existing) return existing;
+    const created = createCommandId(operation);
+    commandIds.current.set(operation, created);
+    if (commandIds.current.size > 32) {
+      const oldest = commandIds.current.keys().next().value;
+      if (oldest) commandIds.current.delete(oldest);
+    }
+    return created;
+  }, []);
+
+  const settleCommandId = useCallback((operation: string) => {
+    commandIds.current.delete(operation);
   }, []);
 
   /**
@@ -432,6 +588,53 @@ export function useRep(): UseRep {
     }
   }, [metroReadiness, receipts, showError]);
 
+  const runSnapshotReceiptMutation = useCallback(async (
+    operation: string,
+    fallbackMessage: string,
+    invokeReceipt: (id: string) => Promise<MutationReceipt<RepSnapshot>>,
+    publishCommitted = true,
+  ): Promise<RepSnapshot> => {
+    clearError();
+    const blockAtStart = snapRef.current?.block_id ?? null;
+    const eventsAtStart = eventRevision.current;
+    const mutationAtStart = mutationRevision.current + 1;
+    mutationRevision.current = mutationAtStart;
+    const id = commandId(operation);
+    try {
+      const receipt = await invokeReceipt(id);
+      if (publishCommitted || receipt.status !== "committed" || receipt.value == null || receipt.replayed) {
+        receipts.mutation(receipt);
+      }
+      settleCommandId(operation);
+      if (receipt.status !== "committed" || receipt.value == null) {
+        const message = receipt.error_detail?.trim()
+          || receipt.summary.trim()
+          || fallbackMessage;
+        showError(message);
+        throw new MutationReceiptRejectedError(message);
+      }
+
+      const next = receipt.value;
+      if (
+        mutationRevision.current === mutationAtStart
+        && eventRevision.current === eventsAtStart
+        && blockAtStart != null
+        && snapRef.current?.block_id === blockAtStart
+      ) {
+        applySnapshot(next);
+      }
+      return next;
+    } catch (cause) {
+      if (cause instanceof MutationReceiptRejectedError) throw cause;
+      const message = commandErrorMessage(cause, fallbackMessage);
+      showError(message);
+      if (!isBrowserDevUnavailable(cause)) receipts.error(cause, message);
+      // Transport uncertainty deliberately retains the command id so the same
+      // exact user action can be retried without a second native write.
+      throw cause;
+    }
+  }, [applySnapshot, clearError, commandId, receipts, settleCommandId, showError]);
+
   // Mount: subscribe to the event bus FIRST, then the one-time initial fetch.
   useEffect(() => {
     let alive = true;
@@ -443,7 +646,10 @@ export function useRep(): UseRep {
           eventArrived = true;
           if (alive) {
             eventRevision.current += 1;
-            applySnapshot(e.payload ?? null, true);
+            applySnapshot(
+              e.payload ?? null,
+              pendingAttemptCommands.current === 0,
+            );
           }
         });
         if (alive) unlisten = un;
@@ -515,13 +721,16 @@ export function useRep(): UseRep {
   }, [metroReadiness]);
 
   const open = useCallback(
-    async (args: RepOpenArgs) => {
+    async (args: RepOpenArgs, context?: SetFocusContextInput | null) => {
       clearError();
       const eventsAtStart = eventRevision.current;
       const metroAtStart = captureMetroCommandGuard(metroRevision.current);
       let openedBlockId: number | null = null;
       try {
-        const s = await executeCommand(REP_OPEN, { args });
+        const s = await executeCommand(REP_OPEN, {
+          args,
+          context: context ?? null,
+        });
         openedBlockId = s.block_id;
         const noNewerEvent = eventRevision.current === eventsAtStart;
         // A rep_open return is only the no-event-bus fallback. In native use,
@@ -575,10 +784,14 @@ export function useRep(): UseRep {
       const metroAtStart = captureMetroCommandGuard(metroRevision.current);
       const mutationAtStart = mutationRevision.current + 1;
       mutationRevision.current = mutationAtStart;
+      const operation = `rep-check:${blockAtStart ?? "none"}:${verdict}:${note ?? ""}`;
+      const id = commandId(operation);
+      pendingAttemptCommands.current += 1;
       try {
         const outcome = await executeCommand(REP_CHECK, {
           verdict,
           note: note ?? null,
+          commandId: id,
         });
         // The native event normally arrives first, but the returned committed
         // snapshot is also enough to update and receipt the write when the
@@ -589,7 +802,8 @@ export function useRep(): UseRep {
           eventsAtStart,
           mutationAtStart,
         );
-        publishAttemptReceipt(outcome.snap, verdict);
+        settleCommandId(operation);
+        publishAttemptReceipt(outcome.snap, verdict, outcome.receipt);
         await retuneIfCurrent(outcome, blockAtStart, mutationAtStart, metroAtStart);
         // The authoritative `rep://state` event reconciles snap + feed.
       } catch (cause) {
@@ -600,9 +814,14 @@ export function useRep(): UseRep {
         showError(message);
         receipts.error(cause, message);
         throw cause;
+      } finally {
+        pendingAttemptCommands.current = Math.max(
+          0,
+          pendingAttemptCommands.current - 1,
+        );
       }
     },
-    [applyReturnedSnapshot, clearError, publishAttemptReceipt, receipts, retuneIfCurrent, showError],
+    [applyReturnedSnapshot, clearError, commandId, publishAttemptReceipt, receipts, retuneIfCurrent, settleCommandId, showError],
   );
 
   const undo = useCallback(async () => {
@@ -741,6 +960,77 @@ export function useRep(): UseRep {
     }
   }, [applySnapshot, clearError, receipts, showError]);
 
+  const pause = useCallback(async () => {
+    await runSnapshotReceiptMutation(
+      `rep-pause:${snapRef.current?.block_id ?? "none"}`,
+      "The practice timer could not be paused.",
+      (id) => executeCommand(REP_PAUSE, { commandId: id }),
+    );
+  }, [runSnapshotReceiptMutation]);
+
+  const resume = useCallback(async () => {
+    await runSnapshotReceiptMutation(
+      `rep-resume:${snapRef.current?.block_id ?? "none"}`,
+      "The practice timer could not be resumed.",
+      (id) => executeCommand(REP_RESUME, { commandId: id }),
+    );
+  }, [runSnapshotReceiptMutation]);
+
+  const checkpoint = useCallback(async () => {
+    await runSnapshotReceiptMutation(
+      `rep-checkpoint:${snapRef.current?.block_id ?? "none"}`,
+      "Focused time could not be checkpointed.",
+      (id) => executeCommand(REP_CHECKPOINT, { commandId: id }),
+      false,
+    );
+  }, [runSnapshotReceiptMutation]);
+
+  const reflect = useCallback(async (rawReflection: string) => {
+    const reflection = rawReflection.trim();
+    if (!reflection) throw new Error("Reflection cannot be empty.");
+    await runSnapshotReceiptMutation(
+      `rep-reflect:${snapRef.current?.block_id ?? "none"}:${reflection}`,
+      "The set reflection could not be saved.",
+      (id) => executeCommand(REP_REFLECT, { commandId: id, reflection }),
+    );
+  }, [runSnapshotReceiptMutation]);
+
+  const safetyStop = useCallback(async (rawReason?: string | null) => {
+    const reason = rawReason?.trim() || null;
+    await runSnapshotReceiptMutation(
+      `rep-safety-stop:${snapRef.current?.block_id ?? "none"}:${reason ?? "unspecified"}`,
+      "The safety stop could not be saved.",
+      (id) => executeCommand(REP_SAFETY_STOP, { commandId: id, reason }),
+    );
+  }, [runSnapshotReceiptMutation]);
+
+  const recover = useCallback(async (action: RecoveryActionRequest) => {
+    await runSnapshotReceiptMutation(
+      `rep-recovery:${snapRef.current?.block_id ?? "none"}:${JSON.stringify(action)}`,
+      "The recovery choice could not be saved.",
+      (id) => executeCommand(REP_RECOVERY, { commandId: id, action }),
+    );
+  }, [runSnapshotReceiptMutation]);
+
+  // Persist short focused intervals without counting pauses or relaunch gaps.
+  // Checkpoints are technical durability writes, so successful ones stay quiet;
+  // rejection remains visible through the shared error/receipt path.
+  useEffect(() => {
+    const blockId = snap?.block_id;
+    const timing = snap?.timer_state ?? (snap?.set_state === "active" ? "active" : "paused");
+    if (blockId == null || timing !== "active") return;
+    const persist = () => { void checkpoint().catch(() => undefined); };
+    const timer = window.setInterval(persist, 15_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") persist();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [checkpoint, snap?.block_id, snap?.set_state, snap?.timer_state]);
+
   const close = useCallback(async () => {
     clearError();
     const blockAtStart = snapRef.current?.block_id ?? null;
@@ -787,6 +1077,12 @@ export function useRep(): UseRep {
     correct,
     reverseAdjustment,
     restart,
+    pause,
+    resume,
+    checkpoint,
+    reflect,
+    safetyStop,
+    recover,
     close,
   };
 }

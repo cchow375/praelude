@@ -366,24 +366,20 @@ fn run_manager(
         };
 
         let _status = child.wait(); // reaps the child (no zombie)
-        // Death-path group kill: SIGTERM the whole group BEFORE joining the reader
-        // and stderr threads. A grandchild that inherited the child's stdout/stderr
-        // fds would otherwise keep those pipes open, wedging `reader.join()` /
-        // `stderr_reader.join()` forever and silently killing auto-restart. On the
-        // shutdown path the group was already signaled; a second SIGTERM is harmless
-        // (ESRCH on an already-dead group is ignored).
+                                    // Death-path group kill: SIGTERM the whole group BEFORE joining the reader
+                                    // and stderr threads. A grandchild that inherited the child's stdout/stderr
+                                    // fds would otherwise keep those pipes open, wedging `reader.join()` /
+                                    // `stderr_reader.join()` forever and silently killing auto-restart. On the
+                                    // shutdown path the group was already signaled; a second SIGTERM is harmless
+                                    // (ESRCH on an already-dead group is ignored).
         term_group(child_pgid);
         // Forget the pgid the instant the child is reaped, shrinking the window in
         // which shutdown could signal a pgid the OS has recycled onto a new process.
         *pgid_slot.lock().unwrap() = None;
         // Only clear the global mirror if it still points at THIS child (a fresh
         // spawn in a racing iteration may already have overwritten it).
-        let _ = CURRENT_HEAR_PGID.compare_exchange(
-            child_pgid,
-            0,
-            Ordering::AcqRel,
-            Ordering::Relaxed,
-        );
+        let _ =
+            CURRENT_HEAR_PGID.compare_exchange(child_pgid, 0, Ordering::AcqRel, Ordering::Relaxed);
         let _ = reader.join();
         let stderr_text = stderr_reader.join().unwrap_or_default();
 
@@ -448,11 +444,7 @@ fn should_give_up(
 
 /// Sleep the backoff, but wake early (and return `true`) if shutdown is
 /// requested. Returns `true` to stop the loop.
-fn backoff_or_stop(
-    stop_rx: &mpsc::Receiver<()>,
-    backoff: Duration,
-    shutdown: &AtomicBool,
-) -> bool {
+fn backoff_or_stop(stop_rx: &mpsc::Receiver<()>, backoff: Duration, shutdown: &AtomicBool) -> bool {
     match stop_rx.recv_timeout(backoff) {
         Ok(()) | Err(RecvTimeoutError::Disconnected) => true,
         Err(RecvTimeoutError::Timeout) => shutdown.load(Ordering::Acquire),
@@ -731,7 +723,9 @@ mod tests {
             "Error Domain=kLSRErrorDomain Code=201 \"Siri and Dictation are disabled\""
         ));
         assert!(is_config_error("... Code=201 ..."));
-        assert!(!is_config_error("kAFAssistantErrorDomain Code=1110 No speech"));
+        assert!(!is_config_error(
+            "kAFAssistantErrorDomain Code=1110 No speech"
+        ));
         assert!(!is_config_error(""));
     }
 
@@ -871,7 +865,11 @@ mod tests {
             "leading CR + trailing erase both stripped"
         );
         assert_eq!(sanitize_line("plain"), "plain");
-        assert_eq!(sanitize_line("  \r\u{1b}[2K  "), "", "control-only line collapses to empty");
+        assert_eq!(
+            sanitize_line("  \r\u{1b}[2K  "),
+            "",
+            "control-only line collapses to empty"
+        );
     }
 
     // is_config_error latches ONLY on Code=201, not on other kLSR errors.
@@ -890,7 +888,9 @@ mod tests {
         assert!(is_mic_denied(
             "Speech recognition authorization restricted on this device"
         ));
-        assert!(is_mic_denied("Speech recognition authorization not determined"));
+        assert!(is_mic_denied(
+            "Speech recognition authorization not determined"
+        ));
         assert!(is_mic_denied(
             "Failed to start audio engine: The operation couldn’t be completed."
         ));

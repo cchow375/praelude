@@ -240,10 +240,7 @@ fn read_wav_mono_with_rate(path: &Path) -> Result<(Vec<f32>, u32), String> {
     let spec = reader.spec();
     let channels = spec.channels.max(1) as usize;
     let interleaved: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader
-            .samples::<f32>()
-            .map(|s| s.unwrap_or(0.0))
-            .collect(),
+        hound::SampleFormat::Float => reader.samples::<f32>().map(|s| s.unwrap_or(0.0)).collect(),
         hound::SampleFormat::Int => {
             // 8-bit WAV PCM is stored UNSIGNED (128 = silence), but hound already
             // returns it re-centered to signed [-128, 127] when read as i32 (its
@@ -308,9 +305,15 @@ mod tests {
         let consumed = mixer.render(&mut out);
         assert_eq!(consumed, 3, "consumed exactly the queued PCM samples");
         // index0: click 1.0 + pcm(5.0*0.5=2.5) = 3.5 -> clamp 1.0
-        assert!((out[0] - 1.0).abs() < 1e-6, "positive overshoot clamps to 1.0");
+        assert!(
+            (out[0] - 1.0).abs() < 1e-6,
+            "positive overshoot clamps to 1.0"
+        );
         // index1: pcm -5.0*0.5 = -2.5 -> clamp -1.0
-        assert!((out[1] + 1.0).abs() < 1e-6, "negative overshoot clamps to -1.0");
+        assert!(
+            (out[1] + 1.0).abs() < 1e-6,
+            "negative overshoot clamps to -1.0"
+        );
         // index2: pcm 0.4*0.5 = 0.2 (in range, gain applied)
         assert!((out[2] - 0.2).abs() < 1e-6, "voice_gain applied, no clamp");
         assert_eq!(out[3], 0.0, "no more PCM");
@@ -321,10 +324,7 @@ mod tests {
     // double-bias hound's already-signed 8-bit samples.
     #[test]
     fn eightbit_wav_roundtrips_centered() {
-        let path = std::env::temp_dir().join(format!(
-            "codakiller_8bit_{}.wav",
-            std::process::id()
-        ));
+        let path = std::env::temp_dir().join(format!("codakiller_8bit_{}.wav", std::process::id()));
         let spec = hound::WavSpec {
             channels: 1,
             sample_rate: 44_100,
@@ -343,9 +343,16 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         assert_eq!(mono.len(), 4);
-        assert!(mono[0].abs() < 1e-6, "silence (byte 128) must decode to ~0.0, got {}", mono[0]);
+        assert!(
+            mono[0].abs() < 1e-6,
+            "silence (byte 128) must decode to ~0.0, got {}",
+            mono[0]
+        );
         assert!((mono[1] - 0.5).abs() < 1e-6, "64/128 = 0.5");
-        assert!((mono[2] + 1.0).abs() < 1e-6, "-128/128 = -1.0 (full negative)");
+        assert!(
+            (mono[2] + 1.0).abs() < 1e-6,
+            "-128/128 = -1.0 (full negative)"
+        );
         assert!((mono[3] - 127.0 / 128.0).abs() < 1e-6, "127/128 ~= +0.992");
     }
 
@@ -365,8 +372,14 @@ mod tests {
         mixer.trigger(ClickKind::Beat, 0);
         let mut buf = [0.0f32; 4];
         let _ = mixer.render(&mut buf);
-        assert!((buf[0] - 1.0).abs() < 1e-6, "old tail (0.5) + new click (0.5)");
-        assert!((buf[1] - 1.0).abs() < 1e-6, "old tail (0.5) + new click (0.5)");
+        assert!(
+            (buf[0] - 1.0).abs() < 1e-6,
+            "old tail (0.5) + new click (0.5)"
+        );
+        assert!(
+            (buf[1] - 1.0).abs() < 1e-6,
+            "old tail (0.5) + new click (0.5)"
+        );
         assert!((buf[2] - 0.5).abs() < 1e-6, "only the new click remains");
         assert!((buf[3] - 0.5).abs() < 1e-6, "only the new click remains");
     }
@@ -396,7 +409,10 @@ mod tests {
             assert!(!c.accent.is_empty(), "{name}: accent must not be empty");
             assert!(!c.beat.is_empty(), "{name}: beat must not be empty");
             assert!(!c.sub.is_empty(), "{name}: sub must not be empty");
-            assert_eq!(c.src_rate, 44_100, "{name}: assets are authored at 44.1 kHz");
+            assert_eq!(
+                c.src_rate, 44_100,
+                "{name}: assets are authored at 44.1 kHz"
+            );
 
             assert!(
                 peak(&c.accent) > peak(&c.beat) - 1e-6,

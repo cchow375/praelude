@@ -51,6 +51,13 @@ function defaultRepState() {
     correct: vi.fn().mockResolvedValue(undefined),
     reverseAdjustment: vi.fn().mockResolvedValue(undefined),
     restart: vi.fn().mockResolvedValue(undefined),
+    // Parity with the real hook (useRep.ts) so a RepHud signature drift is
+    // caught here rather than silently passing undefined handlers.
+    pause: vi.fn().mockResolvedValue(undefined),
+    resume: vi.fn().mockResolvedValue(undefined),
+    reflect: vi.fn().mockResolvedValue(undefined),
+    safetyStop: vi.fn().mockResolvedValue(undefined),
+    recover: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
     clearError: vi.fn(),
   };
@@ -102,8 +109,31 @@ const invokeMock = vi.fn().mockImplementation((command: string) => {
   return Promise.resolve(null);
 });
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invokeMock(...args) }));
+
+function defaultVoiceState(): UseVoice {
+  return {
+    status: "live",
+    mute: vi.fn(),
+    lastIntent: null,
+    downGuidance: null,
+    acceptedFinalDelivery: null,
+    tierAResult: null,
+    deliveryDisposition: null,
+  };
+}
+const useVoiceMock = vi.fn(defaultVoiceState);
 vi.mock("../features/voice/useVoice", () => ({
-  useVoice: () => ({ status: "live", mute: vi.fn(), lastIntent: null, downGuidance: null }),
+  useVoice: () => useVoiceMock(),
+}));
+
+// The natural-language parser and its validator have their own domain tests.
+// Here they are stubbed so the Lane-B integration tests can inject a ready,
+// confirmable draft and exercise Shell's wiring (render → confirm → rep.open,
+// cancel/suppress, error) without depending on grammar details.
+const parseDraftMock = vi.fn();
+vi.mock("../features/voice/domain/actionDraft", () => ({
+  parseNaturalPracticeActionDraft: (...args: unknown[]) => parseDraftMock(...args),
+  validateNaturalPracticeActionDraft: () => [],
 }));
 vi.mock("../features/rep/useRep", () => ({
   repAttempts: (snap: RepSnapshot) => snap.attempts_recorded ?? snap.reps_done,
@@ -119,12 +149,85 @@ vi.mock("../features/session/useSession", () => ({
   }),
 }));
 
-import { Shell, groundPracticeBrainContext } from "./Shell";
+import { Shell, groundPracticeBrainContext, voiceDraftOpenRequest } from "./Shell";
+import type { UseVoice } from "../features/voice/useVoice";
+import type { NaturalPracticeActionDraft } from "../features/voice/domain/actionDraft";
+import type { VoiceTranscriptDelivery } from "../features/voice/domain/delivery";
+import type { TierAParseResult } from "../features/voice/domain/tierAIntent";
 
 afterEach(cleanup);
-beforeEach(() => useRepMock.mockReset().mockImplementation(defaultRepState));
+beforeEach(() => {
+  useRepMock.mockReset().mockImplementation(defaultRepState);
+  useVoiceMock.mockReset().mockImplementation(defaultVoiceState);
+  parseDraftMock.mockReset();
+});
 
-describe("Shell floating workspace", () => {
+// ---------------------------------------------------------------------------
+// Lane-B (natural start-set draft) fixtures.
+// ---------------------------------------------------------------------------
+
+function readyDraft(
+  overrides: Partial<NaturalPracticeActionDraft> = {},
+): NaturalPracticeActionDraft {
+  return {
+    kind: "start_practice_set",
+    source_text: "practice measures 40 to 56 at 80",
+    piece_id: 7,
+    piece_title: "Etude",
+    target: { m_start: 40, m_end: 56 },
+    contract: {
+      start_bpm: 80,
+      target_bpm: null,
+      planned_attempts: null,
+      required_clean_streak: 5,
+      hands: null,
+      method: null,
+      intention: null,
+      use_metronome: true,
+    },
+    confirmation_required: true,
+    issues: [],
+    status: "ready_to_confirm",
+    ...overrides,
+  };
+}
+
+function ignoredDelivery(handled: boolean): VoiceTranscriptDelivery {
+  return {
+    delivery_id: "draft-1",
+    revision: 0,
+    text: "practice measures 40 to 56 at 80",
+    is_final: true,
+    handled,
+    recognition: { source: "macos_speech", confidence: null },
+  };
+}
+
+function ignoredTierA(delivery: VoiceTranscriptDelivery): TierAParseResult {
+  return {
+    classification: "ignored",
+    reason: "not_exact_command",
+    evidence: {
+      delivery_id: delivery.delivery_id,
+      revision: delivery.revision,
+      raw_text: delivery.text,
+      normalized_text: delivery.text,
+      recognition: delivery.recognition,
+    },
+  };
+}
+
+/** A useVoice state carrying an accepted, unhandled, ignored final for Lane B. */
+function laneBVoiceState(handled: boolean) {
+  const delivery = ignoredDelivery(handled);
+  return {
+    ...defaultVoiceState(),
+    acceptedFinalDelivery: delivery,
+    tierAResult: ignoredTierA(delivery),
+  };
+}
+
+describe("v2 instrument shell", () => {
   it("never labels another piece's active rep as the selected piece", () => {
     const context = {
       piece_id: 2,
@@ -149,17 +252,16 @@ describe("Shell floating workspace", () => {
     expect(groundPracticeBrainContext(context, otherPieceRep)?.active_block).toBeNull();
   });
 
-  it("lands intentionally on Home, then keeps active surfaces when Practice opens", async () => {
+  it("lands intentionally on Today, then keeps the authoritative Set Desk when Atlas opens", async () => {
     render(<Shell />);
     expect(screen.getByLabelText("Version 1.3.0")).toBeTruthy();
-    expect(await screen.findByTestId("universe-workspace")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Home" }).getAttribute("aria-selected")).toBe("true");
-    fireEvent.click(screen.getByRole("tab", { name: "Practice" }));
-    await waitFor(() => expect(screen.getByTestId("panel-rep")).toBeTruthy());
-    expect(screen.getByTestId("panel-session")).toBeTruthy();
+    expect(await screen.findByTestId("today-workspace")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Today" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("tab", { name: "Atlas" }));
+    await waitFor(() => expect(screen.getByLabelText("Set Desk").getAttribute("aria-hidden")).toBe("false"));
     expect(screen.getByTestId("main-practice")).toBeTruthy();
-    expect(screen.getAllByLabelText("Collapse panel")).toHaveLength(1);
-    expect(screen.getByLabelText("Expand panel")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Expand session timeline" })).toBeTruthy();
+    expect(screen.queryByLabelText("Collapse panel")).toBeNull();
   });
 
   it("exposes a reset-layout recovery control", async () => {
@@ -176,9 +278,11 @@ describe("Shell floating workspace", () => {
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("daily_work_list", expect.anything()));
   });
 
-  it("keeps Brain as an overlay tool while the three workspaces stay navigable", async () => {
+  it("keeps Brain as an overlay tool while the five workspaces stay navigable", async () => {
     render(<Shell />);
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Home", "Practice", "Calendar"]);
+    for (const label of ["Today", "Atlas", "Ledger", "Calendar", "Universe"]) {
+      expect(screen.getByRole("tab", { name: label })).toBeTruthy();
+    }
     expect(screen.queryByRole("tab", { name: "Brain" })).toBeNull();
     const brain = screen.getByRole("button", { name: "Brain" });
     fireEvent.click(brain);
@@ -186,9 +290,9 @@ describe("Shell floating workspace", () => {
     expect(screen.getByRole("complementary", { name: "Practice Brain" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Metronome" })).toBeTruthy();
 
-    const home = screen.getByRole("tab", { name: "Home" });
-    fireEvent.keyDown(home, { key: "ArrowRight" });
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Practice" }).getAttribute("aria-selected")).toBe("true"));
+    const today = screen.getByRole("tab", { name: "Today" });
+    fireEvent.keyDown(today, { key: "ArrowDown" });
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Atlas" }).getAttribute("aria-selected")).toBe("true"));
   });
 
   it("keeps a restore error visible when no active snapshot exists", () => {
@@ -219,5 +323,188 @@ describe("Shell floating workspace", () => {
       alert.textContent?.includes("The attempt could not be saved."),
     );
     expect(alerts).toHaveLength(1);
+  });
+
+  it("mounts the Ledger workspace on its tab", async () => {
+    render(<Shell />);
+    fireEvent.click(screen.getByRole("tab", { name: "Ledger" }));
+    expect(await screen.findByTestId("ledger-workspace")).toBeTruthy();
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("pieces_list"));
+  });
+
+  it("mounts the Universe workspace on its tab", async () => {
+    render(<Shell />);
+    fireEvent.click(screen.getByRole("tab", { name: "Universe" }));
+    expect(await screen.findByTestId("universe-workspace")).toBeTruthy();
+  });
+});
+
+describe("Shell — Lane-B voice draft", () => {
+  it("drafts an accepted, unhandled, not-exact-command final in the mic popover", async () => {
+    parseDraftMock.mockReturnValue(readyDraft());
+    useVoiceMock.mockReturnValue(laneBVoiceState(false));
+
+    render(<Shell />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Review the spoken set." }),
+    ).toBeTruthy();
+  });
+
+  it("never drafts a final the backend already handled (double-open guard)", async () => {
+    // Same accepted, tier-A-ignored final — but the backend routed it, so
+    // `handled: true` must suppress Lane B even though tier A says ignored.
+    parseDraftMock.mockReturnValue(readyDraft());
+    useVoiceMock.mockReturnValue(laneBVoiceState(true));
+
+    render(<Shell />);
+    // Give the draft effect a chance to run.
+    await waitFor(() => expect(useVoiceMock).toHaveBeenCalled());
+    expect(screen.queryByRole("heading", { name: "Review the spoken set." })).toBeNull();
+  });
+
+  it("confirming a draft opens the set via the translated rep.open request", async () => {
+    const open = vi.fn().mockResolvedValue(undefined);
+    useRepMock.mockReturnValue({ ...defaultRepState(), snap: null, open });
+    parseDraftMock.mockReturnValue(readyDraft());
+    useVoiceMock.mockReturnValue(laneBVoiceState(false));
+
+    render(<Shell />);
+    fireEvent.click(await screen.findByRole("button", { name: "Start this set" }));
+
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
+    const [args, context] = open.mock.calls[0];
+    expect(args).toMatchObject({
+      piece_id: 7,
+      m_start: 40,
+      m_end: 56,
+      start_bpm: 80,
+      focus: "tempo",
+      use_metronome: true,
+    });
+    expect(context).toMatchObject({ judging_axis: "pulse" });
+  });
+
+  it("shows an error and keeps the card when rep.open rejects", async () => {
+    const open = vi.fn().mockRejectedValue(new Error("Close the current block first."));
+    useRepMock.mockReturnValue({ ...defaultRepState(), snap: null, open });
+    parseDraftMock.mockReturnValue(readyDraft());
+    useVoiceMock.mockReturnValue(laneBVoiceState(false));
+
+    render(<Shell />);
+    fireEvent.click(await screen.findByRole("button", { name: "Start this set" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Close the current block first.", { selector: ".voice-draft-error" }),
+      ).toBeTruthy(),
+    );
+    // The card stays so the user can retry or edit.
+    expect(screen.getByRole("heading", { name: "Review the spoken set." })).toBeTruthy();
+  });
+
+  it("cancel suppresses the same delivery from re-drafting", async () => {
+    parseDraftMock.mockReturnValue(readyDraft());
+    useVoiceMock.mockReturnValue(laneBVoiceState(false));
+
+    const { rerender } = render(<Shell defaultCleanStreak={5} />);
+    expect(
+      await screen.findByRole("heading", { name: "Review the spoken set." }),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("heading", { name: "Review the spoken set." })).toBeNull();
+
+    // A dep change re-runs the draft effect with the SAME delivery; the
+    // suppressed deliveryKey must keep the card from reappearing.
+    rerender(<Shell defaultCleanStreak={6} />);
+    expect(screen.queryByRole("heading", { name: "Review the spoken set." })).toBeNull();
+  });
+});
+
+describe("voiceDraftOpenRequest", () => {
+  it("derives tempo focus + pulse axis when a tempo is set", () => {
+    const request = voiceDraftOpenRequest(readyDraft());
+    expect(request.args.focus).toBe("tempo");
+    expect(request.context.judging_axis).toBe("pulse");
+  });
+
+  it("derives tempo focus from a tempo-ladder method with no explicit BPM", () => {
+    const request = voiceDraftOpenRequest(
+      readyDraft({
+        contract: {
+          start_bpm: null,
+          target_bpm: null,
+          planned_attempts: null,
+          required_clean_streak: 5,
+          hands: "together",
+          method: "tempo ladder",
+          intention: null,
+          use_metronome: true,
+        },
+      }),
+    );
+    expect(request.args.focus).toBe("tempo");
+    expect(request.context.judging_axis).toBe("pulse");
+  });
+
+  it("derives hands focus + accuracy axis when hands are set without tempo", () => {
+    const request = voiceDraftOpenRequest(
+      readyDraft({
+        contract: {
+          start_bpm: null,
+          target_bpm: null,
+          planned_attempts: null,
+          required_clean_streak: 5,
+          hands: "left",
+          method: null,
+          intention: null,
+          use_metronome: false,
+        },
+      }),
+    );
+    expect(request.args.focus).toBe("hands");
+    expect(request.context.judging_axis).toBe("accuracy");
+    expect(request.context.hands).toBe("left");
+  });
+
+  it("derives notes focus when neither tempo nor hands are set", () => {
+    const request = voiceDraftOpenRequest(
+      readyDraft({
+        contract: {
+          start_bpm: null,
+          target_bpm: null,
+          planned_attempts: null,
+          required_clean_streak: 5,
+          hands: null,
+          method: null,
+          intention: null,
+          use_metronome: false,
+        },
+      }),
+    );
+    expect(request.args.focus).toBe("notes");
+    expect(request.context.judging_axis).toBe("accuracy");
+  });
+
+  it("throws when the piece is unresolved", () => {
+    expect(() => voiceDraftOpenRequest(readyDraft({ piece_id: null }))).toThrow();
+  });
+
+  it("throws when the score range is incomplete", () => {
+    expect(() =>
+      voiceDraftOpenRequest(readyDraft({ target: { m_start: null, m_end: 56 } })),
+    ).toThrow();
+  });
+
+  it("throws when unresolved issues remain", () => {
+    expect(() =>
+      voiceDraftOpenRequest(
+        readyDraft({
+          issues: [{ code: "missing_piece", field: "piece_id", message: "x" }],
+          status: "needs_input",
+        }),
+      ),
+    ).toThrow();
   });
 });

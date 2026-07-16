@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CalendarWorkspace } from "./CalendarWorkspace";
 import type { CalendarApi, DailyWork, RecoveryPreview } from "./types";
@@ -108,6 +108,58 @@ describe("CalendarWorkspace", () => {
       date: "2026-07-20",
       source: "manual",
     }));
+  });
+
+  it("lets only the latest out-of-order week request update work, errors, and loading", async () => {
+    const requests: Array<{
+      resolve: (rows: DailyWork[]) => void;
+      reject: (reason: unknown) => void;
+    }> = [];
+    const api = makeApi({
+      list: vi.fn().mockImplementation(() => new Promise<DailyWork[]>((resolve, reject) => {
+        requests.push({ resolve, reject });
+      })),
+    });
+    render(<CalendarWorkspace api={api} initialToday="2026-07-15" />);
+
+    await waitFor(() => expect(requests).toHaveLength(1));
+    fireEvent.click(screen.getByRole("button", { name: "Next week" }));
+    await waitFor(() => expect(requests).toHaveLength(2));
+    fireEvent.click(screen.getByRole("button", { name: "Next week" }));
+    await waitFor(() => expect(requests).toHaveLength(3));
+
+    const latestWork = {
+      ...work,
+      id: 33,
+      title: "Latest week result",
+      origin_date: "2026-07-27",
+      scheduled_date: "2026-07-27",
+    };
+    await act(async () => {
+      requests[2].resolve([latestWork]);
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText("Latest week result")).toBeTruthy();
+    expect(screen.getByLabelText("Week of 2026-07-27")).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+
+    await act(async () => {
+      requests[0].resolve([{ ...latestWork, id: 31, title: "Stale initial result" }]);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      requests[1].reject(new Error("Stale request failed"));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Latest week result")).toBeTruthy();
+    expect(screen.queryByText("Stale initial result")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(api.list).toHaveBeenNthCalledWith(1, { from: "2026-07-13", to: "2026-07-19", pieceId: null });
+    expect(api.list).toHaveBeenNthCalledWith(2, { from: "2026-07-20", to: "2026-07-26", pieceId: null });
+    expect(api.list).toHaveBeenNthCalledWith(3, { from: "2026-07-27", to: "2026-08-02", pieceId: null });
   });
 
   it("edits, moves, completes, and dismisses with optimistic timestamps", async () => {

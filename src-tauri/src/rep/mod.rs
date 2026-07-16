@@ -19,8 +19,23 @@ use serde_json::Value;
 use crate::ledger::MutationSource;
 use crate::protocol::PracticeContract;
 use crate::sessions::{SessionService, StateEmitter};
-use crate::store::model::{CheckOutcome, RepOpenArgs, RepSnapshot};
+use crate::store::model::{
+    CheckOutcome, MutationReceipt, RecoveryActionRequest, RepOpenArgs, RepSnapshot,
+    RetentionCheckView, RetentionResult, SetFocusContextInput,
+};
 use crate::store::{v2_command_id, v2_validate_open, EventKind, Store};
+
+pub(crate) trait PracticeClock: Send + Sync {
+    fn now(&self, store: &Store) -> Result<String, String>;
+}
+
+struct StorePracticeClock;
+
+impl PracticeClock for StorePracticeClock {
+    fn now(&self, store: &Store) -> Result<String, String> {
+        store.now_rfc3339().map_err(|error| error.to_string())
+    }
+}
 
 /// A rep verdict. The wire/store form is the lowercase string ("clean" /
 /// "flawed" / "failed"); the voice layer maps its three-way [`crate::intent::Verdict`]
@@ -65,11 +80,24 @@ pub struct RepEngine {
     /// engine: `rep_state` and every open attempt surface this recovery error.
     restore_error: Option<String>,
     emitter: Mutex<Option<Arc<dyn StateEmitter>>>,
+    clock: Arc<dyn PracticeClock>,
 }
 
 impl RepEngine {
     pub fn new(store: Arc<Store>, sessions: Arc<SessionService>) -> Self {
-        let (restored, restore_error) = match store.v2_restore_active() {
+        Self::new_with_clock(store, sessions, Arc::new(StorePracticeClock))
+    }
+
+    pub(crate) fn new_with_clock(
+        store: Arc<Store>,
+        sessions: Arc<SessionService>,
+        clock: Arc<dyn PracticeClock>,
+    ) -> Self {
+        let restored_result = clock
+            .now(&store)
+            .map_err(rusqlite::Error::InvalidParameterName)
+            .and_then(|now| store.v2_restore_active_at(&now));
+        let (restored, restore_error) = match restored_result {
             Ok(snapshot) => (snapshot, None),
             Err(error) => {
                 let message = format!("could not restore active practice set: {error}");
@@ -83,7 +111,12 @@ impl RepEngine {
             active: Mutex::new(restored),
             restore_error,
             emitter: Mutex::new(None),
+            clock,
         }
+    }
+
+    fn now(&self) -> Result<String, String> {
+        self.clock.now(&self.store)
     }
 
     /// Install the `rep://state` emitter (once the Tauri `AppHandle` exists).
@@ -96,10 +129,7 @@ impl RepEngine {
     /// Whether a block is currently open. The voice layer reads this live to
     /// decide whether rep-check phrases (`done`, `again`) route as reps.
     pub fn active(&self) -> bool {
-        self.active
-            .lock()
-            .map(|g| g.is_some())
-            .unwrap_or(false)
+        self.active.lock().map(|g| g.is_some()).unwrap_or(false)
     }
 
     /// The current block snapshot, or `None` when no block is open.
@@ -125,16 +155,25 @@ impl RepEngine {
     /// abandoning a block mid-practice). Resolves an "auto" ladder to concrete
     /// numbers, persists the block, and emits/logs the fresh snapshot.
     pub fn open(&self, args: RepOpenArgs) -> Result<RepSnapshot, String> {
-        self.open_from(args, MutationSource::UserClick)
+        self.open_from(args, None, MutationSource::UserClick)
+    }
+
+    pub fn open_with_context(
+        &self,
+        args: RepOpenArgs,
+        context: Option<SetFocusContextInput>,
+    ) -> Result<RepSnapshot, String> {
+        self.open_from(args, context, MutationSource::UserClick)
     }
 
     pub fn open_voice(&self, args: RepOpenArgs) -> Result<RepSnapshot, String> {
-        self.open_from(args, MutationSource::VoiceHotLoop)
+        self.open_from(args, None, MutationSource::VoiceHotLoop)
     }
 
     fn open_from(
         &self,
         args: RepOpenArgs,
+        context: Option<SetFocusContextInput>,
         source: MutationSource,
     ) -> Result<RepSnapshot, String> {
         if let Some(error) = &self.restore_error {
@@ -145,8 +184,7 @@ impl RepEngine {
             return Err("close the current block first".to_string());
         }
 
-        self
-            .store
+        self.store
             .get_piece(args.piece_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("piece {} not found", args.piece_id))?;
@@ -199,20 +237,25 @@ impl RepEngine {
         let mut contract = PracticeContract::consecutive_clean(required_clean_streak);
         contract.attempt_ceiling = args.planned_reps;
         v2_validate_open(&args, &rule, planned, &contract).map_err(|error| error.to_string())?;
-        let session_id = self.sessions.ensure_session()?;
+        let session_hint = self.sessions.cached_practice_session();
         let command_id = v2_command_id(source, "open");
+        let now = self.now()?;
         let opened = self
             .store
             .v2_open_set(
-                session_id,
+                session_hint,
                 &args,
                 &rule,
                 planned,
                 &contract,
+                context.as_ref(),
                 source,
                 &command_id,
+                &now,
             )
             .map_err(|e| e.to_string())?;
+        self.sessions
+            .adopt_committed_practice_session(opened.session_id);
         let snap = opened.snapshot;
         *active = Some(snap.clone());
         drop(active);
@@ -227,12 +270,8 @@ impl RepEngine {
     /// and can step the ladder. Returns the composed outcome (updated snapshot,
     /// the new tempo if it stepped, whether the block finished, and the spoken
     /// line). Errors if no block is open.
-    pub fn check(
-        &self,
-        verdict: RepVerdict,
-        note: Option<String>,
-    ) -> Result<CheckOutcome, String> {
-        self.check_from(verdict, note, MutationSource::UserClick)
+    pub fn check(&self, verdict: RepVerdict, note: Option<String>) -> Result<CheckOutcome, String> {
+        self.check_from(verdict, note, MutationSource::UserClick, None)
     }
 
     pub fn check_voice(
@@ -240,7 +279,16 @@ impl RepEngine {
         verdict: RepVerdict,
         note: Option<String>,
     ) -> Result<CheckOutcome, String> {
-        self.check_from(verdict, note, MutationSource::VoiceHotLoop)
+        self.check_from(verdict, note, MutationSource::VoiceHotLoop, None)
+    }
+
+    pub fn check_idempotent(
+        &self,
+        command_id: &str,
+        verdict: RepVerdict,
+        note: Option<String>,
+    ) -> Result<CheckOutcome, String> {
+        self.check_from(verdict, note, MutationSource::UserClick, Some(command_id))
     }
 
     fn check_from(
@@ -248,6 +296,7 @@ impl RepEngine {
         verdict: RepVerdict,
         note: Option<String>,
         source: MutationSource,
+        command_id_override: Option<&str>,
     ) -> Result<CheckOutcome, String> {
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let snap = active
@@ -256,28 +305,54 @@ impl RepEngine {
         let cur_lane = ladder::variant_index_for_rep(&snap.variants, snap.tries + 1);
         let rep_variant = cur_lane.map(|i| snap.variants[i].name.clone());
         let block_id = snap.block_id;
-        let sid = self.sessions.ensure_session()?;
-        let command_id = v2_command_id(source, "check");
+        let session_hint = self.sessions.cached_practice_session();
+        let generated_command_id;
+        let command_id = if let Some(command_id) = command_id_override {
+            command_id
+        } else {
+            generated_command_id = v2_command_id(source, "check");
+            &generated_command_id
+        };
+        let now = self.now()?;
         let mutation = self
             .store
             .v2_record_attempt(
-                sid,
+                session_hint,
                 block_id,
                 rep_variant.as_deref(),
                 verdict,
                 note.as_deref(),
                 source,
-                &command_id,
+                command_id,
+                &now,
             )
             .map_err(|error| error.to_string())?;
-        let out_snap = mutation.snapshot;
+        let mut receipt = mutation.receipt.clone();
+        if let Some(session_id) = receipt.as_ref().and_then(|value| value.session_id) {
+            self.sessions
+                .adopt_committed_practice_session(session_id);
+        }
+        let replayed = receipt.as_ref().is_some_and(|receipt| receipt.replayed);
+        let out_snap = if replayed {
+            self.store
+                .v2_snapshot(block_id)
+                .map_err(|error| error.to_string())?
+        } else {
+            mutation.snapshot
+        };
+        if replayed {
+            if let Some(receipt) = &mut receipt {
+                receipt.value = Some(out_snap.clone());
+            }
+        }
         let new_bpm = mutation.new_bpm;
         let block_done = out_snap.mastery_status == "satisfied";
         let say = compose_v2_say(&out_snap, verdict, new_bpm);
         *active = Some(out_snap.clone());
         drop(active);
         if let Some(feed_id) = mutation.feed_id {
-            self.sessions.emit_persisted_practice(feed_id, EventKind::REP);
+            self.sessions
+                .emit_persisted_practice(feed_id, EventKind::REP);
         }
         self.emit_state(Some(&out_snap));
 
@@ -286,6 +361,7 @@ impl RepEngine {
             new_bpm,
             block_done,
             say,
+            receipt,
         })
     }
 
@@ -302,12 +378,15 @@ impl RepEngine {
 
     fn close_from(&self, source: MutationSource) -> Result<Option<RepSnapshot>, String> {
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(current) = active.as_ref() else { return Ok(None) };
+        let Some(current) = active.as_ref() else {
+            return Ok(None);
+        };
         let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(source, "close");
+        let now = self.now()?;
         let mutation = self
             .store
-            .v2_close(sid, current.block_id, source, &command_id)
+            .v2_close(sid, current.block_id, source, &command_id, &now)
             .map_err(|error| error.to_string())?;
         let snap = mutation.snapshot;
         *active = None;
@@ -329,12 +408,7 @@ impl RepEngine {
         let command_id = v2_command_id(MutationSource::UserClick, "undo");
         let mutation = self
             .store
-            .v2_undo(
-                sid,
-                block_id,
-                MutationSource::UserClick,
-                &command_id,
-            )
+            .v2_undo(sid, block_id, MutationSource::UserClick, &command_id)
             .map_err(|error| error.to_string())?;
         let snap = mutation.snapshot;
         *active = Some(snap.clone());
@@ -348,6 +422,7 @@ impl RepEngine {
             say: format!("Attempt undone. {} tries remain.", snap.tries),
             snap,
             new_bpm: mutation.new_bpm,
+            receipt: None,
         })
     }
 
@@ -391,6 +466,7 @@ impl RepEngine {
             say: format!("Attempt corrected to {}.", verdict.as_str()),
             snap,
             new_bpm: mutation.new_bpm,
+            receipt: None,
         })
     }
 
@@ -424,6 +500,7 @@ impl RepEngine {
             say: "Correction reversed.".into(),
             snap,
             new_bpm: mutation.new_bpm,
+            receipt: None,
         })
     }
 
@@ -435,6 +512,7 @@ impl RepEngine {
             .block_id;
         let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(MutationSource::UserClick, "restart");
+        let now = self.now()?;
         let opened = self
             .store
             .v2_restart(
@@ -443,6 +521,7 @@ impl RepEngine {
                 required_clean_streak,
                 MutationSource::UserClick,
                 &command_id,
+                &now,
             )
             .map_err(|error| error.to_string())?;
         let snap = opened.snapshot;
@@ -454,6 +533,352 @@ impl RepEngine {
         Ok(snap)
     }
 
+    fn apply_snapshot_receipt(
+        &self,
+        active: &mut Option<RepSnapshot>,
+        block_id: i64,
+        receipt: &mut MutationReceipt<RepSnapshot>,
+    ) -> Result<RepSnapshot, String> {
+        let snapshot = if receipt.replayed {
+            self.store
+                .v2_snapshot(block_id)
+                .map_err(|error| error.to_string())?
+        } else {
+            receipt
+                .value
+                .clone()
+                .ok_or_else(|| "committed practice receipt has no snapshot".to_string())?
+        };
+        if receipt.replayed {
+            receipt.value = Some(snapshot.clone());
+        }
+        *active = Some(snapshot.clone());
+        Ok(snapshot)
+    }
+
+    fn adopt_receipt_session<T>(&self, receipt: &MutationReceipt<T>) {
+        if let Some(session_id) = receipt.session_id {
+            self.sessions
+                .adopt_committed_practice_session(session_id);
+        }
+    }
+
+    pub fn pause(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let block_id = active
+            .as_ref()
+            .ok_or_else(|| "no live practice set".to_string())?
+            .block_id;
+        let session_hint = self.sessions.cached_practice_session();
+        let now = self.now()?;
+        let mut receipt = self
+            .store
+            .v2_pause(
+                session_hint,
+                block_id,
+                MutationSource::UserClick,
+                command_id,
+                &now,
+            )
+            .map_err(|error| error.to_string())?;
+        self.adopt_receipt_session(&receipt);
+        let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        drop(active);
+        self.emit_state(Some(&snapshot));
+        Ok(receipt)
+    }
+
+    pub fn resume(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let block_id = active
+            .as_ref()
+            .ok_or_else(|| "no live practice set".to_string())?
+            .block_id;
+        let session_hint = self.sessions.cached_practice_session();
+        let now = self.now()?;
+        let mut receipt = self
+            .store
+            .v2_resume(
+                session_hint,
+                block_id,
+                MutationSource::UserClick,
+                command_id,
+                &now,
+            )
+            .map_err(|error| error.to_string())?;
+        self.adopt_receipt_session(&receipt);
+        let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        drop(active);
+        self.emit_state(Some(&snapshot));
+        Ok(receipt)
+    }
+
+    pub fn checkpoint(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let block_id = active
+            .as_ref()
+            .ok_or_else(|| "no live practice set".to_string())?
+            .block_id;
+        let session_hint = self.sessions.cached_practice_session();
+        let now = self.now()?;
+        let mut receipt = self
+            .store
+            .v2_checkpoint(
+                session_hint,
+                block_id,
+                MutationSource::UserClick,
+                command_id,
+                &now,
+            )
+            .map_err(|error| error.to_string())?;
+        self.adopt_receipt_session(&receipt);
+        let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        drop(active);
+        self.emit_state(Some(&snapshot));
+        Ok(receipt)
+    }
+
+    pub fn reflect(
+        &self,
+        command_id: &str,
+        reflection: &str,
+    ) -> Result<MutationReceipt<RepSnapshot>, String> {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let block_id = active
+            .as_ref()
+            .ok_or_else(|| "no live practice set".to_string())?
+            .block_id;
+        let session_hint = self.sessions.cached_practice_session();
+        let now = self.now()?;
+        let mut receipt = self
+            .store
+            .v2_reflect(
+                session_hint,
+                block_id,
+                reflection,
+                MutationSource::UserClick,
+                command_id,
+                &now,
+            )
+            .map_err(|error| error.to_string())?;
+        self.adopt_receipt_session(&receipt);
+        let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        drop(active);
+        self.emit_state(Some(&snapshot));
+        Ok(receipt)
+    }
+
+    /// Persist the safety pause, then perform the first delivery's physical
+    /// stop while still holding the active-set guard. A concurrent resume
+    /// cannot overtake the physical stop. Replays resync current state and do
+    /// not repeat the physical side effect or emit a stale rep projection.
+    fn safety_stop_after_commit<F, R>(
+        &self,
+        command_id: &str,
+        reason: Option<&str>,
+        after_commit: F,
+    ) -> Result<(MutationReceipt<RepSnapshot>, Option<R>), String>
+    where
+        F: FnOnce() -> R,
+    {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let block_id = active
+            .as_ref()
+            .ok_or_else(|| "no live practice set".to_string())?
+            .block_id;
+        let session_hint = self.sessions.cached_practice_session();
+        let now = self.now()?;
+        let mut receipt = self
+            .store
+            .v2_safety_stop(
+                session_hint,
+                block_id,
+                reason,
+                MutationSource::UserClick,
+                command_id,
+                &now,
+            )
+            .map_err(|error| error.to_string())?;
+        self.adopt_receipt_session(&receipt);
+        let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        if receipt.replayed {
+            return Ok((receipt, None));
+        }
+        let physical_state = after_commit();
+        drop(active);
+        self.emit_state(Some(&snapshot));
+        Ok((receipt, Some(physical_state)))
+    }
+
+    /// Command-boundary fail-safe: a persistence error records no practice
+    /// rows but must still stop the metronome once. A successful stale replay
+    /// is the sole path that deliberately performs no physical stop.
+    pub(crate) fn execute_safety_stop<F, R>(
+        &self,
+        command_id: &str,
+        reason: Option<&str>,
+        stop: F,
+    ) -> (Result<MutationReceipt<RepSnapshot>, String>, Option<R>)
+    where
+        F: FnOnce() -> R,
+    {
+        let mut pending_stop = Some(stop);
+        match self.safety_stop_after_commit(command_id, reason, || {
+            pending_stop
+                .take()
+                .expect("safety physical stop executes at most once")()
+        }) {
+            Ok((receipt, state)) => (Ok(receipt), state),
+            Err(error) => {
+                let state = pending_stop.map(|stop| stop());
+                (Err(error), state)
+            }
+        }
+    }
+
+    pub fn recover(
+        &self,
+        command_id: &str,
+        action: &RecoveryActionRequest,
+    ) -> Result<MutationReceipt<RepSnapshot>, String> {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let block_id = active
+            .as_ref()
+            .ok_or_else(|| "no live practice set".to_string())?
+            .block_id;
+        let session_hint = self.sessions.cached_practice_session();
+        let now = self.now()?;
+        let mut receipt = self
+            .store
+            .v2_recover(
+                session_hint,
+                block_id,
+                action,
+                MutationSource::UserClick,
+                command_id,
+                &now,
+            )
+            .map_err(|error| error.to_string())?;
+        self.adopt_receipt_session(&receipt);
+        let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        drop(active);
+        self.emit_state(Some(&snapshot));
+        Ok(receipt)
+    }
+
+    pub fn retention_due(&self, as_of_date: &str) -> Result<Vec<RetentionCheckView>, String> {
+        self.store
+            .retention_due(as_of_date)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn retention_snooze(
+        &self,
+        command_id: &str,
+        check_id: i64,
+        due_date: &str,
+    ) -> Result<MutationReceipt<RetentionCheckView>, String> {
+        let now = self.now()?;
+        let receipt = self
+            .store
+            .retention_snooze(
+                self.sessions.cached_practice_session(),
+                check_id,
+                due_date,
+                MutationSource::UserClick,
+                command_id,
+                &now,
+            )
+            .map_err(|error| error.to_string())?;
+        self.adopt_receipt_session(&receipt);
+        Ok(receipt)
+    }
+
+    fn retention_result(
+        &self,
+        command_id: &str,
+        check_id: i64,
+        result: &RetentionResult,
+        transition: &str,
+    ) -> Result<MutationReceipt<RetentionCheckView>, String> {
+        let now = self.now()?;
+        let session_hint = self.sessions.cached_practice_session();
+        let outcome = match transition {
+            "confirm" => self.store.retention_confirm(
+                session_hint,
+                check_id,
+                result,
+                MutationSource::UserClick,
+                command_id,
+                &now,
+            ),
+            "lower" => self.store.retention_lower(
+                session_hint,
+                check_id,
+                result,
+                MutationSource::UserClick,
+                command_id,
+                &now,
+            ),
+            "reopen" => self.store.retention_reopen(
+                session_hint,
+                check_id,
+                result,
+                MutationSource::UserClick,
+                command_id,
+                &now,
+            ),
+            _ => return Err("unknown retention transition".into()),
+        };
+        let receipt = outcome.map_err(|error| error.to_string())?;
+        self.adopt_receipt_session(&receipt);
+        Ok(receipt)
+    }
+
+    pub fn retention_confirm(
+        &self,
+        command_id: &str,
+        check_id: i64,
+        result: &RetentionResult,
+    ) -> Result<MutationReceipt<RetentionCheckView>, String> {
+        self.retention_result(command_id, check_id, result, "confirm")
+    }
+
+    pub fn retention_lower(
+        &self,
+        command_id: &str,
+        check_id: i64,
+        result: &RetentionResult,
+    ) -> Result<MutationReceipt<RetentionCheckView>, String> {
+        self.retention_result(command_id, check_id, result, "lower")
+    }
+
+    pub fn retention_reopen(
+        &self,
+        command_id: &str,
+        check_id: i64,
+        result: &RetentionResult,
+    ) -> Result<MutationReceipt<RetentionCheckView>, String> {
+        self.retention_result(command_id, check_id, result, "reopen")
+    }
 
     /// Reload a live-editable block's mutable fields from the store into the
     /// in-memory active snapshot and re-emit `rep://state`, but only when
@@ -464,7 +889,9 @@ impl RepEngine {
     /// UI refetch.
     pub fn resync_active_if(&self, block_id: i64) {
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(current) = active.as_ref() else { return };
+        let Some(current) = active.as_ref() else {
+            return;
+        };
         if current.block_id != block_id {
             return;
         }
@@ -513,10 +940,9 @@ fn compose_v2_say(snap: &RepSnapshot, verdict: RepVerdict, new_bpm: Option<f64>)
     }
     let verdict_text = verdict.as_str();
     let below_tempo_target = snap.focus == "tempo"
-        && snap.target_bpm.is_some_and(|target| {
-            snap.bpm
-                .is_some_and(|bpm| bpm + 0.000_001 < target)
-        });
+        && snap
+            .target_bpm
+            .is_some_and(|target| snap.bpm.is_some_and(|bpm| bpm + 0.000_001 < target));
     let (progress_label, progress, required) = if below_tempo_target {
         ("Rung", snap.current_clean_streak, snap.rule.clean_needed)
     } else {
@@ -529,20 +955,12 @@ fn compose_v2_say(snap: &RepSnapshot, verdict: RepVerdict, new_bpm: Option<f64>)
     let mut message = if matches!(verdict, RepVerdict::Clean) {
         format!(
             "Attempt {} saved — {}. {} {} of {}.",
-            snap.tries,
-            verdict_text,
-            progress_label,
-            progress,
-            required
+            snap.tries, verdict_text, progress_label, progress, required
         )
     } else {
         format!(
             "Attempt {} saved — {}. {} reset to {} of {}.",
-            snap.tries,
-            verdict_text,
-            progress_label,
-            progress,
-            required
+            snap.tries, verdict_text, progress_label, progress, required
         )
     };
     if let Some(bpm) = new_bpm {
@@ -554,8 +972,12 @@ fn compose_v2_say(snap: &RepSnapshot, verdict: RepVerdict, new_bpm: Option<f64>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::model::{IncrementRule, RepPatch, ScanPiece, VariantSpec, VerdictCounts};
+    use crate::store::model::{
+        IncrementRule, RegionCreate, RepPatch, RetentionCondition, RetentionDecision,
+        RetentionResult, ScanPiece, SetFocusContextInput, VariantSpec, VerdictCounts,
+    };
     use std::path::Path;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[derive(Default)]
     struct RecEmitter {
@@ -568,6 +990,47 @@ mod tests {
                 .unwrap()
                 .push((event.to_string(), payload));
         }
+    }
+
+    struct FixedClock {
+        value: Mutex<String>,
+    }
+
+    impl FixedClock {
+        fn new(value: &str) -> Self {
+            Self {
+                value: Mutex::new(value.to_string()),
+            }
+        }
+
+        fn set(&self, value: &str) {
+            *self.value.lock().unwrap() = value.to_string();
+        }
+    }
+
+    impl PracticeClock for FixedClock {
+        fn now(&self, _store: &Store) -> Result<String, String> {
+            Ok(self.value.lock().unwrap().clone())
+        }
+    }
+
+    fn engine_with_fixed_clock(
+        path: &Path,
+        clock: Arc<FixedClock>,
+    ) -> (RepEngine, i64, Arc<Store>) {
+        let store = Arc::new(Store::open(path).expect("test store"));
+        let piece_id = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/V2.4 fixed clock".into(),
+                title: "V2.4 fixed clock".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+        let sessions = Arc::new(SessionService::new(store.clone()));
+        let engine = RepEngine::new_with_clock(store.clone(), sessions, clock);
+        (engine, piece_id, store)
     }
 
     /// A rep engine over an in-memory store with one piece (id returned) and a
@@ -620,9 +1083,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .test_scalar_string(&format!(
-                    "SELECT status FROM rep_block WHERE id={block_id}"
-                ))
+                .test_scalar_string(&format!("SELECT status FROM rep_block WHERE id={block_id}"))
                 .unwrap(),
             status
         );
@@ -644,7 +1105,11 @@ mod tests {
             )
             .unwrap();
         assert_set_lifecycle(store, block_id, state, "abandoned");
-        let correction_id = store.v2_snapshot(block_id).unwrap().last_adjustment_id.unwrap();
+        let correction_id = store
+            .v2_snapshot(block_id)
+            .unwrap()
+            .last_adjustment_id
+            .unwrap();
         let session_id = store.open_session().unwrap();
         store
             .v2_reverse_adjustment(
@@ -659,7 +1124,11 @@ mod tests {
 
         store.rep_delete(attempt_id).unwrap();
         assert_set_lifecycle(store, block_id, state, "abandoned");
-        let void_id = store.v2_snapshot(block_id).unwrap().last_adjustment_id.unwrap();
+        let void_id = store
+            .v2_snapshot(block_id)
+            .unwrap()
+            .last_adjustment_id
+            .unwrap();
         store
             .v2_reverse_adjustment(
                 session_id,
@@ -701,7 +1170,12 @@ mod tests {
 
     /// A `tempo`-focus block with an explicit ladder (so a step is deterministic)
     /// and a target far enough above `start` to leave headroom to climb.
-    fn open_args_tempo(use_metronome: bool, clean_needed: u32, step: f64, start: f64) -> RepOpenArgs {
+    fn open_args_tempo(
+        use_metronome: bool,
+        clean_needed: u32,
+        step: f64,
+        start: f64,
+    ) -> RepOpenArgs {
         RepOpenArgs {
             piece_id: 1,
             region_id: None,
@@ -712,7 +1186,10 @@ mod tests {
             target_bpm: Some(start + 200.0),
             planned_reps: Some(30),
             required_clean_streak: None,
-            increment: Some(IncrementRule { clean_needed, bpm_step: step }),
+            increment: Some(IncrementRule {
+                clean_needed,
+                bpm_step: step,
+            }),
             variants: vec![],
             focus: "tempo".into(),
             use_metronome,
@@ -734,7 +1211,10 @@ mod tests {
             target_bpm: None,
             planned_reps: Some(30),
             required_clean_streak: None,
-            increment: Some(IncrementRule { clean_needed: 1, bpm_step: 4.0 }),
+            increment: Some(IncrementRule {
+                clean_needed: 1,
+                bpm_step: 4.0,
+            }),
             variants: vec![],
             focus: focus.into(),
             use_metronome: true,
@@ -759,10 +1239,1194 @@ mod tests {
         }
     }
 
+    fn retention_condition(bpm: f64) -> RetentionCondition {
+        RetentionCondition {
+            bpm: Some(bpm),
+            hands: Some("together".into()),
+            cold: Some(true),
+            ..RetentionCondition::default()
+        }
+    }
+
+    fn retention_result(
+        decision: RetentionDecision,
+        checked_as_of: &str,
+        note: &str,
+    ) -> RetentionResult {
+        RetentionResult {
+            decision,
+            note: note.into(),
+            checked_as_of: checked_as_of.into(),
+            observed_condition: Some(retention_condition(80.0)),
+            next_condition: None,
+        }
+    }
+
+    #[test]
+    fn focus_intervals_exclude_pauses_and_relaunch_gaps_and_preserve_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("focus.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T12:00:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        let opened = engine
+            .open_with_context(
+                strict_notes_args(piece_id, 50),
+                Some(SetFocusContextInput {
+                    intention: Some("Even pulse through the leap".into()),
+                    judging_axis: Some("pulse".into()),
+                    hands: Some("left".into()),
+                    method: Some("blocked".into()),
+                    planned_seconds: Some(300),
+                    reflection: None,
+                }),
+            )
+            .unwrap();
+        assert_eq!(opened.active_seconds, 0);
+        assert_eq!(opened.timer_state, "active");
+        assert_eq!(opened.judging_axis, "pulse");
+
+        clock.set("2026-07-15T12:00:10Z");
+        assert_eq!(
+            engine
+                .checkpoint("focus-check-1")
+                .unwrap()
+                .value
+                .unwrap()
+                .active_seconds,
+            10
+        );
+        clock.set("2026-07-15T12:00:20Z");
+        let first_pause = engine.pause("focus-pause-1").unwrap();
+        assert_eq!(first_pause.value.as_ref().unwrap().active_seconds, 20);
+        let replay = engine.pause("focus-pause-1").unwrap();
+        assert!(replay.replayed);
+        assert_eq!(replay.receipt_id, first_pause.receipt_id);
+        assert!(
+            engine.resume("focus-pause-1").is_err(),
+            "same id cannot change payload/kind"
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64(
+                    "SELECT count(*) FROM practice_operation WHERE command_id='focus-pause-1'"
+                )
+                .unwrap(),
+            1
+        );
+
+        clock.set("2026-07-15T12:02:00Z");
+        let resumed = engine.resume("focus-resume-1").unwrap();
+        assert_eq!(resumed.value.as_ref().unwrap().active_seconds, 20);
+        clock.set("2026-07-15T12:02:10Z");
+        assert_eq!(
+            engine
+                .checkpoint("focus-check-2")
+                .unwrap()
+                .value
+                .unwrap()
+                .active_seconds,
+            30
+        );
+        let block_id = opened.block_id;
+        drop(engine);
+        drop(store);
+
+        // Relaunch 110 seconds later: the old interval closes at its last
+        // checkpoint and a new interval starts now, so the gap adds nothing.
+        clock.set("2026-07-15T12:04:00Z");
+        let (engine, _, _) = engine_with_fixed_clock(&path, clock.clone());
+        let restored = engine.state().unwrap().unwrap();
+        assert_eq!(restored.block_id, block_id);
+        assert_eq!(restored.active_seconds, 30);
+        assert_eq!(
+            restored.intention.as_deref(),
+            Some("Even pulse through the leap")
+        );
+        assert_eq!(restored.hands, "left");
+        assert_eq!(restored.method, "blocked");
+        assert_eq!(restored.planned_seconds, Some(300));
+
+        clock.set("2026-07-15T12:04:10Z");
+        assert_eq!(
+            engine
+                .checkpoint("focus-check-3")
+                .unwrap()
+                .value
+                .unwrap()
+                .active_seconds,
+            40
+        );
+        clock.set("2026-07-15T12:04:20Z");
+        let closed = engine.close().unwrap().unwrap();
+        assert_eq!(closed.active_seconds, 50);
+        assert_eq!(closed.timer_state, "stopped");
+    }
+
+    /// A live set whose process stalls mid-practice (a laptop-sleep gap, no
+    /// pause and no relaunch) must not bank the wall-clock gap as focus time.
+    /// The delayed heartbeat is capped at the 60s ceiling, the stalled interval
+    /// closes as a suspension, a fresh interval starts, and the receipt says so.
+    #[test]
+    fn live_uncheckpointed_gap_is_capped_and_suspends_the_interval() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("focus-cap.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T14:30:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        engine.open(strict_notes_args(piece_id, 50)).unwrap();
+
+        clock.set("2026-07-15T14:30:10Z");
+        let before = engine
+            .checkpoint("cap-cp-1")
+            .unwrap()
+            .value
+            .unwrap()
+            .active_seconds;
+        assert_eq!(before, 10);
+
+        // Five minutes elapse with no pause and no relaunch — a live stall.
+        clock.set("2026-07-15T14:35:10Z");
+        let capped = engine.checkpoint("cap-cp-2").unwrap();
+        let after = capped.value.as_ref().unwrap().active_seconds;
+        assert!(
+            after - before <= 60,
+            "a live gap banks at most the 60s ceiling, grew {after} from {before}"
+        );
+        assert_eq!(
+            capped.summary,
+            "A delayed heartbeat was capped; suspended time was excluded."
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64(
+                    "SELECT count(*) FROM practice_interval WHERE end_reason='suspension'"
+                )
+                .unwrap(),
+            1,
+            "the stalled interval closed as a suspension"
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64(
+                    "SELECT count(*) FROM practice_interval WHERE ended_ts IS NULL"
+                )
+                .unwrap(),
+            1,
+            "a fresh interval resumed live capture"
+        );
+
+        // A backward clock is rejected outright and changes no durable state.
+        clock.set("2026-07-15T14:35:00Z");
+        let error = engine.checkpoint("cap-back").unwrap_err();
+        assert!(error.contains("practice clock moved backward"), "{error}");
+        assert_eq!(
+            store
+                .test_scalar_string(
+                    "SELECT last_checkpoint_ts FROM practice_interval WHERE ended_ts IS NULL"
+                )
+                .unwrap(),
+            "2026-07-15T14:35:10Z",
+            "the rejected checkpoint left the live interval untouched"
+        );
+    }
+
+    /// A safety stop must perform its physical metronome stop exactly once. A
+    /// replay of the same command id resyncs state but never repeats the
+    /// side effect, and returns no physical-stop handle to the caller.
+    #[test]
+    fn safety_replay_does_not_repeat_the_physical_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("safety-replay.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T14:40:00Z"));
+        let (engine, piece_id, _store) = engine_with_fixed_clock(&path, clock.clone());
+        engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        let stops = AtomicUsize::new(0);
+
+        clock.set("2026-07-15T14:40:05Z");
+        let (first, physical) = engine
+            .safety_stop_after_commit("s1", Some("pain in wrist"), || {
+                stops.fetch_add(1, Ordering::SeqCst);
+            })
+            .unwrap();
+        assert!(!first.replayed);
+        assert!(physical.is_some(), "first delivery performs the physical stop");
+        assert_eq!(stops.load(Ordering::SeqCst), 1);
+
+        let (replay, physical_replay) = engine
+            .safety_stop_after_commit("s1", Some("pain in wrist"), || {
+                stops.fetch_add(1, Ordering::SeqCst);
+            })
+            .unwrap();
+        assert!(replay.replayed);
+        assert!(
+            physical_replay.is_none(),
+            "a replay returns no physical-stop handle"
+        );
+        assert_eq!(
+            stops.load(Ordering::SeqCst),
+            1,
+            "the physical stop is never repeated"
+        );
+    }
+
+    /// The active-set mutex held across the safety physical stop orders a
+    /// concurrent resume strictly after it: resume blocks on `self.active` until
+    /// the stop closure finishes, so it can never observe a half-applied stop.
+    #[test]
+    fn resume_cannot_overtake_the_safety_physical_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("safety-resume-race.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T14:50:00Z"));
+        let (engine, piece_id, _store) = engine_with_fixed_clock(&path, clock.clone());
+        engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        let engine = Arc::new(engine);
+
+        let order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (inside_tx, inside_rx) = std::sync::mpsc::channel::<()>();
+
+        clock.set("2026-07-15T14:50:05Z");
+        let stop_engine = engine.clone();
+        let stop_order = order.clone();
+        let stopper = std::thread::spawn(move || {
+            stop_engine
+                .safety_stop_after_commit("safety-race", Some("pain in wrist"), || {
+                    // Signal we are inside the physical stop (holding `active`),
+                    // then block until the test releases us.
+                    inside_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    stop_order.lock().unwrap().push("physical_stop");
+                })
+                .unwrap();
+        });
+
+        // The stopper now holds `active` inside the physical-stop closure.
+        inside_rx.recv().unwrap();
+        let resume_engine = engine.clone();
+        let resume_order = order.clone();
+        let resumer = std::thread::spawn(move || {
+            resume_engine.resume("safety-race-resume").unwrap();
+            resume_order.lock().unwrap().push("resume");
+        });
+
+        // Give the resumer time to reach the lock; it must stay blocked there.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(
+            order.lock().unwrap().is_empty(),
+            "resume must not complete before the physical stop finishes"
+        );
+
+        release_tx.send(()).unwrap();
+        stopper.join().unwrap();
+        resumer.join().unwrap();
+        assert_eq!(
+            *order.lock().unwrap(),
+            vec!["physical_stop", "resume"],
+            "the physical stop is fully applied before resume proceeds"
+        );
+        let resumed = engine.state().unwrap().unwrap();
+        assert_eq!(resumed.set_state, "active");
+        assert_eq!(resumed.safety_state, "cleared");
+    }
+
+    #[test]
+    fn propagated_attempt_command_is_idempotent_concurrently_and_after_relaunch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("idempotency.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T13:00:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        engine.open(strict_notes_args(piece_id, 50)).unwrap();
+        clock.set("2026-07-15T13:00:01Z");
+        let engine = Arc::new(engine);
+        let first_engine = engine.clone();
+        let second_engine = engine.clone();
+        let first = std::thread::spawn(move || {
+            first_engine.check_idempotent("delivery-attempt-1", RepVerdict::Clean, None)
+        });
+        let second = std::thread::spawn(move || {
+            second_engine.check_idempotent("delivery-attempt-1", RepVerdict::Clean, None)
+        });
+        let first = first.join().unwrap().unwrap();
+        let second = second.join().unwrap().unwrap();
+        assert_eq!(first.snap.tries, 1);
+        assert_eq!(second.snap.tries, 1);
+        let first_receipt = first.receipt.unwrap();
+        let second_receipt = second.receipt.unwrap();
+        assert_eq!(first_receipt.receipt_id, second_receipt.receipt_id);
+        assert_ne!(first_receipt.replayed, second_receipt.replayed);
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(),
+            1
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64(
+                    "SELECT count(*) FROM practice_operation WHERE command_id='delivery-attempt-1'"
+                )
+                .unwrap(),
+            1
+        );
+        assert!(engine
+            .check_idempotent("delivery-attempt-1", RepVerdict::Failed, None)
+            .is_err());
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(),
+            1
+        );
+        drop(engine);
+        drop(store);
+
+        clock.set("2026-07-15T13:10:00Z");
+        let (engine, _, store) = engine_with_fixed_clock(&path, clock);
+        let replay = engine
+            .check_idempotent("delivery-attempt-1", RepVerdict::Clean, None)
+            .unwrap();
+        assert!(replay.receipt.unwrap().replayed);
+        assert_eq!(replay.snap.tries, 1);
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn attempt_retry_replays_original_receipt_when_the_next_variant_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("variant-idempotency.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T13:30:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        let mut args = strict_notes_args(piece_id, 50);
+        args.variants = vec![
+            VariantSpec {
+                name: "blocked".into(),
+                reps: 1,
+            },
+            VariantSpec {
+                name: "as written".into(),
+                reps: 1,
+            },
+        ];
+        engine.open(args).unwrap();
+
+        clock.set("2026-07-15T13:30:01Z");
+        let first = engine
+            .check_idempotent("variant-delivery-1", RepVerdict::Clean, None)
+            .unwrap();
+        let first_receipt = first.receipt.unwrap();
+        assert!(!first_receipt.replayed);
+        assert_eq!(first.snap.last.as_ref().unwrap().verdict, "clean");
+
+        // The live projection now points at the second lane. The same caller
+        // request must still load the first durable receipt, not reject or add
+        // an "as written" attempt.
+        let retry = engine
+            .check_idempotent("variant-delivery-1", RepVerdict::Clean, None)
+            .unwrap();
+        let retry_receipt = retry.receipt.unwrap();
+        assert!(retry_receipt.replayed);
+        assert_eq!(retry_receipt.receipt_id, first_receipt.receipt_id);
+        assert_eq!(retry.snap.tries, 1);
+        assert_eq!(
+            store
+                .test_scalar_i64(
+                    "SELECT count(*) FROM rep WHERE variant='blocked' AND block_id=(SELECT max(id) FROM rep_block)"
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64(
+                    "SELECT count(*) FROM rep WHERE variant='as written' AND block_id=(SELECT max(id) FROM rep_block)"
+                )
+                .unwrap(),
+            0
+        );
+        drop(engine);
+        drop(store);
+
+        clock.set("2026-07-15T13:40:00Z");
+        let (engine, _, store) = engine_with_fixed_clock(&path, clock);
+        let relaunched_retry = engine
+            .check_idempotent("variant-delivery-1", RepVerdict::Clean, None)
+            .unwrap();
+        assert!(relaunched_retry.receipt.unwrap().replayed);
+        assert_eq!(relaunched_retry.snap.tries, 1);
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(),
+            1
+        );
+    }
+
+    /// The very first attempt after a session ends must implicitly open exactly
+    /// one session inside its own durable operation. A retry carrying the same
+    /// caller command id replays that operation — it must not open a second
+    /// session nor emit a second `session_start` event.
+    #[test]
+    fn idempotent_retry_after_session_end_opens_exactly_one_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session-idempotency.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T13:50:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        engine.open(strict_notes_args(piece_id, 50)).unwrap();
+        // Retire the session the open created so the next attempt must take the
+        // implicit-create path rather than adopting an already-open session.
+        engine.sessions.end_raw().expect("open session ends");
+        let sessions_before = store
+            .test_scalar_i64("SELECT count(*) FROM session")
+            .unwrap();
+
+        clock.set("2026-07-15T13:50:01Z");
+        let first = engine
+            .check_idempotent("cmd-session-x", RepVerdict::Clean, None)
+            .unwrap();
+        assert!(!first.receipt.unwrap().replayed);
+        let retry = engine
+            .check_idempotent("cmd-session-x", RepVerdict::Clean, None)
+            .unwrap();
+        assert!(retry.receipt.unwrap().replayed);
+
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM session")
+                .unwrap(),
+            sessions_before + 1,
+            "the replayed retry must not open a second session"
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64(
+                    "SELECT count(*) FROM event
+                     WHERE kind='session_start' AND command_id='cmd-session-x:session_start'"
+                )
+                .unwrap(),
+            1,
+            "exactly one session_start event carries the derived command id"
+        );
+    }
+
+    #[test]
+    fn safety_failure_never_stops_audio_or_records_a_failed_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("safety.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T14:00:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        store
+            .test_execute_batch(
+                "CREATE TRIGGER fail_safety BEFORE INSERT ON practice_safety_event
+                 BEGIN SELECT RAISE(ABORT,'injected safety failure'); END;",
+            )
+            .unwrap();
+        let audio_stops = AtomicUsize::new(0);
+        let audio_running = AtomicBool::new(true);
+        let published_running = AtomicBool::new(true);
+        clock.set("2026-07-15T14:00:05Z");
+        let failed = engine.safety_stop_after_commit("safety-1", Some("pain in wrist"), || {
+            audio_stops.fetch_add(1, Ordering::SeqCst);
+            audio_running.store(false, Ordering::SeqCst);
+            published_running.store(false, Ordering::SeqCst);
+        });
+        assert!(failed.is_err());
+        assert_eq!(audio_stops.load(Ordering::SeqCst), 0);
+        assert!(audio_running.load(Ordering::SeqCst));
+        assert!(published_running.load(Ordering::SeqCst));
+        let unchanged = engine.state().unwrap().unwrap();
+        assert_eq!(unchanged.set_state, "active");
+        assert_eq!(unchanged.tries, 0);
+        assert_eq!(unchanged.reset_count, 0);
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM practice_operation")
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM practice_safety_event")
+                .unwrap(),
+            0
+        );
+
+        store
+            .test_execute_batch("DROP TRIGGER fail_safety;")
+            .unwrap();
+        let (receipt, physical_stop) = engine
+            .safety_stop_after_commit("safety-1", Some("pain in wrist"), || {
+                audio_stops.fetch_add(1, Ordering::SeqCst);
+                audio_running.store(false, Ordering::SeqCst);
+                published_running.store(false, Ordering::SeqCst);
+            })
+            .unwrap();
+        assert!(
+            physical_stop.is_some(),
+            "first delivery performs the physical stop"
+        );
+        let stopped = receipt.value.unwrap();
+        assert_eq!(audio_stops.load(Ordering::SeqCst), 1);
+        assert!(!audio_running.load(Ordering::SeqCst));
+        assert!(!published_running.load(Ordering::SeqCst));
+        assert_eq!(stopped.set_state, "paused");
+        assert_eq!(stopped.safety_state, "stopped");
+        assert_eq!(stopped.tries, 0);
+        assert_eq!(stopped.verdicts.failed, 0);
+        assert_eq!(stopped.reset_count, 0);
+        clock.set("2026-07-15T14:00:10Z");
+        let resumed = engine.resume("safety-resume-1").unwrap().value.unwrap();
+        assert_eq!(resumed.set_state, "active");
+        assert_eq!(resumed.safety_state, "cleared");
+    }
+
+    #[test]
+    fn accepted_recovery_is_append_only_visible_and_does_not_rewrite_contract_or_attempts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recovery.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T15:00:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        let mut args = open_args_tempo(false, 3, 4.0, 80.0);
+        args.piece_id = piece_id;
+        args.required_clean_streak = Some(5);
+        engine
+            .open_with_context(
+                args,
+                Some(SetFocusContextInput {
+                    intention: Some("Stabilize the leap".into()),
+                    judging_axis: None,
+                    hands: Some("both".into()),
+                    method: Some("blocked".into()),
+                    planned_seconds: Some(180),
+                    reflection: None,
+                }),
+            )
+            .unwrap();
+        clock.set("2026-07-15T15:00:01Z");
+        engine.check(RepVerdict::Clean, None).unwrap();
+        clock.set("2026-07-15T15:00:02Z");
+        engine.check(RepVerdict::Clean, None).unwrap();
+
+        let reset = engine
+            .recover(
+                "recover-reset",
+                &RecoveryActionRequest::ResetStreak {
+                    rationale: "Re-establish pulse after the miss".into(),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(reset.tries, 2);
+        assert_eq!(reset.current_clean_streak, 0);
+        assert_eq!(reset.best_clean_streak, 2);
+        assert_eq!(reset.required_clean_streak, 5);
+
+        let debt = engine
+            .recover(
+                "recover-debt",
+                &RecoveryActionRequest::CleanDebt {
+                    clean_count: 2,
+                    rationale: "Two clean retrievals after the correction".into(),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(debt.manual_clean_debt, 2);
+        assert_eq!(debt.effective_required_clean_streak, 7);
+        assert_eq!(
+            debt.required_clean_streak, 5,
+            "captured contract stays immutable"
+        );
+
+        let backed_off = engine
+            .recover(
+                "recover-tempo",
+                &RecoveryActionRequest::TempoBackoff {
+                    bpm: 70.0,
+                    rationale: "Restore coordinated motion".into(),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(backed_off.bpm, Some(70.0));
+        let narrowed = engine
+            .recover(
+                "recover-narrow",
+                &RecoveryActionRequest::NarrowTarget {
+                    m_start: 2,
+                    m_end: 6,
+                    rationale: "Isolate the leap".into(),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!((narrowed.m_start, narrowed.m_end), (1, 8));
+        assert_eq!((narrowed.working_m_start, narrowed.working_m_end), (2, 6));
+        engine
+            .recover(
+                "recover-hands",
+                &RecoveryActionRequest::ChangeHands {
+                    hands: "left".into(),
+                    rationale: "Clarify the bass line".into(),
+                },
+            )
+            .unwrap();
+        let method = engine
+            .recover(
+                "recover-method",
+                &RecoveryActionRequest::ChangeMethod {
+                    method: "serial chaining".into(),
+                    rationale: "Add one note at a time".into(),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(method.hands, "left");
+        assert_eq!(method.method, "serial chaining");
+        let reflected = engine
+            .reflect("recover-reflect", "Pulse improved after narrowing.")
+            .unwrap();
+        assert_eq!(
+            reflected.value.unwrap().reflection.as_deref(),
+            Some("Pulse improved after narrowing.")
+        );
+        let paused = engine
+            .recover(
+                "recover-break",
+                &RecoveryActionRequest::Break {
+                    planned_seconds: Some(60),
+                    rationale: "Release tension before another set".into(),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(paused.set_state, "paused");
+        assert_eq!(paused.recovery_actions.len(), 7);
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(),
+            2
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM practice_recovery_action")
+                .unwrap(),
+            7
+        );
+        assert!(store
+            .test_execute_batch(
+                "UPDATE practice_recovery_action SET rationale='rewrite' WHERE id=1;"
+            )
+            .is_err());
+    }
+
+    /// Recovery is ordered after every physically committed attempt, including a
+    /// latest one hidden behind append-only undo. The reset boundary must anchor
+    /// on the physical MAX(id) — the voided row — not the effective last
+    /// attempt, so restoring that attempt cannot slip it back into the streak.
+    #[test]
+    fn recovery_anchors_on_the_physical_watermark_not_the_effective_last_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recovery-watermark.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T16:30:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        let mut args = open_args_tempo(false, 5, 4.0, 80.0);
+        args.piece_id = piece_id;
+        args.required_clean_streak = Some(5);
+        engine.open(args).unwrap();
+        clock.set("2026-07-15T16:30:01Z");
+        engine.check(RepVerdict::Clean, None).unwrap();
+        clock.set("2026-07-15T16:30:02Z");
+        engine.check(RepVerdict::Clean, None).unwrap();
+        clock.set("2026-07-15T16:30:03Z");
+        let third = engine.check(RepVerdict::Clean, None).unwrap();
+        let physical_latest = third.snap.last_attempt_id.unwrap();
+        assert_eq!(third.snap.current_clean_streak, 3);
+
+        // Undo hides the newest attempt behind an append-only void; the physical
+        // rep row survives as the durable commit watermark.
+        let undone = engine.undo().unwrap();
+        assert_eq!(undone.snap.current_clean_streak, 2);
+        assert_eq!(
+            store.test_scalar_i64("SELECT MAX(id) FROM rep").unwrap(),
+            physical_latest
+        );
+
+        // A tempo backoff and a streak reset are accepted while the latest
+        // attempt is voided.
+        clock.set("2026-07-15T16:30:04Z");
+        let backed_off = engine
+            .recover(
+                "recover-tempo-watermark",
+                &RecoveryActionRequest::TempoBackoff {
+                    bpm: 70.0,
+                    rationale: "Restore coordinated motion before the reset".into(),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(backed_off.bpm, Some(70.0));
+        clock.set("2026-07-15T16:30:05Z");
+        engine
+            .recover(
+                "recover-reset-watermark",
+                &RecoveryActionRequest::ResetStreak {
+                    rationale: "Re-establish the streak from scratch".into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .test_scalar_i64(
+                    "SELECT after_attempt_id FROM practice_recovery_action WHERE kind='reset_streak'"
+                )
+                .unwrap(),
+            physical_latest,
+            "the reset anchors on the physical MAX(id), the voided row"
+        );
+        assert_eq!(engine.state().unwrap().unwrap().current_clean_streak, 0);
+
+        // Restoring the voided attempt brings it back as clean, but it sits at
+        // the physical reset boundary (not beyond it), so it must not re-enter
+        // the post-reset streak — and the tempo backoff stays applied.
+        let void_adjustment_id = store
+            .v2_snapshot(third.snap.block_id)
+            .unwrap()
+            .last_adjustment_id
+            .unwrap();
+        let restored = engine.reverse_adjustment(void_adjustment_id).unwrap();
+        assert_eq!(
+            restored.snap.current_clean_streak, 0,
+            "the restored attempt does not count into the post-reset streak"
+        );
+        assert_eq!(restored.snap.bpm, Some(70.0), "tempo backoff stays applied");
+    }
+
+    #[test]
+    fn retention_due_snooze_confirm_lower_and_reopen_preserve_original_due_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("retention.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T16:00:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        let region = store
+            .region_create(RegionCreate {
+                piece_id,
+                name: "Retention target".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "hard_spot".into(),
+            })
+            .unwrap();
+        let mut args = strict_notes_args(piece_id, 5);
+        args.region_id = Some(region.id);
+        engine.open(args).unwrap();
+
+        let schedule = |command_id: &str, due_date: &str| {
+            engine.recover(
+                command_id,
+                &RecoveryActionRequest::ScheduleRetention {
+                    due_date: due_date.into(),
+                    condition: retention_condition(80.0),
+                    rationale: "Verify tomorrow before warm-up".into(),
+                },
+            )
+        };
+        let first = schedule("schedule-retention-1", "2026-07-16").unwrap();
+        let first_id = first
+            .value
+            .as_ref()
+            .unwrap()
+            .retention_check
+            .as_ref()
+            .unwrap()
+            .id;
+        let duplicate = schedule("schedule-retention-1", "2026-07-16").unwrap();
+        assert!(duplicate.replayed);
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM retention_check")
+                .unwrap(),
+            1
+        );
+        store
+            .test_execute_batch(
+                "CREATE TRIGGER fail_recovery_insert BEFORE INSERT ON practice_recovery_action
+                 BEGIN SELECT RAISE(ABORT,'injected recovery failure'); END;",
+            )
+            .unwrap();
+        assert!(schedule("schedule-retention-fail", "2026-07-20").is_err());
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM retention_check")
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM practice_operation WHERE command_id='schedule-retention-fail'")
+                .unwrap(),
+            0,
+            "retention row, evidence event, action, and receipt roll back together"
+        );
+        store
+            .test_execute_batch("DROP TRIGGER fail_recovery_insert;")
+            .unwrap();
+        assert!(engine.retention_due("2026-07-15").unwrap().is_empty());
+        assert_eq!(engine.retention_due("2026-07-16").unwrap().len(), 1);
+
+        let snoozed = engine
+            .retention_snooze("retention-snooze-1", first_id, "2026-07-17")
+            .unwrap();
+        let snoozed_value = snoozed.value.as_ref().unwrap();
+        assert_eq!(snoozed_value.due_date, "2026-07-17");
+        assert_eq!(snoozed_value.original_due_date, "2026-07-16");
+        let snooze_replay = engine
+            .retention_snooze("retention-snooze-1", first_id, "2026-07-17")
+            .unwrap();
+        assert!(snooze_replay.replayed);
+        assert!(engine.retention_due("2026-07-16").unwrap().is_empty());
+        assert_eq!(engine.retention_due("2026-07-17").unwrap().len(), 1);
+        store
+            .test_execute_batch(
+                "CREATE TRIGGER fail_retention_confirm BEFORE INSERT ON retention_check_event
+                 WHEN NEW.to_state='confirmed'
+                 BEGIN SELECT RAISE(ABORT,'injected retention failure'); END;",
+            )
+            .unwrap();
+        assert!(engine
+            .retention_confirm(
+                "retention-confirm-fail",
+                first_id,
+                &retention_result(
+                    RetentionDecision::ConfirmRetained,
+                    "2026-07-17",
+                    "clean on the first cold pass",
+                ),
+            )
+            .is_err());
+        assert_eq!(
+            engine.retention_due("2026-07-17").unwrap()[0].state,
+            "snoozed",
+            "state update rolls back when append-only evidence fails"
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM practice_operation WHERE command_id='retention-confirm-fail'")
+                .unwrap(),
+            0
+        );
+        store
+            .test_execute_batch("DROP TRIGGER fail_retention_confirm;")
+            .unwrap();
+        let confirmed = engine
+            .retention_confirm(
+                "retention-confirm-1",
+                first_id,
+                &retention_result(
+                    RetentionDecision::ConfirmRetained,
+                    "2026-07-17",
+                    "clean at 80 before warm-up",
+                ),
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(confirmed.state, "confirmed");
+        assert_eq!(confirmed.original_due_date, "2026-07-16");
+
+        let second = schedule("schedule-retention-2", "2026-07-18")
+            .unwrap()
+            .value
+            .unwrap()
+            .retention_check
+            .unwrap();
+        let lowered = engine
+            .retention_lower(
+                "retention-lower-1",
+                second.id,
+                &RetentionResult {
+                    decision: RetentionDecision::LowerWorkingCondition,
+                    note: "held at 72, below the 80 peak".into(),
+                    checked_as_of: "2026-07-18".into(),
+                    observed_condition: Some(retention_condition(72.0)),
+                    next_condition: Some(retention_condition(72.0)),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(lowered.state, "lowered");
+        let third = schedule("schedule-retention-3", "2026-07-19")
+            .unwrap()
+            .value
+            .unwrap()
+            .retention_check
+            .unwrap();
+        let reopened = engine
+            .retention_reopen(
+                "retention-reopen-1",
+                third.id,
+                &RetentionResult {
+                    decision: RetentionDecision::ReopenTarget,
+                    note: "cold check unstable".into(),
+                    checked_as_of: "2026-07-19".into(),
+                    observed_condition: None,
+                    next_condition: None,
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(reopened.state, "reopened");
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM retention_check_event")
+                .unwrap(),
+            7,
+            "three schedules + snooze + confirm + lower + reopen"
+        );
+    }
+
+    /// Every retention entry point that accepts a date must reject an impossible
+    /// calendar day before it writes any practice state, so a typo can never
+    /// schedule, snooze, resolve, or query against a day that does not exist.
+    #[test]
+    fn retention_entry_points_reject_impossible_calendar_dates() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("retention-dates.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T16:00:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        let region = store
+            .region_create(RegionCreate {
+                piece_id,
+                name: "Date-guard target".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "hard_spot".into(),
+            })
+            .unwrap();
+        let mut args = strict_notes_args(piece_id, 5);
+        args.region_id = Some(region.id);
+        engine.open(args).unwrap();
+
+        let retention_rows = || {
+            store
+                .test_scalar_i64("SELECT count(*) FROM retention_check")
+                .unwrap()
+        };
+
+        // (a) ScheduleRetention with a non-existent February day.
+        assert!(engine
+            .recover(
+                "schedule-impossible",
+                &RecoveryActionRequest::ScheduleRetention {
+                    due_date: "2026-02-30".into(),
+                    condition: retention_condition(80.0),
+                    rationale: "should never persist".into(),
+                },
+            )
+            .is_err());
+        assert_eq!(retention_rows(), 0, "impossible schedule persists no check");
+
+        // A real check to exercise the remaining entry points.
+        let check = engine
+            .recover(
+                "schedule-valid",
+                &RecoveryActionRequest::ScheduleRetention {
+                    due_date: "2026-07-18".into(),
+                    condition: retention_condition(80.0),
+                    rationale: "Verify tomorrow".into(),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap()
+            .retention_check
+            .unwrap();
+        assert_eq!(retention_rows(), 1);
+
+        // (b) snooze onto an impossible non-leap-year Feb 29.
+        assert!(engine
+            .retention_snooze("snooze-impossible", check.id, "2027-02-29")
+            .is_err());
+        let after_snooze = engine.retention_due("2026-07-18").unwrap();
+        assert_eq!(after_snooze.len(), 1);
+        assert_eq!(after_snooze[0].due_date, "2026-07-18");
+        assert_eq!(after_snooze[0].state, "due");
+
+        // (c) confirm with an impossible checked_as_of.
+        assert!(engine
+            .retention_confirm(
+                "confirm-impossible",
+                check.id,
+                &retention_result(
+                    RetentionDecision::ConfirmRetained,
+                    "2026-02-30",
+                    "clean cold pass",
+                ),
+            )
+            .is_err());
+        assert_eq!(engine.retention_due("2026-07-18").unwrap()[0].state, "due");
+
+        // (d) retention_due queried with an impossible as-of date.
+        assert!(engine.retention_due("2026-02-30").is_err());
+    }
+
+    /// Retention result evidence is bounded and typed. Every malformed field —
+    /// wrong endpoint, empty note, bad date, a check date preceding the due
+    /// date, or an out-of-range/empty condition — is rejected before any durable
+    /// row is written, leaving no operation and no evidence event behind.
+    #[test]
+    fn retention_result_validation_rejects_bad_evidence_without_side_effects() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("retention-negatives.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T16:00:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        let region = store
+            .region_create(RegionCreate {
+                piece_id,
+                name: "Validation target".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "hard_spot".into(),
+            })
+            .unwrap();
+        let mut args = strict_notes_args(piece_id, 5);
+        args.region_id = Some(region.id);
+        engine.open(args).unwrap();
+        let check = engine
+            .recover(
+                "schedule-negatives",
+                &RecoveryActionRequest::ScheduleRetention {
+                    due_date: "2026-07-18".into(),
+                    condition: retention_condition(80.0),
+                    rationale: "Verify tomorrow".into(),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap()
+            .retention_check
+            .unwrap();
+        let events_before = store
+            .test_scalar_i64("SELECT count(*) FROM retention_check_event")
+            .unwrap();
+
+        let reject = |command_id: &str, result: RetentionResult| {
+            assert!(
+                engine
+                    .retention_confirm(command_id, check.id, &result)
+                    .is_err(),
+                "{command_id} must be rejected"
+            );
+            assert_eq!(
+                store
+                    .test_scalar_i64(&format!(
+                        "SELECT count(*) FROM practice_operation WHERE command_id='{command_id}'"
+                    ))
+                    .unwrap(),
+                0,
+                "{command_id} wrote no operation row"
+            );
+            assert_eq!(
+                store
+                    .test_scalar_i64("SELECT count(*) FROM retention_check_event")
+                    .unwrap(),
+                events_before,
+                "{command_id} wrote no evidence event"
+            );
+        };
+
+        // (i) endpoint/decision mismatch.
+        reject(
+            "confirm-mismatch",
+            RetentionResult {
+                decision: RetentionDecision::LowerWorkingCondition,
+                note: "wrong endpoint".into(),
+                checked_as_of: "2026-07-18".into(),
+                observed_condition: None,
+                next_condition: None,
+            },
+        );
+        // (ii) empty/whitespace note.
+        reject(
+            "confirm-empty-note",
+            retention_result(RetentionDecision::ConfirmRetained, "2026-07-18", "   "),
+        );
+        // (iii) malformed checked_as_of.
+        reject(
+            "confirm-bad-date",
+            retention_result(RetentionDecision::ConfirmRetained, "2026-13-40", "clean pass"),
+        );
+        // (iv) checked_as_of earlier than the due date.
+        reject(
+            "confirm-precedes-due",
+            retention_result(RetentionDecision::ConfirmRetained, "2026-07-10", "too early"),
+        );
+        // (v) invalid conditions: out-of-range bpm, inverted measures, and the
+        // empty default that carries no condition at all.
+        let with_condition = |condition: RetentionCondition| RetentionResult {
+            decision: RetentionDecision::ConfirmRetained,
+            note: "clean pass".into(),
+            checked_as_of: "2026-07-18".into(),
+            observed_condition: Some(condition),
+            next_condition: None,
+        };
+        reject(
+            "confirm-bpm-500",
+            with_condition(RetentionCondition {
+                bpm: Some(500.0),
+                ..RetentionCondition::default()
+            }),
+        );
+        reject(
+            "confirm-inverted-measures",
+            with_condition(RetentionCondition {
+                m_start: Some(8),
+                m_end: Some(4),
+                ..RetentionCondition::default()
+            }),
+        );
+        reject(
+            "confirm-empty-condition",
+            with_condition(RetentionCondition::default()),
+        );
+
+        assert_eq!(engine.retention_due("2026-07-18").unwrap()[0].state, "due");
+    }
+
+    /// The reviewed retention-result envelope is closed: an unknown field is
+    /// rejected (`deny_unknown_fields`) and an unknown decision string cannot
+    /// enter the closed enum. No opaque JSON becomes future work instruction.
+    #[test]
+    fn retention_result_rejects_unknown_fields_and_decisions() {
+        assert!(serde_json::from_str::<RetentionResult>(
+            r#"{"decision":"confirm_retained","note":"n","checked_as_of":"2026-07-18","surprise":1}"#
+        )
+        .is_err());
+        assert!(serde_json::from_str::<RetentionResult>(
+            r#"{"decision":"maybe_later","note":"n","checked_as_of":"2026-07-18"}"#
+        )
+        .is_err());
+        let ok: RetentionResult = serde_json::from_str(
+            r#"{"decision":"confirm_retained","note":"n","checked_as_of":"2026-07-18"}"#,
+        )
+        .unwrap();
+        assert_eq!(ok.decision, RetentionDecision::ConfirmRetained);
+    }
+
     #[test]
     fn ladder_advances_with_metronome_off() {
         let (engine, _emit) = engine_with_capture();
-        let args = open_args_tempo(/*use_metronome*/ false, /*clean_needed*/ 2, /*step*/ 4.0, /*start*/ 40.0);
+        let args = open_args_tempo(
+            /*use_metronome*/ false, /*clean_needed*/ 2, /*step*/ 4.0,
+            /*start*/ 40.0,
+        );
         let snap = engine.open(args).unwrap();
         engine.check(RepVerdict::Clean, None).unwrap();
         let out = engine.check(RepVerdict::Clean, None).unwrap(); // hits the step
@@ -774,9 +2438,7 @@ mod tests {
     #[test]
     fn step_after_session_end_uses_the_new_practice_session() {
         let (engine, _pid, store, _emit) = engine_with_piece();
-        engine
-            .open(open_args_tempo(true, 1, 4.0, 40.0))
-            .unwrap();
+        engine.open(open_args_tempo(true, 1, 4.0, 40.0)).unwrap();
         let ended = engine.sessions.end_raw().expect("open session ends");
         let out = engine.check(RepVerdict::Clean, None).unwrap();
         assert_eq!(out.new_bpm, Some(44.0));
@@ -806,7 +2468,10 @@ mod tests {
         assert_eq!(out.snap.bpm, Some(40.0));
         assert_eq!(out.new_bpm, None, "notes focus never climbs the ladder");
         assert_eq!(
-            engine.store.test_scalar_i64("SELECT bpm=40 FROM rep").unwrap(),
+            engine
+                .store
+                .test_scalar_i64("SELECT bpm=40 FROM rep")
+                .unwrap(),
             1,
             "metronome condition is factual attempt tempo"
         );
@@ -875,14 +2540,16 @@ mod tests {
     #[test]
     fn opening_reps_inside_a_tricky_section_links_the_same_canonical_region() {
         let (engine, pid, store, _rec) = engine_with_piece();
-        let region = store.region_create(crate::store::model::RegionCreate {
-            piece_id: pid,
-            name: "LH landing".into(),
-            notes: None,
-            m_start: 38,
-            m_end: 60,
-            kind: "hard_spot".into(),
-        }).unwrap();
+        let region = store
+            .region_create(crate::store::model::RegionCreate {
+                piece_id: pid,
+                name: "LH landing".into(),
+                notes: None,
+                m_start: 38,
+                m_end: 60,
+                kind: "hard_spot".into(),
+            })
+            .unwrap();
         let snap = engine.open(open_args(pid)).unwrap();
         let history = store.block_row(snap.block_id).unwrap().unwrap();
         assert_eq!(history.region_id, Some(region.id));
@@ -891,14 +2558,16 @@ mod tests {
     #[test]
     fn score_selected_tricky_section_remains_linked_after_measure_adjustment() {
         let (engine, pid, store, _rec) = engine_with_piece();
-        let region = store.region_create(crate::store::model::RegionCreate {
-            piece_id: pid,
-            name: "RH shape".into(),
-            notes: None,
-            m_start: 40,
-            m_end: 56,
-            kind: "hard_spot".into(),
-        }).unwrap();
+        let region = store
+            .region_create(crate::store::model::RegionCreate {
+                piece_id: pid,
+                name: "RH shape".into(),
+                notes: None,
+                m_start: 40,
+                m_end: 56,
+                kind: "hard_spot".into(),
+            })
+            .unwrap();
         let mut args = open_args(pid);
         args.region_id = Some(region.id);
         args.m_start = 38;
@@ -928,17 +2597,33 @@ mod tests {
         let (engine, pid, store, _rec) = engine_with_piece();
         engine.open(open_args(pid)).unwrap();
         engine.check(RepVerdict::Clean, None).unwrap();
-        engine.check(RepVerdict::Flawed, Some("rushed".into())).unwrap();
+        engine
+            .check(RepVerdict::Flawed, Some("rushed".into()))
+            .unwrap();
         engine.check(RepVerdict::Failed, None).unwrap();
 
         let snap = engine.snapshot().unwrap();
         assert_eq!(snap.reps_done, 3);
-        assert_eq!(snap.verdicts, VerdictCounts { clean: 1, flawed: 1, failed: 1 });
+        assert_eq!(
+            snap.verdicts,
+            VerdictCounts {
+                clean: 1,
+                flawed: 1,
+                failed: 1
+            }
+        );
         assert_eq!(snap.last.as_ref().unwrap().verdict, "failed");
 
         let h = &store.block_history(pid).unwrap()[0];
         assert_eq!(h.reps_done, 3);
-        assert_eq!(h.verdicts, VerdictCounts { clean: 1, flawed: 1, failed: 1 });
+        assert_eq!(
+            h.verdicts,
+            VerdictCounts {
+                clean: 1,
+                flawed: 1,
+                failed: 1
+            }
+        );
     }
 
     #[test]
@@ -965,7 +2650,10 @@ mod tests {
         engine.check(RepVerdict::Flawed, None).unwrap();
         let snap = engine.snapshot().unwrap();
         assert_eq!(snap.cleans_at_step, 0, "an error resets rung progress");
-        assert_eq!(snap.current_clean_streak, 0, "an error resets mastery progress");
+        assert_eq!(
+            snap.current_clean_streak, 0,
+            "an error resets mastery progress"
+        );
         assert_eq!(snap.reps_done, 3, "but every attempt is a rep");
         assert_eq!(snap.bpm, Some(80.0), "no step yet");
     }
@@ -985,8 +2673,14 @@ mod tests {
             required_clean_streak: Some(4),
             increment: None,
             variants: vec![
-                VariantSpec { name: "hands separate".into(), reps: 2 },
-                VariantSpec { name: "hands together".into(), reps: 2 },
+                VariantSpec {
+                    name: "hands separate".into(),
+                    reps: 2,
+                },
+                VariantSpec {
+                    name: "hands together".into(),
+                    reps: 2,
+                },
             ],
             focus: "tempo".into(),
             use_metronome: true,
@@ -1068,24 +2762,39 @@ mod tests {
         store
             .block_update(
                 snap.block_id,
-                BlockPatch { label: Some(Some("noop".into())), ..Default::default() },
+                BlockPatch {
+                    label: Some(Some("noop".into())),
+                    ..Default::default()
+                },
             )
             .ok();
         engine.resync_active_if(snap.block_id + 999);
-        assert_eq!(rec.events.lock().unwrap().len(), events_before, "no re-emit");
-        assert_eq!(engine.snapshot().unwrap().label, None, "unrelated edit not applied");
+        assert_eq!(
+            rec.events.lock().unwrap().len(),
+            events_before,
+            "no re-emit"
+        );
+        assert_eq!(
+            engine.snapshot().unwrap().label,
+            None,
+            "unrelated edit not applied"
+        );
     }
 
     #[test]
     fn resync_preserves_stepped_working_tempo() {
         let (engine, pid, _store, _rec) = engine_with_piece();
         let snap = engine.open(open_args(pid)).unwrap(); // 80→120/30 auto: step +4 every 3 cleans
-        // Climb the ladder past the start: 3 clean reps steps 80 → 84.
+                                                         // Climb the ladder past the start: 3 clean reps steps 80 → 84.
         engine.check(RepVerdict::Clean, None).unwrap();
         engine.check(RepVerdict::Clean, None).unwrap();
         let out = engine.check(RepVerdict::Clean, None).unwrap();
         assert_eq!(out.new_bpm, Some(84.0), "3 cleans should step the ladder");
-        assert_eq!(engine.snapshot().unwrap().bpm, Some(84.0), "working tempo stepped");
+        assert_eq!(
+            engine.snapshot().unwrap().bpm,
+            Some(84.0),
+            "working tempo stepped"
+        );
 
         // Reprojection from the immutable contract + effective attempts must
         // preserve the derived rung; it may never fall back to the start BPM.
@@ -1112,7 +2821,10 @@ mod tests {
             .unwrap();
         engine.resync_active_if(snap.block_id);
 
-        assert!(!engine.active(), "active snapshot evicted after its row is deleted");
+        assert!(
+            !engine.active(),
+            "active snapshot evicted after its row is deleted"
+        );
         assert!(engine.snapshot().is_none());
         // The last rep://state emitted must be the cleared (null) state.
         let (_, payload) = rec
@@ -1158,7 +2870,9 @@ mod tests {
         engine.open(strict_notes_args(pid, 5)).unwrap();
         engine.check(RepVerdict::Clean, None).unwrap();
         engine.check(RepVerdict::Clean, None).unwrap();
-        let failed = engine.check(RepVerdict::Failed, Some("missed landing".into())).unwrap();
+        let failed = engine
+            .check(RepVerdict::Failed, Some("missed landing".into()))
+            .unwrap();
         assert_eq!(failed.snap.current_clean_streak, 0);
         assert_eq!(failed.snap.best_clean_streak, 2);
         assert_eq!(failed.snap.reset_count, 1);
@@ -1199,7 +2913,14 @@ mod tests {
         }
         let half = engine.snapshot().unwrap();
         assert_eq!(half.accuracy, Some(0.5));
-        assert_eq!(half.verdicts, VerdictCounts { clean: 5, flawed: 0, failed: 5 });
+        assert_eq!(
+            half.verdicts,
+            VerdictCounts {
+                clean: 5,
+                flawed: 0,
+                failed: 5
+            }
+        );
         assert_eq!(half.mastery_status, "not_satisfied");
     }
 
@@ -1239,7 +2960,10 @@ mod tests {
             target_bpm: Some(64.0),
             planned_reps: None,
             required_clean_streak: Some(2),
-            increment: Some(IncrementRule { clean_needed: 1, bpm_step: 4.0 }),
+            increment: Some(IncrementRule {
+                clean_needed: 1,
+                bpm_step: 4.0,
+            }),
             variants: vec![],
             focus: "tempo".into(),
             use_metronome: false,
@@ -1270,7 +2994,10 @@ mod tests {
                 target_bpm: Some(64.0),
                 planned_reps: None,
                 required_clean_streak: Some(2),
-                increment: Some(IncrementRule { clean_needed: 10, bpm_step: 4.0 }),
+                increment: Some(IncrementRule {
+                    clean_needed: 10,
+                    bpm_step: 4.0,
+                }),
                 variants: vec![],
                 focus: "tempo".into(),
                 use_metronome: true,
@@ -1292,8 +3019,14 @@ mod tests {
 
         let outcome = engine.check(RepVerdict::Clean, None).unwrap();
         assert_eq!(outcome.snap.bpm, Some(66.0));
-        assert_eq!(outcome.new_bpm, None, "an overshoot must never step down to target");
-        assert!(outcome.block_done, "clean work above target is target-eligible");
+        assert_eq!(
+            outcome.new_bpm, None,
+            "an overshoot must never step down to target"
+        );
+        assert!(
+            outcome.block_done,
+            "clean work above target is target-eligible"
+        );
     }
 
     #[test]
@@ -1310,7 +3043,10 @@ mod tests {
                 target_bpm: Some(68.0),
                 planned_reps: None,
                 required_clean_streak: Some(3),
-                increment: Some(IncrementRule { clean_needed: 5, bpm_step: 4.0 }),
+                increment: Some(IncrementRule {
+                    clean_needed: 5,
+                    bpm_step: 4.0,
+                }),
                 variants: vec![],
                 focus: "tempo".into(),
                 use_metronome: false,
@@ -1365,7 +3101,10 @@ mod tests {
         let restored = engine.reverse_adjustment(void_id).unwrap();
         assert_eq!(restored.snap.tries, 1);
         assert_eq!(restored.snap.verdicts.clean, 1);
-        assert_eq!(store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(), 1);
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(),
+            1
+        );
         assert_eq!(
             store
                 .test_scalar_i64("SELECT count(*) FROM attempt_adjustment")
@@ -1404,7 +3143,11 @@ mod tests {
             .correct(Some(attempt_id), RepVerdict::Clean, None, true)
             .unwrap();
         assert_eq!(cleared.snap.last.as_ref().unwrap().verdict, "clean");
-        assert_eq!(cleared.snap.last.as_ref().unwrap().note, None, "explicit null clears");
+        assert_eq!(
+            cleared.snap.last.as_ref().unwrap().note,
+            None,
+            "explicit null clears"
+        );
         let clear_adjustment = cleared.snap.last_adjustment_id.unwrap();
         let restored = engine.reverse_adjustment(clear_adjustment).unwrap();
         assert_eq!(restored.snap.last.as_ref().unwrap().verdict, "failed");
@@ -1415,7 +3158,9 @@ mod tests {
         );
         assert_eq!(
             store
-                .test_scalar_string(&format!("SELECT verdict||':'||note FROM rep WHERE id={attempt_id}"))
+                .test_scalar_string(&format!(
+                    "SELECT verdict||':'||note FROM rep WHERE id={attempt_id}"
+                ))
                 .unwrap(),
             "failed:missed landing",
             "source attempt never changes"
@@ -1436,7 +3181,10 @@ mod tests {
                 target_bpm: Some(92.0),
                 planned_reps: None,
                 required_clean_streak: Some(8),
-                increment: Some(IncrementRule { clean_needed: 3, bpm_step: 4.0 }),
+                increment: Some(IncrementRule {
+                    clean_needed: 3,
+                    bpm_step: 4.0,
+                }),
                 variants: vec![],
                 focus: "tempo".into(),
                 use_metronome: true,
@@ -1461,7 +3209,12 @@ mod tests {
         assert!(engine.undo().is_err());
         assert_eq!(engine.snapshot().unwrap().bpm, Some(84.0));
         assert_eq!(engine.snapshot().unwrap().tries, 3);
-        assert_eq!(store.test_scalar_i64("SELECT count(*) FROM attempt_adjustment").unwrap(), 0);
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM attempt_adjustment")
+                .unwrap(),
+            0
+        );
         store
             .test_execute_batch("DROP TRIGGER fail_adjustment_tempo;")
             .unwrap();
@@ -1471,19 +3224,15 @@ mod tests {
         assert_eq!(undone.snap.bpm, Some(80.0));
         let void_id = undone.snap.last_adjustment_id.unwrap();
 
-        let relaunched = RepEngine::new(
-            store.clone(),
-            Arc::new(SessionService::new(store.clone())),
-        );
+        let relaunched =
+            RepEngine::new(store.clone(), Arc::new(SessionService::new(store.clone())));
         assert_eq!(relaunched.snapshot().unwrap().bpm, Some(80.0));
         let restored_step = relaunched.reverse_adjustment(void_id).unwrap();
         assert_eq!(restored_step.new_bpm, Some(84.0));
         assert_eq!(restored_step.snap.bpm, Some(84.0));
 
-        let relaunched_again = RepEngine::new(
-            store.clone(),
-            Arc::new(SessionService::new(store.clone())),
-        );
+        let relaunched_again =
+            RepEngine::new(store.clone(), Arc::new(SessionService::new(store.clone())));
         assert_eq!(relaunched_again.snapshot().unwrap().bpm, Some(84.0));
         let corrected = relaunched_again
             .correct(Some(third_attempt), RepVerdict::Failed, None, false)
@@ -1518,7 +3267,10 @@ mod tests {
         let opened = engine.open(strict_notes_args(pid, 5)).unwrap();
         engine.check(RepVerdict::Failed, None).unwrap();
         assert!(store.block_delete(opened.block_id).is_err());
-        assert_eq!(store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(), 1);
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(),
+            1
+        );
         assert_eq!(
             store
                 .test_scalar_i64("SELECT count(*) FROM attempt_provenance")
@@ -1555,7 +3307,9 @@ mod tests {
             old.block_id
         );
         engine.check(RepVerdict::Clean, None).unwrap();
-        engine.check(RepVerdict::Flawed, Some("uneven".into())).unwrap();
+        engine
+            .check(RepVerdict::Flawed, Some("uneven".into()))
+            .unwrap();
 
         let sessions = Arc::new(SessionService::new(store.clone()));
         let relaunched = RepEngine::new(store, sessions);
@@ -1566,7 +3320,10 @@ mod tests {
         assert_eq!(restored.verdicts.flawed, 1);
         assert_eq!(restored.current_clean_streak, 0);
         assert_eq!(restored.reset_count, 1);
-        assert_eq!(restored.last.as_ref().unwrap().note.as_deref(), Some("uneven"));
+        assert_eq!(
+            restored.last.as_ref().unwrap().note.as_deref(),
+            Some("uneven")
+        );
     }
 
     #[test]
@@ -1575,24 +3332,18 @@ mod tests {
         let path = dir.path().join("restarted.db");
         let (engine, pid, store) = engine_with_piece_at(&path);
         let original = engine.open(strict_notes_args(pid, 1)).unwrap();
-        let failed = engine.check(RepVerdict::Failed, Some("landing".into())).unwrap();
+        let failed = engine
+            .check(RepVerdict::Failed, Some("landing".into()))
+            .unwrap();
         let attempt_id = failed.snap.last_attempt_id.unwrap();
         let replacement = engine.restart(Some(1)).unwrap();
         assert_set_lifecycle(&store, original.block_id, "restarted", "abandoned");
 
-        exercise_terminal_history_adjustments(
-            &store,
-            original.block_id,
-            attempt_id,
-            "restarted",
-        );
+        exercise_terminal_history_adjustments(&store, original.block_id, attempt_id, "restarted");
 
         let fresh = Arc::new(Store::open(&path).unwrap());
         assert_set_lifecycle(&fresh, original.block_id, "restarted", "abandoned");
-        let relaunched = RepEngine::new(
-            fresh.clone(),
-            Arc::new(SessionService::new(fresh)),
-        );
+        let relaunched = RepEngine::new(fresh.clone(), Arc::new(SessionService::new(fresh)));
         assert_eq!(
             relaunched.state().unwrap().unwrap().block_id,
             replacement.block_id,
@@ -1606,7 +3357,9 @@ mod tests {
         let path = dir.path().join("abandoned.db");
         let (engine, pid, store) = engine_with_piece_at(&path);
         let opened = engine.open(strict_notes_args(pid, 1)).unwrap();
-        let failed = engine.check(RepVerdict::Failed, Some("landing".into())).unwrap();
+        let failed = engine
+            .check(RepVerdict::Failed, Some("landing".into()))
+            .unwrap();
         let attempt_id = failed.snap.last_attempt_id.unwrap();
         store
             .test_execute_batch(&format!(
@@ -1617,19 +3370,11 @@ mod tests {
             .unwrap();
         assert_set_lifecycle(&store, opened.block_id, "abandoned", "abandoned");
 
-        exercise_terminal_history_adjustments(
-            &store,
-            opened.block_id,
-            attempt_id,
-            "abandoned",
-        );
+        exercise_terminal_history_adjustments(&store, opened.block_id, attempt_id, "abandoned");
 
         let fresh = Arc::new(Store::open(&path).unwrap());
         assert_set_lifecycle(&fresh, opened.block_id, "abandoned", "abandoned");
-        let relaunched = RepEngine::new(
-            fresh.clone(),
-            Arc::new(SessionService::new(fresh)),
-        );
+        let relaunched = RepEngine::new(fresh.clone(), Arc::new(SessionService::new(fresh)));
         assert_eq!(relaunched.state().unwrap(), None);
     }
 
@@ -1639,16 +3384,13 @@ mod tests {
         let path = dir.path().join("closed-unresolved.db");
         let (engine, pid, store) = engine_with_piece_at(&path);
         let opened = engine.open(strict_notes_args(pid, 1)).unwrap();
-        let failed = engine.check(RepVerdict::Failed, Some("landing".into())).unwrap();
+        let failed = engine
+            .check(RepVerdict::Failed, Some("landing".into()))
+            .unwrap();
         let attempt_id = failed.snap.last_attempt_id.unwrap();
         let closed = engine.close().unwrap().unwrap();
         assert_eq!(closed.set_state, "closed_unresolved");
-        assert_set_lifecycle(
-            &store,
-            opened.block_id,
-            "closed_unresolved",
-            "abandoned",
-        );
+        assert_set_lifecycle(&store, opened.block_id, "closed_unresolved", "abandoned");
 
         exercise_terminal_history_adjustments(
             &store,
@@ -1658,17 +3400,69 @@ mod tests {
         );
 
         let fresh = Arc::new(Store::open(&path).unwrap());
-        assert_set_lifecycle(
-            &fresh,
-            opened.block_id,
-            "closed_unresolved",
-            "abandoned",
-        );
-        let relaunched = RepEngine::new(
-            fresh.clone(),
-            Arc::new(SessionService::new(fresh)),
-        );
+        assert_set_lifecycle(&fresh, opened.block_id, "closed_unresolved", "abandoned");
+        let relaunched = RepEngine::new(fresh.clone(), Arc::new(SessionService::new(fresh)));
         assert_eq!(relaunched.state().unwrap(), None);
+    }
+
+    /// A mastered set is terminal: undo, correct, and reverse-adjustment history
+    /// repairs record their append-only rows but must never recompute the set
+    /// back to `active`, even when the repaired ledger no longer satisfies
+    /// mastery. Only an explicit reviewed lifecycle command may reopen it.
+    #[test]
+    fn mastered_set_keeps_terminal_lineage_through_history_repairs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mastered.db");
+        let (engine, pid, store) = engine_with_piece_at(&path);
+        engine.open(strict_notes_args(pid, 1)).unwrap();
+        let mastered = engine.check(RepVerdict::Clean, None).unwrap();
+        let block_id = mastered.snap.block_id;
+        let attempt_id = mastered.snap.last_attempt_id.unwrap();
+        assert_eq!(mastered.snap.set_state, "mastered");
+        assert_set_lifecycle(&store, block_id, "mastered", "done");
+
+        let adjustments = || {
+            store
+                .test_scalar_i64(&format!(
+                    "SELECT count(*) FROM attempt_adjustment WHERE rep_id={attempt_id}"
+                ))
+                .unwrap()
+        };
+        assert_eq!(adjustments(), 0);
+
+        // Correcting the mastered attempt to flawed drops the streak below the
+        // contract, yet the lineage stays mastered and the row is recorded.
+        let corrected = engine
+            .correct(
+                Some(attempt_id),
+                RepVerdict::Flawed,
+                Some("actually uneven".into()),
+                true,
+            )
+            .unwrap();
+        assert_ne!(corrected.snap.set_state, "active");
+        assert_eq!(corrected.snap.set_state, "mastered");
+        assert_set_lifecycle(&store, block_id, "mastered", "done");
+        assert_eq!(adjustments(), 1);
+        let correction_id = corrected.snap.last_adjustment_id.unwrap();
+
+        // Reversing the correction restores the clean verdict; still mastered.
+        let reversed = engine.reverse_adjustment(correction_id).unwrap();
+        assert_eq!(reversed.snap.set_state, "mastered");
+        assert_set_lifecycle(&store, block_id, "mastered", "done");
+        assert_eq!(adjustments(), 2);
+
+        // Undo voids the attempt outright, again dropping mastery — the set is
+        // still terminal, never recomputed back to active.
+        let undone = engine.undo().unwrap();
+        assert_ne!(undone.snap.set_state, "active");
+        assert_eq!(undone.snap.set_state, "mastered");
+        assert_set_lifecycle(&store, block_id, "mastered", "done");
+        assert_eq!(adjustments(), 3);
+
+        // The append-only repairs and terminal lineage survive a relaunch.
+        let fresh = Arc::new(Store::open(&path).unwrap());
+        assert_set_lifecycle(&fresh, block_id, "mastered", "done");
     }
 
     #[test]
@@ -1736,7 +3530,9 @@ mod tests {
                 original.block_id
             ))
             .unwrap();
-        let rows_before = store.test_scalar_i64("SELECT count(*) FROM rep_block").unwrap();
+        let rows_before = store
+            .test_scalar_i64("SELECT count(*) FROM rep_block")
+            .unwrap();
         drop(engine);
         drop(store);
 
@@ -1744,11 +3540,16 @@ mod tests {
         let sessions = Arc::new(SessionService::new(reopened.clone()));
         let malformed = RepEngine::new(reopened.clone(), sessions);
         let state_error = malformed.state().unwrap_err();
-        assert!(state_error.contains("multiple active practice sets"), "{state_error}");
+        assert!(
+            state_error.contains("multiple active practice sets"),
+            "{state_error}"
+        );
         let open_error = malformed.open(strict_notes_args(pid, 3)).unwrap_err();
         assert_eq!(open_error, state_error);
         assert_eq!(
-            reopened.test_scalar_i64("SELECT count(*) FROM rep_block").unwrap(),
+            reopened
+                .test_scalar_i64("SELECT count(*) FROM rep_block")
+                .unwrap(),
             rows_before,
             "recovery error must not masquerade as empty state and open a third set"
         );
@@ -1765,7 +3566,10 @@ mod tests {
                 None,
                 None,
                 None,
-                &IncrementRule { clean_needed: 3, bpm_step: 4.0 },
+                &IncrementRule {
+                    clean_needed: 3,
+                    bpm_step: 4.0,
+                },
                 5,
                 &[],
                 "notes",
@@ -1799,14 +3603,19 @@ mod tests {
                 None,
                 None,
                 None,
-                &IncrementRule { clean_needed: 3, bpm_step: 4.0 },
+                &IncrementRule {
+                    clean_needed: 3,
+                    bpm_step: 4.0,
+                },
                 5,
                 &[],
                 "notes",
                 false,
             )
             .unwrap();
-        store.insert_rep(block_id, -1.0, None, "clean", None).unwrap();
+        store
+            .insert_rep(block_id, -1.0, None, "clean", None)
+            .unwrap();
         let error = store.v2_snapshot(block_id).unwrap_err().to_string();
         assert!(error.contains("invalid physical BPM -1"), "{error}");
         assert_eq!(
@@ -1829,14 +3638,19 @@ mod tests {
                 None,
                 Some(60.0),
                 None,
-                &IncrementRule { clean_needed: 3, bpm_step: 4.0 },
+                &IncrementRule {
+                    clean_needed: 3,
+                    bpm_step: 4.0,
+                },
                 5,
                 &[],
                 "notes",
                 true,
             )
             .unwrap();
-        store.insert_rep(block_id, 0.0, None, "clean", None).unwrap();
+        store
+            .insert_rep(block_id, 0.0, None, "clean", None)
+            .unwrap();
         let error = store.v2_snapshot(block_id).unwrap_err().to_string();
         assert!(error.contains("invalid physical BPM 0"), "{error}");
     }
@@ -1852,14 +3666,19 @@ mod tests {
                 None,
                 Some(60.0),
                 Some(80.0),
-                &IncrementRule { clean_needed: 3, bpm_step: 4.0 },
+                &IncrementRule {
+                    clean_needed: 3,
+                    bpm_step: 4.0,
+                },
                 5,
                 &[],
                 "tempo",
                 true,
             )
             .unwrap();
-        store.insert_rep(block_id, 0.0, None, "clean", None).unwrap();
+        store
+            .insert_rep(block_id, 0.0, None, "clean", None)
+            .unwrap();
         let error = store.v2_snapshot(block_id).unwrap_err().to_string();
         assert!(error.contains("invalid physical BPM 0"), "{error}");
     }
@@ -1875,7 +3694,10 @@ mod tests {
                 None,
                 Some(60.0),
                 Some(60.0),
-                &IncrementRule { clean_needed: 1, bpm_step: 4.0 },
+                &IncrementRule {
+                    clean_needed: 1,
+                    bpm_step: 4.0,
+                },
                 3,
                 &[],
                 "tempo",
@@ -1883,11 +3705,17 @@ mod tests {
             )
             .unwrap();
         for _ in 0..3 {
-            store.insert_rep(block_id, 60.0, None, "clean", None).unwrap();
+            store
+                .insert_rep(block_id, 60.0, None, "clean", None)
+                .unwrap();
         }
 
         let history = store.block_row(block_id).unwrap().unwrap();
-        assert_eq!(history.bpm, Some(60.0), "factual legacy tempo remains visible");
+        assert_eq!(
+            history.bpm,
+            Some(60.0),
+            "factual legacy tempo remains visible"
+        );
         assert_eq!(history.contract_source, "migration_legacy");
         assert_eq!(history.mastery_status, "unverified_legacy");
         assert!(!history.mastery_verified);
@@ -1928,30 +3756,58 @@ mod tests {
         value.target_bpm = Some(120.0);
         invalid.push(value);
         let mut value = base.clone();
-        value.increment = Some(IncrementRule { clean_needed: 0, bpm_step: 4.0 });
+        value.increment = Some(IncrementRule {
+            clean_needed: 0,
+            bpm_step: 4.0,
+        });
         invalid.push(value);
         let mut value = base.clone();
-        value.increment = Some(IncrementRule { clean_needed: 3, bpm_step: 0.0 });
+        value.increment = Some(IncrementRule {
+            clean_needed: 3,
+            bpm_step: 0.0,
+        });
         invalid.push(value);
         let mut value = base.clone();
-        value.increment = Some(IncrementRule { clean_needed: 3, bpm_step: f64::NAN });
+        value.increment = Some(IncrementRule {
+            clean_needed: 3,
+            bpm_step: f64::NAN,
+        });
         invalid.push(value);
         let mut value = base.clone();
         value.planned_reps = Some(0);
         invalid.push(value);
         let mut value = base.clone();
-        value.variants = vec![VariantSpec { name: " ".into(), reps: 1 }];
+        value.variants = vec![VariantSpec {
+            name: " ".into(),
+            reps: 1,
+        }];
         invalid.push(value);
         let mut value = base;
-        value.variants = vec![VariantSpec { name: "hands".into(), reps: 0 }];
+        value.variants = vec![VariantSpec {
+            name: "hands".into(),
+            reps: 0,
+        }];
         invalid.push(value);
 
         for args in invalid {
             assert!(engine.open(args).is_err());
         }
-        assert_eq!(store.test_scalar_i64("SELECT count(*) FROM rep_block").unwrap(), 0);
-        assert_eq!(store.test_scalar_i64("SELECT count(*) FROM set_contract").unwrap(), 0);
-        assert_eq!(store.test_scalar_i64("SELECT count(*) FROM event").unwrap(), 0);
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM rep_block")
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM set_contract")
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM event").unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -1966,7 +3822,10 @@ mod tests {
             .unwrap();
         assert!(engine.check(RepVerdict::Clean, None).is_err());
         assert_eq!(engine.snapshot().unwrap().tries, 0);
-        assert_eq!(store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(), 0);
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(),
+            0
+        );
         assert_eq!(
             store
                 .test_scalar_i64("SELECT count(*) FROM attempt_provenance")
@@ -1997,7 +3856,10 @@ mod tests {
         engine.resync_active_if(opened.block_id);
         assert_eq!(engine.snapshot().unwrap().set_state, "paused");
         assert!(engine.check(RepVerdict::Clean, None).is_err());
-        assert_eq!(store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(), 0);
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(),
+            0
+        );
         assert_eq!(engine.snapshot().unwrap().tries, 0);
     }
 
@@ -2054,7 +3916,9 @@ mod tests {
                 .unwrap(),
             "active"
         );
-        store.test_execute_batch("DROP TRIGGER fail_v2_close;").unwrap();
+        store
+            .test_execute_batch("DROP TRIGGER fail_v2_close;")
+            .unwrap();
         assert!(engine.close().unwrap().is_some());
     }
 

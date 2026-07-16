@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { LastRep, RepSnapshot, Verdict } from "./useRep";
+import type {
+  LastRep,
+  RecoveryActionRequest,
+  RepSnapshot,
+  Verdict,
+} from "./useRep";
 import {
   repMasteryStatus,
   repMasteryVerified,
@@ -20,6 +25,11 @@ interface RepHudProps {
   ) => Promise<void>;
   onReverseAdjustment: (adjustmentId: number) => Promise<void>;
   onRestart: (requiredCleanStreak?: number | null) => Promise<void>;
+  onPause: () => Promise<void>;
+  onResume: () => Promise<void>;
+  onReflect: (reflection: string) => Promise<void>;
+  onSafetyStop: (reason?: string | null) => Promise<void>;
+  onRecover: (action: RecoveryActionRequest) => Promise<void>;
   onClose: () => void;
 }
 
@@ -35,6 +45,13 @@ const VERDICT_SYMBOL: Record<string, string> = {
   failed: "✗",
 };
 
+export function formatFocusedTime(seconds: number): string {
+  const safe = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+  const minutes = Math.floor(safe / 60);
+  const remainder = safe % 60;
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
 export function RepHud({
   snap,
   feed,
@@ -44,16 +61,31 @@ export function RepHud({
   onCorrect,
   onReverseAdjustment,
   onRestart,
+  onPause,
+  onResume,
+  onReflect,
+  onSafetyStop,
+  onRecover,
   onClose,
 }: RepHudProps) {
   const [note, setNote] = useState("");
-  const [busy, setBusy] = useState<"check" | "undo" | "correct" | "reverse" | "restart" | null>(null);
+  const [busy, setBusy] = useState<"check" | "undo" | "correct" | "reverse" | "restart" | "pause" | "resume" | "reflect" | "safety" | "recovery" | null>(null);
+  const [safetyBusy, setSafetyBusy] = useState(false);
   const [correcting, setCorrecting] = useState(false);
   const [correctVerdict, setCorrectVerdict] = useState<Verdict>("clean");
   const [correctNote, setCorrectNote] = useState("");
   const [restartConfirm, setRestartConfirm] = useState(false);
   const [resetPulse, setResetPulse] = useState(false);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [reflectionOpen, setReflectionOpen] = useState(false);
+  const [reflection, setReflection] = useState("");
+  const [recoveryStart, setRecoveryStart] = useState("");
+  const [recoveryEnd, setRecoveryEnd] = useState("");
+  const [recoveryHands, setRecoveryHands] = useState("left hand");
+  const [recoveryMethod, setRecoveryMethod] = useState("rhythmic variants");
   const previousResetCount = useRef<number | undefined>(undefined);
+  const restartTriggerRef = useRef<HTMLButtonElement>(null);
+  const restartConfirmRef = useRef<HTMLButtonElement>(null);
   // React state does not update until the next render, so keep a same-tick
   // guard as well. This prevents rapid keyboard/click activation from sending
   // two verdicts against the same authoritative set projection.
@@ -83,6 +115,19 @@ export function RepHud({
       window.clearTimeout(timer);
     };
   }, [snap?.reset_count]);
+
+  useEffect(() => {
+    if (!snap?.last || snap.last.verdict === "clean") return;
+    setRecoveryOpen(true);
+  }, [snap?.last_attempt_id, snap?.last]);
+
+  useEffect(() => {
+    setReflection(snap?.reflection ?? "");
+  }, [snap?.block_id, snap?.reflection]);
+
+  useEffect(() => {
+    if (restartConfirm) restartConfirmRef.current?.focus();
+  }, [restartConfirm]);
 
   if (!snap) return null;
 
@@ -159,6 +204,48 @@ export function RepHud({
     }
   };
 
+  const runTimer = async () => {
+    const paused = snap.timer_state === "paused" || snap.set_state === "paused";
+    setBusy(paused ? "resume" : "pause");
+    try {
+      if (paused) await onResume();
+      else await onPause();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const runReflection = async () => {
+    if (!reflection.trim() || busy) return;
+    setBusy("reflect");
+    try {
+      await onReflect(reflection);
+      setReflectionOpen(false);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const runSafetyStop = async () => {
+    if (safetyBusy) return;
+    setSafetyBusy(true);
+    try {
+      await onSafetyStop("Pain, numbness, or weakness reported by the pianist.");
+    } finally {
+      setSafetyBusy(false);
+    }
+  };
+
+  const runRecovery = async (action: RecoveryActionRequest) => {
+    if (busy) return;
+    setBusy("recovery");
+    try {
+      await onRecover(action);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const range = snap.m_start === snap.m_end
     ? `m. ${snap.m_start}`
     : `mm. ${snap.m_start}–${snap.m_end}`;
@@ -184,6 +271,17 @@ export function RepHud({
     ? "—"
     : `${Math.round(snap.accuracy * 100)}%`;
   const showFeedTempo = snap.focus === "tempo" || snap.use_metronome;
+  const paused = snap.timer_state === "paused" || snap.set_state === "paused";
+  const workingStart = snap.working_m_start || snap.m_start;
+  const workingEnd = snap.working_m_end || snap.m_end;
+  const recoveryRangeStart = Number(recoveryStart);
+  const recoveryRangeEnd = Number(recoveryEnd);
+  const validNarrowRange = Number.isSafeInteger(recoveryRangeStart)
+    && Number.isSafeInteger(recoveryRangeEnd)
+    && recoveryRangeStart >= workingStart
+    && recoveryRangeEnd <= workingEnd
+    && recoveryRangeStart <= recoveryRangeEnd
+    && (recoveryRangeStart !== workingStart || recoveryRangeEnd !== workingEnd);
 
   return (
     <div
@@ -199,6 +297,26 @@ export function RepHud({
         {snap.variant && <span className="rep-hud-variant">{snap.variant}</span>}
         <span className="rep-hud-state">Set state: {snap.set_state ?? "legacy_unverified"}</span>
       </div>
+
+      <section className="rep-focus-strip" aria-label="Focus contract">
+        <div>
+          <span>Intention</span>
+          <strong>{snap.intention || "Make one thing more reliable"}</strong>
+        </div>
+        <div>
+          <span>Judge only</span>
+          <strong>{snap.judging_axis || "One chosen criterion"}</strong>
+        </div>
+        <div>
+          <span>Condition</span>
+          <strong>{[snap.hands, snap.method].filter(Boolean).join(" · ") || "As opened"}</strong>
+        </div>
+        <div className="rep-focus-clock">
+          <span>Focused time</span>
+          <strong>{formatFocusedTime(snap.active_seconds ?? 0)}</strong>
+          <em>{paused ? "Paused" : "Counting"}</em>
+        </div>
+      </section>
 
       <div className="rep-hud-main">
         <div className="rep-hud-streak" aria-label={`${tempoMastery ? "Mastery proof at target" : "Current clean streak"} ${masteryStreak ?? "unavailable"} of ${requiredStreak ?? "unavailable"}`}>
@@ -255,6 +373,9 @@ export function RepHud({
       </div>
 
       <div className="rep-hud-tools" aria-label="Set controls">
+        <button type="button" className={paused ? "rep-hud-resume" : ""} disabled={busy != null} onClick={() => void runTimer()}>
+          {busy === "pause" ? "Pausing…" : busy === "resume" ? "Resuming…" : paused ? "Resume focus" : "Pause focus"}
+        </button>
         <button type="button" disabled={busy != null || tries === 0} onClick={() => void runUndo()}>
           {busy === "undo" ? "Undoing…" : "Undo last"}
         </button>
@@ -266,17 +387,64 @@ export function RepHud({
             {busy === "reverse" ? "Reversing…" : "Reverse latest adjustment"}
           </button>
         )}
-        <button type="button" disabled={busy != null} aria-expanded={restartConfirm} onClick={() => setRestartConfirm(true)}>
+        <button ref={restartTriggerRef} type="button" disabled={busy != null} aria-expanded={restartConfirm} onClick={() => setRestartConfirm(true)}>
           Restart set
+        </button>
+        <button type="button" disabled={busy != null} aria-expanded={reflectionOpen} onClick={() => setReflectionOpen((value) => !value)}>
+          Reflect
         </button>
         <button type="button" className="rep-hud-close" aria-label="Close practice set" disabled={busy != null} onClick={onClose}>Close</button>
       </div>
+
+      <button type="button" className="rep-safety-stop" disabled={safetyBusy || paused || snap.set_state !== "active"} onClick={() => void runSafetyStop()}>
+        {safetyBusy ? "Stopping now…" : paused || snap.set_state !== "active" ? "Practice is already stopped" : "Pain, numbness, or weakness — stop"}
+      </button>
 
       {snap.review_boundary_reached && !mastered && (
         <p className="rep-hud-boundary" role="status">
           Review boundary reached — continue, change strategy, restart, or close.
         </p>
       )}
+
+      {reflectionOpen && (
+        <form className="rep-reflection" aria-label="Set reflection" onSubmit={(event) => { event.preventDefault(); void runReflection(); }}>
+          <label htmlFor="rep-reflection-input">What changed? Keep it short and observable.</label>
+          <textarea id="rep-reflection-input" value={reflection} rows={2} maxLength={2000} onChange={(event) => setReflection(event.target.value)} />
+          <div>
+            <button type="submit" disabled={busy != null || !reflection.trim()}>{busy === "reflect" ? "Saving…" : "Save reflection"}</button>
+            <button type="button" disabled={busy != null} onClick={() => setReflectionOpen(false)}>Cancel</button>
+          </div>
+        </form>
+      )}
+
+      <details className="rep-recovery-desk" open={recoveryOpen} onToggle={(event) => setRecoveryOpen(event.currentTarget.open)}>
+        <summary>Change the condition <span>Recovery is strategy, not punishment.</span></summary>
+        <div className="rep-recovery-quick">
+          <button type="button" disabled={busy != null || snap.last_attempt_id == null} onClick={() => void runRecovery({ kind: "reset_streak", rationale: "Pianist chose to restart the clean proof after an error." })}>Reset clean proof</button>
+          <button type="button" disabled={busy != null} onClick={() => void runRecovery({ kind: "clean_debt", clean_count: 2, rationale: "Pianist chose two additional recovery cleans." })}>Add 2 recovery cleans</button>
+          {snap.focus === "tempo" && snap.bpm != null && snap.bpm > 20 && (
+            <button type="button" disabled={busy != null} onClick={() => void runRecovery({ kind: "tempo_backoff", bpm: Math.max(20, snap.bpm! - Math.max(2, snap.rule.bpm_step)), rationale: "Pianist chose to rebuild below the failed working tempo." })}>Back off tempo</button>
+          )}
+          <button type="button" disabled={busy != null} onClick={() => void runRecovery({ kind: "break", planned_seconds: 60, rationale: "Pianist chose a short reset before continuing." })}>Take a 60-second break</button>
+        </div>
+        <div className="rep-recovery-editors">
+          <form onSubmit={(event) => { event.preventDefault(); if (validNarrowRange) void runRecovery({ kind: "narrow_target", m_start: recoveryRangeStart, m_end: recoveryRangeEnd, rationale: "Pianist narrowed the working target to isolate the failure." }); }}>
+            <span>Narrow {workingStart}–{workingEnd}</span>
+            <input aria-label="Recovery start measure" type="number" min={workingStart} max={workingEnd} value={recoveryStart} onChange={(event) => setRecoveryStart(event.target.value)} />
+            <input aria-label="Recovery end measure" type="number" min={workingStart} max={workingEnd} value={recoveryEnd} onChange={(event) => setRecoveryEnd(event.target.value)} />
+            <button type="submit" disabled={busy != null || !validNarrowRange}>Apply range</button>
+          </form>
+          <form onSubmit={(event) => { event.preventDefault(); void runRecovery({ kind: "change_hands", hands: recoveryHands, rationale: "Pianist changed the hand condition to rebuild control." }); }}>
+            <select aria-label="Recovery hands" value={recoveryHands} onChange={(event) => setRecoveryHands(event.target.value)}><option value="left hand">Left hand</option><option value="right hand">Right hand</option><option value="hands separate">Hands separate</option><option value="hands together">Hands together</option></select>
+            <button type="submit" disabled={busy != null}>Change hands</button>
+          </form>
+          <form onSubmit={(event) => { event.preventDefault(); void runRecovery({ kind: "change_method", method: recoveryMethod, rationale: "Pianist changed method instead of repeating the same failure." }); }}>
+            <select aria-label="Recovery method" value={recoveryMethod} onChange={(event) => setRecoveryMethod(event.target.value)}><option value="rhythmic variants">Rhythmic variants</option><option value="blocked practice">Blocked practice</option><option value="silent fingering">Silent fingering</option><option value="backward chaining">Backward chaining</option></select>
+            <button type="submit" disabled={busy != null}>Change method</button>
+          </form>
+        </div>
+        {(snap.recovery_actions?.length ?? 0) > 0 && <small>{snap.recovery_actions!.length} accepted recovery {snap.recovery_actions!.length === 1 ? "choice" : "choices"} in this set.</small>}
+      </details>
 
       {correcting && (
         <form className="rep-hud-correction" aria-label="Correct latest attempt" onSubmit={(event) => { event.preventDefault(); void runCorrection(); }}>
@@ -293,11 +461,11 @@ export function RepHud({
       )}
 
       {restartConfirm && (
-        <div className="rep-hud-confirm" role="alertdialog" aria-labelledby="rep-restart-title" aria-describedby="rep-restart-description">
+        <div className="rep-hud-confirm" role="group" aria-live="polite" aria-labelledby="rep-restart-title" aria-describedby="rep-restart-description">
           <strong id="rep-restart-title">Restart this set?</strong>
           <span id="rep-restart-description">The current set is marked restarted. Its attempts stay in history, and a fresh streak starts at zero.</span>
-          <button type="button" disabled={busy != null} onClick={() => void runRestart()}>{busy === "restart" ? "Restarting…" : "Restart set"}</button>
-          <button type="button" disabled={busy != null} onClick={() => setRestartConfirm(false)}>Keep current set</button>
+          <button ref={restartConfirmRef} type="button" disabled={busy != null} onClick={() => void runRestart()}>{busy === "restart" ? "Restarting…" : "Restart set"}</button>
+          <button type="button" disabled={busy != null} onClick={() => { setRestartConfirm(false); requestAnimationFrame(() => restartTriggerRef.current?.focus()); }}>Keep current set</button>
         </div>
       )}
 

@@ -11,12 +11,15 @@ mod crud;
 mod events;
 mod history_backfill;
 mod migrations;
+pub mod model;
+mod practice_loop;
 mod practice_v2;
+mod score_atlas;
 mod tutorials;
 mod v8_backfill;
-pub mod model;
 
 pub use events::EventKind;
+pub use score_atlas::AtomicTargetSavePayload;
 pub(crate) use practice_v2::{command_id as v2_command_id, validate_open as v2_validate_open};
 
 use std::path::Path;
@@ -510,13 +513,8 @@ impl Store {
             |row| row.get(0),
         )?;
         let (payload, output) = build(block_id)?;
-        let (legacy_id, _, _) = insert_practice_event_rows(
-            &tx,
-            session_id,
-            piece_id,
-            EventKind::REP_OPEN,
-            &payload,
-        )?;
+        let (legacy_id, _, _) =
+            insert_practice_event_rows(&tx, session_id, piece_id, EventKind::REP_OPEN, &payload)?;
         tx.commit()?;
         Ok((block_id, legacy_id, output))
     }
@@ -672,8 +670,9 @@ impl Store {
     /// by the T4/T5 CRUD mutations and the rep engine's active-snapshot resync.
     pub fn block_row(&self, block_id: i64) -> rusqlite::Result<Option<BlockHistory>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let history = conn.query_row(
-            "SELECT b.id, b.m_start, b.m_end, b.label,
+        let history = conn
+            .query_row(
+                "SELECT b.id, b.m_start, b.m_end, b.label,
                     b.start_bpm, b.target_bpm, b.planned_reps, b.status,
                     COUNT(r.id) AS reps_done,
                     COALESCE(SUM(r.verdict = 'clean'),  0) AS cleans,
@@ -689,50 +688,50 @@ impl Store {
              LEFT JOIN rep r ON r.block_id = b.id
              WHERE b.id = ?1
              GROUP BY b.id",
-            [block_id],
-            |row| {
-                Ok(BlockHistory {
-                    block_id: row.get(0)?,
-                    m_start: row.get(1)?,
-                    m_end: row.get(2)?,
-                    label: row.get(3)?,
-                    start_bpm: row.get(4)?,
-                    target_bpm: row.get(5)?,
-                    planned_reps: row.get(6)?,
-                    attempt_ceiling: None,
-                    contract_source: "migration_legacy".into(),
-                    status: row.get(7)?,
-                    reps_done: row.get(8)?,
-                    attempts_recorded: 0,
-                    tries: 0,
-                    voided_attempts: 0,
-                    current_clean_streak: 0,
-                    mastery_progress_streak: 0,
-                    best_clean_streak: 0,
-                    reset_count: 0,
-                    accuracy: None,
-                    required_clean_streak: 0,
-                    effective_required_clean_streak: 0,
-                    recovery_remaining: 0,
-                    review_boundary_reached: false,
-                    mastery_status: "unverified_legacy".into(),
-                    mastery_verified: false,
-                    set_state: "legacy_open".into(),
-                    last_attempt_id: None,
-                    last_adjustment_id: None,
-                    verdicts: VerdictCounts {
-                        clean: row.get(9)?,
-                        flawed: row.get(10)?,
-                        failed: row.get(11)?,
-                    },
-                    bpm: row.get(12)?,
-                    region_id: row.get(13)?,
-                    focus: row.get(14)?,
-                    use_metronome: row.get(15)?,
-                })
-            },
-        )
-        .optional()?;
+                [block_id],
+                |row| {
+                    Ok(BlockHistory {
+                        block_id: row.get(0)?,
+                        m_start: row.get(1)?,
+                        m_end: row.get(2)?,
+                        label: row.get(3)?,
+                        start_bpm: row.get(4)?,
+                        target_bpm: row.get(5)?,
+                        planned_reps: row.get(6)?,
+                        attempt_ceiling: None,
+                        contract_source: "migration_legacy".into(),
+                        status: row.get(7)?,
+                        reps_done: row.get(8)?,
+                        attempts_recorded: 0,
+                        tries: 0,
+                        voided_attempts: 0,
+                        current_clean_streak: 0,
+                        mastery_progress_streak: 0,
+                        best_clean_streak: 0,
+                        reset_count: 0,
+                        accuracy: None,
+                        required_clean_streak: 0,
+                        effective_required_clean_streak: 0,
+                        recovery_remaining: 0,
+                        review_boundary_reached: false,
+                        mastery_status: "unverified_legacy".into(),
+                        mastery_verified: false,
+                        set_state: "legacy_open".into(),
+                        last_attempt_id: None,
+                        last_adjustment_id: None,
+                        verdicts: VerdictCounts {
+                            clean: row.get(9)?,
+                            flawed: row.get(10)?,
+                            failed: row.get(11)?,
+                        },
+                        bpm: row.get(12)?,
+                        region_id: row.get(13)?,
+                        focus: row.get(14)?,
+                        use_metronome: row.get(15)?,
+                    })
+                },
+            )
+            .optional()?;
         drop(conn);
         if let Some(mut history) = history {
             self.v2_enrich_history(&mut history)?;
@@ -1179,20 +1178,51 @@ mod tests {
                 "tempo",
                 true,
                 None,
-                |block_id| Ok((serde_json::json!({"piece_id":piece_id,"block_id":block_id}), ())),
+                |block_id| Ok((
+                    serde_json::json!({"piece_id":piece_id,"block_id":block_id}),
+                    ()
+                )),
             )
             .is_err());
         {
             let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
-            assert_eq!(conn.query_row("SELECT count(*) FROM rep_block", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
-            assert_eq!(conn.query_row("SELECT count(*) FROM session_event", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
-            assert_eq!(conn.query_row("SELECT count(*) FROM event WHERE kind='rep_open'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
-            conn.execute_batch("DROP TRIGGER fail_live_ledger;").unwrap();
+            assert_eq!(
+                conn.query_row("SELECT count(*) FROM rep_block", [], |r| r.get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            assert_eq!(
+                conn.query_row("SELECT count(*) FROM session_event", [], |r| r
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            assert_eq!(
+                conn.query_row(
+                    "SELECT count(*) FROM event WHERE kind='rep_open'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                0
+            );
+            conn.execute_batch("DROP TRIGGER fail_live_ledger;")
+                .unwrap();
         }
 
         let block_id = store
             .insert_rep_block(
-                piece_id, 1, 4, None, Some(80.0), Some(100.0), &rule, 10, &[], "tempo", true,
+                piece_id,
+                1,
+                4,
+                None,
+                Some(80.0),
+                Some(100.0),
+                &rule,
+                10,
+                &[],
+                "tempo",
+                true,
             )
             .unwrap();
         {
@@ -1203,7 +1233,8 @@ mod tests {
             )
             .unwrap();
         }
-        let payload = serde_json::json!({"piece_id":piece_id,"block_id":block_id,"verdict":"clean"});
+        let payload =
+            serde_json::json!({"piece_id":piece_id,"block_id":block_id,"verdict":"clean"});
         assert!(store
             .insert_rep_with_practice_event(
                 session_id,
@@ -1218,10 +1249,32 @@ mod tests {
             )
             .is_err());
         let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
-        assert_eq!(conn.query_row("SELECT count(*) FROM rep", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
-        assert_eq!(conn.query_row("SELECT count(*) FROM session_event", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
-        assert_eq!(conn.query_row("SELECT count(*) FROM event WHERE kind IN ('rep','tempo_change')", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
-        assert_eq!(conn.query_row("SELECT count(*) FROM session_event_backfill", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(
+            conn.query_row("SELECT count(*) FROM rep", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            conn.query_row("SELECT count(*) FROM session_event", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT count(*) FROM event WHERE kind IN ('rep','tempo_change')",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            conn.query_row("SELECT count(*) FROM session_event_backfill", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -1519,9 +1572,18 @@ mod tests {
             deadline: None,
             target_tempo: None,
             hard_spots: vec![
-                HardSpot { measures: "12–16".into(), note: "LH landing".into() },
-                HardSpot { measures: "12-16".into(), note: " lh landing ".into() },
-                HardSpot { measures: "?".into(), note: "Not mappable".into() },
+                HardSpot {
+                    measures: "12–16".into(),
+                    note: "LH landing".into(),
+                },
+                HardSpot {
+                    measures: "12-16".into(),
+                    note: " lh landing ".into(),
+                },
+                HardSpot {
+                    measures: "?".into(),
+                    note: "Not mappable".into(),
+                },
             ],
             current_state: None,
         };

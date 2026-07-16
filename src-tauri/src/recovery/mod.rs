@@ -600,7 +600,10 @@ mod tests {
         let result = preview(&snapshot).unwrap();
         assert_eq!(result.recovery_limit_minutes, 10);
         assert_eq!(result.items[0].proposed_date, None);
-        assert_eq!(result.items[0].unresolved.as_ref().unwrap().code, UnresolvedReason::OversizedForRecoveryShare);
+        assert_eq!(
+            result.items[0].unresolved.as_ref().unwrap().code,
+            UnresolvedReason::OversizedForRecoveryShare
+        );
         assert_eq!(result.items[1].proposed_date.as_deref(), Some("2026-07-12"));
         assert_eq!(result.days[0].total_after_preview_minutes, 11);
         assert_eq!(result.days[0].proposed_recovery_minutes, 6);

@@ -51,7 +51,10 @@ fn temp_wav_path() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("codakiller-say-{}-{nanos}-{n}.wav", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "codakiller-say-{}-{nanos}-{n}.wav",
+        std::process::id()
+    ))
 }
 
 /// Delete the temp file, ignoring errors (best-effort cleanup).
@@ -68,9 +71,7 @@ impl TtsProvider for SayTts {
         let _guard = TempFileGuard(path.clone());
 
         let mut cmd = Command::new("say");
-        cmd.arg("-o")
-            .arg(&path)
-            .arg("--data-format=LEI16@22050");
+        cmd.arg("-o").arg(&path).arg("--data-format=LEI16@22050");
         if let Some(v) = &self.voice {
             cmd.arg("-v").arg(v);
         }

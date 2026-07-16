@@ -184,11 +184,26 @@ pub fn evaluate(
     contract: &PracticeContract,
     input: EvaluationInput,
 ) -> Result<ContractEvaluation, ProtocolError> {
+    evaluate_with_clean_debt(contract, input, 0)
+}
+
+/// Evaluate the immutable contract plus an explicitly accepted, append-only
+/// clean-debt consequence. The captured contract is not rewritten; this is the
+/// sole protocol seam used by the authoritative ledger projection.
+pub fn evaluate_with_clean_debt(
+    contract: &PracticeContract,
+    input: EvaluationInput,
+    manual_clean_debt: u32,
+) -> Result<ContractEvaluation, ProtocolError> {
     contract.validate()?;
 
-    let recovery_target_streak = recovery_target(contract, input.errors_before_first_clean);
+    let recovery_target_streak = recovery_target(contract, input.errors_before_first_clean)
+        .saturating_add(manual_clean_debt);
     let effective_required_success = if contract.mastery_basis == MasteryBasis::ConsecutiveClean {
-        contract.required_success.max(recovery_target_streak)
+        contract
+            .required_success
+            .saturating_add(manual_clean_debt)
+            .max(recovery_target_streak)
     } else {
         contract.required_success
     };
@@ -347,5 +362,40 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.mastery, MasteryStatus::UnverifiedLegacy);
+    }
+
+    #[test]
+    fn timed_exposure_uses_only_active_seconds_not_attempts_or_planned_boundary() {
+        let mut contract = PracticeContract::consecutive_clean(30);
+        contract.mastery_basis = MasteryBasis::TimedExposure;
+        contract.reset_on_flawed = false;
+        contract.reset_on_failed = false;
+        contract.attempt_ceiling = Some(1);
+        let before = evaluate(
+            &contract,
+            EvaluationInput {
+                tries: 100,
+                clean_count: 100,
+                current_clean_streak: 100,
+                active_seconds: 29,
+                errors_before_first_clean: 0,
+            },
+        )
+        .unwrap();
+        assert_eq!(before.mastery, MasteryStatus::NotSatisfied);
+        assert!(before.review_boundary_reached);
+
+        let at_boundary = evaluate(
+            &contract,
+            EvaluationInput {
+                tries: 0,
+                clean_count: 0,
+                current_clean_streak: 0,
+                active_seconds: 30,
+                errors_before_first_clean: 0,
+            },
+        )
+        .unwrap();
+        assert_eq!(at_boundary.mastery, MasteryStatus::Satisfied);
     }
 }

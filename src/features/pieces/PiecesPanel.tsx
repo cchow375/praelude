@@ -132,7 +132,11 @@ export function PiecesPanel({
   return (
     <div className="pieces-view">
       <div className="pieces-header">
-        <h2 className="pieces-heading">Pieces</h2>
+        <div>
+          <p className="ck-kicker">Score-centered workspace</p>
+          <h2 className="pieces-heading">Score Atlas</h2>
+          <p className="pieces-subheading">Choose a score, then work from an exact visible target.</p>
+        </div>
         <button
           type="button"
           className="pieces-scan"
@@ -145,11 +149,12 @@ export function PiecesPanel({
         </button>
       </div>
 
-      <div className="foundation-release" aria-label="Installed Foundation release">
-        <span className="foundation-release-kicker">Foundation installed</span>
-        <span className="foundation-release-copy">
-          Open a piece for editable Regions, goals, attempt history, and the active practice set.
-        </span>
+      <div className="atlas-instruction" aria-label="Score Atlas workflow">
+        <span>01 · choose score</span>
+        <span aria-hidden="true">→</span>
+        <span>02 · mark target</span>
+        <span aria-hidden="true">→</span>
+        <span>03 · start contract</span>
       </div>
 
       {error && (
@@ -169,13 +174,14 @@ export function PiecesPanel({
         </div>
       ) : (
         <ul className="pieces-list">
-          {pieces.map((p) => (
+          {pieces.map((p, index) => (
             <li key={p.id}>
               <button
                 type="button"
                 className="piece-row"
                 onClick={() => select(p.id)}
               >
+                <span className="piece-row-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
                 <span className="piece-row-main">
                   <span className="piece-row-title">{p.title}</span>
                   {p.composer && (
@@ -192,6 +198,7 @@ export function PiecesPanel({
                   {!p.intake_done && (
                     <span className="piece-badge is-intake">needs intake</span>
                   )}
+                  <span className="piece-row-arrow" aria-hidden="true">↗</span>
                 </span>
               </button>
             </li>

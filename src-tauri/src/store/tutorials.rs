@@ -884,7 +884,10 @@ mod tests {
         let clips = store.tutorial_video_list(piece_id).unwrap().remove(0).clips;
         assert_eq!(clips.len(), 2);
         assert!(clips.iter().all(|clip| clip.region_id == keep));
-        assert_eq!(clips.iter().filter(|clip| clip.title == "Shared").count(), 1);
+        assert_eq!(
+            clips.iter().filter(|clip| clip.title == "Shared").count(),
+            1
+        );
     }
 
     #[test]
@@ -914,8 +917,18 @@ mod tests {
             .unwrap();
         store.region_delete(doomed).unwrap();
         let conn = store.conn.lock().unwrap();
-        assert_eq!(conn.query_row("SELECT count(*) FROM tutorial_clip", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
-        assert_eq!(conn.query_row("SELECT count(*) FROM tutorial_chapter", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(
+            conn.query_row("SELECT count(*) FROM tutorial_clip", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            conn.query_row("SELECT count(*) FROM tutorial_chapter", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
     }
 
     #[test]

@@ -9,12 +9,13 @@ use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 
 use super::model::{
-    json_from_sql, json_to_sql, BlockHistory, IncrementRule, LastRep, RepOpenArgs, RepSnapshot,
-    VariantSpec, VerdictCounts,
+    json_from_sql, json_to_sql, BlockHistory, IncrementRule, LastRep, MutationEntityRef,
+    MutationReceipt, RepOpenArgs, RepSnapshot, SetFocusContextInput, VariantSpec, VerdictCounts,
 };
 use super::Store;
 use crate::ledger::{
     self, AdjustmentKind, AdjustmentRecord, AttemptRecord, EffectiveAttempt, MutationSource,
+    RecoveryDirectives,
 };
 use crate::protocol::{
     AttemptVerdict, MasteryBasis, MasteryStatus, PracticeContract, RecoveryPolicy, SourceReference,
@@ -28,12 +29,14 @@ pub(crate) struct V2Mutation {
     pub snapshot: RepSnapshot,
     pub feed_id: Option<i64>,
     pub new_bpm: Option<f64>,
+    pub receipt: Option<MutationReceipt<RepSnapshot>>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct V2Open {
     pub snapshot: RepSnapshot,
     pub feed_id: i64,
+    pub session_id: i64,
 }
 
 pub(crate) struct EffectiveAttemptView {
@@ -46,15 +49,16 @@ pub(crate) struct EffectiveAttemptView {
     pub bpm: Option<f64>,
 }
 
-struct EventWrite<'a> {
-    session_id: Option<i64>,
-    piece_id: i64,
-    kind: &'a str,
-    payload: &'a Value,
-    entity_type: &'a str,
-    entity_id: i64,
-    source: MutationSource,
-    command_id: &'a str,
+pub(super) struct EventWrite<'a> {
+    pub(super) session_id: Option<i64>,
+    pub(super) piece_id: i64,
+    pub(super) kind: &'a str,
+    pub(super) payload: &'a Value,
+    pub(super) entity_type: &'a str,
+    pub(super) entity_id: i64,
+    pub(super) source: MutationSource,
+    pub(super) command_id: &'a str,
+    pub(super) timestamp: Option<&'a str>,
 }
 
 pub(crate) fn command_id(source: MutationSource, action: &str) -> String {
@@ -66,11 +70,11 @@ pub(crate) fn command_id(source: MutationSource, action: &str) -> String {
     format!("{}:{action}:{micros}:{sequence}", source_name(source))
 }
 
-fn invalid(message: impl Into<String>) -> rusqlite::Error {
+pub(super) fn invalid(message: impl Into<String>) -> rusqlite::Error {
     rusqlite::Error::InvalidParameterName(message.into())
 }
 
-fn source_name(source: MutationSource) -> &'static str {
+pub(super) fn source_name(source: MutationSource) -> &'static str {
     match source {
         MutationSource::UserClick => "user_click",
         MutationSource::VoiceHotLoop => "voice_hot_loop",
@@ -161,13 +165,12 @@ fn load_set_row(conn: &Connection, block_id: i64) -> rusqlite::Result<Option<Set
                     planned_reps: u32::try_from(planned.max(0)).unwrap_or(u32::MAX),
                     status: row.get(9)?,
                     variants: json_from_sql(&variants)?,
-                    rule: rule
-                        .map(|raw| json_from_sql(&raw))
-                        .transpose()?
-                        .unwrap_or(IncrementRule {
+                    rule: rule.map(|raw| json_from_sql(&raw)).transpose()?.unwrap_or(
+                        IncrementRule {
                             clean_needed: 3,
                             bpm_step: 4.0,
-                        }),
+                        },
+                    ),
                     focus: row.get(12)?,
                     use_metronome: row.get(13)?,
                     contract: PracticeContract::legacy_attempt_count(
@@ -268,9 +271,7 @@ fn load_attempts(conn: &Connection, row: &SetRow) -> rusqlite::Result<Vec<Attemp
         let source = parse_source(&source_text)?;
         let bpm = match physical_bpm {
             Some(value) if value.is_finite() && value > 0.0 => Some(value),
-            Some(value)
-                if value == 0.0 && row.focus != "tempo" && !row.use_metronome =>
-            {
+            Some(value) if value == 0.0 && row.focus != "tempo" && !row.use_metronome => {
                 // Exact zero is the sole compatibility sentinel written by the
                 // untouched v1 NOT NULL column for a condition with no tempo.
                 None
@@ -314,11 +315,17 @@ fn load_adjustments(conn: &Connection, block_id: i64) -> rusqlite::Result<Vec<Ad
                 verdict: verdict(value.get("verdict").and_then(Value::as_str).unwrap_or(""))?,
             },
             "replace_note" => AdjustmentKind::ReplaceNote {
-                note: value.get("note").and_then(Value::as_str).map(str::to_string),
+                note: value
+                    .get("note")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             },
             "combined_correction" => AdjustmentKind::CombinedCorrection {
                 verdict: verdict(value.get("verdict").and_then(Value::as_str).unwrap_or(""))?,
-                note: value.get("note").and_then(Value::as_str).map(str::to_string),
+                note: value
+                    .get("note")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             },
             _ => return Err(invalid("unknown adjustment kind")),
         };
@@ -349,6 +356,8 @@ struct TempoProjection {
 fn project_tempo(
     row: &SetRow,
     effective: &[EffectiveAttempt],
+    reset_after_attempt_id: Option<i64>,
+    tempo_backoff: Option<f64>,
 ) -> rusqlite::Result<TempoProjection> {
     if row.focus != "tempo" {
         return Ok(TempoProjection {
@@ -389,7 +398,14 @@ fn project_tempo(
         .filter(|bpm| bpm.is_finite() && *bpm > 0.0)
         .ok_or_else(|| invalid("tempo set requires a positive finite start BPM"))?;
     let mut clean_streak = 0_u32;
+    let mut recovery_reset_applied = false;
     for attempt in effective.iter().filter(|attempt| !attempt.voided) {
+        if reset_after_attempt_id
+            .is_some_and(|boundary| !recovery_reset_applied && attempt.id > boundary)
+        {
+            clean_streak = 0;
+            recovery_reset_applied = true;
+        }
         let attempt_bpm = attempt
             .bpm
             .filter(|bpm| bpm.is_finite() && *bpm > 0.0)
@@ -412,6 +428,16 @@ fn project_tempo(
             clean_streak = 0;
         }
     }
+    if reset_after_attempt_id.is_some() && !recovery_reset_applied {
+        clean_streak = 0;
+    }
+    if let Some(backoff) = tempo_backoff {
+        if !backoff.is_finite() || backoff <= 0.0 {
+            return Err(invalid("accepted tempo backoff is invalid"));
+        }
+        working = backoff;
+        clean_streak = 0;
+    }
     Ok(TempoProjection {
         bpm: Some(working),
         cleans_at_step: clean_streak,
@@ -421,9 +447,13 @@ fn project_tempo(
 fn trailing_clean_at_or_above(
     effective: &[EffectiveAttempt],
     minimum_bpm: f64,
+    reset_after_attempt_id: Option<i64>,
 ) -> u32 {
     let mut streak = 0_u32;
     for attempt in effective.iter().rev().filter(|attempt| !attempt.voided) {
+        if reset_after_attempt_id.is_some_and(|boundary| attempt.id <= boundary) {
+            break;
+        }
         if attempt.verdict != AttemptVerdict::Clean
             || !attempt
                 .bpm
@@ -436,14 +466,36 @@ fn trailing_clean_at_or_above(
     streak
 }
 
-fn project(conn: &Connection, block_id: i64) -> rusqlite::Result<RepSnapshot> {
+pub(super) fn project(conn: &Connection, block_id: i64) -> rusqlite::Result<RepSnapshot> {
     let row = load_set_row(conn, block_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+    let loop_state = super::practice_loop::load_loop_projection(
+        conn,
+        block_id,
+        row.m_start,
+        row.m_end,
+        &row.focus,
+        &row.set_state,
+    )?;
     let attempts = load_attempts(conn, &row)?;
     let adjustments = load_adjustments(conn, block_id)?;
-    let mut summary = ledger::derive(&row.contract, &attempts, &adjustments, 0)
-        .map_err(|error| invalid(format!("ledger projection failed: {error:?}")))?;
+    let mut summary = ledger::derive_with_recovery(
+        &row.contract,
+        &attempts,
+        &adjustments,
+        loop_state.active_seconds,
+        RecoveryDirectives {
+            reset_after_attempt_id: loop_state.reset_after_attempt_id,
+            manual_clean_debt: loop_state.manual_clean_debt,
+        },
+    )
+    .map_err(|error| invalid(format!("ledger projection failed: {error:?}")))?;
 
-    let tempo = project_tempo(&row, &summary.effective_attempts)?;
+    let tempo = project_tempo(
+        &row,
+        &summary.effective_attempts,
+        loop_state.reset_after_attempt_id,
+        loop_state.tempo_backoff,
+    )?;
     // One authoritative tempo-mastery rule: progress resets whenever tempo
     // changes, and with a target the final required effective attempts must be
     // clean at/above that target. The projection exposes rung progress and
@@ -455,7 +507,15 @@ fn project(conn: &Connection, block_id: i64) -> rusqlite::Result<RepSnapshot> {
             .target_bpm
             .or(tempo.bpm)
             .ok_or_else(|| invalid("tempo set has no projected BPM"))?;
-        let eligible = trailing_clean_at_or_above(&summary.effective_attempts, eligible_bpm);
+        let eligible = if loop_state.tempo_backoff.is_some() {
+            0
+        } else {
+            trailing_clean_at_or_above(
+                &summary.effective_attempts,
+                eligible_bpm,
+                loop_state.reset_after_attempt_id,
+            )
+        };
         summary.current_clean_streak = tempo.cleans_at_step;
         mastery_progress_streak = eligible;
         summary.contract.mastery = if eligible >= summary.contract.effective_required_success {
@@ -529,6 +589,20 @@ fn project(conn: &Connection, block_id: i64) -> rusqlite::Result<RepSnapshot> {
         status: row.status,
         focus: row.focus,
         use_metronome: row.use_metronome,
+        active_seconds: loop_state.active_seconds,
+        timer_state: loop_state.timer_state,
+        intention: loop_state.intention,
+        judging_axis: loop_state.judging_axis,
+        hands: loop_state.hands,
+        method: loop_state.method,
+        planned_seconds: loop_state.planned_seconds,
+        reflection: loop_state.reflection,
+        safety_state: loop_state.safety_state,
+        manual_clean_debt: loop_state.manual_clean_debt,
+        recovery_actions: loop_state.recovery_actions,
+        retention_check: loop_state.retention_check,
+        working_m_start: loop_state.working_m_start,
+        working_m_end: loop_state.working_m_end,
     })
 }
 
@@ -540,21 +614,34 @@ fn projected_retune(before: Option<f64>, after: Option<f64>) -> Option<f64> {
     }
 }
 
-fn insert_event(
+pub(super) fn insert_event(
     tx: &Transaction<'_>,
     write: EventWrite<'_>,
 ) -> rusqlite::Result<(Option<i64>, i64)> {
     let encoded = json_to_sql(write.payload)?;
     let (feed_id, ts) = if let Some(session_id) = write.session_id {
-        let (feed_id, ts): (i64, String) = tx.query_row(
-            "INSERT INTO session_event(session_id,kind,payload)
-             VALUES (?1,?2,?3) RETURNING id,ts",
-            rusqlite::params![session_id, write.kind, &encoded],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
+        let (feed_id, ts): (i64, String) = if let Some(timestamp) = write.timestamp {
+            tx.query_row(
+                "INSERT INTO session_event(session_id,ts,kind,payload)
+                 VALUES (?1,?2,?3,?4) RETURNING id,ts",
+                rusqlite::params![session_id, timestamp, write.kind, &encoded],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?
+        } else {
+            tx.query_row(
+                "INSERT INTO session_event(session_id,kind,payload)
+                 VALUES (?1,?2,?3) RETURNING id,ts",
+                rusqlite::params![session_id, write.kind, &encoded],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?
+        };
         (Some(feed_id), ts)
     } else {
-        let ts: String = tx.query_row("SELECT datetime('now')", [], |row| row.get(0))?;
+        let ts: String = if let Some(timestamp) = write.timestamp {
+            timestamp.to_string()
+        } else {
+            tx.query_row("SELECT datetime('now')", [], |row| row.get(0))?
+        };
         (None, ts)
     };
     let canonical_id: i64 = tx.query_row(
@@ -591,16 +678,19 @@ fn insert_contract(
     state: &str,
     restart_of: Option<i64>,
     source: MutationSource,
+    planned_seconds: Option<u32>,
 ) -> rusqlite::Result<()> {
     let (recovery_policy, recovery_value, recovery_minimum) = match contract.recovery {
         RecoveryPolicy::None => ("none", 0_u32, 0_u32),
-        RecoveryPolicy::FixedCleanDebt { additional_clean } => {
-            ("fixed", additional_clean, 0)
-        }
+        RecoveryPolicy::FixedCleanDebt { additional_clean } => ("fixed", additional_clean, 0),
         RecoveryPolicy::Adaptive {
             ratio_basis_points,
             minimum_clean_streak,
-        } => ("adaptive", u32::from(ratio_basis_points), minimum_clean_streak),
+        } => (
+            "adaptive",
+            u32::from(ratio_basis_points),
+            minimum_clean_streak,
+        ),
     };
     let basis = match contract.mastery_basis {
         MasteryBasis::ConsecutiveClean => "consecutive_clean",
@@ -617,7 +707,7 @@ fn insert_contract(
           planned_seconds,retention_delay_days,source_refs_json,set_state,
           mastery_verification,restart_of_set_id,source)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,
-                 NULL,NULL,?15,?16,'verified',?17,?18)",
+                 ?15,NULL,?16,?17,'verified',?18,?19)",
         rusqlite::params![
             set_id,
             contract.template_id,
@@ -635,6 +725,7 @@ fn insert_contract(
                 "mastery": "final_required_clean_attempts_at_or_above_target_bpm"
             }))?,
             contract.attempt_ceiling,
+            planned_seconds,
             json_to_sql(&contract.sources)?,
             state,
             restart_of,
@@ -694,25 +785,27 @@ pub(crate) fn validate_open(
         return Err(invalid("required clean streak must be between 1 and 100"));
     }
     if let Some(target) = args.target_bpm {
-        if !target.is_finite()
-            || target <= 0.0
-            || (args.start_bpm > 0.0 && target < args.start_bpm)
+        if !target.is_finite() || target <= 0.0 || (args.start_bpm > 0.0 && target < args.start_bpm)
         {
-            return Err(invalid("target BPM must be finite, positive, and not below start"));
+            return Err(invalid(
+                "target BPM must be finite, positive, and not below start",
+            ));
         }
     }
     if rule.clean_needed == 0 || !rule.bpm_step.is_finite() || rule.bpm_step <= 0.0 {
-        return Err(invalid("increment rule must have positive cleans and BPM step"));
+        return Err(invalid(
+            "increment rule must have positive cleans and BPM step",
+        ));
     }
     if args.planned_reps == Some(0) || planned_reps == 0 {
         return Err(invalid("attempt review boundary must be positive"));
     }
     if args.variants.iter().any(|variant| {
-        variant.name.trim().is_empty()
-            || variant.name.chars().count() > 200
-            || variant.reps == 0
+        variant.name.trim().is_empty() || variant.name.chars().count() > 200 || variant.reps == 0
     }) {
-        return Err(invalid("variants require a short name and positive attempts"));
+        return Err(invalid(
+            "variants require a short name and positive attempts",
+        ));
     }
     contract
         .validate()
@@ -723,17 +816,22 @@ impl Store {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_open_set(
         &self,
-        session_id: i64,
+        session_hint: Option<i64>,
         args: &RepOpenArgs,
         rule: &IncrementRule,
         planned_reps: u32,
         contract: &PracticeContract,
+        context: Option<&SetFocusContextInput>,
         source: MutationSource,
         command_id: &str,
+        now: &str,
     ) -> rusqlite::Result<V2Open> {
         validate_open(args, rule, planned_reps, contract)?;
 
-        let mut conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let tx = conn.transaction()?;
         let active_exists: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM set_contract WHERE set_state IN ('active','paused'))",
@@ -753,8 +851,15 @@ impl Store {
                 return Err(invalid("region does not belong to piece"));
             }
         }
-        let persisted_start = (args.focus == "tempo" || args.use_metronome)
-            .then_some(args.start_bpm);
+        let session = super::practice_loop::resolve_practice_session(
+            &tx,
+            session_hint,
+            source,
+            command_id,
+            now,
+        )?;
+        let persisted_start =
+            (args.focus == "tempo" || args.use_metronome).then_some(args.start_bpm);
         let block_id: i64 = tx.query_row(
             "INSERT INTO rep_block
              (piece_id,m_start,m_end,label,start_bpm,target_bpm,increment_rule,
@@ -778,7 +883,16 @@ impl Store {
             ],
             |row| row.get(0),
         )?;
-        insert_contract(&tx, block_id, contract, "active", None, source)?;
+        insert_contract(
+            &tx,
+            block_id,
+            contract,
+            "active",
+            None,
+            source,
+            context.and_then(|value| value.planned_seconds),
+        )?;
+        super::practice_loop::capture_open_context(&tx, block_id, args, context, now)?;
         let payload = json!({
             "block_id": block_id,
             "piece_id": args.piece_id,
@@ -791,7 +905,7 @@ impl Store {
         let (feed_id, _) = insert_event(
             &tx,
             EventWrite {
-                session_id: Some(session_id),
+                session_id: Some(session.id),
                 piece_id: args.piece_id,
                 kind: "rep_open",
                 payload: &payload,
@@ -799,6 +913,7 @@ impl Store {
                 entity_id: block_id,
                 source,
                 command_id,
+                timestamp: Some(now),
             },
         )?;
         let snapshot = project(&tx, block_id)?;
@@ -806,11 +921,15 @@ impl Store {
         Ok(V2Open {
             snapshot,
             feed_id: feed_id.expect("session-backed open has feed row"),
+            session_id: session.id,
         })
     }
 
     pub(crate) fn v2_snapshot(&self, block_id: i64) -> rusqlite::Result<RepSnapshot> {
-        let conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         project(&conn, block_id)
     }
 
@@ -841,37 +960,62 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn v2_restore_active(&self) -> rusqlite::Result<Option<RepSnapshot>> {
-        let conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
-        let mut stmt = conn.prepare(
-            "SELECT set_id FROM set_contract WHERE set_state IN ('active','paused')
-             ORDER BY set_id DESC LIMIT 2",
-        )?;
-        let ids = stmt
-            .query_map([], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if ids.len() > 1 {
-            return Err(invalid(format!(
-                "multiple active practice sets require review: {:?}",
-                ids
-            )));
-        }
-        ids.first().copied().map(|id| project(&conn, id)).transpose()
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_record_attempt(
         &self,
-        session_id: i64,
+        session_hint: Option<i64>,
         block_id: i64,
         rep_variant: Option<&str>,
         verdict_value: RepVerdict,
         note: Option<&str>,
         source: MutationSource,
         command_id: &str,
+        now: &str,
     ) -> rusqlite::Result<V2Mutation> {
-        let mut conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        // `rep_variant` is derived from the durable set projection, not supplied
+        // by the caller. A retry after the first delivery commits can therefore
+        // observe the next lane. Keep the idempotency fingerprint bound only to
+        // the caller's stable request so the original receipt still replays.
+        let fingerprint = super::practice_loop::request_fingerprint(&json!({
+            "block_id": block_id,
+            "verdict": verdict_value.as_str(),
+            "note": note,
+            "source": source_name(source),
+        }))?;
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let tx = conn.transaction()?;
+        let mut pending = match super::practice_loop::begin_operation(
+            &tx,
+            command_id,
+            "record_attempt",
+            &fingerprint,
+            Some(block_id),
+            source,
+            now,
+        )? {
+            super::practice_loop::OperationStart::Replay(mut receipt) => {
+                let snapshot = project(&tx, block_id)?;
+                receipt.value = Some(snapshot.clone());
+                return Ok(V2Mutation {
+                    snapshot,
+                    feed_id: None,
+                    new_bpm: None,
+                    receipt: Some(receipt),
+                });
+            }
+            super::practice_loop::OperationStart::New(pending) => pending,
+        };
+        let session = super::practice_loop::resolve_practice_session(
+            &tx,
+            session_hint,
+            source,
+            command_id,
+            now,
+        )?;
+        pending.session_id = Some(session.id);
         ensure_sidecars(&tx, block_id)?;
         let before = project(&tx, block_id)?;
         if !matches!(before.set_state.as_str(), "active" | "paused" | "mastered") {
@@ -880,6 +1024,12 @@ impl Store {
         if before.set_state != "active" {
             return Err(invalid("practice set is not active"));
         }
+        super::practice_loop::checkpoint_active_interval(
+            &tx,
+            block_id,
+            now,
+            Some(pending.id),
+        )?;
         let semantic_bpm = if before.focus == "tempo" || before.use_metronome {
             Some(
                 before
@@ -897,10 +1047,11 @@ impl Store {
         // projects it to None and no semantic/API surface treats it as tempo.
         let physical_bpm = semantic_bpm.unwrap_or(0.0);
         let rep_id: i64 = tx.query_row(
-            "INSERT INTO rep(block_id,bpm,variant,verdict,note)
-             VALUES (?1,?2,?3,?4,?5) RETURNING id",
+            "INSERT INTO rep(block_id,ts,bpm,variant,verdict,note)
+             VALUES (?1,?2,?3,?4,?5,?6) RETURNING id",
             rusqlite::params![
                 block_id,
+                now,
                 physical_bpm,
                 rep_variant,
                 verdict_value.as_str(),
@@ -909,9 +1060,9 @@ impl Store {
             |row| row.get(0),
         )?;
         tx.execute(
-            "INSERT INTO attempt_provenance(rep_id,source,command_id)
-             VALUES (?1,?2,?3)",
-            rusqlite::params![rep_id, source_name(source), command_id],
+            "INSERT INTO attempt_provenance(rep_id,source,command_id,recorded_ts)
+             VALUES (?1,?2,?3,?4)",
+            rusqlite::params![rep_id, source_name(source), command_id, now],
         )?;
 
         let after_attempt = project(&tx, block_id)?;
@@ -931,7 +1082,7 @@ impl Store {
         let (feed_id, canonical_id) = insert_event(
             &tx,
             EventWrite {
-                session_id: Some(session_id),
+                session_id: Some(session.id),
                 piece_id: after_attempt.piece_id,
                 kind: "rep",
                 payload: &payload,
@@ -939,26 +1090,28 @@ impl Store {
                 entity_id: rep_id,
                 source,
                 command_id,
+                timestamp: Some(now),
             },
         )?;
         tx.execute(
             "UPDATE attempt_provenance SET canonical_event_id=?2 WHERE rep_id=?1",
             rusqlite::params![rep_id, canonical_id],
         )?;
+        let mut event_ids = super::practice_loop::operation_event_ids(session, canonical_id);
         if let Some(to_bpm) = new_bpm {
             let tempo_command = format!("{command_id}:tempo");
             let tempo_payload = json!({
-                    "block_id": block_id,
-                    "piece_id": after_attempt.piece_id,
-                    "attempt_id": rep_id,
-                    "from_bpm": before.bpm,
-                    "to_bpm": to_bpm,
-                    "reason": "effective_ladder_step",
-                });
-            insert_event(
+                "block_id": block_id,
+                "piece_id": after_attempt.piece_id,
+                "attempt_id": rep_id,
+                "from_bpm": before.bpm,
+                "to_bpm": to_bpm,
+                "reason": "effective_ladder_step",
+            });
+            let (_, tempo_event_id) = insert_event(
                 &tx,
                 EventWrite {
-                    session_id: Some(session_id),
+                    session_id: Some(session.id),
                     piece_id: after_attempt.piece_id,
                     kind: "tempo_change",
                     payload: &tempo_payload,
@@ -966,26 +1119,55 @@ impl Store {
                     entity_id: block_id,
                     source,
                     command_id: &tempo_command,
+                    timestamp: Some(now),
                 },
             )?;
+            event_ids.push(tempo_event_id);
         }
         let after_tempo = project(&tx, block_id)?;
         if after_tempo.mastery_status == "satisfied" {
+            super::practice_loop::close_active_interval(
+                &tx,
+                block_id,
+                now,
+                "mastered",
+                Some(pending.id),
+            )?;
             tx.execute(
                 "UPDATE set_contract SET set_state='mastered' WHERE set_id=?1",
                 [block_id],
             )?;
-            tx.execute(
-                "UPDATE rep_block SET status='done' WHERE id=?1",
-                [block_id],
-            )?;
+            tx.execute("UPDATE rep_block SET status='done' WHERE id=?1", [block_id])?;
         }
         let snapshot = project(&tx, block_id)?;
+        let receipt = super::practice_loop::finish_operation(
+            &tx,
+            pending,
+            &format!(
+                "Attempt {} saved — {}.",
+                snapshot.tries,
+                verdict_value.as_str()
+            ),
+            &snapshot,
+            vec![
+                MutationEntityRef {
+                    entity_type: "set".into(),
+                    entity_id: block_id,
+                },
+                MutationEntityRef {
+                    entity_type: "attempt".into(),
+                    entity_id: rep_id,
+                },
+            ],
+            event_ids,
+            Some("rep_undo"),
+        )?;
         tx.commit()?;
         Ok(V2Mutation {
             snapshot,
             feed_id,
             new_bpm,
+            receipt: Some(receipt),
         })
     }
 
@@ -1002,7 +1184,10 @@ impl Store {
         command_id: &str,
         keep_open: bool,
     ) -> rusqlite::Result<V2Mutation> {
-        let mut conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let tx = conn.transaction()?;
         ensure_sidecars(&tx, block_id)?;
         let before = project(&tx, block_id)?;
@@ -1032,13 +1217,13 @@ impl Store {
         )?;
         let mut snapshot = project(&tx, block_id)?;
         // Corrections repair attempt truth; they do not rewrite how a set left
-        // the live lifecycle. Restarted, explicitly abandoned, and unresolved
-        // closed sets retain that terminal lineage even if the repaired ledger
-        // would now satisfy (or cease to satisfy) mastery. Only an explicit
-        // reviewed lifecycle command may reopen or promote those sets.
+        // the live lifecycle. Mastered, restarted, explicitly abandoned, and
+        // unresolved closed sets retain that terminal lineage even if the
+        // repaired ledger would now satisfy (or cease to satisfy) mastery. Only
+        // an explicit reviewed lifecycle command may reopen or promote them.
         let preserves_terminal_lineage = matches!(
             before.set_state.as_str(),
-            "restarted" | "abandoned" | "closed_unresolved"
+            "mastered" | "restarted" | "abandoned" | "closed_unresolved"
         );
         if before.mastery_status != "unverified_legacy" && !preserves_terminal_lineage {
             let next_state = if snapshot.mastery_status == "satisfied" {
@@ -1052,7 +1237,13 @@ impl Store {
             } else {
                 "closed_unresolved"
             };
-            let compat = if next_state == "mastered" { "done" } else if keep_open { "open" } else { "abandoned" };
+            let compat = if next_state == "mastered" {
+                "done"
+            } else if keep_open {
+                "open"
+            } else {
+                "abandoned"
+            };
             tx.execute(
                 "UPDATE set_contract SET set_state=?2 WHERE set_id=?1",
                 rusqlite::params![block_id, next_state],
@@ -1083,6 +1274,7 @@ impl Store {
                 entity_id: attempt_id,
                 source,
                 command_id,
+                timestamp: None,
             },
         )?;
         let new_bpm = projected_retune(before.bpm, snapshot.bpm);
@@ -1108,6 +1300,7 @@ impl Store {
                     entity_id: block_id,
                     source,
                     command_id: &tempo_command,
+                    timestamp: None,
                 },
             )?;
         }
@@ -1116,6 +1309,7 @@ impl Store {
             snapshot,
             feed_id,
             new_bpm,
+            receipt: None,
         })
     }
 
@@ -1164,15 +1358,7 @@ impl Store {
             )
         };
         self.v2_adjust(
-            session_id,
-            block_id,
-            attempt_id,
-            kind,
-            &after,
-            None,
-            source,
-            command_id,
-            keep_open,
+            session_id, block_id, attempt_id, kind, &after, None, source, command_id, keep_open,
         )
     }
 
@@ -1202,7 +1388,10 @@ impl Store {
         block_id: i64,
         attempt_id: i64,
     ) -> rusqlite::Result<EffectiveAttemptView> {
-        let conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let attempt = effective_attempt(&conn, block_id, attempt_id)?;
         Ok(EffectiveAttemptView {
             verdict: verdict_name(attempt.verdict).into(),
@@ -1223,7 +1412,10 @@ impl Store {
         source: MutationSource,
         command_id: &str,
     ) -> rusqlite::Result<V2Mutation> {
-        let conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let attempt_id: i64 = conn.query_row(
             "SELECT a.rep_id FROM attempt_adjustment a JOIN rep r ON r.id=a.rep_id
              WHERE a.id=?1 AND r.block_id=?2",
@@ -1251,8 +1443,12 @@ impl Store {
         required_clean_streak: Option<u32>,
         source: MutationSource,
         command_id: &str,
+        now: &str,
     ) -> rusqlite::Result<V2Open> {
-        let mut conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let tx = conn.transaction()?;
         let old = load_set_row(&tx, block_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         if !matches!(old.set_state.as_str(), "active" | "paused" | "mastered") {
@@ -1261,6 +1457,9 @@ impl Store {
         let required = required_clean_streak.unwrap_or(old.contract.required_success);
         if !(1..=100).contains(&required) {
             return Err(invalid("clean-streak target must be 1 to 100"));
+        }
+        if old.set_state == "active" {
+            super::practice_loop::close_active_interval(&tx, block_id, now, "restart", None)?;
         }
         tx.execute(
             "UPDATE set_contract SET set_state='restarted' WHERE set_id=?1",
@@ -1283,7 +1482,21 @@ impl Store {
         let mut contract = PracticeContract::consecutive_clean(required);
         contract.attempt_ceiling = old.contract.attempt_ceiling;
         contract.recovery = old.contract.recovery;
-        insert_contract(&tx, new_id, &contract, "active", Some(block_id), source)?;
+        let planned_seconds: Option<u32> = tx.query_row(
+            "SELECT planned_seconds FROM set_contract WHERE set_id=?1",
+            [block_id],
+            |row| row.get(0),
+        )?;
+        insert_contract(
+            &tx,
+            new_id,
+            &contract,
+            "active",
+            Some(block_id),
+            source,
+            planned_seconds,
+        )?;
+        super::practice_loop::capture_restart_context(&tx, block_id, new_id, now)?;
         let payload = json!({
             "block_id": new_id,
             "restart_of_set_id": block_id,
@@ -1302,6 +1515,7 @@ impl Store {
                 entity_id: new_id,
                 source,
                 command_id,
+                timestamp: Some(now),
             },
         )?;
         let snapshot = project(&tx, new_id)?;
@@ -1309,6 +1523,7 @@ impl Store {
         Ok(V2Open {
             snapshot,
             feed_id: feed_id.expect("session-backed restart has feed row"),
+            session_id,
         })
     }
 
@@ -1318,8 +1533,12 @@ impl Store {
         block_id: i64,
         source: MutationSource,
         command_id: &str,
+        now: &str,
     ) -> rusqlite::Result<V2Mutation> {
-        let mut conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let tx = conn.transaction()?;
         let before = project(&tx, block_id)?;
         if !matches!(before.set_state.as_str(), "active" | "paused" | "mastered") {
@@ -1330,6 +1549,19 @@ impl Store {
         } else {
             ("closed_unresolved", "abandoned")
         };
+        if before.set_state == "active" {
+            super::practice_loop::close_active_interval(
+                &tx,
+                block_id,
+                now,
+                if state == "mastered" {
+                    "mastered"
+                } else {
+                    "close"
+                },
+                None,
+            )?;
+        }
         tx.execute(
             "UPDATE set_contract SET set_state=?2 WHERE set_id=?1",
             rusqlite::params![block_id, state],
@@ -1359,6 +1591,7 @@ impl Store {
                 entity_id: block_id,
                 source,
                 command_id,
+                timestamp: Some(now),
             },
         )?;
         tx.commit()?;
@@ -1366,29 +1599,46 @@ impl Store {
             snapshot,
             feed_id,
             new_bpm: None,
+            receipt: None,
         })
     }
 
     pub(crate) fn v2_block_id_for_attempt(&self, attempt_id: i64) -> rusqlite::Result<i64> {
-        let conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
-        conn.query_row("SELECT block_id FROM rep WHERE id=?1", [attempt_id], |row| row.get(0))
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        conn.query_row(
+            "SELECT block_id FROM rep WHERE id=?1",
+            [attempt_id],
+            |row| row.get(0),
+        )
     }
 
     #[cfg(test)]
     pub(crate) fn test_execute_batch(&self, sql: &str) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         conn.execute_batch(sql)
     }
 
     #[cfg(test)]
     pub(crate) fn test_scalar_i64(&self, sql: &str) -> rusqlite::Result<i64> {
-        let conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         conn.query_row(sql, [], |row| row.get(0))
     }
 
     #[cfg(test)]
     pub(crate) fn test_scalar_string(&self, sql: &str) -> rusqlite::Result<String> {
-        let conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         conn.query_row(sql, [], |row| row.get(0))
     }
 }

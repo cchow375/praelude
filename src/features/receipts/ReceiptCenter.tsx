@@ -5,22 +5,41 @@ import {
   useMemo,
   useState,
   type ReactNode,
+  useRef,
 } from "react";
 import { commandErrorMessage } from "../../services/command";
 import "./ReceiptCenter.css";
 
-export type ReceiptKind = "committed" | "undone" | "error";
+export type ReceiptKind = "committed" | "undone" | "error" | "confirmation" | "duplicate";
+
+/** Mirrors the durable native mutation envelope. */
+export interface MutationReceipt<T = unknown> {
+  receipt_id: string;
+  command_id: string;
+  status: "committed" | "rejected" | "confirmation_required";
+  summary: string;
+  value?: T | null;
+  entity_refs: Array<{ entity_type: string; entity_id: number }>;
+  event_ids: number[];
+  undo_action?: string | null;
+  error_code?: string | null;
+  error_detail?: string | null;
+  replayed: boolean;
+  committed_ts: string | null;
+}
 
 export interface AppReceipt {
   id: number;
   kind: ReceiptKind;
   message: string;
+  durableReceiptId?: string;
 }
 
 export interface ReceiptPublisher {
   committed: (message: string) => number;
   undone: (message: string) => number;
   error: (cause: unknown, fallbackMessage?: string) => number;
+  mutation: (receipt: MutationReceipt) => number;
   dismiss: (id: number) => void;
 }
 
@@ -31,6 +50,7 @@ const NOOP_PUBLISHER: ReceiptPublisher = {
   committed: () => -1,
   undone: () => -1,
   error: () => -1,
+  mutation: () => -1,
   dismiss: () => undefined,
 };
 
@@ -44,10 +64,11 @@ export function ReceiptCenterProvider({ children }: { children: ReactNode }) {
   const [receipts, setReceipts] = useState<AppReceipt[]>([]);
   const [politeAnnouncement, setPoliteAnnouncement] = useState("");
   const [assertiveAnnouncement, setAssertiveAnnouncement] = useState("");
+  const committedDurableIds = useRef(new Set<string>());
 
-  const publish = useCallback((kind: ReceiptKind, rawMessage: string) => {
+  const publish = useCallback((kind: ReceiptKind, rawMessage: string, durableReceiptId?: string) => {
     const message = rawMessage.trim() || "The action completed.";
-    const receipt = { id: nextReceiptId++, kind, message };
+    const receipt = { id: nextReceiptId++, kind, message, durableReceiptId };
     setReceipts((current) => [receipt, ...current].slice(0, MAX_VISIBLE_RECEIPTS));
     if (kind === "error") setAssertiveAnnouncement(message);
     else setPoliteAnnouncement(message);
@@ -61,6 +82,31 @@ export function ReceiptCenterProvider({ children }: { children: ReactNode }) {
       "error",
       commandErrorMessage(cause, fallbackMessage),
     ),
+    mutation: (receipt) => {
+      if (receipt.status === "rejected") {
+        return publish(
+          "error",
+          receipt.error_detail?.trim() || receipt.summary,
+          receipt.receipt_id,
+        );
+      }
+      if (receipt.status === "confirmation_required") {
+        return publish("confirmation", receipt.summary, receipt.receipt_id);
+      }
+      // Native receipts intentionally omit internal retry metadata. The
+      // durable receipt id is enough to distinguish a replay from a second
+      // write across every caller, including older frontend integrations.
+      const replayed = receipt.replayed === true
+        || committedDurableIds.current.has(receipt.receipt_id);
+      committedDurableIds.current.add(receipt.receipt_id);
+      return publish(
+        replayed ? "duplicate" : "committed",
+        replayed
+          ? `${receipt.summary} Already applied; no second write was made.`
+          : receipt.summary,
+        receipt.receipt_id,
+      );
+    },
     dismiss: (id) => setReceipts((current) => (
       current.filter((receipt) => receipt.id !== id)
     )),
@@ -116,13 +162,18 @@ function ReceiptCenter({
               key={receipt.id}
               className="receipt-item"
               data-kind={receipt.kind}
+              data-receipt-id={receipt.durableReceiptId}
             >
               <span className="receipt-mark" aria-hidden="true">
                 {receipt.kind === "committed"
                   ? "✓"
                   : receipt.kind === "undone"
                     ? "↶"
-                    : "!"}
+                    : receipt.kind === "duplicate"
+                      ? "="
+                      : receipt.kind === "confirmation"
+                        ? "?"
+                        : "!"}
               </span>
               <span className="receipt-message">{receipt.message}</span>
               <button

@@ -227,7 +227,10 @@ mod tests {
         let bpm = 137.0;
         let frames = 512usize;
         let spb = sample_rate as f64 * 60.0 / bpm; // 21021.8978...
-        assert!(spb.fract() != 0.0, "test only meaningful for non-integer spb");
+        assert!(
+            spb.fract() != 0.0,
+            "test only meaningful for non-integer spb"
+        );
 
         let mut clock = ClickClock::new(sample_rate);
         clock.set_pattern(ClickPattern {
@@ -251,7 +254,11 @@ mod tests {
             }
         }
 
-        assert!(positions.len() > 1350, "≈{} beats expected over 10 min", positions.len());
+        assert!(
+            positions.len() > 1350,
+            "≈{} beats expected over 10 min",
+            positions.len()
+        );
         assert_eq!(positions[0], 0, "first beat at frame 0");
 
         let mut max_abs_err = 0.0f64;
@@ -278,7 +285,10 @@ mod tests {
             );
         }
         // Non-growing: the worst error is a sub-frame floor artifact, not drift.
-        assert!(max_abs_err < 1.0, "max abs error {max_abs_err} must stay sub-frame");
+        assert!(
+            max_abs_err < 1.0,
+            "max abs error {max_abs_err} must stay sub-frame"
+        );
     }
 
     // (b) A bpm change applies at the next beat, never mid-interval.
@@ -312,8 +322,15 @@ mod tests {
         // Beat 0 at 0, beat 1 still at 22050 (old tempo — change was mid-interval),
         // then 60 bpm spacing (44100) from there on.
         assert_eq!(positions[0], 0);
-        assert_eq!(positions[1], 22050, "the in-progress interval keeps old tempo");
-        assert_eq!(positions[2] - positions[1], 44100, "new tempo starts next beat");
+        assert_eq!(
+            positions[1], 22050,
+            "the in-progress interval keeps old tempo"
+        );
+        assert_eq!(
+            positions[2] - positions[1],
+            44100,
+            "new tempo starts next beat"
+        );
         assert_eq!(positions[3] - positions[2], 44100);
     }
 

@@ -38,7 +38,13 @@ pub fn focused_seconds(events: &[Event]) -> u64 {
     ts.sort_unstable();
     ts.windows(2)
         .map(|w| w[1] - w[0])
-        .map(|g| if (0..=IDLE_THRESHOLD_SECS).contains(&g) { g } else { 0 })
+        .map(|g| {
+            if (0..=IDLE_THRESHOLD_SECS).contains(&g) {
+                g
+            } else {
+                0
+            }
+        })
         .sum::<i64>() as u64
 }
 
@@ -100,9 +106,7 @@ pub fn per_region_mastery(
                 .count() as u32;
             let region_reps: Vec<&Rep> = reps
                 .iter()
-                .filter(|r| {
-                    !r.voided && region_of.get(&r.block_id) == Some(&region.id)
-                })
+                .filter(|r| !r.voided && region_of.get(&r.block_id) == Some(&region.id))
                 .collect();
             let total = region_reps.len() as u32;
             let clean = region_reps.iter().filter(|r| r.verdict == "clean").count() as u32;
@@ -131,8 +135,10 @@ pub fn per_region_mastery(
 /// belongs to. Events carry their `block_id` in the payload; each focus's events
 /// are run through the same [`focused_seconds`] gap heuristic. Sorted by focus.
 pub fn time_by_focus(events: &[Event], blocks: &[BlockMeta]) -> Vec<FocusTime> {
-    let focus_of: HashMap<i64, &str> =
-        blocks.iter().map(|b| (b.block_id, b.focus.as_str())).collect();
+    let focus_of: HashMap<i64, &str> = blocks
+        .iter()
+        .map(|b| (b.block_id, b.focus.as_str()))
+        .collect();
     let mut by_focus: BTreeMap<String, Vec<Event>> = BTreeMap::new();
     for e in events {
         if !is_practice_event(e) {
@@ -140,7 +146,10 @@ pub fn time_by_focus(events: &[Event], blocks: &[BlockMeta]) -> Vec<FocusTime> {
         }
         if let Some(bid) = e.payload["block_id"].as_i64() {
             if let Some(focus) = focus_of.get(&bid) {
-                by_focus.entry((*focus).to_string()).or_default().push(e.clone());
+                by_focus
+                    .entry((*focus).to_string())
+                    .or_default()
+                    .push(e.clone());
             }
         }
     }
@@ -197,7 +206,11 @@ fn parse_ts_secs(ts: &str) -> Option<i64> {
     let h: i64 = parts.next()?.parse().ok()?;
     let m: i64 = parts.next()?.parse().ok()?;
     let s: i64 = parts.next()?.parse().ok()?;
-    if parts.next().is_some() || !(0..=23).contains(&h) || !(0..=59).contains(&m) || !(0..=59).contains(&s) {
+    if parts.next().is_some()
+        || !(0..=23).contains(&h)
+        || !(0..=59).contains(&m)
+        || !(0..=59).contains(&s)
+    {
         return None;
     }
     Some(days * 86_400 + h * 3_600 + m * 60 + s)
@@ -266,7 +279,7 @@ mod tests {
     fn focused_seconds_sums_gaps_under_idle_threshold() {
         // gaps of 30s, 45s, then a 10-min idle gap (excluded), then 20s
         let evs = events_at(&[0, 30, 75, 675, 695]); // seconds since epoch
-        // 30 + 45 + (idle >120 → 0) + 20 = 95
+                                                     // 30 + 45 + (idle >120 → 0) + 20 = 95
         assert_eq!(focused_seconds(&evs), 95);
     }
 
@@ -318,11 +331,19 @@ mod tests {
     #[test]
     fn streak_counts_consecutive_calendar_days_back_from_latest() {
         assert_eq!(
-            streak(&["2026-07-10".into(), "2026-07-11".into(), "2026-07-12".into()]),
+            streak(&[
+                "2026-07-10".into(),
+                "2026-07-11".into(),
+                "2026-07-12".into()
+            ]),
             3
         );
         assert_eq!(
-            streak(&["2026-07-08".into(), "2026-07-10".into(), "2026-07-11".into()]),
+            streak(&[
+                "2026-07-08".into(),
+                "2026-07-10".into(),
+                "2026-07-11".into()
+            ]),
             2
         );
     }
@@ -334,7 +355,11 @@ mod tests {
         assert_eq!(streak(&["2026-07-12".into(), "2026-07-12".into()]), 1);
         // Across a month boundary: Jul 31 → Aug 1 → Aug 2 is 3 consecutive days.
         assert_eq!(
-            streak(&["2026-07-31".into(), "2026-08-01".into(), "2026-08-02".into()]),
+            streak(&[
+                "2026-07-31".into(),
+                "2026-08-01".into(),
+                "2026-08-02".into()
+            ]),
             3
         );
     }
@@ -421,7 +446,10 @@ mod tests {
             e
         };
         let events = vec![mk(0, 10), mk(40, 10), mk(100, 20), mk(130, 20)];
-        let blocks = vec![block_meta(10, Some(1), "tempo"), block_meta(20, Some(2), "notes")];
+        let blocks = vec![
+            block_meta(10, Some(1), "tempo"),
+            block_meta(20, Some(2), "notes"),
+        ];
         let out = time_by_focus(&events, &blocks);
         // BTreeMap order: "notes" before "tempo".
         assert_eq!(out.len(), 2);

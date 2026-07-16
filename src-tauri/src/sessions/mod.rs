@@ -52,11 +52,7 @@ impl SessionService {
     }
 
     fn emit(&self, event: &str, payload: Value) {
-        let e = self
-            .emitter
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().cloned());
+        let e = self.emitter.lock().ok().and_then(|g| g.as_ref().cloned());
         if let Some(e) = e {
             e.emit(event, payload);
         }
@@ -120,6 +116,19 @@ impl SessionService {
     pub(crate) fn ensure_session(&self) -> Result<i64, String> {
         self.resolve_session()
             .ok_or_else(|| "Could not open a practice session.".to_string())
+    }
+
+    /// Return only the in-process cache as a transaction hint. Practice writes
+    /// resolve/adopt/create the authoritative open session inside their own
+    /// SQLite transaction, after durable-command replay preflight.
+    pub(crate) fn cached_practice_session(&self) -> Option<i64> {
+        *self.current.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Update the process cache only after the practice transaction that
+    /// adopted or created this session has committed successfully.
+    pub(crate) fn adopt_committed_practice_session(&self, session_id: i64) {
+        *self.current.lock().unwrap_or_else(|p| p.into_inner()) = Some(session_id);
     }
 
     /// Emit a practice-feed row only after its source/history transaction has
@@ -288,7 +297,10 @@ mod tests {
         svc.log("rep", json!({}));
         let sid = svc.current_id().expect("open session");
         assert_eq!(svc.end_raw(), Some(sid));
-        assert!(svc.current().is_none(), "ended session is no longer current");
+        assert!(
+            svc.current().is_none(),
+            "ended session is no longer current"
+        );
         assert_eq!(svc.end_raw(), None, "nothing left to end");
     }
 
@@ -304,6 +316,10 @@ mod tests {
         let b = SessionService::new(store);
         b.log("rep", json!({ "n": 2 }));
         assert_eq!(b.current_id(), Some(sid), "same session adopted on restart");
-        assert_eq!(b.current().unwrap().events.len(), 2, "both events in one session");
+        assert_eq!(
+            b.current().unwrap().events.len(),
+            2,
+            "both events in one session"
+        );
     }
 }

@@ -204,8 +204,16 @@ mod tests {
             bpm_step: 4.0,
         };
         assert_eq!(step(&rule, 3, 80.0, Some(120.0)), Some(84.0));
-        assert_eq!(step(&rule, 5, 80.0, Some(120.0)), Some(84.0), "at or over threshold");
-        assert_eq!(step(&rule, 2, 80.0, Some(120.0)), None, "not enough cleans yet");
+        assert_eq!(
+            step(&rule, 5, 80.0, Some(120.0)),
+            Some(84.0),
+            "at or over threshold"
+        );
+        assert_eq!(
+            step(&rule, 2, 80.0, Some(120.0)),
+            None,
+            "not enough cleans yet"
+        );
     }
 
     #[test]
@@ -235,10 +243,22 @@ mod tests {
     fn variant_lane_boundaries() {
         let vs = [variant("A", 10), variant("B", 5)];
         assert_eq!(variant_index_for_rep(&vs, 1), Some(0));
-        assert_eq!(variant_index_for_rep(&vs, 10), Some(0), "last rep of lane 0");
-        assert_eq!(variant_index_for_rep(&vs, 11), Some(1), "first rep of lane 1");
+        assert_eq!(
+            variant_index_for_rep(&vs, 10),
+            Some(0),
+            "last rep of lane 0"
+        );
+        assert_eq!(
+            variant_index_for_rep(&vs, 11),
+            Some(1),
+            "first rep of lane 1"
+        );
         assert_eq!(variant_index_for_rep(&vs, 15), Some(1));
-        assert_eq!(variant_index_for_rep(&vs, 99), Some(1), "beyond total clamps to last");
+        assert_eq!(
+            variant_index_for_rep(&vs, 99),
+            Some(1),
+            "beyond total clamps to last"
+        );
         assert_eq!(variant_index_for_rep(&[], 1), None, "no variants → no lane");
     }
 }

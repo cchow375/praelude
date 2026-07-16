@@ -10,14 +10,40 @@ use crate::keys::{api_key_status, ApiKeyProvider, ApiKeyStatus};
 use crate::store::Store;
 
 const SOUNDS: &[&str] = &["beep", "clave", "cowbell", "rim", "tick", "woodblock"];
-const VOICES: &[&str] = &["Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"];
+const VOICES: &[&str] = &[
+    "Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr",
+];
 const DEFAULT_KNOWLEDGE_DIR: &str =
     "/Users/c3/Desktop/christian's universe/Piano Practice/Knowledge and Resources";
 const RESERVED_ALIASES: &[&str] = &[
-    "done", "clean", "got it", "nailed it", "perfect", "good", "yes", "yep",
-    "sloppy", "rough", "shaky", "almost", "again", "nope", "no", "missed",
-    "messed up", "failed", "stop", "start", "faster", "slower", "status",
-    "where are we", "close the block", "end the session", "metronome on", "metronome off",
+    "done",
+    "clean",
+    "got it",
+    "nailed it",
+    "perfect",
+    "good",
+    "yes",
+    "yep",
+    "sloppy",
+    "rough",
+    "shaky",
+    "almost",
+    "again",
+    "nope",
+    "no",
+    "missed",
+    "messed up",
+    "failed",
+    "stop",
+    "start",
+    "faster",
+    "slower",
+    "status",
+    "where are we",
+    "close the block",
+    "end the session",
+    "metronome on",
+    "metronome off",
 ];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -96,21 +122,9 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
         metronome_boost: boolean(store, "metronome.boost", false),
         metronome_boost_level: integer(store, "metronome.boost_level", 85, 0, 100) as u8,
         ladder_default_reps: integer(store, "rep.default_reps", 30, 1, 240),
-        practice_default_clean_streak: integer(
-            store,
-            "practice.default_clean_streak",
-            5,
-            1,
-            100,
-        ),
+        practice_default_clean_streak: integer(store, "practice.default_clean_streak", 5, 1, 100),
         ladder_bpm_step: integer(store, "rep.bpm_step", 4, 1, 24),
-        calendar_capacity_minutes: integer(
-            store,
-            "calendar.daily_capacity_minutes",
-            60,
-            1,
-            1_440,
-        ),
+        calendar_capacity_minutes: integer(store, "calendar.daily_capacity_minutes", 60, 1, 1_440),
         vault_pieces_dir: string(
             store,
             "vault.pieces_dir",
@@ -137,7 +151,10 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
         ));
     }
     if let Some(value) = patch.tts_provider {
-        writes.push(("tts.provider", validate_choice(value, &["auto", "gemini", "say"])?));
+        writes.push((
+            "tts.provider",
+            validate_choice(value, &["auto", "gemini", "say"])?,
+        ));
     }
     if let Some(value) = patch.tts_voice {
         writes.push(("tts.voice", validate_choice(value, VOICES)?));
@@ -178,7 +195,10 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
         ));
     }
     if let Some(value) = patch.ladder_default_reps {
-        writes.push(("rep.default_reps", bounded(value, 1, 240, "Default reps")?.to_string()));
+        writes.push((
+            "rep.default_reps",
+            bounded(value, 1, 240, "Default reps")?.to_string(),
+        ));
     }
     if let Some(value) = patch.practice_default_clean_streak {
         writes.push((
@@ -187,7 +207,10 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
         ));
     }
     if let Some(value) = patch.ladder_bpm_step {
-        writes.push(("rep.bpm_step", bounded(value, 1, 24, "BPM step")?.to_string()));
+        writes.push((
+            "rep.bpm_step",
+            bounded(value, 1, 24, "BPM step")?.to_string(),
+        ));
     }
     if let Some(value) = patch.calendar_capacity_minutes {
         writes.push((
@@ -268,12 +291,16 @@ fn validate_choice(value: String, allowed: &[&str]) -> Result<String, String> {
 }
 
 fn validate_wake_word(value: &str) -> Result<String, String> {
-    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase();
+    let normalized = value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
     if normalized.is_empty()
         || normalized.chars().count() > 24
-        || !normalized
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == ' ' || character == '-')
+        || !normalized.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == ' ' || character == '-'
+        })
     {
         return Err("Wake word must be 1–24 letters, numbers, spaces, or hyphens.".into());
     }
@@ -317,14 +344,16 @@ fn validate_aliases(mut value: VerdictAliases) -> Result<VerdictAliases, String>
             if alias.is_empty()
                 || alias.chars().count() > 40
                 || !(1..=4).contains(&words)
-                || !alias
-                    .chars()
-                    .all(|character| character.is_ascii_alphanumeric() || matches!(character, ' ' | '-' | '\''))
+                || !alias.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, ' ' | '-' | '\'')
+                })
             {
                 return Err("Aliases must be 1–4 short words using letters, numbers, apostrophes, or hyphens.".into());
             }
             if RESERVED_ALIASES.contains(&alias.as_str()) {
-                return Err(format!("“{alias}” already belongs to the deterministic command grammar."));
+                return Err(format!(
+                    "“{alias}” already belongs to the deterministic command grammar."
+                ));
             }
             if !seen.insert(alias.clone()) {
                 return Err(format!("“{alias}” is assigned to more than one verdict."));
@@ -366,23 +395,30 @@ mod tests {
         assert_eq!(value.ladder_default_reps, 30);
         assert_eq!(value.practice_default_clean_streak, 5);
         assert_eq!(value.ladder_bpm_step, 4);
-        assert!(value.api_keys.iter().all(|status| matches!(status.source, "keychain" | "environment" | "none")));
+        assert!(value
+            .api_keys
+            .iter()
+            .all(|status| matches!(status.source, "keychain" | "environment" | "none")));
     }
 
     #[test]
     fn update_validates_then_writes_as_one_typed_projection() {
         let store = Store::open(":memory:").unwrap();
-        let result = update(&store, SettingsPatch {
-            theme: Some("dark".into()),
-            interface_scale: Some(85),
-            wake_word_enabled: Some(true),
-            wake_word: Some(" Hey   Coda ".into()),
-            ladder_default_reps: Some(40),
-            practice_default_clean_streak: Some(7),
-            ladder_bpm_step: Some(6),
-            calendar_capacity_minutes: Some(90),
-            ..Default::default()
-        }).unwrap();
+        let result = update(
+            &store,
+            SettingsPatch {
+                theme: Some("dark".into()),
+                interface_scale: Some(85),
+                wake_word_enabled: Some(true),
+                wake_word: Some(" Hey   Coda ".into()),
+                ladder_default_reps: Some(40),
+                practice_default_clean_streak: Some(7),
+                ladder_bpm_step: Some(6),
+                calendar_capacity_minutes: Some(90),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(result.theme, "dark");
         assert_eq!(result.interface_scale, 85);
         assert!(result.wake_word_enabled);
@@ -396,21 +432,33 @@ mod tests {
     #[test]
     fn one_invalid_value_prevents_every_write() {
         let store = Store::open(":memory:").unwrap();
-        assert!(update(&store, SettingsPatch {
-            theme: Some("light".into()),
-            ladder_bpm_step: Some(0),
-            ..Default::default()
-        }).is_err());
+        assert!(update(
+            &store,
+            SettingsPatch {
+                theme: Some("light".into()),
+                ladder_bpm_step: Some(0),
+                ..Default::default()
+            }
+        )
+        .is_err());
         assert_eq!(store.get_setting("theme").unwrap(), None);
-        assert!(update(&store, SettingsPatch {
-            metronome_boost_level: Some(101),
-            ..Default::default()
-        }).is_err());
+        assert!(update(
+            &store,
+            SettingsPatch {
+                metronome_boost_level: Some(101),
+                ..Default::default()
+            }
+        )
+        .is_err());
         assert_eq!(store.get_setting("metronome.boost_level").unwrap(), None);
-        assert!(update(&store, SettingsPatch {
-            interface_scale: Some(50),
-            ..Default::default()
-        }).is_err());
+        assert!(update(
+            &store,
+            SettingsPatch {
+                interface_scale: Some(50),
+                ..Default::default()
+            }
+        )
+        .is_err());
         assert_eq!(store.get_setting("ui.interface_scale").unwrap(), None);
     }
 
@@ -422,16 +470,38 @@ mod tests {
             flawed: vec!["needs polish".into()],
             failed: vec!["reset jump".into()],
         };
-        let saved = update(&store, SettingsPatch { verdict_aliases: Some(aliases), ..Default::default() }).unwrap();
+        let saved = update(
+            &store,
+            SettingsPatch {
+                verdict_aliases: Some(aliases),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(saved.verdict_aliases.clean, vec!["solid landing"]);
         assert_eq!(custom_verdict(&store, "SOLID   LANDING"), Some("done"));
-        assert!(update(&store, SettingsPatch {
-            verdict_aliases: Some(VerdictAliases { clean: vec!["stop".into()], ..Default::default() }),
-            ..Default::default()
-        }).is_err());
-        assert!(update(&store, SettingsPatch {
-            verdict_aliases: Some(VerdictAliases { clean: vec!["my cue".into()], flawed: vec!["MY CUE".into()], failed: vec![] }),
-            ..Default::default()
-        }).is_err());
+        assert!(update(
+            &store,
+            SettingsPatch {
+                verdict_aliases: Some(VerdictAliases {
+                    clean: vec!["stop".into()],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }
+        )
+        .is_err());
+        assert!(update(
+            &store,
+            SettingsPatch {
+                verdict_aliases: Some(VerdictAliases {
+                    clean: vec!["my cue".into()],
+                    flawed: vec!["MY CUE".into()],
+                    failed: vec![]
+                }),
+                ..Default::default()
+            }
+        )
+        .is_err());
     }
 }

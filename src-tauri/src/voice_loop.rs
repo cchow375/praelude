@@ -214,16 +214,25 @@ impl ActionCtx {
             .then(|| crate::settings::custom_verdict(&self.store, &t.text))
             .flatten();
         let intent = Router::route(routed.unwrap_or(&t.text), &mode);
+
+        // Ambient speech takes no action, but its transcript still reaches the
+        // frontend marked `handled = false` so Lane B may draft it. Ambient is
+        // deliberately kept OUT of the command dedup ledger below: that ledger's
+        // 2.5 s window is a locked hot-loop invariant, and letting ambient text
+        // seed `self.last` could wrongly swallow a later genuine verdict that
+        // happens to repeat the ambient words (e.g. a UI-opened rep followed by
+        // the spoken verdict within the window).
         if matches!(intent, Intent::Ignored) {
-            return; // ambient speech: no event, no action
+            self.emit_transcript(&t.text, t.is_final, false);
+            return;
         }
 
-        // Spurious-final dedup — ONE rule for EVERY intent (see the module docs,
-        // "Dedup policy"). The STT engine re-sends an identical final 0.5–2.3 s
-        // after an utterance, so an identical normalized transcript within
-        // DEDUP_WINDOW of the previous occurrence of the same text is a re-send,
-        // not a genuine repeat, and is dropped — reps and deltas included. Keyed
-        // on `t.at` (the settler's own emit timestamp), NOT `Instant::now()`
+        // Spurious-final dedup — ONE rule for EVERY command intent (see the module
+        // docs, "Dedup policy"). The STT engine re-sends an identical final
+        // 0.5–2.3 s after an utterance, so an identical normalized transcript
+        // within DEDUP_WINDOW of the previous occurrence of the same text is a
+        // re-send, not a genuine repeat, and is dropped — reps and deltas included.
+        // Keyed on `t.at` (the settler's own emit timestamp), NOT `Instant::now()`
         // sampled here: a prior blocking speak may already have eaten the whole
         // window, which would make a stale re-sample never catch the duplicate.
         // The stored timestamp slides forward on every match so a chain of
@@ -241,6 +250,12 @@ impl ActionCtx {
         if suppress {
             return;
         }
+
+        // A routed command is authoritative. Emit its transcript carrying
+        // `handled = true` BEFORE the action's state events, so a downstream
+        // consumer sees transcript-before-state ordering and Lane B never drafts
+        // a final the backend already routed.
+        self.emit_transcript(&t.text, t.is_final, true);
 
         match intent {
             Intent::MetroStart(bpm) => self.act_start(bpm, &t.text),
@@ -418,9 +433,8 @@ impl ActionCtx {
             Some(s) => {
                 self.emit_intent("rep_status", text, s.bpm);
                 let below_target = s.focus == "tempo"
-                    && s.target_bpm.is_some_and(|target| {
-                        s.bpm.is_some_and(|bpm| bpm + 0.000_001 < target)
-                    });
+                    && s.target_bpm
+                        .is_some_and(|target| s.bpm.is_some_and(|bpm| bpm + 0.000_001 < target));
                 let (label, progress, required) = if below_target {
                     ("Rung", s.current_clean_streak, s.rule.clean_needed)
                 } else {
@@ -509,6 +523,18 @@ impl ActionCtx {
         self.emitter.emit(
             "voice://intent",
             json!({ "kind": kind, "text": text, "bpm": bpm }),
+        );
+    }
+
+    /// Emit a final's transcript carrying the backend's authoritative routing
+    /// outcome. `handled` is true when a deterministic intent routed and acted,
+    /// false for an ambient final the backend declined to route (which the
+    /// frontend Lane B is then free to draft). Interim (non-final) hypotheses are
+    /// emitted straight from the settler thread with `handled = false`.
+    fn emit_transcript(&self, text: &str, is_final: bool, handled: bool) {
+        self.emitter.emit(
+            "voice://transcript",
+            json!({ "text": text, "is_final": is_final, "handled": handled }),
         );
     }
 
@@ -720,19 +746,25 @@ impl VoiceLoop {
         }));
         let (tx, rx) = mpsc::channel::<ActionMessage>();
 
-        // on_event: emit transcript/status for the UI; forward finals to the action
-        // thread. Non-blocking (the settler thread calls this).
+        // on_event: emit interim transcripts + status for the UI; forward finals
+        // to the action thread. A FINAL's transcript is emitted there instead,
+        // AFTER routing, so it can carry the backend's authoritative `handled`
+        // outcome (see `ActionCtx::handle_final` / `emit_transcript`). Emitting a
+        // final here too would double-emit and lose that outcome. Non-blocking
+        // (the settler thread calls this).
         let ev_emitter = emitter.clone();
         let ev_status = status.clone();
         let fwd_tx = tx.clone();
         let on_event = move |ev: SttEvent| match ev {
             SttEvent::Transcript(t) => {
-                ev_emitter.emit(
-                    "voice://transcript",
-                    json!({ "text": t.text, "is_final": t.is_final }),
-                );
                 if t.is_final {
                     let _ = fwd_tx.send(ActionMessage::Transcript(t));
+                } else {
+                    // Interim hypotheses are liveness only; nothing routes them.
+                    ev_emitter.emit(
+                        "voice://transcript",
+                        json!({ "text": t.text, "is_final": false, "handled": false }),
+                    );
                 }
             }
             SttEvent::Down(reason) => {
@@ -1032,8 +1064,45 @@ mod tests {
         let mut ctx = test_ctx(&rec);
         ctx.handle_final(&final_t("I stopped by the store yesterday"));
         assert!(rec.said.lock().unwrap().is_empty(), "no confirmation");
-        assert!(rec.events.lock().unwrap().is_empty(), "no intent event");
         assert!(!ctx.metro.snapshot().running);
+        // Ambient speech takes no action, but its transcript still reaches the
+        // frontend marked handled=false so Lane B may draft it. That transcript
+        // is the ONLY event — no intent or state event is emitted.
+        let events = rec.events.lock().unwrap();
+        assert_eq!(events.len(), 1, "only the transcript event: {events:?}");
+        assert_eq!(events[0].0, "voice://transcript");
+        assert_eq!(events[0].1["handled"], json!(false));
+    }
+
+    /// The double-open regression guard (backend half): a final the router routes
+    /// and acts on carries handled=true on its transcript; a final the backend
+    /// declines to route carries handled=false. The frontend gates Lane B on this
+    /// authoritative flag so a backend-routed command never also drafts.
+    #[test]
+    fn final_transcript_carries_authoritative_routing_outcome() {
+        // A routed final (the canonical rep-open command) → handled=true.
+        let routed = Arc::new(Recorder::default());
+        let mut routed_ctx = test_ctx(&routed);
+        routed_ctx.handle_final(&final_t("start a rep tracker measures 40 to 56 at 80"));
+        assert!(routed_ctx.rep.active(), "rep-open routed and acted");
+        assert_eq!(transcript_handled(&routed), Some(true));
+
+        // An ambient final the backend declines to route → handled=false.
+        let ambient = Arc::new(Recorder::default());
+        let mut ambient_ctx = test_ctx(&ambient);
+        ambient_ctx.handle_final(&final_t("i think that sounded warmer"));
+        assert!(!ambient_ctx.rep.active(), "ambient speech opens nothing");
+        assert_eq!(transcript_handled(&ambient), Some(false));
+    }
+
+    /// The `handled` flag on the single emitted `voice://transcript`, if any.
+    fn transcript_handled(rec: &Arc<Recorder>) -> Option<bool> {
+        rec.events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(e, _)| e == "voice://transcript")
+            .and_then(|(_, p)| p["handled"].as_bool())
     }
 
     #[test]
@@ -1046,10 +1115,15 @@ mod tests {
             action_thread: Mutex::new(None),
             gate: Arc::new(AtomicBool::new(true)),
             muted: Arc::new(AtomicBool::new(false)),
-            status: Arc::new(Mutex::new(VoiceStatus { muted: false, down: None })),
+            status: Arc::new(Mutex::new(VoiceStatus {
+                muted: false,
+                down: None,
+            })),
             emitter: Arc::new(RecEmitter(recorder)),
         };
-        voice.speak_brain_answer("Use three silent landings.").unwrap();
+        voice
+            .speak_brain_answer("Use three silent landings.")
+            .unwrap();
         match rx.recv().unwrap() {
             ActionMessage::SpeakBrain(answer) => {
                 assert_eq!(answer, "Use three silent landings.")
@@ -1259,11 +1333,13 @@ mod tests {
             "said: {said:?}"
         );
         assert!(
-            said.iter().any(|s| s == "Attempt 1 saved — clean. Rung 1 of 3."),
+            said.iter()
+                .any(|s| s == "Attempt 1 saved — clean. Rung 1 of 3."),
             "said: {said:?}"
         );
         assert!(
-            said.iter().any(|s| s == "Attempt 2 saved — clean. Rung 2 of 3."),
+            said.iter()
+                .any(|s| s == "Attempt 2 saved — clean. Rung 2 of 3."),
             "said: {said:?}"
         );
     }
@@ -1671,7 +1747,8 @@ mod tests {
             .filter(|(event, _)| event == "score://navigate")
             .collect();
         assert_eq!(
-            navigation.len(), 1,
+            navigation.len(),
+            1,
             "STT duplicate must emit one navigation event"
         );
         assert_eq!(
@@ -1871,7 +1948,21 @@ mod tests {
             )
             .unwrap();
         ctx.handle_final(&final_t("solid landing"));
-        assert!(rec.events.lock().unwrap().is_empty(), "alias is inert outside rep mode");
+        {
+            // Inert outside rep mode: no rep/session/state event — only the
+            // transcript, carrying the backend's handled=false decision.
+            let events = rec.events.lock().unwrap();
+            assert!(
+                events.iter().all(|(e, _)| e == "voice://transcript"),
+                "alias is inert outside rep mode: {events:?}"
+            );
+            assert!(
+                events
+                    .iter()
+                    .any(|(e, p)| e == "voice://transcript" && p["handled"] == json!(false)),
+                "unrouted alias is marked handled=false: {events:?}"
+            );
+        }
         ctx.handle_final(&final_t("open a rep tracker measures 1 to 8 at 80"));
         ctx.handle_final(&final_t("solid landing"));
         let events = rec.events.lock().unwrap();

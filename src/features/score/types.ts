@@ -1,4 +1,5 @@
 import type { BlockHistory, Region } from "../pieces/types";
+import type { AtomicTargetSavePayload } from "./atlas/savePayload";
 
 export interface PdfEdition {
   id: string;
@@ -71,6 +72,8 @@ export interface ScorePdfApi {
   regions: (pieceId: number) => Promise<Region[]>;
   blocks: (pieceId: number) => Promise<BlockHistory[]>;
   updateRegion: (regionId: number, pdfAnchor: PdfAnchorMap | null) => Promise<Region>;
+  /** One atomic Score Atlas target write; native persistence may land separately. */
+  createTarget: (payload: AtomicTargetSavePayload) => Promise<Region>;
 }
 
 /** Visible score state lifted to the shell for the persistent Practice Brain. */

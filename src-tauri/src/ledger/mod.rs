@@ -98,6 +98,15 @@ pub struct LedgerSummary {
     pub contract: ContractEvaluation,
 }
 
+/// Accepted runtime consequences folded beside immutable attempts. These are
+/// projections of append-only recovery rows, never edits to the captured
+/// [`PracticeContract`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RecoveryDirectives {
+    pub reset_after_attempt_id: Option<i64>,
+    pub manual_clean_debt: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LedgerError {
     Protocol(protocol::ProtocolError),
@@ -107,6 +116,7 @@ pub enum LedgerError {
     UnknownOrFutureReversal(i64),
     CrossAttemptReversal { adjustment_id: i64, target_id: i64 },
     InvalidTempo(i64),
+    UnknownRecoveryBoundary(i64),
     CountOverflow,
 }
 
@@ -122,6 +132,22 @@ pub fn derive(
     adjustments: &[AdjustmentRecord],
     active_seconds: u32,
 ) -> Result<LedgerSummary, LedgerError> {
+    derive_with_recovery(
+        contract,
+        attempts,
+        adjustments,
+        active_seconds,
+        RecoveryDirectives::default(),
+    )
+}
+
+pub fn derive_with_recovery(
+    contract: &PracticeContract,
+    attempts: &[AttemptRecord],
+    adjustments: &[AdjustmentRecord],
+    active_seconds: u32,
+    recovery: RecoveryDirectives,
+) -> Result<LedgerSummary, LedgerError> {
     contract.validate()?;
 
     let mut attempt_ids = HashSet::new();
@@ -134,6 +160,11 @@ pub fn derive(
             .is_some_and(|bpm| !bpm.is_finite() || bpm <= 0.0)
         {
             return Err(LedgerError::InvalidTempo(attempt.id));
+        }
+    }
+    if let Some(boundary) = recovery.reset_after_attempt_id {
+        if !attempt_ids.contains(&boundary) {
+            return Err(LedgerError::UnknownRecoveryBoundary(boundary));
         }
     }
 
@@ -242,7 +273,15 @@ pub fn derive(
     let mut source_mix = BTreeMap::new();
     let mut tempo_path = Vec::new();
 
+    let mut recovery_reset_applied = false;
     for attempt in &effective_attempts {
+        if recovery
+            .reset_after_attempt_id
+            .is_some_and(|boundary| !recovery_reset_applied && attempt.id > boundary)
+        {
+            current_clean_streak = 0;
+            recovery_reset_applied = true;
+        }
         if attempt.voided {
             voided_attempts = voided_attempts.saturating_add(1);
             continue;
@@ -286,8 +325,18 @@ pub fn derive(
         }
     }
 
+    // A reset accepted after the latest attempt has no following row on which
+    // to trigger the boundary check above. It still resets the projected streak
+    // immediately while leaving all historical attempts and the best streak.
+    if recovery.reset_after_attempt_id.is_some() && !recovery_reset_applied {
+        current_clean_streak = 0;
+    }
+    if recovery.reset_after_attempt_id.is_some() {
+        reset_count = reset_count.saturating_add(1);
+    }
+
     let accuracy = (tries > 0).then(|| f64::from(clean) / f64::from(tries));
-    let evaluation = protocol::evaluate(
+    let evaluation = protocol::evaluate_with_clean_debt(
         contract,
         EvaluationInput {
             tries,
@@ -296,6 +345,7 @@ pub fn derive(
             active_seconds,
             errors_before_first_clean,
         },
+        recovery.manual_clean_debt,
     )?;
 
     Ok(LedgerSummary {
@@ -343,6 +393,99 @@ mod tests {
             .map(|(index, verdict)| attempt(index as i64 + 1, *verdict))
             .collect::<Vec<_>>();
         derive(&PracticeContract::consecutive_clean(5), &attempts, &[], 0).unwrap()
+    }
+
+    #[test]
+    fn accepted_reset_and_clean_debt_preserve_history_and_extend_one_mastery_projection() {
+        let attempts = (1..=2)
+            .map(|id| attempt(id, AttemptVerdict::Clean))
+            .collect::<Vec<_>>();
+        let out = derive_with_recovery(
+            &PracticeContract::consecutive_clean(5),
+            &attempts,
+            &[],
+            0,
+            RecoveryDirectives {
+                reset_after_attempt_id: Some(2),
+                manual_clean_debt: 2,
+            },
+        )
+        .unwrap();
+        assert_eq!(out.tries, 2);
+        assert_eq!(out.clean, 2);
+        assert_eq!(out.best_clean_streak, 2);
+        assert_eq!(out.current_clean_streak, 0);
+        assert_eq!(out.reset_count, 1);
+        assert_eq!(out.contract.effective_required_success, 7);
+        assert_eq!(out.contract.mastery, MasteryStatus::NotSatisfied);
+
+        let mut recovered = attempts;
+        recovered.extend((3..=9).map(|id| attempt(id, AttemptVerdict::Clean)));
+        let mastered = derive_with_recovery(
+            &PracticeContract::consecutive_clean(5),
+            &recovered,
+            &[],
+            0,
+            RecoveryDirectives {
+                reset_after_attempt_id: Some(2),
+                manual_clean_debt: 2,
+            },
+        )
+        .unwrap();
+        assert_eq!(mastered.current_clean_streak, 7);
+        assert_eq!(mastered.contract.mastery, MasteryStatus::Satisfied);
+    }
+
+    /// Recovery anchors on the physical attempt id — the durable commit
+    /// watermark — not the effective (post-void) latest. A reset accepted after
+    /// an attempt that is later voided must still resolve its boundary, because
+    /// the physical row is present, and reset the projected streak. A boundary
+    /// carrying an id no physical row holds is rejected.
+    #[test]
+    fn recovery_boundary_resolves_on_a_physically_latest_voided_attempt() {
+        let attempts = (1..=3)
+            .map(|id| attempt(id, AttemptVerdict::Clean))
+            .collect::<Vec<_>>();
+        let void_latest = AdjustmentRecord {
+            id: 1,
+            attempt_id: 3,
+            kind: AdjustmentKind::Void,
+            reverses_adjustment_id: None,
+            source: MutationSource::UserClick,
+            reason: None,
+        };
+        let out = derive_with_recovery(
+            &PracticeContract::consecutive_clean(5),
+            &attempts,
+            std::slice::from_ref(&void_latest),
+            0,
+            RecoveryDirectives {
+                reset_after_attempt_id: Some(3),
+                manual_clean_debt: 0,
+            },
+        )
+        .expect("the physical boundary resolves even though attempt 3 is voided");
+        assert_eq!(out.voided_attempts, 1);
+        assert_eq!(out.tries, 2);
+        assert_eq!(out.best_clean_streak, 2);
+        assert_eq!(out.current_clean_streak, 0);
+        assert_eq!(out.reset_count, 1);
+
+        // An id absent from the physical set — as an effective-MAX anchor could
+        // produce once the row is gone — must be rejected, not silently ignored.
+        assert_eq!(
+            derive_with_recovery(
+                &PracticeContract::consecutive_clean(5),
+                &attempts,
+                std::slice::from_ref(&void_latest),
+                0,
+                RecoveryDirectives {
+                    reset_after_attempt_id: Some(4),
+                    manual_clean_debt: 0,
+                },
+            ),
+            Err(LedgerError::UnknownRecoveryBoundary(4))
+        );
     }
 
     #[test]

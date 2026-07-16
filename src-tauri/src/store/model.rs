@@ -246,6 +246,25 @@ pub struct RepOpenArgs {
     pub use_metronome: bool,
 }
 
+/// Optional focus-loop evidence supplied beside `RepOpenArgs` at the IPC
+/// boundary. Keeping it separate preserves all established voice/test struct
+/// constructors while still capturing these fields atomically with set open.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SetFocusContextInput {
+    #[serde(default)]
+    pub intention: Option<String>,
+    #[serde(default)]
+    pub judging_axis: Option<String>,
+    #[serde(default)]
+    pub hands: Option<String>,
+    #[serde(default)]
+    pub method: Option<String>,
+    #[serde(default)]
+    pub planned_seconds: Option<u32>,
+    #[serde(default)]
+    pub reflection: Option<String>,
+}
+
 fn deserialize_nullable_bpm<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where
     D: Deserializer<'de>,
@@ -288,6 +307,181 @@ pub struct LastRep {
     pub verdict: String,
     pub note: Option<String>,
     pub bpm: Option<f64>,
+}
+
+/// Stable reference carried by a durable mutation receipt. It deliberately
+/// avoids filesystem or UI identity and can outlive deletion of a projection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MutationEntityRef {
+    pub entity_type: String,
+    pub entity_id: i64,
+}
+
+/// Outer write contract for V2.4 commands. Committed receipts are persisted in
+/// `practice_operation`; rejected receipts are returned without practice-state
+/// rows. `replayed` is true only when the same command id and fingerprint load
+/// the already-committed value.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MutationReceipt<T> {
+    pub receipt_id: String,
+    /// Stable delivery identity returned on both the first commit and replay.
+    pub command_id: String,
+    pub status: String,
+    pub summary: String,
+    pub value: Option<T>,
+    pub entity_refs: Vec<MutationEntityRef>,
+    pub event_ids: Vec<i64>,
+    pub undo_action: Option<String>,
+    pub error_code: Option<String>,
+    pub error_detail: Option<String>,
+    /// True when this response loaded an already-committed operation.
+    pub replayed: bool,
+    pub committed_ts: Option<String>,
+    /// Internal cache-adoption hint. Session identity is already represented by
+    /// the durable event graph and is not part of the public receipt envelope.
+    #[serde(skip)]
+    pub(crate) session_id: Option<i64>,
+}
+
+impl<T> MutationReceipt<T> {
+    pub fn rejected(
+        command_id: impl Into<String>,
+        code: impl Into<String>,
+        detail: impl Into<String>,
+    ) -> Self {
+        let command_id = command_id.into();
+        let detail = detail.into();
+        Self {
+            receipt_id: format!("rejected:{command_id}"),
+            command_id,
+            status: "rejected".into(),
+            summary: detail.clone(),
+            value: None,
+            entity_refs: Vec::new(),
+            event_ids: Vec::new(),
+            undo_action: None,
+            error_code: Some(code.into()),
+            error_detail: Some(detail),
+            replayed: false,
+            committed_ts: None,
+            session_id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecoveryActionView {
+    pub id: i64,
+    pub kind: String,
+    pub after_attempt_id: Option<i64>,
+    pub payload: serde_json::Value,
+    pub rationale: String,
+    pub source: String,
+    pub created_ts: String,
+}
+
+/// Accepted recovery choice. Every variant is explicit and deterministic; no
+/// model output can enter this enum without first becoming a reviewed draft.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RecoveryActionRequest {
+    ResetStreak {
+        rationale: String,
+    },
+    CleanDebt {
+        clean_count: u32,
+        rationale: String,
+    },
+    TempoBackoff {
+        bpm: f64,
+        rationale: String,
+    },
+    NarrowTarget {
+        m_start: u32,
+        m_end: u32,
+        rationale: String,
+    },
+    ChangeHands {
+        hands: String,
+        rationale: String,
+    },
+    ChangeMethod {
+        method: String,
+        rationale: String,
+    },
+    Break {
+        #[serde(default)]
+        planned_seconds: Option<u32>,
+        rationale: String,
+    },
+    ScheduleRetention {
+        due_date: String,
+        #[serde(default)]
+        condition: RetentionCondition,
+        rationale: String,
+    },
+}
+
+/// A concrete condition at which retention is scheduled or observed. This is
+/// intentionally bounded and typed: arbitrary JSON cannot silently become a
+/// contradictory future work instruction.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetentionCondition {
+    #[serde(default)]
+    pub bpm: Option<f64>,
+    #[serde(default)]
+    pub m_start: Option<u32>,
+    #[serde(default)]
+    pub m_end: Option<u32>,
+    #[serde(default)]
+    pub hands: Option<String>,
+    #[serde(default)]
+    pub method: Option<String>,
+    #[serde(default)]
+    pub judging_axis: Option<String>,
+    #[serde(default)]
+    pub required_clean_streak: Option<u32>,
+    #[serde(default)]
+    pub cold: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetentionDecision {
+    ConfirmRetained,
+    LowerWorkingCondition,
+    ReopenTarget,
+}
+
+/// Reviewed evidence for resolving one retention check. Endpoint and decision
+/// must agree; observed/next conditions keep lower/reopen evidence usable by a
+/// future linked-set workflow without accepting opaque JSON.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetentionResult {
+    pub decision: RetentionDecision,
+    pub note: String,
+    pub checked_as_of: String,
+    #[serde(default)]
+    pub observed_condition: Option<RetentionCondition>,
+    #[serde(default)]
+    pub next_condition: Option<RetentionCondition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RetentionCheckView {
+    pub id: i64,
+    pub region_id: i64,
+    pub source_set_id: Option<i64>,
+    pub due_date: String,
+    pub original_due_date: String,
+    pub condition: RetentionCondition,
+    pub state: String,
+    pub result: Option<RetentionResult>,
+    pub completed_ts: Option<String>,
+    pub created_ts: String,
+    pub updated_ts: String,
 }
 
 /// The full live state of the active rep block. Emitted as `rep://state`,
@@ -345,6 +539,36 @@ pub struct RepSnapshot {
     /// Whether a ladder step retunes the metronome (see [`RepOpenArgs::use_metronome`]).
     #[serde(default = "default_use_metronome")]
     pub use_metronome: bool,
+    /// Persisted focus time. Only closed/checkpointed interval time counts;
+    /// pauses and relaunch gaps are excluded by construction.
+    #[serde(default)]
+    pub active_seconds: u32,
+    #[serde(default)]
+    pub timer_state: String,
+    #[serde(default)]
+    pub intention: Option<String>,
+    #[serde(default)]
+    pub judging_axis: String,
+    #[serde(default)]
+    pub hands: String,
+    #[serde(default)]
+    pub method: String,
+    #[serde(default)]
+    pub planned_seconds: Option<u32>,
+    #[serde(default)]
+    pub reflection: Option<String>,
+    #[serde(default)]
+    pub safety_state: String,
+    #[serde(default)]
+    pub manual_clean_debt: u32,
+    #[serde(default)]
+    pub recovery_actions: Vec<RecoveryActionView>,
+    #[serde(default)]
+    pub retention_check: Option<RetentionCheckView>,
+    #[serde(default)]
+    pub working_m_start: u32,
+    #[serde(default)]
+    pub working_m_end: u32,
 }
 
 /// The result of recording one rep (`rep_check`): the updated snapshot, the new
@@ -356,6 +580,8 @@ pub struct CheckOutcome {
     pub new_bpm: Option<f64>,
     pub block_done: bool,
     pub say: String,
+    #[serde(default)]
+    pub receipt: Option<MutationReceipt<RepSnapshot>>,
 }
 
 /// A session and its event log for the frontend session panel. `events` are
@@ -744,18 +970,15 @@ mod nullable_patch_tests {
         assert!(omitted.color.is_none());
         assert!(omitted.pdf_anchor.is_none());
 
-        let cleared: RegionPatch = serde_json::from_str(
-            r#"{"notes":null,"color":null,"pdf_anchor":null}"#,
-        )
-        .unwrap();
+        let cleared: RegionPatch =
+            serde_json::from_str(r#"{"notes":null,"color":null,"pdf_anchor":null}"#).unwrap();
         assert!(matches!(cleared.notes, Some(None)));
         assert!(matches!(cleared.color, Some(None)));
         assert!(matches!(cleared.pdf_anchor, Some(None)));
 
-        let set: RegionPatch = serde_json::from_str(
-            r##"{"notes":"cue","color":"#fff","pdf_anchor":{"v":1}}"##,
-        )
-        .unwrap();
+        let set: RegionPatch =
+            serde_json::from_str(r##"{"notes":"cue","color":"#fff","pdf_anchor":{"v":1}}"##)
+                .unwrap();
         assert_eq!(set.notes.as_ref().and_then(Option::as_deref), Some("cue"));
         assert_eq!(set.color.as_ref().and_then(Option::as_deref), Some("#fff"));
         assert_eq!(set.pdf_anchor.flatten(), Some(serde_json::json!({"v": 1})));
@@ -763,7 +986,8 @@ mod nullable_patch_tests {
 
     #[test]
     fn every_nullable_command_patch_preserves_explicit_null() {
-        let video: TutorialVideoPatch = serde_json::from_str(r#"{"duration_seconds":null}"#).unwrap();
+        let video: TutorialVideoPatch =
+            serde_json::from_str(r#"{"duration_seconds":null}"#).unwrap();
         assert!(matches!(video.duration_seconds, Some(None)));
         let clip: TutorialClipPatch = serde_json::from_str(r#"{"notes":null}"#).unwrap();
         assert!(matches!(clip.notes, Some(None)));
@@ -778,16 +1002,12 @@ mod nullable_patch_tests {
         assert!(matches!(block.increment_rule, Some(None)));
         let rep: RepPatch = serde_json::from_str(r#"{"note":null}"#).unwrap();
         assert!(matches!(rep.note, Some(None)));
-        let goal: GoalPatch = serde_json::from_str(
-            r#"{"target_date":null,"parent_goal_id":null}"#,
-        )
-        .unwrap();
+        let goal: GoalPatch =
+            serde_json::from_str(r#"{"target_date":null,"parent_goal_id":null}"#).unwrap();
         assert!(matches!(goal.target_date, Some(None)));
         assert!(matches!(goal.parent_goal_id, Some(None)));
-        let work: DailyWorkPatch = serde_json::from_str(
-            r#"{"region_id":null,"block_id":null}"#,
-        )
-        .unwrap();
+        let work: DailyWorkPatch =
+            serde_json::from_str(r#"{"region_id":null,"block_id":null}"#).unwrap();
         assert!(matches!(work.region_id, Some(None)));
         assert!(matches!(work.block_id, Some(None)));
         let piece: PieceFieldPatch = serde_json::from_str(
@@ -798,5 +1018,67 @@ mod nullable_patch_tests {
         assert!(matches!(piece.deadline, Some(None)));
         assert!(matches!(piece.target_tempo, Some(None)));
         assert!(matches!(piece.notes, Some(None)));
+    }
+}
+
+#[cfg(test)]
+mod receipt_wire_contract_tests {
+    use super::*;
+
+    fn committed(replayed: bool) -> MutationReceipt<i64> {
+        MutationReceipt {
+            receipt_id: "receipt:cmd-x".into(),
+            command_id: "cmd-x".into(),
+            status: "committed".into(),
+            summary: "Attempt 1 saved.".into(),
+            value: Some(7),
+            entity_refs: vec![MutationEntityRef {
+                entity_type: "set".into(),
+                entity_id: 3,
+            }],
+            event_ids: vec![11, 12],
+            undo_action: Some("rep_undo".into()),
+            error_code: None,
+            error_detail: None,
+            replayed,
+            committed_ts: Some("2026-07-15T14:00:00Z".into()),
+            session_id: Some(42),
+        }
+    }
+
+    /// The receipt is the whole frontend delivery contract: `command_id`,
+    /// `replayed`, and `committed_ts` are always present with their expected
+    /// values; `committed_ts` is JSON null only on a rejection; and the internal
+    /// `session_id` never crosses the wire.
+    #[test]
+    fn mutation_receipt_json_exposes_delivery_fields() {
+        // (i) committed, first delivery.
+        let first = serde_json::to_value(committed(false)).unwrap();
+        assert_eq!(first["command_id"], "cmd-x");
+        assert_eq!(first["replayed"], serde_json::Value::Bool(false));
+        assert_eq!(first["committed_ts"], "2026-07-15T14:00:00Z");
+        assert!(
+            first.get("session_id").is_none(),
+            "session identity stays off the public envelope"
+        );
+
+        // (ii) committed, replayed retry — same durable value, replayed=true.
+        let replayed = serde_json::to_value(committed(true)).unwrap();
+        assert_eq!(replayed["command_id"], "cmd-x");
+        assert_eq!(replayed["replayed"], serde_json::Value::Bool(true));
+        assert_eq!(replayed["committed_ts"], "2026-07-15T14:00:00Z");
+        assert!(replayed.get("session_id").is_none());
+
+        // (iii) rejected — no committed timestamp, never replayed.
+        let rejected = serde_json::to_value(MutationReceipt::<i64>::rejected(
+            "cmd-x",
+            "invalid",
+            "note must be 1 to 2000 characters",
+        ))
+        .unwrap();
+        assert_eq!(rejected["command_id"], "cmd-x");
+        assert_eq!(rejected["replayed"], serde_json::Value::Bool(false));
+        assert_eq!(rejected["committed_ts"], serde_json::Value::Null);
+        assert!(rejected.get("session_id").is_none());
     }
 }

@@ -16,6 +16,7 @@ import type {
   PdfRenderTask,
   ScorePdfApi,
 } from "./types";
+import type { AtomicTargetSavePayload } from "./atlas/savePayload";
 
 const EDITIONS: PdfEdition[] = [
   { id: "urtext", label: "Urtext", size_bytes: 100, modified_unix: 1, fingerprint: "a", selected: true },
@@ -63,8 +64,63 @@ function makeApi(overrides: Partial<ScorePdfApi> = {}): ScorePdfApi {
     regions: vi.fn().mockResolvedValue([]),
     blocks: vi.fn().mockResolvedValue([]),
     updateRegion: vi.fn(),
+    createTarget: vi.fn().mockImplementation(async (payload) => synthesizeSavedRegion(payload)),
     ...overrides,
   };
+}
+
+/** A backend-shaped Region receipt echoing an atomic target save payload. */
+function synthesizeSavedRegion(payload: AtomicTargetSavePayload) {
+  const range = payload.asserted_measure_range!;
+  const edition = payload.edition!;
+  return {
+    id: 9001,
+    piece_id: payload.piece_id,
+    name: payload.title ?? `Target · mm. ${range.m_start}–${range.m_end}`,
+    notes: payload.note ?? null,
+    m_start: range.m_start,
+    m_end: range.m_end,
+    kind: "hard_spot",
+    order: 99,
+    color: null,
+    pdf_anchor: {
+      v: 1,
+      editions: {
+        [edition.edition_id]: {
+          fingerprint: edition.edition_fingerprint,
+          rects: payload.anchor!.rects,
+        },
+      },
+    },
+  };
+}
+
+/** A Region whose current-edition mark contains any drawn selection, so the
+ * draft editor offers a reviewable measure candidate. */
+function mappedRegion() {
+  return {
+    id: 4, piece_id: 7, name: "Development", notes: "Even groups",
+    m_start: 40, m_end: 56, kind: "hard_spot", order: 0, color: "#8b7cf6",
+    pdf_anchor: {
+      v: 1,
+      editions: { urtext: { fingerprint: "a", rects: [{ page: 1, x: 0, y: 0, w: 1, h: 1 }] } },
+    },
+  };
+}
+
+/** Enter target mode, drag one rectangle on page 1, and confirm the candidate
+ * measure range so the draft is ready to save. */
+async function drawAndConfirmTarget() {
+  fireEvent.click(screen.getByRole("button", { name: "Draw target" }));
+  const overlay = await screen.findByTestId("atlas-target-overlay-1");
+  vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({
+    x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 800,
+    width: 1000, height: 800, toJSON: () => ({}),
+  });
+  fireEvent.pointerDown(overlay, { pointerId: 1, button: 0, clientX: 100, clientY: 200 });
+  fireEvent.pointerMove(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
+  fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
+  fireEvent.click(await screen.findByRole("button", { name: "Confirm corrected range" }));
 }
 
 function makePdf(pageCount = 5) {
@@ -484,5 +540,83 @@ describe("ScoreView", () => {
     fireEvent.submit(screen.getByLabelText("Page number").closest("form")!);
     expect(HTMLElement.prototype.scrollTo).toHaveBeenCalled();
     expect(screen.getByLabelText("Page number").getAttribute("value")).toBe("4");
+  });
+
+  it("sends one validated, idempotent Score Atlas payload from a drawn, confirmed target", async () => {
+    const createTarget = vi.fn().mockImplementation(async (payload) => synthesizeSavedRegion(payload));
+    const api = makeApi({ regions: vi.fn().mockResolvedValue([mappedRegion()]), createTarget });
+    render(<ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />);
+    await screen.findByLabelText("Score page 1");
+
+    await drawAndConfirmTarget();
+    fireEvent.change(screen.getByLabelText("Target title"), { target: { value: "Coda leap" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save target" }));
+
+    await waitFor(() => expect(createTarget).toHaveBeenCalledTimes(1));
+    const payload = createTarget.mock.calls[0][0] as AtomicTargetSavePayload;
+    expect(payload).toMatchObject({
+      piece_id: 7,
+      title: "Coda leap",
+      asserted_measure_range: { m_start: 40, m_end: 56 },
+      edition: { edition_id: "urtext", edition_fingerprint: "a" },
+    });
+    expect(typeof payload.command_id).toBe("string");
+    expect(payload.command_id).toBeTruthy();
+    expect(payload.anchor).toMatchObject({
+      schema_version: 1,
+      edition_id: "urtext",
+      edition_fingerprint: "a",
+    });
+    expect(payload.anchor!.rects[0]).toMatchObject({ page: 1, x: 0.1, y: 0.25, w: 0.4, h: 0.25 });
+    expect(payload.mapping_evidence!.status).toBe("calibrated_user_confirmed");
+  });
+
+  it("rounds a successful save into a selected, selectable Region", async () => {
+    const onRegionsChanged = vi.fn();
+    const api = makeApi({ regions: vi.fn().mockResolvedValue([mappedRegion()]) });
+    render(
+      <ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} onRegionsChanged={onRegionsChanged} />,
+    );
+    await screen.findByLabelText("Score page 1");
+
+    await drawAndConfirmTarget();
+    fireEvent.change(screen.getByLabelText("Target title"), { target: { value: "Coda leap" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save target" }));
+
+    expect(await screen.findByText(/Target saved as .Coda leap./)).toBeTruthy();
+    const savedRow = await screen.findByRole("button", { name: "Coda leap, measures 40 to 56" });
+    expect(savedRow.className).toContain("is-selected");
+    await waitFor(() => expect(onRegionsChanged).toHaveBeenCalledTimes(1));
+    // The drawing draft closed once the target became a real Region.
+    expect(screen.queryByRole("button", { name: "Cancel drawing" })).toBeNull();
+  });
+
+  it("surfaces a save failure and preserves the open draft", async () => {
+    const createTarget = vi.fn().mockRejectedValue(new Error("Native target save failed."));
+    const api = makeApi({ regions: vi.fn().mockResolvedValue([mappedRegion()]), createTarget });
+    render(<ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />);
+    await screen.findByLabelText("Score page 1");
+
+    await drawAndConfirmTarget();
+    fireEvent.click(screen.getByRole("button", { name: "Save target" }));
+
+    expect(await screen.findByText("Native target save failed.")).toBeTruthy();
+    // The draft stays open so the drawn target is not lost.
+    expect(screen.getByRole("button", { name: "Save target" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel drawing" })).toBeTruthy();
+  });
+
+  it("restores the tricky-sections sidebar after switching pieces mid-draft", async () => {
+    const pdf = makePdf(1);
+    const api = makeApi();
+    const view = render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+    await screen.findByLabelText("Score page 1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Draw target" }));
+    expect(document.querySelector(".score-body")?.className).toContain("is-sections-hidden");
+
+    view.rerender(<ScoreView pieceId={8} api={api} adapter={pdf.adapter} />);
+    await screen.findByLabelText("Score page 1");
+    expect(document.querySelector(".score-body")?.className).not.toContain("is-sections-hidden");
   });
 });

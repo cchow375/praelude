@@ -2,6 +2,63 @@
 
 ## Decisions
 
+- **P7 / v2.0.0 practice-loop stabilization — recovered night build, verified SHIP (2026-07-16):**
+  - **Trust nothing an interrupted fixer claims; verify per blocker.** The July 15 Codex night
+    build died at its 21:28 vendor lockout mid-edit (84 uncommitted files, non-compiling, its own
+    verifier's NO-SHIP list of eight semantic blockers, fix pass half-applied). Per-blocker
+    adversarial verification found 7/8 production fixes correct but proven by zero tests; the 8th
+    was live: `v2_adjust` omitted `mastered` from `preserves_terminal_lineage`, so undo/correct/
+    reverse flipped a mastered set back to `active` (reachable — `correct`/`v2_undo`/
+    `v2_reverse_adjustment` all hardcode `keep_open=true`). One-token fix; `v2_restart`/`v2_close`
+    already reject terminal states, so it was the only leak.
+  - **Every blocker now has regression proof (11 new tests), three proven to bite** by
+    temporarily re-breaking production and watching them fail: safety-stop replay never repeats
+    the physical stop (and threaded resume can't overtake it — the active mutex holds across the
+    stop); an idempotent retry that implicitly opens a session creates exactly one `session` row;
+    recovery anchors on physical `MAX(id)` even when the latest attempt is voided (effective
+    anchoring would cascade into a wrong mastery retune, bpm 70→80); live gaps >60s cap at +60s
+    with `end_reason='suspension'` and a backward clock is rejected; `MutationReceipt` JSON
+    exposes `command_id`/`replayed`/`committed_ts`, never `session_id`; retention rejects
+    impossible dates (`2026-02-30`, non-leap `02-29`) and mismatched/incomplete evidence at every
+    entry point with zero rows written.
+  - **Score Atlas target save is real now.** New `store/score_atlas.rs` +
+    `score_atlas_target_save` registration: one transaction creates Region + `target_meta` +
+    `region_change`, reusing `begin_operation` idempotency with `command_id =
+    score-atlas-target:{draft id}` carried from the frontend (`savePayload.ts` /
+    `TargetDraftEditor`). Replay returns the committed Region; a reused id with different
+    geometry rejects. NO schema change (v10 untouched). Sidebar-on-piece-switch fixed via
+    `sectionsStashedRef` — restores only a draft-hidden sidebar, preserving manual collapse.
+    `calibration/hierarchy/fingerprint` atlas modules stay deliberately staged-unintegrated
+    (ScoreView still uses local `mappingFromRegionAnchors`).
+  - **Voice set-opening has one owner.** `voice://transcript` now carries an authoritative
+    `handled: bool` (classify → emit → act inside `handle_final`; interims stay `handled=false`);
+    Shell's Lane-B draft gate short-circuits `handled === true`, killing the cross-lane
+    double-open ("start a rep tracker measures 40 to 56 at 80" previously opened via the hot loop
+    AND drafted). The 2.5s dedup + half-duplex invariants are unchanged. Dead hook outputs
+    removed (`submitTyped`/`transcript`/`downReason` — no plan item schedules consumers);
+    `deliveryDisposition` wired into VoiceToast for duplicate/stale feedback.
+  - **SessionComposer stays unmounted deliberately.** Component + candidates hook complete, 38
+    tests green, all five candidate commands real — but NO backend command starts a reviewed
+    session plan (only per-block `rep_open` and `session_current`/`session_end` exist). An honest
+    Start needs that backend decision first (new plan-start receipt command vs UI-orchestrated
+    `rep_open` of item 1). Do not mount before then; do not rediscover this.
+  - **Universe/Shell confirmed real, not placeholder** (fresh audit): `universe_snapshot`-fed;
+    anti-gaming holds — star size from `focused_seconds` only, maturity excludes raw clean
+    counts, mastery ring = verified contracts, admin events firewalled. Browser visual QA still
+    unrun (needs a packaged/dev run).
+  - **Rehearsal 7→10 exact + idempotent reopen** on fresh copies of backup `4b21549…`:
+    user_version 10, quick/integrity ok, FK 0, counts 6/27/48/481/21/8/628/670 preserved, 127
+    `bpm=0.0` sentinels intact, backfill 27/48/481/628, 792 anomalies. Live DB and installed
+    v1.3.0 never touched.
+  - **Gates at this commit:** Rust lib 436 passed / 0 failed / 10 ignored + knowledge 9 +
+    narrated firewall 2 + STT 9 + TTS gate 4, strict clippy clean; vitest 587 across 63 files;
+    production build green. Fresh whole-tree adversarial verdict: SHIP (all 56 invoked commands
+    registered, zero duplicates; no bite-check residue; composer unmounted).
+  - **Multi-agent-on-one-tree gotchas:** a concurrent full-suite run can catch another lane's
+    TDD window red — judge only the settled tree; NEVER `git stash` on the big uncommitted slice
+    (one lane's stash/pop nearly reverted it; recovered intact); disjoint file ownership per lane
+    is what made three concurrent executors safe.
+
 - **P7 / v2.0.0 authoritative practice-truth cutover (2026-07-15; exact-tree source, not
   installed):**
   - **One Rust projection now owns practice meaning.** `RepEngine` coordinates schema-v9

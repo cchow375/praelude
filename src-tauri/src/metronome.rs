@@ -30,7 +30,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::audio::{
-    Clicks, ClickPattern, Engine, EngineConfig, EngineHandle, PcmError, MAX_BPM, MAX_SUBDIVISION,
+    ClickPattern, Clicks, Engine, EngineConfig, EngineHandle, PcmError, MAX_BPM, MAX_SUBDIVISION,
     MIN_BPM,
 };
 use crate::store::Store;
@@ -562,7 +562,7 @@ fn persist(store: &Store, s: &MetroState) {
 }
 
 /// Emit the state event to the frontend. Best-effort.
-fn emit(app: &AppHandle, s: &MetroState) {
+pub(crate) fn emit(app: &AppHandle, s: &MetroState) {
     if let Err(e) = app.emit("metro://state", s) {
         eprintln!("metronome: failed to emit metro://state: {e}");
     }
@@ -701,7 +701,10 @@ mod tests {
 
         let (state, result) = metro.do_start(None);
 
-        assert!(result.is_err(), "start must fail when the engine can't start");
+        assert!(
+            result.is_err(),
+            "start must fail when the engine can't start"
+        );
         assert!(
             !state.running,
             "running rolled back to false on a dead engine"
@@ -717,7 +720,10 @@ mod tests {
             metro.lock().guard.is_none(),
             "boost guard cleared after rollback"
         );
-        assert!(metro.lock().handle.is_none(), "no live engine after failure");
+        assert!(
+            metro.lock().handle.is_none(),
+            "no live engine after failure"
+        );
     }
 
     // (b) A sound-change restart must be REFUSED while a fake handle reports PCM
@@ -745,8 +751,16 @@ mod tests {
         metro.lock().handle = Some(EngineHandle::test_handle(48_000, 4096));
 
         let store = Store::open(":memory:").expect("in-memory store");
-        let (state, result) =
-            metro.do_set(&store, None, None, None, None, Some("cowbell".into()), None, None);
+        let (state, result) = metro.do_set(
+            &store,
+            None,
+            None,
+            None,
+            None,
+            Some("cowbell".into()),
+            None,
+            None,
+        );
 
         let err = result.expect_err("sound change must be refused while speech plays");
         assert!(err.contains("busy"), "descriptive busy error, got: {err}");
@@ -858,8 +872,16 @@ mod tests {
         metro.lock().handle = Some(EngineHandle::test_handle(48_000, 0));
 
         let store = Store::open(":memory:").expect("in-memory store");
-        let (state, result) =
-            metro.do_set(&store, None, None, None, None, Some("cowbell".into()), None, None);
+        let (state, result) = metro.do_set(
+            &store,
+            None,
+            None,
+            None,
+            None,
+            Some("cowbell".into()),
+            None,
+            None,
+        );
 
         assert!(result.is_ok(), "restart succeeds when speech is done");
         assert_eq!(state.sound, "cowbell", "new sound applied");
@@ -915,7 +937,10 @@ mod tests {
         assert!(result.is_ok(), "start succeeds with a working engine seam");
         assert!(state.running, "running after a successful start");
         assert_eq!(state.bpm, 150.0, "bpm applied");
-        assert!(metro.lock().handle.is_some(), "live engine handle installed");
+        assert!(
+            metro.lock().handle.is_some(),
+            "live engine handle installed"
+        );
     }
 
     #[test]

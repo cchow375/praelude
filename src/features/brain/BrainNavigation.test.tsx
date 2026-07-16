@@ -42,7 +42,7 @@ describe("Brain navigation", () => {
     const trigger = screen.getByRole("button", { name: "Brain" });
     fireEvent.click(trigger);
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByRole("tab", { name: "Home" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Today" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByTestId("main-brain")).toBeTruthy();
   });
 

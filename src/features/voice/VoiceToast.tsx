@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { VoiceIntent, VoiceStatus } from "./useVoice";
+import type { VoiceDeliveryDisposition } from "./domain/delivery";
 import "./VoiceToast.css";
 
 // ---------------------------------------------------------------------------
@@ -52,15 +53,42 @@ export function labelForIntent(intent: VoiceIntent): string {
   }
 }
 
+/**
+ * A concise note when the delivery firewall drops a final. Only duplicate and
+ * stale-revision transports get a toast; accepted deliveries speak for
+ * themselves and `invalid` is a developer-facing transport fault, not a user
+ * event.
+ */
+export function deliveryDispositionNote(
+  disposition: VoiceDeliveryDisposition,
+): string | null {
+  switch (disposition.kind) {
+    case "duplicate":
+      return "Heard that already.";
+    case "stale_revision":
+      return "Ignored older speech.";
+    default:
+      return null;
+  }
+}
+
 interface VoiceToastProps {
   /** The latest recognised intent; a new object reference on every event. */
   lastIntent: VoiceIntent | null;
   status: VoiceStatus;
   downGuidance: string | null;
+  /** Latest transport disposition; a new reference on every delivery. */
+  deliveryDisposition?: VoiceDeliveryDisposition | null;
 }
 
-export function VoiceToast({ lastIntent, status, downGuidance }: VoiceToastProps) {
+export function VoiceToast({
+  lastIntent,
+  status,
+  downGuidance,
+  deliveryDisposition = null,
+}: VoiceToastProps) {
   const [toast, setToast] = useState<VoiceIntent | null>(null);
+  const [deliveryToast, setDeliveryToast] = useState<string | null>(null);
   // The guidance string the user has dismissed. The banner is hidden only while
   // this equals the CURRENT guidance, so a different down reason re-shows it.
   const [dismissedGuidance, setDismissedGuidance] = useState<string | null>(null);
@@ -73,6 +101,17 @@ export function VoiceToast({ lastIntent, status, downGuidance }: VoiceToastProps
     const t = setTimeout(() => setToast(null), TOAST_MS);
     return () => clearTimeout(t);
   }, [lastIntent]);
+
+  // A duplicate/stale delivery gets a concise, auto-dismissing note. Each
+  // disposition is a fresh object reference, so a repeated drop re-toasts.
+  useEffect(() => {
+    if (!deliveryDisposition) return;
+    const note = deliveryDispositionNote(deliveryDisposition);
+    if (!note) return;
+    setDeliveryToast(note);
+    const t = setTimeout(() => setDeliveryToast(null), TOAST_MS);
+    return () => clearTimeout(t);
+  }, [deliveryDisposition]);
 
   // When the pipeline recovers (status leaves "down"), clear the dismissal so the
   // banner is shown again the next time it goes down.
@@ -103,6 +142,11 @@ export function VoiceToast({ lastIntent, status, downGuidance }: VoiceToastProps
         <div className="voice-toast" role="status">
           {toast.text && <span className="voice-toast-heard">{toast.text}</span>}
           <span className="voice-toast-label">{labelForIntent(toast)}</span>
+        </div>
+      )}
+      {deliveryToast && (
+        <div className="voice-toast is-transport" role="status">
+          <span className="voice-toast-label">{deliveryToast}</span>
         </div>
       )}
     </div>

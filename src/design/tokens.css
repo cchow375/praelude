@@ -1,40 +1,40 @@
-/* ===========================================================================
-   CodaKiller design tokens
-   ---------------------------------------------------------------------------
-   Apple-website-grade restraint. One system, two first-class themes selected by
-   [data-theme] on <html>. Light is the default; dark is a hand-tuned warm
-   near-black surface set, NOT inverted colors. Consume these variables only —
-   never hardcode a hex outside this file.
+/* ==========================================================================
+   CodaKiller v2 — editorial instrument tokens
+   --------------------------------------------------------------------------
+   The operational app is paper, ink, and one terracotta signal. Colour is
+   reserved for score marks and the earned Universe. Components consume only
+   these variables; this file is the single visual source of truth.
    ========================================================================== */
 
 :root {
-  /* -- Typography -------------------------------------------------------- */
-  /* System stack: SF Pro on Apple platforms, graceful fallbacks elsewhere.
-     No monospace for body text anywhere in the app. */
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
-    "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  /* Native Mac faces keep the app fast/offline while avoiding generic web UI. */
+  --font-display: "New York", "Iowan Old Style", "Palatino Linotype", Baskerville,
+    Georgia, serif;
+  --font-sans: "Avenir Next", Avenir, "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: Menlo, Monaco, "SFMono-Regular", monospace;
 
-  /* Fluid-ish modular scale (1.25). Sizes are calm; hierarchy comes from
-     weight and whitespace more than from size jumps. */
-  --text-xs: 0.75rem; /* 12 */
-  --text-sm: 0.875rem; /* 14 */
-  --text-base: 1rem; /* 16 */
-  --text-lg: 1.125rem; /* 18 */
-  --text-xl: 1.375rem; /* 22 */
-  --text-2xl: 1.75rem; /* 28 */
-  --text-3xl: 2.25rem; /* 36 */
+  --text-2xs: 0.625rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: clamp(2.25rem, 5vw, 4.75rem);
+  --text-hero: clamp(3.2rem, 9vw, 8.5rem);
 
   --weight-normal: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
+  --weight-bold: 700;
 
-  --leading-tight: 1.15;
+  --leading-solid: 0.92;
+  --leading-tight: 1.12;
   --leading-normal: 1.5;
-
-  --tracking-tight: -0.014em;
+  --tracking-tight: -0.028em;
   --tracking-normal: 0;
+  --tracking-label: 0.115em;
 
-  /* -- Spacing (4px base, generous) ------------------------------------- */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -45,79 +45,95 @@
   --space-8: 4rem;
   --space-9: 6rem;
 
-  /* -- Radii (soft, large) ---------------------------------------------- */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 22px;
+  /* Matte artifacts use clipped corners and modest rounding, never bubbles. */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
   --radius-pill: 999px;
 
-  /* -- Layout ------------------------------------------------------------ */
-  --topbar-height: 48px;
+  --rail-width: 76px;
+  --topbar-height: 54px;
 
-  /* -- Motion (fluid 150–250ms spring feel via ease) --------------------- */
+  --ease-human: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
-  --duration-fast: 150ms;
-  --duration-base: 200ms;
-  --duration-slow: 250ms;
+  --duration-instant: 90ms;
+  --duration-fast: 140ms;
+  --duration-base: 190ms;
+  --duration-slow: 310ms;
 
-  /* -- Accent (single restrained hue, readable in both themes) ---------- */
-  /* A muted indigo — calm, not neon, distinct from typical "tech blue". */
-  --accent: #5b5bd6;
-  --accent-hover: #6d6de0;
-  --accent-contrast: #ffffff;
-  --success: #2f8f5b;
-  --warning: #a86f16;
-  --danger: #c93d45;
+  --accent: #9f4937;
+  --accent-hover: #873927;
+  --accent-soft: #ead8d0;
+  --accent-contrast: #fffaf5;
+  --success: #496b51;
+  --warning: #9a6a28;
+  --danger: #a43d34;
+  --info: #315f6d;
 }
 
-/* --- Light theme (default) ---------------------------------------------- */
 :root,
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --surface-app: #f6f6f7; /* window background */
-  --surface-raised: #ffffff; /* cards, top bar */
-  --surface-popover: #ffffff;
-  --surface-hover: rgba(0, 0, 0, 0.04);
-  --surface-active: rgba(0, 0, 0, 0.07);
+  --surface-app: #f0eee9;
+  --surface-canvas: #e8e4dc;
+  --surface-raised: #f8f5ef;
+  --surface-popover: #fbf8f2;
+  --surface-ink: #171512;
+  --surface-hover: #e3ded5;
+  --surface-active: #d7d0c5;
+  --surface-muted: #e8e4dc;
 
-  --ink-primary: #1c1c1e;
-  --ink-secondary: #5c5c63;
-  --ink-tertiary: #8a8a91;
+  --ink-primary: #171512;
+  --ink-secondary: #57514a;
+  --ink-tertiary: #817970;
+  --ink-on-dark: #f5f0e7;
 
-  --hairline: rgba(0, 0, 0, 0.08);
+  --hairline: rgb(23 21 18 / 15%);
+  --hairline-strong: rgb(23 21 18 / 30%);
+  --paper-grain: rgb(23 21 18 / 2.2%);
 
-  --shadow-popover: 0 12px 32px -8px rgba(15, 15, 25, 0.18),
-    0 2px 8px -2px rgba(15, 15, 25, 0.1);
-  --shadow-topbar: 0 1px 0 rgba(0, 0, 0, 0.05);
+  --shadow-card: 0 1px 0 rgb(255 255 255 / 70%), 0 8px 22px rgb(31 25 18 / 7%);
+  --shadow-lifted: 0 2px 0 rgb(23 21 18 / 14%), 0 18px 40px rgb(31 25 18 / 16%);
+  --shadow-popover: 0 2px 0 rgb(23 21 18 / 12%), 0 22px 54px rgb(31 25 18 / 18%);
+  --shadow-topbar: 0 1px 0 var(--hairline-strong);
 }
 
-/* --- Dark theme (first-class, warm near-black) -------------------------- */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --surface-app: #111012; /* warm near-black, not pure #000 */
-  --surface-raised: #1b1a1e;
-  --surface-popover: #232227;
-  --surface-hover: rgba(255, 255, 255, 0.06);
-  --surface-active: rgba(255, 255, 255, 0.1);
+  --surface-app: #171513;
+  --surface-canvas: #201d19;
+  --surface-raised: #27231f;
+  --surface-popover: #2e2924;
+  --surface-ink: #eee8df;
+  --surface-hover: #332e28;
+  --surface-active: #403932;
+  --surface-muted: #211e1a;
 
-  --ink-primary: #f2f1f4;
-  --ink-secondary: #a7a5ad;
-  --ink-tertiary: #6f6d75;
+  --ink-primary: #f2ede4;
+  --ink-secondary: #c1b8ac;
+  --ink-tertiary: #8f857a;
+  --ink-on-dark: #171512;
 
-  --hairline: rgba(255, 255, 255, 0.09);
+  --hairline: rgb(242 237 228 / 12%);
+  --hairline-strong: rgb(242 237 228 / 24%);
+  --paper-grain: rgb(255 255 255 / 1.8%);
 
-  --shadow-popover: 0 16px 40px -10px rgba(0, 0, 0, 0.6),
-    0 2px 10px -2px rgba(0, 0, 0, 0.5);
-  --shadow-topbar: 0 1px 0 rgba(255, 255, 255, 0.04);
+  --accent: #cf7862;
+  --accent-hover: #df8a73;
+  --accent-soft: #4c2d25;
+  --accent-contrast: #171512;
+  --success: #80a487;
+  --warning: #c79b59;
+  --danger: #df7469;
+  --info: #79a6b0;
 
-  /* Nudge the accent slightly brighter so it holds contrast on dark. */
-  --accent: #7c7cf0;
-  --accent-hover: #9090f5;
-  --success: #55b982;
-  --warning: #d7a34b;
-  --danger: #ef6b72;
+  --shadow-card: 0 1px 0 rgb(255 255 255 / 5%), 0 10px 28px rgb(0 0 0 / 20%);
+  --shadow-lifted: 0 2px 0 rgb(0 0 0 / 35%), 0 20px 46px rgb(0 0 0 / 34%);
+  --shadow-popover: 0 2px 0 rgb(0 0 0 / 38%), 0 24px 58px rgb(0 0 0 / 45%);
+  --shadow-topbar: 0 1px 0 var(--hairline-strong);
 }

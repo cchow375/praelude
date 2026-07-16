@@ -13,25 +13,65 @@ export interface HistoryGroup {
 }
 
 export type HistorySort = "recent" | "by-measure" | "most-practiced";
+export type HistoryFocus = "all" | BlockHistory["focus"];
+export type HistoryEvidence =
+  | "all"
+  | "mastered"
+  | "unresolved"
+  | "recovery"
+  | "errors"
+  | "legacy";
+
+const INITIAL_VISIBLE_GROUPS = 10;
+
+function blockMatchesEvidence(block: BlockHistory, evidence: HistoryEvidence): boolean {
+  if (evidence === "all") return true;
+  if (evidence === "mastered") {
+    return block.mastery_verified === true && block.mastery_status === "satisfied";
+  }
+  if (evidence === "unresolved") {
+    return block.mastery_verified === true && block.mastery_status !== "satisfied";
+  }
+  if (evidence === "recovery") {
+    return (block.recovery_remaining ?? 0) > 0 || (block.reset_count ?? 0) > 0;
+  }
+  if (evidence === "errors") {
+    return block.verdicts.flawed > 0 || block.verdicts.failed > 0;
+  }
+  return block.mastery_verified !== true || block.mastery_status === "unverified_legacy";
+}
 
 export function filterSortHistory(
   groups: HistoryGroup[],
-  options: { query: string; sort: HistorySort },
+  options: {
+    query: string;
+    sort: HistorySort;
+    focus?: HistoryFocus;
+    evidence?: HistoryEvidence;
+  },
 ): HistoryGroup[] {
   const query = options.query.trim().toLocaleLowerCase();
-  const filtered = query
-    ? groups.filter((group) => {
+  const focus = options.focus ?? "all";
+  const evidence = options.evidence ?? "all";
+  const filtered = groups.flatMap((group) => {
+    const matchingBlocks = group.blocks.filter((block) => (
+      (focus === "all" || block.focus === focus)
+      && blockMatchesEvidence(block, evidence)
+    ));
+    if (matchingBlocks.length === 0) return [];
+    if (query) {
         const regionText = group.region
           ? `${group.region.name} ${group.region.m_start} ${group.region.m_end} mm.${group.region.m_start}-${group.region.m_end}`
           : group.unavailableRegionId != null
             ? "section metadata unavailable"
             : "ungrouped no region";
-        const blockText = group.blocks
+        const blockText = matchingBlocks
           .map((block) => `${block.label ?? ""} ${block.m_start} ${block.m_end} mm.${block.m_start}-${block.m_end}`)
           .join(" ");
-        return `${regionText} ${blockText}`.toLocaleLowerCase().includes(query);
-      })
-    : [...groups];
+        if (!`${regionText} ${blockText}`.toLocaleLowerCase().includes(query)) return [];
+    }
+    return [{ ...group, blocks: matchingBlocks }];
+  });
   return filtered.sort((a, b) => {
     if (options.sort === "by-measure") {
       const aStart = a.region?.m_start ?? Math.min(...a.blocks.map((block) => block.m_start));
@@ -103,6 +143,9 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<HistorySort>("recent");
+  const [focus, setFocus] = useState<HistoryFocus>("all");
+  const [evidence, setEvidence] = useState<HistoryEvidence>("all");
+  const [visibleGroupCount, setVisibleGroupCount] = useState(INITIAL_VISIBLE_GROUPS);
   const mounted = useRef(false);
   const loadGeneration = useRef(0);
 
@@ -161,9 +204,14 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
     [blocks, regions, summary],
   );
   const visibleGroups = useMemo(
-    () => filterSortHistory(groups, { query, sort }),
-    [groups, query, sort],
+    () => filterSortHistory(groups, { query, sort, focus, evidence }),
+    [evidence, focus, groups, query, sort],
   );
+  const renderedGroups = visibleGroups.slice(0, visibleGroupCount);
+
+  useEffect(() => {
+    setVisibleGroupCount(INITIAL_VISIBLE_GROUPS);
+  }, [evidence, focus, pieceId, query, sort]);
 
   return (
     <section className="history-panel" aria-label="Practice history">
@@ -174,6 +222,30 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
       {!loading && groups.length > 0 && (
         <div className="history-toolbar">
           <label className="history-search"><span className="history-search-icon" aria-hidden="true">⌕</span><input type="search" aria-label="Search practice history" placeholder="Section, label, or measure…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+          <label className="history-filter">
+            <span>Focus</span>
+            <select aria-label="Filter practice history by focus" value={focus} onChange={(event) => setFocus(event.target.value as HistoryFocus)}>
+              <option value="all">All focus</option>
+              <option value="tempo">Tempo</option>
+              <option value="notes">Notes</option>
+              <option value="phrasing">Phrasing</option>
+              <option value="dynamics">Dynamics</option>
+              <option value="memory">Memory</option>
+              <option value="hands">Hands</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label className="history-filter">
+            <span>Evidence</span>
+            <select aria-label="Filter practice history by evidence" value={evidence} onChange={(event) => setEvidence(event.target.value as HistoryEvidence)}>
+              <option value="all">All evidence</option>
+              <option value="mastered">Mastery verified</option>
+              <option value="unresolved">Unresolved</option>
+              <option value="recovery">Recovery/reset</option>
+              <option value="errors">Contains errors</option>
+              <option value="legacy">Legacy/unverified</option>
+            </select>
+          </label>
           <select aria-label="Sort practice history" value={sort} onChange={(event) => setSort(event.target.value as HistorySort)}>
             <option value="recent">Most recent</option>
             <option value="by-measure">By measure</option>
@@ -181,9 +253,9 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
           </select>
         </div>
       )}
-      {loading ? <p className="history-empty">Loading history…</p> : groups.length === 0 ? <p className="history-empty">No practice sets yet.</p> : visibleGroups.length === 0 ? <p className="history-empty">No sections match “{query}”.</p> : (
+      {loading ? <p className="history-empty">Loading history…</p> : groups.length === 0 ? <p className="history-empty">No practice sets yet.</p> : visibleGroups.length === 0 ? <p className="history-empty">{query ? `No sections match “${query}”.` : "No sections match these filters."}</p> : (
         <div className="history-groups">
-          {visibleGroups.map((group) => {
+          {renderedGroups.map((group) => {
             const region = group.region;
             const unavailableRegionId = group.unavailableRegionId;
             const best = group.mastery?.best_bpm;
@@ -211,6 +283,15 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
               </details>
             );
           })}
+          {renderedGroups.length < visibleGroups.length && (
+            <button
+              type="button"
+              className="history-show-more"
+              onClick={() => setVisibleGroupCount((count) => count + INITIAL_VISIBLE_GROUPS)}
+            >
+              Show {Math.min(INITIAL_VISIBLE_GROUPS, visibleGroups.length - renderedGroups.length)} more sections
+            </button>
+          )}
         </div>
       )}
       {error && <p className="ck-inline-error" role="alert">{error}</p>}

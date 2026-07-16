@@ -1,8 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 
-import { VoiceToast, isActionableIntent, labelForIntent } from "./VoiceToast";
+import {
+  VoiceToast,
+  deliveryDispositionNote,
+  isActionableIntent,
+  labelForIntent,
+} from "./VoiceToast";
 import type { VoiceIntent } from "./useVoice";
+import type { VoiceDeliveryDisposition } from "./domain/delivery";
 
 afterEach(() => {
   cleanup();
@@ -55,7 +61,60 @@ describe("labelForIntent", () => {
   });
 });
 
+describe("deliveryDispositionNote", () => {
+  const identity = { delivery_id: "d1", revision: 0 };
+  it("notes duplicate and stale-revision drops, nothing else", () => {
+    expect(deliveryDispositionNote({ kind: "duplicate", identity })).toBe("Heard that already.");
+    expect(
+      deliveryDispositionNote({ kind: "stale_revision", identity, latest_revision: 3 }),
+    ).toBe("Ignored older speech.");
+    expect(deliveryDispositionNote({ kind: "accepted_new", identity })).toBeNull();
+    expect(
+      deliveryDispositionNote({ kind: "accepted_revision", identity, previous_revision: 0 }),
+    ).toBeNull();
+    expect(
+      deliveryDispositionNote({ kind: "invalid", identity, reason: "empty_delivery_id" }),
+    ).toBeNull();
+  });
+});
+
 describe("VoiceToast component", () => {
+  it("surfaces a concise auto-dismissing note for a duplicate delivery", () => {
+    vi.useFakeTimers();
+    const duplicate: VoiceDeliveryDisposition = {
+      kind: "duplicate",
+      identity: { delivery_id: "d1", revision: 0 },
+    };
+    render(
+      <VoiceToast
+        lastIntent={null}
+        status="live"
+        downGuidance={null}
+        deliveryDisposition={duplicate}
+      />,
+    );
+    expect(screen.getByText("Heard that already.")).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(2500);
+    });
+    expect(screen.queryByText("Heard that already.")).toBeNull();
+  });
+
+  it("does not toast an accepted delivery", () => {
+    render(
+      <VoiceToast
+        lastIntent={null}
+        status="live"
+        downGuidance={null}
+        deliveryDisposition={{
+          kind: "accepted_new",
+          identity: { delivery_id: "d2", revision: 0 },
+        }}
+      />,
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("shows a toast for a new actionable intent", () => {
     const intent: VoiceIntent = { kind: "start", text: "metronome ninety six", bpm: 96 };
     render(<VoiceToast lastIntent={intent} status="live" downGuidance={null} />);

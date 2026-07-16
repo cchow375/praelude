@@ -2,26 +2,26 @@ pub mod audio;
 mod brain;
 mod date;
 pub mod intent;
-mod knowledge;
 mod keys;
+mod knowledge;
 pub mod ledger;
 mod metrics;
 mod metronome;
 mod planner;
 pub mod protocol;
-mod references;
 mod recovery;
+mod references;
 mod rep;
 mod score;
-mod settings;
 mod sessions;
-pub mod stt;
+mod settings;
 mod store;
+pub mod stt;
 mod sysvol;
 pub mod tts;
+mod universe;
 pub mod vault;
 mod voice_loop;
-mod universe;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -29,15 +29,16 @@ use std::sync::Arc;
 use metronome::Metronome;
 use rep::{RepEngine, RepVerdict};
 use sessions::{SessionService, StateEmitter};
-use stt::SttConfig;
 use store::model::{
-    BlockHistory, BlockPatch, CheckOutcome, ExportResult, Goal, GoalCreate, GoalPatch,
-    DailyWorkCreate, DailyWorkPatch, Intake, PanelLayout, PieceDetail, PieceFieldPatch,
-    PieceSummary, ProgressSummary, Region, RegionCreate, RegionPatch, Rep, RepOpenArgs, RepPatch,
-    RepSnapshot, SessionView, TutorialClip, TutorialClipCreate, TutorialClipPatch, TutorialVideo,
+    BlockHistory, BlockPatch, CheckOutcome, DailyWorkCreate, DailyWorkPatch, ExportResult, Goal,
+    GoalCreate, GoalPatch, Intake, MutationReceipt, PanelLayout, PieceDetail, PieceFieldPatch,
+    PieceSummary, ProgressSummary, RecoveryActionRequest, Region, RegionCreate, RegionPatch, Rep,
+    RepOpenArgs, RepPatch, RepSnapshot, RetentionCheckView, RetentionResult, SessionView,
+    SetFocusContextInput, TutorialClip, TutorialClipCreate, TutorialClipPatch, TutorialVideo,
     TutorialVideoPatch, TutorialVideoUpsert,
 };
 use store::Store;
+use stt::SttConfig;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use voice_loop::{VoiceLoop, VoiceStatus};
@@ -85,10 +86,7 @@ fn settings_update(
 }
 
 #[tauri::command]
-fn api_key_save(
-    provider: keys::ApiKeyProvider,
-    key: String,
-) -> Result<keys::ApiKeyStatus, String> {
+fn api_key_save(provider: keys::ApiKeyProvider, key: String) -> Result<keys::ApiKeyStatus, String> {
     keys::save_api_key(provider, &key)
 }
 
@@ -273,8 +271,15 @@ fn piece_intake_save(
 /// Open a rep block (voice or UI). Resolves the ladder, persists the block, and
 /// returns the fresh snapshot; the frontend applies it directly.
 #[tauri::command]
-fn rep_open(args: RepOpenArgs, rep: State<'_, Arc<RepEngine>>) -> Result<RepSnapshot, String> {
-    rep.open(args)
+fn rep_open(
+    args: RepOpenArgs,
+    context: Option<SetFocusContextInput>,
+    rep: State<'_, Arc<RepEngine>>,
+) -> Result<RepSnapshot, String> {
+    match context {
+        Some(context) => rep.open_with_context(args, Some(context)),
+        None => rep.open(args),
+    }
 }
 
 /// Record one rep against the active block. `verdict` is `"clean"`/`"flawed"`/
@@ -283,10 +288,14 @@ fn rep_open(args: RepOpenArgs, rep: State<'_, Arc<RepEngine>>) -> Result<RepSnap
 fn rep_check(
     verdict: String,
     note: Option<String>,
+    command_id: Option<String>,
     rep: State<'_, Arc<RepEngine>>,
 ) -> Result<CheckOutcome, String> {
     let v = RepVerdict::parse(&verdict).ok_or_else(|| format!("unknown verdict '{verdict}'"))?;
-    rep.check(v, note)
+    match command_id {
+        Some(command_id) => rep.check_idempotent(&command_id, v, note),
+        None => rep.check(v, note),
+    }
 }
 
 #[tauri::command]
@@ -334,6 +343,145 @@ fn rep_close(rep: State<'_, Arc<RepEngine>>) -> Result<Option<RepSnapshot>, Stri
 #[tauri::command]
 fn rep_state(rep: State<'_, Arc<RepEngine>>) -> Result<Option<RepSnapshot>, String> {
     rep.state()
+}
+
+fn rejected_snapshot(command_id: &str, error: String) -> MutationReceipt<RepSnapshot> {
+    MutationReceipt::rejected(command_id, "practice_rejected", error)
+}
+
+fn rejected_retention(command_id: &str, error: String) -> MutationReceipt<RetentionCheckView> {
+    MutationReceipt::rejected(command_id, "retention_rejected", error)
+}
+
+#[tauri::command]
+fn rep_pause(command_id: String, rep: State<'_, Arc<RepEngine>>) -> MutationReceipt<RepSnapshot> {
+    rep.pause(&command_id)
+        .unwrap_or_else(|error| rejected_snapshot(&command_id, error))
+}
+
+#[tauri::command]
+fn rep_resume(command_id: String, rep: State<'_, Arc<RepEngine>>) -> MutationReceipt<RepSnapshot> {
+    rep.resume(&command_id)
+        .unwrap_or_else(|error| rejected_snapshot(&command_id, error))
+}
+
+#[tauri::command]
+fn rep_checkpoint(
+    command_id: String,
+    rep: State<'_, Arc<RepEngine>>,
+) -> MutationReceipt<RepSnapshot> {
+    rep.checkpoint(&command_id)
+        .unwrap_or_else(|error| rejected_snapshot(&command_id, error))
+}
+
+#[tauri::command]
+fn rep_reflect(
+    command_id: String,
+    reflection: String,
+    rep: State<'_, Arc<RepEngine>>,
+) -> MutationReceipt<RepSnapshot> {
+    rep.reflect(&command_id, &reflection)
+        .unwrap_or_else(|error| rejected_snapshot(&command_id, error))
+}
+
+#[tauri::command]
+async fn rep_safety_stop(
+    command_id: String,
+    reason: Option<String>,
+    app: AppHandle,
+    rep: State<'_, Arc<RepEngine>>,
+    metro: State<'_, Arc<Metronome>>,
+) -> Result<MutationReceipt<RepSnapshot>, String> {
+    let rep = Arc::clone(&rep);
+    let metro = Arc::clone(&metro);
+    let join_failure_metro = Arc::clone(&metro);
+    let rejected_command_id = command_id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        rep.execute_safety_stop(&command_id, reason.as_deref(), || metro.do_stop())
+    })
+    .await;
+    Ok(match result {
+        Ok((receipt, state)) => {
+            if let Some(state) = state {
+                metronome::emit(&app, &state);
+            }
+            receipt.unwrap_or_else(|error| rejected_snapshot(&rejected_command_id, error))
+        }
+        Err(error) => {
+            let state = tauri::async_runtime::spawn_blocking(move || join_failure_metro.do_stop())
+                .await
+                .ok();
+            if let Some(state) = state {
+                metronome::emit(&app, &state);
+            }
+            rejected_snapshot(
+                &rejected_command_id,
+                format!("rep_safety_stop task failed: {error}"),
+            )
+        }
+    })
+}
+
+#[tauri::command]
+fn rep_recovery(
+    command_id: String,
+    action: RecoveryActionRequest,
+    rep: State<'_, Arc<RepEngine>>,
+) -> MutationReceipt<RepSnapshot> {
+    rep.recover(&command_id, &action)
+        .unwrap_or_else(|error| rejected_snapshot(&command_id, error))
+}
+
+#[tauri::command]
+fn retention_due(
+    as_of_date: String,
+    rep: State<'_, Arc<RepEngine>>,
+) -> Result<Vec<RetentionCheckView>, String> {
+    rep.retention_due(&as_of_date)
+}
+
+#[tauri::command]
+fn retention_snooze(
+    command_id: String,
+    check_id: i64,
+    due_date: String,
+    rep: State<'_, Arc<RepEngine>>,
+) -> MutationReceipt<RetentionCheckView> {
+    rep.retention_snooze(&command_id, check_id, &due_date)
+        .unwrap_or_else(|error| rejected_retention(&command_id, error))
+}
+
+#[tauri::command]
+fn retention_confirm(
+    command_id: String,
+    check_id: i64,
+    result: RetentionResult,
+    rep: State<'_, Arc<RepEngine>>,
+) -> MutationReceipt<RetentionCheckView> {
+    rep.retention_confirm(&command_id, check_id, &result)
+        .unwrap_or_else(|error| rejected_retention(&command_id, error))
+}
+
+#[tauri::command]
+fn retention_lower(
+    command_id: String,
+    check_id: i64,
+    result: RetentionResult,
+    rep: State<'_, Arc<RepEngine>>,
+) -> MutationReceipt<RetentionCheckView> {
+    rep.retention_lower(&command_id, check_id, &result)
+        .unwrap_or_else(|error| rejected_retention(&command_id, error))
+}
+
+#[tauri::command]
+fn retention_reopen(
+    command_id: String,
+    check_id: i64,
+    result: RetentionResult,
+    rep: State<'_, Arc<RepEngine>>,
+) -> MutationReceipt<RetentionCheckView> {
+    rep.retention_reopen(&command_id, check_id, &result)
+        .unwrap_or_else(|error| rejected_retention(&command_id, error))
 }
 
 /// Every rep block for a piece (newest first) with its per-verdict rep tallies.
@@ -423,6 +571,19 @@ fn region_split(
     store.region_split(id, split_at).map_err(|e| e.to_string())
 }
 
+/// Persist one Score Atlas target as a Region (with edition-bound PDF geometry)
+/// plus its `target_meta` sidecar, in a single transaction. A repeated
+/// `command_id` replays the committed Region instead of creating a duplicate.
+#[tauri::command]
+fn score_atlas_target_save(
+    payload: store::AtomicTargetSavePayload,
+    store: State<'_, Arc<Store>>,
+) -> Result<Region, String> {
+    store
+        .score_atlas_target_save(payload)
+        .map_err(|e| e.to_string())
+}
+
 // ── Local tutorial video metadata + Region clip mappings ───────────────────
 
 /// Authorize only directories containing paths that already passed the Store's
@@ -474,9 +635,7 @@ mod tutorial_asset_scope_tests {
         ])
         .unwrap();
         assert_eq!(directories.len(), 2);
-        assert!(directories.contains(std::path::Path::new(
-            "/vault/Pieces/Scherzo/tutorials"
-        )));
+        assert!(directories.contains(std::path::Path::new("/vault/Pieces/Scherzo/tutorials")));
         assert!(directories.contains(std::path::Path::new(
             "/vault/Pieces/Scherzo/tutorials/chapters"
         )));
@@ -489,7 +648,9 @@ fn tutorial_video_list(
     store: State<'_, Arc<Store>>,
     app: AppHandle,
 ) -> Result<Vec<TutorialVideo>, String> {
-    let videos = store.tutorial_video_list(piece_id).map_err(|error| error.to_string())?;
+    let videos = store
+        .tutorial_video_list(piece_id)
+        .map_err(|error| error.to_string())?;
     authorize_tutorial_media(&app, &videos)?;
     Ok(videos)
 }
@@ -500,7 +661,9 @@ fn tutorial_video_scan(
     store: State<'_, Arc<Store>>,
     app: AppHandle,
 ) -> Result<Vec<TutorialVideo>, String> {
-    let videos = store.tutorial_video_scan(piece_id).map_err(|error| error.to_string())?;
+    let videos = store
+        .tutorial_video_scan(piece_id)
+        .map_err(|error| error.to_string())?;
     authorize_tutorial_media(&app, &videos)?;
     Ok(videos)
 }
@@ -511,7 +674,9 @@ fn tutorial_video_upsert(
     store: State<'_, Arc<Store>>,
     app: AppHandle,
 ) -> Result<TutorialVideo, String> {
-    let video = store.tutorial_video_upsert(args).map_err(|error| error.to_string())?;
+    let video = store
+        .tutorial_video_upsert(args)
+        .map_err(|error| error.to_string())?;
     authorize_tutorial_media(&app, std::slice::from_ref(&video))?;
     Ok(video)
 }
@@ -523,19 +688,25 @@ fn tutorial_video_update(
     store: State<'_, Arc<Store>>,
     app: AppHandle,
 ) -> Result<TutorialVideo, String> {
-    let video = store.tutorial_video_update(id, patch).map_err(|error| error.to_string())?;
+    let video = store
+        .tutorial_video_update(id, patch)
+        .map_err(|error| error.to_string())?;
     authorize_tutorial_media(&app, std::slice::from_ref(&video))?;
     Ok(video)
 }
 
 #[tauri::command]
 fn tutorial_video_delete(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
-    store.tutorial_video_delete(id).map_err(|error| error.to_string())
+    store
+        .tutorial_video_delete(id)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 fn tutorial_video_reveal(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
-    let path = store.tutorial_video_file_path(id).map_err(|error| error.to_string())?;
+    let path = store
+        .tutorial_video_file_path(id)
+        .map_err(|error| error.to_string())?;
     let status = std::process::Command::new("open")
         .arg("-R")
         .arg(path)
@@ -553,7 +724,9 @@ fn tutorial_clip_create(
     args: TutorialClipCreate,
     store: State<'_, Arc<Store>>,
 ) -> Result<TutorialClip, String> {
-    store.tutorial_clip_create(args).map_err(|error| error.to_string())
+    store
+        .tutorial_clip_create(args)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -562,12 +735,16 @@ fn tutorial_clip_update(
     patch: TutorialClipPatch,
     store: State<'_, Arc<Store>>,
 ) -> Result<TutorialClip, String> {
-    store.tutorial_clip_update(id, patch).map_err(|error| error.to_string())
+    store
+        .tutorial_clip_update(id, patch)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 fn tutorial_clip_delete(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
-    store.tutorial_clip_delete(id).map_err(|error| error.to_string())
+    store
+        .tutorial_clip_delete(id)
+        .map_err(|error| error.to_string())
 }
 
 // ── T4: Block update/delete ─────────────────────────────────────────────────
@@ -581,7 +758,9 @@ fn block_update(
     store: State<'_, Arc<Store>>,
     rep: State<'_, Arc<RepEngine>>,
 ) -> Result<BlockHistory, String> {
-    let updated = store.block_update(block_id, patch).map_err(|e| e.to_string())?;
+    let updated = store
+        .block_update(block_id, patch)
+        .map_err(|e| e.to_string())?;
     rep.resync_active_if(block_id);
     Ok(updated)
 }
@@ -691,7 +870,10 @@ fn piece_field_update(
 /// streak, best tempo, time-by-focus), computed from the durable event log and
 /// canonical graph. Nothing is stored — the summary always reflects the current graph.
 #[tauri::command]
-fn progress_summary(piece_id: i64, store: State<'_, Arc<Store>>) -> Result<ProgressSummary, String> {
+fn progress_summary(
+    piece_id: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<ProgressSummary, String> {
     metrics::progress_summary(&store, piece_id).map_err(|e| e.to_string())
 }
 
@@ -708,8 +890,8 @@ fn brain_plan_preview(
     piece_id: Option<i64>,
     store: State<'_, Arc<Store>>,
 ) -> Result<Vec<planner::WorkSuggestion>, String> {
-    let id = piece_id
-        .ok_or_else(|| "Pick a piece before asking what to practice next".to_string())?;
+    let id =
+        piece_id.ok_or_else(|| "Pick a piece before asking what to practice next".to_string())?;
     planner::preview_for_piece(&store, id).map_err(|error| error.to_string())
 }
 
@@ -734,9 +916,9 @@ async fn brain_ask(
     let answer = tauri::async_runtime::spawn_blocking(move || {
         brain::ask_native(request, store, sessions, active_rep)
     })
-        .await
-        .map_err(|_| "Brain worker stopped unexpectedly".to_string())?
-        .map_err(|error| error.to_string())?;
+    .await
+    .map_err(|_| "Brain worker stopped unexpectedly".to_string())?
+    .map_err(|error| error.to_string())?;
     pending_reviews.register_answer(&answer);
     if should_speak {
         // Non-blocking queue into the existing gated TTS owner. A visual answer
@@ -752,8 +934,7 @@ fn brain_intake_apply(
     store: State<'_, Arc<Store>>,
     pending_reviews: State<'_, Arc<brain::PendingIntakeReviews>>,
 ) -> Result<brain::BrainIntakeApplyResult, String> {
-    brain::apply_intake_review(request, &store, &pending_reviews)
-        .map_err(|error| error.to_string())
+    brain::apply_intake_review(request, &store, &pending_reviews).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -773,7 +954,9 @@ fn daily_work_create(
     args: DailyWorkCreate,
     store: State<'_, Arc<Store>>,
 ) -> Result<store::calendar::DailyWorkView, String> {
-    store.daily_work_create(args).map_err(|error| error.to_string())
+    store
+        .daily_work_create(args)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -811,7 +994,9 @@ fn recovery_apply(
     decisions: Vec<store::calendar::RecoveryDecision>,
     store: State<'_, Arc<Store>>,
 ) -> Result<store::calendar::RecoveryApplyResult, String> {
-    store.recovery_apply(decisions).map_err(|error| error.to_string())
+    store
+        .recovery_apply(decisions)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -858,14 +1043,14 @@ pub fn run() {
                 .flatten()
                 .as_deref()
                 == Some("true"))
-                .then(|| {
-                    store
-                        .get_setting("voice.wake_word")
-                        .ok()
-                        .flatten()
-                        .filter(|word| !word.trim().is_empty())
-                })
-                .flatten();
+            .then(|| {
+                store
+                    .get_setting("voice.wake_word")
+                    .ok()
+                    .flatten()
+                    .filter(|word| !word.trim().is_empty())
+            })
+            .flatten();
             // Managed behind `Arc` so the async commands can clone a `'static`
             // handle into `spawn_blocking` (the blocking work runs off the main
             // thread). The voice loop shares these same Arcs.
@@ -997,6 +1182,17 @@ pub fn run() {
             rep_restart,
             rep_close,
             rep_state,
+            rep_pause,
+            rep_resume,
+            rep_checkpoint,
+            rep_reflect,
+            rep_safety_stop,
+            rep_recovery,
+            retention_due,
+            retention_snooze,
+            retention_confirm,
+            retention_lower,
+            retention_reopen,
             rep_blocks_for_piece,
             region_list,
             region_create,
@@ -1004,6 +1200,7 @@ pub fn run() {
             region_delete,
             region_merge,
             region_split,
+            score_atlas_target_save,
             tutorial_video_list,
             tutorial_video_scan,
             tutorial_video_upsert,

@@ -116,7 +116,10 @@ mod tests {
     #[test]
     fn empty_composer_does_not_create_a_blank_prefix() {
         assert_eq!(reference_query("Scherzo", None), "Scherzo piano recording");
-        assert_eq!(reference_query("Scherzo", Some("  ")), "Scherzo piano recording");
+        assert_eq!(
+            reference_query("Scherzo", Some("  ")),
+            "Scherzo piano recording"
+        );
     }
 
     #[test]

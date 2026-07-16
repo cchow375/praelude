@@ -13,9 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::model::{json_to_sql, DailyWorkCreate, DailyWorkPatch};
 use super::{EventKind, Store};
 use crate::date::Date;
-use crate::recovery::{
-    self, ExistingDayPlan, MissedDailyWork, RecoveryInput, RecoveryOutcome,
-};
+use crate::recovery::{self, ExistingDayPlan, MissedDailyWork, RecoveryInput, RecoveryOutcome};
 
 const CAPACITY_SETTING: &str = "calendar.daily_capacity_minutes";
 const DEFAULT_CAPACITY_MINUTES: u32 = 60;
@@ -118,7 +116,11 @@ fn view_from_row(row: &Row<'_>) -> rusqlite::Result<DailyWorkView> {
 }
 
 fn get_view(conn: &Connection, id: i64) -> rusqlite::Result<DailyWorkView> {
-    conn.query_row(&format!("{VIEW_SELECT} WHERE w.id = ?1"), [id], view_from_row)
+    conn.query_row(
+        &format!("{VIEW_SELECT} WHERE w.id = ?1"),
+        [id],
+        view_from_row,
+    )
 }
 
 fn token(conn: &Connection) -> rusqlite::Result<String> {
@@ -130,11 +132,9 @@ fn token(conn: &Connection) -> rusqlite::Result<String> {
 }
 
 fn timestamp(conn: &Connection) -> rusqlite::Result<String> {
-    conn.query_row(
-        "SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')",
-        [],
-        |row| row.get(0),
-    )
+    conn.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')", [], |row| {
+        row.get(0)
+    })
 }
 
 fn capacity(conn: &Connection) -> rusqlite::Result<u32> {
@@ -245,7 +245,10 @@ impl Store {
         piece_id: Option<i64>,
     ) -> rusqlite::Result<Vec<DailyWorkView>> {
         strict_range(from, to)?;
-        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let sql = format!(
             "{VIEW_SELECT}
              WHERE w.scheduled_date BETWEEN ?1 AND ?2
@@ -267,7 +270,10 @@ impl Store {
         {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        let mut conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let tx = conn.transaction()?;
         let piece_id = goal_piece(&tx, args.goal_id)?;
         validate_links(&tx, piece_id, args.region_id, args.block_id)?;
@@ -308,24 +314,30 @@ impl Store {
         expected_updated_ts: &str,
         patch: DailyWorkPatch,
     ) -> rusqlite::Result<DailyWorkView> {
-        let mut conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let tx = conn.transaction()?;
         let current = get_view(&tx, id)?;
         if current.updated_ts != expected_updated_ts {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        if patch.title.as_deref().is_some_and(|title| {
-            title.trim().is_empty() || title.trim().chars().count() > 500
-        }) || patch
-            .planned_minutes
-            .is_some_and(|minutes| !(1..=240).contains(&minutes))
+        if patch
+            .title
+            .as_deref()
+            .is_some_and(|title| title.trim().is_empty() || title.trim().chars().count() > 500)
+            || patch
+                .planned_minutes
+                .is_some_and(|minutes| !(1..=240).contains(&minutes))
             || patch
                 .scheduled_date
                 .as_deref()
                 .is_some_and(|date| Date::parse(date).is_none())
-            || patch.status.as_deref().is_some_and(|status| {
-                !matches!(status, "planned" | "done" | "dismissed")
-            })
+            || patch
+                .status
+                .as_deref()
+                .is_some_and(|status| !matches!(status, "planned" | "done" | "dismissed"))
             || patch.sort_order.is_some_and(|order| order < 0)
         {
             return Err(rusqlite::Error::InvalidQuery);
@@ -399,12 +411,11 @@ impl Store {
         Ok(view)
     }
 
-    pub fn daily_work_delete(
-        &self,
-        id: i64,
-        expected_updated_ts: &str,
-    ) -> rusqlite::Result<()> {
-        let mut conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    pub fn daily_work_delete(&self, id: i64, expected_updated_ts: &str) -> rusqlite::Result<()> {
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let tx = conn.transaction()?;
         let current = get_view(&tx, id)?;
         if current.updated_ts != expected_updated_ts {
@@ -426,7 +437,10 @@ impl Store {
     }
 
     pub fn recovery_preview(&self) -> rusqlite::Result<CalendarRecoveryPreview> {
-        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         recovery_preview_conn(&conn)
     }
 
@@ -436,14 +450,22 @@ impl Store {
     ) -> rusqlite::Result<RecoveryApplyResult> {
         if decisions.is_empty()
             || decisions.len() > 200
-            || decisions.iter().map(|decision| decision.id).collect::<HashSet<_>>().len()
+            || decisions
+                .iter()
+                .map(|decision| decision.id)
+                .collect::<HashSet<_>>()
+                .len()
                 != decisions.len()
         {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        let mut conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let tx = conn.transaction()?;
-        let today_text: String = tx.query_row("SELECT date('now','localtime')", [], |row| row.get(0))?;
+        let today_text: String =
+            tx.query_row("SELECT date('now','localtime')", [], |row| row.get(0))?;
         let today = Date::parse(&today_text).ok_or(rusqlite::Error::InvalidQuery)?;
         let horizon_end = today
             .add_days((recovery::RECOVERY_HORIZON_DAYS - 1).into())
@@ -463,7 +485,13 @@ impl Store {
             )?;
             let rows = statement.query_map(
                 rusqlite::params![today_text, horizon_end.to_string()],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?, row.get::<_, u32>(2)?)),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, u32>(1)?,
+                        row.get::<_, u32>(2)?,
+                    ))
+                },
             )?;
             for row in rows {
                 let (date, total, recovered) = row?;
@@ -474,7 +502,10 @@ impl Store {
 
         let mut current_rows = Vec::with_capacity(decisions.len());
         for decision in &decisions {
-            if !matches!(decision.action.as_str(), "move" | "done" | "dismiss" | "leave") {
+            if !matches!(
+                decision.action.as_str(),
+                "move" | "done" | "dismiss" | "leave"
+            ) {
                 return Err(rusqlite::Error::InvalidQuery);
             }
             let work = get_view(&tx, decision.id)?;
@@ -492,15 +523,19 @@ impl Store {
             match decision.action.as_str() {
                 "leave" => result_items.push(work.clone()),
                 "move" => {
-                    let date_text = decision.date.as_deref().ok_or(rusqlite::Error::InvalidQuery)?;
+                    let date_text = decision
+                        .date
+                        .as_deref()
+                        .ok_or(rusqlite::Error::InvalidQuery)?;
                     let date = Date::parse(date_text).ok_or(rusqlite::Error::InvalidQuery)?;
-                    let (goal_deadline, parent_deadline): (Option<String>, Option<String>) = tx.query_row(
-                        "SELECT g.target_date,parent.target_date
+                    let (goal_deadline, parent_deadline): (Option<String>, Option<String>) = tx
+                        .query_row(
+                            "SELECT g.target_date,parent.target_date
                          FROM goal g LEFT JOIN goal parent ON parent.id=g.parent_goal_id
                          WHERE g.id=?1",
-                        [work.goal_id],
-                        |row| Ok((row.get(0)?, row.get(1)?)),
-                    )?;
+                            [work.goal_id],
+                            |row| Ok((row.get(0)?, row.get(1)?)),
+                        )?;
                     let deadline = effective_deadline(goal_deadline, parent_deadline)?;
                     if date < today
                         || date > horizon_end
@@ -534,7 +569,11 @@ impl Store {
                     result_items.push(get_view(&tx, work.id)?);
                 }
                 "done" | "dismiss" => {
-                    let status = if decision.action == "done" { "done" } else { "dismissed" };
+                    let status = if decision.action == "done" {
+                        "done"
+                    } else {
+                        "dismissed"
+                    };
                     tx.execute(
                         "UPDATE daily_work SET status=?2,completed_ts=?3,updated_ts=?4 WHERE id=?1",
                         rusqlite::params![work.id, status, timestamp(&tx)?, token(&tx)?],
@@ -627,16 +666,14 @@ fn recovery_preview_conn(conn: &Connection) -> rusqlite::Result<CalendarRecovery
              WHERE status='planned' AND scheduled_date BETWEEN ?1 AND ?2
              GROUP BY scheduled_date",
         )?;
-        let rows = statement.query_map(
-            rusqlite::params![today, horizon_end.to_string()],
-            |row| {
+        let rows =
+            statement.query_map(rusqlite::params![today, horizon_end.to_string()], |row| {
                 Ok(ExistingDayPlan {
                     date: row.get(0)?,
                     planned_minutes: row.get(1)?,
                     recovery_minutes: row.get(2)?,
                 })
-            },
-        )?;
+            })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()?
     };
 
@@ -723,18 +760,32 @@ mod tests {
             .unwrap();
         assert_eq!(work.title, "Coda ladder");
         assert_eq!(work.piece_title, "Test Piece");
-        assert_eq!(store.daily_work_list("2026-07-12", "2026-07-18", None).unwrap().len(), 1);
+        assert_eq!(
+            store
+                .daily_work_list("2026-07-12", "2026-07-18", None)
+                .unwrap()
+                .len(),
+            1
+        );
         assert!(store
-            .daily_work_update(work.id, "stale", DailyWorkPatch {
-                status: Some("done".into()),
-                ..Default::default()
-            })
+            .daily_work_update(
+                work.id,
+                "stale",
+                DailyWorkPatch {
+                    status: Some("done".into()),
+                    ..Default::default()
+                }
+            )
             .is_err());
         let done = store
-            .daily_work_update(work.id, &work.updated_ts, DailyWorkPatch {
-                status: Some("done".into()),
-                ..Default::default()
-            })
+            .daily_work_update(
+                work.id,
+                &work.updated_ts,
+                DailyWorkPatch {
+                    status: Some("done".into()),
+                    ..Default::default()
+                },
+            )
             .unwrap();
         assert_eq!(done.status, "done");
         let moved = store
@@ -761,7 +812,12 @@ mod tests {
             )
             .unwrap();
         assert_eq!(edited.reschedule_count, 1, "same-date edits are not moves");
-        assert_eq!(crate::metrics::progress_summary(&store, piece_id).unwrap().focused_seconds, 0);
+        assert_eq!(
+            crate::metrics::progress_summary(&store, piece_id)
+                .unwrap()
+                .focused_seconds,
+            0
+        );
     }
 
     #[test]
@@ -786,26 +842,33 @@ mod tests {
                 kind: "section".into(),
             })
             .unwrap();
-        assert!(store.daily_work_create(DailyWorkCreate {
-            goal_id,
-            region_id: Some(region.id),
-            block_id: None,
-            title: "Wrong owner".into(),
-            minutes: 15,
-            date: "2026-07-12".into(),
-            source: "manual".into(),
-        }).is_err());
-        let work = store.daily_work_create(DailyWorkCreate {
-            goal_id,
-            region_id: None,
-            block_id: None,
-            title: "Owned".into(),
-            minutes: 15,
-            date: "2026-07-12".into(),
-            source: "manual".into(),
-        }).unwrap();
+        assert!(store
+            .daily_work_create(DailyWorkCreate {
+                goal_id,
+                region_id: Some(region.id),
+                block_id: None,
+                title: "Wrong owner".into(),
+                minutes: 15,
+                date: "2026-07-12".into(),
+                source: "manual".into(),
+            })
+            .is_err());
+        let work = store
+            .daily_work_create(DailyWorkCreate {
+                goal_id,
+                region_id: None,
+                block_id: None,
+                title: "Owned".into(),
+                minutes: 15,
+                date: "2026-07-12".into(),
+                source: "manual".into(),
+            })
+            .unwrap();
         store.goal_delete(goal_id).unwrap();
-        assert!(store.daily_work_list("0001-01-01", "9999-12-31", None).unwrap().is_empty());
+        assert!(store
+            .daily_work_list("0001-01-01", "9999-12-31", None)
+            .unwrap()
+            .is_empty());
         assert!(store.goal_list(_piece_id).unwrap().is_empty());
         assert!(store.daily_work_delete(work.id, &work.updated_ts).is_err());
     }
@@ -813,43 +876,85 @@ mod tests {
     #[test]
     fn calendar_cards_read_the_live_goal_text_instead_of_copying_it() {
         let (store, _piece_id, goal_id) = fixture();
-        store.daily_work_create(DailyWorkCreate {
-            goal_id,
-            region_id: None,
-            block_id: None,
-            title: "Slow repetitions".into(),
-            minutes: 15,
-            date: "2026-07-12".into(),
-            source: "manual".into(),
-        }).unwrap();
-        store.goal_update(goal_id, GoalPatch {
-            text: Some("Renamed Big Goal".into()),
-            ..Default::default()
-        }).unwrap();
-        let cards = store.daily_work_list("2026-07-12", "2026-07-12", None).unwrap();
+        store
+            .daily_work_create(DailyWorkCreate {
+                goal_id,
+                region_id: None,
+                block_id: None,
+                title: "Slow repetitions".into(),
+                minutes: 15,
+                date: "2026-07-12".into(),
+                source: "manual".into(),
+            })
+            .unwrap();
+        store
+            .goal_update(
+                goal_id,
+                GoalPatch {
+                    text: Some("Renamed Big Goal".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let cards = store
+            .daily_work_list("2026-07-12", "2026-07-12", None)
+            .unwrap();
         assert_eq!(cards[0].goal_text, "Renamed Big Goal");
-        assert_eq!(cards[0].title, "Slow repetitions", "work step remains a distinct field");
+        assert_eq!(
+            cards[0].title, "Slow repetitions",
+            "work step remains a distinct field"
+        );
     }
 
     #[test]
     fn stale_recovery_batch_rolls_back_every_decision() {
         let (store, _piece_id, goal_id) = fixture();
         let today = store.local_today().unwrap();
-        let yesterday = Date::parse(&today).unwrap().add_days(-1).unwrap().to_string();
-        let one = store.daily_work_create(DailyWorkCreate {
-            goal_id, region_id: None, block_id: None, title: "One".into(), minutes: 15,
-            date: yesterday.clone(), source: "manual".into(),
-        }).unwrap();
-        let two = store.daily_work_create(DailyWorkCreate {
-            goal_id, region_id: None, block_id: None, title: "Two".into(), minutes: 15,
-            date: yesterday, source: "manual".into(),
-        }).unwrap();
+        let yesterday = Date::parse(&today)
+            .unwrap()
+            .add_days(-1)
+            .unwrap()
+            .to_string();
+        let one = store
+            .daily_work_create(DailyWorkCreate {
+                goal_id,
+                region_id: None,
+                block_id: None,
+                title: "One".into(),
+                minutes: 15,
+                date: yesterday.clone(),
+                source: "manual".into(),
+            })
+            .unwrap();
+        let two = store
+            .daily_work_create(DailyWorkCreate {
+                goal_id,
+                region_id: None,
+                block_id: None,
+                title: "Two".into(),
+                minutes: 15,
+                date: yesterday,
+                source: "manual".into(),
+            })
+            .unwrap();
         let result = store.recovery_apply(vec![
-            RecoveryDecision { id: one.id, expected_updated_ts: one.updated_ts.clone(), action: "done".into(), date: None },
-            RecoveryDecision { id: two.id, expected_updated_ts: "stale".into(), action: "dismiss".into(), date: None },
+            RecoveryDecision {
+                id: one.id,
+                expected_updated_ts: one.updated_ts.clone(),
+                action: "done".into(),
+                date: None,
+            },
+            RecoveryDecision {
+                id: two.id,
+                expected_updated_ts: "stale".into(),
+                action: "dismiss".into(),
+                date: None,
+            },
         ]);
         assert!(result.is_err());
-        let current = store.daily_work_list("0001-01-01", "9999-12-31", None).unwrap();
+        let current = store
+            .daily_work_list("0001-01-01", "9999-12-31", None)
+            .unwrap();
         assert!(current.iter().all(|work| work.status == "planned"));
     }
 
@@ -858,25 +963,67 @@ mod tests {
         let (store, _piece_id, goal_id) = fixture();
         store.calendar_capacity_set(60).unwrap();
         let today = store.local_today().unwrap();
-        let yesterday = Date::parse(&today).unwrap().add_days(-1).unwrap().to_string();
+        let yesterday = Date::parse(&today)
+            .unwrap()
+            .add_days(-1)
+            .unwrap()
+            .to_string();
         let mut work = Vec::new();
         for title in ["Move", "Done", "Dismiss", "Leave"] {
-            work.push(store.daily_work_create(DailyWorkCreate {
-                goal_id, region_id: None, block_id: None, title: title.into(), minutes: 10,
-                date: yesterday.clone(), source: "manual".into(),
-            }).unwrap());
+            work.push(
+                store
+                    .daily_work_create(DailyWorkCreate {
+                        goal_id,
+                        region_id: None,
+                        block_id: None,
+                        title: title.into(),
+                        minutes: 10,
+                        date: yesterday.clone(),
+                        source: "manual".into(),
+                    })
+                    .unwrap(),
+            );
         }
         let before_events = store.events_for_piece(work[0].piece_id).unwrap().len();
         let preview = store.recovery_preview().unwrap();
         assert_eq!(preview.items.len(), 4);
-        assert_eq!(store.events_for_piece(work[0].piece_id).unwrap().len(), before_events);
-        let result = store.recovery_apply(vec![
-            RecoveryDecision { id: work[0].id, expected_updated_ts: work[0].updated_ts.clone(), action: "move".into(), date: Some(today.clone()) },
-            RecoveryDecision { id: work[1].id, expected_updated_ts: work[1].updated_ts.clone(), action: "done".into(), date: None },
-            RecoveryDecision { id: work[2].id, expected_updated_ts: work[2].updated_ts.clone(), action: "dismiss".into(), date: None },
-            RecoveryDecision { id: work[3].id, expected_updated_ts: work[3].updated_ts.clone(), action: "leave".into(), date: None },
-        ]).unwrap();
-        let by_title = result.items.into_iter().map(|item| (item.title.clone(), item)).collect::<HashMap<_, _>>();
+        assert_eq!(
+            store.events_for_piece(work[0].piece_id).unwrap().len(),
+            before_events
+        );
+        let result = store
+            .recovery_apply(vec![
+                RecoveryDecision {
+                    id: work[0].id,
+                    expected_updated_ts: work[0].updated_ts.clone(),
+                    action: "move".into(),
+                    date: Some(today.clone()),
+                },
+                RecoveryDecision {
+                    id: work[1].id,
+                    expected_updated_ts: work[1].updated_ts.clone(),
+                    action: "done".into(),
+                    date: None,
+                },
+                RecoveryDecision {
+                    id: work[2].id,
+                    expected_updated_ts: work[2].updated_ts.clone(),
+                    action: "dismiss".into(),
+                    date: None,
+                },
+                RecoveryDecision {
+                    id: work[3].id,
+                    expected_updated_ts: work[3].updated_ts.clone(),
+                    action: "leave".into(),
+                    date: None,
+                },
+            ])
+            .unwrap();
+        let by_title = result
+            .items
+            .into_iter()
+            .map(|item| (item.title.clone(), item))
+            .collect::<HashMap<_, _>>();
         assert_eq!(by_title["Move"].scheduled_date, today);
         assert_eq!(by_title["Move"].reschedule_count, 1);
         assert_eq!(by_title["Done"].status, "done");
@@ -892,46 +1039,128 @@ mod tests {
         let yesterday = today.add_days(-1).unwrap().to_string();
         let parent_deadline = today.add_days(1).unwrap().to_string();
         let child_deadline = today.add_days(4).unwrap().to_string();
-        store.goal_update(parent_id, GoalPatch {
-            target_date: Some(Some(parent_deadline.clone())),
-            ..Default::default()
-        }).unwrap();
-        let child = store.goal_create(GoalCreate {
-            piece_id,
-            text: "Child".into(),
-            kind: "sub".into(),
-            parent_goal_id: Some(parent_id),
-            target_date: Some(child_deadline),
-        }).unwrap();
-        let work = store.daily_work_create(DailyWorkCreate {
-            goal_id: child.id,
-            region_id: None,
-            block_id: None,
-            title: "Deadline-bound work".into(),
-            minutes: 10,
-            date: yesterday,
-            source: "manual".into(),
-        }).unwrap();
+        store
+            .goal_update(
+                parent_id,
+                GoalPatch {
+                    target_date: Some(Some(parent_deadline.clone())),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let child = store
+            .goal_create(GoalCreate {
+                piece_id,
+                text: "Child".into(),
+                kind: "sub".into(),
+                parent_goal_id: Some(parent_id),
+                target_date: Some(child_deadline),
+            })
+            .unwrap();
+        let work = store
+            .daily_work_create(DailyWorkCreate {
+                goal_id: child.id,
+                region_id: None,
+                block_id: None,
+                title: "Deadline-bound work".into(),
+                minutes: 10,
+                date: yesterday,
+                source: "manual".into(),
+            })
+            .unwrap();
 
         let preview = store.recovery_preview().unwrap();
-        assert_eq!(preview.items[0].effective_deadline.as_deref(), Some(parent_deadline.as_str()));
+        assert_eq!(
+            preview.items[0].effective_deadline.as_deref(),
+            Some(parent_deadline.as_str())
+        );
         let after_parent = today.add_days(2).unwrap().to_string();
-        assert!(store.recovery_apply(vec![RecoveryDecision {
-            id: work.id,
-            expected_updated_ts: work.updated_ts.clone(),
-            action: "move".into(),
-            date: Some(after_parent),
-        }]).is_err());
+        assert!(store
+            .recovery_apply(vec![RecoveryDecision {
+                id: work.id,
+                expected_updated_ts: work.updated_ts.clone(),
+                action: "move".into(),
+                date: Some(after_parent),
+            }])
+            .is_err());
 
         {
             let conn = store.conn.lock().unwrap();
-            conn.execute("UPDATE goal SET target_date='2026-02-30' WHERE id=?1", [child.id]).unwrap();
+            conn.execute(
+                "UPDATE goal SET target_date='2026-02-30' WHERE id=?1",
+                [child.id],
+            )
+            .unwrap();
         }
-        assert!(store.recovery_apply(vec![RecoveryDecision {
-            id: work.id,
-            expected_updated_ts: work.updated_ts,
-            action: "move".into(),
-            date: Some(today_text),
-        }]).is_err());
+        assert!(store
+            .recovery_apply(vec![RecoveryDecision {
+                id: work.id,
+                expected_updated_ts: work.updated_ts,
+                action: "move".into(),
+                date: Some(today_text),
+            }])
+            .is_err());
+    }
+
+    #[test]
+    fn bench_get_view_loop_vs_batched_in_clause() {
+        let (store, _piece_id, goal_id) = fixture();
+        let mut ids = Vec::new();
+        {
+            let mut conn = store.conn.lock().unwrap();
+            let tx = conn.transaction().unwrap();
+            for i in 0..200 {
+                let date = format!("2026-01-{:02}", (i % 28) + 1);
+                let id: i64 = tx
+                    .query_row(
+                        "INSERT INTO daily_work
+                         (goal_id,title,planned_minutes,origin_date,scheduled_date,
+                          status,source,sort_order,updated_ts)
+                         VALUES (?1,'x',10,?2,?2,'planned','manual',0,'t')
+                         RETURNING id",
+                        rusqlite::params![goal_id, date],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                ids.push(id);
+            }
+            tx.commit().unwrap();
+        }
+
+        let conn = store.conn.lock().unwrap();
+
+        let loop_start = std::time::Instant::now();
+        for _ in 0..20 {
+            for &id in &ids {
+                let _ = get_view(&conn, id).unwrap();
+            }
+        }
+        let loop_elapsed = loop_start.elapsed();
+
+        let placeholders = (1..=ids.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let batched_sql = format!("{VIEW_SELECT} WHERE w.id IN ({placeholders})");
+        let batch_start = std::time::Instant::now();
+        for _ in 0..20 {
+            let mut stmt = conn.prepare(&batched_sql).unwrap();
+            let params = rusqlite::params_from_iter(ids.iter());
+            let rows = stmt
+                .query_map(params, view_from_row)
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(rows.len(), ids.len());
+        }
+        let batch_elapsed = batch_start.elapsed();
+
+        eprintln!(
+            "200-row loop x20: {:?} total, {:?} per pass; batched IN x20: {:?} total, {:?} per pass",
+            loop_elapsed,
+            loop_elapsed / 20,
+            batch_elapsed,
+            batch_elapsed / 20
+        );
     }
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
 import type { Goal, PieceSummary } from "../pieces/types";
 import { calendarApi } from "./api";
@@ -10,6 +10,7 @@ import type {
   DailyWorkPatch,
   RecoveryPreview,
 } from "./types";
+import { RetentionQueue } from "../retention";
 import "./CalendarWorkspace.css";
 
 export interface CalendarWorkspaceProps {
@@ -32,22 +33,46 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
   const [capacityDraft, setCapacityDraft] = useState("60");
   const [preview, setPreview] = useState<RecoveryPreview | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [retentionOpen, setRetentionOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const weekEnd = addDays(weekStart, 6);
   const dates = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart]);
+  const mountedRef = useRef(false);
+  const weekRequestGenerationRef = useRef(0);
+  const currentWeekRef = useRef({ from: weekStart, to: weekEnd });
+
+  useLayoutEffect(() => {
+    currentWeekRef.current = { from: weekStart, to: weekEnd };
+  }, [weekEnd, weekStart]);
 
   const loadWeek = useCallback(async () => {
+    if (!mountedRef.current) return;
+    const generation = ++weekRequestGenerationRef.current;
+    const { from, to } = currentWeekRef.current;
+    const ownsState = () => (
+      mountedRef.current
+      && generation === weekRequestGenerationRef.current
+      && currentWeekRef.current.from === from
+      && currentWeekRef.current.to === to
+    );
     setLoading(true);
     setError(null);
     try {
-      setWork(await api.list({ from: weekStart, to: weekEnd, pieceId: null }));
+      const nextWork = await api.list({ from, to, pieceId: null });
+      if (ownsState()) {
+        setWork(nextWork);
+      }
     } catch (cause) {
-      setError(errorMessage(cause));
+      if (ownsState()) {
+        setError(errorMessage(cause));
+      }
     } finally {
-      setLoading(false);
+      if (ownsState()) {
+        setLoading(false);
+      }
     }
-  }, [api, weekEnd, weekStart]);
+  }, [api]);
 
   const loadPreview = useCallback(async () => {
     try {
@@ -60,7 +85,14 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
     }
   }, [api]);
 
-  useEffect(() => { void loadWeek(); }, [loadWeek]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      weekRequestGenerationRef.current += 1;
+    };
+  }, []);
+  useEffect(() => { void loadWeek(); }, [loadWeek, weekEnd, weekStart]);
   useEffect(() => { void loadPreview(); }, [loadPreview]);
   useEffect(() => {
     let active = true;
@@ -150,6 +182,11 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
           <button type="button" onClick={() => setReviewing(true)}>Review missed work</button>
         </section>
       )}
+
+      <details className="calendar-retention" onToggle={(event) => setRetentionOpen(event.currentTarget.open)}>
+        <summary>Retention checks <span>Confirm, lower, reopen, or snooze—never auto-promote yesterday’s result.</span></summary>
+        {retentionOpen && <RetentionQueue asOfDate={today} />}
+      </details>
 
       <nav className="calendar-week-nav" aria-label="Calendar week">
         <button type="button" aria-label="Previous week" onClick={() => setWeekStart(addDays(weekStart, -7))}>←</button>

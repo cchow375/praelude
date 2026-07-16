@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { RepHud } from "./RepHud";
+import { formatFocusedTime, RepHud } from "./RepHud";
 import type { RepSnapshot } from "./useRep";
 
 afterEach(cleanup);
@@ -54,11 +54,22 @@ function callbacks() {
     onCorrect: vi.fn().mockResolvedValue(undefined),
     onReverseAdjustment: vi.fn().mockResolvedValue(undefined),
     onRestart: vi.fn().mockResolvedValue(undefined),
+    onPause: vi.fn().mockResolvedValue(undefined),
+    onResume: vi.fn().mockResolvedValue(undefined),
+    onReflect: vi.fn().mockResolvedValue(undefined),
+    onSafetyStop: vi.fn().mockResolvedValue(undefined),
+    onRecover: vi.fn().mockResolvedValue(undefined),
     onClose: vi.fn(),
   };
 }
 
 describe("RepHud", () => {
+  it("formats the persisted focus clock without inventing fractional time", () => {
+    expect(formatFocusedTime(0)).toBe("0:00");
+    expect(formatFocusedTime(125.9)).toBe("2:05");
+    expect(formatFocusedTime(Number.NaN)).toBe("0:00");
+  });
+
   it("renders nothing when there is no active set", () => {
     const { container } = render(
       <RepHud snap={null} feed={[]} error={null} {...callbacks()} />,
@@ -148,6 +159,23 @@ describe("RepHud", () => {
     await waitFor(() => expect(handlers.onCheck).toHaveBeenCalledTimes(2));
   });
 
+  it("keeps the safety stop available while another practice mutation is pending", async () => {
+    let resolveCheck: () => void = () => undefined;
+    const pending = new Promise<void>((resolve) => { resolveCheck = resolve; });
+    const handlers = callbacks();
+    handlers.onCheck.mockImplementationOnce(() => pending);
+    render(<RepHud snap={makeSnap()} feed={[]} error={null} {...handlers} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clean" }));
+    const safety = screen.getByRole("button", { name: "Pain, numbness, or weakness — stop" });
+    expect(safety.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(safety);
+
+    await waitFor(() => expect(handlers.onSafetyStop).toHaveBeenCalledTimes(1));
+    expect(handlers.onCheck).toHaveBeenCalledTimes(1);
+    resolveCheck();
+  });
+
   it("restores the attempt note after a rejected save and keeps Close out of the mutation race", async () => {
     let rejectCheck: (cause: Error) => void = () => undefined;
     const pending = new Promise<void>((_resolve, reject) => { rejectCheck = reject; });
@@ -218,10 +246,65 @@ describe("RepHud", () => {
     const handlers = callbacks();
     render(<RepHud snap={makeSnap()} feed={[]} error={null} {...handlers} />);
     fireEvent.click(screen.getByRole("button", { name: "Restart set" }));
-    expect(screen.getByRole("alertdialog").textContent).toContain("marked restarted");
-    expect(screen.getByRole("alertdialog").textContent).toContain("attempts stay in history");
+    expect(screen.getByRole("group", { name: "Restart this set?" }).textContent).toContain("marked restarted");
+    expect(screen.getByRole("group", { name: "Restart this set?" }).textContent).toContain("attempts stay in history");
+    expect(document.activeElement).toBe(screen.getAllByRole("button", { name: "Restart set" })[1]);
     fireEvent.click(screen.getAllByRole("button", { name: "Restart set" })[1]);
     await waitFor(() => expect(handlers.onRestart).toHaveBeenCalledWith(5));
+  });
+
+  it("drives pause, resume, reflection, safety, and explicit recovery through callbacks", async () => {
+    const handlers = callbacks();
+    const { rerender } = render(
+      <RepHud
+        snap={makeSnap({ timer_state: "active", active_seconds: 125, intention: "Even release", judging_axis: "pulse" })}
+        feed={[]}
+        error={null}
+        {...handlers}
+      />,
+    );
+
+    expect(screen.getByText("2:05")).toBeTruthy();
+    expect(screen.getByText("Even release")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Pause focus" }));
+    await waitFor(() => expect(handlers.onPause).toHaveBeenCalledTimes(1));
+
+    rerender(
+      <RepHud
+        snap={makeSnap({ timer_state: "paused", set_state: "paused", active_seconds: 125 })}
+        feed={[]}
+        error={null}
+        {...handlers}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Resume focus" }));
+    await waitFor(() => expect(handlers.onResume).toHaveBeenCalledTimes(1));
+
+    rerender(
+      <RepHud
+        snap={makeSnap({ timer_state: "active", set_state: "active", active_seconds: 125 })}
+        feed={[]}
+        error={null}
+        {...handlers}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reflect" }));
+    fireEvent.change(screen.getByLabelText("What changed? Keep it short and observable."), { target: { value: "Pulse stayed even below 72." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save reflection" }));
+    await waitFor(() => expect(handlers.onReflect).toHaveBeenCalledWith("Pulse stayed even below 72."));
+
+    fireEvent.click(screen.getByRole("button", { name: "Pain, numbness, or weakness — stop" }));
+    await waitFor(() => expect(handlers.onSafetyStop).toHaveBeenCalledWith(
+      "Pain, numbness, or weakness reported by the pianist.",
+    ));
+
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 recovery cleans" }));
+    await waitFor(() => expect(handlers.onRecover).toHaveBeenCalledWith({
+      kind: "clean_debt",
+      clean_count: 2,
+      rationale: "Pianist chose two additional recovery cleans.",
+    }));
   });
 
   it("shows a review boundary without calling the set complete", () => {

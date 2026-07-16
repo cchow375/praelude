@@ -62,6 +62,55 @@ describe("HistoryPanel", () => {
     expect(output.map((group) => group.region?.name)).toEqual(["B (mm.544-552)"]);
   });
 
+  it("filters the projected sets by focus and explicit evidence without hiding their section", () => {
+    const mastered = {
+      ...block,
+      block_id: 20,
+      focus: "memory",
+      mastery_verified: true,
+      mastery_status: "satisfied" as const,
+      verdicts: { clean: 5, flawed: 0, failed: 0 },
+    };
+    const recovery = {
+      ...block,
+      block_id: 21,
+      focus: "tempo",
+      mastery_verified: true,
+      mastery_status: "not_satisfied" as const,
+      recovery_remaining: 2,
+      reset_count: 1,
+    };
+    const groups = [{ region, blocks: [mastered, recovery], mastery: null }];
+
+    const memory = filterSortHistory(groups, {
+      query: "",
+      sort: "recent",
+      focus: "memory",
+      evidence: "mastered",
+    });
+    expect(memory).toHaveLength(1);
+    expect(memory[0].blocks.map((item) => item.block_id)).toEqual([20]);
+
+    const resets = filterSortHistory(groups, {
+      query: "",
+      sort: "recent",
+      focus: "all",
+      evidence: "recovery",
+    });
+    expect(resets[0].blocks.map((item) => item.block_id)).toEqual([21]);
+  });
+
+  it("shows a clear empty result when a dense-ledger filter has no matching set", async () => {
+    render(<HistoryPanel pieceId={1} />);
+    await screen.findByText("bridge");
+    const focus = screen.getByLabelText("Filter practice history by focus") as HTMLSelectElement;
+    await act(async () => {
+      focus.value = "memory";
+      focus.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(screen.getByText("No sections match these filters.")).toBeTruthy();
+  });
+
   it("ignores an older piece refresh that resolves after the current piece", async () => {
     const oldBlock = { ...block, block_id: 101, region_id: null, label: "stale piece set" };
     const newBlock = { ...block, block_id: 202, region_id: null, label: "current piece set" };

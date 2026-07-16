@@ -11,6 +11,7 @@ export interface UniverseTraces {
   active_window_start: string;
   active_window_end: string;
   quality_formula: string;
+  maturity_formula?: string;
 }
 
 export interface UniverseTotals {
@@ -18,6 +19,9 @@ export interface UniverseTotals {
   active_days_28: number;
   regions_practiced: number;
   regions_revisited: number;
+  mastered_targets?: number;
+  recovered_targets?: number;
+  practice_sessions?: number;
 }
 
 export interface RegionSignal {
@@ -34,6 +38,11 @@ export interface RegionSignal {
   rated_rep_events: number;
   clean_rep_events: number;
   distinct_practice_dates: number;
+  mastery_contracts_completed?: number;
+  recovery_resets?: number;
+  recovered?: boolean;
+  open_recovery_debt?: number;
+  practice_sessions?: number;
 }
 
 export interface UniversePiece {
@@ -45,6 +54,11 @@ export interface UniversePiece {
   regions_total: number;
   regions_practiced: number;
   regions_revisited: number;
+  mastered_targets?: number;
+  recovered_targets?: number;
+  open_recovery_debt?: number;
+  practice_sessions?: number;
+  earned_maturity?: number;
   quality_brightness: number;
   last_practiced: string | null;
   region_signals: RegionSignal[];

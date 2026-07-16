@@ -8,7 +8,7 @@
 use rusqlite::Connection;
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 9;
+pub const SCHEMA_VERSION: i32 = 10;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -736,6 +736,180 @@ CREATE UNIQUE INDEX set_contract_one_live_v2_idx
   ON set_contract((1)) WHERE set_state IN ('active','paused');
 ";
 
+/// Schema v10 — durable V2.4 practice-loop identity and append-only evidence.
+///
+/// This step is intentionally sidecar-only. The v1 evidence tables (`rep_block`,
+/// `rep`, `session_event`, and `event`) are not rebuilt or rewritten. Runtime
+/// projections may join these tables, but the new focus/timing/recovery records
+/// remain independently auditable and a retried command can return its original
+/// durable receipt without executing the mutation twice.
+pub(crate) const SCHEMA_V10: &str = "\
+CREATE TABLE practice_operation (
+  id INTEGER PRIMARY KEY,
+  receipt_id TEXT NOT NULL UNIQUE
+    CHECK(length(trim(receipt_id)) BETWEEN 1 AND 240),
+  command_id TEXT NOT NULL UNIQUE
+    CHECK(length(trim(command_id)) BETWEEN 1 AND 200),
+  operation_kind TEXT NOT NULL
+    CHECK(length(trim(operation_kind)) BETWEEN 1 AND 100),
+  request_fingerprint TEXT NOT NULL
+    CHECK(length(request_fingerprint) BETWEEN 1 AND 24000),
+  set_id INTEGER,
+  source TEXT NOT NULL CHECK(source IN
+    ('user_click','voice_hot_loop','voice_draft','brain_draft','import_review','migration_legacy','system_schedule')),
+  summary TEXT NOT NULL CHECK(length(trim(summary)) BETWEEN 1 AND 2000),
+  value_json TEXT NOT NULL,
+  entity_refs_json TEXT NOT NULL DEFAULT '[]',
+  event_ids_json TEXT NOT NULL DEFAULT '[]',
+  undo_action TEXT,
+  committed_ts TEXT NOT NULL
+);
+CREATE INDEX practice_operation_set_idx ON practice_operation(set_id,id);
+
+CREATE TABLE practice_set_context (
+  set_id INTEGER PRIMARY KEY REFERENCES rep_block(id) ON DELETE CASCADE,
+  intention TEXT CHECK(intention IS NULL OR length(trim(intention)) BETWEEN 1 AND 2000),
+  judging_axis TEXT NOT NULL
+    CHECK(length(trim(judging_axis)) BETWEEN 1 AND 200),
+  hands TEXT NOT NULL CHECK(length(trim(hands)) BETWEEN 1 AND 200),
+  method TEXT NOT NULL CHECK(length(trim(method)) BETWEEN 1 AND 500),
+  planned_seconds INTEGER CHECK(planned_seconds IS NULL OR planned_seconds BETWEEN 1 AND 86400),
+  initial_reflection TEXT
+    CHECK(initial_reflection IS NULL OR length(trim(initial_reflection)) BETWEEN 1 AND 4000),
+  captured_ts TEXT NOT NULL
+);
+
+CREATE TABLE practice_interval (
+  id INTEGER PRIMARY KEY,
+  set_id INTEGER NOT NULL REFERENCES rep_block(id) ON DELETE CASCADE,
+  started_ts TEXT NOT NULL,
+  last_checkpoint_ts TEXT NOT NULL,
+  ended_ts TEXT,
+  end_reason TEXT CHECK(end_reason IS NULL OR end_reason IN
+    ('pause','close','mastered','restart','safety_stop','suspension','crash_checkpoint')),
+  opened_operation_id INTEGER REFERENCES practice_operation(id) ON DELETE RESTRICT,
+  closed_operation_id INTEGER REFERENCES practice_operation(id) ON DELETE RESTRICT,
+  CHECK(julianday(last_checkpoint_ts) >= julianday(started_ts)),
+  CHECK(ended_ts IS NULL OR julianday(ended_ts) >= julianday(started_ts)),
+  CHECK((ended_ts IS NULL AND end_reason IS NULL AND closed_operation_id IS NULL)
+     OR (ended_ts IS NOT NULL AND end_reason IS NOT NULL))
+);
+CREATE INDEX practice_interval_set_idx ON practice_interval(set_id,id);
+CREATE UNIQUE INDEX practice_interval_one_open_idx
+  ON practice_interval(set_id) WHERE ended_ts IS NULL;
+CREATE TRIGGER practice_interval_no_backward_overlap_insert
+BEFORE INSERT ON practice_interval
+WHEN EXISTS(
+  SELECT 1 FROM practice_interval prior
+  WHERE prior.set_id=NEW.set_id
+    AND julianday(COALESCE(prior.ended_ts,prior.last_checkpoint_ts)) > julianday(NEW.started_ts)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'practice interval cannot overlap an earlier interval');
+END;
+
+CREATE TABLE practice_reflection (
+  id INTEGER PRIMARY KEY,
+  set_id INTEGER NOT NULL REFERENCES rep_block(id) ON DELETE RESTRICT,
+  reflection TEXT NOT NULL CHECK(length(trim(reflection)) BETWEEN 1 AND 4000),
+  operation_id INTEGER NOT NULL UNIQUE
+    REFERENCES practice_operation(id) ON DELETE RESTRICT,
+  created_ts TEXT NOT NULL
+);
+CREATE INDEX practice_reflection_set_idx ON practice_reflection(set_id,id);
+CREATE TRIGGER practice_reflection_append_only_update
+BEFORE UPDATE ON practice_reflection
+BEGIN
+  SELECT RAISE(ABORT, 'practice reflections are append-only');
+END;
+CREATE TRIGGER practice_reflection_append_only_delete
+BEFORE DELETE ON practice_reflection
+BEGIN
+  SELECT RAISE(ABORT, 'practice reflections are append-only');
+END;
+
+CREATE TABLE practice_safety_event (
+  id INTEGER PRIMARY KEY,
+  set_id INTEGER NOT NULL REFERENCES rep_block(id) ON DELETE RESTRICT,
+  state TEXT NOT NULL CHECK(state IN ('stopped','cleared')),
+  reason TEXT CHECK(reason IS NULL OR length(trim(reason)) BETWEEN 1 AND 2000),
+  operation_id INTEGER NOT NULL UNIQUE
+    REFERENCES practice_operation(id) ON DELETE RESTRICT,
+  created_ts TEXT NOT NULL
+);
+CREATE TRIGGER practice_safety_event_append_only_update
+BEFORE UPDATE ON practice_safety_event
+BEGIN
+  SELECT RAISE(ABORT, 'practice safety evidence is append-only');
+END;
+CREATE TRIGGER practice_safety_event_append_only_delete
+BEFORE DELETE ON practice_safety_event
+BEGIN
+  SELECT RAISE(ABORT, 'practice safety evidence is append-only');
+END;
+
+CREATE TABLE practice_recovery_action (
+  id INTEGER PRIMARY KEY,
+  set_id INTEGER NOT NULL REFERENCES rep_block(id) ON DELETE RESTRICT,
+  kind TEXT NOT NULL CHECK(kind IN
+    ('reset_streak','clean_debt','tempo_backoff','narrow_target','change_hands','change_method','break','schedule_retention')),
+  after_attempt_id INTEGER REFERENCES rep(id) ON DELETE RESTRICT,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  rationale TEXT NOT NULL CHECK(length(trim(rationale)) BETWEEN 1 AND 2000),
+  source TEXT NOT NULL CHECK(source IN
+    ('user_click','voice_hot_loop','voice_draft','brain_draft','import_review','migration_legacy','system_schedule')),
+  operation_id INTEGER NOT NULL UNIQUE
+    REFERENCES practice_operation(id) ON DELETE RESTRICT,
+  created_ts TEXT NOT NULL
+);
+CREATE INDEX practice_recovery_action_set_idx
+  ON practice_recovery_action(set_id,id);
+CREATE TRIGGER practice_recovery_same_set_insert
+BEFORE INSERT ON practice_recovery_action
+WHEN NEW.after_attempt_id IS NOT NULL AND
+     (SELECT block_id FROM rep WHERE id=NEW.after_attempt_id) != NEW.set_id
+BEGIN
+  SELECT RAISE(ABORT, 'recovery boundary attempt must belong to its set');
+END;
+CREATE TRIGGER practice_recovery_append_only_update
+BEFORE UPDATE ON practice_recovery_action
+BEGIN
+  SELECT RAISE(ABORT, 'recovery actions are append-only');
+END;
+CREATE TRIGGER practice_recovery_append_only_delete
+BEFORE DELETE ON practice_recovery_action
+BEGIN
+  SELECT RAISE(ABORT, 'recovery actions are append-only');
+END;
+
+CREATE TABLE retention_check_event (
+  id INTEGER PRIMARY KEY,
+  retention_check_id INTEGER NOT NULL
+    REFERENCES retention_check(id) ON DELETE RESTRICT,
+  from_state TEXT,
+  to_state TEXT NOT NULL CHECK(to_state IN
+    ('due','snoozed','confirmed','lowered','reopened','dismissed')),
+  due_date TEXT NOT NULL,
+  original_due_date TEXT NOT NULL,
+  result_json TEXT,
+  operation_id INTEGER NOT NULL UNIQUE
+    REFERENCES practice_operation(id) ON DELETE RESTRICT,
+  created_ts TEXT NOT NULL
+);
+CREATE INDEX retention_check_event_check_idx
+  ON retention_check_event(retention_check_id,id);
+CREATE TRIGGER retention_check_event_append_only_update
+BEFORE UPDATE ON retention_check_event
+BEGIN
+  SELECT RAISE(ABORT, 'retention evidence is append-only');
+END;
+CREATE TRIGGER retention_check_event_append_only_delete
+BEFORE DELETE ON retention_check_event
+BEGIN
+  SELECT RAISE(ABORT, 'retention evidence is append-only');
+END;
+";
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
@@ -914,6 +1088,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         }
     }
 
+    if version < 10 {
+        let v10 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            conn.execute_batch(SCHEMA_V10)?;
+            conn.execute_batch("PRAGMA user_version = 10;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v10 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
     Ok(())
 }
 
@@ -1011,8 +1199,7 @@ mod v3_tests {
         let c = seed_v6();
         c.execute_batch("BEGIN;").unwrap();
         c.execute_batch(SCHEMA_V7).unwrap();
-        c.execute_batch("PRAGMA user_version = 7; COMMIT;")
-            .unwrap();
+        c.execute_batch("PRAGMA user_version = 7; COMMIT;").unwrap();
         c
     }
 
@@ -2061,12 +2248,9 @@ mod v3_tests {
         let burst_facts: serde_json::Value = serde_json::from_str(&burst_facts).unwrap();
         assert_eq!(burst_facts["attempt_ids"], serde_json::json!([1, 2]));
         assert_eq!(
-            c.query_row(
-                "SELECT m_start FROM rep_block WHERE id=3",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .unwrap(),
+            c.query_row("SELECT m_start FROM rep_block WHERE id=3", [], |row| row
+                .get::<_, i64>(0),)
+                .unwrap(),
             50,
             "a projected anomaly does not repair its source"
         );
@@ -2093,6 +2277,88 @@ mod v3_tests {
             .unwrap(),
             anomaly_count,
             "worker and migration reopen are idempotent"
+        );
+    }
+
+    #[test]
+    fn migrate_v7_to_v10_adds_only_practice_loop_sidecars_and_reopens_idempotently() {
+        let c = seed_v7();
+        let source_counts = (
+            c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            c.query_row("SELECT count(*) FROM region", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            c.query_row("SELECT count(*) FROM rep_block", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            c.query_row("SELECT count(*) FROM rep", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            c.query_row("SELECT count(*) FROM event", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+        );
+
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            10
+        );
+        for table in [
+            "practice_operation",
+            "practice_set_context",
+            "practice_interval",
+            "practice_reflection",
+            "practice_safety_event",
+            "practice_recovery_action",
+            "retention_check_event",
+        ] {
+            assert_eq!(
+                c.query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+                1,
+                "missing additive v10 table {table}"
+            );
+        }
+        assert_eq!(
+            (
+                c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
+                    .unwrap(),
+                c.query_row("SELECT count(*) FROM region", [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                c.query_row("SELECT count(*) FROM rep_block", [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                c.query_row("SELECT count(*) FROM rep", [], |row| row.get::<_, i64>(0))
+                    .unwrap(),
+                c.query_row("SELECT count(*) FROM event", [], |row| row.get::<_, i64>(0))
+                    .unwrap(),
+            ),
+            source_counts,
+            "v10 creates sidecars without changing physical v1 evidence rows"
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM practice_operation", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0,
+            "migration must not invent runtime operations"
+        );
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
         );
     }
 
@@ -2125,11 +2391,9 @@ mod v3_tests {
         migrate(&c).unwrap();
 
         let piece_one_region: i64 = c
-            .query_row(
-                "SELECT min(id) FROM region WHERE piece_id=1",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT min(id) FROM region WHERE piece_id=1", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         let piece_one_set: i64 = c
             .query_row(
@@ -2287,7 +2551,7 @@ mod v3_tests {
         c.execute_batch(
             "CREATE TABLE sentinel(id INTEGER PRIMARY KEY,value TEXT);
              INSERT INTO sentinel(id,value) VALUES (1,'preserve me');
-             PRAGMA user_version = 10;",
+             PRAGMA user_version = 11;",
         )
         .unwrap();
 
@@ -2296,7 +2560,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            10
+            11
         );
         assert_eq!(
             c.query_row("SELECT value FROM sentinel WHERE id=1", [], |row| {

@@ -55,7 +55,9 @@ use cpal::SampleFormat;
 use crossbeam_queue::ArrayQueue;
 
 #[allow(unused_imports)]
-pub use clock::{ClickClock, ClickEvent, ClickKind, ClickPattern, MAX_BPM, MAX_SUBDIVISION, MIN_BPM};
+pub use clock::{
+    ClickClock, ClickEvent, ClickKind, ClickPattern, MAX_BPM, MAX_SUBDIVISION, MIN_BPM,
+};
 #[allow(unused_imports)]
 pub use mixer::Mixer;
 
@@ -531,9 +533,15 @@ mod tests {
         assert!((out[0] - 0.0).abs() < 1e-6, "start preserved");
         assert!((out[1] - 0.5).abs() < 1e-6, "interpolated midpoint");
         assert!((out[2] - 1.0).abs() < 1e-6, "end sample reached");
-        assert!((out[3] - 1.0).abs() < 1e-6, "past-end clamps to last sample");
+        assert!(
+            (out[3] - 1.0).abs() < 1e-6,
+            "past-end clamps to last sample"
+        );
         // Same rate is identity.
-        assert_eq!(resample_linear(&[0.1, 0.2, 0.3], 24_000, 24_000), vec![0.1, 0.2, 0.3]);
+        assert_eq!(
+            resample_linear(&[0.1, 0.2, 0.3], 24_000, 24_000),
+            vec![0.1, 0.2, 0.3]
+        );
     }
 
     // A device-free `EngineHandle` for exercising the `enqueue_pcm` accounting
@@ -580,7 +588,10 @@ mod tests {
             pending_before,
             "pending must return to its prior value after a refused enqueue"
         );
-        assert!(!handle.pcm_done(), "still not done; nothing was lost or falsely cleared");
+        assert!(
+            !handle.pcm_done(),
+            "still not done; nothing was lost or falsely cleared"
+        );
 
         // The refused chunk's Vec was recycled, not leaked/freed: a fresh enqueue
         // after freeing a queue slot succeeds again. (A raw `pcm_q.pop` here does
@@ -602,7 +613,11 @@ mod tests {
         for _ in 0..3 {
             handle.enqueue_pcm(&chunk, 100).expect("under cap");
         }
-        assert_eq!(handle.pcm_pending.load(Ordering::Acquire), 300, "at the cap");
+        assert_eq!(
+            handle.pcm_pending.load(Ordering::Acquire),
+            300,
+            "at the cap"
+        );
         let err = handle.enqueue_pcm(&chunk, 100).unwrap_err();
         assert_eq!(err, PcmError::CapExceeded);
         assert_eq!(
@@ -678,7 +693,10 @@ mod tests {
             click_gain: 1.0,
         })
         .expect("engine should start on this Mac");
-        eprintln!("playing 4 beats at 120 bpm @ {} Hz...", handle.sample_rate());
+        eprintln!(
+            "playing 4 beats at 120 bpm @ {} Hz...",
+            handle.sample_rate()
+        );
         // 4 beats at 120 bpm = 2 seconds; give the tail a moment.
         std::thread::sleep(Duration::from_millis(2300));
         eprintln!("done; pcm_done()={}", handle.pcm_done());

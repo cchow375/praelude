@@ -200,6 +200,7 @@ describe("useRep — IPC wiring", () => {
     expect(invokeMock).toHaveBeenCalledWith("rep_check", {
       verdict: "clean",
       note: "left hand solid",
+      commandId: expect.stringMatching(/^ui:rep-check/),
     });
   });
 
@@ -221,7 +222,118 @@ describe("useRep — IPC wiring", () => {
     expect(invokeMock).toHaveBeenCalledWith("rep_check", {
       verdict: "failed",
       note: null,
+      commandId: expect.stringMatching(/^ui:rep-check/),
     });
+  });
+
+  it("reuses one durable command id when an uncertain attempt write is retried", async () => {
+    const committed = makeSnap({
+      attempts_recorded: 1,
+      tries: 1,
+      last_attempt_id: 801,
+      last: { verdict: "clean", note: "same evidence", bpm: 60 },
+    });
+    let checks = 0;
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "rep_state") return Promise.resolve(makeSnap());
+      if (command === "metro_state") return Promise.resolve(makeMetro());
+      if (command === "rep_check") {
+        checks += 1;
+        if (checks === 1) return Promise.reject({ code: "transport_lost", message: "Reply lost." });
+        return Promise.resolve({ snap: committed, new_bpm: null, block_done: false, say: "Saved." });
+      }
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
+
+    await act(async () => {
+      await expect(result.current.check("clean", "same evidence")).rejects.toMatchObject({
+        code: "transport_lost",
+      });
+    });
+    await act(async () => {
+      await result.current.check("clean", "same evidence");
+    });
+
+    const calls = invokeMock.mock.calls.filter(([command]) => command === "rep_check");
+    expect(calls).toHaveLength(2);
+    expect(calls[0][1].commandId).toBe(calls[1][1].commandId);
+  });
+
+  it("applies a committed pause receipt and exposes its durable identity", async () => {
+    const active = makeSnap({ timer_state: "active", active_seconds: 11 });
+    const paused = makeSnap({ timer_state: "paused", set_state: "paused", active_seconds: 18 });
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "rep_state") return Promise.resolve(active);
+      if (command === "metro_state") return Promise.resolve(makeMetro());
+      if (command === "rep_pause") return Promise.resolve({
+        receipt_id: "receipt:pause:1",
+        command_id: "native:pause:1",
+        status: "committed",
+        summary: "Practice paused at 18 seconds.",
+        value: paused,
+        entity_refs: [{ entity_type: "set", entity_id: 1 }],
+        event_ids: [91],
+        undo_action: null,
+        error_code: null,
+        error_detail: null,
+        replayed: false,
+        committed_ts: "2026-07-15T20:00:00Z",
+      });
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.timer_state).toBe("active"));
+
+    await act(async () => { await result.current.pause(); });
+
+    expect(result.current.snap?.timer_state).toBe("paused");
+    expect(invokeMock).toHaveBeenCalledWith("rep_pause", {
+      commandId: expect.stringMatching(/^ui:rep-pause/),
+    });
+    const activity = screen.getByRole("list", { name: "Recent app activity" });
+    const item = within(activity).getByText("Practice paused at 18 seconds.").closest("li");
+    expect(item?.getAttribute("data-receipt-id")).toBe("receipt:pause:1");
+  });
+
+  it("keeps the live set unchanged when a receipt rejects a recovery choice", async () => {
+    const active = makeSnap({ timer_state: "active", recovery_actions: [] });
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "rep_state") return Promise.resolve(active);
+      if (command === "metro_state") return Promise.resolve(makeMetro());
+      if (command === "rep_recovery") return Promise.resolve({
+        receipt_id: "rejected:recovery",
+        command_id: "native:recovery",
+        status: "rejected",
+        summary: "Narrow range is outside the target.",
+        value: null,
+        entity_refs: [],
+        event_ids: [],
+        error_code: "practice_rejected",
+        error_detail: "Narrow range is outside the target.",
+        replayed: false,
+        committed_ts: null,
+      });
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
+
+    await act(async () => {
+      await expect(result.current.recover({
+        kind: "narrow_target",
+        m_start: 99,
+        m_end: 100,
+        rationale: "Isolate the miss.",
+      })).rejects.toThrow("Narrow range is outside the target.");
+    });
+
+    expect(result.current.snap?.recovery_actions).toEqual([]);
+    expect(result.current.error).toBe("Narrow range is outside the target.");
+    expect(screen.getByRole("list", { name: "Recent app activity" }).textContent).toContain(
+      "Narrow range is outside the target.",
+    );
   });
 
   it("publishes one visible committed receipt for a saved attempt", async () => {
@@ -325,7 +437,7 @@ describe("useRep — IPC wiring", () => {
       await result.current.open(args);
     });
 
-    expect(invokeMock).toHaveBeenCalledWith("rep_open", { args });
+    expect(invokeMock).toHaveBeenCalledWith("rep_open", { args, context: null });
     expect(invokeMock).toHaveBeenCalledWith("metro_start", { bpm: 60 });
     expect(result.current.snap?.block_id).toBe(42);
   });

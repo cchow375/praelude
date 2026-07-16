@@ -1,0 +1,74 @@
+.ledger-workspace {
+  min-height: 100%;
+  overflow: auto;
+  padding: clamp(1.25rem, 4vw, 3.5rem) clamp(1.25rem, 4.5vw, 4.5rem) 5rem;
+}
+
+.ledger-masthead {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(14rem, 0.7fr);
+  align-items: end;
+  gap: var(--space-6);
+  max-width: 82rem;
+  margin: 0 auto clamp(2rem, 5vw, 4rem);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--hairline-strong);
+}
+
+.ledger-masthead h1 {
+  margin: 0.08em 0 0;
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: var(--weight-normal);
+  letter-spacing: -0.06em;
+  line-height: 0.82;
+}
+
+.ledger-masthead > p { max-width: 30rem; margin: 0; color: var(--ink-secondary); font-family: var(--font-display); font-size: var(--text-lg); }
+.ledger-error { max-width: 82rem; margin: 0 auto var(--space-4); padding: var(--space-3); color: var(--danger); border-left: 4px solid var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface-raised)); }
+
+.ledger-layout {
+  display: grid;
+  grid-template-columns: minmax(14rem, 0.42fr) minmax(0, 1.58fr);
+  gap: clamp(1rem, 3vw, 3rem);
+  max-width: 82rem;
+  margin: 0 auto;
+}
+
+.ledger-piece-index {
+  align-self: start;
+  position: sticky;
+  top: 0;
+  padding: var(--space-4);
+  background: var(--surface-ink);
+  color: var(--ink-on-dark);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card);
+}
+
+.ledger-index-head { display: flex; justify-content: space-between; padding-bottom: var(--space-3); border-bottom: 1px solid color-mix(in srgb, var(--ink-on-dark) 18%, transparent); font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: var(--tracking-label); text-transform: uppercase; }
+.ledger-piece-index > p { color: color-mix(in srgb, var(--ink-on-dark) 60%, transparent); font-size: var(--text-xs); }
+.ledger-piece-index ul { list-style: none; margin: 0; padding: var(--space-2) 0 0; }
+.ledger-piece-index li + li { border-top: 1px solid color-mix(in srgb, var(--ink-on-dark) 10%, transparent); }
+.ledger-piece-index button { display: grid; grid-template-columns: 1.8rem minmax(0, 1fr) auto; width: 100%; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-2); border: 0; text-align: left; color: color-mix(in srgb, var(--ink-on-dark) 68%, transparent); background: transparent; cursor: pointer; transition: color var(--duration-fast) ease, background var(--duration-fast) ease, transform var(--duration-fast) var(--ease-human); }
+.ledger-piece-index button:hover { color: var(--ink-on-dark); background: color-mix(in srgb, var(--ink-on-dark) 7%, transparent); transform: translateX(2px); }
+.ledger-piece-index button.is-selected { color: var(--ink-on-dark); background: var(--accent); }
+.ledger-piece-index button > span:first-child { font-family: var(--font-mono); font-size: var(--text-2xs); opacity: 0.62; }
+.ledger-piece-index button > span:nth-child(2) { display: flex; min-width: 0; flex-direction: column; }
+.ledger-piece-index button strong { overflow: hidden; font-family: var(--font-display); font-size: var(--text-base); font-weight: var(--weight-normal); text-overflow: ellipsis; white-space: nowrap; }
+.ledger-piece-index button small { overflow: hidden; font-size: var(--text-2xs); text-overflow: ellipsis; white-space: nowrap; opacity: 0.58; }
+
+.ledger-record { min-width: 0; }
+.ledger-record > header { margin-bottom: var(--space-5); }
+.ledger-record > header h2 { margin: var(--space-1) 0 0; font-family: var(--font-display); font-size: clamp(2.3rem, 4vw, 4.5rem); font-weight: var(--weight-normal); letter-spacing: -0.045em; line-height: 0.95; }
+.ledger-record > header > p:last-child { margin: var(--space-1) 0 0; color: var(--ink-tertiary); }
+.ledger-record .history-panel { margin: 0; padding: 0; }
+.ledger-empty { min-height: 18rem; display: grid; place-items: center; color: var(--ink-tertiary); border-top: 1px solid var(--hairline-strong); border-bottom: 1px solid var(--hairline-strong); }
+
+@media (max-width: 760px) {
+  .ledger-masthead { grid-template-columns: 1fr; }
+  .ledger-layout { grid-template-columns: 1fr; }
+  .ledger-piece-index { position: static; }
+  .ledger-piece-index ul { display: flex; overflow-x: auto; gap: var(--space-2); }
+  .ledger-piece-index li { min-width: 12rem; border: 0 !important; }
+}

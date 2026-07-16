@@ -65,6 +65,51 @@
   font-weight: var(--weight-semibold);
 }
 
+.rep-focus-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--ink-primary);
+  color: var(--surface-app);
+}
+
+.rep-focus-strip > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border-right: 1px solid color-mix(in srgb, var(--surface-app) 14%, transparent);
+}
+
+.rep-focus-strip > div:last-child { border-right: 0; }
+
+.rep-focus-strip span,
+.rep-focus-strip em {
+  display: block;
+  color: color-mix(in srgb, var(--surface-app) 56%, transparent);
+  font-size: 0.62rem;
+  font-style: normal;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rep-focus-strip strong {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rep-focus-clock strong {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-variant-numeric: tabular-nums;
+}
+
+.rep-focus-clock em { margin-top: 2px; color: var(--accent-soft); }
+
 .rep-hud-main {
   display: grid;
   grid-template-columns: minmax(10rem, 0.8fr) minmax(13rem, 1.2fr);
@@ -163,7 +208,9 @@
 .rep-verdict,
 .rep-hud-tools button,
 .rep-hud-correction button,
-.rep-hud-confirm button {
+.rep-hud-confirm button,
+.rep-reflection button,
+.rep-recovery-desk button {
   min-height: 36px;
   padding: 0 11px;
   color: var(--ink-primary);
@@ -186,6 +233,8 @@
 .rep-hud-tools button:focus-visible,
 .rep-hud-correction :focus-visible,
 .rep-hud-confirm button:focus-visible,
+.rep-reflection :focus-visible,
+.rep-recovery-desk :focus-visible,
 .rep-hud-note:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -215,8 +264,15 @@
 .rep-verdict:disabled,
 .rep-hud-note:disabled,
 .rep-hud-correction button:disabled,
-.rep-hud-confirm button:disabled { cursor: not-allowed; opacity: 0.48; }
+.rep-hud-confirm button:disabled,
+.rep-reflection button:disabled,
+.rep-recovery-desk button:disabled { cursor: not-allowed; opacity: 0.48; }
 .rep-hud-tools .rep-hud-close { margin-left: auto; }
+.rep-hud-tools .rep-hud-resume {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
 
 .rep-hud-correction,
 .rep-hud-confirm {
@@ -230,6 +286,123 @@
 .rep-hud-correction input { flex: 1 1 10rem; }
 .rep-hud-confirm strong { flex: 1 1 100%; }
 .rep-hud-confirm span { flex: 1 1 100%; color: var(--ink-secondary); font-size: var(--text-sm); line-height: 1.45; }
+
+.rep-safety-stop {
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--danger) 11%, var(--surface-app));
+  color: color-mix(in srgb, var(--danger) 78%, var(--ink-primary));
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.rep-safety-stop:hover { background: color-mix(in srgb, var(--danger) 17%, var(--surface-app)); }
+.rep-safety-stop:disabled { cursor: default; opacity: 0.48; }
+
+.rep-reflection {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--radius-md);
+  background: var(--surface-hover);
+}
+
+.rep-reflection label {
+  color: var(--ink-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.rep-reflection textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 8px;
+  border: 1px solid var(--rep-edge);
+  border-radius: var(--radius-sm);
+  background: var(--surface-app);
+  color: var(--ink-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.rep-reflection > div { display: flex; gap: 6px; justify-content: flex-end; }
+
+.rep-recovery-desk {
+  border: 1px solid var(--rep-edge);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface-app));
+}
+
+.rep-recovery-desk > summary {
+  padding: 9px 10px;
+  color: var(--ink-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.rep-recovery-desk > summary span {
+  margin-left: 6px;
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+}
+
+.rep-recovery-quick,
+.rep-recovery-editors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+
+.rep-recovery-quick button { flex: 1 1 9rem; }
+
+.rep-recovery-editors {
+  display: grid;
+  grid-template-columns: 1fr;
+  padding-top: 10px;
+  border-top: 1px solid var(--rep-edge);
+}
+
+.rep-recovery-editors form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rep-recovery-editors form > span {
+  min-width: 7rem;
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+}
+
+.rep-recovery-editors input,
+.rep-recovery-editors select {
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 7px;
+  border: 1px solid var(--rep-edge);
+  border-radius: var(--radius-sm);
+  background: var(--surface-app);
+  color: var(--ink-primary);
+  font: inherit;
+  font-size: var(--text-xs);
+}
+
+.rep-recovery-editors input { width: 4.3rem; }
+.rep-recovery-editors select { flex: 1 1 auto; }
+.rep-recovery-desk > small {
+  display: block;
+  padding: 0 10px 10px;
+  color: var(--ink-tertiary);
+  font-size: 10px;
+}
 
 .rep-hud-feed {
   display: flex;
@@ -290,6 +463,12 @@
   .rep-hud-main { grid-template-columns: 1fr; }
   .rep-hud-state { margin-left: 0; }
   .rep-hud-tools .rep-hud-close { margin-left: 0; }
+  .rep-focus-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rep-focus-strip > div:nth-child(2) { border-right: 0; }
+  .rep-focus-strip > div:nth-child(-n + 2) {
+    border-bottom: 1px solid color-mix(in srgb, var(--surface-app) 14%, transparent);
+  }
+  .rep-recovery-editors form { flex-wrap: wrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -297,5 +476,7 @@
   .rep-verdict,
   .rep-hud-tools button,
   .rep-hud-correction button,
-  .rep-hud-confirm button { transition: none; }
+  .rep-hud-confirm button,
+  .rep-reflection button,
+  .rep-recovery-desk button { transition: none; }
 }

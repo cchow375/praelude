@@ -391,12 +391,9 @@ fn ask_with(
     // A provider answer without at least one locally verified source is not a
     // grounded answer. Fall back to the deterministic library card instead of
     // putting uncited prose in the UI.
-    let cites_external_library = citations.iter().any(|citation| {
-        corpus
-            .hits
-            .iter()
-            .any(|hit| hit.id == citation.source_id)
-    });
+    let cites_external_library = citations
+        .iter()
+        .any(|citation| corpus.hits.iter().any(|hit| hit.id == citation.source_id));
     if citations.is_empty()
         || (share_knowledge && !corpus.hits.is_empty() && !cites_external_library)
     {
@@ -750,193 +747,255 @@ fn output_policy_violation_reason(answer: &str) -> Option<&'static str> {
     {
         return Some("sensitive_or_direct_control_phrase");
     }
-    normalized.split(['.', '!', '?', '\n']).find_map(|sentence| {
-        let words = sentence
-            .split(|ch: char| !ch.is_ascii_alphanumeric())
-            .filter(|word| !word.is_empty())
-            .collect::<HashSet<_>>();
-        let has = |terms: &[&str]| terms.iter().any(|term| words.contains(term));
+    normalized
+        .split(['.', '!', '?', '\n'])
+        .find_map(|sentence| {
+            let words = sentence
+                .split(|ch: char| !ch.is_ascii_alphanumeric())
+                .filter(|word| !word.is_empty())
+                .collect::<HashSet<_>>();
+            let has = |terms: &[&str]| terms.iter().any(|term| words.contains(term));
 
-        // Advice may tell Christian what to try. Reject these pairs only when
-        // the provider falsely casts itself/the app as the actor.
-        let claimed_app_actor = has(&["i", "we", "coda", "codakiller", "app", "brain"]);
-        let navigation = claimed_app_actor
-            && has(&[
-                "go",
-                "went",
-                "jump",
-                "jumped",
-                "navigate",
-                "navigated",
-                "open",
-                "opened",
-                "show",
-                "showed",
-                "scroll",
-                "scrolled",
-                "head",
-                "headed",
-                "seek",
-                "sought",
-                "view",
-                "viewed",
-                "move",
-                "moved",
-                "turn",
-                "turned",
-            ])
-            && has(&[
-                "page", "measure", "bar", "score", "region", "system", "section", "location",
-            ]);
-        let tempo_control = claimed_app_actor
-            && has(&[
-                "start", "started", "stop", "stopped", "set", "change", "changed", "raise",
-                "raised", "lower", "lowered", "increase", "increased", "decrease",
-                "decreased", "bump", "bumped", "retune", "retuned", "adjust", "adjusted",
-                "dial", "dialed", "tune", "tuned", "switch", "switched", "put", "turn",
-                "turned", "pause", "paused", "resume", "resumed",
-            ])
-            && has(&["tempo", "bpm", "metronome", "click"]);
-        let graph_mutation = claimed_app_actor
-            && has(&[
-                "delete",
-                "deleted",
-                "edit",
-                "edited",
-                "save",
-                "saved",
-                "update",
-                "updated",
-                "create",
-                "created",
-                "remove",
-                "removed",
-                "add",
-                "added",
-                "mark",
-                "marked",
-                "reschedule",
-                "rescheduled",
-                "move",
-                "moved",
-                "apply",
-                "applied",
-                "erase",
-                "erased",
-                "write",
-                "wrote",
-                "record",
-                "recorded",
-                "log",
-                "logged",
-                "rename",
-                "renamed",
-                "clear",
-                "cleared",
-                "replace",
-                "replaced",
-                "complete",
-                "completed",
-                "dismiss",
-                "dismissed",
-            ])
-            && has(&[
-                "goal", "block", "rep", "region", "intake", "deadline", "schedule",
-            ]);
-        let claimed_tempo_state = has(&["metronome", "tempo", "bpm", "click"])
-            && has(&[
-                "now", "currently", "already", "is", "are", "was", "has", "been",
-            ])
-            && has(&[
-                "running", "started", "stopped", "set", "changed", "raised", "lowered",
-                "retuned", "adjusted", "on", "off", "paused", "resumed",
-            ]);
-        let claimed_graph_state = has(&["goal", "block", "region", "intake", "schedule"])
-            && has(&["was", "has", "now", "already"])
-            && has(&[
-                "deleted", "edited", "saved", "updated", "created", "removed", "added",
-                "moved", "applied", "recorded", "renamed", "cleared", "completed",
-                "dismissed",
-            ]);
+            // Advice may tell Christian what to try. Reject these pairs only when
+            // the provider falsely casts itself/the app as the actor.
+            let claimed_app_actor = has(&["i", "we", "coda", "codakiller", "app", "brain"]);
+            let navigation = claimed_app_actor
+                && has(&[
+                    "go",
+                    "went",
+                    "jump",
+                    "jumped",
+                    "navigate",
+                    "navigated",
+                    "open",
+                    "opened",
+                    "show",
+                    "showed",
+                    "scroll",
+                    "scrolled",
+                    "head",
+                    "headed",
+                    "seek",
+                    "sought",
+                    "view",
+                    "viewed",
+                    "move",
+                    "moved",
+                    "turn",
+                    "turned",
+                ])
+                && has(&[
+                    "page", "measure", "bar", "score", "region", "system", "section", "location",
+                ]);
+            let tempo_control = claimed_app_actor
+                && has(&[
+                    "start",
+                    "started",
+                    "stop",
+                    "stopped",
+                    "set",
+                    "change",
+                    "changed",
+                    "raise",
+                    "raised",
+                    "lower",
+                    "lowered",
+                    "increase",
+                    "increased",
+                    "decrease",
+                    "decreased",
+                    "bump",
+                    "bumped",
+                    "retune",
+                    "retuned",
+                    "adjust",
+                    "adjusted",
+                    "dial",
+                    "dialed",
+                    "tune",
+                    "tuned",
+                    "switch",
+                    "switched",
+                    "put",
+                    "turn",
+                    "turned",
+                    "pause",
+                    "paused",
+                    "resume",
+                    "resumed",
+                ])
+                && has(&["tempo", "bpm", "metronome", "click"]);
+            let graph_mutation = claimed_app_actor
+                && has(&[
+                    "delete",
+                    "deleted",
+                    "edit",
+                    "edited",
+                    "save",
+                    "saved",
+                    "update",
+                    "updated",
+                    "create",
+                    "created",
+                    "remove",
+                    "removed",
+                    "add",
+                    "added",
+                    "mark",
+                    "marked",
+                    "reschedule",
+                    "rescheduled",
+                    "move",
+                    "moved",
+                    "apply",
+                    "applied",
+                    "erase",
+                    "erased",
+                    "write",
+                    "wrote",
+                    "record",
+                    "recorded",
+                    "log",
+                    "logged",
+                    "rename",
+                    "renamed",
+                    "clear",
+                    "cleared",
+                    "replace",
+                    "replaced",
+                    "complete",
+                    "completed",
+                    "dismiss",
+                    "dismissed",
+                ])
+                && has(&[
+                    "goal", "block", "rep", "region", "intake", "deadline", "schedule",
+                ]);
+            let claimed_tempo_state = has(&["metronome", "tempo", "bpm", "click"])
+                && has(&[
+                    "now",
+                    "currently",
+                    "already",
+                    "is",
+                    "are",
+                    "was",
+                    "has",
+                    "been",
+                ])
+                && has(&[
+                    "running", "started", "stopped", "set", "changed", "raised", "lowered",
+                    "retuned", "adjusted", "on", "off", "paused", "resumed",
+                ]);
+            let claimed_graph_state = has(&["goal", "block", "region", "intake", "schedule"])
+                && has(&["was", "has", "now", "already"])
+                && has(&[
+                    "deleted",
+                    "edited",
+                    "saved",
+                    "updated",
+                    "created",
+                    "removed",
+                    "added",
+                    "moved",
+                    "applied",
+                    "recorded",
+                    "renamed",
+                    "cleared",
+                    "completed",
+                    "dismissed",
+                ]);
 
-        // The app has no piano-audio perception. Reject app-actor
-        // sensory claims and verdict language tied to an attempt/performance.
-        let sensory_claim = claimed_app_actor
-            && has(&["hear", "heard", "listen", "listened", "detect", "detected"])
-            && has(&[
+            // The app has no piano-audio perception. Reject app-actor
+            // sensory claims and verdict language tied to an attempt/performance.
+            let sensory_claim = claimed_app_actor
+                && has(&["hear", "heard", "listen", "listened", "detect", "detected"])
+                && has(&[
+                    "playing",
+                    "performance",
+                    "piano",
+                    "take",
+                    "rep",
+                    "attempt",
+                    "tension",
+                    "rhythm",
+                    "tone",
+                ]);
+            let sounded_claim = sentence.contains("your playing sounds")
+                || sentence.contains("your performance sounds")
+                || sentence.contains("that sounded");
+            let outcome = has(&[
+                "clean",
+                "flawed",
+                "failed",
+                "sloppy",
+                "rough",
+                "shaky",
+                "perfect",
+                "incorrect",
+                "success",
+                "successful",
+                "miss",
+                "missed",
+                "pass",
+                "passed",
+                "failure",
+            ]);
+            let attempt = has(&[
+                "rep",
+                "repetition",
+                "attempt",
                 "playing",
                 "performance",
-                "piano",
                 "take",
-                "rep",
-                "attempt",
-                "tension",
-                "rhythm",
-                "tone",
+                "run",
+                "sounded",
             ]);
-        let sounded_claim = sentence.contains("your playing sounds")
-            || sentence.contains("your performance sounds")
-            || sentence.contains("that sounded");
-        let outcome = has(&[
-            "clean",
-            "flawed",
-            "failed",
-            "sloppy",
-            "rough",
-            "shaky",
-            "perfect",
-            "incorrect",
-            "success",
-            "successful",
-            "miss",
-            "missed",
-            "pass",
-            "passed",
-            "failure",
-        ]);
-        let attempt = has(&[
-            "rep",
-            "repetition",
-            "attempt",
-            "playing",
-            "performance",
-            "take",
-            "run",
-            "sounded",
-        ]);
-        let deictic = has(&["your", "that", "this", "it", "last", "latest", "one"]);
-        let verdict = outcome && attempt && deictic;
-        let deictic_verdict = outcome && deictic;
-        let app_verdict_action = claimed_app_actor
-            && outcome
-            && has(&[
-                "count", "counted", "record", "recorded", "log", "logged", "classify",
-                "classified", "label", "labeled", "mark", "marked", "treat", "treated",
-                "call", "called",
-            ]);
-        let verdict_action = has(&[
-            "count", "record", "log", "classify", "label", "mark", "treat", "call",
-        ]) && attempt
-            && outcome;
+            let deictic = has(&["your", "that", "this", "it", "last", "latest", "one"]);
+            let verdict = outcome && attempt && deictic;
+            let deictic_verdict = outcome && deictic;
+            let app_verdict_action = claimed_app_actor
+                && outcome
+                && has(&[
+                    "count",
+                    "counted",
+                    "record",
+                    "recorded",
+                    "log",
+                    "logged",
+                    "classify",
+                    "classified",
+                    "label",
+                    "labeled",
+                    "mark",
+                    "marked",
+                    "treat",
+                    "treated",
+                    "call",
+                    "called",
+                ]);
+            let verdict_action = has(&[
+                "count", "record", "log", "classify", "label", "mark", "treat", "call",
+            ]) && attempt
+                && outcome;
 
-        if navigation {
-            Some("claimed_navigation")
-        } else if tempo_control {
-            Some("claimed_tempo_control")
-        } else if graph_mutation {
-            Some("claimed_graph_mutation")
-        } else if claimed_tempo_state {
-            Some("claimed_tempo_state")
-        } else if claimed_graph_state {
-            Some("claimed_graph_state")
-        } else if sensory_claim || sounded_claim {
-            Some("claimed_piano_perception")
-        } else if verdict || deictic_verdict || app_verdict_action || verdict_action {
-            Some("claimed_rep_verdict")
-        } else {
-            None
-        }
-    })
+            if navigation {
+                Some("claimed_navigation")
+            } else if tempo_control {
+                Some("claimed_tempo_control")
+            } else if graph_mutation {
+                Some("claimed_graph_mutation")
+            } else if claimed_tempo_state {
+                Some("claimed_tempo_state")
+            } else if claimed_graph_state {
+                Some("claimed_graph_state")
+            } else if sensory_claim || sounded_claim {
+                Some("claimed_piano_perception")
+            } else if verdict || deictic_verdict || app_verdict_action || verdict_action {
+                Some("claimed_rep_verdict")
+            } else {
+                None
+            }
+        })
 }
 
 #[cfg(test)]
@@ -1262,7 +1321,9 @@ mod tests {
         assert_ne!(answer.provider, ProviderName::Offline);
         assert!(answer.grounding.knowledge_shared_with_provider);
         assert!(answer.citations.iter().any(|citation| {
-            citation.source_id.starts_with("local:gebrian-learn-faster:")
+            citation
+                .source_id
+                .starts_with("local:gebrian-learn-faster:")
                 || citation
                     .source_id
                     .starts_with("local:roskell-complete-pianist:")
@@ -1311,10 +1372,7 @@ mod tests {
         let (store, sessions, _) = fixture();
         let corpus_dir = external_corpus_fixture();
         store
-            .set_setting(
-                "brain.knowledge_dir",
-                corpus_dir.path().to_str().unwrap(),
-            )
+            .set_setting("brain.knowledge_dir", corpus_dir.path().to_str().unwrap())
             .unwrap();
         store
             .set_setting("brain.share_retrieved_knowledge", "false")
@@ -1432,28 +1490,20 @@ mod tests {
         assert!(output_crosses_policy(
             "I moved the goal to tomorrow and applied the schedule."
         ));
-        assert!(output_crosses_policy(
-            "Coda set the metronome to 92 BPM."
-        ));
-        assert!(output_crosses_policy(
-            "The app moved the goal to tomorrow."
-        ));
+        assert!(output_crosses_policy("Coda set the metronome to 92 BPM."));
+        assert!(output_crosses_policy("The app moved the goal to tomorrow."));
         assert!(output_crosses_policy(
             "The metronome is now running at 92 BPM."
         ));
         assert!(output_crosses_policy(
             "The metronome has been set to 92 BPM."
         ));
-        assert!(output_crosses_policy(
-            "The goal was moved to tomorrow."
-        ));
+        assert!(output_crosses_policy("The goal was moved to tomorrow."));
         assert!(output_crosses_policy(
             "Coda started the metronome at 92 BPM."
         ));
         assert!(output_crosses_policy("I've stopped the metronome."));
-        assert!(output_crosses_policy(
-            "The metronome is running at 92 BPM."
-        ));
+        assert!(output_crosses_policy("The metronome is running at 92 BPM."));
         assert!(output_crosses_policy("Coda turned the metronome on."));
         assert!(output_crosses_policy(
             "Coda heard tension in your performance."

@@ -20,7 +20,7 @@ describe("App shell smoke", () => {
   it("renders the shell and toggles a popover open/closed", async () => {
     render(<App />);
 
-    expect(screen.getByText("CodaKiller")).toBeTruthy();
+    expect(screen.getByLabelText("CodaKiller version 1.3.0")).toBeTruthy();
 
     const settingsBtn = screen.getByRole("button", { name: "Settings" });
     fireEvent.click(settingsBtn);

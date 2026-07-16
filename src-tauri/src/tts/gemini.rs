@@ -75,7 +75,10 @@ impl GeminiTts {
 
     /// Full endpoint URL for the interactions call.
     fn endpoint(&self) -> String {
-        format!("{}/v1beta/interactions", self.base_url.trim_end_matches('/'))
+        format!(
+            "{}/v1beta/interactions",
+            self.base_url.trim_end_matches('/')
+        )
     }
 }
 
@@ -199,7 +202,10 @@ mod tests {
         assert_eq!(body["input"], "CodaKiller online");
         assert_eq!(body["response_format"]["type"], "audio");
         // speech_config is an ARRAY of {voice}, per the verified docs.
-        assert_eq!(body["generation_config"]["speech_config"][0]["voice"], "Kore");
+        assert_eq!(
+            body["generation_config"]["speech_config"][0]["voice"],
+            "Kore"
+        );
         assert!(
             body["generation_config"]["speech_config"].is_array(),
             "speech_config must be an array"
@@ -210,7 +216,10 @@ mod tests {
     fn voice_and_model_pass_through() {
         let body = build_request_body("hi", "custom-model", "Puck");
         assert_eq!(body["model"], "custom-model");
-        assert_eq!(body["generation_config"]["speech_config"][0]["voice"], "Puck");
+        assert_eq!(
+            body["generation_config"]["speech_config"][0]["voice"],
+            "Puck"
+        );
     }
 
     #[test]
@@ -246,7 +255,10 @@ mod tests {
             r#"{{"status":"completed","steps":[{{"content":[{{"mime_type":"audio/l16","data":"{b64}"}}]}}]}}"#
         );
         let pcm = parse_response(body.as_bytes()).expect("parses");
-        assert_eq!(pcm.rate, 24_000, "audio/l16 with no rate defaults to 24 kHz");
+        assert_eq!(
+            pcm.rate, 24_000,
+            "audio/l16 with no rate defaults to 24 kHz"
+        );
         assert_eq!(pcm.mono_f32.len(), 2);
         assert!((pcm.mono_f32[0]).abs() < 1e-9);
         assert!((pcm.mono_f32[1] - 0.5).abs() < 1e-3);
@@ -256,7 +268,7 @@ mod tests {
     fn parse_response_concatenates_multiple_audio_chunks_and_reads_rate() {
         let a = base64::engine::general_purpose::STANDARD.encode([0u8, 0]); // 1 sample
         let b = base64::engine::general_purpose::STANDARD.encode([0u8, 0x40]); // 1 sample
-        // Two content parts across steps, mime carries an explicit rate.
+                                                                               // Two content parts across steps, mime carries an explicit rate.
         let body = format!(
             r#"{{"steps":[{{"content":[{{"mime_type":"audio/L16;codec=pcm;rate=16000","data":"{a}"}}]}},{{"content":[{{"mime_type":"audio/l16","data":"{b}"}}]}}]}}"#
         );
@@ -276,7 +288,10 @@ mod tests {
 
     #[test]
     fn rate_from_mime_parses_or_defaults() {
-        assert_eq!(rate_from_mime("audio/L16;codec=pcm;rate=24000"), Some(24_000));
+        assert_eq!(
+            rate_from_mime("audio/L16;codec=pcm;rate=24000"),
+            Some(24_000)
+        );
         assert_eq!(rate_from_mime("audio/l16"), None);
     }
 
@@ -298,6 +313,9 @@ mod tests {
             .headers()
             .get("x-goog-api-key")
             .expect("x-goog-api-key header present");
-        assert_eq!(header.to_str().expect("header is valid utf8"), "secret-key-123");
+        assert_eq!(
+            header.to_str().expect("header is valid utf8"),
+            "secret-key-123"
+        );
     }
 }

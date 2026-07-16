@@ -170,8 +170,7 @@ fn has_musicxml_root_prefix(path: &Path) -> bool {
         match reader.read_event_into(&mut buffer) {
             Ok(Event::Start(event)) | Ok(Event::Empty(event)) => {
                 let root = event.local_name();
-                return root.as_ref() == b"score-partwise"
-                    || root.as_ref() == b"score-timewise";
+                return root.as_ref() == b"score-partwise" || root.as_ref() == b"score-timewise";
             }
             // quick-xml reports the external declaration but does not fetch or
             // resolve it. These prologue events are safe to skip.

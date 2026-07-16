@@ -46,10 +46,7 @@ pub struct WorkSuggestion {
 }
 
 /// Load the canonical graph and produce a read-only preview for one piece.
-pub fn preview_for_piece(
-    store: &Store,
-    piece_id: i64,
-) -> rusqlite::Result<Vec<WorkSuggestion>> {
+pub fn preview_for_piece(store: &Store, piece_id: i64) -> rusqlite::Result<Vec<WorkSuggestion>> {
     let progress = crate::metrics::progress_summary(store, piece_id)?;
     let block_meta = store.blocks_meta(piece_id)?;
     let reps = store.reps_for_piece(piece_id)?;
@@ -76,7 +73,12 @@ fn recent_region_signals(blocks: &[BlockMeta], reps: &[Rep]) -> Vec<RegionSignal
     let mut signals = by_region
         .into_iter()
         .map(|(region_id, region_reps)| {
-            let recent = region_reps.iter().rev().take(5).copied().collect::<Vec<_>>();
+            let recent = region_reps
+                .iter()
+                .rev()
+                .take(5)
+                .copied()
+                .collect::<Vec<_>>();
             RegionSignal {
                 region_id,
                 recent_attempts: recent.len() as u32,
@@ -104,14 +106,17 @@ pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
     for goal in input.goals.iter().filter(|goal| !goal.done) {
         let mut score = 35;
         let mut reasons = vec!["unfinished goal".to_string()];
-        if let (Some(today), Some(target)) = (
-            today,
-            goal.target_date.as_deref().and_then(Date::parse),
-        ) {
+        if let (Some(today), Some(target)) =
+            (today, goal.target_date.as_deref().and_then(Date::parse))
+        {
             let days = target.days_since_epoch() - today.days_since_epoch();
             if days < 0 {
                 score += 65;
-                reasons.push(format!("overdue by {} day{}", -days, if days == -1 { "" } else { "s" }));
+                reasons.push(format!(
+                    "overdue by {} day{}",
+                    -days,
+                    if days == -1 { "" } else { "s" }
+                ));
             } else if days == 0 {
                 score += 60;
                 reasons.push("due today".into());
@@ -132,11 +137,12 @@ pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
         });
     }
 
-    for block in input
-        .blocks
-        .iter()
-        .filter(|block| matches!(block.set_state.as_str(), "active" | "paused" | "legacy_open"))
-    {
+    for block in input.blocks.iter().filter(|block| {
+        matches!(
+            block.set_state.as_str(),
+            "active" | "paused" | "legacy_open"
+        )
+    }) {
         let remaining = block
             .attempt_ceiling
             .map(|ceiling| ceiling.saturating_sub(block.tries));
@@ -155,9 +161,10 @@ pub fn preview(input: &PlanInput) -> Vec<WorkSuggestion> {
             id: format!("block:{}", block.block_id),
             kind: "open_block".into(),
             goal_id: None,
-            title: block.label.clone().unwrap_or_else(|| {
-                format!("Measures {}–{}", block.m_start, block.m_end)
-            }),
+            title: block
+                .label
+                .clone()
+                .unwrap_or_else(|| format!("Measures {}–{}", block.m_start, block.m_end)),
             m_start: Some(block.m_start),
             m_end: Some(block.m_end),
             score,
@@ -270,7 +277,11 @@ mod tests {
             set_state: "active".into(),
             last_attempt_id: None,
             last_adjustment_id: None,
-            verdicts: VerdictCounts { clean: 0, flawed: 0, failed: 0 },
+            verdicts: VerdictCounts {
+                clean: 0,
+                flawed: 0,
+                failed: 0,
+            },
             bpm: Some(80.0),
             region_id: Some(1),
             focus: "tempo".into(),
@@ -318,7 +329,9 @@ mod tests {
 
     #[test]
     fn preview_never_mutates_and_caps_output() {
-        let goals = (1..=10).map(|id| goal(id, &format!("G{id}"), None)).collect();
+        let goals = (1..=10)
+            .map(|id| goal(id, &format!("G{id}"), None))
+            .collect();
         let out = preview(&PlanInput {
             today: "2026-07-12".into(),
             goals,
@@ -396,10 +409,10 @@ mod tests {
             source: "user_click".into(),
             active_adjustment_ids: vec![],
         };
-        let signals = recent_region_signals(&blocks, &[
-            attempt(1, "clean", false),
-            attempt(2, "failed", true),
-        ]);
+        let signals = recent_region_signals(
+            &blocks,
+            &[attempt(1, "clean", false), attempt(2, "failed", true)],
+        );
         assert_eq!(
             signals,
             vec![RegionSignal {

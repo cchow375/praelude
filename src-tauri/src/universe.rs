@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::date::Date;
 use crate::metrics;
-use crate::store::model::{BlockMeta, Event, PieceSummary, Region};
+use crate::store::model::{BlockHistory, BlockMeta, Event, PieceSummary, Region};
 use crate::store::Store;
 
 const PRACTICE_EVENT_KINDS: [&str; 4] = ["rep_open", "rep", "verdict", "tempo_change"];
@@ -41,6 +41,7 @@ pub(crate) struct UniverseTraces {
     pub active_window_start: String,
     pub active_window_end: String,
     pub quality_formula: &'static str,
+    pub maturity_formula: &'static str,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -49,6 +50,9 @@ pub(crate) struct UniverseTotals {
     pub active_days_28: u32,
     pub regions_practiced: u32,
     pub regions_revisited: u32,
+    pub mastered_targets: u32,
+    pub recovered_targets: u32,
+    pub practice_sessions: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -61,6 +65,13 @@ pub(crate) struct PieceSignal {
     pub regions_total: u32,
     pub regions_practiced: u32,
     pub regions_revisited: u32,
+    pub mastered_targets: u32,
+    pub recovered_targets: u32,
+    pub open_recovery_debt: u32,
+    pub practice_sessions: u32,
+    /// Bounded 0..1 composition of time, continuity, coverage, verified
+    /// mastery, and honest recovery. It controls density only, never status.
+    pub earned_maturity: f64,
     pub quality_brightness: f64,
     pub last_practiced: Option<String>,
     pub region_signals: Vec<RegionSignal>,
@@ -81,13 +92,40 @@ pub(crate) struct RegionSignal {
     pub rated_rep_events: u32,
     pub clean_rep_events: u32,
     pub distinct_practice_dates: u32,
+    pub mastery_contracts_completed: u32,
+    pub recovery_resets: u32,
+    pub recovered: bool,
+    pub open_recovery_debt: u32,
+    pub practice_sessions: u32,
 }
 
 struct PieceInput {
     piece: PieceSummary,
     regions: Vec<Region>,
     blocks: Vec<BlockMeta>,
+    set_evidence: Vec<SetEvidence>,
     events: Vec<DatedEvent>,
+}
+
+#[derive(Clone, Debug)]
+struct SetEvidence {
+    region_id: Option<i64>,
+    mastery_verified: bool,
+    mastery_satisfied: bool,
+    reset_count: u32,
+    recovery_remaining: u32,
+}
+
+impl From<BlockHistory> for SetEvidence {
+    fn from(block: BlockHistory) -> Self {
+        Self {
+            region_id: block.region_id,
+            mastery_verified: block.mastery_verified,
+            mastery_satisfied: block.mastery_status == "satisfied",
+            reset_count: block.reset_count,
+            recovery_remaining: block.recovery_remaining,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -122,6 +160,11 @@ pub(crate) fn snapshot(store: &Store) -> rusqlite::Result<UniverseSnapshot> {
             Ok(PieceInput {
                 regions: store.region_list(piece.id)?,
                 blocks: store.blocks_meta(piece.id)?,
+                set_evidence: store
+                    .block_history(piece.id)?
+                    .into_iter()
+                    .map(SetEvidence::from)
+                    .collect(),
                 events,
                 piece,
             })
@@ -151,6 +194,7 @@ fn aggregate(
         let practice_events: Vec<Event> =
             practice.iter().map(|dated| dated.event.clone()).collect();
         let active_dates = dates_in_window(&practice, window_start, today);
+        let piece_sessions = distinct_sessions(&practice);
         global_active_dates.extend(active_dates.iter().copied());
 
         let block_regions: HashMap<i64, i64> = input
@@ -176,6 +220,26 @@ fn aggregate(
             let all_dates = all_valid_dates(&region_practice);
             let region_active_dates = dates_in_window(&region_practice, window_start, today);
             let (rated, clean) = rated_counts(&region_practice);
+            let contracts: Vec<&SetEvidence> = input
+                .set_evidence
+                .iter()
+                .filter(|set| set.region_id == Some(region.id))
+                .collect();
+            let mastery_contracts_completed = count_u32(
+                contracts
+                    .iter()
+                    .filter(|set| set.mastery_verified && set.mastery_satisfied)
+                    .count(),
+            );
+            let recovery_resets = contracts
+                .iter()
+                .fold(0u32, |sum, set| sum.saturating_add(set.reset_count));
+            let open_recovery_debt = contracts
+                .iter()
+                .fold(0u32, |sum, set| sum.saturating_add(set.recovery_remaining));
+            let recovered = contracts.iter().any(|set| {
+                set.reset_count > 0 && set.mastery_verified && set.mastery_satisfied
+            });
 
             region_signals.push(RegionSignal {
                 region_id: region.id,
@@ -191,28 +255,56 @@ fn aggregate(
                 rated_rep_events: rated,
                 clean_rep_events: clean,
                 distinct_practice_dates: count_u32(all_dates.len()),
+                mastery_contracts_completed,
+                recovery_resets,
+                recovered,
+                open_recovery_debt,
+                practice_sessions: count_u32(distinct_sessions(&region_practice).len()),
             });
         }
 
         let (rated, clean) = rated_counts(&practice);
+        let regions_practiced = count_u32(
+            region_signals.iter().filter(|signal| signal.practiced).count(),
+        );
+        let regions_revisited = count_u32(
+            region_signals.iter().filter(|signal| signal.revisited).count(),
+        );
+        let mastered_targets = count_u32(
+            region_signals
+                .iter()
+                .filter(|signal| signal.mastery_contracts_completed > 0)
+                .count(),
+        );
+        let recovered_targets = count_u32(
+            region_signals.iter().filter(|signal| signal.recovered).count(),
+        );
+        let open_recovery_debt = region_signals.iter().fold(0u32, |sum, signal| {
+            sum.saturating_add(signal.open_recovery_debt)
+        });
+        let focused_seconds = metrics::focused_seconds(&practice_events);
+        let regions_total = count_u32(input.regions.len());
         pieces.push(PieceSignal {
             piece_id: input.piece.id,
             title: input.piece.title.clone(),
             composer: input.piece.composer.clone(),
-            focused_seconds: metrics::focused_seconds(&practice_events),
+            focused_seconds,
             active_days_28: count_u32(active_dates.len()),
-            regions_total: count_u32(input.regions.len()),
-            regions_practiced: count_u32(
-                region_signals
-                    .iter()
-                    .filter(|signal| signal.practiced)
-                    .count(),
-            ),
-            regions_revisited: count_u32(
-                region_signals
-                    .iter()
-                    .filter(|signal| signal.revisited)
-                    .count(),
+            regions_total,
+            regions_practiced,
+            regions_revisited,
+            mastered_targets,
+            recovered_targets,
+            open_recovery_debt,
+            practice_sessions: count_u32(piece_sessions.len()),
+            earned_maturity: earned_maturity(
+                focused_seconds,
+                count_u32(active_dates.len()),
+                regions_total,
+                regions_practiced,
+                mastered_targets,
+                recovered_targets,
+                region_signals.iter().any(|signal| signal.recovery_resets > 0),
             ),
             quality_brightness: quality_brightness(rated, clean),
             last_practiced: last_practiced(&practice),
@@ -225,6 +317,17 @@ fn aggregate(
         active_days_28: count_u32(global_active_dates.len()),
         regions_practiced: pieces.iter().map(|piece| piece.regions_practiced).sum(),
         regions_revisited: pieces.iter().map(|piece| piece.regions_revisited).sum(),
+        mastered_targets: pieces.iter().map(|piece| piece.mastered_targets).sum(),
+        recovered_targets: pieces.iter().map(|piece| piece.recovered_targets).sum(),
+        practice_sessions: count_u32(
+            inputs
+                .iter()
+                .flat_map(|input| input.events.iter())
+                .filter(|dated| is_practice_event(&dated.event))
+                .filter_map(|dated| dated.event.session_id)
+                .collect::<BTreeSet<_>>()
+                .len(),
+        ),
     };
 
     Ok(UniverseSnapshot {
@@ -237,6 +340,7 @@ fn aggregate(
             active_window_start: window_start.to_string(),
             active_window_end: today.to_string(),
             quality_formula: "0.92 + 0.08 * ((clean_rep_events + 2) / (rated_rep_events + 4)); rounded to 4 decimals; bounded 0.92..1.00",
+            maturity_formula: "0.25 logarithmic focused time + 0.20 active-day continuity + 0.20 target coverage + 0.25 verified mastery + 0.10 honest recovery; rounded to 4 decimals; bounded 0..1",
         },
         totals,
         pieces,
@@ -270,7 +374,60 @@ fn definitions() -> Vec<SignalDefinition> {
             label: "Subtle quality brightness",
             definition: "A bounded 0.92–1.00 visual tint from self-reported rep verdicts with a neutral prior. It is not a score, grade, or penalty.",
         },
+        SignalDefinition {
+            signal: "mastery_ring",
+            label: "Verified mastery",
+            definition: "A current target with at least one satisfied native consecutive-clean contract. Legacy totals and raw clean-click volume cannot satisfy it.",
+        },
+        SignalDefinition {
+            signal: "recovery_mark",
+            label: "Honest recovery",
+            definition: "A current target whose recorded set contains one or more streak resets and later satisfies its verified mastery contract.",
+        },
+        SignalDefinition {
+            signal: "session_constellation",
+            label: "Practice sessions",
+            definition: "Distinct durable session identities attached to canonical practice events for this Piece.",
+        },
     ]
+}
+
+fn distinct_sessions(events: &[&DatedEvent]) -> BTreeSet<i64> {
+    events
+        .iter()
+        .filter_map(|dated| dated.event.session_id)
+        .collect()
+}
+
+fn earned_maturity(
+    focused_seconds: u64,
+    active_days: u32,
+    regions_total: u32,
+    regions_practiced: u32,
+    mastered_targets: u32,
+    recovered_targets: u32,
+    had_recovery_opportunity: bool,
+) -> f64 {
+    // Twenty focused hours and twenty distinct recent days saturate their
+    // signals. Logarithmic time keeps the first honest sessions visible while
+    // preventing duration alone from overwhelming musical evidence.
+    let focused_minutes = focused_seconds as f64 / 60.0;
+    let time = focused_minutes.ln_1p() / 1_200f64.ln_1p();
+    let continuity = f64::from(active_days).min(20.0) / 20.0;
+    let denominator = f64::from(regions_total.max(1));
+    let coverage = f64::from(regions_practiced.min(regions_total)) / denominator;
+    let mastery = f64::from(mastered_targets.min(regions_total)) / denominator;
+    let recovery = if had_recovery_opportunity {
+        f64::from(recovered_targets.min(regions_total)) / denominator
+    } else {
+        0.0
+    };
+    let maturity = 0.25 * time.clamp(0.0, 1.0)
+        + 0.20 * continuity
+        + 0.20 * coverage
+        + 0.25 * mastery
+        + 0.10 * recovery;
+    (maturity.clamp(0.0, 1.0) * 10_000.0).round() / 10_000.0
 }
 
 fn is_practice_event(event: &Event) -> bool {
@@ -458,6 +615,7 @@ mod tests {
             piece: piece(id, &format!("Piece {id}")),
             regions,
             blocks,
+            set_evidence: Vec::new(),
             events,
         }
     }
@@ -476,7 +634,7 @@ mod tests {
         let out = run(&[]);
         assert_eq!(out.totals, UniverseTotals::default());
         assert!(out.pieces.is_empty());
-        assert_eq!(out.definitions.len(), 5);
+        assert_eq!(out.definitions.len(), 8);
         assert_eq!(out.traces.active_window_start, "2026-06-15");
         assert_eq!(out.traces.active_window_end, "2026-07-12");
         assert_eq!(out.traces.practice_event_kinds, PRACTICE_EVENT_KINDS);
@@ -572,6 +730,84 @@ mod tests {
         assert_eq!(piece.regions_revisited, 0);
         assert_eq!(piece.quality_brightness, 0.96);
         assert!(!piece.region_signals[0].practiced);
+    }
+
+    #[test]
+    fn verified_mastery_recovery_and_sessions_are_separate_earned_signals() {
+        let regions = vec![region(10, 1, "Repair target"), region(11, 1, "Raw clicks")];
+        let blocks = vec![
+            BlockMeta {
+                block_id: 100,
+                region_id: Some(10),
+                focus: "notes".into(),
+            },
+            BlockMeta {
+                block_id: 110,
+                region_id: Some(11),
+                focus: "notes".into(),
+            },
+        ];
+        let mut first = event(
+            1,
+            1,
+            "rep",
+            "2026-07-11 10:00:00",
+            Some("2026-07-11"),
+            Some(100),
+            Some("failed"),
+        );
+        first.event.session_id = Some(7);
+        let mut second = event(
+            2,
+            1,
+            "rep",
+            "2026-07-12 10:00:00",
+            Some("2026-07-12"),
+            Some(100),
+            Some("clean"),
+        );
+        second.event.session_id = Some(8);
+        let raw_clicks = event(
+            3,
+            1,
+            "rep",
+            "2026-07-12 10:01:00",
+            Some("2026-07-12"),
+            Some(110),
+            Some("clean"),
+        );
+        let mut evidence = input(1, regions, blocks, vec![first, second, raw_clicks]);
+        evidence.set_evidence = vec![
+            SetEvidence {
+                region_id: Some(10),
+                mastery_verified: true,
+                mastery_satisfied: true,
+                reset_count: 2,
+                recovery_remaining: 0,
+            },
+            SetEvidence {
+                region_id: Some(11),
+                mastery_verified: false,
+                mastery_satisfied: false,
+                reset_count: 0,
+                recovery_remaining: 0,
+            },
+        ];
+
+        let out = run(&[evidence]);
+        let piece = &out.pieces[0];
+        assert_eq!(piece.practice_sessions, 3);
+        assert_eq!(piece.mastered_targets, 1);
+        assert_eq!(piece.recovered_targets, 1);
+        assert_eq!(piece.open_recovery_debt, 0);
+        assert!(piece.earned_maturity > 0.0 && piece.earned_maturity <= 1.0);
+        assert_eq!(piece.region_signals[0].mastery_contracts_completed, 1);
+        assert_eq!(piece.region_signals[0].recovery_resets, 2);
+        assert!(piece.region_signals[0].recovered);
+        assert_eq!(piece.region_signals[1].mastery_contracts_completed, 0);
+        assert_eq!(out.totals.mastered_targets, 1);
+        assert_eq!(out.totals.recovered_targets, 1);
+        assert_eq!(out.totals.practice_sessions, 3);
     }
 
     #[test]

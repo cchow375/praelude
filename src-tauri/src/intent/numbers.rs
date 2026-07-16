@@ -103,7 +103,10 @@ pub fn parse_number(input: &str) -> Option<f64> {
 
     // A bare integer literal is only accepted when it stands alone; a literal
     // mixed with words ("one 20") is rejected as malformed.
-    let literal_count = atoms.iter().filter(|a| matches!(a, Atom::Literal(_))).count();
+    let literal_count = atoms
+        .iter()
+        .filter(|a| matches!(a, Atom::Literal(_)))
+        .count();
     if literal_count > 0 {
         if atoms.len() == 1 {
             if let Atom::Literal(v) = atoms[0] {
@@ -156,9 +159,19 @@ fn standard(atoms: &[Atom]) -> Option<f64> {
         match a {
             Atom::Digit(d) => current += *d as f64,
             Atom::Teen(t) | Atom::Tens(t) => current += *t as f64,
-            Atom::Hundred => current = if current == 0.0 { 100.0 } else { current * 100.0 },
+            Atom::Hundred => {
+                current = if current == 0.0 {
+                    100.0
+                } else {
+                    current * 100.0
+                }
+            }
             Atom::Thousand => {
-                result += if current == 0.0 { 1000.0 } else { current * 1000.0 };
+                result += if current == 0.0 {
+                    1000.0
+                } else {
+                    current * 1000.0
+                };
                 current = 0.0;
             }
             Atom::Literal(_) => return None,

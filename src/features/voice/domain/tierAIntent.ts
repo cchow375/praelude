@@ -1,0 +1,386 @@
+import {
+  validateVoiceDelivery,
+  type InvalidDeliveryReason,
+  type VoiceDeliveryIdentity,
+  type VoiceRecognitionMetadata,
+  type VoiceTranscriptDelivery,
+} from "./delivery";
+import { parseSpokenCountInteger, parseSpokenInteger } from "./spokenNumber";
+
+export const TIER_A_COUNT_MIN = 1;
+export const TIER_A_COUNT_MAX = 100;
+export const TIER_A_TEMPO_MIN = 20;
+export const TIER_A_TEMPO_MAX = 300;
+
+export type PracticeVoiceState = "idle" | "active" | "paused";
+export type SelfReportedVerdict = "clean" | "flawed" | "miss";
+export type RetentionVoiceAction = "confirm" | "lower" | "reopen" | "snooze";
+
+export interface TierAContext {
+  readonly practice_state: PracticeVoiceState;
+  readonly metronome_running: boolean;
+  readonly last_attempt_available: boolean;
+  readonly pending_duplicate_attempt: boolean;
+  readonly retention_due: boolean;
+}
+
+export type TierAIntent =
+  | { readonly kind: "record_attempt"; readonly verdict: SelfReportedVerdict }
+  | {
+      /** Quality is deliberately not inferred from a batch count declaration. */
+      readonly kind: "report_attempt_count";
+      readonly count: number;
+    }
+  | { readonly kind: "confirm_pending_attempt" }
+  | { readonly kind: "report_last_attempt" }
+  | { readonly kind: "undo_last_attempt" }
+  | {
+      readonly kind: "correct_last_attempt";
+      readonly verdict: SelfReportedVerdict;
+    }
+  | { readonly kind: "restart_set" }
+  | { readonly kind: "reset_clean_streak" }
+  | { readonly kind: "close_set" }
+  | { readonly kind: "practice_status" }
+  | { readonly kind: "pause_practice" }
+  | { readonly kind: "resume_practice" }
+  | { readonly kind: "safety_stop" }
+  | { readonly kind: "metronome_on" }
+  | { readonly kind: "metronome_off" }
+  | {
+      readonly kind: "adjust_tempo";
+      readonly direction: "faster" | "slower";
+    }
+  | { readonly kind: "set_tempo"; readonly bpm: number }
+  | { readonly kind: "correct_tempo"; readonly bpm: number }
+  | { readonly kind: "help" }
+  | {
+      readonly kind: "retention";
+      readonly action: RetentionVoiceAction;
+    };
+
+export interface TierAEvidence extends VoiceDeliveryIdentity {
+  readonly raw_text: string;
+  readonly normalized_text: string;
+  readonly recognition: VoiceRecognitionMetadata;
+}
+
+export type TierAIgnoredReason =
+  | "non_final"
+  | "not_exact_command"
+  | "state_mismatch"
+  | "unsafe_characters";
+
+export type TierARejectionReason =
+  | InvalidDeliveryReason
+  | "unsafe_numeric_punctuation"
+  | "invalid_count"
+  | "count_out_of_range"
+  | "invalid_tempo"
+  | "tempo_out_of_range"
+  | "no_active_set"
+  | "practice_paused"
+  | "already_paused"
+  | "already_active"
+  | "no_last_attempt"
+  | "no_pending_attempt"
+  | "retention_not_due";
+
+export type TierAParseResult =
+  | {
+      readonly classification: "matched";
+      readonly intent: TierAIntent;
+      readonly evidence: TierAEvidence;
+    }
+  | {
+      readonly classification: "rejected";
+      readonly reason: TierARejectionReason;
+      readonly evidence: TierAEvidence;
+    }
+  | {
+      readonly classification: "ignored";
+      readonly reason: TierAIgnoredReason;
+      readonly evidence: TierAEvidence;
+    };
+
+interface NormalizedTranscript {
+  readonly text: string;
+  readonly has_numeric_colon: boolean;
+  readonly has_unsafe_characters: boolean;
+}
+
+/**
+ * Normalize only presentation punctuation and whitespace. The parser still
+ * uses full-string equality/anchored forms; normalization never authorizes a
+ * substring command.
+ */
+export function normalizeTierATranscript(raw: string): NormalizedTranscript {
+  const compatible = raw.normalize("NFKC").toLocaleLowerCase("en-US");
+  const hasNumericColon = /\d\s*:\s*\d/u.test(compatible);
+  const withoutApostrophes = compatible.replace(/[’']/gu, "");
+  const spaced = withoutApostrophes.replace(/[.,!?;:—–-]/gu, " ");
+  const hasUnsafeCharacters = /[^a-z0-9\s]/u.test(spaced);
+  return {
+    text: spaced.replace(/\s+/gu, " ").trim(),
+    has_numeric_colon: hasNumericColon,
+    has_unsafe_characters: hasUnsafeCharacters,
+  };
+}
+
+function evidenceFor(
+  delivery: VoiceTranscriptDelivery,
+  normalized: string,
+): TierAEvidence {
+  return {
+    delivery_id: delivery.delivery_id,
+    revision: delivery.revision,
+    raw_text: delivery.text,
+    normalized_text: normalized,
+    recognition: delivery.recognition,
+  };
+}
+
+function match(
+  intent: TierAIntent,
+  evidence: TierAEvidence,
+): TierAParseResult {
+  return { classification: "matched", intent, evidence };
+}
+
+function reject(
+  reason: TierARejectionReason,
+  evidence: TierAEvidence,
+): TierAParseResult {
+  return { classification: "rejected", reason, evidence };
+}
+
+function ignore(
+  reason: TierAIgnoredReason,
+  evidence: TierAEvidence,
+): TierAParseResult {
+  return { classification: "ignored", reason, evidence };
+}
+
+function setAvailable(context: TierAContext): boolean {
+  return context.practice_state === "active" || context.practice_state === "paused";
+}
+
+function parseBoundedParameter(
+  body: string,
+  min: number,
+  max: number,
+  parser: (text: string) => number | null = parseSpokenInteger,
+): { value: number | null; valid: boolean } {
+  const value = parser(body);
+  return { value, valid: value !== null && value >= min && value <= max };
+}
+
+function parseCountCommand(text: string): string | null {
+  for (const prefix of ["count that as ", "count "] as const) {
+    if (text.startsWith(prefix)) return text.slice(prefix.length);
+  }
+  if (text.startsWith("did ")) {
+    const body = text.slice("did ".length);
+    // `did` is also an ambient auxiliary. Treat it as a count command only
+    // when the complete remainder is numeric (or contains explicit digits that
+    // deserve a bounded rejection); `did you count four` stays inert.
+    if (parseSpokenInteger(body) !== null || /\d/u.test(body)) return body;
+  }
+  return null;
+}
+
+function hasNegativeNumericLiteral(raw: string): boolean {
+  return /(?:^|\s)-\s*\d/u.test(raw.normalize("NFKC"));
+}
+
+function parseTempoCommand(
+  text: string,
+): { kind: "set_tempo" | "correct_tempo"; number_text: string } | null {
+  for (const prefix of ["correct last tempo to ", "correct tempo to "] as const) {
+    if (text.startsWith(prefix)) {
+      return { kind: "correct_tempo", number_text: text.slice(prefix.length) };
+    }
+  }
+  for (const prefix of ["set tempo to ", "set tempo "] as const) {
+    if (text.startsWith(prefix)) {
+      return { kind: "set_tempo", number_text: text.slice(prefix.length) };
+    }
+  }
+  return null;
+}
+
+/** Parse one final transcript using exact, state-gated Tier A grammar. */
+export function parseTierAIntent(
+  delivery: VoiceTranscriptDelivery,
+  context: TierAContext,
+): TierAParseResult {
+  const normalized = normalizeTierATranscript(delivery.text);
+  const evidence = evidenceFor(delivery, normalized.text);
+  const invalidDelivery = validateVoiceDelivery(delivery);
+  if (invalidDelivery) return reject(invalidDelivery, evidence);
+  if (!delivery.is_final) return ignore("non_final", evidence);
+  if (normalized.has_unsafe_characters) return ignore("unsafe_characters", evidence);
+
+  const text = normalized.text;
+
+  if (text === "help" || text === "voice help" || text === "practice help") {
+    return match({ kind: "help" }, evidence);
+  }
+  if ([
+    "safety stop",
+    "stop practice",
+    "it hurts",
+    "my hand hurts",
+    "it kind of hurts now",
+    "its kind of hurt now",
+    "i feel numb",
+    "my hand is numb",
+    "i feel weakness",
+  ].includes(text)) {
+    return match({ kind: "safety_stop" }, evidence);
+  }
+
+  const verdict = (
+    text === "clean" || text === "got it" || text === "done"
+      ? "clean"
+      : text === "flawed" || text === "sloppy"
+        ? "flawed"
+        : text === "miss" || text === "missed" || text === "no" || text === "again"
+          ? "miss"
+          : null
+  ) satisfies SelfReportedVerdict | null;
+  if (verdict !== null) {
+    if (context.practice_state === "active") {
+      return match({ kind: "record_attempt", verdict }, evidence);
+    }
+    if (context.practice_state === "paused") {
+      return reject("practice_paused", evidence);
+    }
+    // Short verdict words are conversational outside the active hot loop.
+    return ignore("state_mismatch", evidence);
+  }
+
+  if (text === "count that") {
+    if (!context.pending_duplicate_attempt) return reject("no_pending_attempt", evidence);
+    return match({ kind: "confirm_pending_attempt" }, evidence);
+  }
+  if (text === "did that count") {
+    if (!context.last_attempt_available) return reject("no_last_attempt", evidence);
+    return match({ kind: "report_last_attempt" }, evidence);
+  }
+
+  const countBody = parseCountCommand(text);
+  if (countBody !== null) {
+    if (normalized.has_numeric_colon) {
+      return reject("unsafe_numeric_punctuation", evidence);
+    }
+    if (hasNegativeNumericLiteral(delivery.text)) {
+      return reject("invalid_count", evidence);
+    }
+    const count = parseBoundedParameter(
+      countBody,
+      TIER_A_COUNT_MIN,
+      TIER_A_COUNT_MAX,
+      parseSpokenCountInteger,
+    );
+    if (count.value === null) return reject("invalid_count", evidence);
+    if (!count.valid) return reject("count_out_of_range", evidence);
+    if (context.practice_state === "paused") return reject("practice_paused", evidence);
+    if (context.practice_state !== "active") return reject("no_active_set", evidence);
+    return match({ kind: "report_attempt_count", count: count.value }, evidence);
+  }
+
+  if (["undo", "undo that", "undo last", "undo last rep"].includes(text)) {
+    if (!setAvailable(context)) return reject("no_active_set", evidence);
+    if (!context.last_attempt_available) return reject("no_last_attempt", evidence);
+    return match({ kind: "undo_last_attempt" }, evidence);
+  }
+
+  const correction = /^(?:correct last|correct last rep) to (clean|flawed|miss)$/u.exec(text);
+  if (correction) {
+    if (!setAvailable(context)) return reject("no_active_set", evidence);
+    if (!context.last_attempt_available) return reject("no_last_attempt", evidence);
+    return match({
+      kind: "correct_last_attempt",
+      verdict: correction[1] as SelfReportedVerdict,
+    }, evidence);
+  }
+
+  if (["restart set", "restart the set"].includes(text)) {
+    if (!setAvailable(context)) return reject("no_active_set", evidence);
+    return match({ kind: "restart_set" }, evidence);
+  }
+  if (["restart streak", "restart the streak", "reset streak", "reset the streak"].includes(text)) {
+    if (!setAvailable(context)) return reject("no_active_set", evidence);
+    return match({ kind: "reset_clean_streak" }, evidence);
+  }
+  if (["close set", "close the set", "finish set", "finish the set"].includes(text)) {
+    if (!setAvailable(context)) return reject("no_active_set", evidence);
+    return match({ kind: "close_set" }, evidence);
+  }
+
+  if (text === "status" || text === "practice status") {
+    if (!setAvailable(context)) return reject("no_active_set", evidence);
+    return match({ kind: "practice_status" }, evidence);
+  }
+
+  if (text === "pause practice") {
+    if (context.practice_state === "paused") return reject("already_paused", evidence);
+    if (context.practice_state !== "active") return reject("no_active_set", evidence);
+    return match({ kind: "pause_practice" }, evidence);
+  }
+  if (text === "resume practice") {
+    if (context.practice_state === "active") return reject("already_active", evidence);
+    if (context.practice_state !== "paused") return reject("no_active_set", evidence);
+    return match({ kind: "resume_practice" }, evidence);
+  }
+
+  if (["metronome on", "turn metronome on", "turn the metronome on"].includes(text)) {
+    return match({ kind: "metronome_on" }, evidence);
+  }
+  if (["metronome off", "turn metronome off", "turn the metronome off"].includes(text)) {
+    return match({ kind: "metronome_off" }, evidence);
+  }
+  if (text === "faster" || text === "slower") {
+    if (!context.metronome_running && !setAvailable(context)) {
+      return ignore("state_mismatch", evidence);
+    }
+    return match({ kind: "adjust_tempo", direction: text }, evidence);
+  }
+
+  const tempo = parseTempoCommand(text);
+  if (tempo) {
+    if (normalized.has_numeric_colon) {
+      return reject("unsafe_numeric_punctuation", evidence);
+    }
+    if (hasNegativeNumericLiteral(delivery.text)) {
+      return reject("invalid_tempo", evidence);
+    }
+    const bpm = parseBoundedParameter(
+      tempo.number_text,
+      TIER_A_TEMPO_MIN,
+      TIER_A_TEMPO_MAX,
+    );
+    if (bpm.value === null) return reject("invalid_tempo", evidence);
+    if (!bpm.valid) return reject("tempo_out_of_range", evidence);
+    return match({ kind: tempo.kind, bpm: bpm.value }, evidence);
+  }
+
+  const retention = (
+    text === "confirm retention"
+      ? "confirm"
+      : text === "lower retention"
+        ? "lower"
+        : text === "reopen target"
+          ? "reopen"
+          : text === "snooze retention"
+            ? "snooze"
+            : null
+  ) satisfies RetentionVoiceAction | null;
+  if (retention !== null) {
+    if (!context.retention_due) return reject("retention_not_due", evidence);
+    return match({ kind: "retention", action: retention }, evidence);
+  }
+
+  return ignore("not_exact_command", evidence);
+}

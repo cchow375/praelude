@@ -134,8 +134,7 @@ pub(super) fn build(
         .into_iter()
         .rev()
         .filter(|rep| {
-            !rep.voided
-                && (!has_selected_rep_scope || relevant_block_ids.contains(&rep.block_id))
+            !rep.voided && (!has_selected_rep_scope || relevant_block_ids.contains(&rep.block_id))
         })
         .take(MAX_RECENT_REPS)
         .map(|rep| {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { PDFDocumentLoadingTask, PDFPageProxy } from "pdfjs-dist";
@@ -12,6 +12,14 @@ import { REGION_COLORS, RegionEditor } from "../pieces/RegionEditor";
 import { useCrud } from "../rep/useCrud";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
 import { TutorialPanel } from "../tutorials/TutorialPanel";
+import { unknownMapping, validMeasureRange } from "./atlas/draft";
+import type {
+  MappingCandidate,
+  PersistentPdfSelectionAnchor,
+  TargetMappingState,
+} from "./atlas/model";
+import type { AtomicTargetSavePayload } from "./atlas/savePayload";
+import { TargetDraftEditor, TargetDraftOverlay } from "./atlas/ui";
 import {
   clampZoom,
   DEFAULT_PAGE_SIZE,
@@ -63,6 +71,7 @@ const defaultApi: ScorePdfApi = {
     id: regionId,
     patch: { pdf_anchor: pdfAnchor },
   }),
+  createTarget: (payload) => invoke<Region>("score_atlas_target_save", { payload }),
 };
 
 function wrapPage(page: PDFPageProxy): PdfPageHandle {
@@ -226,6 +235,72 @@ function editionHasStaleAnchor(region: Region, edition: PdfEdition): boolean {
   return Boolean(stored && stored.fingerprint !== edition.fingerprint);
 }
 
+const TARGET_CANDIDATE_CONFIDENCE = 0.8;
+const TARGET_CANDIDATE_THRESHOLD = 0.75;
+
+function rectContains(container: PdfAnchorRect, selection: PdfAnchorRect): boolean {
+  const epsilon = 0.000_001;
+  return (
+    container.page === selection.page
+    && selection.x + epsilon >= container.x
+    && selection.y + epsilon >= container.y
+    && selection.x + selection.w <= container.x + container.w + epsilon
+    && selection.y + selection.h <= container.y + container.h + epsilon
+  );
+}
+
+/**
+ * A Region range is offered only when one, and only one, current-fingerprint
+ * mark fully contains the new selection. It remains advisory until the user
+ * confirms or corrects it; this deliberately refuses interpolation.
+ */
+function mappingFromRegionAnchors(
+  anchor: PersistentPdfSelectionAnchor,
+  pieceId: number,
+  edition: PdfEdition,
+  regions: Region[],
+): TargetMappingState {
+  if (
+    anchor.edition_id !== edition.id
+    || anchor.edition_fingerprint !== edition.fingerprint
+    || anchor.rects.length !== 1
+  ) {
+    return unknownMapping("This selection does not belong to the current score edition fingerprint.");
+  }
+  const selection = anchor.rects[0];
+  const matches = regions.flatMap((region) => {
+    if (!validMeasureRange({ m_start: region.m_start, m_end: region.m_end })) return [];
+    const saved = anchorForEdition(region.pdf_anchor, edition.id, edition.fingerprint);
+    if (!saved) return [];
+    const containingRect = saved.rects.find((rect) => rectContains(rect, selection));
+    return containingRect ? [{ region, rectIndex: saved.rects.indexOf(containingRect) }] : [];
+  });
+  const uniqueMatches = [...new Map(matches.map((match) => [match.region.id, match])).values()];
+  if (uniqueMatches.length !== 1) {
+    return unknownMapping(
+      uniqueMatches.length > 1
+        ? "More than one same-edition Region contains this mark, so its measures are ambiguous."
+        : "No same-edition Region mark fully contains this selection. Measures remain unknown until calibrated.",
+    );
+  }
+  const [{ region, rectIndex }] = uniqueMatches;
+  const candidate: MappingCandidate = {
+    edition_fingerprint: edition.fingerprint,
+    // This identifies the canonical Region-range ledger, not a claimed XML match.
+    xml_fingerprint: `canonical-region-range:${pieceId}:${region.id}:${region.m_start}-${region.m_end}`,
+    candidate_range: { m_start: region.m_start, m_end: region.m_end },
+    confidence: TARGET_CANDIDATE_CONFIDENCE,
+    rationale: `The new mark is fully contained by the current-edition mark for “${region.name}” (mm. ${region.m_start}–${region.m_end}); review or correct before asserting it.`,
+    calibration_point_ids: [`region-anchor:${region.id}:${rectIndex}:${edition.fingerprint}`],
+    authoritative: false,
+  };
+  return unknownMapping("A same-edition Region supplies a reviewable range candidate.", candidate);
+}
+
+function newTargetDraftId(pieceId: number): string {
+  return globalThis.crypto?.randomUUID?.() ?? `score-target-${pieceId}-${Date.now()}`;
+}
+
 export function ScoreView({
   pieceId,
   activeRange = null,
@@ -244,6 +319,16 @@ export function ScoreView({
   const pageSizesRef = useRef(new Map<number, PdfPageSize>());
   const intersectionRatios = useRef(new Map<number, number>());
   const graphGeneration = useRef(0);
+  const scoreMountedRef = useRef(false);
+  const targetSaveGenerationRef = useRef(0);
+  const targetSavePendingRef = useRef(false);
+  const livePieceIdRef = useRef(pieceId);
+  const liveEditionRef = useRef<PdfEdition | null>(null);
+  const sectionsBeforeTargetRef = useRef(true);
+  // True only while a target draft has force-hidden the sidebar, so a piece
+  // switch mid-draft restores it without overriding a manual collapse.
+  const sectionsStashedRef = useRef(false);
+  const targetInstructionsId = useId();
   const [phase, setPhase] = useState<ViewerPhase>("loading-editions");
   const [error, setError] = useState<string | null>(null);
   const [graphError, setGraphError] = useState<string | null>(null);
@@ -277,6 +362,36 @@ export function ScoreView({
   const [newRegionStart, setNewRegionStart] = useState("1");
   const [newRegionEnd, setNewRegionEnd] = useState("1");
   const [creatingRegion, setCreatingRegion] = useState(false);
+  const [targetMode, setTargetMode] = useState(false);
+  const [targetDraftId, setTargetDraftId] = useState<string | null>(null);
+  const [targetAnchor, setTargetAnchor] = useState<PersistentPdfSelectionAnchor | null>(null);
+  const [targetDrawError, setTargetDrawError] = useState<string | null>(null);
+  const [targetSavePending, setTargetSavePending] = useState(false);
+
+  useEffect(() => {
+    scoreMountedRef.current = true;
+    return () => {
+      scoreMountedRef.current = false;
+      targetSaveGenerationRef.current += 1;
+      targetSavePendingRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    targetSaveGenerationRef.current += 1;
+    targetSavePendingRef.current = false;
+    setTargetMode(false);
+    setTargetDraftId(null);
+    setTargetAnchor(null);
+    setTargetDrawError(null);
+    setTargetSavePending(false);
+    // A draft in progress force-hid the sidebar; entering the new piece with it
+    // stuck hidden strands the tricky-sections panel, so restore what it stashed.
+    if (sectionsStashedRef.current) {
+      setSectionsVisible(sectionsBeforeTargetRef.current);
+      sectionsStashedRef.current = false;
+    }
+  }, [pieceId]);
 
   const loadGraph = useCallback(async () => {
     const generation = ++graphGeneration.current;
@@ -423,6 +538,10 @@ export function ScoreView({
         : clampZoom(manualZoom);
   const edition = editions.find((item) => item.id === editionId) ?? null;
   const selectedRegion = regions.find((region) => region.id === selectedRegionId) ?? null;
+  useLayoutEffect(() => {
+    livePieceIdRef.current = pieceId;
+    liveEditionRef.current = edition;
+  }, [edition, pieceId]);
   useEffect(() => {
     onContextChange?.({
       region: selectedRegion ? {
@@ -443,6 +562,114 @@ export function ScoreView({
       .filter((region) => !query || `${region.name} ${region.notes ?? ""} ${region.m_start} ${region.m_end}`.toLocaleLowerCase().includes(query))
       .sort((a, b) => a.m_start - b.m_start || a.m_end - b.m_end || a.name.localeCompare(b.name));
   }, [regionQuery, regions]);
+
+  const resolveTargetMapping = useCallback((anchor: PersistentPdfSelectionAnchor) => (
+    edition
+      ? mappingFromRegionAnchors(anchor, pieceId, edition, regions)
+      : unknownMapping("No current score edition is available for this selection.")
+  ), [edition, pieceId, regions]);
+
+  const cancelTargetDraft = useCallback(() => {
+    if (targetSavePendingRef.current) return;
+    setTargetMode(false);
+    setTargetDraftId(null);
+    setTargetAnchor(null);
+    setTargetDrawError(null);
+    setSectionsVisible(sectionsBeforeTargetRef.current);
+    sectionsStashedRef.current = false;
+    setNavigationNotice(null);
+  }, []);
+
+  const toggleTargetMode = useCallback(() => {
+    if (targetMode) {
+      cancelTargetDraft();
+      return;
+    }
+    if (mapping) {
+      setNavigationNotice("Save or cancel the open score-mark edits before drawing a new target.");
+      return;
+    }
+    sectionsBeforeTargetRef.current = sectionsVisible;
+    sectionsStashedRef.current = true;
+    setSectionsVisible(false);
+    setTargetDraftId(newTargetDraftId(pieceId));
+    setTargetAnchor(null);
+    setTargetDrawError(null);
+    setNavigationNotice("Draw one rectangle directly on the visible score page.");
+    setTargetMode(true);
+  }, [cancelTargetDraft, mapping, pieceId, sectionsVisible, targetMode]);
+
+  const acceptTargetSelection = useCallback((anchor: PersistentPdfSelectionAnchor) => {
+    if (targetSavePendingRef.current) return;
+    setTargetAnchor(anchor);
+    setTargetDrawError(null);
+  }, []);
+
+  const saveTarget = useCallback(async (payload: AtomicTargetSavePayload) => {
+    const liveEdition = liveEditionRef.current;
+    if (
+      payload.piece_id !== livePieceIdRef.current
+      || !payload.edition
+      || !payload.anchor
+      || !liveEdition
+      || payload.edition.edition_id !== liveEdition.id
+      || payload.edition.edition_fingerprint !== liveEdition.fingerprint
+      || payload.anchor.edition_id !== liveEdition.id
+      || payload.anchor.edition_fingerprint !== liveEdition.fingerprint
+    ) {
+      throw new Error("This target belongs to a stale score edition fingerprint. Draw it again on the visible edition.");
+    }
+    if (targetSavePendingRef.current) {
+      throw new Error("This target save is already in progress.");
+    }
+
+    const generation = ++targetSaveGenerationRef.current;
+    targetSavePendingRef.current = true;
+    setTargetSavePending(true);
+    const ownsResult = () => (
+      scoreMountedRef.current
+      && generation === targetSaveGenerationRef.current
+      && livePieceIdRef.current === payload.piece_id
+      && liveEditionRef.current?.id === payload.edition?.edition_id
+      && liveEditionRef.current?.fingerprint === payload.edition?.edition_fingerprint
+    );
+    try {
+      const created = await api.createTarget(payload);
+      if (
+        !created
+        || !Number.isSafeInteger(created.id)
+        || created.id < 1
+        || created.piece_id !== payload.piece_id
+        || !validMeasureRange({ m_start: created.m_start, m_end: created.m_end })
+      ) {
+        throw new Error("Target save returned an invalid Region receipt.");
+      }
+      if (!ownsResult()) return;
+      await loadGraph();
+      if (!ownsResult()) return;
+      setRegions((current) => {
+        const existingIndex = current.findIndex((region) => region.id === created.id);
+        if (existingIndex < 0) return [...current, created];
+        return current.map((region, index) => index === existingIndex ? created : region);
+      });
+      setSelectedRegionId(created.id);
+      setExpandedRegionId(created.id);
+      setSectionTab("practice");
+      setSectionsVisible(true);
+      sectionsStashedRef.current = false;
+      setTargetMode(false);
+      setTargetDraftId(null);
+      setTargetAnchor(null);
+      setTargetDrawError(null);
+      setNavigationNotice(`Target saved as “${created.name}” and reopened for practice.`);
+      onRegionsChanged?.();
+    } finally {
+      if (generation === targetSaveGenerationRef.current) {
+        targetSavePendingRef.current = false;
+        if (scoreMountedRef.current) setTargetSavePending(false);
+      }
+    }
+  }, [api, loadGraph, onRegionsChanged]);
 
   const handlePageSize = useCallback((page: number, size: PdfPageSize) => {
     pageSizesRef.current.set(page, size);
@@ -515,6 +742,10 @@ export function ScoreView({
   }, [activeRange, edition, regions, selectedRegionId]);
 
   const beginMapping = (region: Region) => {
+    if (targetMode) {
+      setNavigationNotice("Cancel the target draft before editing existing score marks.");
+      return;
+    }
     if (!edition) return;
     const existing = anchorForEdition(region.pdf_anchor, edition.id, edition.fingerprint)?.rects ?? [];
     setSelectedRegionId(region.id);
@@ -530,6 +761,10 @@ export function ScoreView({
   };
 
   const createRegion = async () => {
+    if (targetMode) {
+      setGraphError("Cancel the open target draft before creating a section through the legacy form.");
+      return;
+    }
     const mStart = Number(newRegionStart);
     const mEnd = Number(newRegionEnd);
     if (!newRegionTitle.trim() || !Number.isInteger(mStart) || !Number.isInteger(mEnd) || mStart < 1 || mEnd < mStart) {
@@ -592,7 +827,7 @@ export function ScoreView({
   };
 
   const chooseEdition = async (nextId: string) => {
-    if (nextId === editionId) return;
+    if (nextId === editionId || targetSavePendingRef.current) return;
     setSelecting(true);
     setError(null);
     try {
@@ -755,17 +990,31 @@ export function ScoreView({
   return (
     <section className="score-view" aria-label="PDF score viewer">
       <header className="score-toolbar">
-        <label className="score-edition">
-          <span>Edition</span>
-          <select
-            aria-label="Score edition"
-            value={editionId ?? ""}
-            disabled={selecting || phase === "loading-document"}
-            onChange={(event) => void chooseEdition(event.target.value)}
+        <div className="score-edition-group">
+          <label className="score-edition">
+            <span>Edition</span>
+            <select
+              aria-label="Score edition"
+              value={editionId ?? ""}
+              disabled={selecting || targetSavePending || phase === "loading-document"}
+              onChange={(event) => void chooseEdition(event.target.value)}
+            >
+              {editions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
+          </label>
+          <button
+            type="button"
+            className={`score-draw-target ${targetMode ? "is-active" : ""}`}
+            aria-pressed={targetMode}
+            disabled={targetSavePending || phase !== "ready" || !edition}
+            onClick={toggleTargetMode}
           >
-            {editions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-          </select>
-        </label>
+            {targetMode ? "Cancel drawing" : "Draw target"}
+          </button>
+          <span id={targetInstructionsId} className="score-atlas-draw-instructions">
+            Drag one rectangle directly on a rendered score page. Its normalized geometry stays independent of zoom.
+          </span>
+        </div>
 
         <div className="score-page-controls" aria-label="Page navigation">
           <button type="button" aria-label="Previous page" disabled={currentPage <= 1} onClick={() => jumpTo(currentPage - 1)}>‹</button>
@@ -834,6 +1083,20 @@ export function ScoreView({
                       } : null}
                       onSelect={selectRegion}
                     />
+                    {targetMode && targetDraftId && edition && (
+                      <TargetDraftOverlay
+                        pageNumber={pageNumber}
+                        edition={{
+                          edition_id: edition.id,
+                          edition_fingerprint: edition.fingerprint,
+                        }}
+                        selectedAnchor={targetAnchor}
+                        instructionsId={targetInstructionsId}
+                        disabled={targetSavePending}
+                        onSelection={acceptTargetSelection}
+                        onSelectionError={(_code, message) => setTargetDrawError(message)}
+                      />
+                    )}
                   </PdfPage>
                 );
               })}
@@ -916,6 +1179,29 @@ export function ScoreView({
               {displayedRegions.length === 0 && <p className="tutorial-empty">No sections match that search.</p>}
             </div>
           </aside>
+
+          {targetMode && targetDraftId && edition && (
+            <aside className="score-atlas-draft-dock" aria-label="New target draft editor">
+              <TargetDraftEditor
+                key={targetDraftId}
+                draftId={targetDraftId}
+                pieceId={pieceId}
+                edition={{
+                  edition_id: edition.id,
+                  edition_fingerprint: edition.fingerprint,
+                }}
+                pageNumber={targetAnchor?.rects[0]?.page ?? currentPage}
+                minimumCandidateConfidence={TARGET_CANDIDATE_THRESHOLD}
+                resolveMapping={resolveTargetMapping}
+                initialAnchor={targetAnchor}
+                onSelectionChange={acceptTargetSelection}
+                externalScoreSurface
+                externalError={targetDrawError}
+                onSave={saveTarget}
+                onCancel={cancelTargetDraft}
+              />
+            </aside>
+          )}
         </div>
       )}
     </section>

@@ -5,13 +5,13 @@
 
 use rusqlite::Connection;
 
-use crate::ledger::MutationSource;
-use crate::rep::RepVerdict;
 use super::model::{
     json_to_sql, BlockPatch, Goal, GoalCreate, GoalPatch, PieceFieldPatch, Region, RegionCreate,
     RegionPatch, RepPatch,
 };
 use super::{EventKind, Store};
+use crate::ledger::MutationSource;
+use crate::rep::RepVerdict;
 // ── Shared: append_event over an already-locked connection ─────────────────
 //
 // Landed with T3 (the first task to need it): every CRUD mutation below holds
@@ -36,7 +36,12 @@ impl Store {
             "INSERT INTO event (kind, session_id, piece_id, payload)
              VALUES (?1, ?2, ?3, ?4)
              RETURNING id",
-            rusqlite::params![kind, session_id, piece_id, super::model::json_to_sql(payload)?],
+            rusqlite::params![
+                kind,
+                session_id,
+                piece_id,
+                super::model::json_to_sql(payload)?
+            ],
             |row| row.get(0),
         )
     }
@@ -65,7 +70,10 @@ mod test_support {
                 pdf_path: None,
             })
             .unwrap();
-        assert_eq!(got, id, "seed_piece must be called in id order starting at 1");
+        assert_eq!(
+            got, id,
+            "seed_piece must be called in id order starting at 1"
+        );
     }
 
     /// Seed an open rep block for `piece` spanning `[m_start, m_end]` with
@@ -78,7 +86,10 @@ mod test_support {
             None,
             Some(60.0),
             None,
-            &IncrementRule { clean_needed: 3, bpm_step: 2.0 },
+            &IncrementRule {
+                clean_needed: 3,
+                bpm_step: 2.0,
+            },
             10,
             &[],
             "tempo",
@@ -153,15 +164,23 @@ impl Store {
     }
 
     fn normalized_region_notes(value: Option<String>) -> rusqlite::Result<Option<String>> {
-        let value = value.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
-        if value.as_ref().is_some_and(|value| value.chars().count() > 10_000) {
+        let value = value
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if value
+            .as_ref()
+            .is_some_and(|value| value.chars().count() > 10_000)
+        {
             return Err(rusqlite::Error::InvalidQuery);
         }
         Ok(value)
     }
 
     fn valid_region_kind(value: &str) -> bool {
-        matches!(value, "section" | "phrase" | "group" | "hard_spot" | "custom")
+        matches!(
+            value,
+            "section" | "phrase" | "group" | "hard_spot" | "custom"
+        )
     }
 
     /// Create a region; appends a `region_change` event. New regions land at
@@ -178,7 +197,14 @@ impl Store {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6,
                  COALESCE((SELECT MAX(sort_order) + 1 FROM region WHERE piece_id = ?1), 0))
              RETURNING id",
-            rusqlite::params![args.piece_id, name, notes, args.m_start, args.m_end, args.kind],
+            rusqlite::params![
+                args.piece_id,
+                name,
+                notes,
+                args.m_start,
+                args.m_end,
+                args.kind
+            ],
             |row| row.get(0),
         )?;
         let region = Self::region_get(&conn, id)?;
@@ -270,11 +296,10 @@ impl Store {
     /// load-bearing for practice history). Appends a `region_change` event.
     pub fn region_delete(&self, id: i64) -> rusqlite::Result<()> {
         let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let piece_id: i64 = conn.query_row(
-            "SELECT piece_id FROM region WHERE id = ?1",
-            [id],
-            |row| row.get(0),
-        )?;
+        let piece_id: i64 =
+            conn.query_row("SELECT piece_id FROM region WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })?;
         let tx = conn.transaction()?;
         tx.execute(
             "UPDATE rep_block SET region_id = NULL WHERE region_id = ?1",
@@ -375,7 +400,11 @@ impl Store {
         }
         let suffix = " · part 2";
         let keep_chars = 500usize.saturating_sub(suffix.chars().count());
-        let second_name = format!("{}{}", current.name.chars().take(keep_chars).collect::<String>(), suffix);
+        let second_name = format!(
+            "{}{}",
+            current.name.chars().take(keep_chars).collect::<String>(),
+            suffix
+        );
 
         let tx = conn.transaction()?;
         tx.execute(
@@ -443,13 +472,19 @@ fn merge_region_notes(
     keep: Option<&str>,
     absorb: Option<&str>,
 ) -> rusqlite::Result<Option<String>> {
-    let merged = match (keep.filter(|value| !value.trim().is_empty()), absorb.filter(|value| !value.trim().is_empty())) {
+    let merged = match (
+        keep.filter(|value| !value.trim().is_empty()),
+        absorb.filter(|value| !value.trim().is_empty()),
+    ) {
         (None, None) => None,
         (Some(value), None) | (None, Some(value)) => Some(value.trim().to_string()),
         (Some(left), Some(right)) if left.trim() == right.trim() => Some(left.trim().to_string()),
         (Some(left), Some(right)) => Some(format!("{}\n\n{}", left.trim(), right.trim())),
     };
-    if merged.as_ref().is_some_and(|value| value.chars().count() > 10_000) {
+    if merged
+        .as_ref()
+        .is_some_and(|value| value.chars().count() > 10_000)
+    {
         return Err(rusqlite::Error::InvalidQuery);
     }
     Ok(merged)
@@ -479,8 +514,8 @@ fn merge_pdf_anchors(
             continue;
         };
 
-        let fingerprints_match = keep_edition.get("fingerprint")
-            == absorb_edition.get("fingerprint");
+        let fingerprints_match =
+            keep_edition.get("fingerprint") == absorb_edition.get("fingerprint");
         if !fingerprints_match {
             keep_editions.remove(edition_id);
             continue;
@@ -520,10 +555,24 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let a = s
-            .region_create(RegionCreate { piece_id: 1, name: "A".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() })
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "A".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "section".into(),
+            })
             .unwrap();
         let b = s
-            .region_create(RegionCreate { piece_id: 1, name: "B".into(), notes: None, m_start: 20, m_end: 28, kind: "section".into() })
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "B".into(),
+                notes: None,
+                m_start: 20,
+                m_end: 28,
+                kind: "section".into(),
+            })
             .unwrap();
         let bid = seed_block(&s, 1, 22, 26); // block in region B
         s.block_set_region(bid, Some(b.id)).unwrap();
@@ -536,8 +585,12 @@ mod region {
         // reassigned: confirm via raw region_id column since BlockHistory has none.
         let region_id: Option<i64> = {
             let conn = s_conn(&s);
-            conn.query_row("SELECT region_id FROM rep_block WHERE id = ?1", [bid], |r| r.get(0))
-                .unwrap()
+            conn.query_row(
+                "SELECT region_id FROM rep_block WHERE id = ?1",
+                [bid],
+                |r| r.get(0),
+            )
+            .unwrap()
         };
         assert_eq!(region_id, Some(a.id));
     }
@@ -547,21 +600,51 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let a = s
-            .region_create(RegionCreate { piece_id: 1, name: "A".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() })
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "A".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "section".into(),
+            })
             .unwrap();
         let b = s
-            .region_create(RegionCreate { piece_id: 1, name: "B".into(), notes: None, m_start: 9, m_end: 16, kind: "section".into() })
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "B".into(),
+                notes: None,
+                m_start: 9,
+                m_end: 16,
+                kind: "section".into(),
+            })
             .unwrap();
         let rect_a = serde_json::json!({ "page": 1, "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1 });
         let rect_b = serde_json::json!({ "page": 2, "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1 });
         let anchor_a = serde_json::json!({ "v": 1, "editions": { "score.pdf": { "fingerprint": "same", "rects": [rect_a.clone()] } } });
         let anchor_b = serde_json::json!({ "v": 1, "editions": { "score.pdf": { "fingerprint": "same", "rects": [rect_a, rect_b.clone()] } } });
-        s.region_update(a.id, RegionPatch { pdf_anchor: Some(Some(anchor_a)), ..Default::default() }).unwrap();
-        s.region_update(b.id, RegionPatch { pdf_anchor: Some(Some(anchor_b)), ..Default::default() }).unwrap();
+        s.region_update(
+            a.id,
+            RegionPatch {
+                pdf_anchor: Some(Some(anchor_a)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        s.region_update(
+            b.id,
+            RegionPatch {
+                pdf_anchor: Some(Some(anchor_b)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let merged = s.region_merge(a.id, b.id).unwrap();
         let rects = merged.pdf_anchor.unwrap()["editions"]["score.pdf"]["rects"]
-            .as_array().unwrap().clone();
+            .as_array()
+            .unwrap()
+            .clone();
         assert_eq!(rects.len(), 2);
         assert!(rects.contains(&rect_b));
     }
@@ -571,18 +654,42 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let a = s
-            .region_create(RegionCreate { piece_id: 1, name: "A".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() })
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "A".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "section".into(),
+            })
             .unwrap();
         let b = s
-            .region_create(RegionCreate { piece_id: 1, name: "B".into(), notes: None, m_start: 9, m_end: 16, kind: "section".into() })
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "B".into(),
+                notes: None,
+                m_start: 9,
+                m_end: 16,
+                kind: "section".into(),
+            })
             .unwrap();
         for (region, fingerprint) in [(a.id, "old"), (b.id, "new")] {
             let anchor = serde_json::json!({ "v": 1, "editions": { "score.pdf": { "fingerprint": fingerprint, "rects": [{ "page": 1, "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1 }] } } });
-            s.region_update(region, RegionPatch { pdf_anchor: Some(Some(anchor)), ..Default::default() }).unwrap();
+            s.region_update(
+                region,
+                RegionPatch {
+                    pdf_anchor: Some(Some(anchor)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         }
 
         let merged = s.region_merge(a.id, b.id).unwrap();
-        assert!(merged.pdf_anchor.unwrap()["editions"].as_object().unwrap().is_empty());
+        assert!(merged.pdf_anchor.unwrap()["editions"]
+            .as_object()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -590,7 +697,14 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let r = s
-            .region_create(RegionCreate { piece_id: 1, name: "A".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() })
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "A".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "section".into(),
+            })
             .unwrap();
         let bid = seed_block(&s, 1, 1, 8);
         s.block_set_region(bid, Some(r.id)).unwrap();
@@ -598,11 +712,18 @@ mod region {
         assert!(s.region_list(1).unwrap().is_empty());
         let region_id: Option<i64> = {
             let conn = s_conn(&s);
-            conn.query_row("SELECT region_id FROM rep_block WHERE id = ?1", [bid], |r| r.get(0))
-                .unwrap()
+            conn.query_row(
+                "SELECT region_id FROM rep_block WHERE id = ?1",
+                [bid],
+                |r| r.get(0),
+            )
+            .unwrap()
         };
         assert_eq!(region_id, None, "block kept but region unlinked");
-        assert!(s.block_row(bid).unwrap().is_some(), "block itself still exists");
+        assert!(
+            s.block_row(bid).unwrap().is_some(),
+            "block itself still exists"
+        );
     }
 
     #[test]
@@ -611,22 +732,75 @@ mod region {
 
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
-        let keep = s.region_create(RegionCreate { piece_id: 1, name: "Keep".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() }).unwrap();
-        let absorb = s.region_create(RegionCreate { piece_id: 1, name: "Absorb".into(), notes: None, m_start: 9, m_end: 16, kind: "section".into() }).unwrap();
-        let remove = s.region_create(RegionCreate { piece_id: 1, name: "Remove".into(), notes: None, m_start: 17, m_end: 24, kind: "section".into() }).unwrap();
-        let goal = s.goal_create(GoalCreate { piece_id: 1, text: "Goal".into(), kind: "big".into(), parent_goal_id: None, target_date: None }).unwrap();
+        let keep = s
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "Keep".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "section".into(),
+            })
+            .unwrap();
+        let absorb = s
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "Absorb".into(),
+                notes: None,
+                m_start: 9,
+                m_end: 16,
+                kind: "section".into(),
+            })
+            .unwrap();
+        let remove = s
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "Remove".into(),
+                notes: None,
+                m_start: 17,
+                m_end: 24,
+                kind: "section".into(),
+            })
+            .unwrap();
+        let goal = s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "Goal".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: None,
+            })
+            .unwrap();
         for (region_id, title) in [(absorb.id, "Merge me"), (remove.id, "Unlink me")] {
             s.daily_work_create(DailyWorkCreate {
-                goal_id: goal.id, region_id: Some(region_id), block_id: None,
-                title: title.into(), minutes: 10, date: "2026-07-13".into(), source: "manual".into(),
-            }).unwrap();
+                goal_id: goal.id,
+                region_id: Some(region_id),
+                block_id: None,
+                title: title.into(),
+                minutes: 10,
+                date: "2026-07-13".into(),
+                source: "manual".into(),
+            })
+            .unwrap();
         }
 
         s.region_merge(keep.id, absorb.id).unwrap();
         s.region_delete(remove.id).unwrap();
         let work = s.daily_work_list("2026-07-13", "2026-07-13", None).unwrap();
-        assert_eq!(work.iter().find(|item| item.title == "Merge me").unwrap().region_id, Some(keep.id));
-        assert_eq!(work.iter().find(|item| item.title == "Unlink me").unwrap().region_id, None);
+        assert_eq!(
+            work.iter()
+                .find(|item| item.title == "Merge me")
+                .unwrap()
+                .region_id,
+            Some(keep.id)
+        );
+        assert_eq!(
+            work.iter()
+                .find(|item| item.title == "Unlink me")
+                .unwrap()
+                .region_id,
+            None
+        );
     }
 
     #[test]
@@ -635,22 +809,46 @@ mod region {
 
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
-        let region = s.region_create(RegionCreate { piece_id: 1, name: "Phrase".into(), notes: Some("Rotate instead of reaching".into()), m_start: 1, m_end: 12, kind: "section".into() }).unwrap();
+        let region = s
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "Phrase".into(),
+                notes: Some("Rotate instead of reaching".into()),
+                m_start: 1,
+                m_end: 12,
+                kind: "section".into(),
+            })
+            .unwrap();
         let early = seed_block(&s, 1, 1, 4);
         let late = seed_block(&s, 1, 7, 12);
         s.block_set_region(early, Some(region.id)).unwrap();
         s.block_set_region(late, Some(region.id)).unwrap();
-        let goal = s.goal_create(GoalCreate { piece_id: 1, text: "Goal".into(), kind: "big".into(), parent_goal_id: None, target_date: None }).unwrap();
+        let goal = s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "Goal".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: None,
+            })
+            .unwrap();
         s.daily_work_create(DailyWorkCreate {
-            goal_id: goal.id, region_id: Some(region.id), block_id: Some(late),
-            title: "Later half".into(), minutes: 10, date: "2026-07-13".into(), source: "manual".into(),
-        }).unwrap();
+            goal_id: goal.id,
+            region_id: Some(region.id),
+            block_id: Some(late),
+            title: "Later half".into(),
+            minutes: 10,
+            date: "2026-07-13".into(),
+            source: "manual".into(),
+        })
+        .unwrap();
         {
             let conn = s_conn(&s);
             conn.execute_batch(
                 "CREATE TRIGGER fail_region_split BEFORE UPDATE OF region_id ON rep_block
                  BEGIN SELECT RAISE(ABORT,'injected split failure'); END;",
-            ).unwrap();
+            )
+            .unwrap();
         }
         assert!(s.region_split(region.id, 7).is_err());
         let unchanged = s.region_list(1).unwrap();
@@ -658,16 +856,29 @@ mod region {
         assert_eq!((unchanged[0].m_start, unchanged[0].m_end), (1, 12));
         {
             let conn = s_conn(&s);
-            conn.execute_batch("DROP TRIGGER fail_region_split;").unwrap();
+            conn.execute_batch("DROP TRIGGER fail_region_split;")
+                .unwrap();
         }
 
         let halves = s.region_split(region.id, 7).unwrap();
         assert_eq!((halves[0].m_start, halves[0].m_end), (1, 6));
         assert_eq!((halves[1].m_start, halves[1].m_end), (7, 12));
-        assert_eq!(halves[0].notes.as_deref(), Some("Rotate instead of reaching"));
-        assert_eq!(halves[1].notes.as_deref(), Some("Rotate instead of reaching"));
-        assert_eq!(s.block_row(early).unwrap().unwrap().region_id, Some(halves[0].id));
-        assert_eq!(s.block_row(late).unwrap().unwrap().region_id, Some(halves[1].id));
+        assert_eq!(
+            halves[0].notes.as_deref(),
+            Some("Rotate instead of reaching")
+        );
+        assert_eq!(
+            halves[1].notes.as_deref(),
+            Some("Rotate instead of reaching")
+        );
+        assert_eq!(
+            s.block_row(early).unwrap().unwrap().region_id,
+            Some(halves[0].id)
+        );
+        assert_eq!(
+            s.block_row(late).unwrap().unwrap().region_id,
+            Some(halves[1].id)
+        );
         let work = s.daily_work_list("2026-07-13", "2026-07-13", None).unwrap();
         assert_eq!(work[0].region_id, Some(halves[1].id));
     }
@@ -677,29 +888,64 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let r = s
-            .region_create(RegionCreate { piece_id: 1, name: "A".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() })
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "A".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "section".into(),
+            })
             .unwrap();
         let updated = s
-            .region_update(r.id, RegionPatch { name: Some("Intro".into()), color: Some(Some("#fff".into())), ..Default::default() })
+            .region_update(
+                r.id,
+                RegionPatch {
+                    name: Some("Intro".into()),
+                    color: Some(Some("#fff".into())),
+                    ..Default::default()
+                },
+            )
             .unwrap();
         assert_eq!(updated.name, "Intro");
         assert_eq!(updated.color.as_deref(), Some("#fff"));
         assert_eq!(updated.m_start, 1, "untouched field unchanged");
 
         // Some(None) clears color.
-        let cleared = s.region_update(r.id, RegionPatch { color: Some(None), ..Default::default() }).unwrap();
+        let cleared = s
+            .region_update(
+                r.id,
+                RegionPatch {
+                    color: Some(None),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         assert_eq!(cleared.color, None);
 
-        let with_notes = s.region_update(r.id, RegionPatch {
-            notes: Some(Some("  Keep the wrist loose  ".into())),
-            ..Default::default()
-        }).unwrap();
-        assert_eq!(with_notes.name, "Intro", "notes do not overwrite the header");
+        let with_notes = s
+            .region_update(
+                r.id,
+                RegionPatch {
+                    notes: Some(Some("  Keep the wrist loose  ".into())),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            with_notes.name, "Intro",
+            "notes do not overwrite the header"
+        );
         assert_eq!(with_notes.notes.as_deref(), Some("Keep the wrist loose"));
-        let notes_cleared = s.region_update(r.id, RegionPatch {
-            notes: Some(None),
-            ..Default::default()
-        }).unwrap();
+        let notes_cleared = s
+            .region_update(
+                r.id,
+                RegionPatch {
+                    notes: Some(None),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         assert_eq!(notes_cleared.notes, None);
 
         let anchor = serde_json::json!({
@@ -708,15 +954,25 @@ mod region {
                 {"page": 2, "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1}
             ]}}
         });
-        let anchored = s.region_update(r.id, RegionPatch {
-            pdf_anchor: Some(Some(anchor.clone())),
-            ..Default::default()
-        }).unwrap();
+        let anchored = s
+            .region_update(
+                r.id,
+                RegionPatch {
+                    pdf_anchor: Some(Some(anchor.clone())),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         assert_eq!(anchored.pdf_anchor, Some(anchor));
-        let cleared = s.region_update(r.id, RegionPatch {
-            pdf_anchor: Some(None),
-            ..Default::default()
-        }).unwrap();
+        let cleared = s
+            .region_update(
+                r.id,
+                RegionPatch {
+                    pdf_anchor: Some(None),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         assert_eq!(cleared.pdf_anchor, None);
     }
 
@@ -725,21 +981,71 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         for args in [
-            RegionCreate { piece_id: 1, name: "   ".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() },
-            RegionCreate { piece_id: 1, name: "zero".into(), notes: None, m_start: 0, m_end: 8, kind: "section".into() },
-            RegionCreate { piece_id: 1, name: "backwards".into(), notes: None, m_start: 8, m_end: 1, kind: "section".into() },
-            RegionCreate { piece_id: 1, name: "unknown".into(), notes: None, m_start: 1, m_end: 8, kind: "mystery".into() },
+            RegionCreate {
+                piece_id: 1,
+                name: "   ".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "section".into(),
+            },
+            RegionCreate {
+                piece_id: 1,
+                name: "zero".into(),
+                notes: None,
+                m_start: 0,
+                m_end: 8,
+                kind: "section".into(),
+            },
+            RegionCreate {
+                piece_id: 1,
+                name: "backwards".into(),
+                notes: None,
+                m_start: 8,
+                m_end: 1,
+                kind: "section".into(),
+            },
+            RegionCreate {
+                piece_id: 1,
+                name: "unknown".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "mystery".into(),
+            },
         ] {
             assert!(s.region_create(args).is_err());
         }
 
-        let region = s.region_create(RegionCreate {
-            piece_id: 1, name: "  Canonical note  ".into(), notes: None, m_start: 1, m_end: 8,
-            kind: "hard_spot".into(),
-        }).unwrap();
+        let region = s
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "  Canonical note  ".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "hard_spot".into(),
+            })
+            .unwrap();
         assert_eq!(region.name, "Canonical note");
-        assert!(s.region_update(region.id, RegionPatch { m_start: Some(9), ..Default::default() }).is_err());
-        assert!(s.region_update(region.id, RegionPatch { name: Some("".into()), ..Default::default() }).is_err());
+        assert!(s
+            .region_update(
+                region.id,
+                RegionPatch {
+                    m_start: Some(9),
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        assert!(s
+            .region_update(
+                region.id,
+                RegionPatch {
+                    name: Some("".into()),
+                    ..Default::default()
+                }
+            )
+            .is_err());
     }
 
     #[test]
@@ -756,14 +1062,25 @@ mod region {
         let region_id = {
             let store = Store::open(&db).unwrap();
             seed_piece(&store, 1);
-            let region = store.region_create(RegionCreate {
-                piece_id: 1, name: "Intro".into(), notes: None, m_start: 1, m_end: 8,
-                kind: "section".into()
-            }).unwrap();
-            store.region_update(region.id, RegionPatch {
-                pdf_anchor: Some(Some(anchor.clone())),
-                ..Default::default()
-            }).unwrap();
+            let region = store
+                .region_create(RegionCreate {
+                    piece_id: 1,
+                    name: "Intro".into(),
+                    notes: None,
+                    m_start: 1,
+                    m_end: 8,
+                    kind: "section".into(),
+                })
+                .unwrap();
+            store
+                .region_update(
+                    region.id,
+                    RegionPatch {
+                        pdf_anchor: Some(Some(anchor.clone())),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
             region.id
         };
         {
@@ -771,10 +1088,15 @@ mod region {
             let region = reopened.region_list(1).unwrap().remove(0);
             assert_eq!(region.id, region_id);
             assert_eq!(region.pdf_anchor, Some(anchor));
-            reopened.region_update(region_id, RegionPatch {
-                pdf_anchor: Some(None),
-                ..Default::default()
-            }).unwrap();
+            reopened
+                .region_update(
+                    region_id,
+                    RegionPatch {
+                        pdf_anchor: Some(None),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
         }
         let reopened = Store::open(&db).unwrap();
         assert_eq!(reopened.region_list(1).unwrap()[0].pdf_anchor, None);
@@ -785,13 +1107,39 @@ mod region {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let a = s
-            .region_create(RegionCreate { piece_id: 1, name: "A".into(), notes: None, m_start: 1, m_end: 8, kind: "section".into() })
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "A".into(),
+                notes: None,
+                m_start: 1,
+                m_end: 8,
+                kind: "section".into(),
+            })
             .unwrap();
         let b = s
-            .region_create(RegionCreate { piece_id: 1, name: "B".into(), notes: None, m_start: 9, m_end: 16, kind: "section".into() })
+            .region_create(RegionCreate {
+                piece_id: 1,
+                name: "B".into(),
+                notes: None,
+                m_start: 9,
+                m_end: 16,
+                kind: "section".into(),
+            })
             .unwrap();
-        s.region_update(a.id, RegionPatch { order: Some(5), ..Default::default() }).unwrap();
-        let ids: Vec<i64> = s.region_list(1).unwrap().into_iter().map(|r| r.id).collect();
+        s.region_update(
+            a.id,
+            RegionPatch {
+                order: Some(5),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let ids: Vec<i64> = s
+            .region_list(1)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.id)
+            .collect();
         assert_eq!(ids, vec![b.id, a.id]);
     }
 }
@@ -808,7 +1156,11 @@ impl Store {
         _patch: BlockPatch,
     ) -> rusqlite::Result<super::model::BlockHistory> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        conn.query_row("SELECT 1 FROM rep_block WHERE id=?1", [block_id], |_| Ok(()))?;
+        conn.query_row(
+            "SELECT 1 FROM rep_block WHERE id=?1",
+            [block_id],
+            |_| Ok(()),
+        )?;
         Err(rusqlite::Error::InvalidParameterName(
             "practice-set history is immutable; use attempt corrections or restart a set".into(),
         ))
@@ -818,7 +1170,11 @@ impl Store {
     /// append-only adjustments; sets can be closed/restarted, never erased.
     pub fn block_delete(&self, block_id: i64) -> rusqlite::Result<()> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        conn.query_row("SELECT 1 FROM rep_block WHERE id=?1", [block_id], |_| Ok(()))?;
+        conn.query_row(
+            "SELECT 1 FROM rep_block WHERE id=?1",
+            [block_id],
+            |_| Ok(()),
+        )?;
         Err(rusqlite::Error::InvalidParameterName(
             "practice-set history is immutable; close or restart instead".into(),
         ))
@@ -844,9 +1200,18 @@ mod block {
 
         let error = s.block_delete(bid).unwrap_err().to_string();
         assert!(error.contains("immutable"), "{error}");
-        assert_eq!(serde_json::to_string(&s.block_row(bid).unwrap()).unwrap(), block_before);
-        assert_eq!(serde_json::to_string(&s.reps_for_block(bid).unwrap()).unwrap(), reps_before);
-        assert_eq!(s.test_scalar_i64("SELECT count(*) FROM rep_block").unwrap(), 1);
+        assert_eq!(
+            serde_json::to_string(&s.block_row(bid).unwrap()).unwrap(),
+            block_before
+        );
+        assert_eq!(
+            serde_json::to_string(&s.reps_for_block(bid).unwrap()).unwrap(),
+            reps_before
+        );
+        assert_eq!(
+            s.test_scalar_i64("SELECT count(*) FROM rep_block").unwrap(),
+            1
+        );
         assert_eq!(s.test_scalar_i64("SELECT count(*) FROM rep").unwrap(), 2);
     }
 
@@ -868,8 +1233,14 @@ mod block {
             .unwrap_err()
             .to_string();
         assert!(error.contains("immutable"), "{error}");
-        assert_eq!(serde_json::to_string(&s.block_row(bid).unwrap()).unwrap(), before);
-        assert_eq!(s.test_scalar_i64("SELECT count(*) FROM rep_block").unwrap(), 1);
+        assert_eq!(
+            serde_json::to_string(&s.block_row(bid).unwrap()).unwrap(),
+            before
+        );
+        assert_eq!(
+            s.test_scalar_i64("SELECT count(*) FROM rep_block").unwrap(),
+            1
+        );
     }
 }
 // ── T5: Rep update/delete with verdict-count recompute ─────────────────────
@@ -892,7 +1263,8 @@ impl Store {
             .v2_snapshot(block_id)
             .map(|snapshot| matches!(snapshot.set_state.as_str(), "active" | "paused"))
             .unwrap_or(false);
-        let command_id = super::practice_v2::command_id(MutationSource::UserClick, "history_correct");
+        let command_id =
+            super::practice_v2::command_id(MutationSource::UserClick, "history_correct");
         self.v2_correct(
             None,
             block_id,
@@ -955,7 +1327,14 @@ mod rep {
         seed_piece(&s, 1);
         let bid = seed_block(&s, 1, 1, 8);
         let r1 = seed_rep(&s, bid, "flawed");
-        s.rep_update(r1, RepPatch { verdict: Some("clean".into()), note: None }).unwrap();
+        s.rep_update(
+            r1,
+            RepPatch {
+                verdict: Some("clean".into()),
+                note: None,
+            },
+        )
+        .unwrap();
         assert_eq!(s.block_row(bid).unwrap().unwrap().verdicts.clean, 1);
     }
 }
@@ -1052,13 +1431,15 @@ impl Store {
 
     /// Apply a partial patch to a goal; appends a `goal_change` event.
     pub fn goal_update(&self, id: i64, patch: GoalPatch) -> rusqlite::Result<Goal> {
-        if patch.text.as_deref().is_some_and(|text| {
-            text.trim().is_empty() || text.trim().chars().count() > 500
-        }) || patch
-            .target_date
-            .as_ref()
-            .and_then(|date| date.as_deref())
-            .is_some_and(|date| !crate::date::is_valid(date))
+        if patch
+            .text
+            .as_deref()
+            .is_some_and(|text| text.trim().is_empty() || text.trim().chars().count() > 500)
+            || patch
+                .target_date
+                .as_ref()
+                .and_then(|date| date.as_deref())
+                .is_some_and(|date| !crate::date::is_valid(date))
         {
             return Err(rusqlite::Error::InvalidQuery);
         }
@@ -1079,8 +1460,8 @@ impl Store {
             }
             _ => return Err(rusqlite::Error::InvalidQuery),
         }
-        let parent_changed = patch.parent_goal_id.is_some()
-            && requested_parent != current.parent_goal_id;
+        let parent_changed =
+            patch.parent_goal_id.is_some() && requested_parent != current.parent_goal_id;
         let mut sets: Vec<String> = Vec::new();
         let mut vals: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
         if let Some(v) = patch.text {
@@ -1204,7 +1585,10 @@ impl Store {
         if ordered_ids.is_empty() {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        let unique = ordered_ids.iter().copied().collect::<std::collections::HashSet<_>>();
+        let unique = ordered_ids
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
         if unique.len() != ordered_ids.len() {
             return Err(rusqlite::Error::InvalidQuery);
         }
@@ -1219,7 +1603,9 @@ impl Store {
              WHERE piece_id = ?1 AND parent_goal_id IS ?2 ORDER BY sort_order, id",
         )?;
         let sibling_ids = stmt
-            .query_map(rusqlite::params![piece_id, first.parent_goal_id], |row| row.get::<_, i64>(0))?
+            .query_map(rusqlite::params![piece_id, first.parent_goal_id], |row| {
+                row.get::<_, i64>(0)
+            })?
             .collect::<rusqlite::Result<std::collections::HashSet<_>>>()?;
         drop(stmt);
         if sibling_ids != unique {
@@ -1259,10 +1645,22 @@ mod goal {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let a = s
-            .goal_create(GoalCreate { piece_id: 1, text: "a".into(), kind: "big".into(), parent_goal_id: None, target_date: None })
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "a".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: None,
+            })
             .unwrap();
         let b = s
-            .goal_create(GoalCreate { piece_id: 1, text: "b".into(), kind: "big".into(), parent_goal_id: None, target_date: None })
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "b".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: None,
+            })
             .unwrap();
         s.goal_reorder(1, vec![b.id, a.id]).unwrap();
         let ids: Vec<i64> = s.goal_list(1).unwrap().into_iter().map(|g| g.id).collect();
@@ -1274,10 +1672,24 @@ mod goal {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let g = s
-            .goal_create(GoalCreate { piece_id: 1, text: "a".into(), kind: "big".into(), parent_goal_id: None, target_date: None })
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "a".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: None,
+            })
             .unwrap();
         assert!(!g.done);
-        let updated = s.goal_update(g.id, GoalPatch { done: Some(true), ..Default::default() }).unwrap();
+        let updated = s
+            .goal_update(
+                g.id,
+                GoalPatch {
+                    done: Some(true),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         assert!(updated.done);
     }
 
@@ -1286,7 +1698,13 @@ mod goal {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         let g = s
-            .goal_create(GoalCreate { piece_id: 1, text: "a".into(), kind: "big".into(), parent_goal_id: None, target_date: None })
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "a".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: None,
+            })
             .unwrap();
         s.goal_delete(g.id).unwrap();
         assert!(s.goal_list(1).unwrap().is_empty());
@@ -1297,63 +1715,139 @@ mod goal {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
         seed_piece(&s, 2);
-        let root = s.goal_create(GoalCreate {
-            piece_id: 1, text: "root".into(), kind: "big".into(),
-            parent_goal_id: None, target_date: None,
-        }).unwrap();
-        let other = s.goal_create(GoalCreate {
-            piece_id: 2, text: "other".into(), kind: "big".into(),
-            parent_goal_id: None, target_date: None,
-        }).unwrap();
-        assert!(s.goal_create(GoalCreate {
-            piece_id: 1, text: "cross".into(), kind: "sub".into(),
-            parent_goal_id: Some(other.id), target_date: None,
-        }).is_err());
-        let child = s.goal_create(GoalCreate {
-            piece_id: 1, text: "child".into(), kind: "sub".into(),
-            parent_goal_id: Some(root.id), target_date: None,
-        }).unwrap();
-        assert!(s.goal_update(root.id, GoalPatch {
-            parent_goal_id: Some(Some(child.id)), ..Default::default()
-        }).is_err());
-        assert!(s.goal_update(child.id, GoalPatch {
-            parent_goal_id: Some(Some(child.id)), ..Default::default()
-        }).is_err());
+        let root = s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "root".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: None,
+            })
+            .unwrap();
+        let other = s
+            .goal_create(GoalCreate {
+                piece_id: 2,
+                text: "other".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: None,
+            })
+            .unwrap();
+        assert!(s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "cross".into(),
+                kind: "sub".into(),
+                parent_goal_id: Some(other.id),
+                target_date: None,
+            })
+            .is_err());
+        let child = s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "child".into(),
+                kind: "sub".into(),
+                parent_goal_id: Some(root.id),
+                target_date: None,
+            })
+            .unwrap();
+        assert!(s
+            .goal_update(
+                root.id,
+                GoalPatch {
+                    parent_goal_id: Some(Some(child.id)),
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        assert!(s
+            .goal_update(
+                child.id,
+                GoalPatch {
+                    parent_goal_id: Some(Some(child.id)),
+                    ..Default::default()
+                }
+            )
+            .is_err());
     }
 
     #[test]
     fn goal_shapes_dates_deletes_and_reorders_are_strict() {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
-        assert!(s.goal_create(GoalCreate {
-            piece_id: 1, text: "orphan".into(), kind: "sub".into(),
-            parent_goal_id: None, target_date: None,
-        }).is_err());
-        assert!(s.goal_create(GoalCreate {
-            piece_id: 1, text: "bad date".into(), kind: "big".into(),
-            parent_goal_id: None, target_date: Some("2026-02-30".into()),
-        }).is_err());
-        let a = s.goal_create(GoalCreate {
-            piece_id: 1, text: "A".into(), kind: "big".into(),
-            parent_goal_id: None, target_date: Some("2026-08-01".into()),
-        }).unwrap();
-        let b = s.goal_create(GoalCreate {
-            piece_id: 1, text: "B".into(), kind: "big".into(),
-            parent_goal_id: None, target_date: None,
-        }).unwrap();
-        let child = s.goal_create(GoalCreate {
-            piece_id: 1, text: "child".into(), kind: "sub".into(),
-            parent_goal_id: Some(a.id), target_date: None,
-        }).unwrap();
-        assert!(s.goal_reorder(1, vec![a.id]).is_err(), "partial sibling order must fail");
-        assert!(s.goal_reorder(1, vec![a.id, a.id]).is_err(), "duplicates must fail");
-        assert!(s.goal_reorder(1, vec![a.id, child.id, b.id]).is_err(), "mixed levels must fail");
-        assert!(s.goal_update(a.id, GoalPatch {
-            target_date: Some(Some("2026-04-31".into())), ..Default::default()
-        }).is_err());
+        assert!(s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "orphan".into(),
+                kind: "sub".into(),
+                parent_goal_id: None,
+                target_date: None,
+            })
+            .is_err());
+        assert!(s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "bad date".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: Some("2026-02-30".into()),
+            })
+            .is_err());
+        let a = s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "A".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: Some("2026-08-01".into()),
+            })
+            .unwrap();
+        let b = s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "B".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: None,
+            })
+            .unwrap();
+        let child = s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "child".into(),
+                kind: "sub".into(),
+                parent_goal_id: Some(a.id),
+                target_date: None,
+            })
+            .unwrap();
+        assert!(
+            s.goal_reorder(1, vec![a.id]).is_err(),
+            "partial sibling order must fail"
+        );
+        assert!(
+            s.goal_reorder(1, vec![a.id, a.id]).is_err(),
+            "duplicates must fail"
+        );
+        assert!(
+            s.goal_reorder(1, vec![a.id, child.id, b.id]).is_err(),
+            "mixed levels must fail"
+        );
+        assert!(s
+            .goal_update(
+                a.id,
+                GoalPatch {
+                    target_date: Some(Some("2026-04-31".into())),
+                    ..Default::default()
+                }
+            )
+            .is_err());
         s.goal_delete(a.id).unwrap();
         let surviving = s.goal_list(1).unwrap();
-        assert_eq!(surviving.len(), 1, "confirmed root deletion removes its subgoals");
+        assert_eq!(
+            surviving.len(),
+            1,
+            "confirmed root deletion removes its subgoals"
+        );
         assert_eq!(surviving[0].id, b.id);
     }
 
@@ -1361,29 +1855,60 @@ mod goal {
     fn moving_a_subgoal_compacts_old_siblings_and_appends_to_new_parent() {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
-        let a = s.goal_create(GoalCreate {
-            piece_id: 1, text: "A".into(), kind: "big".into(),
-            parent_goal_id: None, target_date: None,
-        }).unwrap();
-        let b = s.goal_create(GoalCreate {
-            piece_id: 1, text: "B".into(), kind: "big".into(),
-            parent_goal_id: None, target_date: None,
-        }).unwrap();
-        let one = s.goal_create(GoalCreate {
-            piece_id: 1, text: "one".into(), kind: "sub".into(),
-            parent_goal_id: Some(a.id), target_date: None,
-        }).unwrap();
-        let two = s.goal_create(GoalCreate {
-            piece_id: 1, text: "two".into(), kind: "sub".into(),
-            parent_goal_id: Some(a.id), target_date: None,
-        }).unwrap();
+        let a = s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "A".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: None,
+            })
+            .unwrap();
+        let b = s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "B".into(),
+                kind: "big".into(),
+                parent_goal_id: None,
+                target_date: None,
+            })
+            .unwrap();
+        let one = s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "one".into(),
+                kind: "sub".into(),
+                parent_goal_id: Some(a.id),
+                target_date: None,
+            })
+            .unwrap();
+        let two = s
+            .goal_create(GoalCreate {
+                piece_id: 1,
+                text: "two".into(),
+                kind: "sub".into(),
+                parent_goal_id: Some(a.id),
+                target_date: None,
+            })
+            .unwrap();
 
-        let moved = s.goal_update(one.id, GoalPatch {
-            parent_goal_id: Some(Some(b.id)), ..Default::default()
-        }).unwrap();
+        let moved = s
+            .goal_update(
+                one.id,
+                GoalPatch {
+                    parent_goal_id: Some(Some(b.id)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         assert_eq!(moved.parent_goal_id, Some(b.id));
         assert_eq!(moved.order, 0);
-        let remaining = s.goal_list(1).unwrap().into_iter().find(|goal| goal.id == two.id).unwrap();
+        let remaining = s
+            .goal_list(1)
+            .unwrap()
+            .into_iter()
+            .find(|goal| goal.id == two.id)
+            .unwrap();
         assert_eq!(remaining.order, 0);
     }
 }
@@ -1392,7 +1917,11 @@ mod goal {
 impl Store {
     /// Update any of a piece's inline-editable intake fields (absent =
     /// unchanged). Deliberately appends NO event — see [`PieceFieldPatch`].
-    pub fn piece_field_update(&self, piece_id: i64, patch: PieceFieldPatch) -> rusqlite::Result<()> {
+    pub fn piece_field_update(
+        &self,
+        piece_id: i64,
+        patch: PieceFieldPatch,
+    ) -> rusqlite::Result<()> {
         let PieceFieldPatch {
             current_state,
             deadline,
@@ -1469,8 +1998,14 @@ mod piece_field {
     fn piece_field_update_edits_current_state_only() {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
-        s.piece_field_update(1, PieceFieldPatch { current_state: Some(Some("mm.1-40 solid".into())), ..Default::default() })
-            .unwrap();
+        s.piece_field_update(
+            1,
+            PieceFieldPatch {
+                current_state: Some(Some("mm.1-40 solid".into())),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let p = s.get_piece(1).unwrap().unwrap();
         assert_eq!(p.current_state.as_deref(), Some("mm.1-40 solid"));
         assert_eq!(p.deadline, None); // untouched
@@ -1480,29 +2015,39 @@ mod piece_field {
     fn piece_deadline_moves_only_goals_inheriting_the_previous_default() {
         let s = Store::open(":memory:").unwrap();
         seed_piece(&s, 1);
-        s.piece_field_update(1, PieceFieldPatch {
-            deadline: Some(Some("2026-08-01".into())),
-            ..Default::default()
-        }).unwrap();
+        s.piece_field_update(
+            1,
+            PieceFieldPatch {
+                deadline: Some(Some("2026-08-01".into())),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         s.goal_create(GoalCreate {
             piece_id: 1,
             text: "Inherited".into(),
             kind: "big".into(),
             parent_goal_id: None,
             target_date: Some("2026-08-01".into()),
-        }).unwrap();
+        })
+        .unwrap();
         s.goal_create(GoalCreate {
             piece_id: 1,
             text: "Custom".into(),
             kind: "big".into(),
             parent_goal_id: None,
             target_date: Some("2026-07-20".into()),
-        }).unwrap();
+        })
+        .unwrap();
 
-        s.piece_field_update(1, PieceFieldPatch {
-            deadline: Some(Some("2026-09-01".into())),
-            ..Default::default()
-        }).unwrap();
+        s.piece_field_update(
+            1,
+            PieceFieldPatch {
+                deadline: Some(Some("2026-09-01".into())),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let goals = s.goal_list(1).unwrap();
         assert_eq!(goals[0].target_date.as_deref(), Some("2026-09-01"));

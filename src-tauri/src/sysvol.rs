@@ -164,11 +164,19 @@ mod tests {
     #[test]
     fn parses_output_volume_from_get_volume_settings() {
         assert_eq!(
-            parse_output_volume("output volume:64, input volume:83, alert volume:100, output muted:false"),
+            parse_output_volume(
+                "output volume:64, input volume:83, alert volume:100, output muted:false"
+            ),
             Some(64)
         );
-        assert_eq!(parse_output_volume("output volume:0, input volume:0"), Some(0));
-        assert_eq!(parse_output_volume("output volume:100, output muted:true"), Some(100));
+        assert_eq!(
+            parse_output_volume("output volume:0, input volume:0"),
+            Some(0)
+        );
+        assert_eq!(
+            parse_output_volume("output volume:100, output muted:true"),
+            Some(100)
+        );
     }
 
     #[test]
@@ -180,7 +188,11 @@ mod tests {
 
     #[test]
     fn clamps_and_rejects_garbage() {
-        assert_eq!(parse_output_volume("output volume:250"), Some(100), "clamped to 100");
+        assert_eq!(
+            parse_output_volume("output volume:250"),
+            Some(100),
+            "clamped to 100"
+        );
         assert_eq!(parse_output_volume("nonsense"), None);
         assert_eq!(parse_output_volume(""), None);
     }
@@ -212,7 +224,8 @@ mod tests {
         let calls: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
         {
             let rec = calls.clone();
-            let mut guard = BoostGuard::engage_with(80, || 20, move |v| rec.lock().unwrap().push(v));
+            let mut guard =
+                BoostGuard::engage_with(80, || 20, move |v| rec.lock().unwrap().push(v));
             guard.release();
             assert_eq!(&*calls.lock().unwrap(), &[80, 20], "release restored once");
             guard.release();
