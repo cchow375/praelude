@@ -1421,3 +1421,49 @@ history, context}`. Any frontend/backend change touching the Brain ask path must
   it's disk-contention timing, not logic.
 - **Live DB observed at schema 10 on 2026-07-16**, via a read-only file copy — never open the
   live DB directly to check its schema version.
+
+## v3 Phase 4 — Score + Map-this-score wizard (2026-07-16)
+
+- **Freeze exception #2: `score_calibration_save` / `score_calibration_get`.** The v8
+  `score_edition_calibration` table (piece_id, edition_id, edition_fingerprint, method,
+  confidence, points_json, user_verified, UNIQUE(piece,edition,fingerprint)) existed since
+  schema v8 but had ZERO production read/write path — the only INSERTs were in a migration
+  test. `score_atlas_target_save` cannot persist standalone line anchors: it REQUIRES an
+  asserted_measure_range + an asserting mapping_evidence (rejects `Unknown`) and only ever
+  writes a `region`+`target_meta`. And every settings/layout command is typed/closed
+  (`get_setting`/`set_setting` locked to `key=="theme"`; `SettingsPatch`/`PanelLayout` are
+  fixed structs). So the wizard's anchors had no durable home until these two thin additive
+  commands were added over the existing table (no schema change). `cargo test` stayed green
+  (484 lib) — the backend-freeze proof.
+- **Backend validation choices** (`store/score_atlas.rs`): `method` fixed to `user_confirmed`
+  server-side; `confidence` fixed at **0.75** (conservative — a deliberate hand-placed set,
+  above the frontend's 0.75 candidate-eligibility threshold, but below exact-XML's 1.0);
+  per-box confidence is still computed separately by `resolveMeasureRange`. `points_json` is
+  parsed into strict `deny_unknown_fields` structs, validated (page>=1, y in 0..=1, measure>=1,
+  non-empty, <=2000 points) and **re-serialized canonically** — raw frontend JSON is never
+  stored. Empty/whitespace edition ids and missing pieces are rejected with honest messages.
+- **Anchors ARE the durable mapping; the confirmed target range rides the OLD save.** The wizard
+  persists `LineAnchor[]` via `score_calibration_save`. A drawn box then interpolates to an
+  editable range (`candidateFromAnchors` → `resolveMeasureRange`); confirming it produces a
+  `calibrated_user_confirmed` mapping that saves as a Region through the UNCHANGED
+  `score_atlas_target_save` (payload field `mapping_evidence` + `asserted_measure_range`).
+- **The "Mapping required" dead end is gone** (grep-clean in `src/`). `TargetDraftEditor` now:
+  shows an editable "Suggested measures" range when calibration resolves the box; shows a live
+  "Map this score →" link (new `onRequestMapping` prop) when it can't; never a disabled dead
+  button. Low-confidence candidates read "Add more calibration", not "More calibration required".
+- **dev:mock gap surfaced by ScoreView:** it is the first v3-shell component that calls
+  `listen()`. @tauri-apps/api v2's unlisten reaches `window.__TAURI_EVENT_PLUGIN_INTERNALS__.
+  unregisterListener`, which the mock never defined → 2 pageerrors on effect cleanup. Fixed by
+  adding that global (no-op unregister) in `tauriDevMock.ts`. The mock also now serves
+  `score_pdf_*` (a runtime-generated valid blank 1-page PDF) + `score_calibration_*` so the
+  Score tab reaches "ready" and the wizard opens with zero console errors on port 5199.
+- **Legacy-token restyle:** `ScoreView`/atlas CSS were authored against v2 tokens
+  (`--surface-*`, `--ink-primary`, `--space-N`) + a terracotta `--atlas-*` palette + IBM Plex /
+  Newsreader fonts. Converted the atlas palette to monochrome tokens and added a v2→v3 token
+  shim scoped to `.score-workspace` (leaves the v2 `PieceDetail` usage of ScoreView untouched).
+  Score MARKS keep their colors (user data, explicitly allowed).
+- **Retroactive resolution is validate-and-display, not rewrite:** already-saved Region targets
+  keep their stored m_start/m_end; a newly drawn box resolves live from calibration. History is
+  never silently rewritten.
+- **Stray watch:** a `docs/qa/premap/*.json|.log.md` set (Task 4.3-shaped pre-map data) appeared
+  in the tree mid-session — NOT authored by this slice; left unstaged (rogue-daemon pattern).
