@@ -9,13 +9,13 @@ use super::{BrainError, ProposedAction, ProposedActionBody, ProposedVerdict, Que
 
 const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
 const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/models";
-// Verified 2026-07-12 against the vendors' official model/API references:
+// Claude model id verified 2026-07-12 against the vendor references:
 // https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions
 // https://platform.claude.com/docs/en/api/messages/create
-// https://ai.google.dev/gemini-api/docs/generate-content/whats-new-gemini-3.5
-// https://ai.google.dev/api/generate-content
 const DEFAULT_CLAUDE_MODEL: &str = "claude-sonnet-4-6";
-const DEFAULT_GEMINI_MODEL: &str = "gemini-3.5-flash";
+// gemini-flash-latest resolves to the current stable flash model; verified
+// present in v1beta ListModels for this account 2026-07-16.
+const DEFAULT_GEMINI_MODEL: &str = "gemini-flash-latest";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_ANSWER_CHARS: usize = 4_000;
 const MAX_ACTION_NOTE_CHARS: usize = 200;
@@ -434,8 +434,7 @@ impl ProposedActionInput {
                 }
                 let bpm = self.bpm?;
                 if !bpm.is_finite()
-                    || !(crate::audio::clock::MIN_BPM..=crate::audio::clock::MAX_BPM)
-                        .contains(&bpm)
+                    || !(crate::audio::clock::MIN_BPM..=crate::audio::clock::MAX_BPM).contains(&bpm)
                 {
                     return None;
                 }
@@ -611,6 +610,14 @@ mod tests {
     }
 
     #[test]
+    fn default_gemini_model_is_a_listed_stable_id() {
+        // gemini-3.5-flash was never a listed model for this account; the default
+        // must be an id the API's ListModels returns. gemini-flash-latest always
+        // resolves to the current stable flash model.
+        assert_eq!(DEFAULT_GEMINI_MODEL, "gemini-flash-latest");
+    }
+
+    #[test]
     fn explicit_offline_preference_never_resolves_or_builds_a_native_provider() {
         assert!(ProviderChain::from_native_config_with_preference(Some("offline")).is_empty());
     }
@@ -743,10 +750,9 @@ mod tests {
             ProposedActionBody::Undo
         );
 
-        let restart = parse_proposed_action(Some(
-            json!({"kind":"restart","required_clean_streak":3}),
-        ))
-        .expect("restart parses");
+        let restart =
+            parse_proposed_action(Some(json!({"kind":"restart","required_clean_streak":3})))
+                .expect("restart parses");
         assert_eq!(
             restart.body,
             ProposedActionBody::Restart {
@@ -759,18 +765,18 @@ mod tests {
     #[test]
     fn malformed_or_out_of_range_proposed_actions_drop_to_none() {
         for bad in [
-            json!({"kind":"tempo","bpm":5000}),                        // out of range
-            json!({"kind":"tempo","bpm":0}),                           // below MIN_BPM
-            json!({"kind":"tempo"}),                                   // missing bpm
-            json!({"kind":"tempo","bpm":null}),                        // null bpm
-            json!({"kind":"verdict","verdict":"perfect"}),            // unknown verdict
-            json!({"kind":"verdict","verdict":"clean","bpm":120}),    // cross-field leak
+            json!({"kind":"tempo","bpm":5000}),            // out of range
+            json!({"kind":"tempo","bpm":0}),               // below MIN_BPM
+            json!({"kind":"tempo"}),                       // missing bpm
+            json!({"kind":"tempo","bpm":null}),            // null bpm
+            json!({"kind":"verdict","verdict":"perfect"}), // unknown verdict
+            json!({"kind":"verdict","verdict":"clean","bpm":120}), // cross-field leak
             json!({"kind":"verdict","verdict":"clean","bogus":true}), // unknown field
-            json!({"kind":"restart","required_clean_streak":0}),      // below floor
-            json!({"kind":"restart","required_clean_streak":9999}),   // above ceiling
-            json!({"kind":"teleport"}),                               // unknown kind
-            json!({"kind":"undo","bpm":120}),                         // extra field
-            json!("clean"),                                           // not an object
+            json!({"kind":"restart","required_clean_streak":0}), // below floor
+            json!({"kind":"restart","required_clean_streak":9999}), // above ceiling
+            json!({"kind":"teleport"}),                    // unknown kind
+            json!({"kind":"undo","bpm":120}),              // extra field
+            json!("clean"),                                // not an object
         ] {
             assert!(
                 parse_proposed_action(Some(bad.clone())).is_none(),
