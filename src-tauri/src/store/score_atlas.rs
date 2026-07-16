@@ -12,8 +12,10 @@ use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::model::{json_to_sql, MutationEntityRef, Region};
-use super::practice_loop::{begin_operation, finish_operation, request_fingerprint, OperationStart};
+use super::model::{json_to_sql, sqlite_ts_to_rfc3339, MutationEntityRef, Region};
+use super::practice_loop::{
+    begin_operation, finish_operation, request_fingerprint, OperationStart,
+};
 use super::practice_v2::invalid;
 use super::Store;
 use crate::ledger::MutationSource;
@@ -217,10 +219,7 @@ fn validate(payload: &AtomicTargetSavePayload) -> rusqlite::Result<ValidatedTarg
     if payload.piece_id < 1 {
         return Err(invalid("a target save needs a valid piece id"));
     }
-    if payload
-        .target_id
-        .is_some_and(|target_id| target_id < 1)
-    {
+    if payload.target_id.is_some_and(|target_id| target_id < 1) {
         return Err(invalid("target id must be a positive identity"));
     }
     let command_id = trimmed_nonempty(payload.command_id.as_ref())
@@ -240,7 +239,9 @@ fn validate(payload: &AtomicTargetSavePayload) -> rusqlite::Result<ValidatedTarg
         .ok_or_else(|| invalid("a target save needs mapping evidence"))?;
 
     if anchor.schema_version != 1 {
-        return Err(invalid("the PDF selection anchor uses an unsupported schema version"));
+        return Err(invalid(
+            "the PDF selection anchor uses an unsupported schema version",
+        ));
     }
     if edition.edition_id.trim().is_empty() || edition.edition_fingerprint.trim().is_empty() {
         return Err(invalid("the score edition identity is incomplete"));
@@ -272,7 +273,9 @@ fn validate(payload: &AtomicTargetSavePayload) -> rusqlite::Result<ValidatedTarg
         .asserted_measure_range
         .ok_or_else(|| invalid("a target save needs an asserted measure range"))?;
     if range.m_start < 1 || range.m_end < range.m_start {
-        return Err(invalid("the asserted measure range must be positive and ordered"));
+        return Err(invalid(
+            "the asserted measure range must be positive and ordered",
+        ));
     }
     if let Some(mapped_range) = mapping.asserted_range() {
         if mapped_range.m_start != range.m_start || mapped_range.m_end != range.m_end {
@@ -327,7 +330,9 @@ fn validate_rect(rect: &PdfAnchorRect) -> rusqlite::Result<()> {
     // Match the frontend's normalized bounds (a small epsilon tolerates the
     // 6-decimal rounding `selection.ts` applies).
     if rect.x + rect.w > 1.000_001 || rect.y + rect.h > 1.000_001 {
-        return Err(invalid("a score rectangle falls outside the normalized page"));
+        return Err(invalid(
+            "a score rectangle falls outside the normalized page",
+        ));
     }
     if let Some(kind) = &rect.kind {
         if !matches!(kind.as_str(), "box" | "highlight" | "note") {
@@ -375,7 +380,10 @@ impl Store {
         }))?;
         let now = self.now_rfc3339()?;
 
-        let mut conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
 
         // A target save FKs onto piece; check first for an honest message
         // rather than a raw constraint failure.
@@ -388,7 +396,9 @@ impl Store {
             .optional()?
             .unwrap_or(false);
         if !piece_exists {
-            return Err(invalid("target save references a piece that does not exist"));
+            return Err(invalid(
+                "target save references a piece that does not exist",
+            ));
         }
 
         let tx = conn.transaction()?;
@@ -466,10 +476,7 @@ impl Store {
     }
 
     /// Read one Region row in the exact shape `region_list` returns.
-    fn region_row(
-        conn: &rusqlite::Connection,
-        id: i64,
-    ) -> rusqlite::Result<Region> {
+    fn region_row(conn: &rusqlite::Connection, id: i64) -> rusqlite::Result<Region> {
         conn.query_row(
             "SELECT id, piece_id, name, m_start, m_end, kind, sort_order, color, pdf_anchor, notes
              FROM region WHERE id = ?1",
@@ -499,6 +506,228 @@ impl Store {
                 })
             },
         )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Score edition calibration (line anchors)
+//
+// A calibration is a set of "line anchors": for one score edition, the vertical
+// position of each system's start (normalized 0–1) and the printed measure
+// number there. It is standalone (no target attached) and lives in the v8
+// `score_edition_calibration` table, keyed uniquely by (piece, edition,
+// fingerprint). This is the wizard's durable memory; the frontend interpolates
+// drawn boxes to measures from it. Method is always `user_confirmed` here — the
+// only source is a human placing anchors — and confidence is fixed conservatively
+// (see `CALIBRATION_CONFIDENCE`). Raw JSON from the frontend is never stored: it
+// is parsed into strict structs, validated, and re-serialized canonically.
+// ---------------------------------------------------------------------------
+
+/// Method recorded for every wizard-authored calibration. The wizard's only
+/// source is a human placing anchors, so the row is always user-confirmed.
+const CALIBRATION_METHOD: &str = "user_confirmed";
+
+/// Fixed, conservative row-level confidence for a hand-placed calibration set.
+/// Per-box confidence is computed separately by the frontend interpolation
+/// (`resolveMeasureRange`); this metadata simply marks the set as a deliberate,
+/// user-confirmed mapping rather than an exact-XML match (1.0) or a weak guess.
+const CALIBRATION_CONFIDENCE: f64 = 0.75;
+
+/// Upper bound on anchors in a single calibration set. Real scores have far
+/// fewer systems; this only guards against a runaway/adversarial payload.
+const MAX_CALIBRATION_POINTS: usize = 2000;
+
+/// One line anchor. Mirrors `LineAnchor { page, yPct, measure }` in
+/// `src/features/score/atlas/mapping/anchors.ts`; `y` is a normalized 0–1
+/// fraction (the frontend keeps the historical `yPct` name for readability).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CalibrationPoint {
+    pub page: i64,
+    pub y: f64,
+    pub measure: i64,
+}
+
+/// The frontend-facing view of one stored calibration row.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CalibrationView {
+    pub piece_id: i64,
+    pub edition_id: String,
+    pub edition_fingerprint: String,
+    pub method: String,
+    pub confidence: f64,
+    pub points: Vec<CalibrationPoint>,
+    pub user_verified: bool,
+    pub updated_ts: String,
+}
+
+/// Parse and validate the frontend's `points_json` into strict anchor structs.
+/// Rejects invalid JSON, unknown fields, an empty set, an oversized set, and any
+/// out-of-range point. The caller re-serializes the returned structs so only
+/// validated, canonical JSON is ever persisted.
+fn validate_calibration_points(points_json: &str) -> rusqlite::Result<Vec<CalibrationPoint>> {
+    let points: Vec<CalibrationPoint> = serde_json::from_str(points_json)
+        .map_err(|e| invalid(format!("calibration points are not valid JSON: {e}")))?;
+    if points.is_empty() {
+        return Err(invalid("a calibration needs at least one line anchor"));
+    }
+    if points.len() > MAX_CALIBRATION_POINTS {
+        return Err(invalid(format!(
+            "a calibration cannot exceed {MAX_CALIBRATION_POINTS} line anchors"
+        )));
+    }
+    for point in &points {
+        if point.page < 1 {
+            return Err(invalid(
+                "a calibration line anchor needs a positive page number",
+            ));
+        }
+        if !point.y.is_finite() || point.y < 0.0 || point.y > 1.0 {
+            return Err(invalid(
+                "a calibration line anchor y must be a normalized 0..=1 fraction",
+            ));
+        }
+        if point.measure < 1 {
+            return Err(invalid(
+                "a calibration line anchor needs a positive measure number",
+            ));
+        }
+    }
+    Ok(points)
+}
+
+impl Store {
+    /// UPSERT one edition's calibration (line anchors) over the existing v8
+    /// `score_edition_calibration` table. Method is fixed to `user_confirmed`
+    /// and confidence is fixed conservatively; `points_json` is validated and
+    /// re-serialized canonically before it is ever stored.
+    pub(crate) fn score_calibration_save(
+        &self,
+        piece_id: i64,
+        edition_id: &str,
+        edition_fingerprint: &str,
+        points_json: &str,
+        user_verified: bool,
+    ) -> rusqlite::Result<CalibrationView> {
+        if piece_id < 1 {
+            return Err(invalid("a calibration save needs a valid piece id"));
+        }
+        let edition_id = edition_id.trim();
+        let edition_fingerprint = edition_fingerprint.trim();
+        if edition_id.is_empty() || edition_id.chars().count() > 4096 {
+            return Err(invalid("the calibration edition id is empty or too long"));
+        }
+        if edition_fingerprint.is_empty() || edition_fingerprint.chars().count() > 500 {
+            return Err(invalid(
+                "the calibration edition fingerprint is empty or too long",
+            ));
+        }
+        let points = validate_calibration_points(points_json)?;
+        // Never store the raw input: persist the canonical re-serialization of
+        // the validated structs.
+        let canonical_json = json_to_sql(&points)?;
+        // Compute the timestamp before locking the connection (it locks too).
+        let now = self.now_rfc3339()?;
+
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+
+        // FKs onto piece; check first for an honest message rather than a raw
+        // constraint failure.
+        let piece_exists: bool = conn
+            .query_row("SELECT 1 FROM piece WHERE id = ?1", [piece_id], |_| {
+                Ok(true)
+            })
+            .optional()?
+            .unwrap_or(false);
+        if !piece_exists {
+            return Err(invalid(
+                "calibration save references a piece that does not exist",
+            ));
+        }
+
+        conn.execute(
+            "INSERT INTO score_edition_calibration
+                 (piece_id, edition_id, edition_fingerprint, method, confidence,
+                  points_json, user_verified, created_ts, updated_ts)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+             ON CONFLICT(piece_id, edition_id, edition_fingerprint) DO UPDATE SET
+                 method = excluded.method,
+                 confidence = excluded.confidence,
+                 points_json = excluded.points_json,
+                 user_verified = excluded.user_verified,
+                 updated_ts = excluded.updated_ts",
+            rusqlite::params![
+                piece_id,
+                edition_id,
+                edition_fingerprint,
+                CALIBRATION_METHOD,
+                CALIBRATION_CONFIDENCE,
+                canonical_json,
+                i64::from(user_verified),
+                now,
+            ],
+        )?;
+
+        Self::calibration_row(&conn, piece_id, edition_id, edition_fingerprint)?
+            .ok_or_else(|| invalid("calibration row missing immediately after save"))
+    }
+
+    /// Read one edition's stored calibration, or `None` when it has not been
+    /// mapped yet.
+    pub(crate) fn score_calibration_get(
+        &self,
+        piece_id: i64,
+        edition_id: &str,
+        edition_fingerprint: &str,
+    ) -> rusqlite::Result<Option<CalibrationView>> {
+        let edition_id = edition_id.trim();
+        let edition_fingerprint = edition_fingerprint.trim();
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        Self::calibration_row(&conn, piece_id, edition_id, edition_fingerprint)
+    }
+
+    fn calibration_row(
+        conn: &rusqlite::Connection,
+        piece_id: i64,
+        edition_id: &str,
+        edition_fingerprint: &str,
+    ) -> rusqlite::Result<Option<CalibrationView>> {
+        conn.query_row(
+            "SELECT method, confidence, points_json, user_verified, updated_ts
+             FROM score_edition_calibration
+             WHERE piece_id = ?1 AND edition_id = ?2 AND edition_fingerprint = ?3",
+            rusqlite::params![piece_id, edition_id, edition_fingerprint],
+            |row| {
+                let points_json: String = row.get(2)?;
+                let points: Vec<CalibrationPoint> =
+                    serde_json::from_str(&points_json).map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            2,
+                            rusqlite::types::Type::Text,
+                            Box::new(e),
+                        )
+                    })?;
+                let user_verified: i64 = row.get(3)?;
+                let updated_ts: String = row.get(4)?;
+                Ok(CalibrationView {
+                    piece_id,
+                    edition_id: edition_id.to_string(),
+                    edition_fingerprint: edition_fingerprint.to_string(),
+                    method: row.get(0)?,
+                    confidence: row.get(1)?,
+                    points,
+                    user_verified: user_verified != 0,
+                    updated_ts: sqlite_ts_to_rfc3339(&updated_ts),
+                })
+            },
+        )
+        .optional()
     }
 }
 
@@ -687,6 +916,180 @@ mod tests {
                 .unwrap(),
             1
         );
+    }
+
+    // ----- Score edition calibration (line anchors) -----
+
+    fn points_json(points: &[(i64, f64, i64)]) -> String {
+        let items: Vec<serde_json::Value> = points
+            .iter()
+            .map(|(page, y, measure)| json!({ "page": page, "y": y, "measure": measure }))
+            .collect();
+        serde_json::to_string(&items).unwrap()
+    }
+
+    #[test]
+    fn calibration_save_then_get_roundtrips() {
+        let store = memory_store_with_piece();
+        let saved = store
+            .score_calibration_save(
+                1,
+                "score/Ekier.pdf",
+                "fp-a",
+                &points_json(&[(1, 0.20, 45), (1, 0.34, 52)]),
+                true,
+            )
+            .expect("calibration saves");
+        assert_eq!(saved.piece_id, 1);
+        assert_eq!(saved.edition_id, "score/Ekier.pdf");
+        assert_eq!(saved.edition_fingerprint, "fp-a");
+        assert_eq!(saved.method, "user_confirmed");
+        assert!(saved.user_verified);
+        assert_eq!(saved.points.len(), 2);
+        assert_eq!(saved.points[0].page, 1);
+        assert!((saved.points[0].y - 0.20).abs() < 1e-9);
+        assert_eq!(saved.points[1].measure, 52);
+        assert!(saved.confidence >= 0.0 && saved.confidence <= 1.0);
+
+        let fetched = store
+            .score_calibration_get(1, "score/Ekier.pdf", "fp-a")
+            .expect("get succeeds")
+            .expect("calibration present");
+        assert_eq!(fetched.points.len(), 2);
+        assert_eq!(fetched.points[1].measure, 52);
+        assert_eq!(fetched.method, "user_confirmed");
+    }
+
+    #[test]
+    fn calibration_get_is_none_for_an_unmapped_edition() {
+        let store = memory_store_with_piece();
+        assert!(store
+            .score_calibration_get(1, "score/Ekier.pdf", "fp-a")
+            .expect("get succeeds")
+            .is_none());
+    }
+
+    #[test]
+    fn calibration_save_upserts_on_the_unique_edition_key() {
+        let store = memory_store_with_piece();
+        store
+            .score_calibration_save(
+                1,
+                "score/Ekier.pdf",
+                "fp-a",
+                &points_json(&[(1, 0.2, 1)]),
+                false,
+            )
+            .expect("first save");
+        let second = store
+            .score_calibration_save(
+                1,
+                "score/Ekier.pdf",
+                "fp-a",
+                &points_json(&[(1, 0.2, 10), (2, 0.5, 25)]),
+                true,
+            )
+            .expect("overwriting save");
+        assert_eq!(second.points.len(), 2);
+        assert_eq!(second.points[0].measure, 10);
+        assert!(second.user_verified);
+        // Exactly one row survives for the unique edition key.
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM score_edition_calibration")
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn calibration_save_rejects_empty_points() {
+        let store = memory_store_with_piece();
+        let err = store
+            .score_calibration_save(1, "e", "fp", "[]", false)
+            .unwrap_err();
+        assert!(err.to_string().contains("at least one"));
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM score_edition_calibration")
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn calibration_save_rejects_too_many_points() {
+        let store = memory_store_with_piece();
+        let many: Vec<(i64, f64, i64)> = (1..=2001).map(|m| (1, 0.5, m)).collect();
+        let err = store
+            .score_calibration_save(1, "e", "fp", &points_json(&many), false)
+            .unwrap_err();
+        assert!(err.to_string().contains("2000"));
+    }
+
+    #[test]
+    fn calibration_save_rejects_a_nonpositive_page() {
+        let store = memory_store_with_piece();
+        let err = store
+            .score_calibration_save(1, "e", "fp", &points_json(&[(0, 0.5, 3)]), false)
+            .unwrap_err();
+        assert!(err.to_string().contains("page"));
+    }
+
+    #[test]
+    fn calibration_save_rejects_an_out_of_range_y() {
+        let store = memory_store_with_piece();
+        let err = store
+            .score_calibration_save(1, "e", "fp", &points_json(&[(1, 1.5, 3)]), false)
+            .unwrap_err();
+        assert!(err.to_string().contains("y"));
+    }
+
+    #[test]
+    fn calibration_save_rejects_a_nonpositive_measure() {
+        let store = memory_store_with_piece();
+        let err = store
+            .score_calibration_save(1, "e", "fp", &points_json(&[(1, 0.5, 0)]), false)
+            .unwrap_err();
+        assert!(err.to_string().contains("measure"));
+    }
+
+    #[test]
+    fn calibration_save_rejects_invalid_json_and_unknown_fields() {
+        let store = memory_store_with_piece();
+        assert!(store
+            .score_calibration_save(1, "e", "fp", "not json", false)
+            .unwrap_err()
+            .to_string()
+            .contains("JSON"));
+        let unknown_field = r#"[{"page":1,"y":0.5,"measure":3,"rogue":9}]"#;
+        assert!(store
+            .score_calibration_save(1, "e", "fp", unknown_field, false)
+            .is_err());
+    }
+
+    #[test]
+    fn calibration_save_rejects_empty_or_whitespace_edition_ids() {
+        let store = memory_store_with_piece();
+        assert!(store
+            .score_calibration_save(1, "   ", "fp", &points_json(&[(1, 0.5, 3)]), false)
+            .unwrap_err()
+            .to_string()
+            .contains("edition id"));
+        assert!(store
+            .score_calibration_save(1, "e", "  ", &points_json(&[(1, 0.5, 3)]), false)
+            .unwrap_err()
+            .to_string()
+            .contains("fingerprint"));
+    }
+
+    #[test]
+    fn calibration_save_rejects_a_missing_piece() {
+        let store = memory_store_with_piece();
+        let err = store
+            .score_calibration_save(999, "e", "fp", &points_json(&[(1, 0.5, 3)]), false)
+            .unwrap_err();
+        assert!(err.to_string().contains("does not exist"));
     }
 
     #[test]

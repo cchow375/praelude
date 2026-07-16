@@ -585,6 +585,43 @@ fn score_atlas_target_save(
         .map_err(|e| e.to_string())
 }
 
+/// Persist one score edition's calibration (line anchors) so drawn boxes can be
+/// interpolated to measures. Method is fixed to `user_confirmed` server-side and
+/// `points_json` is validated before storage. UPSERTs on the unique
+/// (piece, edition, fingerprint) key.
+#[tauri::command]
+fn score_calibration_save(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    points_json: String,
+    user_verified: bool,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::CalibrationView, String> {
+    store
+        .score_calibration_save(
+            piece_id,
+            &edition_id,
+            &edition_fingerprint,
+            &points_json,
+            user_verified,
+        )
+        .map_err(|e| e.to_string())
+}
+
+/// Read one score edition's stored calibration, or `None` if it is unmapped.
+#[tauri::command]
+fn score_calibration_get(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<Option<store::CalibrationView>, String> {
+    store
+        .score_calibration_get(piece_id, &edition_id, &edition_fingerprint)
+        .map_err(|e| e.to_string())
+}
+
 fn rejected_plan(
     command_id: &str,
     error: String,
@@ -1298,6 +1335,8 @@ pub fn run() {
             region_merge,
             region_split,
             score_atlas_target_save,
+            score_calibration_save,
+            score_calibration_get,
             session_plan_start,
             tutorial_video_list,
             tutorial_video_scan,
