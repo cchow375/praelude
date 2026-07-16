@@ -1,0 +1,365 @@
+// ---------------------------------------------------------------------------
+// DEV-ONLY Tauri interception mock.
+//
+// This module lets the five-workspace v2 UI mount and render in a plain browser
+// (`npm run dev:mock`) or a jsdom smoke test, WITHOUT a Rust backend. It is a
+// STATIC render harness for visual/design review — NOT a functional acceptance
+// surface. It only ever returns coherent sample data for the commands the five
+// workspaces call on their LOAD path; live event pushes are an explicit no-op.
+//
+// Interception point: `window.__TAURI_INTERNALS__`. Both @tauri-apps/api
+// surfaces bottom out here — `invoke(cmd, args)` calls
+// `window.__TAURI_INTERNALS__.invoke(...)`, and `listen(event, handler)` calls
+// `invoke('plugin:event|listen', ...)` after `transformCallback(handler)` (also
+// on __TAURI_INTERNALS__). Mocking this one object therefore intercepts every
+// command AND every event subscription through a single seam. Nothing here
+// touches `window.isTauri`, so `isTauri()` stays falsy exactly as in the browser.
+//
+// This file is only imported behind the `import.meta.env.VITE_DEV_MOCK` flag
+// (see main.tsx) and behind an explicit call in the smoke test. When the flag is
+// off it is never imported, so the real Tauri app and a normal `vite` dev run
+// are byte-for-byte unaffected.
+// ---------------------------------------------------------------------------
+
+import type { AnomalyReport } from "../features/ledger/AnomaliesPanel";
+import type {
+  DailyWork,
+  RecoveryPreview,
+} from "../features/calendar/types";
+import type {
+  BlockHistory,
+  Goal,
+  PieceDetailData,
+  PieceSummary,
+  ProgressSummary,
+  Region,
+} from "../features/pieces/types";
+import type { RetentionCheckView } from "../features/rep/useRep";
+import type { UniverseSnapshot } from "../features/universe/types";
+
+/** Local YYYY-MM-DD, matching calendar/dates.ts `todayLocal()`. */
+function todayLocal(): string {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isoDaysAgo(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date.toISOString();
+}
+
+const TODAY = todayLocal();
+
+// --- Repertoire -----------------------------------------------------------
+
+const PIECES: PieceSummary[] = [
+  { id: 1, title: "Scherzo No. 2", composer: "Frédéric Chopin", has_xml: true, has_pdf: true, intake_done: true },
+  { id: 2, title: "The White Peacock", composer: "Charles Tomlinson Griffes", has_xml: false, has_pdf: true, intake_done: true },
+];
+
+const PIECE_DETAILS: Record<number, PieceDetailData> = {
+  1: {
+    id: 1, title: "Scherzo No. 2", composer: "Frédéric Chopin",
+    has_xml: true, has_pdf: true, intake_done: true,
+    folder_path: "/dev-mock/scherzo-no-2", xml_path: "/dev-mock/scherzo-no-2/score.musicxml", pdf_path: "/dev-mock/scherzo-no-2/score.pdf",
+    goals: ["Perform from memory", "Even development voicing"],
+    deadline: null, target_tempo: 100,
+    hard_spots: [{ measures: "65-96", note: "Development hand coordination" }],
+    current_state: "Development section under tempo", notes: "Keep the left hand light in the opening.",
+  },
+  2: {
+    id: 2, title: "The White Peacock", composer: "Charles Tomlinson Griffes",
+    has_xml: false, has_pdf: true, intake_done: true,
+    folder_path: "/dev-mock/white-peacock", xml_path: null, pdf_path: "/dev-mock/white-peacock/score.pdf",
+    goals: ["Voice the melody over the tremolo"],
+    deadline: null, target_tempo: 63,
+    hard_spots: [{ measures: "40-52", note: "Climax pedaling" }],
+    current_state: "Reading the opening", notes: null,
+  },
+};
+
+const REGIONS: Record<number, Region[]> = {
+  1: [
+    { id: 11, piece_id: 1, name: "Opening theme", notes: null, m_start: 1, m_end: 8, kind: "phrase", order: 0, color: null, pdf_anchor: null },
+    { id: 12, piece_id: 1, name: "Development", notes: null, m_start: 65, m_end: 96, kind: "section", order: 1, color: null, pdf_anchor: null },
+    { id: 13, piece_id: 1, name: "Coda", notes: null, m_start: 240, m_end: 268, kind: "section", order: 2, color: null, pdf_anchor: null },
+  ],
+  2: [
+    { id: 21, piece_id: 2, name: "Opening", notes: null, m_start: 1, m_end: 12, kind: "phrase", order: 0, color: null, pdf_anchor: null },
+    { id: 22, piece_id: 2, name: "Climax", notes: null, m_start: 40, m_end: 52, kind: "section", order: 1, color: null, pdf_anchor: null },
+  ],
+};
+
+const BLOCKS: Record<number, BlockHistory[]> = {
+  1: [
+    {
+      block_id: 101, region_id: 11, m_start: 1, m_end: 8, label: "Opening theme",
+      start_bpm: 80, bpm: 92, target_bpm: 108, planned_reps: 8, reps_done: 6, status: "open",
+      verdicts: { clean: 5, flawed: 1, failed: 0 }, focus: "notes", use_metronome: true,
+      attempts_recorded: 6, tries: 6, current_clean_streak: 2, mastery_progress_streak: 2, best_clean_streak: 3,
+      required_clean_streak: 5, effective_required_clean_streak: 5, recovery_remaining: 0,
+      mastery_status: "not_satisfied", mastery_verified: false, set_state: "active",
+    },
+    {
+      block_id: 102, region_id: 12, m_start: 65, m_end: 96, label: "Development",
+      start_bpm: 60, bpm: 84, target_bpm: 84, planned_reps: 8, reps_done: 8, status: "closed",
+      verdicts: { clean: 8, flawed: 0, failed: 0 }, focus: "hands", use_metronome: true,
+      attempts_recorded: 8, tries: 8, current_clean_streak: 8, mastery_progress_streak: 8, best_clean_streak: 8,
+      required_clean_streak: 5, effective_required_clean_streak: 5, recovery_remaining: 0,
+      mastery_status: "satisfied", mastery_verified: true, set_state: "mastered",
+    },
+  ],
+  2: [
+    {
+      block_id: 201, region_id: 21, m_start: 1, m_end: 12, label: "Opening",
+      start_bpm: 48, bpm: 52, target_bpm: 63, planned_reps: 6, reps_done: 4, status: "open",
+      verdicts: { clean: 3, flawed: 0, failed: 1 }, focus: "notes", use_metronome: false,
+      attempts_recorded: 4, tries: 4, current_clean_streak: 0, mastery_progress_streak: 0, best_clean_streak: 2,
+      required_clean_streak: 5, effective_required_clean_streak: 5, recovery_remaining: 1,
+      mastery_status: "not_satisfied", mastery_verified: false, set_state: "active",
+    },
+  ],
+};
+
+const PROGRESS: Record<number, ProgressSummary> = {
+  1: {
+    piece_id: 1, focused_seconds: 8400, streak: 3, best_tempo_reached: 92,
+    per_region_mastery: [
+      { region_id: 11, name: "Opening theme", blocks: 3, reps: 18, clean_ratio: 0.83, best_bpm: 92, last_practiced: isoDaysAgo(1) },
+      { region_id: 12, name: "Development", blocks: 2, reps: 16, clean_ratio: 1, best_bpm: 84, last_practiced: isoDaysAgo(2) },
+    ],
+    time_by_focus: [{ focus: "notes", seconds: 4200 }, { focus: "hands", seconds: 4200 }],
+  },
+  2: {
+    piece_id: 2, focused_seconds: 3200, streak: 1, best_tempo_reached: 52,
+    per_region_mastery: [
+      { region_id: 21, name: "Opening", blocks: 1, reps: 4, clean_ratio: 0.75, best_bpm: 52, last_practiced: isoDaysAgo(3) },
+    ],
+    time_by_focus: [{ focus: "notes", seconds: 3200 }],
+  },
+};
+
+const GOALS: Record<number, Goal[]> = {
+  1: [
+    { id: 1, piece_id: 1, text: "Perform Scherzo No. 2 from memory", kind: "big", parent_goal_id: null, done: false, order: 0, target_date: TODAY, created_ts: isoDaysAgo(20) },
+    { id: 2, piece_id: 1, text: "Clean the development section hands together", kind: "sub", parent_goal_id: 1, done: false, order: 0, target_date: null, created_ts: isoDaysAgo(10) },
+  ],
+  2: [
+    { id: 3, piece_id: 2, text: "Voice the melody above the tremolo", kind: "big", parent_goal_id: null, done: false, order: 0, target_date: null, created_ts: isoDaysAgo(8) },
+  ],
+};
+
+function dailyWork(): DailyWork[] {
+  const base = {
+    origin_date: TODAY, scheduled_date: TODAY, reschedule_count: 0,
+    completed_ts: null, created_ts: isoDaysAgo(1), updated_ts: isoDaysAgo(1),
+  };
+  return [
+    {
+      ...base, id: 1, goal_id: 2, region_id: 11, block_id: null,
+      title: "Development hands-together, slow", planned_minutes: 20, status: "planned", source: "planner",
+      sort_order: 0, piece_id: 1, piece_title: "Scherzo No. 2",
+      goal_text: "Clean the development section hands together", parent_goal_text: "Perform Scherzo No. 2 from memory",
+    },
+    {
+      ...base, id: 2, goal_id: 3, region_id: 21, block_id: null,
+      title: "White Peacock opening, voicing", planned_minutes: 15, status: "planned", source: "manual",
+      sort_order: 1, piece_id: 2, piece_title: "The White Peacock",
+      goal_text: "Voice the melody above the tremolo", parent_goal_text: null,
+    },
+  ];
+}
+
+function recoveryPreview(): RecoveryPreview {
+  const missed: DailyWork = {
+    id: 3, goal_id: 2, region_id: 11, block_id: null,
+    title: "Opening theme review", planned_minutes: 10, origin_date: TODAY, scheduled_date: isoDaysAgo(2).slice(0, 10),
+    status: "planned", source: "planner", reschedule_count: 1, sort_order: 0,
+    completed_ts: null, created_ts: isoDaysAgo(4), updated_ts: isoDaysAgo(2),
+    piece_id: 1, piece_title: "Scherzo No. 2",
+    goal_text: "Clean the development section hands together", parent_goal_text: "Perform Scherzo No. 2 from memory",
+  };
+  return {
+    today: TODAY,
+    capacity_minutes: 60,
+    items: [{ work: missed, proposed_date: TODAY, reason: "Scheduled 2 days ago and not marked done.", effective_deadline: null }],
+    days: [{ date: TODAY, planned_minutes: 35, recovery_minutes: 10, capacity_minutes: 60 }],
+  };
+}
+
+function retentionDue(): RetentionCheckView[] {
+  return [
+    {
+      id: 501, region_id: 11, source_set_id: 102, due_date: TODAY, original_due_date: TODAY,
+      condition: { bpm: 84, m_start: 65, m_end: 96, hands: "together", required_clean_streak: 5 },
+      state: "due", result: null, completed_ts: null, created_ts: isoDaysAgo(3), updated_ts: isoDaysAgo(1),
+    },
+  ];
+}
+
+function anomalies(): AnomalyReport {
+  return {
+    generated_at: new Date().toISOString(),
+    total: 3,
+    groups: [
+      {
+        kind: "incomplete_event_provenance", severity: "info", count: 2,
+        rows: [
+          { id: 1, entity_type: "event", entity_id: 4021, review_state: "open", detail: { input_source: "unknown" }, created_ts: isoDaysAgo(30), reviewed_ts: null },
+          { id: 2, entity_type: "event", entity_id: 4022, review_state: "open", detail: { input_source: "unknown" }, created_ts: isoDaysAgo(30), reviewed_ts: null },
+        ],
+      },
+      {
+        kind: "same_second_attempt_burst", severity: "warning", count: 1,
+        rows: [
+          { id: 3, entity_type: "set", entity_id: 101, review_state: "open", detail: { attempts: 2, shared_timestamp: isoDaysAgo(5) }, created_ts: isoDaysAgo(5), reviewed_ts: null },
+        ],
+      },
+    ],
+  };
+}
+
+function universeSnapshot(): UniverseSnapshot {
+  return {
+    generated_at: new Date().toISOString(),
+    definitions: [
+      { signal: "focused_time", label: "System size", definition: "Focused practice time after idle time is removed." },
+      { signal: "continuity", label: "Outer arc", definition: "Distinct active days in the inclusive 28-day window." },
+      { signal: "mastery", label: "Mastery ring", definition: "Only verified consecutive-clean contracts; never raw click totals." },
+    ],
+    traces: {
+      source: "dev-mock sample practice events",
+      practice_event_kinds: ["rep_open", "rep", "verdict", "tempo_change"],
+      idle_threshold_seconds: 300,
+      active_window_start: isoDaysAgo(27).slice(0, 10),
+      active_window_end: TODAY,
+      quality_formula: "bounded smoothing",
+      maturity_formula: "coverage × verified mastery × continuity",
+    },
+    totals: {
+      focused_seconds: 11600, active_days_28: 6, regions_practiced: 3, regions_revisited: 1,
+      mastered_targets: 1, recovered_targets: 0, practice_sessions: 7,
+    },
+    pieces: [
+      {
+        piece_id: 1, title: "Scherzo No. 2", composer: "Frédéric Chopin",
+        focused_seconds: 8400, active_days_28: 6, regions_total: 3, regions_practiced: 2, regions_revisited: 1,
+        mastered_targets: 1, recovered_targets: 0, open_recovery_debt: 0, practice_sessions: 5,
+        earned_maturity: 0.55, quality_brightness: 0.97, last_practiced: isoDaysAgo(1),
+        region_signals: [
+          { region_id: 11, name: "Opening theme", kind: "phrase", focused_seconds: 4200, active_days_28: 4, practiced: true, revisited: true, quality_brightness: 0.98, last_practiced: isoDaysAgo(1), practice_events: 14, rated_rep_events: 8, clean_rep_events: 6, distinct_practice_dates: 4, mastery_contracts_completed: 0, recovery_resets: 0, recovered: false, open_recovery_debt: 0, practice_sessions: 4 },
+          { region_id: 12, name: "Development", kind: "section", focused_seconds: 4200, active_days_28: 3, practiced: true, revisited: false, quality_brightness: 0.96, last_practiced: isoDaysAgo(2), practice_events: 10, rated_rep_events: 8, clean_rep_events: 8, distinct_practice_dates: 2, mastery_contracts_completed: 1, recovery_resets: 0, recovered: false, open_recovery_debt: 0, practice_sessions: 3 },
+          { region_id: 13, name: "Coda", kind: "section", focused_seconds: 0, active_days_28: 0, practiced: false, revisited: false, quality_brightness: 0.95, last_practiced: null, practice_events: 0, rated_rep_events: 0, clean_rep_events: 0, distinct_practice_dates: 0 },
+        ],
+      },
+      {
+        piece_id: 2, title: "The White Peacock", composer: "Charles Tomlinson Griffes",
+        focused_seconds: 3200, active_days_28: 3, regions_total: 2, regions_practiced: 1, regions_revisited: 0,
+        mastered_targets: 0, recovered_targets: 0, open_recovery_debt: 1, practice_sessions: 2,
+        earned_maturity: 0.2, quality_brightness: 0.94, last_practiced: isoDaysAgo(3),
+        region_signals: [
+          { region_id: 21, name: "Opening", kind: "phrase", focused_seconds: 3200, active_days_28: 3, practiced: true, revisited: false, quality_brightness: 0.94, last_practiced: isoDaysAgo(3), practice_events: 6, rated_rep_events: 4, clean_rep_events: 3, distinct_practice_dates: 2, mastery_contracts_completed: 0, recovery_resets: 1, recovered: false, open_recovery_debt: 1, practice_sessions: 2 },
+          { region_id: 22, name: "Climax", kind: "section", focused_seconds: 0, active_days_28: 0, practiced: false, revisited: false, quality_brightness: 0.93, last_practiced: null, practice_events: 0, rated_rep_events: 0, clean_rep_events: 0, distinct_practice_dates: 0 },
+        ],
+      },
+    ],
+  };
+}
+
+const METRO_STATE = {
+  running: false, bpm: 92, beats_per_bar: 4, subdivision: 1,
+  accent_first: true, sound: "click", gain: 0.8, boost: false,
+};
+
+const SETTINGS_SNAPSHOT = {
+  theme: "auto" as const, interface_scale: 90, practice_default_clean_streak: 5,
+};
+
+function pieceIdOf(args: unknown): number {
+  const record = (args ?? {}) as Record<string, unknown>;
+  const raw = record.pieceId ?? record.id ?? record.piece_id;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : 1;
+}
+
+/**
+ * Coherent sample data for LOAD-path commands only. Any unmapped command (a
+ * mutation or a not-yet-exercised read) returns `null`: the read paths guard
+ * `?? []`/`?? null`, and mutations are out of scope for this static harness.
+ */
+function routeCommand(cmd: string, args: unknown): unknown {
+  switch (cmd) {
+    // Shell-level mounts.
+    case "settings_snapshot": return SETTINGS_SNAPSHOT;
+    case "rep_state": return null;
+    case "metro_state": return METRO_STATE;
+    case "session_current": return null;
+    case "voice_state": return { muted: false, down: null };
+
+    // Repertoire / Atlas / Ledger.
+    case "pieces_list":
+    case "pieces_scan": return PIECES;
+    case "piece_get": return PIECE_DETAILS[pieceIdOf(args)] ?? null;
+    case "region_list": return REGIONS[pieceIdOf(args)] ?? [];
+    case "rep_blocks_for_piece": return BLOCKS[pieceIdOf(args)] ?? [];
+    case "progress_summary": return PROGRESS[pieceIdOf(args)] ?? null;
+    case "goal_list": return GOALS[pieceIdOf(args)] ?? [];
+    case "anomalies_list": return anomalies();
+
+    // Today / Universe.
+    case "universe_snapshot": return universeSnapshot();
+
+    // Calendar / composer.
+    case "daily_work_list": return dailyWork();
+    case "recovery_preview": return recoveryPreview();
+    case "retention_due": return retentionDue();
+
+    default: return null;
+  }
+}
+
+let installed = false;
+
+/**
+ * Install the dev-only Tauri seam onto `window`. Idempotent. Called ONLY behind
+ * the `VITE_DEV_MOCK` flag (main.tsx) or explicitly from the smoke test.
+ */
+export function installTauriDevMock(): void {
+  if (installed) return;
+  installed = true;
+
+  let callbackId = 0;
+  let subscriptionId = 0;
+
+  const internals = {
+    // The single command seam. Events are a benign no-op: a `plugin:event|listen`
+    // resolves to a valid subscription id (so `listen()` returns a real unlisten
+    // fn), but no callback is ever fired — the initial render comes entirely from
+    // the invoke load calls above.
+    invoke(cmd: string, args?: unknown): Promise<unknown> {
+      if (cmd === "plugin:event|listen") return Promise.resolve(++subscriptionId);
+      if (cmd === "plugin:event|unlisten") return Promise.resolve(null);
+      return Promise.resolve(routeCommand(cmd, args));
+    },
+    // Returns a callback id; the registered handler is intentionally never invoked.
+    transformCallback(_callback?: unknown, _once?: boolean): number {
+      return ++callbackId;
+    },
+    unregisterCallback(_id: number): void {},
+    convertFileSrc(filePath: string): string {
+      return filePath;
+    },
+  };
+
+  (window as unknown as { __TAURI_INTERNALS__: typeof internals }).__TAURI_INTERNALS__ = internals;
+}
+
+/** Test helper: remove the seam so unrelated suites see a backend-free window. */
+export function uninstallTauriDevMock(): void {
+  installed = false;
+  delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+}

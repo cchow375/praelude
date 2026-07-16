@@ -2,6 +2,31 @@
 
 ## Decisions
 
+- **Dev-mock browser harness — the v2 UI renders in a plain browser now (2026-07-16, Opus):**
+  - **Why:** the whole v2 UI had only ever been jsdom-tested; no real-browser render existed, so
+    visual/design QA was impossible (flagged in the Universe audit). Built a flag-gated dev-mock so
+    `npm run dev:mock` serves all five workspaces in a browser with realistic sample data — a
+    permanent design-review/QA affordance and a release-matrix precursor. Frontend-only; the
+    subjective aesthetic pass is deliberately left to Christian's eye.
+  - **Interception seam = `window.__TAURI_INTERNALS__`** (src/devMock/tauriDevMock.ts). Both
+    `@tauri-apps/api` surfaces bottom out there: `invoke(cmd,args)` → `__TAURI_INTERNALS__.invoke`,
+    and `listen` → `transformCallback` + `invoke('plugin:event|listen')`. Mocking that one object
+    intercepts every command AND every event subscription in one place — cleaner than wrapping
+    per-feature call sites (there is no central invoke wrapper; `services/command.ts` only
+    normalizes errors around the raw invoke). `isTauri()` checks `window.isTauri` (unset in
+    browser → stays falsy), and nothing on the load paths gates on it.
+  - **The stall lesson (first attempt died on the event surface):** for a STATIC render harness,
+    events must be a BENIGN NO-OP — `plugin:event|listen` returns a valid unlisten fn and fires
+    NOTHING; initial render comes entirely from the invoke load calls. The first executor
+    rabbit-holed trying to simulate live event pushes and stalled (600s watchdog, wrote nothing);
+    the retry with events no-op'd + only the 5 workspaces' load-path commands mocked completed
+    cleanly. General rule: a render harness needs mount, not live behavior — no-op the push
+    channels.
+  - **Real path provably untouched:** activation is `if (import.meta.env.VITE_DEV_MOCK)` +
+    dynamic import in main.tsx `bootstrap()`, so Vite tree-shakes the whole `devMock` chunk when
+    the flag is off. Verified: a flag-OFF `npm run build` dist contains no `installTauriDevMock`/
+    `devMock` string. No `src-tauri` file touched. Gates: vitest 604 (+5 smoke), both builds green.
+
 - **P7 Brain answer-quality checkpoint + the Tier B deferral decision (2026-07-16, Opus takeover):**
   - **The corpus reframed the voice roadmap.** Scouting the Tier B slice against the 1,309-segment
     corpus surfaced that Tier A (deterministic hot-loop) ALREADY handles verdicts/undo/restart/

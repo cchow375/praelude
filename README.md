@@ -43,6 +43,22 @@ For a versioned install/DMG release, use `npm run release:mac` only after the re
 update protocol, real-data migration rehearsal, and complete gates are ready. The script enforces
 version agreement, tests, seal, rollback-safe install, checksum, and one-copy audit.
 
+## Dev mock (browser design-review harness)
+
+```
+npm run dev:mock       # VITE_DEV_MOCK=1 vite — then open the printed localhost URL
+```
+
+`dev:mock` runs the frontend in a plain browser with a flag-gated, backend-free
+Tauri mock (`src/devMock/tauriDevMock.ts`). It intercepts the single
+`window.__TAURI_INTERNALS__` seam so the five v2 workspaces (Today, Atlas, Ledger,
+Calendar, Universe) mount and render with coherent sample data. This is a
+**DEV-ONLY visual/design-review harness, not functional acceptance**: only
+load-path reads return data, live events are a no-op, and mutations are not
+simulated. The mock activates **only** under `VITE_DEV_MOCK`; a normal
+`npm run dev` and the real Tauri app never load it. Objective mount coverage
+lives in `src/devMock/tauriDevMock.smoke.test.tsx` (part of `npm test`).
+
 ## First launch
 
 On first launch macOS will prompt for two permissions — grant both:

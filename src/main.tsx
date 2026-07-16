@@ -9,8 +9,21 @@ import { applyTheme, getSystemTheme } from "./design/theme";
 // safe default and matches the OS scheme immediately.
 applyTheme(getSystemTheme());
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+async function bootstrap() {
+  // DEV-ONLY: a flag-gated, backend-free render harness for visual/design
+  // review (`npm run dev:mock`). The import is dynamic and behind this static
+  // guard, so with the flag OFF the mock module is never fetched or executed —
+  // a normal `vite` dev run and the real Tauri app are byte-for-byte unaffected.
+  if (import.meta.env.VITE_DEV_MOCK) {
+    const { installTauriDevMock } = await import("./devMock/tauriDevMock");
+    installTauriDevMock();
+  }
+
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+}
+
+void bootstrap();
