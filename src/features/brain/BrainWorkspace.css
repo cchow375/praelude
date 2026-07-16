@@ -394,6 +394,18 @@
   border-top: 1px solid var(--hairline);
   background: color-mix(in srgb, var(--surface-app) 92%, transparent);
 }
+.brain-conversation-controls { display: flex; justify-content: flex-end; margin-bottom: var(--space-2); }
+.brain-clear-conversation {
+  height: 30px;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--ink-secondary);
+  font-size: var(--text-xs);
+}
+.brain-clear-conversation:hover { color: var(--ink-primary); }
+
 .brain-composer {
   display: grid;
   grid-template-columns: 1fr auto;

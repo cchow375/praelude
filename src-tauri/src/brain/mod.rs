@@ -83,6 +83,11 @@ pub struct BrainAskRequest {
     pub history: Vec<ConversationTurn>,
     #[serde(default)]
     pub context: Option<ClientBrainContext>,
+    // Durable per-piece conversation memory. When present, the successful
+    // question + answer are appended to this thread after the answer is built.
+    // The brain never resolves or mutates practice state through this id.
+    #[serde(default)]
+    pub thread_id: Option<i64>,
     // Legacy/diagnostic shape retained so existing callers and Rust tests do
     // not have to fabricate client display context.
     #[serde(default)]
@@ -1058,6 +1063,7 @@ mod tests {
             source: QuestionSource::Typed,
             history: vec![],
             context: None,
+            thread_id: None,
             piece_id: Some(1),
             region_id: None,
             measure_start: None,

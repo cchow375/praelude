@@ -4,10 +4,12 @@ import { todayLocal } from "../calendar/dates";
 import type {
   BrainAnswer,
   BrainApi,
+  BrainCitation,
   BrainGroundingSummary,
   BrainIntakeReview,
   BrainProvider,
   BrainQuestionSource,
+  BrainTurnRow,
   IntakeChange,
   PracticeBrainContext,
   WakeQuestion,
@@ -45,6 +47,39 @@ const PROVIDER_LABELS: Record<BrainProvider, string> = {
   offline: "Offline library",
 };
 
+function isProvider(value: string | null): value is BrainProvider {
+  return value === "claude" || value === "gemini" || value === "offline";
+}
+
+/** Rebuild displayed exchanges from durable turns (oldest→newest user/assistant
+ *  pairs). Only completed pairs are persisted, so pairing is straightforward. */
+function seedThreadFromTurns(turns: BrainTurnRow[]): ThreadEntry[] {
+  const entries: ThreadEntry[] = [];
+  let pendingQuestion: string | null = null;
+  turns.forEach((turn, index) => {
+    if (turn.role === "user") {
+      pendingQuestion = turn.content;
+    } else if (turn.role === "assistant" && pendingQuestion != null) {
+      const id = `resumed:${index}`;
+      entries.push({
+        id,
+        question: pendingQuestion,
+        source: "typed",
+        answer: {
+          id,
+          answer: turn.content,
+          provider: isProvider(turn.provider) ? turn.provider : "offline",
+          citations: Array.isArray(turn.citations) ? (turn.citations as BrainCitation[]) : [],
+          methods: [],
+          intake_review: null,
+        },
+      });
+      pendingQuestion = null;
+    }
+  });
+  return entries;
+}
+
 export function BrainWorkspace({
   api = brainApi,
   wakeQuestion = null,
@@ -53,6 +88,7 @@ export function BrainWorkspace({
 }: BrainWorkspaceProps) {
   const [draft, setDraft] = useState("");
   const [thread, setThread] = useState<ThreadEntry[]>([]);
+  const [threadId, setThreadId] = useState<number | null>(null);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<WorkSuggestion[]>([]);
@@ -84,6 +120,30 @@ export function BrainWorkspace({
     return () => { planGeneration.current += 1; };
   }, [refreshPlan]);
 
+  // Durable memory: on opening the drawer for a piece, resume (or create) its
+  // thread and seed the displayed history. Switching pieces resets first, so a
+  // late resume can never seed one piece's turns onto another.
+  useEffect(() => {
+    const pieceId = practiceContext?.piece_id ?? null;
+    setThreadId(null);
+    setThread([]);
+    if (pieceId == null) return;
+    let active = true;
+    void api
+      .resumeThread(pieceId)
+      .then((resumed) => {
+        if (!active || !resumed) return;
+        setThreadId(resumed.thread_id);
+        setThread((current) =>
+          current.length === 0 ? seedThreadFromTurns(resumed.turns) : current,
+        );
+      })
+      .catch(() => {
+        // Persistence is best-effort; the drawer still answers without memory.
+      });
+    return () => { active = false; };
+  }, [api, practiceContext?.piece_id]);
+
   const ask = useCallback(async (rawQuestion: string, source: BrainQuestionSource) => {
     const question = rawQuestion.trim();
     if (!question || asking) return;
@@ -94,6 +154,7 @@ export function BrainWorkspace({
         question,
         source,
         piece_id: practiceContext?.piece_id ?? null,
+        thread_id: threadId,
         history: boundedHistory(thread),
         context: practiceContext,
       });
@@ -110,7 +171,25 @@ export function BrainWorkspace({
     } finally {
       setAsking(false);
     }
-  }, [api, asking, practiceContext, thread]);
+  }, [api, asking, practiceContext, thread, threadId]);
+
+  const clearConversation = useCallback(async () => {
+    const pieceId = practiceContext?.piece_id ?? null;
+    setError(null);
+    if (pieceId == null) {
+      setThread([]);
+      setThreadId(null);
+      return;
+    }
+    try {
+      await api.clearThread(pieceId);
+      const resumed = await api.resumeThread(pieceId);
+      setThreadId(resumed?.thread_id ?? null);
+      setThread([]);
+    } catch (cause) {
+      setError(errorMessage(cause, "Could not clear the conversation."));
+    }
+  }, [api, practiceContext?.piece_id]);
 
   useEffect(() => {
     if (!wakeQuestion || asking || handledWakeId.current === wakeQuestion.id) return;
@@ -240,6 +319,18 @@ export function BrainWorkspace({
 
       <div className="brain-composer-wrap">
         {error && <p className="brain-error" role="alert">{error}</p>}
+        {thread.length > 0 && (
+          <div className="brain-conversation-controls">
+            <button
+              type="button"
+              className="brain-clear-conversation"
+              data-testid="brain-clear-conversation"
+              onClick={() => void clearConversation()}
+            >
+              Clear / new conversation
+            </button>
+          </div>
+        )}
         <form className="brain-composer" aria-label="Ask the practice brain" onSubmit={submit}>
           <label htmlFor="brain-question">Ask Coda</label>
           <textarea

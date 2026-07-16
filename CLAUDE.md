@@ -76,9 +76,14 @@ flag); and the five-workspace shell with the earned Universe. Disposable backup 
 disclosed anomalies; the live database was never opened. Later same day: the Composer's receipted
 `session_plan_start` + honest Today mount; the FULL narrated corpus (all four sessions, 1,309
 segments) replaying through production routing with zero false mutations (verbatim fidelity
-machine-checked); and a read-only anomaly disclosure panel in the Ledger. **Corpus finding:** the
-deterministic hot-loop firewall is rock-solid, so the real leverage gap is the Tier B
-natural-language confirm layer (verdicts/tempo/goals/undo/restart — currently only rep-open).
-Next: broaden Tier B, Brain upgrades, live browser QA → full native/adversarial release. v2 is not
+machine-checked); a read-only anomaly disclosure panel in the Ledger; and the Brain answer-quality
+upgrade (one-glance default across Claude+Gemini, durable per-piece memory via the now-wired
+`brain_thread`/`brain_turn` tables, retention/ledger grounding — verified to add NO
+practice-mutation authority: the only new production writes are the Brain's own conversation).
+**Corpus finding:** the deterministic hot-loop firewall is rock-solid, so the real leverage gap is
+conversational voice control — the Brain proposing confirm-gated verdict/tempo/goal/undo/restart
+drafts. **That + the Brain's typed-action tools are deferred to a piano session with Christian**
+(they need his ear on hands-free confirm feel and touch the "LLM never in the hot loop" rule).
+Autonomous next: live browser QA, scalable history → full native/adversarial release. v2 is not
 shipped and the installed app/tutorial remain v1.3.0. Off-disk remote and packaged v2 Steinway
 acceptance remain open.

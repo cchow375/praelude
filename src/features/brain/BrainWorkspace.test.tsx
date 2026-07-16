@@ -74,8 +74,22 @@ function makeApi(answer: BrainAnswer = groundedAnswer): BrainApi {
       },
     ]),
     schedule: vi.fn().mockResolvedValue(undefined),
+    resumeThread: vi.fn().mockResolvedValue({ thread_id: 100, turns: [] }),
+    clearThread: vi.fn().mockResolvedValue(undefined),
   };
 }
+
+const pieceContext = {
+  piece_id: 7,
+  piece_title: "Scherzo No. 2",
+  composer: "Chopin",
+  surface: "details" as const,
+  region: null,
+  current_page: null,
+  edition_id: null,
+  edition_label: null,
+  active_block: null,
+};
 
 afterEach(cleanup);
 
@@ -134,6 +148,7 @@ describe("BrainWorkspace", () => {
       question: "How should I practice the coda leap?",
       source: "typed",
       piece_id: null,
+      thread_id: null,
       history: [],
       context: null,
     });
@@ -152,6 +167,7 @@ describe("BrainWorkspace", () => {
       question: "Why does this leap keep missing?",
       source: "voice",
       piece_id: null,
+      thread_id: null,
       history: [],
       context: null,
     }));
@@ -273,5 +289,55 @@ describe("BrainWorkspace", () => {
       changes: [{ field: "current_state", value: "The coda leap breaks above 96 BPM." }],
     }));
     expect(await screen.findByText("Saved to intake.")).toBeTruthy();
+  });
+
+  it("resumes durable conversation history when opened for a piece", async () => {
+    const api = makeApi();
+    vi.mocked(api.resumeThread).mockResolvedValue({
+      thread_id: 42,
+      turns: [
+        { role: "user", content: "Why does the coda miss?", provider: null, citations: [], created_ts: "t1" },
+        { role: "assistant", content: "Release the wrist before the leap.", provider: "claude", citations: [], created_ts: "t2" },
+      ],
+    });
+    render(<BrainWorkspace api={api} practiceContext={pieceContext} />);
+
+    expect(await screen.findByText("Release the wrist before the leap.")).toBeTruthy();
+    expect(screen.getByText("Why does the coda miss?")).toBeTruthy();
+    await waitFor(() => expect(api.resumeThread).toHaveBeenCalledWith(7));
+    expect(api.ask).not.toHaveBeenCalled();
+  });
+
+  it("passes the resumed thread_id through on each ask", async () => {
+    const api = makeApi();
+    vi.mocked(api.resumeThread).mockResolvedValue({ thread_id: 42, turns: [] });
+    render(<BrainWorkspace api={api} practiceContext={pieceContext} />);
+    await waitFor(() => expect(api.resumeThread).toHaveBeenCalledWith(7));
+
+    fireEvent.change(screen.getByLabelText("Ask Coda"), { target: { value: "How do I fix it?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() =>
+      expect(api.ask).toHaveBeenLastCalledWith(expect.objectContaining({ thread_id: 42 })),
+    );
+  });
+
+  it("clears the conversation and starts a fresh empty thread", async () => {
+    const api = makeApi();
+    vi.mocked(api.resumeThread)
+      .mockResolvedValueOnce({
+        thread_id: 42,
+        turns: [
+          { role: "user", content: "Old question", provider: null, citations: [], created_ts: "t1" },
+          { role: "assistant", content: "Old answer stays until cleared.", provider: "offline", citations: [], created_ts: "t2" },
+        ],
+      })
+      .mockResolvedValue({ thread_id: 43, turns: [] });
+    render(<BrainWorkspace api={api} practiceContext={pieceContext} />);
+
+    expect(await screen.findByText("Old answer stays until cleared.")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("brain-clear-conversation"));
+
+    await waitFor(() => expect(api.clearThread).toHaveBeenCalledWith(7));
+    await waitFor(() => expect(screen.queryByText("Old answer stays until cleared.")).toBeNull());
   });
 });

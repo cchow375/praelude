@@ -3,11 +3,11 @@
 //! their own section below (`region`/`block`/`rep`/`goal`/`piece_field`), all
 //! sharing the `#[cfg(test)] mod tests` seed helpers at the bottom.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use super::model::{
-    json_to_sql, BlockPatch, Goal, GoalCreate, GoalPatch, PieceFieldPatch, Region, RegionCreate,
-    RegionPatch, RepPatch,
+    json_to_sql, BlockPatch, BrainThreadResume, BrainTurnRow, Goal, GoalCreate, GoalPatch,
+    PieceFieldPatch, RecoveryActionRow, Region, RegionCreate, RegionPatch, RepPatch,
 };
 use super::{EventKind, Store};
 use crate::ledger::MutationSource;
@@ -2052,5 +2052,291 @@ mod piece_field {
         let goals = s.goal_list(1).unwrap();
         assert_eq!(goals[0].target_date.as_deref(), Some("2026-09-01"));
         assert_eq!(goals[1].target_date.as_deref(), Some("2026-07-20"));
+    }
+}
+
+// ── Brain conversation memory + read-only grounding accessors ───────────────
+//
+// Durable per-piece Brain memory (resume/append/clear) and the read-only
+// retention/recovery reads the context builder grounds answers in. These paths
+// persist ONLY the Brain's own conversation; they never mutate practice state.
+
+/// Maximum recent turns loaded when a Brain thread resumes. Bounds relaunch
+/// memory and the history that can re-enter a later provider call.
+pub const MAX_THREAD_TURNS_LOADED: usize = 20;
+
+impl Store {
+    /// Resume the most-recent non-cleared Brain thread for a piece, creating one
+    /// if none exists, and return its last [`MAX_THREAD_TURNS_LOADED`] turns in
+    /// chronological order. Never deletes: a cleared thread is simply skipped so
+    /// the next resume starts fresh while old turns stay in the table.
+    pub fn brain_thread_resume(&self, piece_id: i64) -> rusqlite::Result<BrainThreadResume> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let existing: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM brain_thread
+                 WHERE piece_id = ?1 AND cleared_ts IS NULL
+                 ORDER BY updated_ts DESC, id DESC LIMIT 1",
+                [piece_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let thread_id = match existing {
+            Some(id) => id,
+            None => conn.query_row(
+                "INSERT INTO brain_thread (piece_id) VALUES (?1) RETURNING id",
+                [piece_id],
+                |row| row.get(0),
+            )?,
+        };
+        let turns = Self::brain_turns_recent(&conn, thread_id, MAX_THREAD_TURNS_LOADED)?;
+        Ok(BrainThreadResume { thread_id, turns })
+    }
+
+    fn brain_turns_recent(
+        conn: &Connection,
+        thread_id: i64,
+        limit: usize,
+    ) -> rusqlite::Result<Vec<BrainTurnRow>> {
+        // Read the newest `limit` rows, then restore chronological order so the
+        // drawer and any re-sent history read oldest→newest.
+        let mut stmt = conn.prepare(
+            "SELECT role, content, provider, citations_json, created_ts
+             FROM brain_turn WHERE thread_id = ?1
+             ORDER BY id DESC LIMIT ?2",
+        )?;
+        let mut rows = stmt
+            .query_map(rusqlite::params![thread_id, limit as i64], |row| {
+                let citations: String = row.get(3)?;
+                Ok(BrainTurnRow {
+                    role: row.get(0)?,
+                    content: row.get(1)?,
+                    provider: row.get(2)?,
+                    citations: serde_json::from_str(&citations)
+                        .unwrap_or_else(|_| serde_json::json!([])),
+                    created_ts: row.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.reverse();
+        Ok(rows)
+    }
+
+    /// Append one completed turn to a thread and bump the thread's `updated_ts`
+    /// so resume ordering follows real activity. Content is bounded to the
+    /// schema ceiling. Only real, completed exchanges are ever appended.
+    pub fn brain_turn_append(
+        &self,
+        thread_id: i64,
+        role: &str,
+        content: &str,
+        provider: Option<&str>,
+        citations_json: &str,
+    ) -> rusqlite::Result<i64> {
+        let content: String = content.chars().take(24_000).collect();
+        if content.trim().is_empty() || !matches!(role, "user" | "assistant") {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        let id: i64 = tx.query_row(
+            "INSERT INTO brain_turn (thread_id, role, content, provider, citations_json)
+             VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id",
+            rusqlite::params![thread_id, role, content, provider, citations_json],
+            |row| row.get(0),
+        )?;
+        tx.execute(
+            "UPDATE brain_thread SET updated_ts = datetime('now') WHERE id = ?1",
+            [thread_id],
+        )?;
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// "Clear / new conversation": mark every active thread for a piece cleared
+    /// so the next resume starts a fresh, empty thread. Turns are preserved.
+    pub fn brain_thread_clear(&self, piece_id: i64) -> rusqlite::Result<()> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.execute(
+            "UPDATE brain_thread SET cleared_ts = datetime('now')
+             WHERE piece_id = ?1 AND cleared_ts IS NULL",
+            [piece_id],
+        )?;
+        Ok(())
+    }
+
+    /// Read-only: the most recent recovery actions for a piece, newest first,
+    /// capped at `limit`. Joins set→piece and performs NO writes.
+    pub fn recovery_actions_for_piece(
+        &self,
+        piece_id: i64,
+        limit: usize,
+    ) -> rusqlite::Result<Vec<RecoveryActionRow>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT pra.kind, pra.rationale, pra.created_ts, b.m_start, b.m_end, b.region_id
+             FROM practice_recovery_action pra
+             JOIN rep_block b ON b.id = pra.set_id
+             WHERE b.piece_id = ?1
+             ORDER BY pra.id DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![piece_id, limit as i64], |row| {
+            Ok(RecoveryActionRow {
+                kind: row.get(0)?,
+                rationale: row.get(1)?,
+                created_ts: row.get(2)?,
+                m_start: row.get(3)?,
+                m_end: row.get(4)?,
+                region_id: row.get(5)?,
+            })
+        })?;
+        rows.collect()
+    }
+}
+
+#[cfg(test)]
+impl Store {
+    /// Test-only: seed a due retention check for a region via raw SQL, so
+    /// grounding tests can exercise the read path without the full rep engine.
+    pub(crate) fn test_seed_retention_check(
+        &self,
+        region_id: i64,
+        due_date: &str,
+        condition_json: &str,
+    ) {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.execute(
+            "INSERT INTO retention_check (region_id, due_date, original_due_date, condition_json)
+             VALUES (?1, ?2, ?2, ?3)",
+            rusqlite::params![region_id, due_date, condition_json],
+        )
+        .unwrap();
+    }
+
+    /// Test-only: seed a recovery action for a set via raw SQL, minting the
+    /// required `practice_operation` row. `uniq` keeps unique keys distinct.
+    pub(crate) fn test_seed_recovery_action(
+        &self,
+        set_id: i64,
+        kind: &str,
+        rationale: &str,
+        uniq: i64,
+    ) {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let op_id: i64 = conn
+            .query_row(
+                "INSERT INTO practice_operation
+                 (receipt_id, command_id, operation_kind, request_fingerprint,
+                  set_id, source, summary, value_json, committed_ts)
+                 VALUES (?1, ?2, 'recover', ?1, ?3, 'user_click', 'test recovery',
+                  '{}', datetime('now'))
+                 RETURNING id",
+                rusqlite::params![format!("receipt-{uniq}"), format!("cmd-{uniq}"), set_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        conn.execute(
+            "INSERT INTO practice_recovery_action
+             (set_id, kind, rationale, source, operation_id, created_ts)
+             VALUES (?1, ?2, ?3, 'user_click', ?4, datetime('now'))",
+            rusqlite::params![set_id, kind, rationale, op_id],
+        )
+        .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod brain_memory {
+    use super::test_support::seed_piece;
+    use super::*;
+    use crate::store::Store;
+
+    fn count_turns(store: &Store) -> i64 {
+        let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row("SELECT count(*) FROM brain_turn", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn append_then_resume_returns_turns_in_order() {
+        let store = Store::open(":memory:").unwrap();
+        seed_piece(&store, 1);
+        let resumed = store.brain_thread_resume(1).unwrap();
+        assert!(resumed.turns.is_empty(), "a fresh thread has no turns");
+        let thread_id = resumed.thread_id;
+
+        store
+            .brain_turn_append(thread_id, "user", "Why does the leap miss?", None, "[]")
+            .unwrap();
+        store
+            .brain_turn_append(
+                thread_id,
+                "assistant",
+                "Release the wrist before the arrival.",
+                Some("claude"),
+                r#"[{"source_id":"source-1"}]"#,
+            )
+            .unwrap();
+
+        let again = store.brain_thread_resume(1).unwrap();
+        assert_eq!(again.thread_id, thread_id, "resume rejoins the same thread");
+        assert_eq!(again.turns.len(), 2);
+        assert_eq!(again.turns[0].role, "user");
+        assert_eq!(again.turns[0].content, "Why does the leap miss?");
+        assert_eq!(again.turns[1].role, "assistant");
+        assert_eq!(again.turns[1].provider.as_deref(), Some("claude"));
+        assert_eq!(again.turns[1].citations[0]["source_id"], "source-1");
+    }
+
+    #[test]
+    fn resume_is_bounded_to_the_load_cap() {
+        let store = Store::open(":memory:").unwrap();
+        seed_piece(&store, 1);
+        let thread_id = store.brain_thread_resume(1).unwrap().thread_id;
+        for index in 0..(MAX_THREAD_TURNS_LOADED + 5) {
+            store
+                .brain_turn_append(thread_id, "user", &format!("q{index}"), None, "[]")
+                .unwrap();
+        }
+        let resumed = store.brain_thread_resume(1).unwrap();
+        assert_eq!(resumed.turns.len(), MAX_THREAD_TURNS_LOADED);
+        // The cap keeps the newest turns: the last appended question survives.
+        let last = format!("q{}", MAX_THREAD_TURNS_LOADED + 4);
+        assert_eq!(resumed.turns.last().unwrap().content, last);
+    }
+
+    #[test]
+    fn clear_starts_a_fresh_thread_without_deleting_turns() {
+        let store = Store::open(":memory:").unwrap();
+        seed_piece(&store, 1);
+        let first = store.brain_thread_resume(1).unwrap().thread_id;
+        store
+            .brain_turn_append(first, "user", "old question", None, "[]")
+            .unwrap();
+
+        store.brain_thread_clear(1).unwrap();
+        let fresh = store.brain_thread_resume(1).unwrap();
+        assert_ne!(fresh.thread_id, first, "clear forces a brand-new thread");
+        assert!(fresh.turns.is_empty(), "the fresh thread starts empty");
+        // The cleared thread's turn is preserved in the table, never deleted.
+        assert_eq!(count_turns(&store), 1);
+    }
+
+    #[test]
+    fn threads_are_isolated_per_piece() {
+        let store = Store::open(":memory:").unwrap();
+        seed_piece(&store, 1);
+        seed_piece(&store, 2);
+        let thread_one = store.brain_thread_resume(1).unwrap().thread_id;
+        store
+            .brain_turn_append(thread_one, "user", "piece one only", None, "[]")
+            .unwrap();
+
+        let piece_two = store.brain_thread_resume(2).unwrap();
+        assert_ne!(piece_two.thread_id, thread_one);
+        assert!(
+            piece_two.turns.is_empty(),
+            "piece 2 never sees piece 1's turns"
+        );
     }
 }

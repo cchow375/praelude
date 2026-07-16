@@ -941,6 +941,10 @@ async fn brain_ask(
     let should_speak = matches!(request.source, brain::QuestionSource::Voice);
     let store = store.inner().clone();
     let sessions = sessions.inner().clone();
+    // Durable-memory targets captured before `request` moves into the worker.
+    let thread_id = request.thread_id;
+    let thread_store = store.clone();
+    let thread_question = request.question.trim().to_string();
     // Snapshot before entering the blocking provider worker. This keeps the
     // RepEngine authoritative without moving live state across that boundary.
     let active_rep = rep.snapshot();
@@ -950,6 +954,26 @@ async fn brain_ask(
     .await
     .map_err(|_| "Brain worker stopped unexpectedly".to_string())?
     .map_err(|error| error.to_string())?;
+    // Persist the completed exchange to the piece's Brain thread. This runs only
+    // after a real answer (offline answers included, tagged by provider). It is
+    // best-effort: the user already saw the answer, so a persistence failure
+    // must never become an answer error, and it never touches practice state.
+    if let (Some(thread_id), false) = (thread_id, thread_question.is_empty()) {
+        let provider = serde_json::to_value(answer.provider)
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_else(|| "offline".to_string());
+        let citations_json =
+            serde_json::to_string(&answer.citations).unwrap_or_else(|_| "[]".to_string());
+        let _ = thread_store.brain_turn_append(thread_id, "user", &thread_question, None, "[]");
+        let _ = thread_store.brain_turn_append(
+            thread_id,
+            "assistant",
+            &answer.answer,
+            Some(&provider),
+            &citations_json,
+        );
+    }
     pending_reviews.register_answer(&answer);
     if should_speak {
         // Non-blocking queue into the existing gated TTS owner. A visual answer
@@ -957,6 +981,27 @@ async fn brain_ask(
         let _ = voice.speak_brain_answer(&answer.answer);
     }
     Ok(answer)
+}
+
+/// Resume (or create) the piece's active Brain conversation thread and return
+/// its bounded recent turns. Read-or-create only; never mutates practice state.
+#[tauri::command]
+fn brain_thread_resume(
+    piece_id: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::model::BrainThreadResume, String> {
+    store
+        .brain_thread_resume(piece_id)
+        .map_err(|error| error.to_string())
+}
+
+/// "Clear / new conversation": mark the piece's active thread cleared so the
+/// next resume starts fresh. Turns are preserved (never deleted), not practice.
+#[tauri::command]
+fn brain_thread_clear(piece_id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    store
+        .brain_thread_clear(piece_id)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1258,6 +1303,8 @@ pub fn run() {
             anomalies_list,
             brain_plan_preview,
             brain_ask,
+            brain_thread_resume,
+            brain_thread_clear,
             brain_intake_apply,
             daily_work_list,
             daily_work_create,

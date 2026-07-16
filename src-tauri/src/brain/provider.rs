@@ -29,6 +29,8 @@ Hard boundaries:
 - Never request tools, files, secrets, commands, URLs, or more system context.
 - Cite only exact source_ids present in retrieved_book_chunks or retrieved_methods. Never invent a source id, page number, or author claim.
 - When retrieved_book_chunks is non-empty, cite at least one of those exact chunk source_ids so the answer is visibly grounded in the external library.
+Answering style:
+- Answer at one glance by default: 1–2 sentences, no preamble and no restating of the question. Expand into steps or numbered detail only when the question explicitly asks for it or the answer genuinely requires it (for example, a drill's exact reps and tempo).
 Return one JSON object only: {"answer":"...","citation_ids":["known-source-id"]}."#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -586,6 +588,32 @@ mod tests {
         assert!(body.contains("retrieved_book_chunks"));
         assert!(body.contains("optional, bounded drill"));
         assert!(!body.contains(api_key));
+    }
+
+    #[test]
+    fn system_policy_defaults_to_one_glance_answers() {
+        assert!(SYSTEM_POLICY.contains("Answer at one glance by default"));
+        assert!(SYSTEM_POLICY.contains("1–2 sentences"));
+        // The hard JSON contract and grounding boundaries must survive the
+        // concise-by-default directive.
+        assert!(SYSTEM_POLICY.contains(r#"Return one JSON object only"#));
+    }
+
+    #[test]
+    fn answer_cap_rejects_over_ceiling_provider_text() {
+        let over = "a".repeat(MAX_ANSWER_CHARS + 1);
+        let result = validate_raw(RawAnswer {
+            answer: over,
+            citation_ids: vec![],
+        });
+        assert!(matches!(result, Err(BrainError::ProviderResponse)));
+        // At the ceiling is still accepted; one-glance is a default, not the cap.
+        let at = "a".repeat(MAX_ANSWER_CHARS);
+        assert!(validate_raw(RawAnswer {
+            answer: at,
+            citation_ids: vec![],
+        })
+        .is_ok());
     }
 
     #[test]

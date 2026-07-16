@@ -1556,6 +1556,35 @@ impl Store {
             .collect()
     }
 
+    /// Read-only: retention checks that are due or snoozed for ONE piece as of a
+    /// date. Mirrors [`retention_due`] but scopes by joining region→piece; used
+    /// to ground Brain answers. Performs no writes.
+    pub fn retention_due_for_piece(
+        &self,
+        piece_id: i64,
+        as_of_date: &str,
+    ) -> rusqlite::Result<Vec<RetentionCheckView>> {
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        validate_date(&conn, as_of_date)?;
+        let mut stmt = conn.prepare(
+            "SELECT rc.id FROM retention_check rc
+             JOIN region r ON r.id = rc.region_id
+             WHERE r.piece_id = ?1 AND rc.state IN ('due','snoozed') AND rc.due_date <= ?2
+             ORDER BY rc.due_date, rc.id",
+        )?;
+        let ids = stmt
+            .query_map(rusqlite::params![piece_id, as_of_date], |row| {
+                row.get::<_, i64>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter()
+            .map(|id| retention_view(&conn, id))
+            .collect()
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn v2_retention_transition(
         &self,

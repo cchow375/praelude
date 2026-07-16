@@ -484,6 +484,39 @@ pub struct RetentionCheckView {
     pub updated_ts: String,
 }
 
+/// One persisted Brain conversation turn, loaded when a thread resumes.
+/// `citations` is the parsed `citations_json` column; the frontend renders it
+/// directly. Turns are always returned oldest→newest.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrainTurnRow {
+    pub role: String,
+    pub content: String,
+    pub provider: Option<String>,
+    pub citations: serde_json::Value,
+    pub created_ts: String,
+}
+
+/// The active (most-recent non-cleared) Brain thread for a piece plus its
+/// bounded recent turns. Returned by the resume-or-create accessor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrainThreadResume {
+    pub thread_id: i64,
+    pub turns: Vec<BrainTurnRow>,
+}
+
+/// Read-only summary of one recent recovery action, for Brain grounding only.
+/// Carries no internal set/attempt ids; `m_start`/`m_end` locate the set and
+/// `region_id` is resolved to a name by the context builder, never serialized.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecoveryActionRow {
+    pub kind: String,
+    pub rationale: String,
+    pub created_ts: String,
+    pub m_start: u32,
+    pub m_end: u32,
+    pub region_id: Option<i64>,
+}
+
 /// The full live state of the active rep block. Emitted as `rep://state`,
 /// returned by `rep_open`/`rep_state`, and carried inside a [`CheckOutcome`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

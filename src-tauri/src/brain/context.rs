@@ -7,7 +7,7 @@ use super::corpus::CorpusSearch;
 use super::score_context;
 use super::{BrainError, ClientBrainContext, ConversationTurn, MethodCard};
 use crate::sessions::SessionService;
-use crate::store::model::{Region, RepSnapshot};
+use crate::store::model::{RecoveryActionRow, Region, RepSnapshot, RetentionCheckView};
 use crate::store::Store;
 
 const MAX_TEXT_CHARS: usize = 500;
@@ -16,6 +16,8 @@ const MAX_GOALS: usize = 16;
 const MAX_BLOCKS: usize = 12;
 const MAX_RECENT_REPS: usize = 16;
 const MAX_SESSION_EVENTS: usize = 12;
+const MAX_RETENTION_CHECKS: usize = 8;
+const MAX_RECOVERY_ACTIONS: usize = 8;
 pub(super) const MAX_CONTEXT_BYTES: usize = 64_000;
 
 /// Visible, path-free record of which native evidence was available for an
@@ -159,6 +161,21 @@ pub(super) fn build(
         .as_ref()
         .and_then(|piece| crate::planner::preview_for_piece(store, piece.id).ok())
         .unwrap_or_default();
+    // Read-only retention + recovery grounding. Both are best-effort: a failed
+    // read simply omits the section rather than failing the whole answer.
+    let today = store.local_today().unwrap_or_default();
+    let retention_due: Vec<RetentionCheckView> = piece
+        .as_ref()
+        .and_then(|piece| store.retention_due_for_piece(piece.id, &today).ok())
+        .unwrap_or_default();
+    let recovery_actions: Vec<RecoveryActionRow> = piece
+        .as_ref()
+        .and_then(|piece| {
+            store
+                .recovery_actions_for_piece(piece.id, MAX_RECOVERY_ACTIONS)
+                .ok()
+        })
+        .unwrap_or_default();
     let authoritative_active = active_rep.filter(|snapshot| {
         piece
             .as_ref()
@@ -268,6 +285,37 @@ pub(super) fn build(
             "score": item.score,
             "reasons": item.reasons.iter().map(|reason| cap(reason)).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
+        // Spaced-retention checks the pianist owes on this piece. Region name +
+        // measures locate each check; internal ids stay out of provider context.
+        "retention_checks_due": retention_due.iter().take(MAX_RETENTION_CHECKS).map(|check| {
+            let region = regions.iter().find(|region| region.id == check.region_id);
+            json!({
+                "region": region.map(|region| cap(&region.name)),
+                "measures": region
+                    .map(|region| [region.m_start, region.m_end])
+                    .or_else(|| check.condition.m_start.zip(check.condition.m_end).map(|(start, end)| [start, end])),
+                "due_date": cap(&check.due_date),
+                "state": cap(&check.state),
+                "condition": json!({
+                    "bpm": check.condition.bpm,
+                    "hands": check.condition.hands.as_deref().map(cap),
+                    "method": check.condition.method.as_deref().map(cap),
+                    "required_clean_streak": check.condition.required_clean_streak,
+                }),
+            })
+        }).collect::<Vec<_>>(),
+        // Recent recovery ledger (resets, tempo backoffs, method changes) so the
+        // Brain can reason about how the pianist has been recovering this piece.
+        "recent_recovery_actions": recovery_actions.iter().take(MAX_RECOVERY_ACTIONS).map(|action| {
+            let region = action.region_id.and_then(|id| regions.iter().find(|region| region.id == id));
+            json!({
+                "kind": cap(&action.kind),
+                "rationale": cap(&action.rationale),
+                "when": cap(&action.created_ts),
+                "measures": [action.m_start, action.m_end],
+                "region": region.map(|region| cap(&region.name)),
+            })
+        }).collect::<Vec<_>>(),
         "musicxml_score_facts": &score,
         "retrieved_book_chunks": corpus.hits.iter().filter(|_| share_retrieved_knowledge).map(|hit| json!({
             "source_id": hit.id,
@@ -485,6 +533,170 @@ mod tests {
             0
         );
         assert_eq!(grounding.recent_rep_count, 0);
+    }
+
+    fn piece_with_region(store: &Store) -> (i64, i64) {
+        let piece_id = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/vault/Retention Piece".into(),
+                title: "Retention Piece".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+        let region = store
+            .region_create(RegionCreate {
+                piece_id,
+                name: "Coda leap".into(),
+                notes: None,
+                m_start: 40,
+                m_end: 48,
+                kind: "hard_spot".into(),
+            })
+            .unwrap();
+        (piece_id, region.id)
+    }
+
+    #[test]
+    fn retention_and_recovery_context_appear_when_present() {
+        let store = Arc::new(Store::open(":memory:").unwrap());
+        let (piece_id, region_id) = piece_with_region(&store);
+        store.test_seed_retention_check(
+            region_id,
+            "2020-01-01",
+            r#"{"bpm":92,"required_clean_streak":3,"hands":"together"}"#,
+        );
+        let block = store
+            .insert_rep_block(
+                piece_id,
+                40,
+                48,
+                None,
+                Some(80.0),
+                None,
+                &IncrementRule {
+                    clean_needed: 3,
+                    bpm_step: 4.0,
+                },
+                10,
+                &[],
+                "tempo",
+                true,
+            )
+            .unwrap();
+        store.test_seed_recovery_action(block, "tempo_backoff", "Missed above 92, backed off.", 1);
+
+        let sessions = SessionService::new(store.clone());
+        let (context, _) = build(
+            &store,
+            &sessions,
+            Some(piece_id),
+            None,
+            None,
+            None,
+            &[],
+            &empty_corpus(),
+            false,
+            &[],
+            None,
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(context.as_json()).unwrap();
+        let retention = value["retention_checks_due"].as_array().unwrap();
+        assert_eq!(retention.len(), 1);
+        assert_eq!(retention[0]["region"], "Coda leap");
+        assert_eq!(retention[0]["measures"], serde_json::json!([40, 48]));
+        assert_eq!(retention[0]["due_date"], "2020-01-01");
+        assert_eq!(retention[0]["condition"]["bpm"], 92.0);
+        let recovery = value["recent_recovery_actions"].as_array().unwrap();
+        assert_eq!(recovery.len(), 1);
+        assert_eq!(recovery[0]["kind"], "tempo_backoff");
+        assert_eq!(recovery[0]["rationale"], "Missed above 92, backed off.");
+        assert_eq!(recovery[0]["measures"], serde_json::json!([40, 48]));
+    }
+
+    #[test]
+    fn retention_and_recovery_are_capped_and_within_budget() {
+        let store = Arc::new(Store::open(":memory:").unwrap());
+        let (piece_id, region_id) = piece_with_region(&store);
+        for _ in 0..(MAX_RETENTION_CHECKS + 4) {
+            store.test_seed_retention_check(region_id, "2020-01-01", "{}");
+        }
+        for index in 0..(MAX_RECOVERY_ACTIONS as i64 + 4) {
+            let block = store
+                .insert_rep_block(
+                    piece_id,
+                    40,
+                    48,
+                    None,
+                    Some(80.0),
+                    None,
+                    &IncrementRule {
+                        clean_needed: 3,
+                        bpm_step: 4.0,
+                    },
+                    10,
+                    &[],
+                    "tempo",
+                    true,
+                )
+                .unwrap();
+            store.test_seed_recovery_action(block, "reset_streak", "Reset after a slip.", index);
+        }
+
+        let sessions = SessionService::new(store.clone());
+        let (context, _) = build(
+            &store,
+            &sessions,
+            Some(piece_id),
+            None,
+            None,
+            None,
+            &[],
+            &empty_corpus(),
+            false,
+            &[],
+            None,
+        )
+        .unwrap();
+        assert!(context.as_json().len() <= MAX_CONTEXT_BYTES);
+        let value: serde_json::Value = serde_json::from_str(context.as_json()).unwrap();
+        assert_eq!(
+            value["retention_checks_due"].as_array().unwrap().len(),
+            MAX_RETENTION_CHECKS
+        );
+        assert_eq!(
+            value["recent_recovery_actions"].as_array().unwrap().len(),
+            MAX_RECOVERY_ACTIONS
+        );
+    }
+
+    #[test]
+    fn retention_and_recovery_absent_when_none() {
+        let store = Arc::new(Store::open(":memory:").unwrap());
+        let (piece_id, _) = piece_with_region(&store);
+        let sessions = SessionService::new(store.clone());
+        let (context, _) = build(
+            &store,
+            &sessions,
+            Some(piece_id),
+            None,
+            None,
+            None,
+            &[],
+            &empty_corpus(),
+            false,
+            &[],
+            None,
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(context.as_json()).unwrap();
+        assert!(value["retention_checks_due"].as_array().unwrap().is_empty());
+        assert!(value["recent_recovery_actions"]
+            .as_array()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

@@ -5,6 +5,7 @@ import type {
   BrainAskRequest,
   BrainIntakeApplyRequest,
   BrainIntakeApplyResult,
+  BrainThreadResume,
   PlannerScheduleRequest,
   WorkSuggestion,
 } from "./types";
@@ -17,6 +18,10 @@ export const brainApi: BrainApi = {
     invoke<BrainIntakeApplyResult>("brain_intake_apply", { request }),
   planPreview: (pieceId: number | null) =>
     invoke<WorkSuggestion[]>("brain_plan_preview", { pieceId }),
+  resumeThread: (pieceId: number) =>
+    invoke<BrainThreadResume>("brain_thread_resume", { pieceId }),
+  clearThread: (pieceId: number) =>
+    invoke<void>("brain_thread_clear", { pieceId }).then(() => undefined),
   schedule: (request: PlannerScheduleRequest) =>
     invoke("daily_work_create", {
       args: {

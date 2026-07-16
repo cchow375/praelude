@@ -60,6 +60,8 @@ export interface BrainAskRequest {
   source: BrainQuestionSource;
   /** Kept explicit for the current backend context resolver. */
   piece_id: number | null;
+  /** Durable per-piece thread to append this exchange to, or null. */
+  thread_id: number | null;
   /** Bounded prior dialogue. The backend must not rely on client-only state. */
   history: BrainConversationTurn[];
   /** Exact visible practice state, or null when no piece is active in the UI. */
@@ -69,6 +71,21 @@ export interface BrainAskRequest {
 export interface BrainConversationTurn {
   role: "user" | "assistant";
   content: string;
+}
+
+/** One durable turn loaded when a piece's Brain thread resumes on open. */
+export interface BrainTurnRow {
+  role: "user" | "assistant";
+  content: string;
+  provider: BrainProvider | null;
+  citations: BrainCitation[];
+  created_ts: string;
+}
+
+/** The active thread for a piece plus its bounded recent turns. */
+export interface BrainThreadResume {
+  thread_id: number;
+  turns: BrainTurnRow[];
 }
 
 export interface PracticeBrainRegionContext {
@@ -147,6 +164,10 @@ export interface BrainApi {
   applyIntakeReview: (request: BrainIntakeApplyRequest) => Promise<BrainIntakeApplyResult>;
   planPreview: (pieceId: number | null) => Promise<WorkSuggestion[]>;
   schedule: (request: PlannerScheduleRequest) => Promise<void>;
+  /** Resume (or create) the piece's active durable Brain thread. */
+  resumeThread: (pieceId: number) => Promise<BrainThreadResume>;
+  /** Clear the piece's active thread so the next resume starts fresh. */
+  clearThread: (pieceId: number) => Promise<void>;
 }
 
 export interface WakeQuestion {

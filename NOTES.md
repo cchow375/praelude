@@ -2,6 +2,50 @@
 
 ## Decisions
 
+- **P7 Brain answer-quality checkpoint + the Tier B deferral decision (2026-07-16, Opus takeover):**
+  - **The corpus reframed the voice roadmap.** Scouting the Tier B slice against the 1,309-segment
+    corpus surfaced that Tier A (deterministic hot-loop) ALREADY handles verdicts/undo/restart/
+    tempo in command grammar; the real gap is CONVERSATIONAL phrasing ("forget the last one" vs
+    "undo last rep"). The contract's answer for conversational intent is Brain-proposed typed
+    drafts the user confirms (Tier B/C) — NOT more regex (regex overfits; the corpus proves
+    conversational speech is unboundedly varied). Building regex for the 5 escalated corpus
+    moments would be overfitting. **DECISION: the conversational voice-mutation draft/confirm
+    FEEL is deferred to a piano session with Christian** — tests prove the firewall never
+    false-fires but fundamentally cannot tell whether a confirm card mid-practice helps or annoys;
+    only his ear at the Steinway can, and it touches the "LLM never in the hot loop" golden rule.
+    The Brain's typed action tools fold into the same deferred surface. See [[codakiller-v2-app]].
+  - **What WAS safe to build (this checkpoint, B26 answer-quality — no practice mutation):**
+    - One-glance output: one edit to the shared `SYSTEM_POLICY` (brain/provider.rs:31-34) — 1–2
+      sentence default, expand only when asked — covering both Claude (:338) and Gemini (:356) in
+      one place. `MAX_ANSWER_CHARS=4000` stays the ceiling; one-glance is the default.
+    - Durable per-piece memory: wired the previously-dead `brain_thread`/`brain_turn` v8 tables.
+      CRUD in store/crud.rs (resume-or-create most-recent non-cleared thread, append turn, bounded
+      load `MAX_THREAD_TURNS_LOADED=20`); commands `brain_thread_resume`/`brain_thread_clear`;
+      `brain_ask` gained optional `thread_id` and appends the user+assistant turns after a
+      successful answer (offline answers persist too, tagged `provider="offline"`; append is
+      best-effort `let _=` so a persistence failure never becomes an answer error). Clear sets
+      `cleared_ts` — never DELETE (turns preserved). Frontend BrainWorkspace resumes on piece
+      open with a piece-switch-safe guard + one "Clear / new conversation" control; no
+      thread-switcher UI (follow-up).
+    - Retention + ledger grounding: read-only `retention_due_for_piece` (practice_loop.rs, SELECT)
+      + `recovery_actions_for_piece` (crud.rs, SELECT) inject `retention_checks_due` +
+      `recent_recovery_actions` into context.rs, capped `MAX_RETENTION_CHECKS/RECOVERY_ACTIONS=8`
+      under the existing 64k budget. Region NAME + measures exposed, NO raw DB ids leaked.
+  - **The practice-mutation boundary held — independently verified by the orchestrator, not just
+    the executor's self-check.** A diff-wide grep for INSERT/UPDATE/DELETE showed the ONLY
+    production writes added are `brain_thread`/`brain_turn` (the Brain's own conversation); the
+    three practice-table INSERTs the diff added (retention_check/practice_operation/
+    practice_recovery_action) are ALL inside a `#[cfg(test)] impl Store` block (crud.rs:2197) —
+    test seed helpers, compiled out of production (same pattern as the anomaly slice's
+    `exec_for_test`). practice_loop.rs added only a read-only SELECT. **Method note for future
+    checkpoints: grep the diff's added write-SQL yourself; a whole-file grep conflates
+    pre-existing production writes with new test-only seeds — disambiguate with per-file `git
+    diff --numstat` + the `@@` hunk headers.**
+  - **Gates:** cargo lib 458/0/10 ignored (+9), strict clippy --all-targets clean; vitest 599
+    (+3); build green. Independent adversarial verifier targeted the correctness edges (frontend
+    piece-switch race, offline/failed-append integrity, memory bounding/isolation, clear
+    semantics, context caps/no-id-leak).
+
 - **P7 anomaly disclosure UI + FULL narrated corpus (1,309 segments) checkpoint (2026-07-16):**
   - **The complete narrated corpus now replays deterministically — 1,309/1,309 segments, zero
     false mutations.** All four real Whisper-transcribed sessions are stateful replay fixtures
