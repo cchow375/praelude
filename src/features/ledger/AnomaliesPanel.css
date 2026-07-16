@@ -1,0 +1,131 @@
+.anomalies-panel {
+  max-width: 82rem;
+  margin: clamp(2rem, 5vw, 3.5rem) auto 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+
+.anomalies-panel > summary {
+  display: grid;
+  grid-template-columns: 14px auto 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  list-style: none;
+}
+.anomalies-panel > summary::-webkit-details-marker { display: none; }
+.anomalies-panel > summary:hover { background: var(--surface-hover); }
+
+.anomalies-summary-title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+}
+.anomalies-summary-meta {
+  justify-self: end;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-tertiary);
+}
+
+.anomalies-chevron::before { content: "▸"; color: var(--ink-tertiary); }
+.anomalies-panel[open] > summary .anomalies-chevron::before,
+.anomalies-group[open] > summary .anomalies-chevron::before { content: "▾"; }
+
+.anomalies-body {
+  padding: 0 var(--space-4) var(--space-4);
+  border-top: 1px solid var(--hairline);
+}
+
+.anomalies-preamble {
+  max-width: 46rem;
+  margin: var(--space-3) 0 var(--space-4);
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.anomalies-empty {
+  padding: var(--space-5) 0;
+  color: var(--ink-tertiary);
+  text-align: center;
+}
+.anomalies-error {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  color: var(--danger);
+  border-left: 4px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface-raised));
+}
+
+.anomalies-groups { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.anomalies-group {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-app);
+  overflow: hidden;
+}
+.anomalies-group > summary {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  list-style: none;
+}
+.anomalies-group > summary::-webkit-details-marker { display: none; }
+.anomalies-group > summary:hover { background: var(--surface-hover); }
+.anomalies-group-title { min-width: 0; font-family: var(--font-display); font-size: var(--text-base); }
+
+.anomalies-badge {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill, 999px);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.anomalies-badge-error { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.anomalies-badge-warning { color: var(--warning); background: color-mix(in srgb, var(--warning) 16%, transparent); }
+.anomalies-badge-info { color: var(--info); background: color-mix(in srgb, var(--info) 16%, transparent); }
+
+.anomalies-group-count {
+  min-width: 2rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ink-secondary);
+}
+
+.anomalies-group-body { padding: var(--space-3) var(--space-4) var(--space-4); border-top: 1px solid var(--hairline); }
+.anomalies-what, .anomalies-why { margin: 0 0 var(--space-2); max-width: 48rem; font-size: var(--text-sm); line-height: 1.55; color: var(--ink-secondary); }
+.anomalies-what strong, .anomalies-why strong { color: var(--ink-primary); }
+
+.anomalies-rows { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.anomalies-row {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) 1fr;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--hairline);
+}
+.anomalies-row-entity { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-primary); }
+.anomalies-row-detail { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.anomalies-fact { display: inline-flex; gap: var(--space-1); font-size: var(--text-xs); }
+.anomalies-fact-key { color: var(--ink-tertiary); text-transform: lowercase; }
+.anomalies-fact-value { font-family: var(--font-mono); color: var(--ink-secondary); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 760px) {
+  .anomalies-row { grid-template-columns: 1fr; gap: var(--space-1); }
+}

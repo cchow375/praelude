@@ -2,6 +2,59 @@
 
 ## Decisions
 
+- **P7 anomaly disclosure UI + FULL narrated corpus (1,309 segments) checkpoint (2026-07-16):**
+  - **The complete narrated corpus now replays deterministically — 1,309/1,309 segments, zero
+    false mutations.** All four real Whisper-transcribed sessions are stateful replay fixtures
+    driven through the production `Router` via the shared `tests/replay_common` harness:
+    griffes 79, scherzo1 721, scherzo2 201, scherzo3 308. Verbatim fidelity independently
+    machine-checked against the source `*_narration.json` (`raw_text` + `at_ms` byte-identical,
+    monotonic, counts exact) — the fixtures did not alter text to force outcomes; the harness
+    asserts `routed == expected` against the real router, so a mislabeled command fails the test.
+  - **Every one of the 1,309 segments routes to `Intent::Ignored`, and that is contract-correct.**
+    These recordings are Christian NARRATING to a future coach while the app was not running —
+    he speaks conversationally ("So I'm gonna go from measure 516"), never in the deterministic
+    command grammar ("go to measure 516"). Buried command tokens ("turn my metronome on",
+    "tempo 55", "stop", "Start, 473"), ASR-corrupted numbers (colon `5:23`, lost-hundred
+    `from 43`), verdict words ("done", "again", "no shoot I got it wrong"), and self-corrections
+    all correctly stay inert. This is the strongest possible firewall regression guard.
+  - **THE LOAD-BEARING FINDING (all four converters converged on it independently):** the
+    deterministic hot-loop firewall is rock-solid, but it is ALSO why almost none of Christian's
+    real conversational practice becomes tracked state. The genuine leverage gap is the **Tier B
+    natural-language draft/confirm path** — today it only covers rep-opens (ActionDraft →
+    `rep_open`); it does NOT cover verdicts, tempo changes, session goals ("492 all the way to
+    516"), undo ("forget the last one"), or restart ("restart from 484"). scherzo2/scherzo3
+    escalated 6 such moments to the fixture `review` bucket rather than faking them. This is the
+    spec input for the Brain/voice slice: broaden Tier B grammar + confirm flow, do NOT loosen
+    the Tier A hot-loop (loosening it would reintroduce false mutations the corpus proves are
+    currently zero).
+  - **Batch conversion was a clean fan-out:** three concurrent executors, one per scherzo
+    session, each owning only its own `tests/narrated_session_scherzoN.{rs,json}`, all sharing
+    the verified `replay_common` module (zero harness edits). Converter pattern preserved at
+    `scripts/gen_narrated_session_fixture.py`.
+  - **Anomaly disclosure UI is read-only by construction.** New `anomalies_list` command
+    (lib.rs; reader `src/anomalies.rs`; `Store::list_anomalies` SELECT-only) → `AnomalyReport`
+    grouped by kind, severity-ordered (error→warning→info), with `parse_detail` degrading
+    malformed `observed_facts_json` to `{"raw": text}` (now covered by a dedicated test). The
+    only write literal in the module is `#[cfg(test)] exec_for_test`, gated out of production.
+    Panel lives in the Ledger workspace as `<details>/<summary>` disclosure — no write
+    affordances, honest empty state, per-kind "what it means / why it is disclosed, not
+    repaired" copy that stays strictly on the data-shape side of the authority boundary (a
+    hostile verifier read every string: nothing implies the app judged playing). The 9 explained
+    kinds exactly match what `v8_backfill::insert_anomaly` writes, with a generic fallback for
+    any unknown kind. Anomalies stay PROJECTED, never silently repaired; the audited
+    archive/correction (write) flow is deferred future work.
+  - **Flaws B22 does NOT move to Resolved** — the register's discipline (cf. B27) is that
+    nothing resolves until the INSTALLED app + user-facing copy agree; this is source-only, so
+    B22 gets a source-progress annotation and stays Open.
+  - **Gates (settled tree, orchestrator-run):** cargo lib 449/0/10 ignored; narrated suites
+    replay 5 / scherzo1 2 / scherzo2 2 / scherzo3 1 / firewall 2; knowledge 9 / STT 9 / TTS 4;
+    strict clippy --all-targets clean; vitest 596; production build green. Both completed lanes
+    (anomaly UI, harness refactor) passed fresh-context adversarial review (SHIP); corpus
+    fidelity re-proven by the orchestrator's own script.
+  - **Opus 4.8 takeover (this checkpoint):** Fable 5 was switched out mid-edit (right after
+    adding the malformed-JSON test); Opus completed the checkpoint per the takeover protocol —
+    independent fidelity re-verification, consolidated gates, docs, commit.
+
 - **P7 Composer plan-start + narrated replay harness checkpoint (2026-07-16, later same day):**
   - **`action_draft` cannot hold session plans — by design, not accident.** Its CHECK constraint
     (`source IN ('voice_draft','brain_draft')`, migrations.rs:645) and column shape model a

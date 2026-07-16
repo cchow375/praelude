@@ -74,8 +74,11 @@ sets; the transactional Score Atlas target save; single-owner voice lanes (`hand
 flag); and the five-workspace shell with the earned Universe. Disposable backup copies migrate
 7→10 and reopen idempotently with exact source counts/hashes, integrity `ok`, FK 0, and 792
 disclosed anomalies; the live database was never opened. Later same day: the Composer's receipted
-`session_plan_start` + honest Today mount, and the stateful narrated replay harness (griffes
-79/79 through production routing, zero false mutations). Next: the scherzo replay batch (1,230
-segments), anomaly review, and Brain upgrades → full native/adversarial release. v2 is not
+`session_plan_start` + honest Today mount; the FULL narrated corpus (all four sessions, 1,309
+segments) replaying through production routing with zero false mutations (verbatim fidelity
+machine-checked); and a read-only anomaly disclosure panel in the Ledger. **Corpus finding:** the
+deterministic hot-loop firewall is rock-solid, so the real leverage gap is the Tier B
+natural-language confirm layer (verdicts/tempo/goals/undo/restart — currently only rep-open).
+Next: broaden Tier B, Brain upgrades, live browser QA → full native/adversarial release. v2 is not
 shipped and the installed app/tutorial remain v1.3.0. Off-disk remote and packaged v2 Steinway
 acceptance remain open.

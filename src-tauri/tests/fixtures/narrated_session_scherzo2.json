@@ -1,0 +1,2098 @@
+{
+  "schema": "codakiller.narrated_session_replay.v1",
+  "session_id": "scherzo2",
+  "piece_alias_hint": "Scherzo",
+  "source_wav_sha256": "9b6a44ee71d994b8e68a1c0c705bbfa225015d2ceb5cd5c5b32179b47ed918c0",
+  "source_narration_json": "/Users/c3/piano-coach/test_assets/narrated/scherzo2_narration.json",
+  "segment_count": 201,
+  "wake_word": null,
+  "initial_state": {
+    "metro_running": false,
+    "metro_bpm": null,
+    "block_active": false
+  },
+  "honesty_note": "scherzo2 is a 201-segment next-day consolidation session (contract Lane D 'Scherzo 2'). Replayed through the REAL deterministic router, it is almost entirely meta-narration — Christian telling the coach what it should do — plus verbose ASR. NO segment is a clean hot-loop command: no rep block is ever opened (every range mention lacks the rep-open command shape), so rep-mode verdicts (done/again) are unreachable, and every tempo/metronome mention is buried in a sentence the delta/start firewalls correctly reject. So, exactly like griffes, the honest result is ZERO durable state mutations; the checkpoints assert that invariant at every contract-named scherzo2 moment (next-day start, restart-484, goal 492-516, silence/finding-passage, stopped-there, tempo 60, forget-the-last-one, tempo 65, and the identical 'no, shoot, I got it wrong' resend). The `review` items flag contract-required Tier B/C behaviors (restart, ephemeral session goal, undo) that the pure deterministic hot-loop cannot reach — escalated for human adjudication, never silently guessed. Classifications are adjudication metadata; the assertion is routed-intent == expected (ignored) plus the checkpoint state.",
+  "segments": [
+    {
+      "id": "scherzo2-0000",
+      "at_ms": 960,
+      "raw_text": " All right, this is the next session,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Next-day return narration (contract Scherzo2 00:00:00: recall yesterday, ask goal/time, draft a slower start). Pure narration, no command token.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false,
+        "attempts_recorded": 0
+      }
+    },
+    {
+      "id": "scherzo2-0001",
+      "at_ms": 3020,
+      "raw_text": " so I'm gonna play, it's been a day,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0002",
+      "at_ms": 5580,
+      "raw_text": " I'm gonna crack, I'm gonna do the same thing.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0003",
+      "at_ms": 7600,
+      "raw_text": " So, the piano coach should always, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0004",
+      "at_ms": 11050,
+      "raw_text": " recall what you last did and make sure",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0005",
+      "at_ms": 12670,
+      "raw_text": " that you have it solidified from the last day,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0006",
+      "at_ms": 15130,
+      "raw_text": " 'cause it should recognize that the tempo",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0007",
+      "at_ms": 17270,
+      "raw_text": " we got up to last time was slow,",
+      "classification": "ambient_ignored",
+      "classification_basis": "'recall what you last did' — instruction to the coach about recall; no command grammar.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0008",
+      "at_ms": 18870,
+      "raw_text": " so it should make sure that I have it solidified",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0009",
+      "at_ms": 20490,
+      "raw_text": " and it should make sure you play at a slower tempo.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0010",
+      "at_ms": 22730,
+      "raw_text": " So I'm gonna start at 50, okay?",
+      "classification": "firewall_rejection",
+      "classification_basis": "'So I'm gonna start at 50, okay?' — buried 'start'/'50', but not a metronome/start command shape (first word 'so', no metronome cue) → correctly ignored; a slow-start draft would be Tier B.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "scherzo2-0011",
+      "at_ms": 26880,
+      "raw_text": " And you're gonna have to listen to it",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0012",
+      "at_ms": 28440,
+      "raw_text": " and listen how I play and I'll explain after.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0013",
+      "at_ms": 35620,
+      "raw_text": " This is measure 468, by the way.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'This is measure 468, by the way.' — buried measure number with no 'go to measure' nav shape → ignored (ambient measure talk).",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "scherzo2-0014",
+      "at_ms": 127020,
+      "raw_text": " Too bad, but it was very, very slow under tempo.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0015",
+      "at_ms": 130380,
+      "raw_text": " So, recognize where I made the mistake",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0016",
+      "at_ms": 132500,
+      "raw_text": " and obviously just have me play it again once",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0017",
+      "at_ms": 134420,
+      "raw_text": " to make sure that it wasn't just,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0018",
+      "at_ms": 136340,
+      "raw_text": " like, to make sure it's actually I know the notes.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0019",
+      "at_ms": 137940,
+      "raw_text": " So, tell me to focus.",
+      "classification": "ambient_ignored",
+      "classification_basis": "'So, tell me to focus.' — instruction to the coach, not a hot-loop command.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0020",
+      "at_ms": 138900,
+      "raw_text": " That was a focus issue, 'cause I kinda wasn't focusing.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0021",
+      "at_ms": 142530,
+      "raw_text": " But that also means it's not in my memory,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0022",
+      "at_ms": 144230,
+      "raw_text": " so I'm gonna play it again.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0023",
+      "at_ms": 146670,
+      "raw_text": " That's a bad rep, so let's start it again.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'That's a bad rep, so let's start it again.' (contract Scherzo2 00:02:26 bad rep) — a leading-verdict rep would need an OPEN block; none is open and this is verbose narration, so no rep is recorded (contract-correct: only an explicit verdict in an active block counts).",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false,
+        "attempts_recorded": 0
+      }
+    },
+    {
+      "id": "scherzo2-0024",
+      "at_ms": 158640,
+      "raw_text": " If that happens a lot, honestly,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0025",
+      "at_ms": 162410,
+      "raw_text": " you shouldn't really stop me if it's a bad rep,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0026",
+      "at_ms": 164930,
+      "raw_text": " but you should kinda note that it is a bad rep,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0027",
+      "at_ms": 168010,
+      "raw_text": " and say it, and encourage me to stop.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0028",
+      "at_ms": 170290,
+      "raw_text": " But if I keep going, just assume that either it doesn't matter,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0029",
+      "at_ms": 174380,
+      "raw_text": " or you actually misheard it.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0030",
+      "at_ms": 176240,
+      "raw_text": " But this one was a bad rep, so I'm gonna restart from 484.",
+      "classification": "review",
+      "classification_basis": "'this one was a bad rep, so I'm gonna restart from 484.' (contract Scherzo2 00:02:26: permit immediate range correction/restart). The pure deterministic router has NO restart/range-correction grammar and no block is open, so it does nothing (no false mutation). Whether a Tier B restart-484 draft was warranted is escalated for human review, not silently guessed.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false,
+        "attempts_recorded": 0
+      }
+    },
+    {
+      "id": "scherzo2-0031",
+      "at_ms": 179570,
+      "raw_text": " If I made this tune in correctly.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0032",
+      "at_ms": 193190,
+      "raw_text": " But also, before I just played that,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0033",
+      "at_ms": 195230,
+      "raw_text": " like, the two times I had played 484 or 485,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0034",
+      "at_ms": 197730,
+      "raw_text": " where I made that mistake,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0035",
+      "at_ms": 199810,
+      "raw_text": " just recognize, like, what note it was.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0036",
+      "at_ms": 201410,
+      "raw_text": " It was flipping over from the B, and then to the C,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0037",
+      "at_ms": 205430,
+      "raw_text": " so the, like, recognize, like, the flip.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0038",
+      "at_ms": 209990,
+      "raw_text": " 'Cause, remember, like, the hand flips are hard,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0039",
+      "at_ms": 212230,
+      "raw_text": " so you have to know what is a hand flip, first of all,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0040",
+      "at_ms": 214330,
+      "raw_text": " like, what notes are hand flips,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0041",
+      "at_ms": 215810,
+      "raw_text": " and recognize, like, that's what I was getting wrong.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0042",
+      "at_ms": 217570,
+      "raw_text": " So make me practice it right hand, like, so.",
+      "classification": "ambient_ignored",
+      "classification_basis": "'So make me practice it right hand' — Tier C method-change narration; would need a confirmed Tier B draft, not a hot-loop command.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0043",
+      "at_ms": 221220,
+      "raw_text": " So, uh, the metronome, right?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0044",
+      "at_ms": 235870,
+      "raw_text": " 'Cause I'm just reinforcing the notes.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0045",
+      "at_ms": 242660,
+      "raw_text": " Both hands again.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'Both hands again.' — contains the fail token 'again' but (a) no block is open and (b) 'again' is not leading; rep-check is unreachable → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0046",
+      "at_ms": 280130,
+      "raw_text": " See, for the sake of this, I need to add,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0047",
+      "at_ms": 281790,
+      "raw_text": " that wasn't my practice goal for today.",
+      "classification": "ambient_ignored",
+      "classification_basis": "'that wasn't my practice goal for today' — narration about goals; no command.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0048",
+      "at_ms": 283940,
+      "raw_text": " My practice goal for today was to solidify",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0049",
+      "at_ms": 287690,
+      "raw_text": " this next section.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0050",
+      "at_ms": 288750,
+      "raw_text": " So, um, um, so, also, you should always, always,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0051",
+      "at_ms": 294430,
+      "raw_text": " always ask me what my goal for the session is today.",
+      "classification": "ambient_ignored",
+      "classification_basis": "'always ask me what my goal for the session is today' (contract Scherzo2 00:04:54 context) — instruction to the coach, not a goal command.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0052",
+      "at_ms": 297660,
+      "raw_text": " You can generate, you can, like, think of a goal",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0053",
+      "at_ms": 300170,
+      "raw_text": " to give me based on last session,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0054",
+      "at_ms": 302340,
+      "raw_text": " but the key is to ask me what my goal is,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0055",
+      "at_ms": 305340,
+      "raw_text": " and if I'm, like, if I'm, like, eh, I don't have a goal,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0056",
+      "at_ms": 307620,
+      "raw_text": " like, insist one, like, really insist one.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0057",
+      "at_ms": 310200,
+      "raw_text": " And unless I have some excuse, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0058",
+      "at_ms": 311440,
+      "raw_text": " oh, I don't have a lot of time,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0059",
+      "at_ms": 313270,
+      "raw_text": " even then, like, you should think of a smaller goal",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0060",
+      "at_ms": 315070,
+      "raw_text": " that I should do, but for this one,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0061",
+      "at_ms": 316430,
+      "raw_text": " my goal is to master this section after the section,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0062",
+      "at_ms": 320660,
+      "raw_text": " the right-hand section I just played.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0063",
+      "at_ms": 322700,
+      "raw_text": " So 492, all the way to about, um, 516.",
+      "classification": "review",
+      "classification_basis": "'So 492, all the way to about, um, 516.' (contract Scherzo2 00:04:54: save an ephemeral session goal m.492-516). No rep-open cue and verbose phrasing → no RepOpen fires (contract-correct: this is Tier B). Whether an ephemeral session-goal draft should have been offered is escalated for human review.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false,
+        "attempts_recorded": 0
+      }
+    },
+    {
+      "id": "scherzo2-0064",
+      "at_ms": 330050,
+      "raw_text": " So I have to master this part.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0065",
+      "at_ms": 331710,
+      "raw_text": " So I'm gonna play it, um, 50 quarter note",
+      "classification": "firewall_rejection",
+      "classification_basis": "'I'm gonna play it, um, 50 quarter note' — buried tempo '50 quarter note'; no metronome/start command shape → ignored.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "scherzo2-0066",
+      "at_ms": 334810,
+      "raw_text": " and see, uh, how I do first.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0067",
+      "at_ms": 337020,
+      "raw_text": " Just really so metronome, ready?",
+      "classification": "firewall_rejection",
+      "classification_basis": "'Just really so metronome, ready?' — buried 'metronome' with no start/number shape (first word 'just') → ignored.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "scherzo2-0068",
+      "at_ms": 338860,
+      "raw_text": " Always so metronome to start.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'Always so metronome to start.' — has 'metronome'+'start' but the non-filler remainder ('always so') is not a number → start grammar yields None → ignored.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "scherzo2-0069",
+      "at_ms": 438600,
+      "raw_text": " You should know to mark it.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0070",
+      "at_ms": 440330,
+      "raw_text": " I'm gonna try to practice it.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0071",
+      "at_ms": 441570,
+      "raw_text": " But here, I'm gonna do a demonstration of something again.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0072",
+      "at_ms": 445450,
+      "raw_text": " So if I do this, so, you tell me.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0073",
+      "at_ms": 448690,
+      "raw_text": " So say, I say, like, I'm gonna start the drill, right?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0074",
+      "at_ms": 451750,
+      "raw_text": " And you say, okay.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0075",
+      "at_ms": 452870,
+      "raw_text": " If I don't play anything, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0076",
+      "at_ms": 454550,
+      "raw_text": " if there's just a little big pause like this,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0077",
+      "at_ms": 456410,
+      "raw_text": " I'm not playing anything.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Silence / finding-the-passage span (contract Scherzo2 00:07:32: no rep, fault, or state mutation). A pause is inert.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false,
+        "attempts_recorded": 0
+      }
+    },
+    {
+      "id": "scherzo2-0078",
+      "at_ms": 457330,
+      "raw_text": " Let's say you start the drill now.",
+      "classification": "ambient_ignored",
+      "classification_basis": "'Let's say you start the drill now.' — describing a hypothetical to the coach; 'start the drill' is not the rep-open grammar → inert.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0079",
+      "at_ms": 458410,
+      "raw_text": " You're a bunch of notes like that.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0080",
+      "at_ms": 466590,
+      "raw_text": " It means I'm looking for the notes, right?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0081",
+      "at_ms": 468410,
+      "raw_text": " You have to wait a bit.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0082",
+      "at_ms": 469630,
+      "raw_text": " You have to wait until I'm actually,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0083",
+      "at_ms": 470910,
+      "raw_text": " you know I found the passage.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0084",
+      "at_ms": 472390,
+      "raw_text": " You can't just mark everything after I play notes wrong,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0085",
+      "at_ms": 475630,
+      "raw_text": " because you have to give me time at the start.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0086",
+      "at_ms": 478100,
+      "raw_text": " So you always have to be really patient at the start",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0087",
+      "at_ms": 480040,
+      "raw_text": " of when I'm practicing stuff",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0088",
+      "at_ms": 481450,
+      "raw_text": " and really make sure that I have the passage.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0089",
+      "at_ms": 484090,
+      "raw_text": " Like, I know where it is and like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0090",
+      "at_ms": 485590,
+      "raw_text": " I know what I'm doing.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0091",
+      "at_ms": 487390,
+      "raw_text": " So, so don't grade that, obviously.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0092",
+      "at_ms": 489720,
+      "raw_text": " Don't grade it at all.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0093",
+      "at_ms": 490740,
+      "raw_text": " I've actually started playing the passage.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0094",
+      "at_ms": 492240,
+      "raw_text": " So I'm gonna start playing it again.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0095",
+      "at_ms": 495360,
+      "raw_text": " See, I do notes, but you can't grade that.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0096",
+      "at_ms": 498690,
+      "raw_text": " Let me get settled in the passage first.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0097",
+      "at_ms": 508060,
+      "raw_text": " Stopped there.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'Stopped there.' (contract Scherzo2 00:08:28: stopped before requested end). Token is 'stopped', not the bare-stop word 'stop', and the metronome is not running → no MetroStop; wait for the user's explanation, do not infer a partial failure.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "scherzo2-0098",
+      "at_ms": 510080,
+      "raw_text": " Like, you shouldn't.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0099",
+      "at_ms": 511160,
+      "raw_text": " If you say that I should play from here to here,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0100",
+      "at_ms": 513500,
+      "raw_text": " but I stopped earlier.",
+      "classification": "ambient_ignored",
+      "classification_basis": "'but I stopped earlier' — continues the stopped-before-end explanation; inert.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0101",
+      "at_ms": 515050,
+      "raw_text": " Like, don't like, just ask why I stopped.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0102",
+      "at_ms": 518880,
+      "raw_text": " Or I can actually tell you that I stopped",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0103",
+      "at_ms": 520520,
+      "raw_text": " 'cause I messed it up.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0104",
+      "at_ms": 521920,
+      "raw_text": " So if I play that and then I restart,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0105",
+      "at_ms": 523900,
+      "raw_text": " it doesn't mean it's extra notes.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0106",
+      "at_ms": 525100,
+      "raw_text": " It means I restarted it.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0107",
+      "at_ms": 526180,
+      "raw_text": " So again, you have to keep,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0108",
+      "at_ms": 527140,
+      "raw_text": " you have to listen very intensively.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0109",
+      "at_ms": 528420,
+      "raw_text": " Use common sense.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0110",
+      "at_ms": 626550,
+      "raw_text": " Thing here.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0111",
+      "at_ms": 629500,
+      "raw_text": " Make sure I focus.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0112",
+      "at_ms": 631830,
+      "raw_text": " I'm actually gonna turn the metronome tempo up to 60",
+      "classification": "firewall_rejection",
+      "classification_basis": "'I'm actually gonna turn the metronome tempo up to 60' (contract Scherzo2 00:10:31: set tempo only from explicit/confirmed intent). >6 words and buried → delta/start firewalls reject; no tempo mutation.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "scherzo2-0113",
+      "at_ms": 634720,
+      "raw_text": " 'cause that feels a little under tempo right now.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0114",
+      "at_ms": 637600,
+      "raw_text": " So, 'cause my goal is to get it fully under,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0115",
+      "at_ms": 639800,
+      "raw_text": " like, almost.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0116",
+      "at_ms": 641900,
+      "raw_text": " Oh, also set tempo goals too.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'Oh, also set tempo goals too.' — buried 'set tempo' instruction to the coach; no number/command shape → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0117",
+      "at_ms": 643640,
+      "raw_text": " And ask me how I feel after everything.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0118",
+      "at_ms": 645600,
+      "raw_text": " Like, ask me if I lost focus.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0119",
+      "at_ms": 647710,
+      "raw_text": " Okay, now I'm gonna try to play it again.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0120",
+      "at_ms": 671060,
+      "raw_text": " So you're gonna just forget the last one, okay?",
+      "classification": "review",
+      "classification_basis": "'So you're gonna just forget the last one, okay?' (contract Scherzo2 00:11:11: atomically void/undo the last rep). The deterministic router has NO undo grammar at all, and no block/rep exists to void; it does nothing. The missing undo capability + absent target is escalated for human review, not guessed.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false,
+        "attempts_recorded": 0
+      }
+    },
+    {
+      "id": "scherzo2-0121",
+      "at_ms": 674140,
+      "raw_text": " Okay?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0122",
+      "at_ms": 674980,
+      "raw_text": " So don't mark it as wrong.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0123",
+      "at_ms": 678820,
+      "raw_text": " Playing it again 'cause I messed up.",
+      "classification": "ambient_ignored",
+      "classification_basis": "'Playing it again 'cause I messed up.' — narration; 'again'/'messed up' are mid-sentence, not a leading rep verdict, and no block is open → inert.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0124",
+      "at_ms": 680550,
+      "raw_text": " So note that I gotta move.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0125",
+      "at_ms": 681920,
+      "raw_text": " Note that I messed it up, but don't say anything.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0126",
+      "at_ms": 683900,
+      "raw_text": " So let me restart, okay?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0127",
+      "at_ms": 685840,
+      "raw_text": " And if you're gonna enforce any strict rules,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0128",
+      "at_ms": 687720,
+      "raw_text": " you have to tell me.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0129",
+      "at_ms": 688920,
+      "raw_text": " Talk to me.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0130",
+      "at_ms": 689760,
+      "raw_text": " Back and forth is the most important thing.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0131",
+      "at_ms": 774090,
+      "raw_text": " This is more of a, you recognize the type of section this is.",
+      "classification": "ambient_ignored",
+      "classification_basis": "'you recognize the type of section this is' (contract Scherzo2 00:12:54 context: synchronize LH/RH) — narration about section type; no command.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0132",
+      "at_ms": 777290,
+      "raw_text": " This isn't like a ton of runs.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0133",
+      "at_ms": 779390,
+      "raw_text": " It's more about like synchronizing the left hand",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0134",
+      "at_ms": 781360,
+      "raw_text": " and the right hand perfectly.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0135",
+      "at_ms": 784400,
+      "raw_text": " So I'm gonna keep playing it.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0136",
+      "at_ms": 786190,
+      "raw_text": " I'm gonna speed it up, honestly, by five.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'I'm gonna speed it up, honestly, by five.' — 'speed'+'up'+'five' but 8 words incl. out-of-vocab ('honestly') → delta firewall rejects (len>6, not all-in-vocab); no tempo change.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "scherzo2-0137",
+      "at_ms": 788040,
+      "raw_text": " So 65 now, the chord note.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'So 65 now, the chord note.' (contract Scherzo2 00:12:54: tempo 65) — bare number '65' with no start/metronome/delta cue → ignored; a confirmed set-65 would be Tier B.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "scherzo2-0138",
+      "at_ms": 791360,
+      "raw_text": " And just like, yeah, focus is really important here.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0139",
+      "at_ms": 863480,
+      "raw_text": " I'm gonna take around five, 500 measure, I forget where.",
+      "classification": "asr_ambiguity",
+      "classification_basis": "'I'm gonna take around five, 500 measure, I forget where.' — multiple ambiguous numbers (5 / 500) and a hedged measure ('I forget where'); must never execute a guessed measure/range → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0140",
+      "at_ms": 868480,
+      "raw_text": " But I'm just gonna play from that section",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0141",
+      "at_ms": 869970,
+      "raw_text": " 'cause I messed up.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0142",
+      "at_ms": 871740,
+      "raw_text": " Just play it metronome again, so.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'Just play it metronome again, so.' — buried 'metronome'; first word 'just', no start/number shape → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0143",
+      "at_ms": 876630,
+      "raw_text": " Also here, if there are any patterns that you recognize,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0144",
+      "at_ms": 879850,
+      "raw_text": " feel free to point them out.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0145",
+      "at_ms": 881630,
+      "raw_text": " Like, say them, like before, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0146",
+      "at_ms": 883630,
+      "raw_text": " if I'm talking back and forth,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0147",
+      "at_ms": 884890,
+      "raw_text": " like just mention them, obviously.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0148",
+      "at_ms": 889060,
+      "raw_text": " 506, by the way.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'506, by the way.' — bare measure number with no nav command shape → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0149",
+      "at_ms": 908910,
+      "raw_text": " Mess that up.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0150",
+      "at_ms": 909710,
+      "raw_text": " So basically here, I'll explain why.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0151",
+      "at_ms": 911470,
+      "raw_text": " And if I explain why something's hard,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0152",
+      "at_ms": 913340,
+      "raw_text": " I'll really remember it.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0153",
+      "at_ms": 914480,
+      "raw_text": " 'Cause obviously it's me personally.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0154",
+      "at_ms": 916770,
+      "raw_text": " I find the, I'm sorry, metronome.",
+      "classification": "correction",
+      "classification_basis": "'I find the, I'm sorry, metronome.' — mid-sentence self-correction; no command shape and nothing active to correct → inert.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0155",
+      "at_ms": 918370,
+      "raw_text": " I find the turn from, so it's on measure 500, 510.",
+      "classification": "asr_ambiguity",
+      "classification_basis": "'it's on measure 500, 510.' — measure-confusion pair (contract ASR matrix: '500, 510'); two guessed measures must never navigate/execute → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0156",
+      "at_ms": 926630,
+      "raw_text": " There's like the, the A flat and the C flat.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0157",
+      "at_ms": 931490,
+      "raw_text": " So like this and then the fingering for that",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0158",
+      "at_ms": 936260,
+      "raw_text": " is one, two, four, one, three, two.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Fingering narration 'one, two, four, one, three, two'; bare number list, no command cue → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0159",
+      "at_ms": 939600,
+      "raw_text": " And like, I find the, after the four, it goes one, three, two.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0160",
+      "at_ms": 944850,
+      "raw_text": " That's a little unnatural.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0161",
+      "at_ms": 946410,
+      "raw_text": " Because usually you do four, three, two, one.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0162",
+      "at_ms": 950030,
+      "raw_text": " But this goes four, one, three, two.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0163",
+      "at_ms": 953030,
+      "raw_text": " So I'm just noting that it's a little hard",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0164",
+      "at_ms": 954550,
+      "raw_text": " 'cause you want to get to the octave.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0165",
+      "at_ms": 956090,
+      "raw_text": " 'Cause you have two on the E flat.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0166",
+      "at_ms": 958890,
+      "raw_text": " To the octave better, which is actually,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0167",
+      "at_ms": 961450,
+      "raw_text": " it's an Albert Corteau fingering.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0168",
+      "at_ms": 963970,
+      "raw_text": " But that fingering is a little confusing for me.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0169",
+      "at_ms": 967700,
+      "raw_text": " And it's like, it's also appears in 494",
+      "classification": "asr_ambiguity",
+      "classification_basis": "'it's also appears in 494' — bare measure number in narration; ambiguous, no nav command → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0170",
+      "at_ms": 970460,
+      "raw_text": " and also in 500, 504.",
+      "classification": "asr_ambiguity",
+      "classification_basis": "'and also in 500, 504.' — measure-confusion pair (contract ASR matrix: measure confusion); guessed measures must never execute → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0171",
+      "at_ms": 976070,
+      "raw_text": " So I'm just gonna practice it really,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0172",
+      "at_ms": 978050,
+      "raw_text": " I'm gonna practice that,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0173",
+      "at_ms": 978990,
+      "raw_text": " just that measure really quickly.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0174",
+      "at_ms": 981430,
+      "raw_text": " I'm not actually gonna play metronome.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'I'm not actually gonna play metronome.' — buried 'metronome', explicitly negated; no start/number shape → ignored.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "scherzo2-0175",
+      "at_ms": 982790,
+      "raw_text": " I'm just gonna do it like this.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0176",
+      "at_ms": 994310,
+      "raw_text": " See, that wasn't in tempo,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0177",
+      "at_ms": 995370,
+      "raw_text": " but I'm just looking for the notes.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0178",
+      "at_ms": 996730,
+      "raw_text": " So if I'm note hunting, like it's fine.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0179",
+      "at_ms": 999690,
+      "raw_text": " Like, 'cause I'm learning them.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0180",
+      "at_ms": 1001220,
+      "raw_text": " So don't worry about the tempo for stuff like this.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0181",
+      "at_ms": 1018360,
+      "raw_text": " So propose why I might be getting stuff wrong.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0182",
+      "at_ms": 1020420,
+      "raw_text": " I actually didn't know,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0183",
+      "at_ms": 1021300,
+      "raw_text": " but it actually might be because my left hand,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0184",
+      "at_ms": 1024220,
+      "raw_text": " bass notes aren't solid.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0185",
+      "at_ms": 1026480,
+      "raw_text": " I just have to recognize that,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0186",
+      "at_ms": 1028420,
+      "raw_text": " just like point out stuff like patterns.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0187",
+      "at_ms": 1030260,
+      "raw_text": " Like note that the bass notes starting from 506, it's.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'the bass notes starting from 506, it's.' — buried measure number in narration → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0188",
+      "at_ms": 1037970,
+      "raw_text": " it's C, B flat, A, flat, G, A flat, B flat, B.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0189",
+      "at_ms": 1042820,
+      "raw_text": " So like.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0190",
+      "at_ms": 1048940,
+      "raw_text": " It's simple like that.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0191",
+      "at_ms": 1049940,
+      "raw_text": " Okay?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0192",
+      "at_ms": 1050780,
+      "raw_text": " So remember like, if it's just simple,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0193",
+      "at_ms": 1052180,
+      "raw_text": " the bass notes.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0194",
+      "at_ms": 1053330,
+      "raw_text": " If you notice that maybe I'm getting those wrong,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0195",
+      "at_ms": 1055410,
+      "raw_text": " or that's causing confusion.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0196",
+      "at_ms": 1057590,
+      "raw_text": " And then, so just point that stuff out.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0197",
+      "at_ms": 1060760,
+      "raw_text": " But obviously point it in conversation matter.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0198",
+      "at_ms": 1062920,
+      "raw_text": " Not like a huge, not like mixed in with a bunch of things.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-narration / coaching commentary; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo2-0199",
+      "at_ms": 1067690,
+      "raw_text": " No, shoot, I got it wrong.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'No, shoot, I got it wrong.' (contract ASR safety: a positive failed self-report ONLY in an active practice context). No rep block is open here, so it is correctly inert — no rep, no mutation.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false,
+        "attempts_recorded": 0
+      }
+    },
+    {
+      "id": "scherzo2-0200",
+      "at_ms": 1068690,
+      "raw_text": " No, shoot, I got it wrong.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'No, shoot, I got it wrong.' — immediate identical ASR resend 1.0 s later (contract: must not create a second rep). No block is open, so it too is inert; and because ambient/ignored never seeds the command-dedup ledger, this is Ignored (not Suppressed) — still zero mutations.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false,
+        "attempts_recorded": 0
+      }
+    }
+  ]
+}

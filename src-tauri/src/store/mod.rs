@@ -239,6 +239,42 @@ impl Store {
         rows.collect()
     }
 
+    /// Read-only projection of every disclosed data anomaly, ordered by kind
+    /// then id so callers get a stable grouping. Anomalies are surfaced, never
+    /// repaired: this method reads and never writes.
+    pub fn list_anomalies(&self) -> rusqlite::Result<Vec<model::AnomalyRow>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT id, entity_type, entity_id, kind, observed_facts_json,
+                    severity, review_state, created_ts, reviewed_ts
+             FROM data_anomaly
+             ORDER BY kind, id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(model::AnomalyRow {
+                id: row.get(0)?,
+                entity_type: row.get(1)?,
+                entity_id: row.get(2)?,
+                kind: row.get(3)?,
+                observed_facts_json: row.get(4)?,
+                severity: row.get(5)?,
+                review_state: row.get(6)?,
+                created_ts: row.get(7)?,
+                reviewed_ts: row.get(8)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// Test-only raw execution seam for seeding fixture rows (e.g.
+    /// `data_anomaly`) that production only ever fabricates through the
+    /// migration/backfill path.
+    #[cfg(test)]
+    pub(crate) fn exec_for_test(&self, sql: &str) {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.execute_batch(sql).expect("seed sql");
+    }
+
     /// Full detail for one piece, or `None` if the id is unknown.
     pub fn get_piece(&self, id: i64) -> rusqlite::Result<Option<PieceDetail>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());

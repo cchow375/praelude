@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HistoryPanel } from "../pieces/HistoryPanel";
 import type { PieceSummary } from "../pieces/types";
+import { AnomaliesPanel } from "./AnomaliesPanel";
 import "./LedgerWorkspace.css";
 
 function messageOf(reason: unknown) {
@@ -101,6 +102,8 @@ export function LedgerWorkspace() {
           ) : null}
         </section>
       </div>
+
+      <AnomaliesPanel />
     </main>
   );
 }

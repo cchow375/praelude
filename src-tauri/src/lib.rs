@@ -1,3 +1,4 @@
+mod anomalies;
 pub mod audio;
 mod brain;
 mod date;
@@ -905,6 +906,14 @@ fn universe_snapshot(store: State<'_, Arc<Store>>) -> Result<universe::UniverseS
     universe::snapshot(&store).map_err(|error| error.to_string())
 }
 
+/// Read-only disclosure of every migration/backfill-observed data anomaly,
+/// grouped by kind with counts. Anomalies are projected, never repaired; this
+/// command performs no writes and offers no correction actions.
+#[tauri::command]
+fn anomalies_list(store: State<'_, Arc<Store>>) -> Result<anomalies::AnomalyReport, String> {
+    anomalies::report(&store).map_err(|error| error.to_string())
+}
+
 /// Read-only, deterministic next-work ranking. The brain can narrate this
 /// trace, but it cannot change the ordering or write a schedule.
 #[tauri::command]
@@ -1246,6 +1255,7 @@ pub fn run() {
             piece_field_update,
             progress_summary,
             universe_snapshot,
+            anomalies_list,
             brain_plan_preview,
             brain_ask,
             brain_intake_apply,

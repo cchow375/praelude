@@ -945,6 +945,24 @@ pub(crate) fn sqlite_ts_to_rfc3339(ts: &str) -> String {
     format!("{}Z", ts.replacen(' ', "T", 1))
 }
 
+/// One `data_anomaly` row as read from SQLite. Crate-private: the frontend
+/// never sees this raw record. The `anomalies` module parses
+/// `observed_facts_json` and groups these into the serialized wire report.
+/// `observed_facts_json` is kept as the stored TEXT so the reader — not the
+/// store — owns the JSON parse seam.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AnomalyRow {
+    pub id: i64,
+    pub entity_type: String,
+    pub entity_id: i64,
+    pub kind: String,
+    pub observed_facts_json: String,
+    pub severity: String,
+    pub review_state: String,
+    pub created_ts: String,
+    pub reviewed_ts: Option<String>,
+}
+
 /// Serialize a value into the TEXT form stored in a JSON-shaped column,
 /// mapping any serde failure into a `rusqlite` error (never a panic).
 pub(crate) fn json_to_sql<T: Serialize + ?Sized>(value: &T) -> rusqlite::Result<String> {

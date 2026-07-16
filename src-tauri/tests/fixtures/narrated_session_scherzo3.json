@@ -1,0 +1,3153 @@
+{
+  "schema": "codakiller.narrated_session_replay.v1",
+  "session_id": "scherzo3",
+  "piece_alias_hint": "Scherzo",
+  "source_wav_sha256": "03b294f5a2c57e23eb06c4122f3799c7697abbc9abbd767e509231b7df21de63",
+  "source_narration_json": "/Users/c3/piano-coach/test_assets/narrated/scherzo3_narration.json",
+  "segment_count": 308,
+  "wake_word": null,
+  "initial_state": {
+    "metro_running": false,
+    "metro_bpm": null,
+    "block_active": false
+  },
+  "honesty_note": "Scherzo3 is a 308-segment practice session, but it is dense META-NARRATION: Christian describing to the future coach how it SHOULD behave (verify before marking, only grade the latest loop, believe his verdicts, be lenient, remind briefly) WHILE he plays -- he never issues a clean hot-loop command, because the app was not running. Consequently the deterministic firewall correctly routes ALL 308 ordered segments to `ignored` with ZERO durable state mutation: no rep/tracker/block cue ever appears (so no block opens), and no utterance is a clean 'metronome N'/'tempo N' remainder (so the metronome never starts). The session is thick with BURIED command tokens the firewall must resist -- 'turn my metronome on', 'quarter note 55', 'tempo 55', 'Start, 473', 'slow with metronome', leading 'Metronome right now', 'stop myself', 'play measures 468', 'measure 492' -- plus ASR measure-confusion ('446, 468'), self-corrections ('hold on, I was playing it wrong'; 'it's actually D to D octave'), and every contract-named Scherzo3 moment (LH early 00:55, verify-before-marking 03:57, E-instead-of-C# 05:40, loops 11:09, LH-only 18:17, jump 19:00, transition-from-487 23:04, 'didn't make any note mistakes' 28:37, advance C# reminder 29:12) -- all of which are Tier B/C and correctly NOT hot-looped. Three genuinely ambiguous items (declared note error, transition-from-487, session range 468-492) are bucketed `review` with a basis rather than silently guessed. Classifications are adjudication metadata; the harness asserts routed-intent == expected (`ignored`) plus the checkpoint invariant at every contract-named boundary. This proves the firewall holds against dense real narration, the companion result to griffes.",
+  "segments": [
+    {
+      "id": "scherzo3-0000",
+      "at_ms": 1470,
+      "raw_text": " Okay, so I'm going to play measures 468, but it's going to change a lot",
+      "classification": "firewall_rejection",
+      "classification_basis": "Opening narration (contract Scherzo3): 'play measures 468' carries 'measures' + a number but NO rep/tracker/block cue, so route_rep_open never fires — ambient range talk stays inert.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "scherzo3-0001",
+      "at_ms": 11710,
+      "raw_text": " because, you know, we don't practice perfectly.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0002",
+      "at_ms": 15620,
+      "raw_text": " We practice to get better, so there's obviously going to be discrepancies.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0003",
+      "at_ms": 19760,
+      "raw_text": " But first, I'm just going to play it, no metronome.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'no metronome' — buried 'metronome' with no start/turn-on cue and no number; the firewall yields no metronome action.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0004",
+      "at_ms": 24480,
+      "raw_text": " So the tempo is obviously going to be wrong in some parts.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0005",
+      "at_ms": 27730,
+      "raw_text": " And the key thing to look out for here is that even though if I do get all the notes,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0006",
+      "at_ms": 32860,
+      "raw_text": " notice what tempo I'm playing at and compare it to what tempo is considered performance level.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0007",
+      "at_ms": 37890,
+      "raw_text": " And it doesn't mean that the notes are solid if I'm just playing it slowly and the notes are right.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0008",
+      "at_ms": 42560,
+      "raw_text": " It means that I don't know the notes, and that's why I'm playing it slowly.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0009",
+      "at_ms": 45420,
+      "raw_text": " So just keep that in mind.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0010",
+      "at_ms": 55100,
+      "raw_text": " Mistake, because I played the left hand too early.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Contract Scherzo3 00:55: Christian reports the left hand entered early. A declared issue is stored only via a confirmed Tier B action, never a hot-loop mutation and never an acoustic detection — inert here.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "scherzo3-0011",
+      "at_ms": 76480,
+      "raw_text": " If you look at where the left hand and the right hand should sink and listen to when the left hand came in,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0012",
+      "at_ms": 81170,
+      "raw_text": " it was too early.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0013",
+      "at_ms": 81960,
+      "raw_text": " It's not that it was an extra note.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0014",
+      "at_ms": 83860,
+      "raw_text": " It was that I moved the left hand section too early, so it is a mistake.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0015",
+      "at_ms": 88780,
+      "raw_text": " But you should know what type of mistake it is.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0016",
+      "at_ms": 98380,
+      "raw_text": " I'm going to note that I've made that mistake a lot of times.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0017",
+      "at_ms": 106590,
+      "raw_text": " So I'm actually going to play that opening, and I'm going to turn my metronome on.",
+      "classification": "firewall_rejection",
+      "classification_basis": "Buried 'I'm going to turn my metronome on' (turn+on+metronome) — narration, not the command 'turn on the metronome'; the filler-stripped remainder is not a number, so no metronome start.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "scherzo3-0018",
+      "at_ms": 110030,
+      "raw_text": " I'm going to do quarter note 55, because I've noticed that I made that mistake.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'quarter note 55' describes an intended tempo but carries no metronome/tempo command cue; the bare number never routes.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0019",
+      "at_ms": 115600,
+      "raw_text": " So I'm going to let the metronome play, and you're going to hear the metronome go, and I'm going to play it.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'let the metronome play ... hear the metronome go' — buried 'metronome' twice, no command shape → ignored.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "scherzo3-0020",
+      "at_ms": 125110,
+      "raw_text": " See how I played into measure 479?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0021",
+      "at_ms": 141180,
+      "raw_text": " That doesn't mean that I just didn't know how to play the rest of the measure.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0022",
+      "at_ms": 144000,
+      "raw_text": " I just stopped, because I'm playing it.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0023",
+      "at_ms": 146250,
+      "raw_text": " But generally, if I'm saying I'm going to practice small sections, I shouldn't keep going.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0024",
+      "at_ms": 153180,
+      "raw_text": " So I should be reminded to stop if my goal is to play it.",
+      "classification": "firewall_rejection",
+      "classification_basis": "Buried 'stop' inside a long sentence ('reminded to stop if my goal is to play it'); is_bare_stop requires a short all-in-vocab utterance, so this stays ambient.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0025",
+      "at_ms": 158310,
+      "raw_text": " But obviously, if I'm talking, and I'm insisting that I actually should move on,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0026",
+      "at_ms": 163530,
+      "raw_text": " then it should obviously let me keep going.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0027",
+      "at_ms": 166350,
+      "raw_text": " But for now, I'm going to stop myself.",
+      "classification": "firewall_rejection",
+      "classification_basis": "Buried 'stop' ('I'm going to stop myself'); long sentence, not a bare-stop command, metronome not running → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0028",
+      "at_ms": 185380,
+      "raw_text": " Actually, I'm marking in my score to not.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0029",
+      "at_ms": 215100,
+      "raw_text": " This obviously requires that I know exactly where the right note is, and I know that I am playing it wrong.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0030",
+      "at_ms": 224270,
+      "raw_text": " So as the engine, the engine can't just assume that I'm playing it wrong, and it's a big mistake.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0031",
+      "at_ms": 231190,
+      "raw_text": " Well, it can, but it should verify first before it says something, like, write it in the score.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Contract Scherzo3 03:57: 'verify first before it says something, like, write it in the score' — the app must ASK before a score mark; a mark is a confirmed Tier B draft, never auto. Inert in the hot loop.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "scherzo3-0032",
+      "at_ms": 237300,
+      "raw_text": " So it should always ask questions.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0033",
+      "at_ms": 238780,
+      "raw_text": " It should be very interactive.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0034",
+      "at_ms": 239920,
+      "raw_text": " It should be, like, really quick, like, I heard you were making a ton of mistakes here.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0035",
+      "at_ms": 244610,
+      "raw_text": " Like, am I just looking at the wrong measure?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0036",
+      "at_ms": 246150,
+      "raw_text": " And it should say that verbally, and I should be able to say yes or no, you know?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0037",
+      "at_ms": 251910,
+      "raw_text": " So it doesn't just make assumptions and, like, lock in these mistakes that maybe I wasn't even making.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0038",
+      "at_ms": 256910,
+      "raw_text": " So it should be, like, if something seems a little skeptical, always check in and suggest things.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0039",
+      "at_ms": 264120,
+      "raw_text": " Like, mark that in your score if I say, yeah, it's something that I keep making.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0040",
+      "at_ms": 268260,
+      "raw_text": " It's a mistake that I keep making.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0041",
+      "at_ms": 269760,
+      "raw_text": " But you shouldn't be talking to me.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0042",
+      "at_ms": 271570,
+      "raw_text": " It should be, like, so, like, do you want to mark that in your score or something?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0043",
+      "at_ms": 274950,
+      "raw_text": " And I should be, like, no, yes, but this one I'm going to mark in my score.",
+      "classification": "correction",
+      "classification_basis": "Self-correction 'no, yes, but this one I'm going to mark in my score' — a correction with no active tracker state to correct → inert.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0044",
+      "at_ms": 277670,
+      "raw_text": " Because I should sync the A sharp in the right hand to the G sharp octave.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0045",
+      "at_ms": 283480,
+      "raw_text": " Because I'm, and I'm going to write, don't, um, early left hand.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0046",
+      "at_ms": 297220,
+      "raw_text": " That was a different, but that was also because I was talking, so that doesn't count.",
+      "classification": "correction",
+      "classification_basis": "Self-discount 'that was also because I was talking, so that doesn't count' — no rep exists to void; inert.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0047",
+      "at_ms": 330100,
+      "raw_text": " So two mistakes there.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0048",
+      "at_ms": 340030,
+      "raw_text": " I played C sharp, or I just played E instead of C sharp, which is not, it's the wrong note.",
+      "classification": "review",
+      "classification_basis": "Contract Scherzo3 05:40: 'played E instead of C sharp' is a declared note error. With no block open and no confirmation, the deterministic hot loop cannot log it; whether to raise a Tier B issue/score-mark draft is escalated for human adjudication, never silently guessed.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "scherzo3-0049",
+      "at_ms": 348340,
+      "raw_text": " So to avoid that, I think I'm going to, I'm going to play the engine, such as I play slow right hand dotted rhythm,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0050",
+      "at_ms": 359570,
+      "raw_text": " or normally dotted rhythm, or normally, first, just the measure, like, the two measures that I messed up.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0051",
+      "at_ms": 366680,
+      "raw_text": " And then it should just, I only play the right hand dotted, or, no, it's just right hand dotted rhythm first,",
+      "classification": "correction",
+      "classification_basis": "Self-correction 'or, no, it's just right hand dotted rhythm first' — reversing the just-stated method mid-sentence; narration, no hot-loop command.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0052",
+      "at_ms": 371740,
+      "raw_text": " and then it's both hands slow.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0053",
+      "at_ms": 373860,
+      "raw_text": " So I'm going to do the right hand first dotted rhythm.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Contract Scherzo3 05:40 cont.: 'right hand first dotted rhythm' then 'both hands slow' — a two-stage METHOD draft requiring approval (Tier B), not a hot-loop command.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0054",
+      "at_ms": 390530,
+      "raw_text": " You should know the fingering, so the fingering crossover is, so that's something I keep drilling with.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0055",
+      "at_ms": 492230,
+      "raw_text": " Constantly restarting measure.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0056",
+      "at_ms": 669640,
+      "raw_text": " It doesn't mean that every single note I restart is just extra wrong.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Contract Scherzo3 11:09: constant loops/restarts. Only explicit verdicts count; looping creates no automatic attempts or errors — inert.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "scherzo3-0057",
+      "at_ms": 674840,
+      "raw_text": " It means I'm restarting the measure, so you don't need to grade it.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0058",
+      "at_ms": 677360,
+      "raw_text": " So this is why you need to wait and be sure that you know where I am, because it's going to,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0059",
+      "at_ms": 681680,
+      "raw_text": " so here, the thing, should let me, like, keep, keep going, and you shouldn't, like, mark me wrong immediately",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0060",
+      "at_ms": 703330,
+      "raw_text": " if I keep restarting the measure, because I'm re, I'm looping it.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0061",
+      "at_ms": 707400,
+      "raw_text": " I'm not actually, like, playing the wrong notes, so you have to recognize, like, when I'm doing that,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0062",
+      "at_ms": 711380,
+      "raw_text": " and not, like, grade every single, like, restart.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0063",
+      "at_ms": 714050,
+      "raw_text": " You only have to grade the latest one.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0064",
+      "at_ms": 730100,
+      "raw_text": " Start, 473, time, stake.",
+      "classification": "firewall_rejection",
+      "classification_basis": "'Start, 473, time, stake.' — a spoken start-point marker; 'start' alone is not a metronome/rep cue and the bare number never routes → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0065",
+      "at_ms": 763720,
+      "raw_text": " So you're just going to have to recognize when I'm looping, and when I'm,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0066",
+      "at_ms": 766810,
+      "raw_text": " the left hand or the right hand over and over again to practice it.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0067",
+      "at_ms": 1022570,
+      "raw_text": " What's here is so you can see that it's going up that's getting me,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0068",
+      "at_ms": 1034660,
+      "raw_text": " so you have to drill that, like, transition, the flip, the hand flip, and the right hand.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0069",
+      "at_ms": 1042030,
+      "raw_text": " So you're honestly, at this stage, just slow with metronome, repeating it.",
+      "classification": "firewall_rejection",
+      "classification_basis": "Buried delta verb 'slow' + 'metronome' in a long sentence ('just slow with metronome, repeating it'); route_delta's short all-in-vocab shape rejects it.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "scherzo3-0070",
+      "at_ms": 1050620,
+      "raw_text": " Left hand wrong.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0071",
+      "at_ms": 1097670,
+      "raw_text": " Maybe I was initially wrong about this.",
+      "classification": "correction",
+      "classification_basis": "Self-reconsideration 'Maybe I was initially wrong about this' — no state to correct; inert.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0072",
+      "at_ms": 1100410,
+      "raw_text": " So here you have to notice that, you know, left hand wrong,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0073",
+      "at_ms": 1104370,
+      "raw_text": " so I'm just going to play a left hand, so you only grade the left hand, obviously.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Contract Scherzo3 18:17: left-hand-only work ('you only grade the left hand'). Change/draft the hand scope via Tier B; never call the absent right hand wrong — no hot-loop mutation.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "scherzo3-0074",
+      "at_ms": 1108990,
+      "raw_text": " Notice what this is, like, it's the jump.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0075",
+      "at_ms": 1118830,
+      "raw_text": " I'm getting a jump.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0076",
+      "at_ms": 1123690,
+      "raw_text": " I'm going to write down the note, actually.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0077",
+      "at_ms": 1125900,
+      "raw_text": " It should be very, like, interactive.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0078",
+      "at_ms": 1128060,
+      "raw_text": " You talk back and forth and ask, like, why I'm getting it wrong,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0079",
+      "at_ms": 1131500,
+      "raw_text": " or why you think I'm getting it wrong.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0080",
+      "at_ms": 1132980,
+      "raw_text": " And I tell you, or you assume, but you should always ask me first for things like this.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0081",
+      "at_ms": 1140220,
+      "raw_text": " Jump between the first two notes.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Contract Scherzo3 19:00: isolated technical jump ('Jump between the first two notes'). Track the method and self-report, not score-rhythm accuracy — inert in the hot loop.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "scherzo3-0082",
+      "at_ms": 1189800,
+      "raw_text": " See, they're not, it's not, like, wrong notes.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0083",
+      "at_ms": 1191870,
+      "raw_text": " I'm just saying, I'm just practicing the technical jump,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0084",
+      "at_ms": 1194890,
+      "raw_text": " and you have to recognize, like, when I'm practicing technique.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0085",
+      "at_ms": 1197370,
+      "raw_text": " Metronome right now, I'm just, like, practicing that jump.",
+      "classification": "firewall_rejection",
+      "classification_basis": "Leading 'Metronome right now, I'm just ... practicing that jump' — start_triggered by the leading token, but the remainder is not a number → no metronome start.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0086",
+      "at_ms": 1208150,
+      "raw_text": " For these, honestly, like, it's honestly harder to understand.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0087",
+      "at_ms": 1221530,
+      "raw_text": " Like, if you can understand what you're listening to, then sure,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0088",
+      "at_ms": 1224620,
+      "raw_text": " but honestly, like, just tell me to play it, and I'll play it,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0089",
+      "at_ms": 1226820,
+      "raw_text": " and just, like, have faith that I'm actually going to play it",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0090",
+      "at_ms": 1229120,
+      "raw_text": " for, like, these, like, more abstract practice methods",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0091",
+      "at_ms": 1231560,
+      "raw_text": " that, like, aren't in the music score, right?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0092",
+      "at_ms": 1234070,
+      "raw_text": " Because it's, like, obviously harder for you to understand,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0093",
+      "at_ms": 1235840,
+      "raw_text": " so just, like, trust that I'm going to play it,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0094",
+      "at_ms": 1237460,
+      "raw_text": " and, like, I'll tell you when I'm done.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0095",
+      "at_ms": 1238800,
+      "raw_text": " And, like, you have to just ask me,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0096",
+      "at_ms": 1239840,
+      "raw_text": " did you really do this, this, this?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0097",
+      "at_ms": 1241610,
+      "raw_text": " And I say, yeah, because you have trust me, so.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0098",
+      "at_ms": 1246430,
+      "raw_text": " For this, like, you could understand that my left hand is wrong,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0099",
+      "at_ms": 1250020,
+      "raw_text": " and you would know why, because I tell you,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0100",
+      "at_ms": 1251900,
+      "raw_text": " and you're, like, all right, just play that jump",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0101",
+      "at_ms": 1253600,
+      "raw_text": " between the A and the E.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0102",
+      "at_ms": 1255480,
+      "raw_text": " Just play that over and over again",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0103",
+      "at_ms": 1256830,
+      "raw_text": " until you feel comfortable with it,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0104",
+      "at_ms": 1257930,
+      "raw_text": " and then try again, and, like, let me hear it",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0105",
+      "at_ms": 1259350,
+      "raw_text": " when you're done, or whatever.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0106",
+      "at_ms": 1265850,
+      "raw_text": " Try again from Comfortable,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0107",
+      "at_ms": 1279800,
+      "raw_text": " but I'm going to do it again.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0108",
+      "at_ms": 1384870,
+      "raw_text": " It's a transition from 487,",
+      "classification": "review",
+      "classification_basis": "Contract Scherzo3 23:04: 'It's a transition from 487' should create/resume a transition subsection preserving its parent region — but 'from 487' is a single lost-hundreds number in narration with no command grammar and no confirmation; escalated for adjudication rather than silently drafting m.487.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "scherzo3-0109",
+      "at_ms": 1386470,
+      "raw_text": " because the transitions between sections that you practice",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0110",
+      "at_ms": 1389080,
+      "raw_text": " are always, like, the problem spots.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0111",
+      "at_ms": 1391470,
+      "raw_text": " Because, again, these are all patterns,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0112",
+      "at_ms": 1393100,
+      "raw_text": " especially this right hand,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0113",
+      "at_ms": 1394040,
+      "raw_text": " but it's just, like, the transitions are under practice,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0114",
+      "at_ms": 1398180,
+      "raw_text": " so I'm going to try again.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0115",
+      "at_ms": 1399630,
+      "raw_text": " So, the left hand is D,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0116",
+      "at_ms": 1402900,
+      "raw_text": " and, like, me just playing itself,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0117",
+      "at_ms": 1407070,
+      "raw_text": " that's not, like, a specific set measure.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0118",
+      "at_ms": 1409210,
+      "raw_text": " Again, like, you have to recognize that",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0119",
+      "at_ms": 1410510,
+      "raw_text": " it's not a set measure,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0120",
+      "at_ms": 1411660,
+      "raw_text": " so you shouldn't grade it based on, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0121",
+      "at_ms": 1412840,
+      "raw_text": " how accurate it is to the rhythm.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0122",
+      "at_ms": 1414240,
+      "raw_text": " It's just, like, me playing the exact notes",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0123",
+      "at_ms": 1415700,
+      "raw_text": " to know, like, what notes I'm going to play",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0124",
+      "at_ms": 1417260,
+      "raw_text": " when I play them with metronome.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0125",
+      "at_ms": 1421250,
+      "raw_text": " Oops, let me try again.",
+      "classification": "correction",
+      "classification_basis": "'Oops, let me try again' — a self-correction; no block is open, so no rep is affected; inert.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0126",
+      "at_ms": 1426350,
+      "raw_text": " Hold on, I was playing it wrong.",
+      "classification": "correction",
+      "classification_basis": "'Hold on, I was playing it wrong' — a positive self-report of an error, kin to the contract's 'no, shoot, I got it wrong' guard, but with no active practice block it cannot be a hot-loop rep; correctly inert here.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0127",
+      "at_ms": 1430270,
+      "raw_text": " So it's actually D to D octave",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0128",
+      "at_ms": 1433010,
+      "raw_text": " in the left hand.",
+      "classification": "correction",
+      "classification_basis": "Note self-correction 'it's actually D to D octave in the left hand' — corrects the just-stated note; narration, no command.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0129",
+      "at_ms": 1435740,
+      "raw_text": " So here's the next note.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0130",
+      "at_ms": 1449020,
+      "raw_text": " Obviously, it's not rhythm,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0131",
+      "at_ms": 1450070,
+      "raw_text": " but I'm just, like, playing around with it.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0132",
+      "at_ms": 1452270,
+      "raw_text": " So, again, like, don't grade it, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0133",
+      "at_ms": 1454110,
+      "raw_text": " like, I'm playing the wrong rhythm,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0134",
+      "at_ms": 1455550,
+      "raw_text": " I'm playing the wrong note,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0135",
+      "at_ms": 1456530,
+      "raw_text": " if you don't, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0136",
+      "at_ms": 1457010,
+      "raw_text": " because I'm just playing the left hand again.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0137",
+      "at_ms": 1458230,
+      "raw_text": " And you have to recognize, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0138",
+      "at_ms": 1459450,
+      "raw_text": " if I'm not telling you that",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0139",
+      "at_ms": 1460330,
+      "raw_text": " I'm going to play the left hand,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0140",
+      "at_ms": 1461490,
+      "raw_text": " like, obviously recognize it,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0141",
+      "at_ms": 1463360,
+      "raw_text": " and if you're really skeptical,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0142",
+      "at_ms": 1464440,
+      "raw_text": " just ask me, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0143",
+      "at_ms": 1464980,
+      "raw_text": " are you just playing the left hand?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0144",
+      "at_ms": 1466080,
+      "raw_text": " Like, are you just fooling around",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0145",
+      "at_ms": 1466840,
+      "raw_text": " with the left hand?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0146",
+      "at_ms": 1467420,
+      "raw_text": " Like, getting that, like, jump in,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0147",
+      "at_ms": 1468780,
+      "raw_text": " like, the thing I'm practicing here,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0148",
+      "at_ms": 1470280,
+      "raw_text": " it's not, like, getting the right note",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0149",
+      "at_ms": 1471560,
+      "raw_text": " on the right rhythm.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0150",
+      "at_ms": 1472100,
+      "raw_text": " It's, like, getting that jump,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0151",
+      "at_ms": 1474100,
+      "raw_text": " like, that feeling in my muscle memory.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0152",
+      "at_ms": 1500020,
+      "raw_text": " You can ask me, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0153",
+      "at_ms": 1508830,
+      "raw_text": " if you feel comfortable with it,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0154",
+      "at_ms": 1509890,
+      "raw_text": " and I can tell you",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0155",
+      "at_ms": 1510570,
+      "raw_text": " where I don't feel comfortable with it.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0156",
+      "at_ms": 1511970,
+      "raw_text": " And you can ask me to play it,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0157",
+      "at_ms": 1513230,
+      "raw_text": " again, just to double check",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0158",
+      "at_ms": 1514370,
+      "raw_text": " if I'm doing something wrong.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0159",
+      "at_ms": 1516850,
+      "raw_text": " And, like, if I tell you",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0160",
+      "at_ms": 1518110,
+      "raw_text": " that I'm going to play something,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0161",
+      "at_ms": 1519710,
+      "raw_text": " like, and, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0162",
+      "at_ms": 1522300,
+      "raw_text": " your expectation is that I play it,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0163",
+      "at_ms": 1524220,
+      "raw_text": " like, perfectly with no note slips,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0164",
+      "at_ms": 1525620,
+      "raw_text": " but I have a note slip",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0165",
+      "at_ms": 1526380,
+      "raw_text": " and I restart a section,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0166",
+      "at_ms": 1527800,
+      "raw_text": " don't grade everything",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0167",
+      "at_ms": 1528680,
+      "raw_text": " after the section I mess up wrong.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0168",
+      "at_ms": 1530920,
+      "raw_text": " Just note that, you know,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0169",
+      "at_ms": 1532120,
+      "raw_text": " there was a note slip in it",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0170",
+      "at_ms": 1533280,
+      "raw_text": " and I restarted a section.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0171",
+      "at_ms": 1534800,
+      "raw_text": " So don't, like, be, like, that harsh.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0172",
+      "at_ms": 1536760,
+      "raw_text": " Just, like, be more lenient about it,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0173",
+      "at_ms": 1537840,
+      "raw_text": " you know?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0174",
+      "at_ms": 1538180,
+      "raw_text": " And, like, ask.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0175",
+      "at_ms": 1539610,
+      "raw_text": " Like, ask me.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0176",
+      "at_ms": 1540730,
+      "raw_text": " Confirm everything.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0177",
+      "at_ms": 1541610,
+      "raw_text": " That's the key.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0178",
+      "at_ms": 1551290,
+      "raw_text": " Another thing, like, if,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0179",
+      "at_ms": 1561100,
+      "raw_text": " so, like, I play that right again,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0180",
+      "at_ms": 1562530,
+      "raw_text": " so it feels better.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0181",
+      "at_ms": 1564130,
+      "raw_text": " But another thing is, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0182",
+      "at_ms": 1565410,
+      "raw_text": " if I'm getting something,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0183",
+      "at_ms": 1566670,
+      "raw_text": " or if you're sure where I am",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0184",
+      "at_ms": 1568350,
+      "raw_text": " and there's something, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0185",
+      "at_ms": 1570430,
+      "raw_text": " I'm getting, like, below,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0186",
+      "at_ms": 1571570,
+      "raw_text": " like, 80% accuracy,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0187",
+      "at_ms": 1573010,
+      "raw_text": " whatever on notes,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0188",
+      "at_ms": 1573670,
+      "raw_text": " like, the bar should be,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0189",
+      "at_ms": 1574830,
+      "raw_text": " honestly, like, 80%,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0190",
+      "at_ms": 1575930,
+      "raw_text": " like, 85% accuracy.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0191",
+      "at_ms": 1577450,
+      "raw_text": " Any low 80%,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0192",
+      "at_ms": 1578510,
+      "raw_text": " you should, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0193",
+      "at_ms": 1579340,
+      "raw_text": " you should definitely ask me,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0194",
+      "at_ms": 1580780,
+      "raw_text": " like, okay,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0195",
+      "at_ms": 1581260,
+      "raw_text": " am I looking at the right section?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0196",
+      "at_ms": 1582540,
+      "raw_text": " Is it measure,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0197",
+      "at_ms": 1583140,
+      "raw_text": " whatever, whatever?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0198",
+      "at_ms": 1583960,
+      "raw_text": " And then I'll tell you",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0199",
+      "at_ms": 1584900,
+      "raw_text": " yes or no.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0200",
+      "at_ms": 1586660,
+      "raw_text": " Because, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0201",
+      "at_ms": 1587460,
+      "raw_text": " and then I can tell you,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0202",
+      "at_ms": 1588360,
+      "raw_text": " like, if it is,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0203",
+      "at_ms": 1589040,
+      "raw_text": " like, why I'm making that mistakes.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0204",
+      "at_ms": 1590540,
+      "raw_text": " Because, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0205",
+      "at_ms": 1591400,
+      "raw_text": " if it's below 80%,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0206",
+      "at_ms": 1592400,
+      "raw_text": " you should just assume",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0207",
+      "at_ms": 1593280,
+      "raw_text": " that I don't know the notes at all.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0208",
+      "at_ms": 1594480,
+      "raw_text": " Because 80% is, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0209",
+      "at_ms": 1595770,
+      "raw_text": " yeah, there should be",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0210",
+      "at_ms": 1596530,
+      "raw_text": " nothing below 80%.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0211",
+      "at_ms": 1597390,
+      "raw_text": " And if it's, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0212",
+      "at_ms": 1598190,
+      "raw_text": " if it's, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0213",
+      "at_ms": 1598870,
+      "raw_text": " an outrageously no number,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0214",
+      "at_ms": 1600210,
+      "raw_text": " you definitely just have to",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0215",
+      "at_ms": 1601090,
+      "raw_text": " re-evaluate where I am.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0216",
+      "at_ms": 1602570,
+      "raw_text": " But, yeah,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0217",
+      "at_ms": 1603920,
+      "raw_text": " because the notes should be right,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0218",
+      "at_ms": 1605900,
+      "raw_text": " maybe not, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0219",
+      "at_ms": 1606890,
+      "raw_text": " it should be 100%.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0220",
+      "at_ms": 1608030,
+      "raw_text": " It should be 95% accuracy,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0221",
+      "at_ms": 1610210,
+      "raw_text": " usually, on average.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0222",
+      "at_ms": 1611780,
+      "raw_text": " Is the bar,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0223",
+      "at_ms": 1612910,
+      "raw_text": " so if it's lower,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0224",
+      "at_ms": 1613630,
+      "raw_text": " just ask me.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0225",
+      "at_ms": 1614710,
+      "raw_text": " But ask, yeah,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0226",
+      "at_ms": 1615900,
+      "raw_text": " just ask me, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0227",
+      "at_ms": 1616640,
+      "raw_text": " wait, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0228",
+      "at_ms": 1617300,
+      "raw_text": " am I looking at the right measure?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0229",
+      "at_ms": 1618660,
+      "raw_text": " And before I'm gonna play, too,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0230",
+      "at_ms": 1620040,
+      "raw_text": " just, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0231",
+      "at_ms": 1620800,
+      "raw_text": " say, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0232",
+      "at_ms": 1621320,
+      "raw_text": " can you, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0233",
+      "at_ms": 1622080,
+      "raw_text": " confirm with me that, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0234",
+      "at_ms": 1623270,
+      "raw_text": " I know where it is before.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0235",
+      "at_ms": 1624770,
+      "raw_text": " Right?",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0236",
+      "at_ms": 1625400,
+      "raw_text": " So, yeah.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0237",
+      "at_ms": 1626780,
+      "raw_text": " So, I feel like",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0238",
+      "at_ms": 1628760,
+      "raw_text": " I've played it a lot,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0239",
+      "at_ms": 1630260,
+      "raw_text": " so I'm gonna,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0240",
+      "at_ms": 1631060,
+      "raw_text": " it's 55,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0241",
+      "at_ms": 1632100,
+      "raw_text": " I'm gonna go from 446,",
+      "classification": "asr_ambiguity",
+      "classification_basis": "Contract ASR 'measure confusion 446, 468': 'I'm gonna go from 446, 468' emits two adjacent measure numbers; a lost/ambiguous range must never silently execute — no numbered action fires.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0242",
+      "at_ms": 1633400,
+      "raw_text": " 468,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0243",
+      "at_ms": 1634700,
+      "raw_text": " which is the top of the page.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0244",
+      "at_ms": 1636110,
+      "raw_text": " So, from this D.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0245",
+      "at_ms": 1637530,
+      "raw_text": " I actually didn't make",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0246",
+      "at_ms": 1717590,
+      "raw_text": " any note mistakes.",
+      "classification": "correction",
+      "classification_basis": "Contract Scherzo3 28:37: 'I actually didn't make any note mistakes' — believe the user and permit correction; there is no mic grade to defend. No hot-loop mutation.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "scherzo3-0247",
+      "at_ms": 1720160,
+      "raw_text": " If you think I did,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0248",
+      "at_ms": 1722830,
+      "raw_text": " after listening to that",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0249",
+      "at_ms": 1723960,
+      "raw_text": " last round of through,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0250",
+      "at_ms": 1725050,
+      "raw_text": " I'm just gonna tell you",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0251",
+      "at_ms": 1726090,
+      "raw_text": " I didn't,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0252",
+      "at_ms": 1726590,
+      "raw_text": " so re-evaluate your thing.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0253",
+      "at_ms": 1728710,
+      "raw_text": " But, again,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0254",
+      "at_ms": 1729310,
+      "raw_text": " it's at tempo 55,",
+      "classification": "firewall_rejection",
+      "classification_basis": "Buried 'tempo 55' ('it's at tempo 55'); has_tempo triggers the start path but the remainder 'its 55' is not a clean number → no metronome start.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0255",
+      "at_ms": 1730960,
+      "raw_text": " so, obviously recognize",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0256",
+      "at_ms": 1732430,
+      "raw_text": " that that's slower",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0257",
+      "at_ms": 1733030,
+      "raw_text": " than I need,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0258",
+      "at_ms": 1733970,
+      "raw_text": " and also,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0259",
+      "at_ms": 1734470,
+      "raw_text": " playing it once through",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0260",
+      "at_ms": 1735290,
+      "raw_text": " perfectly doesn't mean anything.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0261",
+      "at_ms": 1737130,
+      "raw_text": " And also,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0262",
+      "at_ms": 1737650,
+      "raw_text": " tempo 55 is pretty slow.",
+      "classification": "firewall_rejection",
+      "classification_basis": "Leading 'tempo 55 is pretty slow' — has_tempo triggers but the remainder '55 is pretty slow' is not a clean number phrase → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0263",
+      "at_ms": 1739910,
+      "raw_text": " So,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0264",
+      "at_ms": 1740930,
+      "raw_text": " but,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0265",
+      "at_ms": 1742540,
+      "raw_text": " it means I worked out",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0266",
+      "at_ms": 1743440,
+      "raw_text": " a lot of the notes.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0267",
+      "at_ms": 1744320,
+      "raw_text": " But,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0268",
+      "at_ms": 1744880,
+      "raw_text": " if there's problematic things",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0269",
+      "at_ms": 1746140,
+      "raw_text": " that you know",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0270",
+      "at_ms": 1746640,
+      "raw_text": " that I'm doing,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0271",
+      "at_ms": 1747400,
+      "raw_text": " like missing notes,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0272",
+      "at_ms": 1748610,
+      "raw_text": " if you know exactly",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0273",
+      "at_ms": 1749560,
+      "raw_text": " where I am,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0274",
+      "at_ms": 1750080,
+      "raw_text": " you can remind me in advance,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0275",
+      "at_ms": 1751400,
+      "raw_text": " just be, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0276",
+      "at_ms": 1752050,
+      "raw_text": " the C sharp coming ahead",
+      "classification": "ambient_ignored",
+      "classification_basis": "Contract Scherzo3 29:12: request for a brief advance C-sharp reminder ('the C sharp coming ahead that you miss'). Provide a pre-pass cue/focus note; never claim live acoustic score-following — inert in the hot loop.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "scherzo3-0277",
+      "at_ms": 1753240,
+      "raw_text": " that you miss.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0278",
+      "at_ms": 1754110,
+      "raw_text": " Just, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0279",
+      "at_ms": 1754830,
+      "raw_text": " to remind me,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0280",
+      "at_ms": 1755670,
+      "raw_text": " you know,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0281",
+      "at_ms": 1756050,
+      "raw_text": " that I usually miss that.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0282",
+      "at_ms": 1758090,
+      "raw_text": " So, remind me",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0283",
+      "at_ms": 1758840,
+      "raw_text": " before I'm playing it,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0284",
+      "at_ms": 1759540,
+      "raw_text": " maybe, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0285",
+      "at_ms": 1759880,
+      "raw_text": " a measure in advance",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0286",
+      "at_ms": 1760660,
+      "raw_text": " and say that C sharp's",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0287",
+      "at_ms": 1761680,
+      "raw_text": " coming up next,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0288",
+      "at_ms": 1762240,
+      "raw_text": " but say it really quickly",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0289",
+      "at_ms": 1763180,
+      "raw_text": " and really briefly",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0290",
+      "at_ms": 1764140,
+      "raw_text": " and note that,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0291",
+      "at_ms": 1765300,
+      "raw_text": " like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0292",
+      "at_ms": 1765480,
+      "raw_text": " when you talk",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0293",
+      "at_ms": 1766040,
+      "raw_text": " while I'm playing,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0294",
+      "at_ms": 1766980,
+      "raw_text": " it has to be brief.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0295",
+      "at_ms": 1769130,
+      "raw_text": " So, yeah.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0296",
+      "at_ms": 1770810,
+      "raw_text": " So, that's 468",
+      "classification": "firewall_rejection",
+      "classification_basis": "Buried 'that's 468' — a bare number with no nav/rep cue → ignored.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0297",
+      "at_ms": 1773770,
+      "raw_text": " to measure 492.",
+      "classification": "review",
+      "classification_basis": "Contract Scherzo3 session range: 'to measure 492' completes the worked range 468-492. Persisting an ephemeral session goal is a Tier B decision, and 'to measure 492' is not the 'go to measure'/'show measure' nav shape, so nothing routes — escalated for adjudication.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0298",
+      "at_ms": 1778370,
+      "raw_text": " So, yeah.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0299",
+      "at_ms": 1779450,
+      "raw_text": " That's, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0300",
+      "at_ms": 1780070,
+      "raw_text": " that's a sample of, like,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0301",
+      "at_ms": 1781390,
+      "raw_text": " generally how it should work.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0302",
+      "at_ms": 1783550,
+      "raw_text": " So, the key is just",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0303",
+      "at_ms": 1784390,
+      "raw_text": " to be lenient,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0304",
+      "at_ms": 1785130,
+      "raw_text": " especially for parts",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0305",
+      "at_ms": 1786810,
+      "raw_text": " where I don't know",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0306",
+      "at_ms": 1787290,
+      "raw_text": " the music as well.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Practice meta-narration (Christian describing how the coach should behave while he plays); no command-shaped token, so the deterministic firewall routes it to `ignored` with no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "scherzo3-0307",
+      "at_ms": 1787970,
+      "raw_text": " So, yeah.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Final debrief line: the session closes with the metronome never started, no block ever opened, and zero attempts recorded — the honest whole-session invariant.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false,
+        "attempts_recorded": 0,
+        "current_clean_streak": 0,
+        "mastery": "not_applicable"
+      }
+    }
+  ]
+}
