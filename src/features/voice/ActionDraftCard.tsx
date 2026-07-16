@@ -4,13 +4,111 @@ import {
   type NaturalPracticeActionDraft,
   type PracticeHands,
 } from "./domain/actionDraft";
+import type { ProposedAction } from "./domain/proposedAction";
 import "./ActionDraftCard.css";
 
+/** Draft shapes the card can render: the editable Lane-B set form, or a slim
+ *  confirm card for a Brain-proposed spoken action. */
+export type ActionDraft = NaturalPracticeActionDraft | ProposedAction;
+
 interface ActionDraftCardProps {
-  draft: NaturalPracticeActionDraft;
-  onConfirm: (draft: NaturalPracticeActionDraft) => Promise<void> | void;
+  draft: ActionDraft;
+  onConfirm: (draft: ActionDraft) => Promise<void> | void;
   onCancel: () => void;
   confirming?: boolean;
+  /** Slim cards only: when set, the action cannot run right now (e.g. a verdict
+   *  with no active set). The card explains why and offers no Confirm. */
+  unavailableReason?: string | null;
+}
+
+const SLIM_TITLES: Record<ProposedAction["kind"], string> = {
+  verdict: "Record a verdict",
+  tempo: "Change the tempo",
+  undo: "Undo the last rep",
+  restart: "Restart the streak",
+};
+
+/**
+ * Router. The existing editable form owns `start_practice_set`; each spoken
+ * Brain proposal renders a slim, single-Confirm card. Neither writes: only the
+ * explicit Confirm reaches the parent, which maps it to one existing command.
+ */
+export function ActionDraftCard({
+  draft,
+  onConfirm,
+  onCancel,
+  confirming = false,
+  unavailableReason = null,
+}: ActionDraftCardProps) {
+  if (draft.kind === "start_practice_set") {
+    return (
+      <NaturalPracticeDraftCard
+        draft={draft}
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+        confirming={confirming}
+      />
+    );
+  }
+  return (
+    <ProposedActionSlimCard
+      draft={draft}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+      confirming={confirming}
+      unavailableReason={unavailableReason}
+    />
+  );
+}
+
+function ProposedActionSlimCard({
+  draft,
+  onConfirm,
+  onCancel,
+  confirming,
+  unavailableReason,
+}: {
+  draft: ProposedAction;
+  onConfirm: (draft: ActionDraft) => Promise<void> | void;
+  onCancel: () => void;
+  confirming: boolean;
+  unavailableReason: string | null;
+}) {
+  return (
+    <section
+      className="voice-action-draft voice-action-draft-slim"
+      aria-labelledby="voice-proposed-action-title"
+    >
+      <header>
+        <div>
+          <p>Action draft · nothing changed</p>
+          <h2 id="voice-proposed-action-title">{SLIM_TITLES[draft.kind]}</h2>
+        </div>
+        <span>{unavailableReason ? "Unavailable" : "Confirm"}</span>
+      </header>
+
+      <p className="voice-action-draft-summary">{draft.summary}</p>
+
+      {unavailableReason && (
+        <p className="voice-action-draft-unavailable" role="note">{unavailableReason}</p>
+      )}
+
+      <footer>
+        <button type="button" onClick={onCancel} disabled={confirming}>Cancel</button>
+        {!unavailableReason && (
+          <button
+            type="button"
+            className="is-confirm"
+            disabled={confirming}
+            onClick={() => void onConfirm(draft)}
+          >
+            {confirming ? "Working…" : "Confirm"}
+          </button>
+        )}
+      </footer>
+      <small>Nothing changes until you confirm. This runs one existing command.</small>
+    </section>
+  );
 }
 
 function optionalInteger(value: string): number | null {
@@ -34,12 +132,17 @@ function revalidate(
  * Lane-B action preview. It owns editable draft state, but cannot write. The
  * parent is the only place allowed to translate a confirmed draft into IPC.
  */
-export function ActionDraftCard({
+function NaturalPracticeDraftCard({
   draft,
   onConfirm,
   onCancel,
   confirming = false,
-}: ActionDraftCardProps) {
+}: {
+  draft: NaturalPracticeActionDraft;
+  onConfirm: (draft: ActionDraft) => Promise<void> | void;
+  onCancel: () => void;
+  confirming?: boolean;
+}) {
   const [value, setValue] = useState(() => revalidate(draft));
 
   useEffect(() => setValue(revalidate(draft)), [draft]);

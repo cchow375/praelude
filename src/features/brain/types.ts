@@ -40,6 +40,11 @@ export interface BrainAnswer {
   methods: BrainMethod[];
   intake_review?: BrainIntakeReview | null;
   grounding?: BrainGroundingSummary;
+  /**
+   * Confirm-gated spoken-request action. Backend emits it only for voice
+   * questions and only when well-formed; the frontend re-narrows it before use.
+   */
+  proposed_action?: unknown;
 }
 
 export interface BrainGroundingSummary {

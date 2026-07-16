@@ -80,10 +80,14 @@ machine-checked); a read-only anomaly disclosure panel in the Ledger; and the Br
 upgrade (one-glance default across Claude+Gemini, durable per-piece memory via the now-wired
 `brain_thread`/`brain_turn` tables, retention/ledger grounding — verified to add NO
 practice-mutation authority: the only new production writes are the Brain's own conversation).
-**Corpus finding:** the deterministic hot-loop firewall is rock-solid, so the real leverage gap is
-conversational voice control — the Brain proposing confirm-gated verdict/tempo/goal/undo/restart
-drafts. **That + the Brain's typed-action tools are deferred to a piano session with Christian**
-(they need his ear on hands-free confirm feel and touch the "LLM never in the hot loop" rule).
-Autonomous next: live browser QA, scalable history → full native/adversarial release. v2 is not
-shipped and the installed app/tutorial remain v1.3.0. Off-disk remote and packaged v2 Steinway
-acceptance remain open.
+the wake-cue conversational voice-control FIRST CUT (on "Coda, ..." the Brain proposes a typed,
+confirm-gated verdict/tempo/undo/restart draft → existing command; hot-loop untouched; malformed
+proposals drop; nothing mutates without Confirm; independently verified; session-goal deferred).
+**Corpus finding:** the deterministic hot-loop firewall is rock-solid, so the leverage was
+conversational voice control, now built as above. **What remains for a piano session with
+Christian** is the confirm-card FEEL (hands-free approval) + the session-goal draft — they need
+his ear and the browser aesthetic pass is his too (harness ready: `npm run dev:mock`). Objective
+browser QA is done (all five workspaces mount clean; fixed a Calendar copy bug; the Calendar
+7-day overflow is logged to B25). Remaining autonomous-safe: B25 scalable-history fixes needing
+his design direction → then full native/adversarial release. v2 is not shipped and the installed
+app/tutorial remain v1.3.0. Off-disk remote and packaged v2 Steinway acceptance remain open.

@@ -142,7 +142,9 @@ pub struct IntakeReview {
     pub fields: Vec<IntakeReviewField>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// `BrainAnswer` no longer derives `Eq`: a `proposed_action` may carry a float
+// tempo. Equality is still available via `PartialEq` where tests need it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BrainAnswer {
     pub id: String,
     pub answer: String,
@@ -151,6 +153,81 @@ pub struct BrainAnswer {
     pub methods: Vec<MethodCard>,
     pub intake_review: Option<IntakeReview>,
     pub grounding: GroundingSummary,
+    // A confirm-gated action the Brain proposes for a *spoken* practice request.
+    // Never populated for typed questions, and only when the provider returned a
+    // well-formed, in-bounds action object. Nothing mutates until the user
+    // explicitly confirms it in the frontend.
+    pub proposed_action: Option<ProposedAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProposedVerdict {
+    Clean,
+    Flawed,
+    Failed,
+}
+
+/// The closed set of confirm-gated actions a spoken practice request may
+/// propose. Serialized to the frontend, which shows a slim confirm card and
+/// maps each variant to the existing backend command only on explicit confirm.
+/// The provider is never trusted: `provider::ProposedActionInput::validate`
+/// checks every field and drops anything malformed or out of range.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProposedActionBody {
+    Verdict {
+        verdict: ProposedVerdict,
+        note: Option<String>,
+    },
+    Tempo {
+        bpm: f64,
+    },
+    Undo,
+    Restart {
+        required_clean_streak: Option<u32>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ProposedAction {
+    /// Human-readable line the card shows. Generated deterministically from the
+    /// validated body — never provider free text — so the card cannot be a
+    /// vector for injected copy.
+    pub summary: String,
+    #[serde(flatten)]
+    pub body: ProposedActionBody,
+}
+
+impl ProposedAction {
+    pub fn new(body: ProposedActionBody) -> Self {
+        let summary = match &body {
+            ProposedActionBody::Verdict { verdict, .. } => match verdict {
+                ProposedVerdict::Clean => "Record this attempt as clean".to_string(),
+                ProposedVerdict::Flawed => "Record this attempt as flawed".to_string(),
+                ProposedVerdict::Failed => "Record this attempt as failed".to_string(),
+            },
+            ProposedActionBody::Tempo { bpm } => {
+                format!("Set the metronome to {}", format_bpm(*bpm))
+            }
+            ProposedActionBody::Undo => "Undo the last rep".to_string(),
+            ProposedActionBody::Restart {
+                required_clean_streak,
+            } => match required_clean_streak {
+                Some(streak) => format!("Restart the streak ({streak} clean in a row)"),
+                None => "Restart the streak".to_string(),
+            },
+        };
+        Self { summary, body }
+    }
+}
+
+fn format_bpm(bpm: f64) -> String {
+    if bpm.fract().abs() < f64::EPSILON {
+        format!("{}", bpm as i64)
+    } else {
+        format!("{bpm:.1}")
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -338,6 +415,7 @@ fn ask_with(
             corpus.hits,
             intake_review,
             grounding,
+            None,
         ));
     }
 
@@ -345,6 +423,7 @@ fn ask_with(
         provider,
         answer,
         citation_ids,
+        proposed_action,
     } = match chain.ask(question, request.source, &context, transport) {
         Ok(output) => output,
         Err(BrainError::ProviderUnavailable) => {
@@ -353,9 +432,17 @@ fn ask_with(
                 corpus.hits,
                 intake_review,
                 grounding,
+                None,
             ))
         }
         Err(error) => return Err(error),
+    };
+
+    // Voice-only gate: a typed question behaves exactly as before, so any action
+    // the provider returned for a typed request is discarded here.
+    let proposed_action = match request.source {
+        QuestionSource::Voice => proposed_action,
+        QuestionSource::Typed => None,
     };
 
     if let Some(_reason) = output_policy_violation_reason(&answer) {
@@ -402,11 +489,14 @@ fn ask_with(
     if citations.is_empty()
         || (share_knowledge && !corpus.hits.is_empty() && !cites_external_library)
     {
+        // The prose fell back to a grounded offline line, but a validated action
+        // stands on its own bounded schema, so it still rides the safe answer.
         return Ok(offline_answer(
             methods,
             corpus.hits,
             intake_review,
             grounding,
+            proposed_action,
         ));
     }
 
@@ -418,6 +508,7 @@ fn ask_with(
         methods,
         intake_review,
         grounding,
+        proposed_action,
     })
 }
 
@@ -426,6 +517,7 @@ fn offline_answer(
     corpus_hits: Vec<corpus::CorpusHit>,
     intake_review: Option<IntakeReview>,
     mut grounding: GroundingSummary,
+    proposed_action: Option<ProposedAction>,
 ) -> BrainAnswer {
     // Context construction happens before provider selection. An offline
     // fallback transmits nothing, even when online sharing is enabled.
@@ -473,6 +565,7 @@ fn offline_answer(
         methods,
         intake_review,
         grounding,
+        proposed_action,
     }
 }
 
@@ -1544,6 +1637,129 @@ mod tests {
         assert!(!output_crosses_policy(
             "Set a musical goal for the phrase, then press each piano key without sound."
         ));
+    }
+
+    /// A voice request whose canned vendor JSON carries `action_json` as its
+    /// `proposed_action`, grounded on `source-1` so the answer is the provider's
+    /// (not an offline fallback). The answer text is deliberately neutral so the
+    /// output policy never rejects it.
+    fn ask_voice_action(action_json: serde_json::Value, source: QuestionSource) -> BrainAnswer {
+        let (store, sessions, _) = fixture();
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Claude,
+            "secret-claude",
+            "claude-test",
+        )]);
+        let vendor = json!({
+            "answer": "Confirm below when you are ready.",
+            "citation_ids": ["source-1"],
+            "proposed_action": action_json,
+        })
+        .to_string();
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type": "text", "text": vendor}]
+        }))]);
+        ask_with(
+            BrainAskRequest {
+                source,
+                ..request("Coda, take care of this")
+            },
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn voice_request_surfaces_each_validated_action_variant() {
+        let verdict = ask_voice_action(
+            json!({"kind": "verdict", "verdict": "clean"}),
+            QuestionSource::Voice,
+        );
+        assert_eq!(verdict.provider, ProviderName::Claude);
+        let action = verdict.proposed_action.expect("verdict action surfaces");
+        assert_eq!(action.summary, "Record this attempt as clean");
+        assert_eq!(
+            action.body,
+            ProposedActionBody::Verdict {
+                verdict: ProposedVerdict::Clean,
+                note: None
+            }
+        );
+
+        let tempo = ask_voice_action(json!({"kind": "tempo", "bpm": 120}), QuestionSource::Voice);
+        assert_eq!(
+            tempo.proposed_action.map(|action| action.body),
+            Some(ProposedActionBody::Tempo { bpm: 120.0 })
+        );
+
+        let undo = ask_voice_action(json!({"kind": "undo"}), QuestionSource::Voice);
+        assert_eq!(
+            undo.proposed_action.map(|action| action.body),
+            Some(ProposedActionBody::Undo)
+        );
+
+        let restart = ask_voice_action(json!({"kind": "restart"}), QuestionSource::Voice);
+        assert_eq!(
+            restart.proposed_action.map(|action| action.body),
+            Some(ProposedActionBody::Restart {
+                required_clean_streak: None
+            })
+        );
+    }
+
+    #[test]
+    fn voice_request_drops_a_malformed_action_but_still_answers() {
+        for bad in [
+            json!({"kind": "tempo", "bpm": 5000}),
+            json!({"kind": "verdict", "verdict": "perfect"}),
+            json!({"kind": "verdict", "verdict": "clean", "bogus": true}),
+            json!({"kind": "teleport"}),
+        ] {
+            let answer = ask_voice_action(bad.clone(), QuestionSource::Voice);
+            assert!(answer.proposed_action.is_none(), "should drop: {bad}");
+            assert!(!answer.answer.trim().is_empty(), "answer still returned: {bad}");
+        }
+    }
+
+    #[test]
+    fn text_request_never_carries_a_proposed_action() {
+        // Same well-formed action, but a typed source must behave exactly as
+        // before: no draft, only the normal answer.
+        let answer = ask_voice_action(json!({"kind": "undo"}), QuestionSource::Typed);
+        assert!(answer.proposed_action.is_none());
+        assert!(!answer.answer.trim().is_empty());
+    }
+
+    #[test]
+    fn voice_request_without_an_action_yields_no_draft() {
+        let (store, sessions, _) = fixture();
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Claude,
+            "secret-claude",
+            "claude-test",
+        )]);
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type": "text", "text": "{\"answer\":\"A silent landing separates arrival from the leap.\",\"citation_ids\":[\"source-1\"]}"}]
+        }))]);
+        let answer = ask_with(
+            BrainAskRequest {
+                source: QuestionSource::Voice,
+                ..request("Coda, how do I land this leap?")
+            },
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap();
+        assert!(answer.proposed_action.is_none());
     }
 
     #[test]

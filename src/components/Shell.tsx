@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Popover } from "./Popover";
 import { MetronomePopover } from "../features/metronome/MetronomePopover";
 import { useVoice, type VoiceStatus } from "../features/voice/useVoice";
@@ -8,6 +9,8 @@ import {
   parseNaturalPracticeActionDraft,
   type NaturalPracticeActionDraft,
 } from "../features/voice/domain/actionDraft";
+import type { ProposedAction } from "../features/voice/domain/proposedAction";
+import type { BrainProposedActionEvent } from "../features/brain/BrainWorkspace";
 import type { TierAContext } from "../features/voice/domain/tierAIntent";
 import { PiecesPanel } from "../features/pieces/PiecesPanel";
 import {
@@ -56,6 +59,11 @@ const VIEWS: Array<{ id: ViewId; label: string }> = [
 interface PendingVoiceDraft {
   readonly deliveryKey: string;
   readonly draft: NaturalPracticeActionDraft;
+}
+
+interface PendingBrainAction {
+  readonly answerId: string;
+  readonly action: ProposedAction;
 }
 
 export interface VoiceDraftOpenRequest {
@@ -166,10 +174,15 @@ export function Shell({
   const [pendingVoiceDraft, setPendingVoiceDraft] = useState<PendingVoiceDraft | null>(null);
   const [voiceDraftConfirming, setVoiceDraftConfirming] = useState(false);
   const [voiceDraftError, setVoiceDraftError] = useState<string | null>(null);
+  const [pendingBrainAction, setPendingBrainAction] = useState<PendingBrainAction | null>(null);
+  const [brainActionConfirming, setBrainActionConfirming] = useState(false);
+  const [brainActionError, setBrainActionError] = useState<string | null>(null);
   const wakeQuestionId = useRef(0);
   const lastOpenedSet = useRef<number | null>(null);
   const suppressedVoiceDrafts = useRef(new Set<string>());
   const voiceDraftInFlight = useRef<string | null>(null);
+  const suppressedBrainActions = useRef(new Set<string>());
+  const brainActionInFlight = useRef<string | null>(null);
   const brainRef = useRef<HTMLButtonElement>(null);
   const brainCloseRef = useRef<HTMLButtonElement>(null);
   const setDeskRef = useRef<HTMLButtonElement>(null);
@@ -297,6 +310,89 @@ export function Shell({
       }
     }
   }, [rep.open, suppressVoiceDraft]);
+
+  // The active set a verdict/undo/restart would target. Tempo is metronome-wide
+  // and needs no open set, so it is intentionally excluded from this guard.
+  const brainActionUnavailableReason = useCallback((action: ProposedAction): string | null => {
+    if (rep.snap) return null;
+    switch (action.kind) {
+      case "verdict":
+        return "A verdict needs an active set. Open a set first, then ask again.";
+      case "undo":
+        return "There is no active set to undo an attempt from.";
+      case "restart":
+        return "There is no active set to restart.";
+      default:
+        return null;
+    }
+  }, [rep.snap]);
+
+  const onBrainProposedAction = useCallback((event: BrainProposedActionEvent) => {
+    if (suppressedBrainActions.current.has(event.answerId)) return;
+    setPendingBrainAction({ answerId: event.answerId, action: event.action });
+    setBrainActionError(null);
+    // The proposal lives in the Brain drawer; keep it foregrounded over the Set
+    // Desk so the confirm card is visible and reachable when it appears.
+    setSetDeskOpen(false);
+    setBrainOpen(true);
+  }, []);
+
+  const suppressBrainAction = useCallback((answerId: string) => {
+    suppressedBrainActions.current.add(answerId);
+    if (suppressedBrainActions.current.size > 100) {
+      const oldest = suppressedBrainActions.current.values().next().value;
+      if (oldest) suppressedBrainActions.current.delete(oldest);
+    }
+  }, []);
+
+  const cancelBrainAction = useCallback(() => {
+    if (pendingBrainAction) suppressBrainAction(pendingBrainAction.answerId);
+    setPendingBrainAction(null);
+    setBrainActionError(null);
+  }, [pendingBrainAction, suppressBrainAction]);
+
+  const confirmBrainAction = useCallback(async (
+    answerId: string,
+    action: ProposedAction,
+  ) => {
+    if (brainActionInFlight.current !== null) return;
+    if (brainActionUnavailableReason(action)) return;
+    brainActionInFlight.current = answerId;
+    setBrainActionConfirming(true);
+    setBrainActionError(null);
+    try {
+      switch (action.kind) {
+        case "verdict":
+          await rep.check(action.verdict, action.note);
+          break;
+        case "tempo":
+          await invoke("metro_set", { bpm: action.bpm });
+          break;
+        case "undo":
+          await rep.undo();
+          break;
+        case "restart":
+          await rep.restart(action.required_clean_streak);
+          break;
+      }
+      suppressBrainAction(answerId);
+      setPendingBrainAction((current) =>
+        current?.answerId === answerId ? null : current
+      );
+    } catch (cause) {
+      const message = cause instanceof Error
+        ? cause.message
+        : typeof cause === "string"
+          ? cause
+          : "The spoken action could not be applied.";
+      setBrainActionError(message);
+    } finally {
+      if (brainActionInFlight.current === answerId) {
+        brainActionInFlight.current = null;
+        setBrainActionConfirming(false);
+      }
+    }
+  }, [brainActionUnavailableReason, rep.check, rep.restart, rep.undo, suppressBrainAction]);
 
   useEffect(() => {
     const blockId = rep.snap?.block_id ?? null;
@@ -505,10 +601,13 @@ export function Shell({
               draft={pendingVoiceDraft.draft}
               confirming={voiceDraftConfirming}
               onCancel={cancelVoiceDraft}
-              onConfirm={(draft) => confirmVoiceDraft(
-                pendingVoiceDraft.deliveryKey,
-                draft,
-              )}
+              onConfirm={(draft) => {
+                // This surface only ever renders the start_practice_set form;
+                // narrow the router's union back to the Lane-B draft.
+                if (draft.kind === "start_practice_set") {
+                  void confirmVoiceDraft(pendingVoiceDraft.deliveryKey, draft);
+                }
+              }}
             />
           )}
           {voiceDraftError && <p className="voice-draft-error" role="alert">{voiceDraftError}</p>}
@@ -535,7 +634,27 @@ export function Shell({
           <button ref={brainCloseRef} type="button" aria-label="Collapse Practice Brain" onClick={closeBrain}><span aria-hidden="true">×</span></button>
         </header>
         <div className="practice-brain-drawer-body">
-          <BrainWorkspace compact wakeQuestion={wakeQuestion} practiceContext={groundedBrainContext} />
+          <BrainWorkspace
+            compact
+            wakeQuestion={wakeQuestion}
+            practiceContext={groundedBrainContext}
+            onProposedAction={onBrainProposedAction}
+          />
+          {pendingBrainAction && (
+            <div className="voice-command-surface">
+              <ActionDraftCard
+                draft={pendingBrainAction.action}
+                confirming={brainActionConfirming}
+                unavailableReason={brainActionUnavailableReason(pendingBrainAction.action)}
+                onCancel={cancelBrainAction}
+                onConfirm={() => confirmBrainAction(
+                  pendingBrainAction.answerId,
+                  pendingBrainAction.action,
+                )}
+              />
+              {brainActionError && <p className="voice-draft-error" role="alert">{brainActionError}</p>}
+            </div>
+          )}
         </div>
       </aside>
 

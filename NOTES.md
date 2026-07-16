@@ -2,6 +2,50 @@
 
 ## Decisions
 
+- **Wake-cue conversational draft layer — first cut, verified SHIP (2026-07-16, Opus):**
+  - **The trigger decision was Christian's (he chose WAKE-CUE).** The corpus proved conversational
+    intent is too varied for regex and that ambient narration must never mutate. Three trigger
+    models were possible (wake-cue / proactive-on-ignored-finals / manual); Christian picked
+    wake-cue — deterministic, zero ambient API cost, cleanly inside the "LLM never in the hot loop"
+    rule. On "Coda, ..." the Brain may propose a typed action; ambient speech never reaches the
+    draft path, so the 1,309-segment corpus (zero "coda" tokens) stays zero-draft by construction.
+  - **Architecture: the Brain PROPOSES a typed action; strict validation gates; explicit confirm
+    is the backstop; existing commands execute.** No new command, no lib.rs edit — confirm reuses
+    rep_check / metro_set / rep_undo / rep_restart. Four draft types: verdict, tempo, undo,
+    restart. Session-goal DEFERRED (no backend home; do not build a session-goal concept blind).
+  - **Backend (brain/{mod,provider}.rs):** `BrainAnswer` gained `proposed_action:
+    Option<ProposedAction>` (closed tagged enum Verdict/Tempo/Undo/Restart + a DETERMINISTICALLY
+    generated `summary` — never provider text, so card copy can't be an injection vector). The
+    vendor JSON's action is held as `Option<Value>` in `RawAnswer` (so a malformed action can
+    NEVER fail the whole answer parse), then `from_value().ok()` + `.validate()` into a
+    `deny_unknown_fields` input: bpm finite + within `audio::clock::MIN_BPM..=MAX_BPM` (1.0–1000),
+    note trimmed/≤200, restart streak 1..=100, verdict closed enum, cross-kind fields rejected.
+    Invalid → `None` (answer still returned). Voice-only gate: `match request.source { Voice =>
+    action, Typed => None }`.
+  - **Frontend:** `proposedAction.ts` mirrors the union + re-narrows the IPC payload with the same
+    bounds (defense in depth, fail-closed). `ActionDraftCard` became a router: the existing
+    start_practice_set form is extracted verbatim (prior tests unchanged); the 4 new kinds get a
+    SLIM card (summary + Confirm/Cancel, no heavy form). `BrainWorkspace` fires onProposedAction
+    only when `source === "voice"`. `Shell.confirmBrainAction` is the ONLY command site; verdict/
+    undo/restart need an active block (dual guard: hidden Confirm + early-return re-checked against
+    live rep.snap), tempo is metronome-wide so stays confirmable with no open set.
+  - **The one real design call (flagged + verified benign):** a validated action rides the
+    citation-grounding FALLBACK answer too (for Voice), so tempo/undo/restart surface even when
+    the prose has no book citation. Verified: it attaches ONLY after a real provider returned Ok;
+    the two truly-offline exits (empty chain / ProviderUnavailable) hardcode `None`. The note is
+    bounded and flows only to rep_check as the recorded note, never rendered as card copy.
+  - **SAFETY BOUNDARY verified by orchestrator (grep) AND an independent fresh-context verifier:**
+    intent/ (hot-loop) = 0 changed lines, metronome.rs = 0, lib.rs = 0; `proposed_action` appears
+    nowhere outside brain/. No auto-confirm path (single Confirm-gated site). Malformed-drop bite
+    proven on a `cargo clean -p` fresh recompile (12 bad cases → None), closing the stale-binary
+    false-pass hazard (mtime-preserving `sed -i.bak`+`mv` edits make cargo reuse a stale test
+    binary — always `touch` the source or `cargo clean -p` before trusting a bite-check).
+  - **Gates:** cargo lib 465/0/10 ignored (+7); strict clippy; vitest 615 (+11); build green.
+  - **FIRST CUT — the confirm-card FEEL is Christian's to tune at the piano** (how it reads back,
+    hands-free confirm); this landed the LAYER, not the tuned UX. When v2 ships, [[(C) How To Use]]
+    needs the "Coda, ..." conversational grammar (installed app still v1.3.0, so no tutorial change
+    yet).
+
 - **Dev-mock browser harness — the v2 UI renders in a plain browser now (2026-07-16, Opus):**
   - **Why:** the whole v2 UI had only ever been jsdom-tested; no real-browser render existed, so
     visual/design QA was impossible (flagged in the Universe audit). Built a flag-gated dev-mock so

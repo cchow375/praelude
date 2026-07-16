@@ -65,7 +65,12 @@ function defaultRepState() {
 
 const useRepMock = vi.fn(defaultRepState);
 
+// A voice Brain answer the wake path resolves to. Tests set this before render
+// to drive the proposed-action slim card; null means no answer override.
+let brainAskAnswer: unknown = null;
+
 const invokeMock = vi.fn().mockImplementation((command: string) => {
+  if (command === "brain_ask") return Promise.resolve(brainAskAnswer);
   if (command === "pieces_list" || command === "daily_work_list") return Promise.resolve([]);
   if (command === "universe_snapshot") {
     return Promise.resolve({
@@ -160,6 +165,7 @@ beforeEach(() => {
   useRepMock.mockReset().mockImplementation(defaultRepState);
   useVoiceMock.mockReset().mockImplementation(defaultVoiceState);
   parseDraftMock.mockReset();
+  brainAskAnswer = null;
 });
 
 // ---------------------------------------------------------------------------
@@ -419,6 +425,93 @@ describe("Shell — Lane-B voice draft", () => {
     // suppressed deliveryKey must keep the card from reappearing.
     rerender(<Shell defaultCleanStreak={6} />);
     expect(screen.queryByRole("heading", { name: "Review the spoken set." })).toBeNull();
+  });
+});
+
+describe("Shell — Brain proposed action (voice/wake path)", () => {
+  function brainAnswer(proposedAction: unknown) {
+    return {
+      id: "brain-action-1",
+      answer: "Confirm below when you are ready.",
+      provider: "claude",
+      citations: [],
+      methods: [],
+      intake_review: null,
+      proposed_action: proposedAction,
+    };
+  }
+
+  function wakeVoiceState() {
+    return {
+      ...defaultVoiceState(),
+      lastIntent: { kind: "question", text: "Coda, take care of this", bpm: null },
+    };
+  }
+
+  it("surfaces a tempo slim card and confirms it via metro_set", async () => {
+    brainAskAnswer = brainAnswer({ kind: "tempo", summary: "Set the metronome to 120", bpm: 120 });
+    useVoiceMock.mockReturnValue(wakeVoiceState());
+
+    render(<Shell />);
+
+    expect(await screen.findByText("Set the metronome to 120")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("metro_set", { bpm: 120 }),
+    );
+  });
+
+  it("confirms a verdict against the active set via rep.check", async () => {
+    const check = vi.fn().mockResolvedValue(undefined);
+    useRepMock.mockReturnValue({ ...defaultRepState(), check });
+    brainAskAnswer = brainAnswer({
+      kind: "verdict",
+      summary: "Record this attempt as clean",
+      verdict: "clean",
+      note: null,
+    });
+    useVoiceMock.mockReturnValue(wakeVoiceState());
+
+    render(<Shell />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(check).toHaveBeenCalledWith("clean", null));
+  });
+
+  it("shows the no-confirm state for a verdict with no active set", async () => {
+    useRepMock.mockReturnValue({ ...defaultRepState(), snap: null });
+    brainAskAnswer = brainAnswer({
+      kind: "verdict",
+      summary: "Record this attempt as clean",
+      verdict: "clean",
+      note: null,
+    });
+    useVoiceMock.mockReturnValue(wakeVoiceState());
+
+    render(<Shell />);
+
+    expect(await screen.findByText(/verdict needs an active set/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
+  });
+
+  it("shows only the answer when no proposed action is present", async () => {
+    brainAskAnswer = brainAnswer(undefined);
+    useVoiceMock.mockReturnValue(wakeVoiceState());
+
+    render(<Shell />);
+
+    expect(await screen.findByText("Confirm below when you are ready.")).toBeTruthy();
+    expect(screen.queryByText("Action draft · nothing changed")).toBeNull();
+  });
+
+  it("drops a malformed proposed action but still answers", async () => {
+    brainAskAnswer = brainAnswer({ kind: "tempo", summary: "Set the metronome to 9000", bpm: 9000 });
+    useVoiceMock.mockReturnValue(wakeVoiceState());
+
+    render(<Shell />);
+
+    expect(await screen.findByText("Confirm below when you are ready.")).toBeTruthy();
+    expect(screen.queryByText("Action draft · nothing changed")).toBeNull();
   });
 });
 

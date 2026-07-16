@@ -139,3 +139,20 @@
 @media (max-width: 520px) {
   .voice-action-draft-grid { grid-template-columns: 1fr; }
 }
+
+/* Slim confirm card for a Brain-proposed spoken action. Reuses the base
+   panel chrome; adds only the summary line and the no-confirm notice. */
+.voice-action-draft-slim .voice-action-draft-summary {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--surface-app);
+}
+.voice-action-draft-slim .voice-action-draft-unavailable {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-app) 10%, transparent);
+  color: color-mix(in srgb, var(--surface-app) 70%, transparent);
+  font-size: var(--text-xs);
+}

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::context::GroundedContext;
-use super::{BrainError, QuestionSource};
+use super::{BrainError, ProposedAction, ProposedActionBody, ProposedVerdict, QuestionSource};
 
 const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
 const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -18,6 +18,8 @@ const DEFAULT_CLAUDE_MODEL: &str = "claude-sonnet-4-6";
 const DEFAULT_GEMINI_MODEL: &str = "gemini-3.5-flash";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_ANSWER_CHARS: usize = 4_000;
+const MAX_ACTION_NOTE_CHARS: usize = 200;
+const MAX_RESTART_STREAK: u32 = 100;
 
 const SYSTEM_POLICY: &str = r#"You are Coda, a grounded, conversational piano-practice explainer.
 Hard boundaries:
@@ -31,7 +33,11 @@ Hard boundaries:
 - When retrieved_book_chunks is non-empty, cite at least one of those exact chunk source_ids so the answer is visibly grounded in the external library.
 Answering style:
 - Answer at one glance by default: 1–2 sentences, no preamble and no restating of the question. Expand into steps or numbered detail only when the question explicitly asks for it or the answer genuinely requires it (for example, a drill's exact reps and tempo).
-Return one JSON object only: {"answer":"...","citation_ids":["known-source-id"]}."#;
+Spoken practice-control requests (proposed_action):
+- ONLY when the question source is Voice AND the pianist is plainly asking you to record a rep verdict, change the metronome tempo, undo the last rep, or restart the current set's clean streak, you MAY add one optional "proposed_action" object so the app can show a confirm button. Otherwise omit it entirely.
+- Its schema is exactly one of: {"kind":"verdict","verdict":"clean"|"flawed"|"failed"} | {"kind":"tempo","bpm":NUMBER} | {"kind":"undo"} | {"kind":"restart"} (a restart may add "required_clean_streak":INTEGER). Add no other keys and no other kinds.
+- proposed_action is only a proposal the app will confirm; you are not performing it. Keep the "answer" text one-glance and neutral — never claim you recorded a verdict, changed tempo, or ran any control.
+Return one JSON object only: {"answer":"...","citation_ids":["known-source-id"]} plus an optional "proposed_action" as above."#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -171,10 +177,12 @@ impl ProviderChain {
             };
             match parsed {
                 Ok(raw) => {
+                    let proposed_action = parse_proposed_action(raw.proposed_action);
                     return Ok(ProviderOutput {
                         provider: config.provider,
                         answer: raw.answer,
                         citation_ids: raw.citation_ids,
+                        proposed_action,
                     });
                 }
                 Err(_) => {
@@ -367,6 +375,99 @@ struct RawAnswer {
     answer: String,
     #[serde(default)]
     citation_ids: Vec<String>,
+    // Kept as an unvalidated value so a malformed action can never fail the whole
+    // answer parse. It is parsed into the closed type and dropped on any error.
+    #[serde(default)]
+    proposed_action: Option<Value>,
+}
+
+/// Untrusted proposed-action shape. `deny_unknown_fields` mirrors the codebase's
+/// typed-validation discipline: an unknown key fails deserialization, and
+/// `validate` then drops (rather than surfaces) anything out of the closed set.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProposedActionInput {
+    kind: String,
+    #[serde(default)]
+    verdict: Option<String>,
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    bpm: Option<f64>,
+    #[serde(default)]
+    required_clean_streak: Option<u32>,
+}
+
+impl ProposedActionInput {
+    /// Validate the untrusted proposal into the closed action type, or drop it.
+    /// Each kind permits only its own fields; anything else returns `None`.
+    fn validate(self) -> Option<ProposedAction> {
+        let body = match self.kind.as_str() {
+            "verdict" => {
+                if self.bpm.is_some() || self.required_clean_streak.is_some() {
+                    return None;
+                }
+                let verdict = match self.verdict.as_deref() {
+                    Some("clean") => ProposedVerdict::Clean,
+                    Some("flawed") => ProposedVerdict::Flawed,
+                    Some("failed") => ProposedVerdict::Failed,
+                    _ => return None,
+                };
+                let note = match self.note {
+                    Some(note) => {
+                        let trimmed = note.trim();
+                        if trimmed.is_empty() || trimmed.chars().count() > MAX_ACTION_NOTE_CHARS {
+                            return None;
+                        }
+                        Some(trimmed.to_string())
+                    }
+                    None => None,
+                };
+                ProposedActionBody::Verdict { verdict, note }
+            }
+            "tempo" => {
+                if self.verdict.is_some()
+                    || self.note.is_some()
+                    || self.required_clean_streak.is_some()
+                {
+                    return None;
+                }
+                let bpm = self.bpm?;
+                if !bpm.is_finite()
+                    || !(crate::audio::clock::MIN_BPM..=crate::audio::clock::MAX_BPM)
+                        .contains(&bpm)
+                {
+                    return None;
+                }
+                ProposedActionBody::Tempo { bpm }
+            }
+            "undo" => {
+                if self.verdict.is_some()
+                    || self.note.is_some()
+                    || self.bpm.is_some()
+                    || self.required_clean_streak.is_some()
+                {
+                    return None;
+                }
+                ProposedActionBody::Undo
+            }
+            "restart" => {
+                if self.verdict.is_some() || self.note.is_some() || self.bpm.is_some() {
+                    return None;
+                }
+                if let Some(streak) = self.required_clean_streak {
+                    if !(1..=MAX_RESTART_STREAK).contains(&streak) {
+                        return None;
+                    }
+                }
+                ProposedActionBody::Restart {
+                    required_clean_streak: self.required_clean_streak,
+                }
+            }
+            _ => return None,
+        };
+        Some(ProposedAction::new(body))
+    }
 }
 
 fn validate_raw(raw: RawAnswer) -> Result<RawAnswer, BrainError> {
@@ -385,7 +486,16 @@ fn validate_raw(raw: RawAnswer) -> Result<RawAnswer, BrainError> {
     Ok(RawAnswer {
         answer: answer.to_string(),
         citation_ids: raw.citation_ids,
+        proposed_action: raw.proposed_action,
     })
+}
+
+/// Silently parse and validate an optional proposed action. Any error — bad
+/// shape, unknown field, unknown kind, out-of-range value — drops to `None`.
+fn parse_proposed_action(value: Option<Value>) -> Option<ProposedAction> {
+    value
+        .and_then(|value| serde_json::from_value::<ProposedActionInput>(value).ok())
+        .and_then(ProposedActionInput::validate)
 }
 
 fn parse_json_answer(text: &str) -> Result<RawAnswer, BrainError> {
@@ -456,6 +566,7 @@ pub struct ProviderOutput {
     pub provider: ProviderName,
     pub answer: String,
     pub citation_ids: Vec<String>,
+    pub proposed_action: Option<ProposedAction>,
 }
 
 #[cfg(test)]
@@ -600,11 +711,82 @@ mod tests {
     }
 
     #[test]
+    fn system_policy_gates_proposed_action_on_voice_and_keeps_answer_neutral() {
+        assert!(SYSTEM_POLICY.contains("proposed_action"));
+        assert!(SYSTEM_POLICY.contains("ONLY when the question source is Voice"));
+        assert!(SYSTEM_POLICY.contains("Otherwise omit it entirely"));
+        assert!(SYSTEM_POLICY.contains("Keep the \"answer\" text one-glance and neutral"));
+    }
+
+    #[test]
+    fn valid_proposed_actions_parse_into_the_closed_type() {
+        let clean = parse_proposed_action(Some(json!({"kind":"verdict","verdict":"clean"})))
+            .expect("verdict parses");
+        assert_eq!(
+            clean.body,
+            ProposedActionBody::Verdict {
+                verdict: ProposedVerdict::Clean,
+                note: None
+            }
+        );
+        assert_eq!(clean.summary, "Record this attempt as clean");
+
+        let tempo =
+            parse_proposed_action(Some(json!({"kind":"tempo","bpm":120}))).expect("tempo parses");
+        assert_eq!(tempo.body, ProposedActionBody::Tempo { bpm: 120.0 });
+        assert_eq!(tempo.summary, "Set the metronome to 120");
+
+        assert_eq!(
+            parse_proposed_action(Some(json!({"kind":"undo"})))
+                .unwrap()
+                .body,
+            ProposedActionBody::Undo
+        );
+
+        let restart = parse_proposed_action(Some(
+            json!({"kind":"restart","required_clean_streak":3}),
+        ))
+        .expect("restart parses");
+        assert_eq!(
+            restart.body,
+            ProposedActionBody::Restart {
+                required_clean_streak: Some(3)
+            }
+        );
+        assert_eq!(restart.summary, "Restart the streak (3 clean in a row)");
+    }
+
+    #[test]
+    fn malformed_or_out_of_range_proposed_actions_drop_to_none() {
+        for bad in [
+            json!({"kind":"tempo","bpm":5000}),                        // out of range
+            json!({"kind":"tempo","bpm":0}),                           // below MIN_BPM
+            json!({"kind":"tempo"}),                                   // missing bpm
+            json!({"kind":"tempo","bpm":null}),                        // null bpm
+            json!({"kind":"verdict","verdict":"perfect"}),            // unknown verdict
+            json!({"kind":"verdict","verdict":"clean","bpm":120}),    // cross-field leak
+            json!({"kind":"verdict","verdict":"clean","bogus":true}), // unknown field
+            json!({"kind":"restart","required_clean_streak":0}),      // below floor
+            json!({"kind":"restart","required_clean_streak":9999}),   // above ceiling
+            json!({"kind":"teleport"}),                               // unknown kind
+            json!({"kind":"undo","bpm":120}),                         // extra field
+            json!("clean"),                                           // not an object
+        ] {
+            assert!(
+                parse_proposed_action(Some(bad.clone())).is_none(),
+                "should drop: {bad}"
+            );
+        }
+        assert!(parse_proposed_action(None).is_none());
+    }
+
+    #[test]
     fn answer_cap_rejects_over_ceiling_provider_text() {
         let over = "a".repeat(MAX_ANSWER_CHARS + 1);
         let result = validate_raw(RawAnswer {
             answer: over,
             citation_ids: vec![],
+            proposed_action: None,
         });
         assert!(matches!(result, Err(BrainError::ProviderResponse)));
         // At the ceiling is still accepted; one-glance is a default, not the cap.
@@ -612,6 +794,7 @@ mod tests {
         assert!(validate_raw(RawAnswer {
             answer: at,
             citation_ids: vec![],
+            proposed_action: None,
         })
         .is_ok());
     }

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { brainApi } from "./api";
 import { todayLocal } from "../calendar/dates";
+import {
+  parseProposedAction,
+  type ProposedAction,
+} from "../voice/domain/proposedAction";
 import type {
   BrainAnswer,
   BrainApi,
@@ -24,11 +28,19 @@ interface ThreadEntry {
   answer: BrainAnswer;
 }
 
+export interface BrainProposedActionEvent {
+  readonly answerId: string;
+  readonly action: ProposedAction;
+}
+
 export interface BrainWorkspaceProps {
   api?: BrainApi;
   wakeQuestion?: WakeQuestion | null;
   compact?: boolean;
   practiceContext?: PracticeBrainContext | null;
+  /** Fires when a *voice* answer carries a well-formed confirm-gated action.
+   *  The parent owns the slim card and the confirm→command mapping. */
+  onProposedAction?: (event: BrainProposedActionEvent) => void;
 }
 
 const MAX_HISTORY_EXCHANGES = 6;
@@ -85,6 +97,7 @@ export function BrainWorkspace({
   wakeQuestion = null,
   compact = false,
   practiceContext = null,
+  onProposedAction,
 }: BrainWorkspaceProps) {
   const [draft, setDraft] = useState("");
   const [thread, setThread] = useState<ThreadEntry[]>([]);
@@ -165,13 +178,19 @@ export function BrainWorkspace({
         ...current,
         { id: `${answer.id}:${current.length}`, question, source, answer },
       ]);
+      // Voice-only, defense-in-depth: even though the backend gates on Voice, a
+      // draft surfaces only for a spoken exchange and a re-narrowed action.
+      if (source === "voice" && onProposedAction) {
+        const action = parseProposedAction(answer.proposed_action);
+        if (action) onProposedAction({ answerId: answer.id, action });
+      }
       if (source === "typed") setDraft("");
     } catch (cause) {
       setError(errorMessage(cause, "The practice brain could not answer."));
     } finally {
       setAsking(false);
     }
-  }, [api, asking, practiceContext, thread, threadId]);
+  }, [api, asking, onProposedAction, practiceContext, thread, threadId]);
 
   const clearConversation = useCallback(async () => {
     const pieceId = practiceContext?.piece_id ?? null;
