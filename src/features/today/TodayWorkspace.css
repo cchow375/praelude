@@ -295,3 +295,86 @@
   .today-retention > summary { grid-template-columns: 1fr; }
   .today-retention > summary .ck-kicker { grid-column: 1; grid-row: auto; }
 }
+
+/* ── Session composer + reviewed plan progression ──────────────────────── */
+.today-composer {
+  margin-top: var(--space-6);
+}
+.today-composer-note {
+  padding: var(--space-4);
+  border: 1px solid var(--line-soft, rgba(0, 0, 0, 0.12));
+  border-radius: var(--radius-md, 0.75rem);
+  color: var(--ink-soft, inherit);
+  font-size: var(--text-sm);
+}
+.today-plan-progress {
+  margin-top: var(--space-5);
+  padding: var(--space-5);
+  border: 1px solid var(--line-soft, rgba(0, 0, 0, 0.12));
+  border-radius: var(--radius-lg, 1rem);
+}
+.today-plan-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+.today-plan-progress-copy {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--ink-soft, inherit);
+}
+.today-plan-list {
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.today-plan-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-soft, rgba(0, 0, 0, 0.1));
+  border-radius: var(--radius-md, 0.75rem);
+}
+.today-plan-item[data-started="true"] {
+  opacity: 0.62;
+}
+.today-plan-item-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.today-plan-order {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-lg);
+  opacity: 0.5;
+}
+.today-plan-item h3 {
+  margin: 0;
+  font-size: var(--text-md, 1rem);
+}
+.today-plan-item p {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-soft, inherit);
+}
+.today-plan-status {
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.today-plan-start:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.today-plan-hint {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--ink-soft, inherit);
+}

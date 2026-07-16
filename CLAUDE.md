@@ -73,7 +73,9 @@ idempotent safety stop; physically-anchored recovery; validated typed retention;
 sets; the transactional Score Atlas target save; single-owner voice lanes (`handled` transcript
 flag); and the five-workspace shell with the earned Universe. Disposable backup copies migrate
 7→10 and reopen idempotently with exact source counts/hashes, integrity `ok`, FK 0, and 792
-disclosed anomalies; the live database was never opened. Next: the narrated replay corpus, anomaly
-review, the Composer's backend plan-start command, and Brain upgrades → full native/adversarial
-release. v2 is not shipped and the installed app/tutorial remain v1.3.0. Off-disk remote and
-packaged v2 Steinway acceptance remain open.
+disclosed anomalies; the live database was never opened. Later same day: the Composer's receipted
+`session_plan_start` + honest Today mount, and the stateful narrated replay harness (griffes
+79/79 through production routing, zero false mutations). Next: the scherzo replay batch (1,230
+segments), anomaly review, and Brain upgrades → full native/adversarial release. v2 is not
+shipped and the installed app/tutorial remain v1.3.0. Off-disk remote and packaged v2 Steinway
+acceptance remain open.

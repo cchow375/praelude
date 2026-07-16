@@ -812,6 +812,120 @@ pub(crate) fn validate_open(
         .map_err(|error| invalid(format!("invalid contract: {error:?}")))
 }
 
+/// Open one live rep set inside an already-open transaction, reusing the exact
+/// block/contract/context/event writes `v2_open_set` commits. Callers own the
+/// transaction and commit, so a durable command (e.g. the reviewed session
+/// plan) can atomically wrap this open in one receipted operation. Enforces the
+/// single-live-set invariant here so an in-flight block rejects a second open
+/// with no partial writes. Returns the fresh `V2Open` plus the operation's
+/// canonical event ids for the receipt.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn open_set_in_tx(
+    tx: &Transaction<'_>,
+    session_hint: Option<i64>,
+    args: &RepOpenArgs,
+    rule: &IncrementRule,
+    planned_reps: u32,
+    contract: &PracticeContract,
+    context: Option<&SetFocusContextInput>,
+    source: MutationSource,
+    command_id: &str,
+    now: &str,
+) -> rusqlite::Result<(V2Open, Vec<i64>)> {
+    let active_exists: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM set_contract WHERE set_state IN ('active','paused'))",
+        [],
+        |row| row.get(0),
+    )?;
+    if active_exists {
+        return Err(invalid("close the current block first"));
+    }
+    if let Some(region_id) = args.region_id {
+        let valid: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM region WHERE id=?1 AND piece_id=?2)",
+            rusqlite::params![region_id, args.piece_id],
+            |row| row.get(0),
+        )?;
+        if !valid {
+            return Err(invalid("region does not belong to piece"));
+        }
+    }
+    let session = super::practice_loop::resolve_practice_session(
+        tx,
+        session_hint,
+        source,
+        command_id,
+        now,
+    )?;
+    let persisted_start = (args.focus == "tempo" || args.use_metronome).then_some(args.start_bpm);
+    let block_id: i64 = tx.query_row(
+        "INSERT INTO rep_block
+             (piece_id,m_start,m_end,label,start_bpm,target_bpm,increment_rule,
+              planned_reps,variants,focus,use_metronome,region_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,
+               COALESCE(?12,(SELECT id FROM region WHERE piece_id=?1 AND m_start<=?2 AND m_end>=?3
+                ORDER BY (m_end-m_start),sort_order,id LIMIT 1))) RETURNING id",
+        rusqlite::params![
+            args.piece_id,
+            args.m_start,
+            args.m_end,
+            args.label,
+            persisted_start,
+            args.target_bpm,
+            json_to_sql(rule)?,
+            planned_reps,
+            json_to_sql(&args.variants)?,
+            args.focus,
+            args.use_metronome,
+            args.region_id,
+        ],
+        |row| row.get(0),
+    )?;
+    insert_contract(
+        tx,
+        block_id,
+        contract,
+        "active",
+        None,
+        source,
+        context.and_then(|value| value.planned_seconds),
+    )?;
+    super::practice_loop::capture_open_context(tx, block_id, args, context, now)?;
+    let payload = json!({
+        "block_id": block_id,
+        "piece_id": args.piece_id,
+        "m_start": args.m_start,
+        "m_end": args.m_end,
+        "required_clean_streak": contract.required_success,
+        "source": source_name(source),
+        "command_id": command_id,
+    });
+    let (feed_id, open_event_id) = insert_event(
+        tx,
+        EventWrite {
+            session_id: Some(session.id),
+            piece_id: args.piece_id,
+            kind: "rep_open",
+            payload: &payload,
+            entity_type: "set",
+            entity_id: block_id,
+            source,
+            command_id,
+            timestamp: Some(now),
+        },
+    )?;
+    let snapshot = project(tx, block_id)?;
+    let event_ids = super::practice_loop::operation_event_ids(session, open_event_id);
+    Ok((
+        V2Open {
+            snapshot,
+            feed_id: feed_id.expect("session-backed open has feed row"),
+            session_id: session.id,
+        },
+        event_ids,
+    ))
+}
+
 impl Store {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_open_set(
@@ -833,96 +947,20 @@ impl Store {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let tx = conn.transaction()?;
-        let active_exists: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM set_contract WHERE set_state IN ('active','paused'))",
-            [],
-            |row| row.get(0),
-        )?;
-        if active_exists {
-            return Err(invalid("close the current block first"));
-        }
-        if let Some(region_id) = args.region_id {
-            let valid: bool = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM region WHERE id=?1 AND piece_id=?2)",
-                rusqlite::params![region_id, args.piece_id],
-                |row| row.get(0),
-            )?;
-            if !valid {
-                return Err(invalid("region does not belong to piece"));
-            }
-        }
-        let session = super::practice_loop::resolve_practice_session(
+        let (opened, _events) = open_set_in_tx(
             &tx,
             session_hint,
+            args,
+            rule,
+            planned_reps,
+            contract,
+            context,
             source,
             command_id,
             now,
         )?;
-        let persisted_start =
-            (args.focus == "tempo" || args.use_metronome).then_some(args.start_bpm);
-        let block_id: i64 = tx.query_row(
-            "INSERT INTO rep_block
-             (piece_id,m_start,m_end,label,start_bpm,target_bpm,increment_rule,
-              planned_reps,variants,focus,use_metronome,region_id)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,
-               COALESCE(?12,(SELECT id FROM region WHERE piece_id=?1 AND m_start<=?2 AND m_end>=?3
-                ORDER BY (m_end-m_start),sort_order,id LIMIT 1))) RETURNING id",
-            rusqlite::params![
-                args.piece_id,
-                args.m_start,
-                args.m_end,
-                args.label,
-                persisted_start,
-                args.target_bpm,
-                json_to_sql(rule)?,
-                planned_reps,
-                json_to_sql(&args.variants)?,
-                args.focus,
-                args.use_metronome,
-                args.region_id,
-            ],
-            |row| row.get(0),
-        )?;
-        insert_contract(
-            &tx,
-            block_id,
-            contract,
-            "active",
-            None,
-            source,
-            context.and_then(|value| value.planned_seconds),
-        )?;
-        super::practice_loop::capture_open_context(&tx, block_id, args, context, now)?;
-        let payload = json!({
-            "block_id": block_id,
-            "piece_id": args.piece_id,
-            "m_start": args.m_start,
-            "m_end": args.m_end,
-            "required_clean_streak": contract.required_success,
-            "source": source_name(source),
-            "command_id": command_id,
-        });
-        let (feed_id, _) = insert_event(
-            &tx,
-            EventWrite {
-                session_id: Some(session.id),
-                piece_id: args.piece_id,
-                kind: "rep_open",
-                payload: &payload,
-                entity_type: "set",
-                entity_id: block_id,
-                source,
-                command_id,
-                timestamp: Some(now),
-            },
-        )?;
-        let snapshot = project(&tx, block_id)?;
         tx.commit()?;
-        Ok(V2Open {
-            snapshot,
-            feed_id: feed_id.expect("session-backed open has feed row"),
-            session_id: session.id,
-        })
+        Ok(opened)
     }
 
     pub(crate) fn v2_snapshot(&self, block_id: i64) -> rusqlite::Result<RepSnapshot> {

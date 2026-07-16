@@ -15,3 +15,10 @@ export type {
   ComposerCandidateSnapshot,
   UseComposerCandidates,
 } from "./useComposerCandidates";
+export { isStartableTargetRef, useSessionPlan } from "./useSessionPlan";
+export type {
+  ActiveSessionPlan,
+  SessionPlanStartOutcome,
+  SessionPlanStartPayload,
+  UseSessionPlan,
+} from "./useSessionPlan";

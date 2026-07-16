@@ -3,6 +3,13 @@ import { universeSnapshot } from "../universe/api";
 import type { PracticePieceContext, UniverseSnapshot } from "../universe/types";
 import { todayLocal } from "../calendar/dates";
 import { RetentionQueue } from "../retention";
+import {
+  isStartableTargetRef,
+  SessionComposer,
+  useComposerCandidates,
+  useSessionPlan,
+} from "../composer";
+import type { RepSnapshot } from "../rep/useRep";
 import "./TodayWorkspace.css";
 
 interface TodayWorkspaceProps {
@@ -10,7 +17,11 @@ interface TodayWorkspaceProps {
   onOpenCalendar: () => void;
   onOpenPiece: (piece: PracticePieceContext) => void;
   defaultCleanStreak?: number;
+  /** The live rep set, sourced from the shell's rep engine, or null when none is
+   *  open. A live set blocks starting the next plan item (single-live-set). */
+  activeBlock?: RepSnapshot | null;
 }
+
 
 function messageOf(reason: unknown) {
   if (reason instanceof Error) return reason.message;
@@ -42,11 +53,18 @@ export function TodayWorkspace({
   onOpenCalendar,
   onOpenPiece,
   defaultCleanStreak = 5,
+  activeBlock = null,
 }: TodayWorkspaceProps) {
   const [snapshot, setSnapshot] = useState<UniverseSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retentionOpen, setRetentionOpen] = useState(false);
+
+  // The composer only mounts while Today is the visible workspace, so its
+  // evidence is always current-and-visible here.
+  const { candidates, loading: candidatesLoading, error: candidatesError } =
+    useComposerCandidates({ active: true, asOfDate: todayLocal() });
+  const plan = useSessionPlan();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -157,6 +175,82 @@ export function TodayWorkspace({
           <span className="today-plan-arrow" aria-hidden="true">→</span>
         </button>
       </section>
+
+      <section className="today-composer ck-reveal-item" aria-label="Compose a reviewed session">
+        {candidatesError ? (
+          <p className="today-composer-note" role="status">{candidatesError}</p>
+        ) : candidatesLoading && candidates.length === 0 ? (
+          <p className="today-composer-note" role="status">Reading explicit retention, repair, and planned work…</p>
+        ) : (
+          <SessionComposer
+            candidates={candidates}
+            onStartSession={(reviewed) => plan.startPlan(reviewed)}
+          />
+        )}
+      </section>
+
+      {plan.activePlan && (
+        <section className="today-plan-progress ck-reveal-item" aria-label="Active session plan">
+          <header className="today-plan-progress-head">
+            <div>
+              <p className="ck-kicker">Active session plan</p>
+              <h2>Start each item when you are ready.</h2>
+              <p className="today-plan-progress-copy">
+                One live set at a time. The record already holds the started item; nothing else is written until you start it.
+              </p>
+            </div>
+            <button type="button" className="ck-text-action" onClick={plan.clearPlan}>Dismiss plan</button>
+          </header>
+          <ol className="today-plan-list">
+            {plan.activePlan.plan.sequence.map((item) => {
+              const started = plan.activePlan?.startedSequences.includes(item.sequence) ?? false;
+              const startable = isStartableTargetRef(item.target_ref);
+              const busy = plan.startingSequence !== null;
+              const blockedByLive = activeBlock != null;
+              const name = item.target_label?.trim() || `Target ${item.target_ref}`;
+              const piece = item.piece_label?.trim() || `Piece ${item.piece_ref}`;
+              return (
+                <li
+                  key={item.candidate_id}
+                  className="today-plan-item"
+                  data-started={started}
+                >
+                  <div className="today-plan-item-main">
+                    <span className="today-plan-order" aria-hidden="true">
+                      {String(item.sequence).padStart(2, "0")}
+                    </span>
+                    <div>
+                      <h3>{name}</h3>
+                      <p>{piece} · {item.allocated_minutes} min</p>
+                    </div>
+                  </div>
+                  {started ? (
+                    <span className="today-plan-status" data-kind="started">Started</span>
+                  ) : startable ? (
+                    <button
+                      type="button"
+                      className="ck-primary-action today-plan-start"
+                      disabled={busy || blockedByLive}
+                      onClick={() => void plan.startItem(item.sequence)}
+                    >
+                      {plan.startingSequence === item.sequence ? "Starting…" : "Start item"}
+                    </button>
+                  ) : (
+                    <span className="today-plan-status" data-kind="unstartable">
+                      No measure target to open
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+          {activeBlock != null && (
+            <p className="today-plan-hint" role="status">
+              Finish or close the current set before starting the next item.
+            </p>
+          )}
+        </section>
+      )}
 
       <details className="today-retention ck-reveal-item" onToggle={(event) => setRetentionOpen(event.currentTarget.open)}>
         <summary>

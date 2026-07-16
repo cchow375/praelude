@@ -468,6 +468,7 @@ export function Shell({
                 onOpenCalendar={() => navigateView("calendar")}
                 onOpenPiece={openPiece}
                 defaultCleanStreak={defaultCleanStreak}
+                activeBlock={rep.snap}
               />
             </div>
           ) : view === "atlas" ? (

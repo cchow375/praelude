@@ -2,6 +2,47 @@
 
 ## Decisions
 
+- **P7 Composer plan-start + narrated replay harness checkpoint (2026-07-16, later same day):**
+  - **`action_draft` cannot hold session plans — by design, not accident.** Its CHECK constraint
+    (`source IN ('voice_draft','brain_draft')`, migrations.rs:645) and column shape model a
+    natural-language edit awaiting confirmation. The durable plan record is the start command's
+    OWN receipt: `practice_operation.value_json` carries the full `SessionPlanStartOutcome`
+    (plan + started item + snapshot). Receipt-as-record is the pattern for reviewed UI handoffs;
+    no schema change (v10 untouched).
+  - **`session_plan_start`** (lib.rs:600/:1226; engine rep/mod.rs:539; store
+    store/session_plan.rs) opens item 1 through the EXTRACTED `open_set_in_tx`
+    (practice_v2.rs:823; `v2_open_set` now wraps it — verified verbatim-identical by line diff).
+    Progression is per-item explicit start (`command_id` = `{planId}:{seq}`, namespaced
+    `session-plan-start:`); one-live-set enforced store-level and surfaced in Today; goal-only
+    items get no Start button (no measure target) — no dead buttons.
+  - **Known-benign edge (documented, not fixed):** replaying an already-closed item's command
+    re-projects that block and momentarily sets it as the in-memory active snapshot. Unreachable
+    via the UI (started items lose their button; busy-gating), and durable state is hard-guarded
+    (`v2_record_attempt` rejects non-active sets; `active_exists` blocks second opens). Worst
+    case is transient cosmetic HUD state until the next emission.
+  - **The narrated replay harness** (tests/narrated_session_replay.rs) mirrors `handle_final`
+    exactly — independently verified on the two subtle points: ambient finals do NOT seed the
+    dedup ledger (production returns on Ignored before `self.last =`), and the 2.5s window
+    slides on suppressed re-sends (set before the suppress-return). Rep verdicts fold through
+    the public pure `ledger::derive` + `PracticeContract` — no private-module reach-ins, no
+    lib.rs coupling.
+  - **Griffes replays 79/79 segments → all Ignored, zero mutations — honest and correct** (a
+    note-hunting session; buried "turn the metronome on" and ambiguous number runs correctly
+    firewalled). Fixture pins verbatim text + at_ms + WAV SHA. Self-proof tests cover what a
+    quiet session can't: identical-"done" resend collapse (3 sends → 1 rep), streak reset on
+    "again", mastery on the 5th consecutive clean BY CONTRACT, live-Mode threading. Progressive
+    `90→96` single-action collapse remains an explicitly open Lane A/C item — deferred, not
+    faked.
+  - **Batch recipe for scherzo1/2/3 (721/201/308 segments):**
+    scripts/gen_narrated_session_fixture.py (preserved from the lane's /tmp — /tmp files die;
+    always move build artifacts into the repo) + per-session adjudication overrides; the harness
+    needs zero new code. Scherzo sessions DO open blocks, so they exercise the rep paths. If a
+    segment exposes a real defect: keep the contract-correct expectation and let the harness
+    fail loudly — never bend the fixture.
+  - **Gates:** cargo 445/0/10 ignored (+9), all five gate suites (incl. narrated_session_replay
+    5/5), strict clippy; vitest 592 (+5); build green. Fresh verifier: SHIP (zero extraction
+    drift; harness mirroring faithful; edge benign).
+
 - **P7 / v2.0.0 practice-loop stabilization — recovered night build, verified SHIP (2026-07-16):**
   - **Trust nothing an interrupted fixer claims; verify per blocker.** The July 15 Codex night
     build died at its 21:28 vendor lockout mid-edit (84 uncommitted files, non-compiling, its own

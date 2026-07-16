@@ -15,11 +15,13 @@ pub mod model;
 mod practice_loop;
 mod practice_v2;
 mod score_atlas;
+mod session_plan;
 mod tutorials;
 mod v8_backfill;
 
 pub use events::EventKind;
 pub use score_atlas::AtomicTargetSavePayload;
+pub use session_plan::{SessionPlanStartOutcome, SessionPlanStartPayload};
 pub(crate) use practice_v2::{command_id as v2_command_id, validate_open as v2_validate_open};
 
 use std::path::Path;

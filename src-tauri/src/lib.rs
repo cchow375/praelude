@@ -584,6 +584,28 @@ fn score_atlas_target_save(
         .map_err(|e| e.to_string())
 }
 
+fn rejected_plan(
+    command_id: &str,
+    error: String,
+) -> MutationReceipt<store::SessionPlanStartOutcome> {
+    MutationReceipt::rejected(command_id, "session_plan_rejected", error)
+}
+
+/// Start one reviewed session plan item as the live rep set. The whole plan is
+/// carried through and persisted in the durable receipt; only the item at
+/// `start_sequence` opens. A repeated `command_id` replays the committed result
+/// without opening a second block; a start while a block is already live is
+/// rejected with no partial writes.
+#[tauri::command]
+fn session_plan_start(
+    payload: store::SessionPlanStartPayload,
+    rep: State<'_, Arc<RepEngine>>,
+) -> MutationReceipt<store::SessionPlanStartOutcome> {
+    let command_id = format!("session-plan-start:{}", payload.command_id);
+    rep.session_plan_start(&payload)
+        .unwrap_or_else(|error| rejected_plan(&command_id, error))
+}
+
 // ── Local tutorial video metadata + Region clip mappings ───────────────────
 
 /// Authorize only directories containing paths that already passed the Store's
@@ -1201,6 +1223,7 @@ pub fn run() {
             region_merge,
             region_split,
             score_atlas_target_save,
+            session_plan_start,
             tutorial_video_list,
             tutorial_video_scan,
             tutorial_video_upsert,

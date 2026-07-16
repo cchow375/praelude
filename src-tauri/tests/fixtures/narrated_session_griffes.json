@@ -1,0 +1,845 @@
+{
+  "schema": "codakiller.narrated_session_replay.v1",
+  "session_id": "griffes",
+  "piece_alias_hint": "Griffes",
+  "source_wav_sha256": "48f2780ce73b70bca71783a82890e88a5a29d5a20fab667042a2f16922a1b42b",
+  "source_narration_json": "/Users/c3/piano-coach/test_assets/narrated/griffes_narration.json",
+  "segment_count": 79,
+  "wake_word": null,
+  "initial_state": {
+    "metro_running": false,
+    "metro_bpm": null,
+    "block_active": false
+  },
+  "honesty_note": "Griffes is a 79-segment new-piece note-hunting session. Every segment is ambient narration or a buried/ASR-ambiguous command token that the deterministic firewall must route to `ignored` with ZERO durable state mutation. There are no genuine hot-loop commands in this recording; that is the honest result, and the checkpoints assert the invariant at every contract-named boundary. Classifications are adjudication metadata; the assertion is routed-intent == expected plus the checkpoint state.",
+  "segments": [
+    {
+      "id": "griffes-0000",
+      "at_ms": 70,
+      "raw_text": " All right, I'm going to try to do the griff, the Charles, uh, Griffiths, um, Lake, the lake at",
+      "classification": "ambient_ignored",
+      "classification_basis": "New-piece acquisition narration (contract Griffes 00:00): naming the piece, no command token.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "griffes-0001",
+      "at_ms": 6760,
+      "raw_text": " evening. Let's try to practice this. So honestly, I have no clue what any of the notes are. So the",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0002",
+      "at_ms": 14000,
+      "raw_text": " first thing I'm going to, I, I've maybe sight read this once. So I'm going to try to, it's A major,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0003",
+      "at_ms": 19860,
+      "raw_text": " I think. So C sharp, F sharp, G sharp, by the way, I'm a terrible sight reader. I have horrible music",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0004",
+      "at_ms": 24060,
+      "raw_text": " theory. So like, I don't know any music theory. So just keep that in mind, but it seems like it's",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0005",
+      "at_ms": 30060,
+      "raw_text": " sharp. So, so it starts off. Um, so I'm going to try to play through and there's going to be a lot of",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0006",
+      "at_ms": 38450,
+      "raw_text": " tempo discrepancy. So there's a lot to learn here for you. I mean, and me, I'm still note hunting.",
+      "classification": "ambient_ignored",
+      "classification_basis": "'I'm still note hunting' — narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0007",
+      "at_ms": 176600,
+      "raw_text": " Before, like there was obviously a lot of note hunting. So just mark it as a place I need to",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0008",
+      "at_ms": 180200,
+      "raw_text": " practice. Here I'm note hunting, obviously. Honestly, I don't know if it's worth like trying to play through",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0009",
+      "at_ms": 372160,
+      "raw_text": " the whole thing. Cause I'm honestly just like not solid. Um, this piece isn't solid at all. So",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0010",
+      "at_ms": 378940,
+      "raw_text": " there's a lot of parts to work on. I think I should try to tackle the hardest part first,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0011",
+      "at_ms": 386550,
+      "raw_text": " which is definitely, um, I don't have measure numbers. Give me a moment. Just like writing",
+      "classification": "ambient_ignored",
+      "classification_basis": "'I don't have measure numbers. Give me a moment.' — no numbered command is issued.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0012",
+      "at_ms": 445330,
+      "raw_text": " down the measure numbers. Don't, don't do anything. But like moments of silence like this,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Explicit 'Don't, don't do anything' during silence (contract Griffes 07:25 → no action).",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "griffes-0013",
+      "at_ms": 450100,
+      "raw_text": " like recognize when it's silence, obviously. Okay. So I think the hardest part, it starts around",
+      "classification": "ambient_ignored",
+      "classification_basis": "'recognize when it's silence' — silence span is inert.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0014",
+      "at_ms": 475730,
+      "raw_text": " measure 30, um, 31. It's like where it starts. And I think like it definitely, yeah. So 31 is where it",
+      "classification": "correction",
+      "classification_basis": "Measure self-correction 30→31 (contract Griffes 07:55: correction must be immediate) but NO range command is open, so it is inert.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "griffes-0015",
+      "at_ms": 483260,
+      "raw_text": " gets a little hard. So I'm just going to try to, um, I'm just going to try to practice it separate",
+      "classification": "ambient_ignored",
+      "classification_basis": "'practice it separate hands' — Tier C method narration; would need a confirmed Tier B draft, not a hot-loop command.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0016",
+      "at_ms": 487940,
+      "raw_text": " hands for now. And write down anything I see. So I think it's just tricky for me right now,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0017",
+      "at_ms": 518410,
+      "raw_text": " cause I don't know the notes. It's just switching hands on the left hand. Um, so yes, I will try",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0018",
+      "at_ms": 525460,
+      "raw_text": " to learn these notes. I noticed that the top for the whole thing until measure 35 for the left hand,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Observation that the top voice is a static E until m.35 (contract Griffes 08:45: save only as an observation).",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0019",
+      "at_ms": 532100,
+      "raw_text": " like it's, it's like an E. Um, so I'm just going to note that, um, E. Pattern I can notice.",
+      "classification": "ambient_ignored",
+      "classification_basis": "'just going to note that E' — observation, persisted only via draft/confirm; firewall takes no hot-loop action.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0020",
+      "at_ms": 549650,
+      "raw_text": " I'm actually going to turn the metronome on. Three, four. So 43 quarter and 30 quarter note.",
+      "classification": "asr_ambiguity",
+      "classification_basis": "Buried 'turn the metronome on' PLUS ambiguous 'so 43 quarter and 30 quarter note' (contract Griffes 09:09): multiple guessed numbers must never execute; the firewall yields NO metronome start.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "griffes-0021",
+      "at_ms": 567010,
+      "raw_text": " I'm going to switch between these two measures. Five, two. So you're noticing that the last B is a three,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Fingering/measure number narration ('five, two ... three, two'); bare numbers never route.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0022",
+      "at_ms": 617140,
+      "raw_text": " and then it goes to a two on a, it just switches from B to B, but it's three, two on that when you turn.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0023",
+      "at_ms": 623890,
+      "raw_text": " I should go back to three actually for here. No, so I should keep four then four important to keep",
+      "classification": "correction",
+      "classification_basis": "Fingering self-correction ('go back to three ... no, keep four'); inert — no active state to correct.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0024",
+      "at_ms": 656200,
+      "raw_text": " four here. Cause then it goes down to five. Okay. I see. So I'm going to keep doing this.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0025",
+      "at_ms": 661180,
+      "raw_text": " So right. Recognize like you have the XML too, and you have to think logically about what fingerings",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0026",
+      "at_ms": 667910,
+      "raw_text": " work. So you have to think about what a human hand looks like, what's helpful and like what will",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0027",
+      "at_ms": 672580,
+      "raw_text": " actually help. What helps is minimal movement. You have to minimize the amount. I have to like",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0028",
+      "at_ms": 676340,
+      "raw_text": " reshift my hand position for these fingerings. So that's what I'm trying to do here.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0029",
+      "at_ms": 695780,
+      "raw_text": " Five, two, two, one. And then you just, it's still five, two, one for this,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0030",
+      "at_ms": 717250,
+      "raw_text": " but it's, um, it's just, you move down a half step and then up a half step.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0031",
+      "at_ms": 724670,
+      "raw_text": " Cause this, this is like the first time and, um, measure 34. It's like the first time you break the",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0032",
+      "at_ms": 736830,
+      "raw_text": " E and the top, go to go. So my whole, I have to read, this is the first like complete reshift",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0033",
+      "at_ms": 769120,
+      "raw_text": " from 35 to 36. And then I, if I learn the notes, it'll be fine. So after 35, 36, obviously I'm",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0034",
+      "at_ms": 799300,
+      "raw_text": " going to block everything. Yeah. I'm just going to keep it at five. You can also, you can always",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0035",
+      "at_ms": 819710,
+      "raw_text": " suggest fingerings too. I'm pretty, that might be another thing. Cause that's kind of hard for you",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0036",
+      "at_ms": 824890,
+      "raw_text": " to know what fingers work, but. I'm going to turn metronomal. I'm going to do a 40 quarter note.",
+      "classification": "firewall_rejection",
+      "classification_basis": "Buried 'turn metronomal' (misheard metronome) + '40 quarter note'; not a clean metronome command → ignored.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "griffes-0037",
+      "at_ms": 863090,
+      "raw_text": " Let me try again. I'm going to go from 30 actually, not 31.",
+      "classification": "correction",
+      "classification_basis": "'go from 30 actually, not 31' self-correction; inert (no active range/tracker).",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0038",
+      "at_ms": 900620,
+      "raw_text": " Try again. Notes are completely new, by the way.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0039",
+      "at_ms": 957300,
+      "raw_text": " I'm going to do a sequence of chords from 30. So it's, it's this, this, this. It only moves up.",
+      "classification": "ambient_ignored",
+      "classification_basis": "'sequence of chords from 30' — describing intended work; no command shape.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0040",
+      "at_ms": 984910,
+      "raw_text": " It stays. The top, it's only the top that moves up to E.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0041",
+      "at_ms": 992670,
+      "raw_text": " And then it goes back to the same thing. It's the same thing right here on measure 33. It's the",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0042",
+      "at_ms": 1003150,
+      "raw_text": " same thing. I'll try that. So start here thing. It's the same thing here too. So they're just",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0043",
+      "at_ms": 1033710,
+      "raw_text": " separated a spice apart.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0044",
+      "at_ms": 1072090,
+      "raw_text": " And again, important thing to note for all of this is all the repetition I have to do. There's so much",
+      "classification": "ambient_ignored",
+      "classification_basis": "Meta-coaching about repetition (contract Griffes 17:52): descriptive, not a hot-loop command.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0045",
+      "at_ms": 1087170,
+      "raw_text": " just repetition. Your job is much easier than it sounds. It's just listen and make me do repetition.",
+      "classification": "ambient_ignored",
+      "classification_basis": "'It's just listen and make me do repetition' — instruction to the coach, not a command grammar match.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0046",
+      "at_ms": 1095100,
+      "raw_text": " Just repetition for like normal slow sections is by far the biggest thing.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0047",
+      "at_ms": 1104860,
+      "raw_text": " Wait, so let me go from 30.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0048",
+      "at_ms": 1155400,
+      "raw_text": " This is severely recognizable and severe tempo, but still push repetition. That was a pause,",
+      "classification": "ambient_ignored",
+      "classification_basis": "'That was a pause ... it doesn't mean I didn't play it' — a pause is inert; no rep.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0049",
+      "at_ms": 1286190,
+      "raw_text": " but obviously it doesn't mean I didn't play it. Just like it's a pause. So it's fine.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Continues: the pause creates no rep and no state change.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0050",
+      "at_ms": 1297290,
+      "raw_text": " So by the way, like you should be saying one more time or five more times, and if I want to push back and say",
+      "classification": "ambient_ignored",
+      "classification_basis": "'you should be saying one more time or five more times' (contract Griffes 21:37): describing a desired target, not issuing one.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0051",
+      "at_ms": 1355870,
+      "raw_text": " something else, you have to listen and say, okay, and you have to change the skit playing.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0052",
+      "at_ms": 1415510,
+      "raw_text": " You have to listen and say, okay, and you have to change the skit playing as",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0053",
+      "at_ms": 1420350,
+      "raw_text": " I don't even know.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0054",
+      "at_ms": 1442370,
+      "raw_text": " Some fingerings down, down far like that. It's like a bottom f kind of just that sequence.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0055",
+      "at_ms": 1712250,
+      "raw_text": " So it's, it's, it's the same up to here, but then it goes up again. Just this note of the next measure.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0056",
+      "at_ms": 1793840,
+      "raw_text": " Some serious rhythmic issues. So I'm just going to try playing without the metronome first to get the syncing right.",
+      "classification": "firewall_rejection",
+      "classification_basis": "Buried 'without the metronome first to get the syncing right' (contract Griffes 29:53 remove metronome): narration, no clean stop command → no metronome mutation.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "griffes-0057",
+      "at_ms": 2284380,
+      "raw_text": " There's not a lot. I'm going to draw them. I'm going to draw lines. Tell me if to draw lines,",
+      "classification": "firewall_rejection",
+      "classification_basis": "'I'm going to draw lines. Tell me if to draw lines' (contract Griffes 38:04 alignment lines): an annotation must be a confirmed draft, never auto; firewall ignores.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0058",
+      "at_ms": 2382660,
+      "raw_text": " if it's because this, it's just really, it's notated really just to, at least three minutes.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0059",
+      "at_ms": 2449280,
+      "raw_text": " Oops. Well, I took a, it was on my phone. Sorry. Um, anyways.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Phone interruption 'it was on my phone. Sorry.' (contract Griffes 40:49): ignored — no rep, block not ended.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "griffes-0060",
+      "at_ms": 2580610,
+      "raw_text": " Not do my left hand fingering.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0061",
+      "at_ms": 2750200,
+      "raw_text": " It's for some structure, but I think the best way is just to play it. But you as a coach,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0062",
+      "at_ms": 2761610,
+      "raw_text": " you would give me structure, you know, to learn how to play this, but note that I just don't know the notes.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0063",
+      "at_ms": 2766390,
+      "raw_text": " So that's something you have to take into consideration. Yeah.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0064",
+      "at_ms": 2771200,
+      "raw_text": " Oh, no.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0065",
+      "at_ms": 2777710,
+      "raw_text": " I have to move on.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0066",
+      "at_ms": 2851970,
+      "raw_text": " Same.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0067",
+      "at_ms": 3251070,
+      "raw_text": " Pose fast. So I'm going to try to slow it down. So it's 30 quarter note now.",
+      "classification": "firewall_rejection",
+      "classification_basis": "Buried 'slow it down ... it's 30 quarter note now' (contract Griffes 54:11 slow to 30): ASR narration, not a clean tempo command; an actual set to 30 would require confirmation / a Tier B draft.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false
+      }
+    },
+    {
+      "id": "griffes-0068",
+      "at_ms": 3274560,
+      "raw_text": " It's the slowest metronome tempo. I can go. Ready?",
+      "classification": "ambient_ignored",
+      "classification_basis": "'slowest metronome tempo I can go. Ready?' — contains 'metronome'/'tempo' but no command shape.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0069",
+      "at_ms": 3537980,
+      "raw_text": " Keep doing.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0070",
+      "at_ms": 3694340,
+      "raw_text": " There's a lot to take away from this. Um, yeah, you can see that I didn't really get much done.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Hour-long honest debrief begins (contract Griffes 01:01:34): narration → no action.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false
+      }
+    },
+    {
+      "id": "griffes-0071",
+      "at_ms": 3703490,
+      "raw_text": " I didn't, it took me an hour and I barely learned these measures. So note that what,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0072",
+      "at_ms": 3708370,
+      "raw_text": " what we're wrong, but also what, how you can help as a practice coach. And yeah,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0073",
+      "at_ms": 3711900,
+      "raw_text": " back and forth, back and forth. Okay. Um, I mean, it did, it definitely improved though.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0074",
+      "at_ms": 3716930,
+      "raw_text": " Like if I play without the metronome, nevermind. It did definitely work,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0075",
+      "at_ms": 3750080,
+      "raw_text": " but there's no way it's the most efficient way. Like it's like, um, like trying to solve like a,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0076",
+      "at_ms": 3755680,
+      "raw_text": " like a, like it's trying to like fully expand a cubic function or like a, like a, like a,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0077",
+      "at_ms": 3762490,
+      "raw_text": " like a fifth degree polynomial. Um, when you can just like put it in a calculator,",
+      "classification": "ambient_ignored",
+      "classification_basis": "Note-hunting narration; no command token.",
+      "expected": {
+        "kind": "ignored"
+      }
+    },
+    {
+      "id": "griffes-0078",
+      "at_ms": 3768480,
+      "raw_text": " like decimos or whatever, like it's, it's not efficient. Let me try again.",
+      "classification": "ambient_ignored",
+      "classification_basis": "Final debrief line ('Let me try again') outside any rep block → inert.",
+      "expected": {
+        "kind": "ignored"
+      },
+      "checkpoint": {
+        "metro_running": false,
+        "block_active": false,
+        "attempts_recorded": 0
+      }
+    }
+  ]
+}

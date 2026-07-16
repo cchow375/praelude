@@ -23,7 +23,10 @@ use crate::store::model::{
     CheckOutcome, MutationReceipt, RecoveryActionRequest, RepOpenArgs, RepSnapshot,
     RetentionCheckView, RetentionResult, SetFocusContextInput,
 };
-use crate::store::{v2_command_id, v2_validate_open, EventKind, Store};
+use crate::store::{
+    v2_command_id, v2_validate_open, EventKind, SessionPlanStartOutcome, SessionPlanStartPayload,
+    Store,
+};
 
 pub(crate) trait PracticeClock: Send + Sync {
     fn now(&self, store: &Store) -> Result<String, String>;
@@ -531,6 +534,37 @@ impl RepEngine {
             .emit_persisted_practice(opened.feed_id, EventKind::REP_OPEN);
         self.emit_state(Some(&snap));
         Ok(snap)
+    }
+
+    /// Start one reviewed session plan item as the live block. Mirrors [`open`]
+    /// for in-memory state ownership: it holds the active-set guard across the
+    /// durable store command so a start while a block is already live is
+    /// rejected without touching the live set, and a replay resyncs the same
+    /// block instead of opening a second one.
+    pub fn session_plan_start(
+        &self,
+        payload: &SessionPlanStartPayload,
+    ) -> Result<MutationReceipt<SessionPlanStartOutcome>, String> {
+        if let Some(error) = &self.restore_error {
+            return Err(error.clone());
+        }
+        let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+        let session_hint = self.sessions.cached_practice_session();
+        let now = self.now()?;
+        let receipt = self
+            .store
+            .session_plan_start(session_hint, payload, MutationSource::UserClick, &now)
+            .map_err(|error| error.to_string())?;
+        self.adopt_receipt_session(&receipt);
+        let snapshot = receipt
+            .value
+            .as_ref()
+            .map(|outcome| outcome.snapshot.clone())
+            .ok_or_else(|| "session plan receipt has no snapshot".to_string())?;
+        *active = Some(snapshot.clone());
+        drop(active);
+        self.emit_state(Some(&snapshot));
+        Ok(receipt)
     }
 
     fn apply_snapshot_receipt(
