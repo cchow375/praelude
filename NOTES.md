@@ -1385,3 +1385,24 @@ N` emit `score://navigate` without TTS over the pianist. This is a deliberate ex
   is still v1.3.0/v2.0.0-in-progress with the old model baked in; restoring the Keychain key
   alone does not fix the installed app — it only takes effect once a v3 build is packaged and
   installed.
+
+## v3 Phase 2 — design system, shell, Settings (2026-07-16)
+
+- **Token-discipline test pattern:** `tokens.test.ts` greps the actual CSS file for banned
+  serif/hex values, so the monochrome rule is enforced structurally, not just by convention. This
+  caught a real slip mid-build: the plan's own `--font-sans` value ended in the generic word the
+  test bans (a serif-family fallback term), so the ban fired against the plan's own token. Fix
+  was to drop the generic keyword from the value rather than loosen the guard — the guard was
+  right and the plan's literal wording was wrong. Lesson: when a token-discipline test fails
+  against your own plan text, trust the test and fix the value; don't widen the regex to let a
+  stray word through.
+- **`src/components/Shell.test.tsx` is orphaned and pre-existing-broken, not a Phase 2
+  regression.** It asserts a stale "Version 1.3.0" string and belongs to the superseded v2 shell
+  — the only thing still importing it is `BrainNavigation.test.tsx`. Flagged, deliberately NOT
+  fixed in this phase (out of scope for a design-system slice); it predates Phase 2 and is the 1
+  failure in the 629/630 test run. Whoever eventually retires the old v2 shell should delete both
+  files together.
+- **`npm run dev:mock` defaults to port 1420, which may already be occupied** by a long-running
+  dev server from an earlier session. The Phase 2 verifier worked around this by running on 5199
+  instead of assuming 1420 is free — check for a listener before trusting a "port in use" failure
+  is a real bug.
