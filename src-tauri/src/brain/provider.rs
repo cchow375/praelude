@@ -153,40 +153,59 @@ impl ProviderChain {
         context: &GroundedContext,
         transport: &dyn Transport,
     ) -> Result<ProviderOutput, BrainError> {
-        for config in &self.configs {
-            let request = match config.provider {
-                ProviderName::Claude => claude_request(config, question, source, context),
-                ProviderName::Gemini => gemini_request(config, question, source, context),
-                ProviderName::Offline => continue,
-            };
-            let Ok(response) = transport.send(request) else {
-                eprintln!("brain: {:?} provider transport failed", config.provider);
-                continue;
-            };
-            if !(200..300).contains(&response.status) {
-                eprintln!(
-                    "brain: {:?} provider returned HTTP {}",
-                    config.provider, response.status
-                );
+        'config: for config in &self.configs {
+            if config.provider == ProviderName::Offline {
                 continue;
             }
-            let parsed = match config.provider {
-                ProviderName::Claude => parse_claude(&response.body),
-                ProviderName::Gemini => parse_gemini(&response.body),
-                ProviderName::Offline => unreachable!(),
-            };
-            match parsed {
-                Ok(raw) => {
-                    let proposed_action = parse_proposed_action(raw.proposed_action);
-                    return Ok(ProviderOutput {
-                        provider: config.provider,
-                        answer: raw.answer,
-                        citation_ids: raw.citation_ids,
-                        proposed_action,
-                    });
+            // Retry the SAME provider once on a transport error or a transient
+            // 5xx before falling through to the next config. A 4xx (client
+            // error) or a 2xx with an unusable body is not retried.
+            for _attempt in 0..2 {
+                let request = match config.provider {
+                    ProviderName::Claude => claude_request(config, question, source, context),
+                    ProviderName::Gemini => gemini_request(config, question, source, context),
+                    ProviderName::Offline => unreachable!(),
+                };
+                let response = match transport.send(request) {
+                    Ok(response) => response,
+                    Err(()) => {
+                        eprintln!("brain: {:?} provider transport failed", config.provider);
+                        continue; // retry the same provider, or fall through
+                    }
+                };
+                if (500..=599).contains(&response.status) {
+                    eprintln!(
+                        "brain: {:?} provider returned HTTP {}",
+                        config.provider, response.status
+                    );
+                    continue; // transient upstream error: retry the same provider
                 }
-                Err(_) => {
-                    eprintln!("brain: {:?} provider response was invalid", config.provider);
+                if !(200..300).contains(&response.status) {
+                    eprintln!(
+                        "brain: {:?} provider returned HTTP {}",
+                        config.provider, response.status
+                    );
+                    continue 'config; // client error: won't fix itself, next provider
+                }
+                let parsed = match config.provider {
+                    ProviderName::Claude => parse_claude(&response.body),
+                    ProviderName::Gemini => parse_gemini(&response.body),
+                    ProviderName::Offline => unreachable!(),
+                };
+                match parsed {
+                    Ok(raw) => {
+                        let proposed_action = parse_proposed_action(raw.proposed_action);
+                        return Ok(ProviderOutput {
+                            provider: config.provider,
+                            answer: raw.answer,
+                            citation_ids: raw.citation_ids,
+                            proposed_action,
+                        });
+                    }
+                    Err(_) => {
+                        eprintln!("brain: {:?} provider response was invalid", config.provider);
+                        continue 'config; // unusable body: next provider, no retry
+                    }
                 }
             }
         }
@@ -623,6 +642,32 @@ mod tests {
     }
 
     #[test]
+    fn transient_503_retries_same_provider_before_falling_through() {
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Gemini,
+            "gemini-secret",
+            "gemini-test",
+        )]);
+        let transport = FakeTransport::responses(vec![
+            HttpResponse {
+                status: 503,
+                body: b"high demand".to_vec(),
+            },
+            HttpResponse::ok(json!({
+                "candidates": [{"content": {"parts": [{
+                    "text": "{\"answer\":\"Slow to half tempo.\",\"citation_ids\":[]}"
+                }]}}]
+            })),
+        ]);
+        let context = GroundedContext { json: "{}".into() };
+        let answer = chain
+            .ask("how?", QuestionSource::Typed, &context, &transport)
+            .unwrap();
+        assert_eq!(answer.provider, ProviderName::Gemini);
+        assert_eq!(transport.requests().len(), 2); // retried the same provider
+    }
+
+    #[test]
     fn gemini_parser_skips_reasoning_parts_before_json_answer() {
         let body = serde_json::to_vec(&json!({
             "candidates": [{
@@ -819,10 +864,16 @@ mod tests {
             ProviderConfig::test(ProviderPreference::Claude, "claude-secret", "claude-test"),
             ProviderConfig::test(ProviderPreference::Gemini, "gemini-secret", "gemini-test"),
         ]);
+        // Claude's transient 5xx is now retried once (two Claude requests) before
+        // the chain falls through to Gemini, which succeeds.
         let transport = FakeTransport::responses(vec![
             HttpResponse {
                 status: 503,
                 body: b"upstream response is never surfaced".to_vec(),
+            },
+            HttpResponse {
+                status: 503,
+                body: b"still overloaded".to_vec(),
             },
             HttpResponse::ok(json!({
                 "candidates": [{
@@ -843,10 +894,11 @@ mod tests {
             .unwrap();
         assert_eq!(answer.provider, ProviderName::Gemini);
         let requests = transport.requests();
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), 3);
         assert_eq!(requests[0].url, ANTHROPIC_URL);
-        assert!(requests[1].url.contains("gemini-test:generateContent"));
+        assert_eq!(requests[1].url, ANTHROPIC_URL);
+        assert!(requests[2].url.contains("gemini-test:generateContent"));
         assert!(!requests[0].body.to_string().contains("claude-secret"));
-        assert!(!requests[1].body.to_string().contains("gemini-secret"));
+        assert!(!requests[2].body.to_string().contains("gemini-secret"));
     }
 }
