@@ -14,14 +14,14 @@
     rep_check / metro_set / rep_undo / rep_restart. Four draft types: verdict, tempo, undo,
     restart. Session-goal DEFERRED (no backend home; do not build a session-goal concept blind).
   - **Backend (brain/{mod,provider}.rs):** `BrainAnswer` gained `proposed_action:
-    Option<ProposedAction>` (closed tagged enum Verdict/Tempo/Undo/Restart + a DETERMINISTICALLY
+Option<ProposedAction>` (closed tagged enum Verdict/Tempo/Undo/Restart + a DETERMINISTICALLY
     generated `summary` — never provider text, so card copy can't be an injection vector). The
     vendor JSON's action is held as `Option<Value>` in `RawAnswer` (so a malformed action can
     NEVER fail the whole answer parse), then `from_value().ok()` + `.validate()` into a
     `deny_unknown_fields` input: bpm finite + within `audio::clock::MIN_BPM..=MAX_BPM` (1.0–1000),
     note trimmed/≤200, restart streak 1..=100, verdict closed enum, cross-kind fields rejected.
     Invalid → `None` (answer still returned). Voice-only gate: `match request.source { Voice =>
-    action, Typed => None }`.
+action, Typed => None }`.
   - **Frontend:** `proposedAction.ts` mirrors the union + re-narrows the IPC payload with the same
     bounds (defense in depth, fail-closed). `ActionDraftCard` became a router: the existing
     start_practice_set form is extracted verbatim (prior tests unchanged); the 4 new kinds get a
@@ -97,9 +97,9 @@
       open with a piece-switch-safe guard + one "Clear / new conversation" control; no
       thread-switcher UI (follow-up).
     - Retention + ledger grounding: read-only `retention_due_for_piece` (practice_loop.rs, SELECT)
-      + `recovery_actions_for_piece` (crud.rs, SELECT) inject `retention_checks_due` +
-      `recent_recovery_actions` into context.rs, capped `MAX_RETENTION_CHECKS/RECOVERY_ACTIONS=8`
-      under the existing 64k budget. Region NAME + measures exposed, NO raw DB ids leaked.
+      - `recovery_actions_for_piece` (crud.rs, SELECT) inject `retention_checks_due` +
+        `recent_recovery_actions` into context.rs, capped `MAX_RETENTION_CHECKS/RECOVERY_ACTIONS=8`
+        under the existing 64k budget. Region NAME + measures exposed, NO raw DB ids leaked.
   - **The practice-mutation boundary held — independently verified by the orchestrator, not just
     the executor's self-check.** A diff-wide grep for INSERT/UPDATE/DELETE showed the ONLY
     production writes added are `brain_thread`/`brain_turn` (the Brain's own conversation); the
@@ -109,7 +109,7 @@
     `exec_for_test`). practice_loop.rs added only a read-only SELECT. **Method note for future
     checkpoints: grep the diff's added write-SQL yourself; a whole-file grep conflates
     pre-existing production writes with new test-only seeds — disambiguate with per-file `git
-    diff --numstat` + the `@@` hunk headers.**
+diff --numstat` + the `@@` hunk headers.**
   - **Gates:** cargo lib 458/0/10 ignored (+9), strict clippy --all-targets clean; vitest 599
     (+3); build green. Independent adversarial verifier targeted the correctness edges (frontend
     piece-switch race, offline/failed-append integrity, memory bounding/isolation, clear
@@ -231,7 +231,7 @@
   - **Score Atlas target save is real now.** New `store/score_atlas.rs` +
     `score_atlas_target_save` registration: one transaction creates Region + `target_meta` +
     `region_change`, reusing `begin_operation` idempotency with `command_id =
-    score-atlas-target:{draft id}` carried from the frontend (`savePayload.ts` /
+score-atlas-target:{draft id}` carried from the frontend (`savePayload.ts` /
     `TargetDraftEditor`). Replay returns the committed Region; a reused id with different
     geometry rejects. NO schema change (v10 untouched). Sidebar-on-piece-switch fixed via
     `sectionsStashedRef` — restores only a draft-hidden sidebar, preserving manual collapse.
@@ -380,7 +380,7 @@
     snapshot contains 6 pieces / 27 Regions / 48 blocks / 481 reps / 8 sessions / 670 events / 21
     Goals / 11 Daily Work rows. It passes `quick_check` and has zero FK violations. Preserve it at
     `~/Library/Application Support/com.christian.codakiller/backups/(C)
-    pre-v2.0.0-feedback-2026-07-15-163528.db` (442,368 bytes; SHA-256
+pre-v2.0.0-feedback-2026-07-15-163528.db` (442,368 bytes; SHA-256
     `4b21549237b6f70de7399444151063bcb3ea35a9067a0ce363ce07d14f8b1aee`). Never rehearse a
     migration against the live database; copy this backup again for each destructive rehearsal.
   - **The v1 completion model is semantically invalid for Christian's goal.** Every verdict
@@ -488,7 +488,7 @@
     make an immediate `mdfind` return none even though the bundle is valid and appears moments
     later. The release gate now calls `mdimport` and polls 20×250 ms before failing; the full
     v1.3.0 gate was rerun and passed. Pre-release backup: `~/Library/Application Support/
-    com.christian.codakiller/backups/(C) pre-v1.3.0-2026-07-13.db`; schema 7 and counts 5/24/21/
+com.christian.codakiller/backups/(C) pre-v1.3.0-2026-07-13.db`; schema 7 and counts 5/24/21/
     169/9/9 plus tutorial 1/11/13 were preserved.
 
 - **P6 workflow / v1.2.0 actionable Score and tutorial chapters (2026-07-13):**
@@ -645,7 +645,7 @@
   - **Metrics are pure functions over (events, graph); zero IO inside them (T9).**
     `metrics/mod.rs` — `focused_seconds`, `streak`, `best_tempo_reached`,
     `per_region_mastery`, `time_by_focus` take already-loaded slices. `progress_summary(
-    &Store, piece_id)` is the one impure assembler (loads via Store readers `blocks_meta`
+&Store, piece_id)` is the one impure assembler (loads via Store readers `blocks_meta`
     / `reps_for_piece`, then calls the pure fns). **`focused_seconds` gotcha:** the
     brief's "locked reference impl" (`.clamp(0, IDLE)` then `if g <= IDLE {g} else {0}`)
     is self-contradicting — the clamp makes a 600 s idle gap count as 120, but the brief's
@@ -669,9 +669,9 @@
 
 - **Task 17/18 (rep engine + sessions + voice wiring):**
   - **Ladder math (`rep/ladder.rs`, pure).** `resolve_auto(start, target, planned,
-    variants)`: planned = Σ variant reps if variants present, else planned, else 30.
+variants)`: planned = Σ variant reps if variants present, else planned, else 30.
     `bpm_step` always 4. Rungs `K = ceil((target-start)/4)` (≥1); `clean_needed =
-    clamp(round(planned/K), 1, 5)`, EXCEPT no-target → fixed 3 (a ladder needs a
+clamp(round(planned/K), 1, 5)`, EXCEPT no-target → fixed 3 (a ladder needs a
     ceiling to climb). `step()` returns `Some(new_bpm)` capped at target only when
     `cleans_at_step ≥ clean_needed` AND `bpm < target`; no target ⇒ always `None`.
   - **`check()` ordering is load-bearing:** the rep is recorded at the block's
@@ -709,7 +709,7 @@
     was rough" carry a cue + a range but the stray words ("are"/"hard"/"in"/"was")
     fall out of vocab, so ambient measure-talk never opens a block. Number parsing
     keeps a bare digit literal (`120`) as its own run so adjacent `target 120 twenty
-    reps` splits cleanly (a literal is never merged with a following number-word into
+reps` splits cleanly (a literal is never merged with a following number-word into
     an unparseable `"120 twenty"`).
   - **Every new spoken ack goes through `self.speaker.say` (gate-closing)** — reps,
     open/status/close, session-end, "Pick a piece first." — preserving the 2.5 s
@@ -731,16 +731,16 @@
     - **Model:** `gemini-3.1-flash-tts-preview` (single-speaker TTS; overridable via
       `tts.model` setting)
     - **Request body:** `{ "model": <m>, "input": <text>, "response_format": {"type":
-      "audio"}, "generation_config": {"speech_config": [{"voice": <voice>}]} }`
+"audio"}, "generation_config": {"speech_config": [{"voice": <voice>}]} }`
     - **Voice:** default `Kore` (overridable via `tts.voice`). 30 prebuilt voices
       (Zephyr, Puck, Charon, Kore, Fenrir, Leda, Orus, Aoede, ...).
     - **Response (VERIFIED against the LIVE API — the docs' summarized
       `output_audio.data` field is WRONG / hallucinated):** audio lives at
       `steps[].content[].{mime_type,data}`, `mime_type = "audio/l16"`, `data =
-      base64 s16le`. We concatenate every audio chunk across all steps, decode, and
+base64 s16le`. We concatenate every audio chunk across all steps, decode, and
       read `rate=NNNN` from the mime_type if present (else default 24 kHz). The live
       probe returned `{"id":..,"status":"completed","steps":[{"content":[{"mime_type":
-      "audio/l16","data":"<b64>"}]}],...}`. (The classic `generateContent` endpoint
+"audio/l16","data":"<b64>"}]}],...}`. (The classic `generateContent` endpoint
       also works and returns `candidates[0].content.parts[0].inlineData.data` with
       `mimeType: audio/L16;codec=pcm;rate=24000` — kept `interactions` as the current
       documented endpoint but fixed the parser to the real shape.)
@@ -750,13 +750,13 @@
       (`/32768`) → `Pcm{rate:24000, mono_f32}`; `EngineHandle::enqueue_pcm` resamples
       24k→stream rate off the audio thread.
   - **`say` fallback (verified on THIS Mac):** `say -o x.wav --data-format=LEI16@22050
-    <text>` writes a standard 16-bit PCM mono WAVE (fmt tag 1, 1 ch, 22050 Hz, with a
+<text>` writes a standard 16-bit PCM mono WAVE (fmt tag 1, 1 ch, 22050 Hz, with a
     leading JUNK chunk hound skips fine). hound reads it as i16 → f32. AIFF path rejected
     (hound cannot read AIFF-C). Tempfile in the OS temp dir, removed after decode.
   - **Deps (zero-new-compilation on 8GB):** `reqwest` 0.13, `base64` 0.22 are BOTH already
     in `Cargo.lock` transitively via tauri. `reqwest` was pulled with `default-features=
-    false` (no TLS backend), so we add it directly with `default-features=false, features=
-    ["blocking","json","native-tls"]` — native-tls on macOS = Security.framework (already
+false` (no TLS backend), so we add it directly with `default-features=false, features=
+["blocking","json","native-tls"]` — native-tls on macOS = Security.framework (already
     linked), NO openssl/ring, the lean choice per brief. Pinned to `0.13` to reuse the
     exact locked 0.13.4 (no second reqwest copy). `base64 = "0.22"` reuses 0.22.1.
   - **Speaker = single owning TTS thread (enforces `enqueue_pcm` single-producer).**
@@ -785,7 +785,7 @@
   - **Provider selection:** `tts.provider` setting overrides ("gemini" | "say"). Else:
     Gemini if a key is present (`keys::gemini_key`) AND a network probe succeeds, else
     `say`. Key resolution: Keychain `security find-generic-password -s codakiller -a
-    gemini -w` first, then `GEMINI_API_KEY` env. Key is never logged.
+gemini -w` first, then `GEMINI_API_KEY` env. Key is never logged.
   - **do_set Busy-arm fix (carried from Task 7 review):** metronome `do_set`'s
     `StartFailure::Busy` arm mutated `inner.state.sound` before the refused restart but
     did not roll it back (unlike `do_start`'s Busy arm), so the emitted state lied
@@ -793,12 +793,11 @@
     prior sound and reverting it in that arm; a new seam test asserts `state.sound`
     unchanged after a concurrent-producer Busy refusal.
 
-
 - **Task 10 (STT supervisor `stt::SttSupervisor`):** New module `src-tauri/src/stt/`
   (`mod.rs` docs + `supervisor.rs`). `SttSupervisor::spawn(binary, on_event)` launches
   `hear` and returns an `SttHandle{set_gate(open), shutdown()}`. Design:
   - **`on_event` takes `SttEvent`, not just `Transcript`** — a small, necessary widening
-    of the brief's `Fn(Transcript)` signature: the brief *itself* requires a `stt://down`
+    of the brief's `Fn(Transcript)` signature: the brief _itself_ requires a `stt://down`
     lifecycle event that a Transcript-only sink literally cannot carry. `SttEvent` =
     `Transcript(Transcript)` | `Down(DownReason::{DictationDisabled,RestartStorm})`. One
     sink, both streams. Task 13 filters `is_final` transcripts and reacts to `Down`.
@@ -811,24 +810,24 @@
     in Cargo.toml: `std::process` can only SIGKILL a single child, not SIGTERM a group;
     `libc` is already transitive (cpal/rusqlite) so zero new compilation.
   - **stdbuf decision (Task 10 fix round 1): stdbuf is OPTIONAL, not a hard dep.**
-    Production config still *requests* `stdbuf -oL <hear>` as insurance against
+    Production config still _requests_ `stdbuf -oL <hear>` as insurance against
     block-buffered stdout when piped (Task 9 flagged this UNCONFIRMED), but `stdbuf` is a
     Homebrew (coreutils) binary absent from stock macOS and the spec bans hardcoded Homebrew
     deps. So the supervisor probes ONCE at manager start (`stdbuf --version` succeeds) and,
     if absent, degrades to a direct `hear` spawn and logs it; an ENOENT at spawn time also
     falls back. **A missing `stdbuf` never trips RestartStorm.** When used, `stdbuf` execs
-    the target so the child pid *is* `hear` and SIGTERM/pgid semantics are unaffected.
+    the target so the child pid _is_ `hear` and SIGTERM/pgid semantics are unaffected.
     Real-binary smoke (silent, 3s): 0 bytes stdout/stderr (no Code=201 → Dictation still
     enabled; no garbage on silence), SIGTERM-to-group killed it fast. Escalation path if
     Task 13's live test shows block-buffering WITHOUT stdbuf: a pty via stock
     `/usr/bin/script` (documented, NOT built now).
   - **is_final framing policy (defensive, correct for both plausible framings):** every
-    non-empty line → immediate partial (`is_final=false`); the *previous* pending utterance
+    non-empty line → immediate partial (`is_final=false`); the _previous_ pending utterance
     is finalized (`is_final=true`) the moment a line arrives that is NOT a prefix-extension
     of it (a distinct new utterance — what `-m` single-line mode is expected to emit, so
     back-to-back commands never merge/drop); a prefix-growth supersedes silently
     (progressive partials, as non-`-m` might stream); and a `settle` gap (default 600ms of
-    quiet) finalizes whatever is pending. This *guarantees a final always eventually fires*
+    quiet) finalizes whatever is pending. This _guarantees a final always eventually fires_
     (Task 13 routes only finals) for either framing, with no command loss. TASK 13 TODO:
     once live framing is known, if `-m` lines are already final you may drop the settle
     latency by treating each line as final directly.
@@ -839,7 +838,7 @@
   - **Auto-restart:** on child death, respawn after `backoff` (1s). Restart timestamps are
     kept in a sliding `restart_window` (60s); the (max+1)-th death within the window
     (`max_restarts`=5) emits `Down(RestartStorm)` and stops instead of hot-looping. A
-    spawn *failure* (bad binary) counts as a death so it too trips the cap. A
+    spawn _failure_ (bad binary) counts as a death so it too trips the cap. A
     `kLSRErrorDomain Code=201` on stderr is classified as `Down(DictationDisabled)` and
     stops immediately (no restart — it needs a System Settings change, not a respawn).
   - **Threads & teardown:** one manager thread (spawn/restart loop, owns `Child`), a
@@ -852,7 +851,7 @@
     (mirrors `BoostGuard`). A publish-then-recheck of the shutdown flag after setting the
     child pgid closes the spawn/shutdown race (no wait()-forever hang).
   - **Testability seams:** `SttConfig{binary,args,env,use_stdbuf,settle,backoff,
-    max_restarts,restart_window}` (`SttConfig::hear()` = production). Tests use
+max_restarts,restart_window}` (`SttConfig::hear()` = production). Tests use
     `spawn_with_config` against `tests/fixtures/fake_hear.sh` (POSIX-sh, env-driven:
     scripted lines/sleeps, spawn-count file, emit-exit for respawn, config-error for 201,
     grandchild fork for group-kill) with compressed timings. Coverage: 8 integration tests
@@ -861,16 +860,16 @@
     mutation (removing BOTH gate checks makes the closed-gate test fail with leaked lines).
 
 - **Task 7 (metronome commands + boost):** Commands `metro_start/metro_stop/metro_set/
-  metro_state` on a managed `Metronome { sounds, boost_level, Mutex<Inner{state,handle,
-  guard}> }`. The mutex guards ONLY the control path (command handlers), never the audio
+metro_state` on a managed `Metronome { sounds, boost_level, Mutex<Inner{state,handle,
+guard}> }`. The mutex guards ONLY the control path (command handlers), never the audio
   callback — the engine's lock-free discipline is intact. Change-flow into a running
   engine: **bpm/beats/subdivision/accent** → `EngineHandle::set_pattern` (existing
   lock-free pattern queue, adopted at next beat); **gain** → new `EngineHandle::
-  set_click_gain`, a single `AtomicU32` (f32 bits, Relaxed) the callback reads each
-  buffer — this *extends* the existing atomics design (no Mutex bolted onto the callback,
+set_click_gain`, a single `AtomicU32` (f32 bits, Relaxed) the callback reads each
+  buffer — this _extends_ the existing atomics design (no Mutex bolted onto the callback,
   no restart, smooth for slider drags); **sound** → engine RESTART, because the click
   samples are `Arc<Vec<f32>>` owned by the callback and swapping them cross-thread would
-  force a *free* on the audio thread (forbidden by the RT contract). Sound changes are
+  force a _free_ on the audio thread (forbidden by the RT contract). Sound changes are
   rare + user-initiated; the restart gap is one buffer. `EngineConfig` gained a
   `click_gain` field (manual `Default`=1.0) so a fresh engine starts at the right level
   with no unity-gain blip.
@@ -922,7 +921,7 @@
   - **Restart-failure rollback.** `start_engine` returns a typed `StartFailure`: `Busy`
     (engine untouched, still running → keep `running=true`) vs `Dead` (old engine stopped,
     new one failed → force `running=false`). `do_start` restores the pre-call state and
-    releases only the boost *this call* engaged; `do_set`'s sound-change `Dead` path forces
+    releases only the boost _this call_ engaged; `do_set`'s sound-change `Dead` path forces
     `running=false` and persists the rolled-back state so store + emit stay consistent.
     State can never claim `running` with a dead engine.
   - **Injectable engine-start seam** (mirrors sysvol's `engage_with`): `Metronome` holds
@@ -1060,7 +1059,7 @@ drive the recognizer — they are deferred to Task 13 live QA with a human speak
 hear defects. Nothing found triggers the whisper.cpp fallback.
 
 **CRITICAL PREREQUISITE — Dictation must be enabled.** On a fresh machine Dictation was
-OFF and *every* recognition (even file input) failed instantly with
+OFF and _every_ recognition (even file input) failed instantly with
 `Error Domain=kLSRErrorDomain Code=201 "Siri and Dictation are disabled"`. Enabling it
 via `defaults write com.apple.assistant.support "Dictation Enabled" -bool true` made
 recognition work immediately (this spike set it). **No model download** was needed for
@@ -1103,31 +1102,33 @@ kill/restart with SIGTERM, never SIGINT. SIGTERM flushes no pending transcript (
 `ps -o rss,pcpu` every 3 s.
 
 **6. Recognition quality — product-critical.**
-  - *Clean speech (file input, on-device):* EXCELLENT. `"metronome ninety six. done.
-    stop. tempo one hundred twenty."` → `Metronome 96 done stop tempo 120`. Command words
-    recognized; spoken numbers returned as digits (`ninety six`→`96`).
-  - *Non-speech / harmonic "music" (synthetic C-major arpeggio chords, 15 s file):* →
-    `kAFAssistantErrorDomain Code=1110 "No speech detected"` — **NO garbage transcript**
-    (same result as a silence file). Encouraging that the on-device VAD/recognizer gates
-    out instrumental content. CAVEAT: this was synthetic sine-chord audio, not a real
-    recorded piano timbre with room noise — the real ambient-piano test still needs a
-    live YouTube-clip run at the mic in **Task 13**.
-  - *Live mic recognition (human phrases + real ambient piano):* NOT obtained. Verified
-    the built-in mic captures real audio (ffmpeg avfoundation got a genuine −60 dB noise
-    floor, not digital silence → mic + speech-recognition TCC effectively granted for the
-    terminal session, no prompt hang), but speaker→mic loopback peaks only −34 dB even at
-    100% volume — too faint to trigger ASR, and CPU stayed flat during playback confirming
-    no speech was detected. This is an unattended-environment limit. **DEFERRED to Task 13**
-    (the Tauri app also carries a different bundle id, so it will trigger its OWN mic +
-    speech-recognition TCC prompts on first launch regardless).
+
+- _Clean speech (file input, on-device):_ EXCELLENT. `"metronome ninety six. done.
+stop. tempo one hundred twenty."` → `Metronome 96 done stop tempo 120`. Command words
+  recognized; spoken numbers returned as digits (`ninety six`→`96`).
+- _Non-speech / harmonic "music" (synthetic C-major arpeggio chords, 15 s file):_ →
+  `kAFAssistantErrorDomain Code=1110 "No speech detected"` — **NO garbage transcript**
+  (same result as a silence file). Encouraging that the on-device VAD/recognizer gates
+  out instrumental content. CAVEAT: this was synthetic sine-chord audio, not a real
+  recorded piano timbre with room noise — the real ambient-piano test still needs a
+  live YouTube-clip run at the mic in **Task 13**.
+- _Live mic recognition (human phrases + real ambient piano):_ NOT obtained. Verified
+  the built-in mic captures real audio (ffmpeg avfoundation got a genuine −60 dB noise
+  floor, not digital silence → mic + speech-recognition TCC effectively granted for the
+  terminal session, no prompt hang), but speaker→mic loopback peaks only −34 dB even at
+  100% volume — too faint to trigger ASR, and CPU stayed flat during playback confirming
+  no speech was detected. This is an unattended-environment limit. **DEFERRED to Task 13**
+  (the Tauri app also carries a different bundle id, so it will trigger its OWN mic +
+  speech-recognition TCC prompts on first launch regardless).
 
 **7. Locale / model.** `-s` lists 13 en locales incl `en-US`. en-US on-device required NO
 model download (worked instantly once Dictation was enabled).
 
 **Error-code catalogue for Tasks 10-13 to handle:**
-  - `kLSRErrorDomain Code=201 "Siri and Dictation are disabled"` → Dictation OFF; enable it.
-  - `kAFAssistantErrorDomain Code=1110 "No speech detected"` → silence/non-speech (file
-    mode; mic mode keeps listening instead of erroring).
+
+- `kLSRErrorDomain Code=201 "Siri and Dictation are disabled"` → Dictation OFF; enable it.
+- `kAFAssistantErrorDomain Code=1110 "No speech detected"` → silence/non-speech (file
+  mode; mic mode keeps listening instead of erroring).
 
 **Available audio input:** `1. MacBook Air Microphone (ID: BuiltInMicrophoneDevice)`
 (via `-a`; pass to `-n` if selecting a specific device).
@@ -1198,7 +1199,7 @@ voice at the mic. **Ground-truth findings on this Mac (macOS 15, M2):**
     reinstall, `open -a` launches got silent mic denial (hear alive, zero transcripts, no
     error), while terminal-launched instances inherited the terminal's grant and worked —
     diagnose exactly this way before blaming the pipeline. Resolution: `tccutil reset
-    Microphone com.christian.codakiller` + `tccutil reset SpeechRecognition …` → the app
+Microphone com.christian.codakiller` + `tccutil reset SpeechRecognition …` → the app
     freshly prompts on next launch (user clicks Allow twice). Expect this after EVERY
     rebuild that gets installed.
   - **`say`-through-speakers recognition is volume-marginal** (the −34 dB loopback): at
@@ -1264,20 +1265,20 @@ voice at the mic. **Ground-truth findings on this Mac (macOS 15, M2):**
   dimensions to zero. The real fixtures are a 20.3 MB / 28-page Scherzo edition and an 85-page
   Cortot volume on the 8 GB M2 Air.
 - **Anchors are edition-specific and fingerprinted.** Contract: `{v:1, editions:{id:{fingerprint,
-  rects:[{page,x,y,w,h}]}}}` with 0..1 coordinates. A changed fingerprint is shown as `remap`,
+rects:[{page,x,y,w,h}]}}}` with 0..1 coordinates. A changed fingerprint is shown as `remap`,
   never at stale coordinates. Region merge deduplicates compatible rectangles and drops a
   conflicting edition; split clears the old geometry because both new ranges must be remapped.
 - **Do not use `scrollIntoView` inside the score workspace.** It can scroll outer ancestors and
   hide the toolbar. Navigate by setting the score pane's own `scrollTop`/`scrollTo` target.
 - **Voice score navigation is intentionally silent.** `go to/show page N` and `go to/show measure
-  N` emit `score://navigate` without TTS over the pianist. This is a deliberate exception to the
+N` emit `score://navigate` without TTS over the pianist. This is a deliberate exception to the
   older assumption that every command acknowledgment closes the STT gate; the 2.5 s duplicate
   window can therefore suppress an immediate identical repeat.
 - **Tauri's P4 `.app` emerged linker-signed, not bundle-sealed.** `codesign --verify --deep
-  --strict` reported “code has no resources but signature indicates they must be present” and
+--strict` reported “code has no resources but signature indicates they must be present” and
   `codesign -d` showed the hash-like linker identifier with `Info.plist=not bound`. After `ditto`,
   run `codesign --force --deep --sign - --identifier com.christian.codakiller
-  /Applications/CodaKiller.app`, then strict-verify. v0.4.0's installed bundle is sealed and uses
+/Applications/CodaKiller.app`, then strict-verify. v0.4.0's installed bundle is sealed and uses
   the correct identifier; P6 packaging must automate this instead of relying on release memory.
 
 ## P5 grounded brain provider boundary (2026-07-12)
@@ -1348,3 +1349,39 @@ voice at the mic. **Ground-truth findings on this Mac (macOS 15, M2):**
 - **Deterministic suggestions can schedule only canonical Goals.** The explicit Brain “Schedule”
   form writes a `source=planner` card only when a suggestion already has Goal ownership. Block
   and Region suggestions remain read-only instead of silently inventing a Goal relationship.
+
+## Brain online fix — root cause + fix (2026-07-16)
+
+- **A code comment claiming a model id was "verified" was wrong — trust ListModels, not a
+  comment.** The Brain default Gemini model was `gemini-3.5-flash`. Diagnosed live against the
+  real v1beta API for this account: that id is NOT in the account's listed models, so every
+  request 404/failed and every session silently fell back to offline. Lesson: before hardcoding
+  or trusting a default model id, verify it against `v1beta/models` (ListModels) for the actual
+  account/key in use — a prior "verified" comment in the code is not evidence, model
+  availability changes and differs per account/region. Fixed by defaulting to
+  `gemini-flash-latest`, a listed stable id.
+- **The stored Keychain key had silently become empty.** The `codakiller`/`gemini` Keychain
+  entry was found holding an EMPTY value — no provider was ever actually configured, independent
+  of the model bug. Re-stored from the user's existing real key (54 bytes), whose durable
+  recovery source is `~/piano-coach/data/secrets.env`. `api_key_save` now rejects an
+  empty/whitespace key so a blank can never be silently stored again.
+- **Transient 5xx/transport errors were swallowed with no retry.** `ProviderChain::ask` only
+  `eprintln!`'d a failed request and fell through to the next provider (eventually offline) with
+  no retry, so a single transient 503 permanently dropped the session to offline for the rest of
+  its life. Fixed: `ProviderChain::ask` now retries the _same_ provider once on a transport-error
+  or 5xx response before falling through to the next provider or offline; 4xx errors are never
+  retried (they're not transient). Offline failures now carry a truthful `OfflineCause`/`reason()`
+  instead of being swallowed.
+- **Fix shape (commits `550af13`, `c3b5271`, `3028d3e`, `92dbed1`):** default model →
+  `gemini-flash-latest`; retry-once-on-5xx/transport-error in `ProviderChain::ask`; truthful
+  offline reason via `OfflineCause`/`reason()`; `api_key_save` empty/whitespace guard; new IPC
+  `brain_status` and `brain_test_connection` so the UI can show `● online — <provider>` /
+  `○ offline — <reason>` and run a real round-trip test instead of guessing from a config file.
+  Verified: full Rust suite 473/0 (backend-freeze held — only brain code + the `api_key_save`
+  guard changed); a live round-trip with the corrected model returned a valid answer (attempt 1
+  hit a 503, attempt 2 succeeded — exactly the case the retry now absorbs); fresh-context
+  adversarial verifier returned CONFIRMED.
+- **Source-only, honestly.** This fixes the Brain in the git source tree. The installed `.app`
+  is still v1.3.0/v2.0.0-in-progress with the old model baked in; restoring the Keychain key
+  alone does not fix the installed app — it only takes effect once a v3 build is packaged and
+  installed.
