@@ -48,14 +48,12 @@ export function defineCommand<Args, Result>(
 }
 
 function nonEmptyString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() !== ""
-    ? value.trim()
-    : null;
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
 function errorRecord(cause: unknown): Record<string, unknown> | null {
   return cause != null && typeof cause === "object"
-    ? cause as Record<string, unknown>
+    ? (cause as Record<string, unknown>)
     : null;
 }
 
@@ -72,9 +70,9 @@ export function commandErrorMessage(
   if (direct) return direct;
   const record = errorRecord(cause);
   return (
-    nonEmptyString(record?.message)
-    ?? nonEmptyString(record?.error)
-    ?? fallbackMessage
+    nonEmptyString(record?.message) ??
+    nonEmptyString(record?.error) ??
+    fallbackMessage
   );
 }
 
@@ -88,19 +86,18 @@ export function normalizeCommandError(
   return new CommandError({
     command,
     code:
-      nonEmptyString(record?.code)
-      ?? nonEmptyString(record?.kind)
-      ?? "native_command_failed",
+      nonEmptyString(record?.code) ??
+      nonEmptyString(record?.kind) ??
+      "native_command_failed",
     message: commandErrorMessage(cause, fallbackMessage),
     original: cause,
   });
 }
 
-const nativeInvoker: CommandInvoker = async (command, args) => (
+const nativeInvoker: CommandInvoker = async (command, args) =>
   args === undefined
     ? invoke(command)
-    : invoke(command, args as Record<string, unknown>)
-);
+    : invoke(command, args as Record<string, unknown>);
 
 export async function executeCommand<Args, Result>(
   definition: CommandDefinition<Args, Result>,
@@ -108,7 +105,7 @@ export async function executeCommand<Args, Result>(
   invoker: CommandInvoker = nativeInvoker,
 ): Promise<Result> {
   try {
-    return await invoker(definition.name, args) as Result;
+    return (await invoker(definition.name, args)) as Result;
   } catch (cause) {
     throw normalizeCommandError(
       definition.name,
@@ -117,3 +114,56 @@ export async function executeCommand<Args, Result>(
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Brain + API-key command contracts.
+//
+// Field shapes mirror the frozen Rust backend exactly (src-tauri/src/brain/
+// mod.rs `BrainStatus`/`BrainTestResult`, src-tauri/src/keys `ApiKeyStatus`).
+// `brain_status`/`brain_test_connection` shipped in Phase 1. No secret ever
+// crosses this boundary in a response.
+// ---------------------------------------------------------------------------
+
+export type ApiKeyProvider = "claude" | "gemini";
+
+export interface ApiKeyStatus {
+  readonly provider: ApiKeyProvider;
+  readonly configured: boolean;
+  readonly source: "keychain" | "environment" | "none";
+}
+
+/** Truthful, no-network status: `online` = a provider is configured. */
+export interface BrainStatus {
+  readonly online: boolean;
+  readonly provider: string | null;
+  readonly reason: string | null;
+}
+
+/** Result of a real Brain round-trip (Test connection). */
+export interface BrainTestResult {
+  readonly ok: boolean;
+  readonly provider: string | null;
+  readonly model: string | null;
+  readonly latency_ms: number | null;
+  readonly error: string | null;
+}
+
+export const brainStatus = defineCommand<undefined, BrainStatus>(
+  "brain_status",
+  "Brain status could not be read.",
+);
+
+export const brainTestConnection = defineCommand<undefined, BrainTestResult>(
+  "brain_test_connection",
+  "The connection test could not be completed.",
+);
+
+export const apiKeySave = defineCommand<
+  { provider: ApiKeyProvider; key: string },
+  ApiKeyStatus
+>("api_key_save", "The API key could not be saved.");
+
+export const apiKeyClear = defineCommand<
+  { provider: ApiKeyProvider },
+  ApiKeyStatus
+>("api_key_clear", "The API key could not be cleared.");

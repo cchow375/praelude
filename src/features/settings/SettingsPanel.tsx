@@ -1,13 +1,25 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useReceipts } from "../receipts/ReceiptCenter";
-import "./SettingsPanel.css";
+import { Button, Disclosure } from "../../ui";
+import type { CommandInvoker } from "../../services/command";
+import { BrainConnection } from "./BrainConnection";
+import "./settings.css";
 
 type Provider = "claude" | "gemini";
-const DEFAULT_KNOWLEDGE_DIR = "/Users/c3/Desktop/christian's universe/Piano Practice/Knowledge and Resources";
+const DEFAULT_KNOWLEDGE_DIR =
+  "/Users/c3/Desktop/christian's universe/Piano Practice/Knowledge and Resources";
 
-interface ApiKeyStatus { provider: Provider; configured: boolean; source: "keychain" | "environment" | "none" }
-interface VerdictAliases { clean: string[]; flawed: string[]; failed: string[] }
+interface ApiKeyStatus {
+  provider: Provider;
+  configured: boolean;
+  source: "keychain" | "environment" | "none";
+}
+interface VerdictAliases {
+  clean: string[];
+  flawed: string[];
+  failed: string[];
+}
 
 export interface SettingsSnapshot {
   theme: "auto" | "dark" | "light";
@@ -33,7 +45,9 @@ export interface SettingsSnapshot {
 
 export interface SettingsApi {
   snapshot: () => Promise<SettingsSnapshot>;
-  update: (patch: Partial<Omit<SettingsSnapshot, "api_keys">>) => Promise<SettingsSnapshot>;
+  update: (
+    patch: Partial<Omit<SettingsSnapshot, "api_keys">>,
+  ) => Promise<SettingsSnapshot>;
   saveKey: (provider: Provider, key: string) => Promise<ApiKeyStatus>;
   clearKey: (provider: Provider) => Promise<ApiKeyStatus>;
 }
@@ -51,41 +65,56 @@ export function SettingsPanel({
   onInterfaceScaleSaved,
   onPracticeDefaultCleanStreakSaved,
   api = defaultApi,
+  brainInvoker,
 }: {
   onResetLayout: () => void;
   onThemeSaved?: (theme: "auto" | "dark" | "light") => void;
   onInterfaceScaleSaved?: (scale: number) => void;
   onPracticeDefaultCleanStreakSaved?: (target: number) => void;
   api?: SettingsApi;
+  brainInvoker?: CommandInvoker;
 }) {
   const receipts = useReceipts();
   const [value, setValue] = useState<SettingsSnapshot | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [aliasDrafts, setAliasDrafts] = useState({ clean: "", flawed: "", failed: "" });
+  const [aliasDrafts, setAliasDrafts] = useState({
+    clean: "",
+    flawed: "",
+    failed: "",
+  });
 
   useEffect(() => {
     let active = true;
-    api.snapshot().then((next) => { if (active) {
-      const normalized = {
-        ...next,
-        interface_scale: Number.isFinite(next.interface_scale) ? next.interface_scale : 90,
-        knowledge_dir: next.knowledge_dir || DEFAULT_KNOWLEDGE_DIR,
-        share_retrieved_knowledge: next.share_retrieved_knowledge ?? true,
-        practice_default_clean_streak:
-          Number.isInteger(next.practice_default_clean_streak)
-          && next.practice_default_clean_streak >= 1
-          && next.practice_default_clean_streak <= 100
-            ? next.practice_default_clean_streak
-            : 5,
-      };
-      setValue(normalized);
-      setAliasDrafts(aliasStrings(normalized.verdict_aliases));
-    } }).catch((cause) => {
-      if (active) setError(errorMessage(cause));
-    });
-    return () => { active = false; };
+    api
+      .snapshot()
+      .then((next) => {
+        if (active) {
+          const normalized = {
+            ...next,
+            interface_scale: Number.isFinite(next.interface_scale)
+              ? next.interface_scale
+              : 90,
+            knowledge_dir: next.knowledge_dir || DEFAULT_KNOWLEDGE_DIR,
+            share_retrieved_knowledge: next.share_retrieved_knowledge ?? true,
+            practice_default_clean_streak:
+              Number.isInteger(next.practice_default_clean_streak) &&
+              next.practice_default_clean_streak >= 1 &&
+              next.practice_default_clean_streak <= 100
+                ? next.practice_default_clean_streak
+                : 5,
+          };
+          setValue(normalized);
+          setAliasDrafts(aliasStrings(normalized.verdict_aliases));
+        }
+      })
+      .catch((cause) => {
+        if (active) setError(errorMessage(cause));
+      });
+    return () => {
+      active = false;
+    };
   }, [api]);
 
   const save = async (event: FormEvent) => {
@@ -123,7 +152,9 @@ export function SettingsPanel({
       onThemeSaved?.(next.theme);
       onInterfaceScaleSaved?.(next.interface_scale);
       onPracticeDefaultCleanStreakSaved?.(next.practice_default_clean_streak);
-      setMessage("Settings saved. Voice/provider changes apply after relaunch.");
+      setMessage(
+        "Settings saved. Voice/provider changes apply after relaunch.",
+      );
       receipts.committed("Settings saved.");
     } catch (cause) {
       const message = errorMessage(cause);
@@ -135,85 +166,503 @@ export function SettingsPanel({
   };
 
   if (!value) {
-    return <div className="deep-settings"><p role={error ? "alert" : "status"}>{error ?? "Loading settings…"}</p></div>;
+    return (
+      <div className="settings">
+        <p role={error ? "alert" : "status"}>{error ?? "Loading settings…"}</p>
+      </div>
+    );
   }
 
   return (
-    <form className="deep-settings" aria-label="CodaKiller settings" onSubmit={save}>
-      <header><div><p className="settings-eyebrow">Settings</p><h2>Make the defaults yours.</h2></div><button type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</button></header>
-      {error && <p className="ck-inline-error" role="alert">{error}</p>}
-      {message && <p className="settings-success" role="status">{message}</p>}
+    <form className="settings" aria-label="CodaKiller settings" onSubmit={save}>
+      <header className="settings-head">
+        <h2>Settings</h2>
+        <div className="settings-head-actions">
+          <Button variant="text" type="button" onClick={onResetLayout}>
+            Reset panel layout
+          </Button>
+          <Button variant="primary" type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </header>
+      {error && (
+        <p className="ck-inline-error" role="alert">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p className="settings-success" role="status">
+          {message}
+        </p>
+      )}
 
-      <fieldset><legend>Appearance</legend>
-        <label><span>Theme</span><select aria-label="Theme" value={value.theme} onChange={(event) => setValue({ ...value, theme: event.target.value as SettingsSnapshot["theme"] })}><option value="auto">Follow Mac</option><option value="dark">Dark</option><option value="light">Light</option></select></label>
-        <label className="settings-scale"><span>Interface scale <strong>{value.interface_scale}%</strong></span><input aria-label="Interface scale" type="range" min="75" max="125" step="5" value={value.interface_scale} onChange={(event) => setValue({ ...value, interface_scale: Number(event.target.value) })} /></label>
-        <button type="button" className="settings-secondary" onClick={onResetLayout}>Reset panel layout</button>
-      </fieldset>
+      <Disclosure summary="Brain" defaultOpen>
+        <div className="settings-group">
+          <BrainConnection invoker={brainInvoker} />
+          <Row label="Brain provider">
+            <select
+              aria-label="Brain provider"
+              value={value.brain_provider}
+              onChange={(event) =>
+                setValue({
+                  ...value,
+                  brain_provider: event.target
+                    .value as SettingsSnapshot["brain_provider"],
+                })
+              }
+            >
+              <option value="auto">Auto (Claude → Gemini → offline)</option>
+              <option value="claude">Prefer Claude</option>
+              <option value="gemini">Gemini only</option>
+              <option value="offline">Offline library only</option>
+            </select>
+          </Row>
+          <Row label="Knowledge folder" wide>
+            <input
+              aria-label="Knowledge folder"
+              value={value.knowledge_dir}
+              onChange={(event) =>
+                setValue({ ...value, knowledge_dir: event.target.value })
+              }
+            />
+          </Row>
+          <label className="settings-check settings-wide">
+            <input
+              type="checkbox"
+              checked={value.share_retrieved_knowledge}
+              onChange={(event) =>
+                setValue({
+                  ...value,
+                  share_retrieved_knowledge: event.target.checked,
+                })
+              }
+            />
+            <span>
+              <strong>Share retrieved knowledge with Claude/Gemini</strong>
+              <small>
+                Only the retrieved passages, your question, and selected
+                practice facts may be sent. The full folder is never uploaded.
+              </small>
+            </span>
+          </label>
+          <div className="settings-keys" aria-label="API keys">
+            {(["claude", "gemini"] as Provider[]).map((provider) => (
+              <KeyControl
+                key={provider}
+                provider={provider}
+                status={value.api_keys.find(
+                  (item) => item.provider === provider,
+                )!}
+                api={api}
+                onStatus={(status) =>
+                  setValue({
+                    ...value,
+                    api_keys: value.api_keys.map((item) =>
+                      item.provider === provider ? status : item,
+                    ),
+                  })
+                }
+              />
+            ))}
+          </div>
+        </div>
+      </Disclosure>
 
-      <fieldset><legend>Voice + Brain</legend>
-        <label className="settings-check"><input type="checkbox" checked={value.wake_word_enabled} onChange={(event) => setValue({ ...value, wake_word_enabled: event.target.checked })} /><span>Require wake word for commands</span></label>
-        <label><span>Wake word</span><input aria-label="Wake word" value={value.wake_word} disabled={!value.wake_word_enabled} maxLength={24} onChange={(event) => setValue({ ...value, wake_word: event.target.value })} /></label>
-        <label><span>Coach voice</span><select aria-label="Coach voice" value={value.tts_voice} onChange={(event) => setValue({ ...value, tts_voice: event.target.value })}>{["Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"].map((voice) => <option key={voice}>{voice}</option>)}</select></label>
-        <label><span>Speech provider</span><select aria-label="Speech provider" value={value.tts_provider} onChange={(event) => setValue({ ...value, tts_provider: event.target.value as SettingsSnapshot["tts_provider"] })}><option value="auto">Auto (Gemini → Mac)</option><option value="gemini">Gemini</option><option value="say">Mac system voice</option></select></label>
-        <label><span>Brain provider</span><select aria-label="Brain provider" value={value.brain_provider} onChange={(event) => setValue({ ...value, brain_provider: event.target.value as SettingsSnapshot["brain_provider"] })}><option value="auto">Auto (Claude → Gemini → offline)</option><option value="claude">Prefer Claude</option><option value="gemini">Gemini only</option><option value="offline">Offline library only</option></select></label>
-        <label className="settings-wide"><span>Knowledge folder</span><input aria-label="Knowledge folder" value={value.knowledge_dir} onChange={(event) => setValue({ ...value, knowledge_dir: event.target.value })} /></label>
-        <label className="settings-check settings-wide settings-check-disclosure"><input type="checkbox" checked={value.share_retrieved_knowledge} onChange={(event) => setValue({ ...value, share_retrieved_knowledge: event.target.checked })} /><span><strong>Share retrieved knowledge with Claude/Gemini</strong><small>Only the retrieved passages, your question, and selected practice facts may be sent. The full folder is never uploaded.</small></span></label>
-        <AliasField label="Clean verdict aliases" value={aliasDrafts.clean} onChange={(clean) => setAliasDrafts({ ...aliasDrafts, clean })} />
-        <AliasField label="Flawed verdict aliases" value={aliasDrafts.flawed} onChange={(flawed) => setAliasDrafts({ ...aliasDrafts, flawed })} />
-        <AliasField label="Failed verdict aliases" value={aliasDrafts.failed} onChange={(failed) => setAliasDrafts({ ...aliasDrafts, failed })} />
-        <div className="settings-keys" aria-label="API keys">{(["claude", "gemini"] as Provider[]).map((provider) => <KeyControl key={provider} provider={provider} status={value.api_keys.find((item) => item.provider === provider)!} api={api} onStatus={(status) => setValue({ ...value, api_keys: value.api_keys.map((item) => item.provider === provider ? status : item) })} />)}</div>
-      </fieldset>
+      <Disclosure summary="Voice & wake-word">
+        <div className="settings-group">
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={value.wake_word_enabled}
+              onChange={(event) =>
+                setValue({ ...value, wake_word_enabled: event.target.checked })
+              }
+            />
+            <span>Require wake word for commands</span>
+          </label>
+          <Row label="Wake word">
+            <input
+              aria-label="Wake word"
+              value={value.wake_word}
+              disabled={!value.wake_word_enabled}
+              maxLength={24}
+              onChange={(event) =>
+                setValue({ ...value, wake_word: event.target.value })
+              }
+            />
+          </Row>
+          <Row label="Coach voice">
+            <select
+              aria-label="Coach voice"
+              value={value.tts_voice}
+              onChange={(event) =>
+                setValue({ ...value, tts_voice: event.target.value })
+              }
+            >
+              {[
+                "Kore",
+                "Puck",
+                "Charon",
+                "Fenrir",
+                "Aoede",
+                "Leda",
+                "Orus",
+                "Zephyr",
+              ].map((voice) => (
+                <option key={voice}>{voice}</option>
+              ))}
+            </select>
+          </Row>
+          <Row label="Speech provider">
+            <select
+              aria-label="Speech provider"
+              value={value.tts_provider}
+              onChange={(event) =>
+                setValue({
+                  ...value,
+                  tts_provider: event.target
+                    .value as SettingsSnapshot["tts_provider"],
+                })
+              }
+            >
+              <option value="auto">Auto (Gemini → Mac)</option>
+              <option value="gemini">Gemini</option>
+              <option value="say">Mac system voice</option>
+            </select>
+          </Row>
+        </div>
+      </Disclosure>
 
-      <fieldset><legend>Practice defaults</legend>
-        <label className="settings-wide"><span>Pieces folder</span><input aria-label="Pieces folder" value={value.vault_pieces_dir} onChange={(event) => setValue({ ...value, vault_pieces_dir: event.target.value })} /></label>
-        <label><span>Click sound</span><select aria-label="Default click sound" value={value.metronome_sound} onChange={(event) => setValue({ ...value, metronome_sound: event.target.value })}>{["woodblock", "tick", "clave", "rim", "cowbell", "beep"].map((sound) => <option key={sound}>{sound}</option>)}</select></label>
-        <label className="settings-check"><input type="checkbox" checked={value.metronome_boost} onChange={(event) => setValue({ ...value, metronome_boost: event.target.checked })} /><span>Boost Mac volume while clicking</span></label>
-        <NumberField label="Boost level" value={value.metronome_boost_level} min={0} max={100} onChange={(metronome_boost_level) => setValue({ ...value, metronome_boost_level })} />
-        <NumberField label="Default clean streak" value={value.practice_default_clean_streak} min={1} max={100} onChange={(practice_default_clean_streak) => setValue({ ...value, practice_default_clean_streak })} />
-        <NumberField label="BPM step" value={value.ladder_bpm_step} min={1} max={24} onChange={(ladder_bpm_step) => setValue({ ...value, ladder_bpm_step })} />
-        <NumberField label="Calendar capacity" value={value.calendar_capacity_minutes} min={1} max={1440} onChange={(calendar_capacity_minutes) => setValue({ ...value, calendar_capacity_minutes })} />
-      </fieldset>
+      <Disclosure summary="Metronome">
+        <div className="settings-group">
+          <Row label="Click sound">
+            <select
+              aria-label="Default click sound"
+              value={value.metronome_sound}
+              onChange={(event) =>
+                setValue({ ...value, metronome_sound: event.target.value })
+              }
+            >
+              {["woodblock", "tick", "clave", "rim", "cowbell", "beep"].map(
+                (sound) => (
+                  <option key={sound}>{sound}</option>
+                ),
+              )}
+            </select>
+          </Row>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={value.metronome_boost}
+              onChange={(event) =>
+                setValue({ ...value, metronome_boost: event.target.checked })
+              }
+            />
+            <span>Boost Mac volume while clicking</span>
+          </label>
+          <NumberField
+            label="Boost level"
+            value={value.metronome_boost_level}
+            min={0}
+            max={100}
+            onChange={(metronome_boost_level) =>
+              setValue({ ...value, metronome_boost_level })
+            }
+          />
+        </div>
+      </Disclosure>
+
+      <Disclosure summary="Ladder defaults">
+        <div className="settings-group">
+          <NumberField
+            label="Default clean streak"
+            value={value.practice_default_clean_streak}
+            min={1}
+            max={100}
+            onChange={(practice_default_clean_streak) =>
+              setValue({ ...value, practice_default_clean_streak })
+            }
+          />
+          <NumberField
+            label="BPM step"
+            value={value.ladder_bpm_step}
+            min={1}
+            max={24}
+            onChange={(ladder_bpm_step) =>
+              setValue({ ...value, ladder_bpm_step })
+            }
+          />
+        </div>
+      </Disclosure>
+
+      <Disclosure summary="Calendar capacity">
+        <div className="settings-group">
+          <NumberField
+            label="Calendar capacity"
+            value={value.calendar_capacity_minutes}
+            min={1}
+            max={1440}
+            onChange={(calendar_capacity_minutes) =>
+              setValue({ ...value, calendar_capacity_minutes })
+            }
+          />
+        </div>
+      </Disclosure>
+
+      <Disclosure summary="Vault directory">
+        <div className="settings-group">
+          <Row label="Pieces folder" wide>
+            <input
+              aria-label="Pieces folder"
+              value={value.vault_pieces_dir}
+              onChange={(event) =>
+                setValue({ ...value, vault_pieces_dir: event.target.value })
+              }
+            />
+          </Row>
+        </div>
+      </Disclosure>
+
+      <Disclosure summary="Verdict aliases">
+        <div className="settings-group">
+          <AliasField
+            label="Clean verdict aliases"
+            value={aliasDrafts.clean}
+            onChange={(clean) => setAliasDrafts({ ...aliasDrafts, clean })}
+          />
+          <AliasField
+            label="Flawed verdict aliases"
+            value={aliasDrafts.flawed}
+            onChange={(flawed) => setAliasDrafts({ ...aliasDrafts, flawed })}
+          />
+          <AliasField
+            label="Failed verdict aliases"
+            value={aliasDrafts.failed}
+            onChange={(failed) => setAliasDrafts({ ...aliasDrafts, failed })}
+          />
+        </div>
+      </Disclosure>
+
+      <Disclosure summary="Appearance">
+        <div className="settings-group">
+          <Row label="Theme">
+            <select
+              aria-label="Theme"
+              value={value.theme}
+              onChange={(event) =>
+                setValue({
+                  ...value,
+                  theme: event.target.value as SettingsSnapshot["theme"],
+                })
+              }
+            >
+              <option value="auto">Follow Mac</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </Row>
+          <label className="settings-scale">
+            <span>
+              Interface scale <strong>{value.interface_scale}%</strong>
+            </span>
+            <input
+              aria-label="Interface scale"
+              type="range"
+              min="75"
+              max="125"
+              step="5"
+              value={value.interface_scale}
+              onChange={(event) =>
+                setValue({
+                  ...value,
+                  interface_scale: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+        </div>
+      </Disclosure>
     </form>
   );
 }
 
-function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
-  return <label><span>{label}</span><input type="number" aria-label={label} value={value} min={min} max={max} onChange={(event) => onChange(Number(event.target.value))} /></label>;
+function Row({
+  label,
+  wide,
+  children,
+}: {
+  label: string;
+  wide?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className={`settings-row${wide ? " settings-wide" : ""}`}>
+      <span>{label}</span>
+      {children}
+    </label>
+  );
 }
 
-function AliasField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <label><span>{label}</span><input aria-label={label} placeholder="comma separated" value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+function NumberField({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="settings-row">
+      <span>{label}</span>
+      <input
+        type="number"
+        aria-label={label}
+        value={value}
+        min={min}
+        max={max}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
 }
 
-function KeyControl({ provider, status, api, onStatus }: { provider: Provider; status: ApiKeyStatus; api: SettingsApi; onStatus: (status: ApiKeyStatus) => void }) {
+function AliasField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="settings-row">
+      <span>{label}</span>
+      <input
+        aria-label={label}
+        placeholder="comma separated"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function KeyControl({
+  provider,
+  status,
+  api,
+  onStatus,
+}: {
+  provider: Provider;
+  status: ApiKeyStatus;
+  api: SettingsApi;
+  onStatus: (status: ApiKeyStatus) => void;
+}) {
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const label = provider === "claude" ? "Claude" : "Gemini";
   const save = async () => {
     if (!key.trim() || busy) return;
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     const secret = key;
     setKey("");
-    try { onStatus(await api.saveKey(provider, secret)); } catch (cause) { setError(errorMessage(cause)); } finally { setBusy(false); }
+    try {
+      onStatus(await api.saveKey(provider, secret));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
   };
   const clear = async () => {
     if (busy) return;
-    setBusy(true); setError(null);
-    try { onStatus(await api.clearKey(provider)); } catch (cause) { setError(errorMessage(cause)); } finally { setBusy(false); }
+    setBusy(true);
+    setError(null);
+    try {
+      onStatus(await api.clearKey(provider));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
   };
-  return <section aria-label={`${label} API key`}><header><strong>{label}</strong><span className={status.configured ? "is-configured" : ""}>{status.configured ? `Configured (${status.source})` : "Not configured"}</span></header><label><span className="sr-only">New {label} API key</span><input type="password" aria-label={`New ${label} API key`} autoComplete="off" value={key} onChange={(event) => setKey(event.target.value)} /></label><div><button type="button" disabled={busy || !key.trim()} onClick={() => void save()}>Save key</button><button type="button" disabled={busy || !status.configured} onClick={() => void clear()}>Clear</button></div>{error && <p className="ck-inline-error" role="alert">{error}</p>}</section>;
+  return (
+    <section aria-label={`${label} API key`}>
+      <header>
+        <strong>{label}</strong>
+        <span className={status.configured ? "is-configured" : ""}>
+          {status.configured
+            ? `Configured (${status.source})`
+            : "Not configured"}
+        </span>
+      </header>
+      <label>
+        <span className="sr-only">New {label} API key</span>
+        <input
+          type="password"
+          aria-label={`New ${label} API key`}
+          autoComplete="off"
+          value={key}
+          onChange={(event) => setKey(event.target.value)}
+        />
+      </label>
+      <div className="settings-key-actions">
+        <Button
+          variant="text"
+          type="button"
+          disabled={busy || !key.trim()}
+          onClick={() => void save()}
+        >
+          Save key
+        </Button>
+        <Button
+          variant="text"
+          type="button"
+          disabled={busy || !status.configured}
+          onClick={() => void clear()}
+        >
+          Clear
+        </Button>
+      </div>
+      {error && (
+        <p className="ck-inline-error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
 }
 
 function errorMessage(cause: unknown) {
   if (typeof cause === "string") return cause;
   if (cause instanceof Error) return cause.message;
   if (
-    cause != null
-    && typeof cause === "object"
-    && typeof (cause as { message?: unknown }).message === "string"
-  ) return (cause as { message: string }).message;
+    cause != null &&
+    typeof cause === "object" &&
+    typeof (cause as { message?: unknown }).message === "string"
+  )
+    return (cause as { message: string }).message;
   return "Settings could not be updated.";
 }
-function parseAliases(value: string) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
-function aliasStrings(value: VerdictAliases) { return { clean: value.clean.join(", "), flawed: value.flawed.join(", "), failed: value.failed.join(", ") }; }
+function parseAliases(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+function aliasStrings(value: VerdictAliases) {
+  return {
+    clean: value.clean.join(", "),
+    flawed: value.flawed.join(", "),
+    failed: value.failed.join(", "),
+  };
+}

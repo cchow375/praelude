@@ -1,0 +1,191 @@
+/* ==========================================================================
+   CodaKiller v3 — Settings workspace. Disclosure-organized, plain value rows,
+   no decorative framing. Monochrome; consumes only design tokens + the kit.
+   ========================================================================== */
+
+.settings {
+  max-width: 720px;
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+.settings-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+  margin-bottom: var(--s-4);
+}
+.settings-head h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.settings-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.settings-success {
+  color: var(--signal-success);
+  font-size: 0.875rem;
+}
+.settings .ck-inline-error {
+  color: var(--signal-error);
+  font-size: 0.875rem;
+}
+
+/* Plain value rows inside each disclosure. */
+.settings-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-3);
+  padding-top: var(--s-2);
+}
+.settings-row {
+  display: grid;
+  gap: var(--s-1);
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+.settings-wide {
+  grid-column: 1 / -1;
+}
+
+.settings input:not([type="checkbox"]):not([type="range"]),
+.settings select {
+  width: 100%;
+  min-height: 32px;
+  padding-inline: var(--s-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  color: var(--ink);
+  font: inherit;
+}
+.settings input:focus-visible,
+.settings select:focus-visible {
+  outline: none;
+  border-color: var(--hairline-strong);
+}
+
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 32px;
+  align-self: end;
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+.settings-check.settings-wide {
+  align-items: flex-start;
+}
+.settings-check span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-check strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+.settings-check small {
+  color: var(--ink-faint);
+  font-size: 0.6875rem;
+  line-height: 1.35;
+}
+
+.settings-scale {
+  display: grid;
+  gap: var(--s-1);
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+.settings-scale span {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+.settings-scale strong {
+  color: var(--ink);
+  font-family: var(--font-mono); /* numeral → mono */
+  font-variant-numeric: tabular-nums;
+}
+.settings-scale input[type="range"] {
+  width: 100%;
+  accent-color: var(--ink);
+}
+
+/* API keys: plain rows, no rounded pill buttons, no decorative box. */
+.settings-keys {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-4);
+}
+.settings-keys > section {
+  display: grid;
+  gap: var(--s-2);
+}
+.settings-keys header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s-2);
+}
+.settings-keys header strong {
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+.settings-keys header span {
+  font-size: 0.6875rem;
+  color: var(--ink-faint);
+}
+.settings-keys header span.is-configured {
+  color: var(--signal-success);
+}
+.settings-key-actions {
+  display: flex;
+  gap: var(--s-2);
+}
+
+@media (max-width: 640px) {
+  .settings-group,
+  .settings-keys {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Brain connection block --------------------------------------------- */
+.brain-connection {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: var(--s-2);
+  padding-bottom: var(--s-2);
+}
+.brain-connection-line {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--ink-dim);
+}
+.brain-connection-line.is-online {
+  color: var(--ink);
+}
+.brain-connection-actions {
+  display: flex;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -22,10 +22,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AnomalyReport } from "../features/ledger/AnomaliesPanel";
-import type {
-  DailyWork,
-  RecoveryPreview,
-} from "../features/calendar/types";
+import type { DailyWork, RecoveryPreview } from "../features/calendar/types";
 import type {
   BlockHistory,
   Goal,
@@ -57,87 +54,262 @@ const TODAY = todayLocal();
 // --- Repertoire -----------------------------------------------------------
 
 const PIECES: PieceSummary[] = [
-  { id: 1, title: "Scherzo No. 2", composer: "Frédéric Chopin", has_xml: true, has_pdf: true, intake_done: true },
-  { id: 2, title: "The White Peacock", composer: "Charles Tomlinson Griffes", has_xml: false, has_pdf: true, intake_done: true },
+  {
+    id: 1,
+    title: "Scherzo No. 2",
+    composer: "Frédéric Chopin",
+    has_xml: true,
+    has_pdf: true,
+    intake_done: true,
+  },
+  {
+    id: 2,
+    title: "The White Peacock",
+    composer: "Charles Tomlinson Griffes",
+    has_xml: false,
+    has_pdf: true,
+    intake_done: true,
+  },
 ];
 
 const PIECE_DETAILS: Record<number, PieceDetailData> = {
   1: {
-    id: 1, title: "Scherzo No. 2", composer: "Frédéric Chopin",
-    has_xml: true, has_pdf: true, intake_done: true,
-    folder_path: "/dev-mock/scherzo-no-2", xml_path: "/dev-mock/scherzo-no-2/score.musicxml", pdf_path: "/dev-mock/scherzo-no-2/score.pdf",
+    id: 1,
+    title: "Scherzo No. 2",
+    composer: "Frédéric Chopin",
+    has_xml: true,
+    has_pdf: true,
+    intake_done: true,
+    folder_path: "/dev-mock/scherzo-no-2",
+    xml_path: "/dev-mock/scherzo-no-2/score.musicxml",
+    pdf_path: "/dev-mock/scherzo-no-2/score.pdf",
     goals: ["Perform from memory", "Even development voicing"],
-    deadline: null, target_tempo: 100,
+    deadline: null,
+    target_tempo: 100,
     hard_spots: [{ measures: "65-96", note: "Development hand coordination" }],
-    current_state: "Development section under tempo", notes: "Keep the left hand light in the opening.",
+    current_state: "Development section under tempo",
+    notes: "Keep the left hand light in the opening.",
   },
   2: {
-    id: 2, title: "The White Peacock", composer: "Charles Tomlinson Griffes",
-    has_xml: false, has_pdf: true, intake_done: true,
-    folder_path: "/dev-mock/white-peacock", xml_path: null, pdf_path: "/dev-mock/white-peacock/score.pdf",
+    id: 2,
+    title: "The White Peacock",
+    composer: "Charles Tomlinson Griffes",
+    has_xml: false,
+    has_pdf: true,
+    intake_done: true,
+    folder_path: "/dev-mock/white-peacock",
+    xml_path: null,
+    pdf_path: "/dev-mock/white-peacock/score.pdf",
     goals: ["Voice the melody over the tremolo"],
-    deadline: null, target_tempo: 63,
+    deadline: null,
+    target_tempo: 63,
     hard_spots: [{ measures: "40-52", note: "Climax pedaling" }],
-    current_state: "Reading the opening", notes: null,
+    current_state: "Reading the opening",
+    notes: null,
   },
 };
 
 const REGIONS: Record<number, Region[]> = {
   1: [
-    { id: 11, piece_id: 1, name: "Opening theme", notes: null, m_start: 1, m_end: 8, kind: "phrase", order: 0, color: null, pdf_anchor: null },
-    { id: 12, piece_id: 1, name: "Development", notes: null, m_start: 65, m_end: 96, kind: "section", order: 1, color: null, pdf_anchor: null },
-    { id: 13, piece_id: 1, name: "Coda", notes: null, m_start: 240, m_end: 268, kind: "section", order: 2, color: null, pdf_anchor: null },
+    {
+      id: 11,
+      piece_id: 1,
+      name: "Opening theme",
+      notes: null,
+      m_start: 1,
+      m_end: 8,
+      kind: "phrase",
+      order: 0,
+      color: null,
+      pdf_anchor: null,
+    },
+    {
+      id: 12,
+      piece_id: 1,
+      name: "Development",
+      notes: null,
+      m_start: 65,
+      m_end: 96,
+      kind: "section",
+      order: 1,
+      color: null,
+      pdf_anchor: null,
+    },
+    {
+      id: 13,
+      piece_id: 1,
+      name: "Coda",
+      notes: null,
+      m_start: 240,
+      m_end: 268,
+      kind: "section",
+      order: 2,
+      color: null,
+      pdf_anchor: null,
+    },
   ],
   2: [
-    { id: 21, piece_id: 2, name: "Opening", notes: null, m_start: 1, m_end: 12, kind: "phrase", order: 0, color: null, pdf_anchor: null },
-    { id: 22, piece_id: 2, name: "Climax", notes: null, m_start: 40, m_end: 52, kind: "section", order: 1, color: null, pdf_anchor: null },
+    {
+      id: 21,
+      piece_id: 2,
+      name: "Opening",
+      notes: null,
+      m_start: 1,
+      m_end: 12,
+      kind: "phrase",
+      order: 0,
+      color: null,
+      pdf_anchor: null,
+    },
+    {
+      id: 22,
+      piece_id: 2,
+      name: "Climax",
+      notes: null,
+      m_start: 40,
+      m_end: 52,
+      kind: "section",
+      order: 1,
+      color: null,
+      pdf_anchor: null,
+    },
   ],
 };
 
 const BLOCKS: Record<number, BlockHistory[]> = {
   1: [
     {
-      block_id: 101, region_id: 11, m_start: 1, m_end: 8, label: "Opening theme",
-      start_bpm: 80, bpm: 92, target_bpm: 108, planned_reps: 8, reps_done: 6, status: "open",
-      verdicts: { clean: 5, flawed: 1, failed: 0 }, focus: "notes", use_metronome: true,
-      attempts_recorded: 6, tries: 6, current_clean_streak: 2, mastery_progress_streak: 2, best_clean_streak: 3,
-      required_clean_streak: 5, effective_required_clean_streak: 5, recovery_remaining: 0,
-      mastery_status: "not_satisfied", mastery_verified: false, set_state: "active",
+      block_id: 101,
+      region_id: 11,
+      m_start: 1,
+      m_end: 8,
+      label: "Opening theme",
+      start_bpm: 80,
+      bpm: 92,
+      target_bpm: 108,
+      planned_reps: 8,
+      reps_done: 6,
+      status: "open",
+      verdicts: { clean: 5, flawed: 1, failed: 0 },
+      focus: "notes",
+      use_metronome: true,
+      attempts_recorded: 6,
+      tries: 6,
+      current_clean_streak: 2,
+      mastery_progress_streak: 2,
+      best_clean_streak: 3,
+      required_clean_streak: 5,
+      effective_required_clean_streak: 5,
+      recovery_remaining: 0,
+      mastery_status: "not_satisfied",
+      mastery_verified: false,
+      set_state: "active",
     },
     {
-      block_id: 102, region_id: 12, m_start: 65, m_end: 96, label: "Development",
-      start_bpm: 60, bpm: 84, target_bpm: 84, planned_reps: 8, reps_done: 8, status: "closed",
-      verdicts: { clean: 8, flawed: 0, failed: 0 }, focus: "hands", use_metronome: true,
-      attempts_recorded: 8, tries: 8, current_clean_streak: 8, mastery_progress_streak: 8, best_clean_streak: 8,
-      required_clean_streak: 5, effective_required_clean_streak: 5, recovery_remaining: 0,
-      mastery_status: "satisfied", mastery_verified: true, set_state: "mastered",
+      block_id: 102,
+      region_id: 12,
+      m_start: 65,
+      m_end: 96,
+      label: "Development",
+      start_bpm: 60,
+      bpm: 84,
+      target_bpm: 84,
+      planned_reps: 8,
+      reps_done: 8,
+      status: "closed",
+      verdicts: { clean: 8, flawed: 0, failed: 0 },
+      focus: "hands",
+      use_metronome: true,
+      attempts_recorded: 8,
+      tries: 8,
+      current_clean_streak: 8,
+      mastery_progress_streak: 8,
+      best_clean_streak: 8,
+      required_clean_streak: 5,
+      effective_required_clean_streak: 5,
+      recovery_remaining: 0,
+      mastery_status: "satisfied",
+      mastery_verified: true,
+      set_state: "mastered",
     },
   ],
   2: [
     {
-      block_id: 201, region_id: 21, m_start: 1, m_end: 12, label: "Opening",
-      start_bpm: 48, bpm: 52, target_bpm: 63, planned_reps: 6, reps_done: 4, status: "open",
-      verdicts: { clean: 3, flawed: 0, failed: 1 }, focus: "notes", use_metronome: false,
-      attempts_recorded: 4, tries: 4, current_clean_streak: 0, mastery_progress_streak: 0, best_clean_streak: 2,
-      required_clean_streak: 5, effective_required_clean_streak: 5, recovery_remaining: 1,
-      mastery_status: "not_satisfied", mastery_verified: false, set_state: "active",
+      block_id: 201,
+      region_id: 21,
+      m_start: 1,
+      m_end: 12,
+      label: "Opening",
+      start_bpm: 48,
+      bpm: 52,
+      target_bpm: 63,
+      planned_reps: 6,
+      reps_done: 4,
+      status: "open",
+      verdicts: { clean: 3, flawed: 0, failed: 1 },
+      focus: "notes",
+      use_metronome: false,
+      attempts_recorded: 4,
+      tries: 4,
+      current_clean_streak: 0,
+      mastery_progress_streak: 0,
+      best_clean_streak: 2,
+      required_clean_streak: 5,
+      effective_required_clean_streak: 5,
+      recovery_remaining: 1,
+      mastery_status: "not_satisfied",
+      mastery_verified: false,
+      set_state: "active",
     },
   ],
 };
 
 const PROGRESS: Record<number, ProgressSummary> = {
   1: {
-    piece_id: 1, focused_seconds: 8400, streak: 3, best_tempo_reached: 92,
+    piece_id: 1,
+    focused_seconds: 8400,
+    streak: 3,
+    best_tempo_reached: 92,
     per_region_mastery: [
-      { region_id: 11, name: "Opening theme", blocks: 3, reps: 18, clean_ratio: 0.83, best_bpm: 92, last_practiced: isoDaysAgo(1) },
-      { region_id: 12, name: "Development", blocks: 2, reps: 16, clean_ratio: 1, best_bpm: 84, last_practiced: isoDaysAgo(2) },
+      {
+        region_id: 11,
+        name: "Opening theme",
+        blocks: 3,
+        reps: 18,
+        clean_ratio: 0.83,
+        best_bpm: 92,
+        last_practiced: isoDaysAgo(1),
+      },
+      {
+        region_id: 12,
+        name: "Development",
+        blocks: 2,
+        reps: 16,
+        clean_ratio: 1,
+        best_bpm: 84,
+        last_practiced: isoDaysAgo(2),
+      },
     ],
-    time_by_focus: [{ focus: "notes", seconds: 4200 }, { focus: "hands", seconds: 4200 }],
+    time_by_focus: [
+      { focus: "notes", seconds: 4200 },
+      { focus: "hands", seconds: 4200 },
+    ],
   },
   2: {
-    piece_id: 2, focused_seconds: 3200, streak: 1, best_tempo_reached: 52,
+    piece_id: 2,
+    focused_seconds: 3200,
+    streak: 1,
+    best_tempo_reached: 52,
     per_region_mastery: [
-      { region_id: 21, name: "Opening", blocks: 1, reps: 4, clean_ratio: 0.75, best_bpm: 52, last_practiced: isoDaysAgo(3) },
+      {
+        region_id: 21,
+        name: "Opening",
+        blocks: 1,
+        reps: 4,
+        clean_ratio: 0.75,
+        best_bpm: 52,
+        last_practiced: isoDaysAgo(3),
+      },
     ],
     time_by_focus: [{ focus: "notes", seconds: 3200 }],
   },
@@ -145,58 +317,153 @@ const PROGRESS: Record<number, ProgressSummary> = {
 
 const GOALS: Record<number, Goal[]> = {
   1: [
-    { id: 1, piece_id: 1, text: "Perform Scherzo No. 2 from memory", kind: "big", parent_goal_id: null, done: false, order: 0, target_date: TODAY, created_ts: isoDaysAgo(20) },
-    { id: 2, piece_id: 1, text: "Clean the development section hands together", kind: "sub", parent_goal_id: 1, done: false, order: 0, target_date: null, created_ts: isoDaysAgo(10) },
+    {
+      id: 1,
+      piece_id: 1,
+      text: "Perform Scherzo No. 2 from memory",
+      kind: "big",
+      parent_goal_id: null,
+      done: false,
+      order: 0,
+      target_date: TODAY,
+      created_ts: isoDaysAgo(20),
+    },
+    {
+      id: 2,
+      piece_id: 1,
+      text: "Clean the development section hands together",
+      kind: "sub",
+      parent_goal_id: 1,
+      done: false,
+      order: 0,
+      target_date: null,
+      created_ts: isoDaysAgo(10),
+    },
   ],
   2: [
-    { id: 3, piece_id: 2, text: "Voice the melody above the tremolo", kind: "big", parent_goal_id: null, done: false, order: 0, target_date: null, created_ts: isoDaysAgo(8) },
+    {
+      id: 3,
+      piece_id: 2,
+      text: "Voice the melody above the tremolo",
+      kind: "big",
+      parent_goal_id: null,
+      done: false,
+      order: 0,
+      target_date: null,
+      created_ts: isoDaysAgo(8),
+    },
   ],
 };
 
 function dailyWork(): DailyWork[] {
   const base = {
-    origin_date: TODAY, scheduled_date: TODAY, reschedule_count: 0,
-    completed_ts: null, created_ts: isoDaysAgo(1), updated_ts: isoDaysAgo(1),
+    origin_date: TODAY,
+    scheduled_date: TODAY,
+    reschedule_count: 0,
+    completed_ts: null,
+    created_ts: isoDaysAgo(1),
+    updated_ts: isoDaysAgo(1),
   };
   return [
     {
-      ...base, id: 1, goal_id: 2, region_id: 11, block_id: null,
-      title: "Development hands-together, slow", planned_minutes: 20, status: "planned", source: "planner",
-      sort_order: 0, piece_id: 1, piece_title: "Scherzo No. 2",
-      goal_text: "Clean the development section hands together", parent_goal_text: "Perform Scherzo No. 2 from memory",
+      ...base,
+      id: 1,
+      goal_id: 2,
+      region_id: 11,
+      block_id: null,
+      title: "Development hands-together, slow",
+      planned_minutes: 20,
+      status: "planned",
+      source: "planner",
+      sort_order: 0,
+      piece_id: 1,
+      piece_title: "Scherzo No. 2",
+      goal_text: "Clean the development section hands together",
+      parent_goal_text: "Perform Scherzo No. 2 from memory",
     },
     {
-      ...base, id: 2, goal_id: 3, region_id: 21, block_id: null,
-      title: "White Peacock opening, voicing", planned_minutes: 15, status: "planned", source: "manual",
-      sort_order: 1, piece_id: 2, piece_title: "The White Peacock",
-      goal_text: "Voice the melody above the tremolo", parent_goal_text: null,
+      ...base,
+      id: 2,
+      goal_id: 3,
+      region_id: 21,
+      block_id: null,
+      title: "White Peacock opening, voicing",
+      planned_minutes: 15,
+      status: "planned",
+      source: "manual",
+      sort_order: 1,
+      piece_id: 2,
+      piece_title: "The White Peacock",
+      goal_text: "Voice the melody above the tremolo",
+      parent_goal_text: null,
     },
   ];
 }
 
 function recoveryPreview(): RecoveryPreview {
   const missed: DailyWork = {
-    id: 3, goal_id: 2, region_id: 11, block_id: null,
-    title: "Opening theme review", planned_minutes: 10, origin_date: TODAY, scheduled_date: isoDaysAgo(2).slice(0, 10),
-    status: "planned", source: "planner", reschedule_count: 1, sort_order: 0,
-    completed_ts: null, created_ts: isoDaysAgo(4), updated_ts: isoDaysAgo(2),
-    piece_id: 1, piece_title: "Scherzo No. 2",
-    goal_text: "Clean the development section hands together", parent_goal_text: "Perform Scherzo No. 2 from memory",
+    id: 3,
+    goal_id: 2,
+    region_id: 11,
+    block_id: null,
+    title: "Opening theme review",
+    planned_minutes: 10,
+    origin_date: TODAY,
+    scheduled_date: isoDaysAgo(2).slice(0, 10),
+    status: "planned",
+    source: "planner",
+    reschedule_count: 1,
+    sort_order: 0,
+    completed_ts: null,
+    created_ts: isoDaysAgo(4),
+    updated_ts: isoDaysAgo(2),
+    piece_id: 1,
+    piece_title: "Scherzo No. 2",
+    goal_text: "Clean the development section hands together",
+    parent_goal_text: "Perform Scherzo No. 2 from memory",
   };
   return {
     today: TODAY,
     capacity_minutes: 60,
-    items: [{ work: missed, proposed_date: TODAY, reason: "Scheduled 2 days ago and not marked done.", effective_deadline: null }],
-    days: [{ date: TODAY, planned_minutes: 35, recovery_minutes: 10, capacity_minutes: 60 }],
+    items: [
+      {
+        work: missed,
+        proposed_date: TODAY,
+        reason: "Scheduled 2 days ago and not marked done.",
+        effective_deadline: null,
+      },
+    ],
+    days: [
+      {
+        date: TODAY,
+        planned_minutes: 35,
+        recovery_minutes: 10,
+        capacity_minutes: 60,
+      },
+    ],
   };
 }
 
 function retentionDue(): RetentionCheckView[] {
   return [
     {
-      id: 501, region_id: 11, source_set_id: 102, due_date: TODAY, original_due_date: TODAY,
-      condition: { bpm: 84, m_start: 65, m_end: 96, hands: "together", required_clean_streak: 5 },
-      state: "due", result: null, completed_ts: null, created_ts: isoDaysAgo(3), updated_ts: isoDaysAgo(1),
+      id: 501,
+      region_id: 11,
+      source_set_id: 102,
+      due_date: TODAY,
+      original_due_date: TODAY,
+      condition: {
+        bpm: 84,
+        m_start: 65,
+        m_end: 96,
+        hands: "together",
+        required_clean_streak: 5,
+      },
+      state: "due",
+      result: null,
+      completed_ts: null,
+      created_ts: isoDaysAgo(3),
+      updated_ts: isoDaysAgo(1),
     },
   ];
 }
@@ -207,16 +474,44 @@ function anomalies(): AnomalyReport {
     total: 3,
     groups: [
       {
-        kind: "incomplete_event_provenance", severity: "info", count: 2,
+        kind: "incomplete_event_provenance",
+        severity: "info",
+        count: 2,
         rows: [
-          { id: 1, entity_type: "event", entity_id: 4021, review_state: "open", detail: { input_source: "unknown" }, created_ts: isoDaysAgo(30), reviewed_ts: null },
-          { id: 2, entity_type: "event", entity_id: 4022, review_state: "open", detail: { input_source: "unknown" }, created_ts: isoDaysAgo(30), reviewed_ts: null },
+          {
+            id: 1,
+            entity_type: "event",
+            entity_id: 4021,
+            review_state: "open",
+            detail: { input_source: "unknown" },
+            created_ts: isoDaysAgo(30),
+            reviewed_ts: null,
+          },
+          {
+            id: 2,
+            entity_type: "event",
+            entity_id: 4022,
+            review_state: "open",
+            detail: { input_source: "unknown" },
+            created_ts: isoDaysAgo(30),
+            reviewed_ts: null,
+          },
         ],
       },
       {
-        kind: "same_second_attempt_burst", severity: "warning", count: 1,
+        kind: "same_second_attempt_burst",
+        severity: "warning",
+        count: 1,
         rows: [
-          { id: 3, entity_type: "set", entity_id: 101, review_state: "open", detail: { attempts: 2, shared_timestamp: isoDaysAgo(5) }, created_ts: isoDaysAgo(5), reviewed_ts: null },
+          {
+            id: 3,
+            entity_type: "set",
+            entity_id: 101,
+            review_state: "open",
+            detail: { attempts: 2, shared_timestamp: isoDaysAgo(5) },
+            created_ts: isoDaysAgo(5),
+            reviewed_ts: null,
+          },
         ],
       },
     ],
@@ -227,9 +522,22 @@ function universeSnapshot(): UniverseSnapshot {
   return {
     generated_at: new Date().toISOString(),
     definitions: [
-      { signal: "focused_time", label: "System size", definition: "Focused practice time after idle time is removed." },
-      { signal: "continuity", label: "Outer arc", definition: "Distinct active days in the inclusive 28-day window." },
-      { signal: "mastery", label: "Mastery ring", definition: "Only verified consecutive-clean contracts; never raw click totals." },
+      {
+        signal: "focused_time",
+        label: "System size",
+        definition: "Focused practice time after idle time is removed.",
+      },
+      {
+        signal: "continuity",
+        label: "Outer arc",
+        definition: "Distinct active days in the inclusive 28-day window.",
+      },
+      {
+        signal: "mastery",
+        label: "Mastery ring",
+        definition:
+          "Only verified consecutive-clean contracts; never raw click totals.",
+      },
     ],
     traces: {
       source: "dev-mock sample practice events",
@@ -241,29 +549,141 @@ function universeSnapshot(): UniverseSnapshot {
       maturity_formula: "coverage × verified mastery × continuity",
     },
     totals: {
-      focused_seconds: 11600, active_days_28: 6, regions_practiced: 3, regions_revisited: 1,
-      mastered_targets: 1, recovered_targets: 0, practice_sessions: 7,
+      focused_seconds: 11600,
+      active_days_28: 6,
+      regions_practiced: 3,
+      regions_revisited: 1,
+      mastered_targets: 1,
+      recovered_targets: 0,
+      practice_sessions: 7,
     },
     pieces: [
       {
-        piece_id: 1, title: "Scherzo No. 2", composer: "Frédéric Chopin",
-        focused_seconds: 8400, active_days_28: 6, regions_total: 3, regions_practiced: 2, regions_revisited: 1,
-        mastered_targets: 1, recovered_targets: 0, open_recovery_debt: 0, practice_sessions: 5,
-        earned_maturity: 0.55, quality_brightness: 0.97, last_practiced: isoDaysAgo(1),
+        piece_id: 1,
+        title: "Scherzo No. 2",
+        composer: "Frédéric Chopin",
+        focused_seconds: 8400,
+        active_days_28: 6,
+        regions_total: 3,
+        regions_practiced: 2,
+        regions_revisited: 1,
+        mastered_targets: 1,
+        recovered_targets: 0,
+        open_recovery_debt: 0,
+        practice_sessions: 5,
+        earned_maturity: 0.55,
+        quality_brightness: 0.97,
+        last_practiced: isoDaysAgo(1),
         region_signals: [
-          { region_id: 11, name: "Opening theme", kind: "phrase", focused_seconds: 4200, active_days_28: 4, practiced: true, revisited: true, quality_brightness: 0.98, last_practiced: isoDaysAgo(1), practice_events: 14, rated_rep_events: 8, clean_rep_events: 6, distinct_practice_dates: 4, mastery_contracts_completed: 0, recovery_resets: 0, recovered: false, open_recovery_debt: 0, practice_sessions: 4 },
-          { region_id: 12, name: "Development", kind: "section", focused_seconds: 4200, active_days_28: 3, practiced: true, revisited: false, quality_brightness: 0.96, last_practiced: isoDaysAgo(2), practice_events: 10, rated_rep_events: 8, clean_rep_events: 8, distinct_practice_dates: 2, mastery_contracts_completed: 1, recovery_resets: 0, recovered: false, open_recovery_debt: 0, practice_sessions: 3 },
-          { region_id: 13, name: "Coda", kind: "section", focused_seconds: 0, active_days_28: 0, practiced: false, revisited: false, quality_brightness: 0.95, last_practiced: null, practice_events: 0, rated_rep_events: 0, clean_rep_events: 0, distinct_practice_dates: 0 },
+          {
+            region_id: 11,
+            name: "Opening theme",
+            kind: "phrase",
+            focused_seconds: 4200,
+            active_days_28: 4,
+            practiced: true,
+            revisited: true,
+            quality_brightness: 0.98,
+            last_practiced: isoDaysAgo(1),
+            practice_events: 14,
+            rated_rep_events: 8,
+            clean_rep_events: 6,
+            distinct_practice_dates: 4,
+            mastery_contracts_completed: 0,
+            recovery_resets: 0,
+            recovered: false,
+            open_recovery_debt: 0,
+            practice_sessions: 4,
+          },
+          {
+            region_id: 12,
+            name: "Development",
+            kind: "section",
+            focused_seconds: 4200,
+            active_days_28: 3,
+            practiced: true,
+            revisited: false,
+            quality_brightness: 0.96,
+            last_practiced: isoDaysAgo(2),
+            practice_events: 10,
+            rated_rep_events: 8,
+            clean_rep_events: 8,
+            distinct_practice_dates: 2,
+            mastery_contracts_completed: 1,
+            recovery_resets: 0,
+            recovered: false,
+            open_recovery_debt: 0,
+            practice_sessions: 3,
+          },
+          {
+            region_id: 13,
+            name: "Coda",
+            kind: "section",
+            focused_seconds: 0,
+            active_days_28: 0,
+            practiced: false,
+            revisited: false,
+            quality_brightness: 0.95,
+            last_practiced: null,
+            practice_events: 0,
+            rated_rep_events: 0,
+            clean_rep_events: 0,
+            distinct_practice_dates: 0,
+          },
         ],
       },
       {
-        piece_id: 2, title: "The White Peacock", composer: "Charles Tomlinson Griffes",
-        focused_seconds: 3200, active_days_28: 3, regions_total: 2, regions_practiced: 1, regions_revisited: 0,
-        mastered_targets: 0, recovered_targets: 0, open_recovery_debt: 1, practice_sessions: 2,
-        earned_maturity: 0.2, quality_brightness: 0.94, last_practiced: isoDaysAgo(3),
+        piece_id: 2,
+        title: "The White Peacock",
+        composer: "Charles Tomlinson Griffes",
+        focused_seconds: 3200,
+        active_days_28: 3,
+        regions_total: 2,
+        regions_practiced: 1,
+        regions_revisited: 0,
+        mastered_targets: 0,
+        recovered_targets: 0,
+        open_recovery_debt: 1,
+        practice_sessions: 2,
+        earned_maturity: 0.2,
+        quality_brightness: 0.94,
+        last_practiced: isoDaysAgo(3),
         region_signals: [
-          { region_id: 21, name: "Opening", kind: "phrase", focused_seconds: 3200, active_days_28: 3, practiced: true, revisited: false, quality_brightness: 0.94, last_practiced: isoDaysAgo(3), practice_events: 6, rated_rep_events: 4, clean_rep_events: 3, distinct_practice_dates: 2, mastery_contracts_completed: 0, recovery_resets: 1, recovered: false, open_recovery_debt: 1, practice_sessions: 2 },
-          { region_id: 22, name: "Climax", kind: "section", focused_seconds: 0, active_days_28: 0, practiced: false, revisited: false, quality_brightness: 0.93, last_practiced: null, practice_events: 0, rated_rep_events: 0, clean_rep_events: 0, distinct_practice_dates: 0 },
+          {
+            region_id: 21,
+            name: "Opening",
+            kind: "phrase",
+            focused_seconds: 3200,
+            active_days_28: 3,
+            practiced: true,
+            revisited: false,
+            quality_brightness: 0.94,
+            last_practiced: isoDaysAgo(3),
+            practice_events: 6,
+            rated_rep_events: 4,
+            clean_rep_events: 3,
+            distinct_practice_dates: 2,
+            mastery_contracts_completed: 0,
+            recovery_resets: 1,
+            recovered: false,
+            open_recovery_debt: 1,
+            practice_sessions: 2,
+          },
+          {
+            region_id: 22,
+            name: "Climax",
+            kind: "section",
+            focused_seconds: 0,
+            active_days_28: 0,
+            practiced: false,
+            revisited: false,
+            quality_brightness: 0.93,
+            last_practiced: null,
+            practice_events: 0,
+            rated_rep_events: 0,
+            clean_rep_events: 0,
+            distinct_practice_dates: 0,
+          },
         ],
       },
     ],
@@ -271,13 +691,58 @@ function universeSnapshot(): UniverseSnapshot {
 }
 
 const METRO_STATE = {
-  running: false, bpm: 92, beats_per_bar: 4, subdivision: 1,
-  accent_first: true, sound: "click", gain: 0.8, boost: false,
+  running: false,
+  bpm: 92,
+  beats_per_bar: 4,
+  subdivision: 1,
+  accent_first: true,
+  sound: "click",
+  gain: 0.8,
+  boost: false,
 };
 
+// A complete settings snapshot so the v3 Settings workspace renders (and its
+// Brain/keys/aliases rows resolve) under `npm run dev:mock`.
 const SETTINGS_SNAPSHOT = {
-  theme: "auto" as const, interface_scale: 90, practice_default_clean_streak: 5,
+  theme: "dark" as const,
+  interface_scale: 90,
+  tts_provider: "auto" as const,
+  tts_voice: "Kore",
+  brain_provider: "auto" as const,
+  knowledge_dir: "/dev-mock/Knowledge and Resources",
+  share_retrieved_knowledge: true,
+  wake_word_enabled: false,
+  wake_word: "coda",
+  metronome_sound: "woodblock",
+  metronome_boost: false,
+  metronome_boost_level: 85,
+  ladder_default_reps: 30,
+  practice_default_clean_streak: 5,
+  ladder_bpm_step: 4,
+  calendar_capacity_minutes: 60,
+  vault_pieces_dir: "/dev-mock/Pieces",
+  verdict_aliases: { clean: [], flawed: [], failed: [] },
+  api_keys: [
+    { provider: "claude", configured: false, source: "none" },
+    { provider: "gemini", configured: true, source: "keychain" },
+  ],
 };
+
+// Truthful-status contract from Phase 1, sample values for the static harness.
+const BRAIN_STATUS = { online: true, provider: "gemini", reason: null };
+const BRAIN_TEST_RESULT = {
+  ok: true,
+  provider: "gemini",
+  model: "gemini-flash-latest",
+  latency_ms: 380,
+  error: null,
+};
+
+function apiKeyStatus(args: unknown, configured: boolean) {
+  const record = (args ?? {}) as Record<string, unknown>;
+  const provider = record.provider === "claude" ? "claude" : "gemini";
+  return { provider, configured, source: configured ? "keychain" : "none" };
+}
 
 function pieceIdOf(args: unknown): number {
   const record = (args ?? {}) as Record<string, unknown>;
@@ -294,31 +759,61 @@ function pieceIdOf(args: unknown): number {
 function routeCommand(cmd: string, args: unknown): unknown {
   switch (cmd) {
     // Shell-level mounts.
-    case "settings_snapshot": return SETTINGS_SNAPSHOT;
-    case "rep_state": return null;
-    case "metro_state": return METRO_STATE;
-    case "session_current": return null;
-    case "voice_state": return { muted: false, down: null };
+    case "settings_snapshot":
+      return SETTINGS_SNAPSHOT;
+    case "settings_update": {
+      const patch =
+        ((args ?? {}) as { patch?: Record<string, unknown> }).patch ?? {};
+      return { ...SETTINGS_SNAPSHOT, ...patch };
+    }
+    case "brain_status":
+      return BRAIN_STATUS;
+    case "brain_test_connection":
+      return BRAIN_TEST_RESULT;
+    case "api_key_save":
+      return apiKeyStatus(args, true);
+    case "api_key_clear":
+      return apiKeyStatus(args, false);
+    case "rep_state":
+      return null;
+    case "metro_state":
+      return METRO_STATE;
+    case "session_current":
+      return null;
+    case "voice_state":
+      return { muted: false, down: null };
 
     // Repertoire / Atlas / Ledger.
     case "pieces_list":
-    case "pieces_scan": return PIECES;
-    case "piece_get": return PIECE_DETAILS[pieceIdOf(args)] ?? null;
-    case "region_list": return REGIONS[pieceIdOf(args)] ?? [];
-    case "rep_blocks_for_piece": return BLOCKS[pieceIdOf(args)] ?? [];
-    case "progress_summary": return PROGRESS[pieceIdOf(args)] ?? null;
-    case "goal_list": return GOALS[pieceIdOf(args)] ?? [];
-    case "anomalies_list": return anomalies();
+    case "pieces_scan":
+      return PIECES;
+    case "piece_get":
+      return PIECE_DETAILS[pieceIdOf(args)] ?? null;
+    case "region_list":
+      return REGIONS[pieceIdOf(args)] ?? [];
+    case "rep_blocks_for_piece":
+      return BLOCKS[pieceIdOf(args)] ?? [];
+    case "progress_summary":
+      return PROGRESS[pieceIdOf(args)] ?? null;
+    case "goal_list":
+      return GOALS[pieceIdOf(args)] ?? [];
+    case "anomalies_list":
+      return anomalies();
 
     // Today / Universe.
-    case "universe_snapshot": return universeSnapshot();
+    case "universe_snapshot":
+      return universeSnapshot();
 
     // Calendar / composer.
-    case "daily_work_list": return dailyWork();
-    case "recovery_preview": return recoveryPreview();
-    case "retention_due": return retentionDue();
+    case "daily_work_list":
+      return dailyWork();
+    case "recovery_preview":
+      return recoveryPreview();
+    case "retention_due":
+      return retentionDue();
 
-    default: return null;
+    default:
+      return null;
   }
 }
 
@@ -341,7 +836,8 @@ export function installTauriDevMock(): void {
     // fn), but no callback is ever fired — the initial render comes entirely from
     // the invoke load calls above.
     invoke(cmd: string, args?: unknown): Promise<unknown> {
-      if (cmd === "plugin:event|listen") return Promise.resolve(++subscriptionId);
+      if (cmd === "plugin:event|listen")
+        return Promise.resolve(++subscriptionId);
       if (cmd === "plugin:event|unlisten") return Promise.resolve(null);
       return Promise.resolve(routeCommand(cmd, args));
     },
@@ -355,11 +851,14 @@ export function installTauriDevMock(): void {
     },
   };
 
-  (window as unknown as { __TAURI_INTERNALS__: typeof internals }).__TAURI_INTERNALS__ = internals;
+  (
+    window as unknown as { __TAURI_INTERNALS__: typeof internals }
+  ).__TAURI_INTERNALS__ = internals;
 }
 
 /** Test helper: remove the seam so unrelated suites see a backend-free window. */
 export function uninstallTauriDevMock(): void {
   installed = false;
-  delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  delete (window as unknown as { __TAURI_INTERNALS__?: unknown })
+    .__TAURI_INTERNALS__;
 }

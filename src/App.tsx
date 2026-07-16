@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Shell } from "./shell/Shell";
+import { SettingsPanel } from "./features/settings/SettingsPanel";
 import { useSettings } from "./state/settings";
 import { applyTheme } from "./design/theme";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -25,7 +26,18 @@ function AppContent() {
     void applyInterfaceScale(settings.interface_scale);
   }, [settings.interface_scale]);
 
-  return <Shell />;
+  return (
+    <Shell
+      settingsContent={
+        <SettingsPanel
+          onResetLayout={() => {}}
+          onInterfaceScaleSaved={(scale) => {
+            void applyInterfaceScale(scale);
+          }}
+        />
+      }
+    />
+  );
 }
 
 function App() {
