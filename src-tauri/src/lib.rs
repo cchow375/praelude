@@ -1013,6 +1013,27 @@ fn brain_intake_apply(
     brain::apply_intake_review(request, &store, &pending_reviews).map_err(|error| error.to_string())
 }
 
+/// Truthful, no-network Brain status: whether a provider is configured and, if
+/// not, why. Reflects key presence + the provider setting only; it never makes a
+/// provider call, so it is safe to poll for the status line.
+#[tauri::command]
+fn brain_status(store: State<'_, Arc<Store>>) -> Result<brain::BrainStatus, String> {
+    Ok(brain::status_native(&store))
+}
+
+/// Real Brain round-trip for the "Test connection" button. Runs the network
+/// call on the blocking pool (like `brain_ask`), and reports the exact truthful
+/// outcome — provider/model/latency on success, or the failure reason.
+#[tauri::command]
+async fn brain_test_connection(
+    store: State<'_, Arc<Store>>,
+) -> Result<brain::BrainTestResult, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || brain::test_connection_native(&store))
+        .await
+        .map_err(|_| "Brain test worker stopped unexpectedly".to_string())
+}
+
 #[tauri::command]
 fn daily_work_list(
     from: String,
@@ -1306,6 +1327,8 @@ pub fn run() {
             brain_thread_resume,
             brain_thread_clear,
             brain_intake_apply,
+            brain_status,
+            brain_test_connection,
             daily_work_list,
             daily_work_create,
             daily_work_update,

@@ -386,6 +386,115 @@ pub fn ask_native(
     )
 }
 
+/// Truthful, no-network Brain status for the Settings/status UI. `online` means
+/// a provider is configured (key present + not disabled), not that a live
+/// round-trip succeeded. `reason` is set only when offline.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BrainStatus {
+    pub online: bool,
+    pub provider: Option<String>,
+    pub reason: Option<String>,
+}
+
+/// Result of a real Brain round-trip (Test connection). On success it carries
+/// the provider, the model that answered, and the measured latency; on failure
+/// it carries the truthful reason string. Never carries a secret.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BrainTestResult {
+    pub ok: bool,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub latency_ms: Option<u64>,
+    pub error: Option<String>,
+}
+
+fn provider_label(provider: ProviderName) -> Option<String> {
+    match provider {
+        ProviderName::Claude => Some("claude".to_string()),
+        ProviderName::Gemini => Some("gemini".to_string()),
+        ProviderName::Offline => None,
+    }
+}
+
+/// Pure status mapping from the settings preference + a resolved chain. No
+/// network call: it only reflects key presence and the offline/disabled setting.
+fn status_from_chain(preference: Option<&str>, chain: &ProviderChain) -> BrainStatus {
+    if preference == Some("offline") {
+        return BrainStatus {
+            online: false,
+            provider: None,
+            reason: Some("disabled in settings".to_string()),
+        };
+    }
+    if chain.is_empty() {
+        return BrainStatus {
+            online: false,
+            provider: None,
+            reason: Some(chain.offline_reason().to_string()),
+        };
+    }
+    BrainStatus {
+        online: true,
+        provider: chain.primary_provider().and_then(provider_label),
+        reason: None,
+    }
+}
+
+/// Production status entry point: reads the provider preference and resolves the
+/// native chain (Keychain/env), then maps it. Performs no network request.
+pub fn status_native(store: &Store) -> BrainStatus {
+    let preference = store.get_setting("brain.provider").ok().flatten();
+    let chain = ProviderChain::from_native_config_with_preference(preference.as_deref());
+    status_from_chain(preference.as_deref(), &chain)
+}
+
+/// Pure round-trip mapping: run one minimal question through the chain and map
+/// the outcome to a `BrainTestResult`. Unit-tested with a fake transport.
+fn test_connection_with(chain: &ProviderChain, transport: &dyn Transport) -> BrainTestResult {
+    if chain.is_empty() {
+        return BrainTestResult {
+            ok: false,
+            provider: None,
+            model: None,
+            latency_ms: None,
+            error: Some(chain.offline_reason().to_string()),
+        };
+    }
+    let context = context::GroundedContext {
+        json: "{}".to_string(),
+    };
+    let started = Instant::now();
+    match chain.ask(
+        "Reply with a brief confirmation that you are reachable.",
+        QuestionSource::Typed,
+        &context,
+        transport,
+    ) {
+        Ok(output) => BrainTestResult {
+            ok: true,
+            provider: provider_label(output.provider),
+            model: Some(output.model),
+            latency_ms: Some(started.elapsed().as_millis() as u64),
+            error: None,
+        },
+        Err(error) => BrainTestResult {
+            ok: false,
+            provider: None,
+            model: None,
+            latency_ms: None,
+            error: Some(error.reason()),
+        },
+    }
+}
+
+/// Production Test-connection entry point: a real round-trip over the native
+/// transport using the configured provider chain.
+pub fn test_connection_native(store: &Store) -> BrainTestResult {
+    let preference = store.get_setting("brain.provider").ok().flatten();
+    let chain = ProviderChain::from_native_config_with_preference(preference.as_deref());
+    test_connection_with(&chain, &NativeTransport::new())
+}
+
 fn ask_with(
     request: BrainAskRequest,
     store: &Store,
@@ -1799,6 +1908,59 @@ mod tests {
         )
         .unwrap();
         assert!(answer.proposed_action.is_none());
+    }
+
+    #[test]
+    fn test_connection_ok_maps_provider_model_and_latency() {
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Gemini,
+            "gemini-secret",
+            "gemini-flash-latest",
+        )]);
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "candidates": [{"content": {"parts": [{
+                "text": "{\"answer\":\"reachable\",\"citation_ids\":[]}"
+            }]}}]
+        }))]);
+        let result = test_connection_with(&chain, &transport);
+        assert!(result.ok);
+        assert_eq!(result.provider.as_deref(), Some("gemini"));
+        assert_eq!(result.model.as_deref(), Some("gemini-flash-latest"));
+        assert!(result.latency_ms.is_some());
+        assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn test_connection_error_maps_reason_to_error_string() {
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Gemini,
+            "gemini-secret",
+            "gemini-flash-latest",
+        )]);
+        // Both attempts (initial + retry) hit a 503, so the chain is exhausted.
+        let transport = FakeTransport::responses(vec![
+            HttpResponse {
+                status: 503,
+                body: b"overloaded".to_vec(),
+            },
+            HttpResponse {
+                status: 503,
+                body: b"overloaded".to_vec(),
+            },
+        ]);
+        let result = test_connection_with(&chain, &transport);
+        assert!(!result.ok);
+        assert_eq!(result.error.as_deref(), Some("provider error: HTTP 503"));
+        assert!(result.provider.is_none());
+        assert!(result.model.is_none());
+        assert!(result.latency_ms.is_none());
+    }
+
+    #[test]
+    fn test_connection_empty_chain_reports_no_key() {
+        let result = test_connection_with(&ProviderChain::default(), &FakeTransport::default());
+        assert!(!result.ok);
+        assert_eq!(result.error.as_deref(), Some("no key configured"));
     }
 
     #[test]
