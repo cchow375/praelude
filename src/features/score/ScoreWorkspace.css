@@ -1,0 +1,118 @@
+/* v3 Score workspace chrome — pure monochrome, tokens only. */
+
+/*
+ * Compatibility shim: `ScoreView` + the atlas overlays were authored against the
+ * v2 design tokens (`--surface-*`, `--ink-primary`, `--space-N`, `--shadow-*`…).
+ * Rather than rewrite every rule, map those legacy names onto the v3 monochrome
+ * tokens here, scoped to the v3 workspace so the (still v2-token) PieceDetail
+ * usage of ScoreView is unaffected. Result: the whole Score chrome renders in the
+ * pure black-and-white system. Score MARKS keep their own colors (user data).
+ */
+.score-workspace {
+  --ink-primary: var(--ink);
+  --ink-secondary: var(--ink-dim);
+  --ink-tertiary: var(--ink-faint);
+  --surface-app: var(--bg);
+  --surface-raised: var(--bg-raised);
+  --surface-hover: var(--bg-raised);
+  --surface-active: var(--bg-sunken);
+  --line: var(--hairline);
+  --accent: var(--ink);
+  --accent-contrast: var(--bg);
+  --danger: var(--signal-error);
+  --success: var(--signal-success);
+  --warning: var(--ink-dim);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-pill: 999px;
+  --shadow-topbar: none;
+  --shadow-popover: 0 12px 30px rgb(0 0 0 / 45%);
+  --duration-fast: var(--dur-fast);
+  --duration-slow: var(--dur-slow);
+  --ease-standard: var(--ease-out);
+  --ease-spring: var(--ease-out);
+  --leading-normal: 1.5;
+  --text-xs: 0.72rem;
+  --text-sm: 0.85rem;
+  --text-lg: 1.1rem;
+  --space-1: var(--s-1);
+  --space-2: var(--s-2);
+  --space-3: var(--s-3);
+  --space-4: var(--s-4);
+  --space-5: var(--s-5);
+  --space-6: var(--s-6);
+  --space-8: 56px;
+  --score-sidebar-width: 320px;
+}
+
+.score-workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.score-workspace-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--s-4);
+  padding: var(--s-5) var(--s-5) var(--s-3);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.score-workspace-kicker {
+  display: block;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.score-workspace-title {
+  margin: var(--s-1) 0 0;
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.score-workspace-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  font-size: 0.72rem;
+  color: var(--ink-dim);
+}
+
+.score-workspace-picker select {
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  padding: var(--s-2) var(--s-3);
+  font-family: var(--font-sans);
+  min-width: 12rem;
+}
+
+.score-workspace-picker select:focus-visible {
+  outline: none;
+  border-color: var(--hairline-strong);
+}
+
+.score-workspace-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.score-workspace-state {
+  margin: var(--s-6) auto;
+  color: var(--ink-dim);
+  font-size: 0.95rem;
+}
+
+.score-workspace-state.is-error {
+  color: var(--signal-error);
+}

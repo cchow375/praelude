@@ -1,16 +1,16 @@
 .atlas-target-draft {
-  --atlas-paper: #f0eee9;
-  --atlas-ink: #171512;
-  --atlas-muted: #6f675f;
-  --atlas-line: #d6cec4;
-  --atlas-accent: #9f4937;
-  --atlas-accent-dark: #733327;
+  --atlas-paper: var(--bg-raised);
+  --atlas-ink: var(--ink);
+  --atlas-muted: var(--ink-dim);
+  --atlas-line: var(--hairline);
+  --atlas-accent: var(--ink);
+  --atlas-accent-dark: var(--ink-dim);
   color: var(--atlas-ink);
   background: var(--atlas-paper);
   border: 1px solid var(--atlas-line);
   border-radius: 18px;
   padding: clamp(14px, 2.2vw, 24px);
-  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
 .atlas-target-heading,
@@ -38,7 +38,7 @@
 
 .atlas-target-heading h2 {
   margin: 3px 0 2px;
-  font-family: Newsreader, Georgia, serif;
+  font-family: var(--font-sans);
   font-size: clamp(1.45rem, 3vw, 2rem);
   font-weight: 540;
   line-height: 1;
@@ -57,7 +57,10 @@
   border-radius: 999px;
   padding: 5px 9px;
   color: var(--atlas-muted);
-  font: 650 0.72rem/1 "IBM Plex Mono", ui-monospace, monospace;
+  font:
+    650 0.72rem/1 var(--font-mono),
+    ui-monospace,
+    monospace;
 }
 
 .atlas-target-layout {
@@ -70,10 +73,10 @@
   flex: 1 1 58%;
   min-height: 330px;
   overflow: hidden;
-  border: 1px solid #c9c0b5;
+  border: 1px solid var(--hairline);
   border-radius: 3px;
-  background: #fffdf8;
-  box-shadow: 0 10px 28px rgb(56 39 24 / 9%);
+  background: var(--bg-sunken);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 32%);
 }
 
 .atlas-target-score-content {
@@ -81,11 +84,16 @@
   inset: 0;
   display: grid;
   place-items: center;
-  color: #a69e94;
-  font-family: Newsreader, Georgia, serif;
+  color: var(--ink-faint);
+  font-family: var(--font-sans);
   background:
-    repeating-linear-gradient(to bottom, transparent 0 11px, rgb(23 21 18 / 7%) 11px 12px, transparent 12px 19px),
-    #fffdf8;
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 11px,
+      rgb(255 255 255 / 6%) 11px 12px,
+      transparent 12px 19px
+    ),
+    var(--bg-sunken);
 }
 
 .atlas-target-overlay {
@@ -105,22 +113,28 @@
   position: absolute;
   pointer-events: none;
   border: 2px solid var(--atlas-accent);
-  background: rgb(159 73 55 / 18%);
+  background: rgb(255 255 255 / 16%);
   border-radius: 3px;
 }
 
 .atlas-target-mark.is-preview {
   border-style: dashed;
-  background: rgb(159 73 55 / 10%);
+  background: rgb(255 255 255 / 9%);
 }
 
 .atlas-target-mark.is-committed {
-  animation: atlas-mark-settle 160ms cubic-bezier(.2, .8, .2, 1) both;
+  animation: atlas-mark-settle 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 @keyframes atlas-mark-settle {
-  from { opacity: 0; transform: scale(.985); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .atlas-target-fields {
@@ -172,7 +186,7 @@
 }
 
 .atlas-mapping-status[data-tone="unknown"] .atlas-mapping-dot {
-  border-color: #8f877e;
+  border-color: var(--hairline-strong);
 }
 
 .atlas-target-meta-grid {
@@ -191,14 +205,14 @@
 .atlas-target-meta-grid label > span,
 .atlas-range-review label > span,
 .atlas-geometry-grid label > span {
-  color: #514b45;
+  color: var(--ink);
   font-size: 0.67rem;
   font-weight: 680;
   letter-spacing: 0.02em;
 }
 
 .atlas-target-meta-grid em {
-  color: #8a8279;
+  color: var(--ink-dim);
   font-style: normal;
   font-weight: 450;
 }
@@ -211,11 +225,11 @@
 .atlas-target-draft textarea {
   width: 100%;
   box-sizing: border-box;
-  border: 1px solid #c9c1b7;
+  border: 1px solid var(--hairline);
   border-radius: 7px;
   padding: 7px 8px;
   color: var(--atlas-ink);
-  background: #fbf9f4;
+  background: var(--bg-sunken);
   font: inherit;
   font-size: 0.76rem;
 }
@@ -251,7 +265,10 @@
   margin-left: auto;
   padding-bottom: 7px;
   color: var(--atlas-muted);
-  font: 620 0.66rem/1 "IBM Plex Mono", ui-monospace, monospace;
+  font:
+    620 0.66rem/1 var(--font-mono),
+    ui-monospace,
+    monospace;
 }
 
 .atlas-exact-range,
@@ -263,23 +280,63 @@
 
 .atlas-validation-note,
 .atlas-target-error {
-  color: #87382b;
+  color: var(--signal-error);
 }
 
 .atlas-confirm-mapping,
 .atlas-keyboard-selection button,
 .atlas-target-actions button {
-  border: 1px solid #bcb2a7;
+  border: 1px solid var(--hairline);
   border-radius: 999px;
   padding: 7px 12px;
   color: var(--atlas-ink);
-  background: #ded8cf;
-  font: 680 0.7rem/1 "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  background: var(--bg-sunken);
+  font:
+    680 0.7rem/1 var(--font-sans),
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
   cursor: pointer;
 }
 
 .atlas-confirm-mapping:disabled,
 .atlas-target-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+/* Unmapped-box state: a live route into the Map-this-score wizard, replacing
+   the old disabled mapping-required dead end. Monochrome tokens only. */
+.atlas-no-mapping {
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.atlas-no-mapping-copy {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--ink-dim, #a1a1aa);
+  max-width: 46ch;
+}
+
+.atlas-map-link {
+  align-self: flex-start;
+  border: none;
+  background: var(--accent-invert-bg, #f4f4f5);
+  color: var(--accent-invert-ink, #0e0e10);
+  border-radius: var(--r-sm, 6px);
+  padding: 7px 12px;
+  font: 600 0.74rem/1 var(--font-sans, system-ui);
+  cursor: pointer;
+}
+
+.atlas-map-link:active {
+  transform: translateY(1px);
+}
+
+.atlas-map-link:disabled {
   cursor: not-allowed;
   opacity: 0.46;
 }
@@ -293,7 +350,7 @@
 .atlas-keyboard-selection summary {
   width: fit-content;
   cursor: pointer;
-  color: #4f4841;
+  color: var(--ink);
   font-size: 0.72rem;
   font-weight: 680;
 }
@@ -321,7 +378,7 @@
 
 .atlas-target-actions .is-primary {
   border-color: var(--atlas-accent-dark);
-  color: #fffaf3;
+  color: var(--ink);
   background: var(--atlas-accent-dark);
 }
 

@@ -40,7 +40,11 @@ function stub(id: WorkspaceId, name: string): ComponentType {
 // the loader body for the real workspace module import.
 const WORKSPACE_COMPONENTS: Record<WorkspaceId, ComponentType> = {
   today: lazy(async () => ({ default: stub("today", "Today") })),
-  score: lazy(async () => ({ default: stub("score", "Score") })),
+  score: lazy(() =>
+    import("../features/score/ScoreWorkspace").then((m) => ({
+      default: m.ScoreWorkspace,
+    })),
+  ),
   brain: lazy(() =>
     import("../features/brain/BrainWorkspace").then((m) => ({
       default: m.BrainWorkspace,

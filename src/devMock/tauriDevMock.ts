@@ -751,6 +751,39 @@ function pieceIdOf(args: unknown): number {
   return Number.isFinite(value) ? value : 1;
 }
 
+/** A valid, blank single-page PDF (correct xref) so the viewer reaches "ready". */
+function minimalPdfBytes(): ArrayBuffer {
+  const objs = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>\nendobj\n",
+  ];
+  let body = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  for (const obj of objs) {
+    offsets.push(body.length);
+    body += obj;
+  }
+  const xrefStart = body.length;
+  let xref = `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) {
+    xref += `${offset.toString().padStart(10, "0")} 00000 n \n`;
+  }
+  const full = `${body}${xref}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
+  return new TextEncoder().encode(full).buffer;
+}
+
+function mockEdition(pieceId: number) {
+  return {
+    id: "score/score.pdf",
+    label: "Score",
+    size_bytes: 2048,
+    modified_unix: 1_700_000_000,
+    fingerprint: `mock-fp-${pieceId}`,
+    selected: true,
+  };
+}
+
 /**
  * Coherent sample data for LOAD-path commands only. Any unmapped command (a
  * mutation or a not-yet-exercised read) returns `null`: the read paths guard
@@ -791,6 +824,37 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return PIECE_DETAILS[pieceIdOf(args)] ?? null;
     case "region_list":
       return REGIONS[pieceIdOf(args)] ?? [];
+
+    // Score atlas: one blank edition + no saved calibration, so the Score tab
+    // reaches "ready" and the Map-this-score wizard can open.
+    case "score_pdf_editions":
+      return [mockEdition(pieceIdOf(args))];
+    case "score_pdf_select":
+      return mockEdition(pieceIdOf(args));
+    case "score_pdf_bytes":
+      return minimalPdfBytes();
+    case "score_calibration_get":
+      return null;
+    case "score_calibration_save": {
+      const record = (args ?? {}) as Record<string, unknown>;
+      const points = (() => {
+        try {
+          return JSON.parse(String(record.pointsJson ?? "[]"));
+        } catch {
+          return [];
+        }
+      })();
+      return {
+        piece_id: pieceIdOf(args),
+        edition_id: String(record.editionId ?? "score/score.pdf"),
+        edition_fingerprint: String(record.editionFingerprint ?? "mock-fp"),
+        method: "user_confirmed",
+        confidence: 0.75,
+        points,
+        user_verified: Boolean(record.userVerified),
+        updated_ts: new Date().toISOString(),
+      };
+    }
     case "rep_blocks_for_piece":
       return BLOCKS[pieceIdOf(args)] ?? [];
     case "progress_summary":
@@ -854,6 +918,20 @@ export function installTauriDevMock(): void {
   (
     window as unknown as { __TAURI_INTERNALS__: typeof internals }
   ).__TAURI_INTERNALS__ = internals;
+
+  // @tauri-apps/api's event `unlisten` reaches for this separate global; without
+  // it, any component that calls `listen()` (e.g. ScoreView's score://navigate)
+  // throws on cleanup. Registration goes through `plugin:event|listen` above, so
+  // only a no-op unregister is needed here.
+  (
+    window as unknown as {
+      __TAURI_EVENT_PLUGIN_INTERNALS__: {
+        unregisterListener: (event: string, id: number) => void;
+      };
+    }
+  ).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener() {},
+  };
 }
 
 /** Test helper: remove the seam so unrelated suites see a backend-free window. */
@@ -861,4 +939,6 @@ export function uninstallTauriDevMock(): void {
   installed = false;
   delete (window as unknown as { __TAURI_INTERNALS__?: unknown })
     .__TAURI_INTERNALS__;
+  delete (window as unknown as { __TAURI_EVENT_PLUGIN_INTERNALS__?: unknown })
+    .__TAURI_EVENT_PLUGIN_INTERNALS__;
 }

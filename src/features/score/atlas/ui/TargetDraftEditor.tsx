@@ -52,6 +52,12 @@ export interface TargetDraftEditorProps {
   resolveMapping: (anchor: PersistentPdfSelectionAnchor) => TargetMappingState;
   onSave: (payload: AtomicTargetSavePayload) => void | Promise<void>;
   onCancel: () => void;
+  /**
+   * Open the "Map this score" wizard. When present, an unmapped box offers a
+   * live link into mapping instead of the old disabled mapping-required dead
+   * end.
+   */
+  onRequestMapping?: () => void;
   /** Live ScoreView supplies its real-page selection through this seam. */
   initialAnchor?: PersistentPdfSelectionAnchor | null;
   onSelectionChange?: (anchor: PersistentPdfSelectionAnchor) => void;
@@ -63,7 +69,8 @@ export interface TargetDraftEditorProps {
 }
 
 function defaultConfirmationIdentity(): ConfirmationIdentity {
-  const generated = globalThis.crypto?.randomUUID?.() ?? `atlas-confirm-${Date.now()}`;
+  const generated =
+    globalThis.crypto?.randomUUID?.() ?? `atlas-confirm-${Date.now()}`;
   return { confirmation_id: generated, confirmed_at: new Date().toISOString() };
 }
 
@@ -76,7 +83,9 @@ function mappingCopy(mapping: TargetMappingState): TargetMappingState {
             candidate: {
               ...mapping.candidate,
               candidate_range: { ...mapping.candidate.candidate_range },
-              calibration_point_ids: [...mapping.candidate.calibration_point_ids],
+              calibration_point_ids: [
+                ...mapping.candidate.calibration_point_ids,
+              ],
             },
           }
         : {}),
@@ -101,7 +110,7 @@ function mappingCopy(mapping: TargetMappingState): TargetMappingState {
 }
 
 function candidateOf(mapping: TargetMappingState): MappingCandidate | null {
-  return mapping.status === "unknown" ? mapping.candidate ?? null : null;
+  return mapping.status === "unknown" ? (mapping.candidate ?? null) : null;
 }
 
 function statusCopy(
@@ -134,7 +143,8 @@ function statusCopy(
   }
   return {
     title: "Location only",
-    detail: "The score mark is safe to keep as a draft, but its measures are unknown.",
+    detail:
+      "The score mark is safe to keep as a draft, but its measures are unknown.",
     tone: "unknown",
   };
 }
@@ -152,6 +162,7 @@ export function TargetDraftEditor({
   resolveMapping,
   onSave,
   onCancel,
+  onRequestMapping,
   initialAnchor = null,
   onSelectionChange,
   externalScoreSurface = false,
@@ -226,7 +237,11 @@ export function TargetDraftEditor({
     });
     if (!created.ok) {
       setDraft(null);
-      setMapping(unknownMapping("The score edition changed; draw this target again on the visible edition."));
+      setMapping(
+        unknownMapping(
+          "The score edition changed; draw this target again on the visible edition.",
+        ),
+      );
       setCandidate(null);
       setReviewConfirmed(false);
       setError(created.message);
@@ -236,13 +251,16 @@ export function TargetDraftEditor({
     try {
       resolved = mappingCopy(resolveMapping(anchor));
     } catch {
-      resolved = unknownMapping("Mapping could not be resolved for this selection.");
+      resolved = unknownMapping(
+        "Mapping could not be resolved for this selection.",
+      );
     }
     const nextDraft = withTargetMapping(created.value, resolved);
     const nextCandidate = candidateOf(resolved);
-    const range = resolved.status === "unknown"
-      ? nextCandidate?.candidate_range ?? null
-      : resolved.asserted_range;
+    const range =
+      resolved.status === "unknown"
+        ? (nextCandidate?.candidate_range ?? null)
+        : resolved.asserted_range;
     setDraft(nextDraft);
     setMapping(resolved);
     setCandidate(nextCandidate);
@@ -258,25 +276,27 @@ export function TargetDraftEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialAnchor, edition.edition_fingerprint, edition.edition_id]);
 
-  const onSelectionError = (
-    _code: DragError | AnchorError,
-    message: string,
-  ) => setError(message);
+  const onSelectionError = (_code: DragError | AnchorError, message: string) =>
+    setError(message);
 
   const useNumericSelection = () => {
-    const values = [numericX, numericY, numericWidth, numericHeight].map(Number);
+    const values = [numericX, numericY, numericWidth, numericHeight].map(
+      Number,
+    );
     if (!values.every(Number.isFinite)) {
       setError("Enter finite page percentages.");
       return;
     }
     const [x, y, width, height] = values.map((value) => value / 100);
-    const anchor = createPersistentSelectionAnchor(edition, [{
-      page: pageNumber,
-      x,
-      y,
-      w: width,
-      h: height,
-    }]);
+    const anchor = createPersistentSelectionAnchor(edition, [
+      {
+        page: pageNumber,
+        x,
+        y,
+        w: width,
+        h: height,
+      },
+    ]);
     if (!anchor.ok) {
       setError(anchor.message);
       return;
@@ -289,13 +309,18 @@ export function TargetDraftEditor({
     else setRangeEnd(value);
     setReviewConfirmed(false);
     if (candidate) {
-      setMapping(unknownMapping("Corrected candidate needs confirmation.", candidate));
+      setMapping(
+        unknownMapping("Corrected candidate needs confirmation.", candidate),
+      );
     }
   };
 
   const confirmMapping = () => {
     setError(null);
-    if (mapping.status === "exact_compatible" || mapping.status === "calibrated_user_confirmed") {
+    if (
+      mapping.status === "exact_compatible" ||
+      mapping.status === "calibrated_user_confirmed"
+    ) {
       setReviewConfirmed(true);
       return;
     }
@@ -385,27 +410,36 @@ export function TargetDraftEditor({
         <div>
           <span className="atlas-target-kicker">New practice target</span>
           <h2 id={titleId}>Mark the music first.</h2>
-          <p id={instructionsId}>Drag over one PDF page, or open Keyboard selection below.</p>
+          <p id={instructionsId}>
+            Drag over one PDF page, or open Keyboard selection below.
+          </p>
         </div>
         <span className="atlas-target-page">p. {pageNumber}</span>
       </header>
 
-      <div className={`atlas-target-layout ${externalScoreSurface ? "is-external" : ""}`}>
-        {!externalScoreSurface && <div className="atlas-target-score-page">
-          <div className="atlas-target-score-content" aria-hidden={scoreContent ? undefined : true}>
-            {scoreContent ?? <span>PDF page surface</span>}
+      <div
+        className={`atlas-target-layout ${externalScoreSurface ? "is-external" : ""}`}
+      >
+        {!externalScoreSurface && (
+          <div className="atlas-target-score-page">
+            <div
+              className="atlas-target-score-content"
+              aria-hidden={scoreContent ? undefined : true}
+            >
+              {scoreContent ?? <span>PDF page surface</span>}
+            </div>
+            <TargetDraftOverlay
+              pageNumber={pageNumber}
+              edition={edition}
+              selectedAnchor={draft?.anchor ?? null}
+              instructionsId={instructionsId}
+              geometryForEvent={geometryForEvent}
+              disabled={saving}
+              onSelection={acceptSelection}
+              onSelectionError={onSelectionError}
+            />
           </div>
-          <TargetDraftOverlay
-            pageNumber={pageNumber}
-            edition={edition}
-            selectedAnchor={draft?.anchor ?? null}
-            instructionsId={instructionsId}
-            geometryForEvent={geometryForEvent}
-            disabled={saving}
-            onSelection={acceptSelection}
-            onSelectionError={onSelectionError}
-          />
-        </div>}
+        )}
 
         <div className="atlas-target-fields">
           <div
@@ -416,25 +450,59 @@ export function TargetDraftEditor({
             aria-live="polite"
           >
             <span className="atlas-mapping-dot" aria-hidden="true" />
-            <span><strong>{status.title}</strong><small>{status.detail}</small></span>
+            <span>
+              <strong>{status.title}</strong>
+              <small>{status.detail}</small>
+            </span>
           </div>
 
           <div className="atlas-target-meta-grid">
             <label>
-              <span>Title <em>optional</em></span>
-              <input aria-label="Target title" disabled={saving} value={title} onChange={(event) => setTitle(event.target.value)} />
+              <span>
+                Title <em>optional</em>
+              </span>
+              <input
+                aria-label="Target title"
+                disabled={saving}
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+              />
             </label>
             <label>
-              <span>Hands <em>optional</em></span>
-              <input aria-label="Target hands" disabled={saving} value={hands} onChange={(event) => setHands(event.target.value)} placeholder="LH, RH, together" />
+              <span>
+                Hands <em>optional</em>
+              </span>
+              <input
+                aria-label="Target hands"
+                disabled={saving}
+                value={hands}
+                onChange={(event) => setHands(event.target.value)}
+                placeholder="LH, RH, together"
+              />
             </label>
             <label>
-              <span>Method <em>optional</em></span>
-              <input aria-label="Target method" disabled={saving} value={method} onChange={(event) => setMethod(event.target.value)} placeholder="Rhythms, blocked…" />
+              <span>
+                Method <em>optional</em>
+              </span>
+              <input
+                aria-label="Target method"
+                disabled={saving}
+                value={method}
+                onChange={(event) => setMethod(event.target.value)}
+                placeholder="Rhythms, blocked…"
+              />
             </label>
             <label className="is-wide">
-              <span>Note <em>optional</em></span>
-              <textarea aria-label="Target note" disabled={saving} value={note} onChange={(event) => setNote(event.target.value)} rows={2} />
+              <span>
+                Note <em>optional</em>
+              </span>
+              <textarea
+                aria-label="Target note"
+                disabled={saving}
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                rows={2}
+              />
             </label>
           </div>
 
@@ -450,7 +518,9 @@ export function TargetDraftEditor({
                   disabled={saving}
                   value={rangeStart}
                   readOnly={!candidateEligible}
-                  onChange={(event) => editCandidateRange("start", event.target.value)}
+                  onChange={(event) =>
+                    editCandidateRange("start", event.target.value)
+                  }
                 />
               </label>
               <label>
@@ -462,37 +532,62 @@ export function TargetDraftEditor({
                   disabled={saving}
                   value={rangeEnd}
                   readOnly={!candidateEligible}
-                  onChange={(event) => editCandidateRange("end", event.target.value)}
+                  onChange={(event) =>
+                    editCandidateRange("end", event.target.value)
+                  }
                 />
               </label>
-              <span className="atlas-confidence">{Math.round(candidate.confidence * 100)}% confidence</span>
+              <span className="atlas-confidence">
+                {Math.round(candidate.confidence * 100)}% confidence
+              </span>
             </fieldset>
           )}
 
           {draft && mapping.status !== "unknown" && !candidate && (
             <p className="atlas-exact-range">
-              Measures {mapping.asserted_range.m_start}–{mapping.asserted_range.m_end}
+              Measures {mapping.asserted_range.m_start}–
+              {mapping.asserted_range.m_end}
             </p>
           )}
 
-          {draft && (
+          {draft && mapping.status === "unknown" && !candidate ? (
+            <div className="atlas-no-mapping">
+              <p className="atlas-no-mapping-copy">
+                This edition isn’t mapped here yet, so this box’s measures are
+                unknown. Map the score once and this box — and every box you
+                draw after — resolves to measures instantly.
+              </p>
+              {onRequestMapping && (
+                <button
+                  type="button"
+                  className="atlas-map-link"
+                  disabled={saving}
+                  onClick={onRequestMapping}
+                >
+                  Map this score →
+                </button>
+              )}
+            </div>
+          ) : draft ? (
             <button
               type="button"
               className="atlas-confirm-mapping"
-              disabled={saving || (mapping.status === "unknown" && !candidateEligible)}
+              disabled={
+                saving || (mapping.status === "unknown" && !candidateEligible)
+              }
               onClick={confirmMapping}
             >
               {mapping.status === "exact_compatible"
-                ? reviewConfirmed ? "Exact range confirmed" : "Confirm exact range"
+                ? reviewConfirmed
+                  ? "Exact range confirmed"
+                  : "Confirm exact range"
                 : mapping.status === "calibrated_user_confirmed"
                   ? "Range confirmed"
                   : candidateEligible
                     ? "Confirm corrected range"
-                    : candidate
-                      ? "More calibration required"
-                      : "Mapping required"}
+                    : "Add more calibration"}
             </button>
-          )}
+          ) : null}
 
           {candidatePayload && !candidatePayload.ok && (
             <p className="atlas-validation-note">{candidatePayload.message}</p>
@@ -502,20 +597,98 @@ export function TargetDraftEditor({
             <summary>Keyboard selection</summary>
             <p>Enter percentages of page {pageNumber}.</p>
             <div className="atlas-geometry-grid">
-              <label><span>Left %</span><input aria-label="Selection left percent" disabled={saving} type="number" min="0" max="100" value={numericX} onChange={(event) => setNumericX(event.target.value)} /></label>
-              <label><span>Top %</span><input aria-label="Selection top percent" disabled={saving} type="number" min="0" max="100" value={numericY} onChange={(event) => setNumericY(event.target.value)} /></label>
-              <label><span>Width %</span><input aria-label="Selection width percent" disabled={saving} type="number" min="0.5" max="100" value={numericWidth} onChange={(event) => setNumericWidth(event.target.value)} /></label>
-              <label><span>Height %</span><input aria-label="Selection height percent" disabled={saving} type="number" min="0.5" max="100" value={numericHeight} onChange={(event) => setNumericHeight(event.target.value)} /></label>
+              <label>
+                <span>Left %</span>
+                <input
+                  aria-label="Selection left percent"
+                  disabled={saving}
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={numericX}
+                  onChange={(event) => setNumericX(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Top %</span>
+                <input
+                  aria-label="Selection top percent"
+                  disabled={saving}
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={numericY}
+                  onChange={(event) => setNumericY(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Width %</span>
+                <input
+                  aria-label="Selection width percent"
+                  disabled={saving}
+                  type="number"
+                  min="0.5"
+                  max="100"
+                  value={numericWidth}
+                  onChange={(event) => setNumericWidth(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Height %</span>
+                <input
+                  aria-label="Selection height percent"
+                  disabled={saving}
+                  type="number"
+                  min="0.5"
+                  max="100"
+                  value={numericHeight}
+                  onChange={(event) => setNumericHeight(event.target.value)}
+                />
+              </label>
             </div>
-            <button type="button" disabled={saving} onClick={useNumericSelection}>Use numeric selection</button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={useNumericSelection}
+            >
+              Use numeric selection
+            </button>
           </details>
 
-          {visibleError && <p className="atlas-target-error" id={errorId} role="alert">{visibleError}</p>}
+          {visibleError && (
+            <p className="atlas-target-error" id={errorId} role="alert">
+              {visibleError}
+            </p>
+          )}
 
           <div className="atlas-target-actions">
-            <button type="button" className="is-quiet" disabled={saving} onClick={() => { reset(); onCancel(); }}>Cancel</button>
-            <button type="button" className="is-quiet" disabled={saving || !draft} onClick={reset}>Reset draft</button>
-            <button type="button" className="is-primary" disabled={saving || !canSave} onClick={() => void save()}>{saving ? "Saving target…" : "Save target"}</button>
+            <button
+              type="button"
+              className="is-quiet"
+              disabled={saving}
+              onClick={() => {
+                reset();
+                onCancel();
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="is-quiet"
+              disabled={saving || !draft}
+              onClick={reset}
+            >
+              Reset draft
+            </button>
+            <button
+              type="button"
+              className="is-primary"
+              disabled={saving || !canSave}
+              onClick={() => void save()}
+            >
+              {saving ? "Saving target…" : "Save target"}
+            </button>
           </div>
         </div>
       </div>

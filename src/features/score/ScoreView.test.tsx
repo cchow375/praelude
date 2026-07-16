@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { PDFDocumentLoadingTask } from "pdfjs-dist";
 
 const invokeMock = vi.hoisted(() => vi.fn());
@@ -19,8 +26,22 @@ import type {
 import type { AtomicTargetSavePayload } from "./atlas/savePayload";
 
 const EDITIONS: PdfEdition[] = [
-  { id: "urtext", label: "Urtext", size_bytes: 100, modified_unix: 1, fingerprint: "a", selected: true },
-  { id: "fingered", label: "Fingered", size_bytes: 120, modified_unix: 2, fingerprint: "b", selected: false },
+  {
+    id: "urtext",
+    label: "Urtext",
+    size_bytes: 100,
+    modified_unix: 1,
+    fingerprint: "a",
+    selected: true,
+  },
+  {
+    id: "fingered",
+    label: "Fingered",
+    size_bytes: 120,
+    modified_unix: 2,
+    fingerprint: "b",
+    selected: false,
+  },
 ];
 
 class FakeIntersectionObserver {
@@ -46,11 +67,13 @@ class FakeIntersectionObserver {
       const page = Number((target as HTMLElement).dataset.pageNumber);
       if (!(page in ratios)) return [];
       const ratio = ratios[page];
-      return [{
-        target,
-        isIntersecting: ratio > 0,
-        intersectionRatio: ratio,
-      } as IntersectionObserverEntry];
+      return [
+        {
+          target,
+          isIntersecting: ratio > 0,
+          intersectionRatio: ratio,
+        } as IntersectionObserverEntry,
+      ];
     });
     this.callback(entries, this as unknown as IntersectionObserver);
   }
@@ -64,7 +87,9 @@ function makeApi(overrides: Partial<ScorePdfApi> = {}): ScorePdfApi {
     regions: vi.fn().mockResolvedValue([]),
     blocks: vi.fn().mockResolvedValue([]),
     updateRegion: vi.fn(),
-    createTarget: vi.fn().mockImplementation(async (payload) => synthesizeSavedRegion(payload)),
+    createTarget: vi
+      .fn()
+      .mockImplementation(async (payload) => synthesizeSavedRegion(payload)),
     ...overrides,
   };
 }
@@ -99,11 +124,23 @@ function synthesizeSavedRegion(payload: AtomicTargetSavePayload) {
  * draft editor offers a reviewable measure candidate. */
 function mappedRegion() {
   return {
-    id: 4, piece_id: 7, name: "Development", notes: "Even groups",
-    m_start: 40, m_end: 56, kind: "hard_spot", order: 0, color: "#8b7cf6",
+    id: 4,
+    piece_id: 7,
+    name: "Development",
+    notes: "Even groups",
+    m_start: 40,
+    m_end: 56,
+    kind: "hard_spot",
+    order: 0,
+    color: "#8b7cf6",
     pdf_anchor: {
       v: 1,
-      editions: { urtext: { fingerprint: "a", rects: [{ page: 1, x: 0, y: 0, w: 1, h: 1 }] } },
+      editions: {
+        urtext: {
+          fingerprint: "a",
+          rects: [{ page: 1, x: 0, y: 0, w: 1, h: 1 }],
+        },
+      },
     },
   };
 }
@@ -114,13 +151,27 @@ async function drawAndConfirmTarget() {
   fireEvent.click(screen.getByRole("button", { name: "Draw target" }));
   const overlay = await screen.findByTestId("atlas-target-overlay-1");
   vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({
-    x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 800,
-    width: 1000, height: 800, toJSON: () => ({}),
+    x: 0,
+    y: 0,
+    left: 0,
+    top: 0,
+    right: 1000,
+    bottom: 800,
+    width: 1000,
+    height: 800,
+    toJSON: () => ({}),
   });
-  fireEvent.pointerDown(overlay, { pointerId: 1, button: 0, clientX: 100, clientY: 200 });
+  fireEvent.pointerDown(overlay, {
+    pointerId: 1,
+    button: 0,
+    clientX: 100,
+    clientY: 200,
+  });
   fireEvent.pointerMove(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
   fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
-  fireEvent.click(await screen.findByRole("button", { name: "Confirm corrected range" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Confirm corrected range" }),
+  );
 }
 
 function makePdf(pageCount = 5) {
@@ -165,7 +216,9 @@ function makeMinimalPdf(): ArrayBuffer {
   const xref = source.length;
   source += `xref\n0 ${objects.length + 1}\n`;
   source += "0000000000 65535 f \n";
-  source += offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  source += offsets
+    .map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`)
+    .join("");
   source += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return new TextEncoder().encode(source).buffer as ArrayBuffer;
 }
@@ -190,13 +243,54 @@ afterEach(() => {
 describe("ScoreView", () => {
   it("orders sections by measure and expands controls directly beneath only the chosen row", async () => {
     const regions = [
-      { id: 3, piece_id: 7, name: "Coda", notes: null, m_start: 724, m_end: 732, kind: "hard_spot", order: 0, color: null, pdf_anchor: null },
-      { id: 1, piece_id: 7, name: "Opening", notes: null, m_start: 1, m_end: 8, kind: "hard_spot", order: 9, color: null, pdf_anchor: null },
-      { id: 2, piece_id: 7, name: "Middle", notes: null, m_start: 334, m_end: 365, kind: "hard_spot", order: 2, color: null, pdf_anchor: null },
+      {
+        id: 3,
+        piece_id: 7,
+        name: "Coda",
+        notes: null,
+        m_start: 724,
+        m_end: 732,
+        kind: "hard_spot",
+        order: 0,
+        color: null,
+        pdf_anchor: null,
+      },
+      {
+        id: 1,
+        piece_id: 7,
+        name: "Opening",
+        notes: null,
+        m_start: 1,
+        m_end: 8,
+        kind: "hard_spot",
+        order: 9,
+        color: null,
+        pdf_anchor: null,
+      },
+      {
+        id: 2,
+        piece_id: 7,
+        name: "Middle",
+        notes: null,
+        m_start: 334,
+        m_end: 365,
+        kind: "hard_spot",
+        order: 2,
+        color: null,
+        pdf_anchor: null,
+      },
     ];
-    render(<ScoreView pieceId={7} api={makeApi({ regions: vi.fn().mockResolvedValue(regions) })} adapter={makePdf(1).adapter} />);
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ regions: vi.fn().mockResolvedValue(regions) })}
+        adapter={makePdf(1).adapter}
+      />,
+    );
     await screen.findByLabelText("Score page 1");
-    const rows = screen.getAllByRole("button").filter((button) => button.classList.contains("score-region-row"));
+    const rows = screen
+      .getAllByRole("button")
+      .filter((button) => button.classList.contains("score-region-row"));
     expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
       "Opening, measures 1 to 8",
       "Middle, measures 334 to 365",
@@ -204,105 +298,261 @@ describe("ScoreView", () => {
     ]);
 
     fireEvent.click(rows[1]);
-    expect(rows[1].closest(".score-region-item")?.querySelector('[role="tablist"]')).toBeTruthy();
+    expect(
+      rows[1].closest(".score-region-item")?.querySelector('[role="tablist"]'),
+    ).toBeTruthy();
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
     fireEvent.click(rows[2]);
-    expect(rows[2].closest(".score-region-item")?.querySelector('[role="tablist"]')).toBeTruthy();
+    expect(
+      rows[2].closest(".score-region-item")?.querySelector('[role="tablist"]'),
+    ).toBeTruthy();
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
   });
 
   it("lifts the visible edition, page, and selected section for Practice Brain grounding", async () => {
-    const region = { id: 4, piece_id: 7, name: "Coda leap", notes: "Release", m_start: 720, m_end: 732, kind: "hard_spot", order: 0, color: null, pdf_anchor: null };
+    const region = {
+      id: 4,
+      piece_id: 7,
+      name: "Coda leap",
+      notes: "Release",
+      m_start: 720,
+      m_end: 732,
+      kind: "hard_spot",
+      order: 0,
+      color: null,
+      pdf_anchor: null,
+    };
     const onContextChange = vi.fn();
-    render(<ScoreView pieceId={7} api={makeApi({ regions: vi.fn().mockResolvedValue([region]) })} adapter={makePdf(1).adapter} onContextChange={onContextChange} />);
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ regions: vi.fn().mockResolvedValue([region]) })}
+        adapter={makePdf(1).adapter}
+        onContextChange={onContextChange}
+      />,
+    );
     await screen.findByLabelText("Score page 1");
-    fireEvent.click(await screen.findByRole("button", { name: "Coda leap, measures 720 to 732" }));
-    await waitFor(() => expect(onContextChange).toHaveBeenLastCalledWith({
-      region: { id: 4, name: "Coda leap", notes: "Release", m_start: 720, m_end: 732 },
-      current_page: 1,
-      edition_id: "urtext",
-      edition_label: "Urtext",
-    }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Coda leap, measures 720 to 732",
+      }),
+    );
+    await waitFor(() =>
+      expect(onContextChange).toHaveBeenLastCalledWith({
+        region: {
+          id: 4,
+          name: "Coda leap",
+          notes: "Release",
+          m_start: 720,
+          m_end: 732,
+        },
+        current_page: 1,
+        edition_id: "urtext",
+        edition_label: "Urtext",
+      }),
+    );
   });
 
   it("offers whole-page, two-page, slider, and section visibility controls", async () => {
-    render(<ScoreView pieceId={7} api={makeApi()} adapter={makePdf(2).adapter} />);
+    render(
+      <ScoreView pieceId={7} api={makeApi()} adapter={makePdf(2).adapter} />,
+    );
     await screen.findByLabelText("Score page 2");
     fireEvent.click(screen.getByRole("button", { name: "Fit page" }));
-    expect(screen.getByRole("button", { name: "Fit page" }).className).toContain("is-active");
+    expect(
+      screen.getByRole("button", { name: "Fit page" }).className,
+    ).toContain("is-active");
     fireEvent.click(screen.getByRole("button", { name: "2-page view" }));
-    expect(document.querySelector(".score-pages")?.className).toContain("is-overview");
-    fireEvent.change(screen.getByLabelText("Score zoom slider"), { target: { value: "55" } });
+    expect(document.querySelector(".score-pages")?.className).toContain(
+      "is-overview",
+    );
+    fireEvent.change(screen.getByLabelText("Score zoom slider"), {
+      target: { value: "55" },
+    });
     expect(screen.getByLabelText("Zoom level").textContent).toBe("55%");
-    fireEvent.click(screen.getByRole("button", { name: "Collapse tricky sections" }));
-    expect(document.querySelector(".score-body")?.className).toContain("is-sections-hidden");
-    fireEvent.click(screen.getByRole("button", { name: "Expand tricky sections" }));
-    expect(document.querySelector(".score-body")?.className).not.toContain("is-sections-hidden");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Collapse tricky sections" }),
+    );
+    expect(document.querySelector(".score-body")?.className).toContain(
+      "is-sections-hidden",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Expand tricky sections" }),
+    );
+    expect(document.querySelector(".score-body")?.className).not.toContain(
+      "is-sections-hidden",
+    );
   });
 
   it("maps a selected Region with normalized edition-specific rectangles", async () => {
     const api = makeApi({
-      regions: vi.fn().mockResolvedValue([{
-        id: 4, piece_id: 7, name: "Development", notes: "Even groups", m_start: 40, m_end: 56,
-        kind: "section", order: 0, color: "#8b7cf6", pdf_anchor: null,
-      }]),
+      regions: vi.fn().mockResolvedValue([
+        {
+          id: 4,
+          piece_id: 7,
+          name: "Development",
+          notes: "Even groups",
+          m_start: 40,
+          m_end: 56,
+          kind: "section",
+          order: 0,
+          color: "#8b7cf6",
+          pdf_anchor: null,
+        },
+      ]),
       updateRegion: vi.fn().mockImplementation(async (_id, pdfAnchor) => ({
-        id: 4, piece_id: 7, name: "Development", notes: "Even groups", m_start: 40, m_end: 56,
-        kind: "section", order: 0, color: "#8b7cf6", pdf_anchor: pdfAnchor,
+        id: 4,
+        piece_id: 7,
+        name: "Development",
+        notes: "Even groups",
+        m_start: 40,
+        m_end: 56,
+        kind: "section",
+        order: 0,
+        color: "#8b7cf6",
+        pdf_anchor: pdfAnchor,
       })),
     });
     render(<ScoreView pieceId={7} api={api} adapter={makePdf(2).adapter} />);
     await screen.findByLabelText("Score page 2");
 
-    fireEvent.click(await screen.findByRole("button", { name: "Development, measures 40 to 56" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Development, measures 40 to 56",
+      }),
+    );
     fireEvent.click(screen.getByRole("tab", { name: "Score marks" }));
-    fireEvent.click(screen.getByRole("button", { name: "Edit score annotations for Development" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit score annotations for Development",
+      }),
+    );
     fireEvent.click(screen.getByRole("radio", { name: "Highlight" }));
     const overlay = screen.getByTestId("page-overlay-1");
     vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({
-      x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 800,
-      width: 1000, height: 800, toJSON: () => ({}),
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 800,
+      width: 1000,
+      height: 800,
+      toJSON: () => ({}),
     });
-    fireEvent.pointerDown(overlay, { pointerId: 1, clientX: 100, clientY: 200 });
-    fireEvent.pointerMove(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
+    fireEvent.pointerDown(overlay, {
+      pointerId: 1,
+      clientX: 100,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(overlay, {
+      pointerId: 1,
+      clientX: 500,
+      clientY: 400,
+    });
     fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
-    fireEvent.change(screen.getByLabelText("Annotation 1 type"), { target: { value: "note" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save score annotations" }));
+    fireEvent.change(screen.getByLabelText("Annotation 1 type"), {
+      target: { value: "note" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save score annotations" }),
+    );
 
-    await waitFor(() => expect(api.updateRegion).toHaveBeenCalledWith(4, {
-      v: 1,
-      editions: {
-        urtext: {
-          fingerprint: "a",
-          rects: [{ page: 1, x: 0.1, y: 0.25, w: 0.4, h: 0.25, kind: "note" }],
+    await waitFor(() =>
+      expect(api.updateRegion).toHaveBeenCalledWith(4, {
+        v: 1,
+        editions: {
+          urtext: {
+            fingerprint: "a",
+            rects: [
+              { page: 1, x: 0.1, y: 0.25, w: 0.4, h: 0.25, kind: "note" },
+            ],
+          },
         },
-      },
-    }));
+      }),
+    );
   });
 
   it("keeps score-mark Save and Cancel visible when a section switch is rejected", async () => {
     const regions = [
-      { id: 4, piece_id: 7, name: "Development", notes: null, m_start: 40, m_end: 56, kind: "section", order: 0, color: null, pdf_anchor: null },
-      { id: 5, piece_id: 7, name: "Coda", notes: null, m_start: 80, m_end: 92, kind: "section", order: 1, color: null, pdf_anchor: null },
+      {
+        id: 4,
+        piece_id: 7,
+        name: "Development",
+        notes: null,
+        m_start: 40,
+        m_end: 56,
+        kind: "section",
+        order: 0,
+        color: null,
+        pdf_anchor: null,
+      },
+      {
+        id: 5,
+        piece_id: 7,
+        name: "Coda",
+        notes: null,
+        m_start: 80,
+        m_end: 92,
+        kind: "section",
+        order: 1,
+        color: null,
+        pdf_anchor: null,
+      },
     ];
-    render(<ScoreView pieceId={7} api={makeApi({ regions: vi.fn().mockResolvedValue(regions) })} adapter={makePdf(1).adapter} />);
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ regions: vi.fn().mockResolvedValue(regions) })}
+        adapter={makePdf(1).adapter}
+      />,
+    );
     await screen.findByLabelText("Score page 1");
-    fireEvent.click(screen.getByRole("button", { name: "Development, measures 40 to 56" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Development, measures 40 to 56" }),
+    );
     fireEvent.click(screen.getByRole("tab", { name: "Score marks" }));
-    fireEvent.click(screen.getByRole("button", { name: "Edit score annotations for Development" }));
-    fireEvent.click(screen.getByRole("button", { name: "Coda, measures 80 to 92" }));
-    expect(screen.getByText(/Save or cancel the open score-mark edits/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save score annotations" })).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit score annotations for Development",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Coda, measures 80 to 92" }),
+    );
+    expect(
+      screen.getByText(/Save or cancel the open score-mark edits/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Save score annotations" }),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
   });
 
   it("edits the same canonical tricky-section title, notes, and measures from the score", async () => {
     const original = {
-      id: 4, piece_id: 7, name: "Development", notes: "Even groups", m_start: 40, m_end: 56,
-      kind: "hard_spot", order: 0, color: "#8b7cf6", pdf_anchor: null,
+      id: 4,
+      piece_id: 7,
+      name: "Development",
+      notes: "Even groups",
+      m_start: 40,
+      m_end: 56,
+      kind: "hard_spot",
+      order: 0,
+      color: "#8b7cf6",
+      pdf_anchor: null,
     };
-    const updated = { ...original, name: "LH leap", notes: "Look before landing", m_start: 42, m_end: 58 };
-    const regions = vi.fn().mockResolvedValueOnce([original]).mockResolvedValue([updated]);
+    const updated = {
+      ...original,
+      name: "LH leap",
+      notes: "Look before landing",
+      m_start: 42,
+      m_end: 58,
+    };
+    const regions = vi
+      .fn()
+      .mockResolvedValueOnce([original])
+      .mockResolvedValue([updated]);
     const api = makeApi({ regions });
     const onRegionsChanged = vi.fn();
     const onOpenBlock = vi.fn();
@@ -321,32 +571,67 @@ describe("ScoreView", () => {
       />,
     );
     await screen.findByLabelText("Score page 1");
-    fireEvent.click(await screen.findByRole("button", { name: "Development, measures 40 to 56" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Development, measures 40 to 56",
+      }),
+    );
     fireEvent.click(screen.getByRole("tab", { name: "Edit" }));
 
-    fireEvent.change(screen.getByLabelText("Tricky section title"), { target: { value: "LH leap" } });
-    fireEvent.change(screen.getByLabelText("Tricky section practice notes"), { target: { value: "Look before landing" } });
-    fireEvent.change(screen.getByLabelText("Tricky section start measure"), { target: { value: "42" } });
-    fireEvent.change(screen.getByLabelText("Tricky section end measure"), { target: { value: "58" } });
+    fireEvent.change(screen.getByLabelText("Tricky section title"), {
+      target: { value: "LH leap" },
+    });
+    fireEvent.change(screen.getByLabelText("Tricky section practice notes"), {
+      target: { value: "Look before landing" },
+    });
+    fireEvent.change(screen.getByLabelText("Tricky section start measure"), {
+      target: { value: "42" },
+    });
+    fireEvent.change(screen.getByLabelText("Tricky section end measure"), {
+      target: { value: "58" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save section" }));
 
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("region_update", {
-      id: 4,
-      patch: { name: "LH leap", notes: "Look before landing", m_start: 42, m_end: 58 },
-    }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("region_update", {
+        id: 4,
+        patch: {
+          name: "LH leap",
+          notes: "Look before landing",
+          m_start: 42,
+          m_end: 58,
+        },
+      }),
+    );
     await waitFor(() => expect(onRegionsChanged).toHaveBeenCalledTimes(1));
-    expect(await screen.findByRole("button", { name: "LH leap, measures 42 to 58" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "LH leap, measures 42 to 58" }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Practice" }));
-    expect((screen.getByLabelText("From measure") as HTMLInputElement).value).toBe("42");
-    expect((screen.getByLabelText("To measure") as HTMLInputElement).value).toBe("58");
+    expect(
+      (screen.getByLabelText("From measure") as HTMLInputElement).value,
+    ).toBe("42");
+    expect(
+      (screen.getByLabelText("To measure") as HTMLInputElement).value,
+    ).toBe("58");
     expect(screen.queryByText("Block label (optional)")).toBeNull();
-    expect(screen.getByText("LH leap", { selector: ".block-region-lock" })).toBeTruthy();
+    expect(
+      screen.getByText("LH leap", { selector: ".block-region-lock" }),
+    ).toBeTruthy();
   });
 
   it("opens practice reps from the selected score section with its canonical Region id", async () => {
     const region = {
-      id: 4, piece_id: 7, name: "Development", notes: "Even groups", m_start: 40, m_end: 56,
-      kind: "hard_spot", order: 0, color: "#8b7cf6", pdf_anchor: null,
+      id: 4,
+      piece_id: 7,
+      name: "Development",
+      notes: "Even groups",
+      m_start: 40,
+      m_end: 56,
+      kind: "hard_spot",
+      order: 0,
+      color: "#8b7cf6",
+      pdf_anchor: null,
     };
     const onOpenBlock = vi.fn();
     render(
@@ -358,56 +643,109 @@ describe("ScoreView", () => {
       />,
     );
     await screen.findByLabelText("Score page 1");
-    fireEvent.click(await screen.findByRole("button", { name: "Development, measures 40 to 56" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Development, measures 40 to 56",
+      }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Start set" }));
 
-    expect(onOpenBlock).toHaveBeenCalledWith(expect.objectContaining({
-      piece_id: 7,
-      region_id: 4,
-      m_start: 40,
-      m_end: 56,
-      label: "Development",
-    }));
+    expect(onOpenBlock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        piece_id: 7,
+        region_id: 4,
+        m_start: 40,
+        m_end: 56,
+        label: "Development",
+      }),
+    );
   });
 
   it("ignores a stale graph response after switching pieces", async () => {
     const oldRegion = {
-      id: 4, piece_id: 7, name: "Old piece section", notes: null, m_start: 1, m_end: 8,
-      kind: "section", order: 0, color: null, pdf_anchor: null,
+      id: 4,
+      piece_id: 7,
+      name: "Old piece section",
+      notes: null,
+      m_start: 1,
+      m_end: 8,
+      kind: "section",
+      order: 0,
+      color: null,
+      pdf_anchor: null,
     };
     const newRegion = {
-      id: 8, piece_id: 8, name: "New piece section", notes: null, m_start: 9, m_end: 16,
-      kind: "section", order: 0, color: null, pdf_anchor: null,
+      id: 8,
+      piece_id: 8,
+      name: "New piece section",
+      notes: null,
+      m_start: 9,
+      m_end: 16,
+      kind: "section",
+      order: 0,
+      color: null,
+      pdf_anchor: null,
     };
-    let resolveOld!: (value: typeof oldRegion[]) => void;
-    const oldRequest = new Promise<typeof oldRegion[]>((resolve) => { resolveOld = resolve; });
-    const regions = vi.fn((pieceId: number) => pieceId === 7 ? oldRequest : Promise.resolve([newRegion]));
+    let resolveOld!: (value: (typeof oldRegion)[]) => void;
+    const oldRequest = new Promise<(typeof oldRegion)[]>((resolve) => {
+      resolveOld = resolve;
+    });
+    const regions = vi.fn((pieceId: number) =>
+      pieceId === 7 ? oldRequest : Promise.resolve([newRegion]),
+    );
     const api = makeApi({ regions });
     const pdf = makePdf(1);
-    const view = render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+    const view = render(
+      <ScoreView pieceId={7} api={api} adapter={pdf.adapter} />,
+    );
     await waitFor(() => expect(regions).toHaveBeenCalledWith(7));
 
     view.rerender(<ScoreView pieceId={8} api={api} adapter={pdf.adapter} />);
-    expect(await screen.findByRole("button", { name: "New piece section, measures 9 to 16" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", {
+        name: "New piece section, measures 9 to 16",
+      }),
+    ).toBeTruthy();
     await act(async () => {
       resolveOld([oldRegion]);
       await Promise.resolve();
     });
 
-    expect(screen.queryByRole("button", { name: "Old piece section, measures 1 to 8" })).toBeNull();
-    expect(screen.getByRole("button", { name: "New piece section, measures 9 to 16" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", {
+        name: "Old piece section, measures 1 to 8",
+      }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "New piece section, measures 9 to 16",
+      }),
+    ).toBeTruthy();
   });
 
   it("shows an honest no-PDF state", async () => {
-    render(<ScoreView pieceId={7} api={makeApi({ editions: vi.fn().mockResolvedValue([]) })} adapter={makePdf().adapter} />);
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ editions: vi.fn().mockResolvedValue([]) })}
+        adapter={makePdf().adapter}
+      />,
+    );
     expect(await screen.findByText("No PDF score found.")).toBeTruthy();
   });
 
   it("shows load failures and retries the edition request", async () => {
-    const editions = vi.fn()
+    const editions = vi
+      .fn()
       .mockRejectedValueOnce(new Error("backend unavailable"))
       .mockResolvedValueOnce([]);
-    render(<ScoreView pieceId={7} api={makeApi({ editions })} adapter={makePdf().adapter} />);
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ editions })}
+        adapter={makePdf().adapter}
+      />,
+    );
     expect(await screen.findByText("backend unavailable")).toBeTruthy();
     fireEvent.click(screen.getByText("Try again"));
     expect(await screen.findByText("No PDF score found.")).toBeTruthy();
@@ -425,12 +763,17 @@ describe("ScoreView", () => {
       />,
     );
 
-    expect(await screen.findByText("The PDF file took too long to read. Try again or choose another edition.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "The PDF file took too long to read. Try again or choose another edition.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
   it("retries a failed PDF exactly once after refreshing its editions", async () => {
-    const bytes = vi.fn()
+    const bytes = vi
+      .fn()
       .mockRejectedValueOnce(new Error("temporary read failure"))
       .mockResolvedValueOnce(new ArrayBuffer(8));
     const api = makeApi({ bytes });
@@ -447,7 +790,9 @@ describe("ScoreView", () => {
   });
 
   it("parses a real PDF through the WebKit-compatible legacy loopback worker", async () => {
-    const document = await pdfJsAdapter.load(makeMinimalPdf(), { timeoutMs: 5_000 });
+    const document = await pdfJsAdapter.load(makeMinimalPdf(), {
+      timeoutMs: 5_000,
+    });
     expect(document.numPages).toBe(1);
     const page = await document.getPage(1);
     expect(page.width).toBe(612);
@@ -458,10 +803,13 @@ describe("ScoreView", () => {
 
   it("configures every bundled decoder path for scanned score pages", async () => {
     const destroy = vi.fn().mockResolvedValue(undefined);
-    const getDocument = vi.fn((_options: unknown) => ({
-      promise: Promise.resolve({ numPages: 1, getPage: vi.fn() }),
-      destroy,
-    }) as unknown as PDFDocumentLoadingTask);
+    const getDocument = vi.fn(
+      (_options: unknown) =>
+        ({
+          promise: Promise.resolve({ numPages: 1, getPage: vi.fn() }),
+          destroy,
+        }) as unknown as PDFDocumentLoadingTask,
+    );
     const adapter = createPdfJsAdapter(async () => ({ getDocument }));
 
     const document = await adapter.load(makeMinimalPdf(), { timeoutMs: 1_000 });
@@ -491,9 +839,9 @@ describe("ScoreView", () => {
       getDocument: vi.fn(() => task as unknown as PDFDocumentLoadingTask),
     }));
 
-    await expect(adapter.load(makeMinimalPdf(), { timeoutMs: 20 })).rejects.toThrow(
-      "PDF rendering did not start in time",
-    );
+    await expect(
+      adapter.load(makeMinimalPdf(), { timeoutMs: 20 }),
+    ).rejects.toThrow("PDF rendering did not start in time");
     expect(destroy).toHaveBeenCalledTimes(1);
   });
 
@@ -502,18 +850,26 @@ describe("ScoreView", () => {
     render(<ScoreView pieceId={7} api={makeApi()} adapter={pdf.adapter} />);
 
     await screen.findByLabelText("Score page 5");
-    await waitFor(() => expect(pdf.getPage.mock.calls.map((call) => call[0])).toEqual([1, 2]));
-    const firstCanvas = screen.getByLabelText("Rendered score page 1") as HTMLCanvasElement;
+    await waitFor(() =>
+      expect(pdf.getPage.mock.calls.map((call) => call[0])).toEqual([1, 2]),
+    );
+    const firstCanvas = screen.getByLabelText(
+      "Rendered score page 1",
+    ) as HTMLCanvasElement;
     expect(firstCanvas.width).toBe(1200);
 
     FakeIntersectionObserver.latest?.trigger({ 1: 0, 4: 1 });
     await waitFor(() => {
-      expect(new Set(pdf.getPage.mock.calls.map((call) => call[0]))).toEqual(new Set([1, 2, 3, 4, 5]));
+      expect(new Set(pdf.getPage.mock.calls.map((call) => call[0]))).toEqual(
+        new Set([1, 2, 3, 4, 5]),
+      );
     });
     expect(firstCanvas.width).toBe(0);
     expect(firstCanvas.height).toBe(0);
     expect(pdf.cancels.get(1)).toHaveBeenCalled();
-    expect(screen.getByLabelText("Page number").getAttribute("value")).toBe("4");
+    expect(screen.getByLabelText("Page number").getAttribute("value")).toBe(
+      "4",
+    );
   });
 
   it("persists edition selection before loading the new PDF", async () => {
@@ -522,9 +878,15 @@ describe("ScoreView", () => {
     render(<ScoreView pieceId={12} api={api} adapter={pdf.adapter} />);
     await screen.findByLabelText("Score page 2");
 
-    fireEvent.change(screen.getByLabelText("Score edition"), { target: { value: "fingered" } });
-    await waitFor(() => expect(api.select).toHaveBeenCalledWith(12, "fingered"));
-    await waitFor(() => expect(api.bytes).toHaveBeenLastCalledWith(12, "fingered"));
+    fireEvent.change(screen.getByLabelText("Score edition"), {
+      target: { value: "fingered" },
+    });
+    await waitFor(() =>
+      expect(api.select).toHaveBeenCalledWith(12, "fingered"),
+    );
+    await waitFor(() =>
+      expect(api.bytes).toHaveBeenLastCalledWith(12, "fingered"),
+    );
   });
 
   it("supports zoom controls and direct page jumps", async () => {
@@ -536,20 +898,31 @@ describe("ScoreView", () => {
     fireEvent.click(screen.getByLabelText("Zoom in"));
     expect(screen.getByLabelText("Zoom level").textContent).not.toBe(before);
 
-    fireEvent.change(screen.getByLabelText("Page number"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Page number"), {
+      target: { value: "4" },
+    });
     fireEvent.submit(screen.getByLabelText("Page number").closest("form")!);
     expect(HTMLElement.prototype.scrollTo).toHaveBeenCalled();
-    expect(screen.getByLabelText("Page number").getAttribute("value")).toBe("4");
+    expect(screen.getByLabelText("Page number").getAttribute("value")).toBe(
+      "4",
+    );
   });
 
   it("sends one validated, idempotent Score Atlas payload from a drawn, confirmed target", async () => {
-    const createTarget = vi.fn().mockImplementation(async (payload) => synthesizeSavedRegion(payload));
-    const api = makeApi({ regions: vi.fn().mockResolvedValue([mappedRegion()]), createTarget });
+    const createTarget = vi
+      .fn()
+      .mockImplementation(async (payload) => synthesizeSavedRegion(payload));
+    const api = makeApi({
+      regions: vi.fn().mockResolvedValue([mappedRegion()]),
+      createTarget,
+    });
     render(<ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />);
     await screen.findByLabelText("Score page 1");
 
     await drawAndConfirmTarget();
-    fireEvent.change(screen.getByLabelText("Target title"), { target: { value: "Coda leap" } });
+    fireEvent.change(screen.getByLabelText("Target title"), {
+      target: { value: "Coda leap" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save target" }));
 
     await waitFor(() => expect(createTarget).toHaveBeenCalledTimes(1));
@@ -567,24 +940,41 @@ describe("ScoreView", () => {
       edition_id: "urtext",
       edition_fingerprint: "a",
     });
-    expect(payload.anchor!.rects[0]).toMatchObject({ page: 1, x: 0.1, y: 0.25, w: 0.4, h: 0.25 });
+    expect(payload.anchor!.rects[0]).toMatchObject({
+      page: 1,
+      x: 0.1,
+      y: 0.25,
+      w: 0.4,
+      h: 0.25,
+    });
     expect(payload.mapping_evidence!.status).toBe("calibrated_user_confirmed");
   });
 
   it("rounds a successful save into a selected, selectable Region", async () => {
     const onRegionsChanged = vi.fn();
-    const api = makeApi({ regions: vi.fn().mockResolvedValue([mappedRegion()]) });
+    const api = makeApi({
+      regions: vi.fn().mockResolvedValue([mappedRegion()]),
+    });
     render(
-      <ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} onRegionsChanged={onRegionsChanged} />,
+      <ScoreView
+        pieceId={7}
+        api={api}
+        adapter={makePdf(1).adapter}
+        onRegionsChanged={onRegionsChanged}
+      />,
     );
     await screen.findByLabelText("Score page 1");
 
     await drawAndConfirmTarget();
-    fireEvent.change(screen.getByLabelText("Target title"), { target: { value: "Coda leap" } });
+    fireEvent.change(screen.getByLabelText("Target title"), {
+      target: { value: "Coda leap" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save target" }));
 
     expect(await screen.findByText(/Target saved as .Coda leap./)).toBeTruthy();
-    const savedRow = await screen.findByRole("button", { name: "Coda leap, measures 40 to 56" });
+    const savedRow = await screen.findByRole("button", {
+      name: "Coda leap, measures 40 to 56",
+    });
     expect(savedRow.className).toContain("is-selected");
     await waitFor(() => expect(onRegionsChanged).toHaveBeenCalledTimes(1));
     // The drawing draft closed once the target became a real Region.
@@ -592,8 +982,13 @@ describe("ScoreView", () => {
   });
 
   it("surfaces a save failure and preserves the open draft", async () => {
-    const createTarget = vi.fn().mockRejectedValue(new Error("Native target save failed."));
-    const api = makeApi({ regions: vi.fn().mockResolvedValue([mappedRegion()]), createTarget });
+    const createTarget = vi
+      .fn()
+      .mockRejectedValue(new Error("Native target save failed."));
+    const api = makeApi({
+      regions: vi.fn().mockResolvedValue([mappedRegion()]),
+      createTarget,
+    });
     render(<ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />);
     await screen.findByLabelText("Score page 1");
 
@@ -609,14 +1004,149 @@ describe("ScoreView", () => {
   it("restores the tricky-sections sidebar after switching pieces mid-draft", async () => {
     const pdf = makePdf(1);
     const api = makeApi();
-    const view = render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+    const view = render(
+      <ScoreView pieceId={7} api={api} adapter={pdf.adapter} />,
+    );
     await screen.findByLabelText("Score page 1");
 
     fireEvent.click(screen.getByRole("button", { name: "Draw target" }));
-    expect(document.querySelector(".score-body")?.className).toContain("is-sections-hidden");
+    expect(document.querySelector(".score-body")?.className).toContain(
+      "is-sections-hidden",
+    );
 
     view.rerender(<ScoreView pieceId={8} api={api} adapter={pdf.adapter} />);
     await screen.findByLabelText("Score page 1");
-    expect(document.querySelector(".score-body")?.className).not.toContain("is-sections-hidden");
+    expect(document.querySelector(".score-body")?.className).not.toContain(
+      "is-sections-hidden",
+    );
+  });
+
+  // --- Map-this-score calibration integration ---
+
+  function calibrationView(
+    points: { page: number; y: number; measure: number }[],
+  ) {
+    return {
+      piece_id: 7,
+      edition_id: "urtext",
+      edition_fingerprint: "a",
+      method: "user_confirmed",
+      confidence: 0.75,
+      points,
+      user_verified: true,
+      updated_ts: "2026-07-16T00:00:00Z",
+    };
+  }
+
+  function mockOverlayRect(overlay: HTMLElement) {
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 800,
+      width: 1000,
+      height: 800,
+      toJSON: () => ({}),
+    });
+  }
+
+  it("resolves a drawn box to measures from saved calibration (no mapping-required dead end)", async () => {
+    const calib = {
+      get: vi.fn().mockResolvedValue(
+        calibrationView([
+          { page: 1, y: 0.2, measure: 45 },
+          { page: 1, y: 0.34, measure: 52 },
+        ]),
+      ),
+      save: vi.fn(),
+    };
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi()}
+        calibrationApi={calib}
+        adapter={makePdf(1).adapter}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+    await waitFor(() => expect(calib.get).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Draw target" }));
+    const overlay = await screen.findByTestId("atlas-target-overlay-1");
+    mockOverlayRect(overlay);
+    // A box fully inside the first (bounded) system → a confident candidate.
+    fireEvent.pointerDown(overlay, {
+      pointerId: 1,
+      button: 0,
+      clientX: 100,
+      clientY: 176,
+    });
+    fireEvent.pointerMove(overlay, {
+      pointerId: 1,
+      clientX: 500,
+      clientY: 240,
+    });
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 500, clientY: 240 });
+
+    const start = await screen.findByLabelText("Candidate start measure");
+    expect(Number((start as HTMLInputElement).value)).toBeGreaterThanOrEqual(
+      45,
+    );
+    expect(Number((start as HTMLInputElement).value)).toBeLessThanOrEqual(52);
+    expect(
+      screen.queryByRole("button", { name: "Map this score →" }),
+    ).toBeNull();
+  });
+
+  it("auto-offers the wizard the first time a box is drawn on an unmapped edition", async () => {
+    const calib = { get: vi.fn().mockResolvedValue(null), save: vi.fn() };
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi()}
+        calibrationApi={calib}
+        adapter={makePdf(1).adapter}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+    await waitFor(() => expect(calib.get).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Draw target" }));
+    const overlay = await screen.findByTestId("atlas-target-overlay-1");
+    mockOverlayRect(overlay);
+    fireEvent.pointerDown(overlay, {
+      pointerId: 1,
+      button: 0,
+      clientX: 100,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(overlay, {
+      pointerId: 1,
+      clientX: 500,
+      clientY: 400,
+    });
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Mark where each system starts.",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("exposes a Map-this-score entry point in the toolbar", async () => {
+    const calib = { get: vi.fn().mockResolvedValue(null), save: vi.fn() };
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi()}
+        calibrationApi={calib}
+        adapter={makePdf(1).adapter}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+    expect(screen.getByRole("button", { name: "Map this score" })).toBeTruthy();
   });
 });

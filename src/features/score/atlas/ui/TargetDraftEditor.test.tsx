@@ -1,17 +1,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { exactCompatibleMapping, unknownMapping } from "../draft";
+import type { AtomicTargetSavePayload } from "../savePayload";
+import type { MappingCandidate, TargetMappingState } from "../model";
 import {
-  exactCompatibleMapping,
-  unknownMapping,
-} from "../draft";
-import type {
-  AtomicTargetSavePayload,
-} from "../savePayload";
-import type {
-  MappingCandidate,
-  TargetMappingState,
-} from "../model";
-import { TargetDraftEditor, type TargetDraftEditorProps } from "./TargetDraftEditor";
+  TargetDraftEditor,
+  type TargetDraftEditorProps,
+} from "./TargetDraftEditor";
 
 afterEach(cleanup);
 
@@ -63,7 +58,13 @@ function renderEditor(overrides: Partial<TargetDraftEditorProps> = {}) {
       pageNumber={3}
       minimumCandidateConfidence={0.7}
       resolveMapping={() => exact()}
-      geometryForEvent={() => ({ page: 3, left: 0, top: 0, width: 1000, height: 800 })}
+      geometryForEvent={() => ({
+        page: 3,
+        left: 0,
+        top: 0,
+        width: 1000,
+        height: 800,
+      })}
       createConfirmationIdentity={() => ({
         confirmation_id: "confirm-1",
         confirmed_at: "2026-07-15T12:30:00Z",
@@ -101,13 +102,17 @@ describe("TargetDraftEditor", () => {
     dragTarget();
 
     expect(screen.getByTestId("atlas-target-selection")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("Exact score match");
+    expect(screen.getByRole("status").textContent).toContain(
+      "Exact score match",
+    );
     const save = screen.getByRole("button", { name: "Save target" });
     expect(disabled(save)).toBe(true);
     fireEvent.click(save);
     expect(onSave).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Confirm exact range" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm exact range" }),
+    );
     expect(disabled(save)).toBe(false);
     fireEvent.click(save);
     expect(onSave).toHaveBeenCalledTimes(1);
@@ -124,14 +129,19 @@ describe("TargetDraftEditor", () => {
 
   it("lets the user correct a calibrated candidate, then records explicit confirmation", () => {
     const { onSave } = renderEditor({
-      resolveMapping: () => unknownMapping(
-        "Review the bounded calibration candidate.",
-        calibratedCandidate(),
-      ),
+      resolveMapping: () =>
+        unknownMapping(
+          "Review the bounded calibration candidate.",
+          calibratedCandidate(),
+        ),
     });
     dragTarget();
-    expect(screen.getByRole("status").textContent).toContain("Calibration candidate");
-    expect(disabled(screen.getByRole("button", { name: "Save target" }))).toBe(true);
+    expect(screen.getByRole("status").textContent).toContain(
+      "Calibration candidate",
+    );
+    expect(disabled(screen.getByRole("button", { name: "Save target" }))).toBe(
+      true,
+    );
 
     fireEvent.change(screen.getByLabelText("Candidate start measure"), {
       target: { value: "41" },
@@ -140,9 +150,13 @@ describe("TargetDraftEditor", () => {
       target: { value: "43" },
     });
     expect(onSave).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm corrected range" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm corrected range" }),
+    );
 
-    expect(screen.getByRole("status").textContent).toContain("Mapping confirmed");
+    expect(screen.getByRole("status").textContent).toContain(
+      "Mapping confirmed",
+    );
     const save = screen.getByRole("button", { name: "Save target" });
     expect(disabled(save)).toBe(false);
     fireEvent.click(save);
@@ -163,29 +177,60 @@ describe("TargetDraftEditor", () => {
     const unknownSave = vi.fn();
     renderEditor({
       onSave: unknownSave,
-      resolveMapping: () => unknownMapping("This scan has no defensible range."),
+      resolveMapping: () =>
+        unknownMapping("This scan has no defensible range."),
     });
     dragTarget();
     expect(screen.getByRole("status").textContent).toContain("Location only");
-    expect(disabled(screen.getByRole("button", { name: "Mapping required" }))).toBe(true);
-    expect(disabled(screen.getByRole("button", { name: "Save target" }))).toBe(true);
+    // The old disabled "Mapping required" dead end is gone; an unmapped box now
+    // still cannot assert measures (Save stays disabled) but is not a dead end.
+    expect(
+      screen.queryByRole("button", { name: "Mapping required" }),
+    ).toBeNull();
+    expect(screen.getByText(/isn.t mapped here yet/i)).toBeTruthy();
+    expect(disabled(screen.getByRole("button", { name: "Save target" }))).toBe(
+      true,
+    );
     expect(unknownSave).not.toHaveBeenCalled();
 
     cleanup();
     const lowSave = vi.fn();
     renderEditor({
       onSave: lowSave,
-      resolveMapping: () => unknownMapping(
-        "The candidate is below product confidence policy.",
-        calibratedCandidate(0.35),
-      ),
+      resolveMapping: () =>
+        unknownMapping(
+          "The candidate is below product confidence policy.",
+          calibratedCandidate(0.35),
+        ),
     });
     dragTarget();
-    expect(screen.getByRole("status").textContent).toContain("Low-confidence candidate");
-    expect((screen.getByLabelText("Candidate start measure") as HTMLInputElement).readOnly).toBe(true);
-    expect(disabled(screen.getByRole("button", { name: "More calibration required" }))).toBe(true);
-    expect(disabled(screen.getByRole("button", { name: "Save target" }))).toBe(true);
+    expect(screen.getByRole("status").textContent).toContain(
+      "Low-confidence candidate",
+    );
+    expect(
+      (screen.getByLabelText("Candidate start measure") as HTMLInputElement)
+        .readOnly,
+    ).toBe(true);
+    expect(
+      disabled(screen.getByRole("button", { name: "Add more calibration" })),
+    ).toBe(true);
+    expect(disabled(screen.getByRole("button", { name: "Save target" }))).toBe(
+      true,
+    );
     expect(lowSave).not.toHaveBeenCalled();
+  });
+
+  it("offers a live 'Map this score' link on an unmapped box instead of a dead end", () => {
+    const onRequestMapping = vi.fn();
+    renderEditor({
+      onRequestMapping,
+      resolveMapping: () =>
+        unknownMapping("This scan has no defensible range."),
+    });
+    dragTarget();
+    const link = screen.getByRole("button", { name: "Map this score →" });
+    fireEvent.click(link);
+    expect(onRequestMapping).toHaveBeenCalledTimes(1);
   });
 
   it("provides a keyboard-only numeric geometry path with accessible names", () => {
@@ -208,13 +253,17 @@ describe("TargetDraftEditor", () => {
     fireEvent.change(screen.getByLabelText("Selection height percent"), {
       target: { value: "10" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Use numeric selection" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use numeric selection" }),
+    );
     expect(screen.getByTestId("atlas-target-selection")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Target title"), {
       target: { value: "Coda landing" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Confirm exact range" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm exact range" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Save target" }));
     expect(onSave.mock.calls[0][0]).toMatchObject({
       title: "Coda landing",
@@ -238,7 +287,9 @@ describe("TargetDraftEditor", () => {
       clientX: 11,
       clientY: 11,
     });
-    expect(screen.getByRole("alert").textContent).toContain("visible score area");
+    expect(screen.getByRole("alert").textContent).toContain(
+      "visible score area",
+    );
     expect(screen.queryByTestId("atlas-target-selection")).toBeNull();
   });
 
