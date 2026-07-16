@@ -1,0 +1,114 @@
+{
+  "piece_id": 6,
+  "pdf": "Christian_C_Barber_Pas_de_Deux_Primo.pdf",
+  "page_count": 4,
+  "xml_total_measures": null,
+  "xml_offset_note": "no XML",
+  "anchors": [
+    {
+      "page": 1,
+      "yTopPct": 0.2079,
+      "yCenterPct": 0.2575,
+      "measure": 1,
+      "low_confidence": true
+    },
+    {
+      "page": 1,
+      "yTopPct": 0.3907,
+      "yCenterPct": 0.4392,
+      "measure": 6
+    },
+    {
+      "page": 1,
+      "yTopPct": 0.5701,
+      "yCenterPct": 0.6188,
+      "measure": 11
+    },
+    {
+      "page": 1,
+      "yTopPct": 0.7553,
+      "yCenterPct": 0.8041,
+      "measure": 16
+    },
+    {
+      "page": 2,
+      "yTopPct": 0.1296,
+      "yCenterPct": 0.1826,
+      "measure": 21
+    },
+    {
+      "page": 2,
+      "yTopPct": 0.3392,
+      "yCenterPct": 0.3902,
+      "measure": 26
+    },
+    {
+      "page": 2,
+      "yTopPct": 0.5414,
+      "yCenterPct": 0.5929,
+      "measure": 31
+    },
+    {
+      "page": 2,
+      "yTopPct": 0.7472,
+      "yCenterPct": 0.7987,
+      "measure": 36
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.1026,
+      "yCenterPct": 0.1489,
+      "measure": 41
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.2738,
+      "yCenterPct": 0.3217,
+      "measure": 45
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.4408,
+      "yCenterPct": 0.4855,
+      "measure": 49
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.6053,
+      "yCenterPct": 0.6502,
+      "measure": 54
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.7821,
+      "yCenterPct": 0.8301,
+      "measure": 59
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.1153,
+      "yCenterPct": 0.1734,
+      "measure": 64
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.3252,
+      "yCenterPct": 0.3804,
+      "measure": 69
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.5305,
+      "yCenterPct": 0.5855,
+      "measure": 74
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.7505,
+      "yCenterPct": 0.804,
+      "measure": 79
+    }
+  ],
+  "landmarks_verified": [],
+  "confidence_notes": "No MusicXML exists for this piece/edition, so validation is the internal continuity chain only (system-start measure = previous system-start + previous system's counted bar total, checked across all 17 systems on 4 pages; chain is monotonic and closes at measure 81). This part carries NO printed measure numbers per system (unlike the Ekier pilot) -- it is an older engraving with only rehearsal boxes [23]-[27] (landmarks, continuing numbering from earlier movements of the suite, ignored per instructions) plus one bare '1' near the very first entrance (p.1 sys.1, after the opening whole-bar rest) and one more '1' in a similar rest-to-entrance spot (p.3 sys.3); both read as piano fingering (finger 1/thumb) for the re-entrance note, NOT measure numbers, based on their placement directly on/under the entrance note rather than at a system start. Every system's bar count was therefore obtained by counting barlines: visually from 150dpi crops, cross-checked with a programmatic vertical-barline detector (column dark-pixel fraction) run over each system's y-band. The two methods disagreed on 3 systems (p3 sys5, p4 sys2, p4 sys3/sys4) where thick rolled LH chords or a tremolo/triplet figure created false-positive 'barline' columns; each was resolved by re-cropping at higher effective resolution and re-reading visually, all confirmed against the auto-detector's true interior-barline count once the false positives were identified. yTopPct = top line of the system's upper (primo) staff; yCenterPct = midpoint between that line and the bottom line of the system's lower staff, both from staff-line cluster detection at 72dpi (100% dark-pixel-fraction rows within the central width band). Page4 system4's bottom-staff lines were faint (low ink density, mostly rests) and needed a lower detection threshold (0.15-0.2 vs the usual 0.35) plus cross-check against this page's uniform system-to-system spacing (~0.205) to resolve confidently. The page size is unusually large (2876x3940pt, i.e. this PDF was produced from very high-res scans/typeset masters); pages were rendered at 72dpi to keep files a manageable size for visual inspection. Numbering assumption (flagged low_confidence on the very first anchor): the opening whole-bar rest (6/8, under rehearsal box 23) is treated as measure 1 of this piece/PDF, i.e. numbering resets to 1 for this excerpt as presented to the app, matching how the app treats this as a standalone 'Chamber Piece' entry -- the original print's rehearsal-letter sequence (23-27) implies the underlying edition's bar numbers likely continue from earlier movements of the suite (not visible in this 4-page excerpt), so the ABSOLUTE bar number in that original context is unknowable from this PDF alone; only the piece-local numbering (1..81) is asserted here."
+}

@@ -1,0 +1,467 @@
+{
+ "piece_id": 3,
+ "pdf": "Prokofiev Op.1 - Jurgenson first edition (IMSLP #530801).pdf",
+ "page_count": 18,
+ "xml_total_measures": null,
+ "xml_offset_note": "no XML",
+ "anchors": [
+  {
+   "page": 3,
+   "yTopPct": 0.155,
+   "yCenterPct": 0.245,
+   "measure": 1
+  },
+  {
+   "page": 3,
+   "yTopPct": 0.335,
+   "yCenterPct": 0.39,
+   "measure": 4
+  },
+  {
+   "page": 3,
+   "yTopPct": 0.455,
+   "yCenterPct": 0.52,
+   "measure": 7
+  },
+  {
+   "page": 3,
+   "yTopPct": 0.595,
+   "yCenterPct": 0.6625,
+   "measure": 10
+  },
+  {
+   "page": 3,
+   "yTopPct": 0.74,
+   "yCenterPct": 0.81,
+   "measure": 13
+  },
+  {
+   "page": 4,
+   "yTopPct": 0.11,
+   "yCenterPct": 0.18,
+   "measure": 16
+  },
+  {
+   "page": 4,
+   "yTopPct": 0.27,
+   "yCenterPct": 0.335,
+   "measure": 19
+  },
+  {
+   "page": 4,
+   "yTopPct": 0.42,
+   "yCenterPct": 0.48,
+   "measure": 22
+  },
+  {
+   "page": 4,
+   "yTopPct": 0.56,
+   "yCenterPct": 0.63,
+   "measure": 25
+  },
+  {
+   "page": 4,
+   "yTopPct": 0.72,
+   "yCenterPct": 0.79,
+   "measure": 28
+  },
+  {
+   "page": 5,
+   "yTopPct": 0.11,
+   "yCenterPct": 0.18,
+   "measure": 31
+  },
+  {
+   "page": 5,
+   "yTopPct": 0.27,
+   "yCenterPct": 0.335,
+   "measure": 34
+  },
+  {
+   "page": 5,
+   "yTopPct": 0.42,
+   "yCenterPct": 0.49,
+   "measure": 37
+  },
+  {
+   "page": 5,
+   "yTopPct": 0.58,
+   "yCenterPct": 0.64,
+   "measure": 40
+  },
+  {
+   "page": 5,
+   "yTopPct": 0.72,
+   "yCenterPct": 0.79,
+   "measure": 43
+  },
+  {
+   "page": 6,
+   "yTopPct": 0.1,
+   "yCenterPct": 0.185,
+   "measure": 46
+  },
+  {
+   "page": 6,
+   "yTopPct": 0.27,
+   "yCenterPct": 0.355,
+   "measure": 50
+  },
+  {
+   "page": 6,
+   "yTopPct": 0.44,
+   "yCenterPct": 0.53,
+   "measure": 54
+  },
+  {
+   "page": 6,
+   "yTopPct": 0.595,
+   "yCenterPct": 0.675,
+   "measure": 58
+  },
+  {
+   "page": 6,
+   "yTopPct": 0.755,
+   "yCenterPct": 0.8375,
+   "measure": 61
+  },
+  {
+   "page": 7,
+   "yTopPct": 0.1,
+   "yCenterPct": 0.1725,
+   "measure": 64
+  },
+  {
+   "page": 7,
+   "yTopPct": 0.245,
+   "yCenterPct": 0.3175,
+   "measure": 68
+  },
+  {
+   "page": 7,
+   "yTopPct": 0.39,
+   "yCenterPct": 0.475,
+   "measure": 72
+  },
+  {
+   "page": 7,
+   "yTopPct": 0.56,
+   "yCenterPct": 0.645,
+   "measure": 75
+  },
+  {
+   "page": 7,
+   "yTopPct": 0.73,
+   "yCenterPct": 0.815,
+   "measure": 78
+  },
+  {
+   "page": 8,
+   "yTopPct": 0.095,
+   "yCenterPct": 0.175,
+   "measure": 81
+  },
+  {
+   "page": 8,
+   "yTopPct": 0.255,
+   "yCenterPct": 0.335,
+   "measure": 84
+  },
+  {
+   "page": 8,
+   "yTopPct": 0.415,
+   "yCenterPct": 0.495,
+   "measure": 87
+  },
+  {
+   "page": 8,
+   "yTopPct": 0.575,
+   "yCenterPct": 0.655,
+   "measure": 90
+  },
+  {
+   "page": 8,
+   "yTopPct": 0.735,
+   "yCenterPct": 0.8175,
+   "measure": 94
+  },
+  {
+   "page": 9,
+   "yTopPct": 0.075,
+   "yCenterPct": 0.155,
+   "measure": 97
+  },
+  {
+   "page": 9,
+   "yTopPct": 0.235,
+   "yCenterPct": 0.315,
+   "measure": 100
+  },
+  {
+   "page": 9,
+   "yTopPct": 0.395,
+   "yCenterPct": 0.475,
+   "measure": 103
+  },
+  {
+   "page": 9,
+   "yTopPct": 0.555,
+   "yCenterPct": 0.635,
+   "measure": 106
+  },
+  {
+   "page": 9,
+   "yTopPct": 0.715,
+   "yCenterPct": 0.7975,
+   "measure": 109
+  },
+  {
+   "page": 10,
+   "yTopPct": 0.075,
+   "yCenterPct": 0.155,
+   "measure": 112
+  },
+  {
+   "page": 10,
+   "yTopPct": 0.235,
+   "yCenterPct": 0.315,
+   "measure": 115
+  },
+  {
+   "page": 10,
+   "yTopPct": 0.395,
+   "yCenterPct": 0.475,
+   "measure": 118
+  },
+  {
+   "page": 10,
+   "yTopPct": 0.545,
+   "yCenterPct": 0.6325,
+   "measure": 121
+  },
+  {
+   "page": 10,
+   "yTopPct": 0.705,
+   "yCenterPct": 0.7975,
+   "measure": 125
+  },
+  {
+   "page": 11,
+   "yTopPct": 0.06,
+   "yCenterPct": 0.125,
+   "measure": 129
+  },
+  {
+   "page": 11,
+   "yTopPct": 0.235,
+   "yCenterPct": 0.305,
+   "measure": 133
+  },
+  {
+   "page": 11,
+   "yTopPct": 0.365,
+   "yCenterPct": 0.4375,
+   "measure": 136
+  },
+  {
+   "page": 11,
+   "yTopPct": 0.565,
+   "yCenterPct": 0.65,
+   "measure": 139
+  },
+  {
+   "page": 11,
+   "yTopPct": 0.72,
+   "yCenterPct": 0.81,
+   "measure": 142
+  },
+  {
+   "page": 12,
+   "yTopPct": 0.06,
+   "yCenterPct": 0.1225,
+   "measure": 146
+  },
+  {
+   "page": 12,
+   "yTopPct": 0.18,
+   "yCenterPct": 0.2575,
+   "measure": 149
+  },
+  {
+   "page": 12,
+   "yTopPct": 0.335,
+   "yCenterPct": 0.4175,
+   "measure": 152
+  },
+  {
+   "page": 12,
+   "yTopPct": 0.5,
+   "yCenterPct": 0.5775,
+   "measure": 155
+  },
+  {
+   "page": 12,
+   "yTopPct": 0.62,
+   "yCenterPct": 0.7,
+   "measure": 158
+  },
+  {
+   "page": 12,
+   "yTopPct": 0.76,
+   "yCenterPct": 0.855,
+   "measure": 161
+  },
+  {
+   "page": 13,
+   "yTopPct": 0.03,
+   "yCenterPct": 0.117,
+   "measure": 164
+  },
+  {
+   "page": 13,
+   "yTopPct": 0.204,
+   "yCenterPct": 0.291,
+   "measure": 167
+  },
+  {
+   "page": 13,
+   "yTopPct": 0.378,
+   "yCenterPct": 0.465,
+   "measure": 170
+  },
+  {
+   "page": 13,
+   "yTopPct": 0.552,
+   "yCenterPct": 0.639,
+   "measure": 173
+  },
+  {
+   "page": 13,
+   "yTopPct": 0.726,
+   "yCenterPct": 0.813,
+   "measure": 176
+  },
+  {
+   "page": 14,
+   "yTopPct": 0.045,
+   "yCenterPct": 0.1275,
+   "measure": 179
+  },
+  {
+   "page": 14,
+   "yTopPct": 0.205,
+   "yCenterPct": 0.2775,
+   "measure": 182
+  },
+  {
+   "page": 14,
+   "yTopPct": 0.345,
+   "yCenterPct": 0.4375,
+   "measure": 185
+  },
+  {
+   "page": 14,
+   "yTopPct": 0.5,
+   "yCenterPct": 0.5925,
+   "measure": 189
+  },
+  {
+   "page": 14,
+   "yTopPct": 0.685,
+   "yCenterPct": 0.7675,
+   "measure": 193
+  },
+  {
+   "page": 15,
+   "yTopPct": 0.03,
+   "yCenterPct": 0.1325,
+   "measure": 194
+  },
+  {
+   "page": 15,
+   "yTopPct": 0.285,
+   "yCenterPct": 0.3625,
+   "measure": 197
+  },
+  {
+   "page": 15,
+   "yTopPct": 0.42,
+   "yCenterPct": 0.5,
+   "measure": 200
+  },
+  {
+   "page": 15,
+   "yTopPct": 0.565,
+   "yCenterPct": 0.6425,
+   "measure": 203
+  },
+  {
+   "page": 15,
+   "yTopPct": 0.7,
+   "yCenterPct": 0.78,
+   "measure": 206
+  },
+  {
+   "page": 16,
+   "yTopPct": 0.03,
+   "yCenterPct": 0.12,
+   "measure": 209
+  },
+  {
+   "page": 16,
+   "yTopPct": 0.195,
+   "yCenterPct": 0.2775,
+   "measure": 212
+  },
+  {
+   "page": 16,
+   "yTopPct": 0.345,
+   "yCenterPct": 0.4525,
+   "measure": 215
+  },
+  {
+   "page": 16,
+   "yTopPct": 0.55,
+   "yCenterPct": 0.63,
+   "measure": 218
+  },
+  {
+   "page": 16,
+   "yTopPct": 0.7,
+   "yCenterPct": 0.78,
+   "measure": 221
+  },
+  {
+   "page": 17,
+   "yTopPct": 0.03,
+   "yCenterPct": 0.115,
+   "measure": 224
+  },
+  {
+   "page": 17,
+   "yTopPct": 0.195,
+   "yCenterPct": 0.2775,
+   "measure": 227
+  },
+  {
+   "page": 17,
+   "yTopPct": 0.365,
+   "yCenterPct": 0.4475,
+   "measure": 230
+  },
+  {
+   "page": 17,
+   "yTopPct": 0.535,
+   "yCenterPct": 0.6,
+   "measure": 233
+  },
+  {
+   "page": 17,
+   "yTopPct": 0.66,
+   "yCenterPct": 0.73,
+   "measure": 237
+  }
+ ],
+ "landmarks_verified": [],
+ "confidence_notes": "Music occupies PDF pages 3-17 (printed pages 3-17, 1:1 with PDF page number); PDF page 1 is the title page and page 2 is a blank verso, both zero-anchored; PDF page 18 is a blank pastedown (ghost bleed-through only), zero-anchored. This Jurgenson first edition has NO printed measure numbers anywhere and NO rehearsal numbers/boxed letters - every measure was derived by direct visual bar-counting (barline-by-barline) from 300dpi page renders, cross-checked with 2-4 overlapping crops per system where systems were dense or had mid-system meter/key changes. Systems per page are 5 throughout except page 12, which has 6 short systems ('Meno mosso'/Allegro reprise passage). Bars per system vary 1-4 depending on note density (dense 12/8 chordal writing = 3/system typically; slower dotted-half chords = 4/system; page 14 system5 is a genuine 1-bar system where the engraver broke the page mid-phrase during a fast 4/4 animando run). No repeat signs, D.C./D.S., or volta brackets found anywhere - the movement is through-composed. Meter changes between 12/8 and 4/4 occur several times (pp.5,7,9,10,11,16,17) and are noted in the log; these do not affect bar-counting since barlines were counted directly regardless of meter. programmatic staff-line/system-band detection (row-wise dark-pixel density) was attempted first (see detect_staves.py/detect_systems.py in the working dir) but proved unreliable on this aged scanned print (thin/broken staff lines, uneven ink, no vector data) - it either merged adjacent systems or split single systems into multiple bands. All yTopPct/yCenterPct values in this file are therefore VISUAL ESTIMATES (not programmatic), read off the same 300dpi crops used for bar-counting, each system's block cropped tightly enough to confirm its barlines; precision is targeted at \u00b10.02 but should be treated as lower-confidence than a programmatic staff-detection result. No anchors are flagged low_confidence individually because every system's bar count was re-verified via a dedicated zoomed crop (not just the initial overview pass) before being locked in; the two pages read only from top/bottom half overviews without a further dedicated per-system recheck are pages 4 and 5, where bar counts were unambiguous (clean 3-bar systems, no boundary ambiguity) - noted for transparency. The final system (p.17, 'Meno mosso') ends on a thick double barline confirming the end of the piece; a small mark above the final chord may be a fermata but the scan resolution does not confirm this definitively - flagged as a caveat, not a low_confidence anchor since it does not affect measure count. Total: 76 anchors over 15 pages, continuity chain (each system's start = previous start + previous system's bar count) closes at measure 240 (piece runs m1-m240); there is no independent MusicXML or printed-number cross-check available for this source (per task scope), so validation is internal-chain-only as instructed."
+}

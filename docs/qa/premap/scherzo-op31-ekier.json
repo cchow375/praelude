@@ -1,0 +1,734 @@
+{
+ "piece_id": 2,
+ "pdf": "ekierscherzochopin2.pdf",
+ "page_count": 25,
+ "xml_total_measures": 780,
+ "xml_offset_note": "MusicXML numbers measures 1-780 with no pickup; 1560 <measure> tags total across 2 <part> elements (RH+LH), 780 per part. Printed Ekier numbering matches XML numbering 1:1 (no offset).",
+ "anchors": [
+  {
+   "page": 2,
+   "yTopPct": 0.125,
+   "yCenterPct": 0.173,
+   "measure": 1
+  },
+  {
+   "page": 2,
+   "yTopPct": 0.303,
+   "yCenterPct": 0.351,
+   "measure": 9
+  },
+  {
+   "page": 2,
+   "yTopPct": 0.466,
+   "yCenterPct": 0.514,
+   "measure": 17
+  },
+  {
+   "page": 2,
+   "yTopPct": 0.652,
+   "yCenterPct": 0.7,
+   "measure": 27
+  },
+  {
+   "page": 2,
+   "yTopPct": 0.83,
+   "yCenterPct": 0.877,
+   "measure": 35
+  },
+  {
+   "page": 3,
+   "yTopPct": 0.07,
+   "yCenterPct": 0.117,
+   "measure": 44
+  },
+  {
+   "page": 3,
+   "yTopPct": 0.262,
+   "yCenterPct": 0.31,
+   "measure": 53
+  },
+  {
+   "page": 3,
+   "yTopPct": 0.45,
+   "yCenterPct": 0.496,
+   "measure": 59
+  },
+  {
+   "page": 3,
+   "yTopPct": 0.628,
+   "yCenterPct": 0.675,
+   "measure": 65
+  },
+  {
+   "page": 3,
+   "yTopPct": 0.82,
+   "yCenterPct": 0.869,
+   "measure": 71
+  },
+  {
+   "page": 4,
+   "yTopPct": 0.072,
+   "yCenterPct": 0.123,
+   "measure": 77
+  },
+  {
+   "page": 4,
+   "yTopPct": 0.262,
+   "yCenterPct": 0.311,
+   "measure": 82
+  },
+  {
+   "page": 4,
+   "yTopPct": 0.446,
+   "yCenterPct": 0.494,
+   "measure": 87
+  },
+  {
+   "page": 4,
+   "yTopPct": 0.628,
+   "yCenterPct": 0.677,
+   "measure": 93
+  },
+  {
+   "page": 4,
+   "yTopPct": 0.816,
+   "yCenterPct": 0.867,
+   "measure": 98
+  },
+  {
+   "page": 5,
+   "yTopPct": 0.07,
+   "yCenterPct": 0.118,
+   "measure": 103
+  },
+  {
+   "page": 5,
+   "yTopPct": 0.256,
+   "yCenterPct": 0.304,
+   "measure": 108
+  },
+  {
+   "page": 5,
+   "yTopPct": 0.441,
+   "yCenterPct": 0.489,
+   "measure": 113
+  },
+  {
+   "page": 5,
+   "yTopPct": 0.623,
+   "yCenterPct": 0.671,
+   "measure": 119
+  },
+  {
+   "page": 5,
+   "yTopPct": 0.803,
+   "yCenterPct": 0.847,
+   "measure": 125
+  },
+  {
+   "page": 6,
+   "yTopPct": 0.059,
+   "yCenterPct": 0.107,
+   "measure": 133
+  },
+  {
+   "page": 6,
+   "yTopPct": 0.241,
+   "yCenterPct": 0.289,
+   "measure": 141
+  },
+  {
+   "page": 6,
+   "yTopPct": 0.422,
+   "yCenterPct": 0.47,
+   "measure": 149
+  },
+  {
+   "page": 6,
+   "yTopPct": 0.617,
+   "yCenterPct": 0.665,
+   "measure": 159
+  },
+  {
+   "page": 6,
+   "yTopPct": 0.809,
+   "yCenterPct": 0.856,
+   "measure": 167
+  },
+  {
+   "page": 7,
+   "yTopPct": 0.066,
+   "yCenterPct": 0.111,
+   "measure": 176
+  },
+  {
+   "page": 7,
+   "yTopPct": 0.263,
+   "yCenterPct": 0.31,
+   "measure": 185
+  },
+  {
+   "page": 7,
+   "yTopPct": 0.449,
+   "yCenterPct": 0.497,
+   "measure": 191
+  },
+  {
+   "page": 7,
+   "yTopPct": 0.628,
+   "yCenterPct": 0.676,
+   "measure": 197
+  },
+  {
+   "page": 7,
+   "yTopPct": 0.816,
+   "yCenterPct": 0.863,
+   "measure": 203
+  },
+  {
+   "page": 8,
+   "yTopPct": 0.072,
+   "yCenterPct": 0.119,
+   "measure": 209
+  },
+  {
+   "page": 8,
+   "yTopPct": 0.258,
+   "yCenterPct": 0.306,
+   "measure": 214
+  },
+  {
+   "page": 8,
+   "yTopPct": 0.443,
+   "yCenterPct": 0.491,
+   "measure": 219
+  },
+  {
+   "page": 8,
+   "yTopPct": 0.628,
+   "yCenterPct": 0.676,
+   "measure": 225
+  },
+  {
+   "page": 8,
+   "yTopPct": 0.816,
+   "yCenterPct": 0.867,
+   "measure": 230
+  },
+  {
+   "page": 9,
+   "yTopPct": 0.07,
+   "yCenterPct": 0.112,
+   "measure": 235
+  },
+  {
+   "page": 9,
+   "yTopPct": 0.252,
+   "yCenterPct": 0.299,
+   "measure": 240
+  },
+  {
+   "page": 9,
+   "yTopPct": 0.434,
+   "yCenterPct": 0.482,
+   "measure": 245
+  },
+  {
+   "page": 9,
+   "yTopPct": 0.618,
+   "yCenterPct": 0.665,
+   "measure": 251
+  },
+  {
+   "page": 9,
+   "yTopPct": 0.803,
+   "yCenterPct": 0.846,
+   "measure": 257
+  },
+  {
+   "page": 10,
+   "yTopPct": 0.066,
+   "yCenterPct": 0.115,
+   "measure": 265
+  },
+  {
+   "page": 10,
+   "yTopPct": 0.246,
+   "yCenterPct": 0.297,
+   "measure": 273
+  },
+  {
+   "page": 10,
+   "yTopPct": 0.437,
+   "yCenterPct": 0.485,
+   "measure": 281
+  },
+  {
+   "page": 10,
+   "yTopPct": 0.613,
+   "yCenterPct": 0.663,
+   "measure": 288
+  },
+  {
+   "page": 10,
+   "yTopPct": 0.808,
+   "yCenterPct": 0.855,
+   "measure": 296
+  },
+  {
+   "page": 11,
+   "yTopPct": 0.074,
+   "yCenterPct": 0.121,
+   "measure": 304
+  },
+  {
+   "page": 11,
+   "yTopPct": 0.26,
+   "yCenterPct": 0.309,
+   "measure": 310
+  },
+  {
+   "page": 11,
+   "yTopPct": 0.449,
+   "yCenterPct": 0.498,
+   "measure": 316
+  },
+  {
+   "page": 11,
+   "yTopPct": 0.632,
+   "yCenterPct": 0.681,
+   "measure": 322
+  },
+  {
+   "page": 11,
+   "yTopPct": 0.816,
+   "yCenterPct": 0.863,
+   "measure": 328
+  },
+  {
+   "page": 12,
+   "yTopPct": 0.076,
+   "yCenterPct": 0.124,
+   "measure": 334
+  },
+  {
+   "page": 12,
+   "yTopPct": 0.253,
+   "yCenterPct": 0.301,
+   "measure": 340
+  },
+  {
+   "page": 12,
+   "yTopPct": 0.437,
+   "yCenterPct": 0.486,
+   "measure": 346
+  },
+  {
+   "page": 12,
+   "yTopPct": 0.613,
+   "yCenterPct": 0.66,
+   "measure": 352
+  },
+  {
+   "page": 12,
+   "yTopPct": 0.81,
+   "yCenterPct": 0.858,
+   "measure": 358
+  },
+  {
+   "page": 13,
+   "yTopPct": 0.074,
+   "yCenterPct": 0.122,
+   "measure": 366
+  },
+  {
+   "page": 13,
+   "yTopPct": 0.254,
+   "yCenterPct": 0.304,
+   "measure": 375
+  },
+  {
+   "page": 13,
+   "yTopPct": 0.437,
+   "yCenterPct": 0.487,
+   "measure": 383
+  },
+  {
+   "page": 13,
+   "yTopPct": 0.621,
+   "yCenterPct": 0.67,
+   "measure": 390
+  },
+  {
+   "page": 13,
+   "yTopPct": 0.807,
+   "yCenterPct": 0.855,
+   "measure": 398
+  },
+  {
+   "page": 14,
+   "yTopPct": 0.081,
+   "yCenterPct": 0.128,
+   "measure": 406
+  },
+  {
+   "page": 14,
+   "yTopPct": 0.261,
+   "yCenterPct": 0.311,
+   "measure": 412
+  },
+  {
+   "page": 14,
+   "yTopPct": 0.444,
+   "yCenterPct": 0.493,
+   "measure": 418
+  },
+  {
+   "page": 14,
+   "yTopPct": 0.626,
+   "yCenterPct": 0.676,
+   "measure": 424
+  },
+  {
+   "page": 14,
+   "yTopPct": 0.809,
+   "yCenterPct": 0.859,
+   "measure": 430
+  },
+  {
+   "page": 15,
+   "yTopPct": 0.08,
+   "yCenterPct": 0.128,
+   "measure": 436
+  },
+  {
+   "page": 15,
+   "yTopPct": 0.258,
+   "yCenterPct": 0.306,
+   "measure": 442
+  },
+  {
+   "page": 15,
+   "yTopPct": 0.441,
+   "yCenterPct": 0.488,
+   "measure": 448
+  },
+  {
+   "page": 15,
+   "yTopPct": 0.615,
+   "yCenterPct": 0.662,
+   "measure": 454
+  },
+  {
+   "page": 15,
+   "yTopPct": 0.813,
+   "yCenterPct": 0.86,
+   "measure": 460
+  },
+  {
+   "page": 16,
+   "yTopPct": 0.073,
+   "yCenterPct": 0.118,
+   "measure": 468
+  },
+  {
+   "page": 16,
+   "yTopPct": 0.24,
+   "yCenterPct": 0.287,
+   "measure": 473
+  },
+  {
+   "page": 16,
+   "yTopPct": 0.447,
+   "yCenterPct": 0.493,
+   "measure": 479
+  },
+  {
+   "page": 16,
+   "yTopPct": 0.642,
+   "yCenterPct": 0.689,
+   "measure": 484
+  },
+  {
+   "page": 16,
+   "yTopPct": 0.823,
+   "yCenterPct": 0.87,
+   "measure": 489
+  },
+  {
+   "page": 17,
+   "yTopPct": 0.075,
+   "yCenterPct": 0.124,
+   "measure": 494
+  },
+  {
+   "page": 17,
+   "yTopPct": 0.26,
+   "yCenterPct": 0.31,
+   "measure": 500
+  },
+  {
+   "page": 17,
+   "yTopPct": 0.447,
+   "yCenterPct": 0.497,
+   "measure": 506
+  },
+  {
+   "page": 17,
+   "yTopPct": 0.632,
+   "yCenterPct": 0.683,
+   "measure": 512
+  },
+  {
+   "page": 17,
+   "yTopPct": 0.82,
+   "yCenterPct": 0.869,
+   "measure": 518
+  },
+  {
+   "page": 18,
+   "yTopPct": 0.067,
+   "yCenterPct": 0.115,
+   "measure": 524
+  },
+  {
+   "page": 18,
+   "yTopPct": 0.252,
+   "yCenterPct": 0.299,
+   "measure": 530
+  },
+  {
+   "page": 18,
+   "yTopPct": 0.439,
+   "yCenterPct": 0.486,
+   "measure": 536
+  },
+  {
+   "page": 18,
+   "yTopPct": 0.625,
+   "yCenterPct": 0.673,
+   "measure": 541
+  },
+  {
+   "page": 18,
+   "yTopPct": 0.805,
+   "yCenterPct": 0.853,
+   "measure": 546
+  },
+  {
+   "page": 19,
+   "yTopPct": 0.063,
+   "yCenterPct": 0.111,
+   "measure": 552
+  },
+  {
+   "page": 19,
+   "yTopPct": 0.246,
+   "yCenterPct": 0.294,
+   "measure": 558
+  },
+  {
+   "page": 19,
+   "yTopPct": 0.427,
+   "yCenterPct": 0.479,
+   "measure": 564
+  },
+  {
+   "page": 19,
+   "yTopPct": 0.608,
+   "yCenterPct": 0.661,
+   "measure": 570
+  },
+  {
+   "page": 19,
+   "yTopPct": 0.799,
+   "yCenterPct": 0.847,
+   "measure": 576
+  },
+  {
+   "page": 20,
+   "yTopPct": 0.065,
+   "yCenterPct": 0.113,
+   "measure": 584
+  },
+  {
+   "page": 20,
+   "yTopPct": 0.247,
+   "yCenterPct": 0.295,
+   "measure": 592
+  },
+  {
+   "page": 20,
+   "yTopPct": 0.426,
+   "yCenterPct": 0.474,
+   "measure": 600
+  },
+  {
+   "page": 20,
+   "yTopPct": 0.615,
+   "yCenterPct": 0.663,
+   "measure": 610
+  },
+  {
+   "page": 20,
+   "yTopPct": 0.805,
+   "yCenterPct": 0.853,
+   "measure": 618
+  },
+  {
+   "page": 21,
+   "yTopPct": 0.066,
+   "yCenterPct": 0.113,
+   "measure": 627
+  },
+  {
+   "page": 21,
+   "yTopPct": 0.267,
+   "yCenterPct": 0.315,
+   "measure": 636
+  },
+  {
+   "page": 21,
+   "yTopPct": 0.455,
+   "yCenterPct": 0.502,
+   "measure": 642
+  },
+  {
+   "page": 21,
+   "yTopPct": 0.633,
+   "yCenterPct": 0.681,
+   "measure": 648
+  },
+  {
+   "page": 21,
+   "yTopPct": 0.816,
+   "yCenterPct": 0.864,
+   "measure": 653
+  },
+  {
+   "page": 22,
+   "yTopPct": 0.073,
+   "yCenterPct": 0.12,
+   "measure": 658
+  },
+  {
+   "page": 22,
+   "yTopPct": 0.261,
+   "yCenterPct": 0.309,
+   "measure": 663
+  },
+  {
+   "page": 22,
+   "yTopPct": 0.445,
+   "yCenterPct": 0.493,
+   "measure": 668
+  },
+  {
+   "page": 22,
+   "yTopPct": 0.63,
+   "yCenterPct": 0.678,
+   "measure": 673
+  },
+  {
+   "page": 22,
+   "yTopPct": 0.82,
+   "yCenterPct": 0.868,
+   "measure": 678
+  },
+  {
+   "page": 23,
+   "yTopPct": 0.069,
+   "yCenterPct": 0.12,
+   "measure": 683
+  },
+  {
+   "page": 23,
+   "yTopPct": 0.252,
+   "yCenterPct": 0.298,
+   "measure": 688
+  },
+  {
+   "page": 23,
+   "yTopPct": 0.444,
+   "yCenterPct": 0.49,
+   "measure": 693
+  },
+  {
+   "page": 23,
+   "yTopPct": 0.628,
+   "yCenterPct": 0.674,
+   "measure": 698
+  },
+  {
+   "page": 23,
+   "yTopPct": 0.819,
+   "yCenterPct": 0.865,
+   "measure": 703
+  },
+  {
+   "page": 24,
+   "yTopPct": 0.068,
+   "yCenterPct": 0.116,
+   "measure": 708
+  },
+  {
+   "page": 24,
+   "yTopPct": 0.255,
+   "yCenterPct": 0.302,
+   "measure": 714
+  },
+  {
+   "page": 24,
+   "yTopPct": 0.441,
+   "yCenterPct": 0.487,
+   "measure": 720
+  },
+  {
+   "page": 24,
+   "yTopPct": 0.625,
+   "yCenterPct": 0.673,
+   "measure": 726
+  },
+  {
+   "page": 24,
+   "yTopPct": 0.818,
+   "yCenterPct": 0.866,
+   "measure": 732
+  },
+  {
+   "page": 25,
+   "yTopPct": 0.063,
+   "yCenterPct": 0.111,
+   "measure": 740
+  },
+  {
+   "page": 25,
+   "yTopPct": 0.267,
+   "yCenterPct": 0.318,
+   "measure": 748
+  },
+  {
+   "page": 25,
+   "yTopPct": 0.453,
+   "yCenterPct": 0.501,
+   "measure": 756
+  },
+  {
+   "page": 25,
+   "yTopPct": 0.632,
+   "yCenterPct": 0.681,
+   "measure": 762
+  },
+  {
+   "page": 25,
+   "yTopPct": 0.811,
+   "yCenterPct": 0.859,
+   "measure": 770
+  }
+ ],
+ "landmarks_verified": [
+  "m67",
+  "m95"
+ ],
+ "confidence_notes": "Page 1 is a title page with zero anchors; music occupies PDF pages 2-25 (printed pages 30-53), exactly 5 systems per page, 120 anchors total. Every system's first measure number is printed in the score (Ekier numbers each line start), so the chain is read, not counted; implied per-system bar counts (5-11) are all plausible and the chain closes exactly at 780 (final system m770 + 11 bars). yTopPct = top staff line of the system's treble staff, yCenterPct = midpoint of the grand staff, both measured programmatically from staff-line detection at 100dpi (all 24 pages yielded exactly 10 staves). Slurs/8va lines/dynamics may extend ~0.02-0.05 above yTopPct. m67 landmark: XML LH has Cb4 twice and the printed bar (p.3 sys4 bar 3) shows the flat accidental; m95: XML LH contains F-natural (F4) at p.4 sys4 bar 3. No repeats/voltas/ossia systems affect numbering; two footnoted variants (pp. printed 33/37/46/51) are text-only. No low-confidence anchors."
+}

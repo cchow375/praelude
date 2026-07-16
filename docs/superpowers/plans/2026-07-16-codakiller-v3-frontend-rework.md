@@ -11,6 +11,7 @@
 ## Global Constraints
 
 - **Backend frozen.** No changes to `src-tauri/` except `src-tauri/src/brain/provider.rs` (Phase 1). Consume every IPC command name and payload shape exactly as it exists. Verify with `cargo test` unchanged after Phase 1.
+  - **Freeze exception #2 (authorized 2026-07-16, Phase 4):** investigation proved the `score_edition_calibration` table (migrated in v8) is orphaned — no IPC command reads or writes it, which is the true root cause of the "Mapping required" dead end. Two thin additive commands are authorized: `score_calibration_save` (UPSERT on the existing UNIQUE(piece_id,edition_id,edition_fingerprint); method `user_confirmed`; validated `points_json` of `{page,y,measure}` 0–1 fractions) and `score_calibration_get` (read path so anchors reload and boxes resolve retroactively). No schema change. `cargo test` green remains the freeze proof.
 - **User is the sensor; the app is the memory.** Never interpret audio as music. The brain stays out of the hot loop; it never claims to record a verdict or control the app.
 - **Deterministic hot loop** (regex intent router) is untouched by this rework.
 - **Color discipline:** chrome is pure monochrome (near-black base `#0e0e10`, white→gray ink, 1px hairlines). Hue appears ONLY in: the Universe/planets, score marks, and semantic signals (error red, success green). No terracotta, no brown, no serif fonts anywhere.

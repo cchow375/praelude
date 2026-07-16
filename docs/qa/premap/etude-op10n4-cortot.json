@@ -1,0 +1,173 @@
+{
+  "piece_id": 1,
+  "pdf": "Chopin_Etude_Op10_No4_Cortot.pdf",
+  "page_count": 7,
+  "xml_total_measures": null,
+  "xml_offset_note": "no XML",
+  "anchors": [
+    {
+      "page": 3,
+      "yTopPct": 0.1424,
+      "yCenterPct": 0.1779,
+      "measure": 1
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.2679,
+      "yCenterPct": 0.3076,
+      "measure": 4
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.4034,
+      "yCenterPct": 0.4514,
+      "measure": 7
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.5461,
+      "yCenterPct": 0.5846,
+      "measure": 10
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.6825,
+      "yCenterPct": 0.7205,
+      "measure": 13
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.8146,
+      "yCenterPct": 0.8502,
+      "measure": 16
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.0802,
+      "yCenterPct": 0.119,
+      "measure": 19
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.2225,
+      "yCenterPct": 0.2611,
+      "measure": 22
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.3609,
+      "yCenterPct": 0.3991,
+      "measure": 25
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.495,
+      "yCenterPct": 0.5409,
+      "measure": 28
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.6553,
+      "yCenterPct": 0.6961,
+      "measure": 31
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.7966,
+      "yCenterPct": 0.8345,
+      "measure": 34
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.083,
+      "yCenterPct": 0.1325,
+      "measure": 37
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.2445,
+      "yCenterPct": 0.2943,
+      "measure": 40
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.4148,
+      "yCenterPct": 0.4625,
+      "measure": 43
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.5592,
+      "yCenterPct": 0.618,
+      "measure": 46
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.7515,
+      "yCenterPct": 0.7971,
+      "measure": 49
+    },
+    {
+      "page": 6,
+      "yTopPct": 0.1073,
+      "yCenterPct": 0.1506,
+      "measure": 52
+    },
+    {
+      "page": 6,
+      "yTopPct": 0.2759,
+      "yCenterPct": 0.3191,
+      "measure": 55
+    },
+    {
+      "page": 6,
+      "yTopPct": 0.4442,
+      "yCenterPct": 0.4876,
+      "measure": 58
+    },
+    {
+      "page": 6,
+      "yTopPct": 0.6131,
+      "yCenterPct": 0.6563,
+      "measure": 61
+    },
+    {
+      "page": 6,
+      "yTopPct": 0.782,
+      "yCenterPct": 0.825,
+      "measure": 64
+    },
+    {
+      "page": 7,
+      "yTopPct": 0.099,
+      "yCenterPct": 0.1425,
+      "measure": 67
+    },
+    {
+      "page": 7,
+      "yTopPct": 0.2682,
+      "yCenterPct": 0.3113,
+      "measure": 70
+    },
+    {
+      "page": 7,
+      "yTopPct": 0.4374,
+      "yCenterPct": 0.4803,
+      "measure": 73
+    },
+    {
+      "page": 7,
+      "yTopPct": 0.6063,
+      "yCenterPct": 0.6496,
+      "measure": 76
+    },
+    {
+      "page": 7,
+      "yTopPct": 0.7755,
+      "yCenterPct": 0.8185,
+      "measure": 79
+    }
+  ],
+  "landmarks_verified": [],
+  "confidence_notes": "PDF pages 1-2 (printed pp.26-27) are Cortot's preparatory-exercise/commentary pages (small exercise staves, own numbering referencing 'bar 2', 'Bar 3', 'Bars 27-28' etc.) and carry zero anchors. The etude text proper occupies PDF pages 3-7 (printed pp.28-32), 27 systems total, 2 staves (grand staff) per system throughout, no ossia/incipit systems. yTopPct = top line of the system's treble staff, yCenterPct = midpoint between treble-staff top line and bass-staff bottom line, both located via programmatic staff-line (full-height dark-row) detection at 300dpi on all 5 music pages. Measure counts per system were established by detecting true barlines: columns within each system's tight y-band whose dark-pixel fraction spans nearly the full staff height (0.8-1.0), distinguished from note-stem/accent/dynamic-mark false positives (which never exceed ~0.7 and were individually visually disproved with gridline-overlay crops where ambiguous, e.g. page3 sys2, page4 sys1/sys3/sys6, page5 sys4/sys5, page6 sys4, and the final system page7 sys5). 26 of the 27 systems contain exactly 3 measures each; the final system (page 7, system 5) contains 5 measures (a widening final flourish, a short rest-plus-entrance measure, a staccato ff measure, and the closing whole-note fermata measure with final double bar), confirmed by direct visual inspection with pixel gridlines. Continuity chain (each system's first measure = previous first + previous bar count) is self-consistent and closes at final measure 83 (no XML to cross-check, per no-XML piece). Supplementary cross-check: Cortot's own commentary explicitly says 'Bars 79 and 80' for a practice exercise, and the internal chain places the final system's first two measures at exactly 79 and 80 - an exact match with no adjustment needed, strong evidence measure 1 = the piece's opening flourish bar. Two earlier commentary bar-citations ('Bars 71 to 79', 'Bars 75 to 78') land approximately one measure earlier than where the score's own editorial circled-number markers appear to sit (see log); this is a minor, unresolved discrepancy in the supplementary cross-check only and does not affect the barline-counted continuity chain, which is the primary validation per the task's no-XML instructions. No low_confidence anchors: every measure count was either unambiguous (>=4 clean full-height barline detections) or individually confirmed by visual gridline-overlay crops."
+}

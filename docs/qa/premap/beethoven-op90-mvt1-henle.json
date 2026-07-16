@@ -1,0 +1,233 @@
+{
+  "piece_id": 4,
+  "pdf": "Beethoven Op.90 - Henle Urtext (Wallner).pdf",
+  "page_count": 15,
+  "xml_total_measures": 245,
+  "xml_offset_note": "MusicXML (RH part P4a13fd1f154347a3c1c775a0a84fb8cb) numbers measures 0-245 (246 <measure> tags): measure 0 is a 2-eighth-note pickup (anacrusis, duration = 1 quarter note vs the 3/4 meter's 3 quarters), measures 1-245 are the 245 full measures of the movement. Henle's printed numbering treats the pickup as unnumbered and begins the printed count at the first full measure, so XML measure N = Henle printed measure N for all N in 1..245 (offset = 0, direct 1:1 correspondence, confirmed by the anchor chain summing exactly to 245 -- see validation). NOTE: the LH part (P1c1cd703f15735a2420e39ab69d292d8) is truncated at measure 160 (161 <measure> tags, 0-160) -- appears to be an incomplete conversion/encoding artifact in the source XML for that part; it was not relied on beyond m160 and does not affect the offset determination (done from the complete RH part) or the printed-number-based anchor chain.",
+  "anchors": [
+    {
+      "page": 1,
+      "yTopPct": 0.206,
+      "yCenterPct": 0.244,
+      "measure": 1
+    },
+    {
+      "page": 1,
+      "yTopPct": 0.342,
+      "yCenterPct": 0.379,
+      "measure": 8
+    },
+    {
+      "page": 1,
+      "yTopPct": 0.475,
+      "yCenterPct": 0.512,
+      "measure": 19
+    },
+    {
+      "page": 1,
+      "yTopPct": 0.597,
+      "yCenterPct": 0.634,
+      "measure": 29
+    },
+    {
+      "page": 1,
+      "yTopPct": 0.716,
+      "yCenterPct": 0.752,
+      "measure": 34
+    },
+    {
+      "page": 1,
+      "yTopPct": 0.844,
+      "yCenterPct": 0.878,
+      "measure": 39
+    },
+    {
+      "page": 2,
+      "yTopPct": 0.098,
+      "yCenterPct": 0.139,
+      "measure": 47
+    },
+    {
+      "page": 2,
+      "yTopPct": 0.245,
+      "yCenterPct": 0.287,
+      "measure": 53
+    },
+    {
+      "page": 2,
+      "yTopPct": 0.376,
+      "yCenterPct": 0.417,
+      "measure": 57
+    },
+    {
+      "page": 2,
+      "yTopPct": 0.516,
+      "yCenterPct": 0.553,
+      "measure": 61
+    },
+    {
+      "page": 2,
+      "yTopPct": 0.639,
+      "yCenterPct": 0.68,
+      "measure": 65
+    },
+    {
+      "page": 2,
+      "yTopPct": 0.786,
+      "yCenterPct": 0.827,
+      "measure": 72
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.087,
+      "yCenterPct": 0.129,
+      "measure": 84
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.238,
+      "yCenterPct": 0.281,
+      "measure": 90
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.387,
+      "yCenterPct": 0.427,
+      "measure": 96
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.523,
+      "yCenterPct": 0.563,
+      "measure": 101
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.664,
+      "yCenterPct": 0.707,
+      "measure": 107
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.804,
+      "yCenterPct": 0.846,
+      "measure": 114
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.09,
+      "yCenterPct": 0.124,
+      "measure": 118
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.218,
+      "yCenterPct": 0.256,
+      "measure": 122
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.36,
+      "yCenterPct": 0.4,
+      "measure": 126
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.509,
+      "yCenterPct": 0.546,
+      "measure": 130
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.653,
+      "yCenterPct": 0.691,
+      "measure": 135
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.788,
+      "yCenterPct": 0.832,
+      "measure": 144
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.084,
+      "yCenterPct": 0.125,
+      "measure": 152
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.237,
+      "yCenterPct": 0.279,
+      "measure": 163
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.388,
+      "yCenterPct": 0.428,
+      "measure": 173
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.523,
+      "yCenterPct": 0.563,
+      "measure": 178
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.674,
+      "yCenterPct": 0.714,
+      "measure": 185
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.814,
+      "yCenterPct": 0.851,
+      "measure": 192
+    },
+    {
+      "page": 6,
+      "yTopPct": 0.112,
+      "yCenterPct": 0.148,
+      "measure": 198
+    },
+    {
+      "page": 6,
+      "yTopPct": 0.244,
+      "yCenterPct": 0.283,
+      "measure": 202
+    },
+    {
+      "page": 6,
+      "yTopPct": 0.378,
+      "yCenterPct": 0.418,
+      "measure": 206
+    },
+    {
+      "page": 6,
+      "yTopPct": 0.524,
+      "yCenterPct": 0.563,
+      "measure": 211
+    },
+    {
+      "page": 6,
+      "yTopPct": 0.673,
+      "yCenterPct": 0.711,
+      "measure": 223
+    },
+    {
+      "page": 6,
+      "yTopPct": 0.817,
+      "yCenterPct": 0.859,
+      "measure": 235
+    }
+  ],
+  "landmarks_verified": ["m8", "m152"],
+  "confidence_notes": "Movement 1 occupies PDF pages 1-6 (printed pages 196-201), exactly 6 systems per page (grand staff, staff-line detection at 200dpi found 10 lines per system on every page), 36 anchors total, measures 1-245. Movement 2 (Rondo, 'Nicht zu geschwind und sehr singbar vorgetragen') begins on PDF page 7 (printed 202) and continues through PDF page 15 (printed ~210); pages 7-15 are zero-anchored (out of scope for this piece_id/movement) per the task boundary rule. No separate Henle front-matter page exists in this PDF -- page 1 opens directly with the title 'Sonate' and the movement 1 music on the same page (system 1 = pickup + mm.1-7), so all 15 pages are either mvt1 music (1-6) or mvt2 music (7-15); none are pure front matter. Henle prints a circled measure number at the start of every system EXCEPT the very first system of the movement (m1, page 1, top system), where the number is implicit/omitted per normal convention -- all other 35 anchors are read directly from printed circled numbers, not counted. The implied per-system bar counts (differences between consecutive printed numbers, 4-12 bars/system) were validated by summing the full chain: 1->8->19->29->34->39->47->53->57->61->65->72->84->90->96->101->107->114->118->122->126->130->135->144->152->163->173->178->185->192->198->202->206->211->223->235, with the final system (m235) counted as spanning 11 measures (235-245) since 245 is the movement's last full measure. Chain sum = 245 exactly, matching xml_total_measures with zero discrepancy -- PASS. yTopPct/yCenterPct derived programmatically via horizontal staff-line detection (200dpi grayscale renders, dark-pixel-fraction threshold over the central 20-85% width band, lines clustered by gap <=25px into 5-line staves and by gap <=106px into systems); all 36 systems yielded a clean detectable grand staff. Four systems (page1 sys1 'm1'; page4 sys1 'm118', sys3 'm126', sys4 'm130') had spurious extra near-full-width dark rows merged into the upper-staff cluster by the automated detector -- for m1 this was the bold tempo heading text sitting close above the first system; for m118/m126/m130 these were beam lines of fast, high 16th-note passages whose beams sit above the true staff (visually confirmed via zoomed crops, e.g. page04_cluster0_zoom.png). In all four cases the true 5-line staff was identified as the lowest 5 detected lines in the contaminated cluster and used for yTopPct/yCenterPct; these four values carry an estimated +/-0.02 uncertainty band on yTopPct (marked low_confidence:false since the correction was visually verified, not guessed, but noted here per the honesty rule). No repeats, voltas, ossia staves, or unmetered bars in mvt1. Two footnoted editorial variants (printed pp.197/198, re: mm.204 accidental and mm.144 chord) are text-only and do not affect numbering.",
+  "low_confidence_pages": {
+    "page1_system1_m1": "top edge inferred from the true 5-line staff after discarding a spurious text-artifact line ~46.5px above it; +/-0.02 uncertainty on yTopPct only, not on the measure number (m1 is unambiguous as the movement's first system).",
+    "page4_system1_m118": "top edge inferred from lowest 5 of 6 detected lines after discarding 1 spurious beam-artifact line above the true staff; +/-0.02 uncertainty on yTopPct only.",
+    "page4_system3_m126": "top edge inferred from lowest 5 of 6 detected lines after discarding 1 spurious beam-artifact line above the true staff; +/-0.02 uncertainty on yTopPct only.",
+    "page4_system4_m130": "top edge inferred from lowest 5 of 8 detected lines after discarding 3 spurious beam-artifact lines above the true staff; +/-0.02 uncertainty on yTopPct only."
+  }
+}

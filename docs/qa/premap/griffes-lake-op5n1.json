@@ -1,0 +1,104 @@
+{
+  "piece_id": 5,
+  "pdf": "Griffes_Three_Tone_Pictures_Op5_IMSLP.pdf",
+  "page_count": 8,
+  "xml_total_measures": 67,
+  "xml_offset_note": "MusicXML (Soundslice export, single <part> P1, both hands) numbers measures 1-67 with no pickup and no <measure implicit=\"yes\"> tag; measure 1 is a full 3/4 bar (RH whole rest, LH ostinato sums to 720 divisions = 3 beats at divisions=240). Only one <time> element in the whole file (3/4, at m1) - no time-signature changes anywhere in the piece. Printed IMSLP scan carries no measure numbers at all (Schirmer 1915 house style), so all 67 measures were counted/chained from m1, cross-validated against XML clef-change and dynamic landmarks (see log).",
+  "anchors": [
+    {
+      "page": 3,
+      "yTopPct": 0.179,
+      "yCenterPct": 0.231,
+      "measure": 1,
+      "low_confidence": true
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.312,
+      "yCenterPct": 0.374,
+      "measure": 6,
+      "low_confidence": true
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.465,
+      "yCenterPct": 0.53,
+      "measure": 12,
+      "low_confidence": true
+    },
+    {
+      "page": 3,
+      "yTopPct": 0.623,
+      "yCenterPct": 0.69,
+      "measure": 18,
+      "low_confidence": true
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.1442,
+      "yCenterPct": 0.1877,
+      "measure": 24
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.32,
+      "yCenterPct": 0.3654,
+      "measure": 30
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.5,
+      "yCenterPct": 0.5451,
+      "measure": 36
+    },
+    {
+      "page": 4,
+      "yTopPct": 0.6781,
+      "yCenterPct": 0.7237,
+      "measure": 40
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.1367,
+      "yCenterPct": 0.1858,
+      "measure": 48
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.3135,
+      "yCenterPct": 0.3612,
+      "measure": 54,
+      "low_confidence": true
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.4912,
+      "yCenterPct": 0.5419,
+      "measure": 59,
+      "low_confidence": true
+    },
+    {
+      "page": 5,
+      "yTopPct": 0.6749,
+      "yCenterPct": 0.7245,
+      "measure": 63,
+      "low_confidence": true
+    }
+  ],
+  "landmarks_verified": [
+    "m3-m10 rhythm+rest pattern (RH whole rests m1-2, dotted-half entrance m3 pp ma espressivo)",
+    "m15 LH clef change to bass (F4)",
+    "m22-23 RH quarter-rest pair then whole-bar rest",
+    "m23 LH clef change back to treble (G2), page3/page4 boundary",
+    "m24 dyn mp (\"più espressivo\") page4 system1 start",
+    "m28 dyn p + LH clef change to bass (F4)",
+    "m32 dyn mf (descending bass excursion)",
+    "m33 RH clef change to bass (F4), m34 RH clef change back to treble (G2)",
+    "m36 \"poco agitato\" text, dense 16th/triplet texture begins",
+    "m40 dyn f + RH quarter+2 rests, page4 system4 start",
+    "m48 \"Tempo I°\" text + grace-note dotted-half chord identical in shape to m3/m9's opening idea, page5 system1 start",
+    "m57-58 LH clef change back to treble (G2) coinciding with \"8...pp\" ottava marking",
+    "m64 dyn ppp"
+  ],
+  "confidence_notes": "Page 1 = title page (Three Tone-Pictures cover + contents list), page 2 = Yeats epigraph page for No.1 (front matter). Music for 'The Lake at Evening' occupies PDF pages 3-5 only (17 total systems... actually 12 systems: 4+4+4). Page 6 is a Schirmer house ad ('Four Interesting Piano Pieces'), page 7 is blank, page 8 is another house ad ('Four Piano Pieces by Paolo Conte') - Nos. 2 'The Vale of Dreams' and 3 'The Night Winds' are NOT present anywhere in this scan (the IMSLP file only reproduces No.1 despite the title page listing all three); all of pages 1,2,6,7,8 = zero anchors. No printed measure numbers anywhere on pages 3-5, so every anchor's measure number was obtained by chaining bar-by-bar from m1 (confirmed full 3/4 bar via XML duration sums), using MusicXML clef-change/dynamic/rhythm landmarks to pin system-start measures rather than relying on raw barline pixel-counts alone (dense chordal texture made pure visual barline counting unreliable in isolation; cross-checked with a python column-darkness barline detector on pages 4-5 which corroborated measure counts for systems with unambiguous landmarks on both ends - page4 system3 (m36-39, bounded by 'poco agitato' text landmark and m40's 'f + rests' landmark) and system4 (m40-47, bounded by m40 landmark and page5's 'Tempo I' m48 landmark) - both counts are solidly landmark-bounded on both sides). Page3's yTopPct/yCenterPct are visual crop-based estimates (±0.02-0.03) rather than clean programmatic staff-line detection: automated row-darkness clustering, which worked cleanly on pages 4-5 (full 5-line-staff clusters found at consistent thresholds), returned only partial/noisy clusters on page 3 - likely due to lighter print density in that scan region (system 1 has two RH whole-bar rests with sparse ink) or slight scan skew; page3's measure-number assignments themselves are high-confidence (each boundary confirmed via a clef-change, rest, or rhythmic-signature landmark against the MusicXML), only the pixel y-position is the lower-confidence part there, hence low_confidence:true on all 4 page-3 anchors. Page4 and page5 yTopPct/yCenterPct come from clean programmatic staff-line row-detection (150dpi row-darkness clustering, full 5-line staff clusters found for every system) and are high confidence. Page5 systems 2-4 (measures 54, 59, 63) are marked low_confidence on the MEASURE field: the coda (m54-67) is a long repeated ostinato/pedal-tone passage where RH and LH alternate an near-identical 'E E Q E E' / 'Q E E Q' figure for 14 measures, making sub-measure identity hard to pin from shape alone; these three boundaries rely on: m58's LH clef-change-to-treble coinciding with an '8...pp' ottava restart (used to place the system2/3 seam at m58/59), and m64's ppp dynamic (used to place the system3/4 seam at m62/63, assuming ppp falls on the 2nd measure of system4). Both are plausible and self-consistent with the closed total (6+5+4+5=20 measures on page5, matching 67-47=20), but could plausibly be off by one measure at either seam if the ppp/ottava placement assumption is wrong. Continuity chain: 1,6,12,18,24,30,36,40,48,54,59,63 with implied per-system bar counts 5,6,6,6,6,6,4,8,6,5,4,5 - sums to exactly 67 and PASSES the closure check (63+5-1=67)."
+}
