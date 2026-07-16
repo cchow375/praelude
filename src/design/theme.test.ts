@@ -1,16 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { resolveTheme } from "./theme";
+import { applyTheme, getSystemTheme, resolveTheme, watchTheme } from "./theme";
 
-describe("resolveTheme", () => {
-  it("follows the system value when preference is 'auto'", () => {
+describe("theme (dark-only)", () => {
+  it("always resolves to dark regardless of preference or system", () => {
     expect(resolveTheme("auto", "dark")).toBe("dark");
-    expect(resolveTheme("auto", "light")).toBe("light");
+    expect(resolveTheme("light", "dark")).toBe("dark");
+    expect(resolveTheme("dark", "dark")).toBe("dark");
+    expect(resolveTheme()).toBe("dark");
   });
 
-  it("honors an explicit preference regardless of system", () => {
-    expect(resolveTheme("light", "dark")).toBe("light");
-    expect(resolveTheme("dark", "light")).toBe("dark");
-    expect(resolveTheme("dark", "dark")).toBe("dark");
-    expect(resolveTheme("light", "light")).toBe("light");
+  it("reports dark as the system theme", () => {
+    expect(getSystemTheme()).toBe("dark");
+  });
+
+  it("pins <html data-theme> to dark", () => {
+    document.documentElement.removeAttribute("data-theme");
+    applyTheme();
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+
+    document.documentElement.removeAttribute("data-theme");
+    const stop = watchTheme("light");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    stop();
   });
 });

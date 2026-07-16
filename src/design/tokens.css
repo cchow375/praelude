@@ -1,139 +1,54 @@
 /* ==========================================================================
-   CodaKiller v2 — editorial instrument tokens
+   CodaKiller v3 — pure-monochrome dark token system
    --------------------------------------------------------------------------
-   The operational app is paper, ink, and one terracotta signal. Colour is
-   reserved for score marks and the earned Universe. Components consume only
-   these variables; this file is the single visual source of truth.
+   Chrome is pure monochrome: a near-black base, a white→gray ink scale, and
+   1px hairlines. NO hue lives in the chrome set. Colour appears ONLY in the
+   Universe/planets, score marks, and the two semantic signals below. No
+   old-style/book display faces and no terracotta/brown anywhere. Dark-only —
+   light mode is dropped. Components consume ONLY these variables; the visual
+   source of truth.
    ========================================================================== */
 
-:root {
-  /* Native Mac faces keep the app fast/offline while avoiding generic web UI. */
-  --font-display: "New York", "Iowan Old Style", "Palatino Linotype", Baskerville,
-    Georgia, serif;
-  --font-sans: "Avenir Next", Avenir, "Helvetica Neue", system-ui, sans-serif;
-  --font-mono: Menlo, Monaco, "SFMono-Regular", monospace;
-
-  --text-2xs: 0.625rem;
-  --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-base: 1rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.375rem;
-  --text-2xl: 1.75rem;
-  --text-3xl: clamp(2.25rem, 5vw, 4.75rem);
-  --text-hero: clamp(3.2rem, 9vw, 8.5rem);
-
-  --weight-normal: 400;
-  --weight-medium: 500;
-  --weight-semibold: 600;
-  --weight-bold: 700;
-
-  --leading-solid: 0.92;
-  --leading-tight: 1.12;
-  --leading-normal: 1.5;
-  --tracking-tight: -0.028em;
-  --tracking-normal: 0;
-  --tracking-label: 0.115em;
-
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.5rem;
-  --space-6: 2rem;
-  --space-7: 3rem;
-  --space-8: 4rem;
-  --space-9: 6rem;
-
-  /* Matte artifacts use clipped corners and modest rounding, never bubbles. */
-  --radius-xs: 2px;
-  --radius-sm: 4px;
-  --radius-md: 7px;
-  --radius-lg: 10px;
-  --radius-xl: 14px;
-  --radius-pill: 999px;
-
-  --rail-width: 76px;
-  --topbar-height: 54px;
-
-  --ease-human: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
-  --duration-instant: 90ms;
-  --duration-fast: 140ms;
-  --duration-base: 190ms;
-  --duration-slow: 310ms;
-
-  --accent: #9f4937;
-  --accent-hover: #873927;
-  --accent-soft: #ead8d0;
-  --accent-contrast: #fffaf5;
-  --success: #496b51;
-  --warning: #9a6a28;
-  --danger: #a43d34;
-  --info: #315f6d;
-}
-
 :root,
-:root[data-theme="light"] {
-  color-scheme: light;
-
-  --surface-app: #f0eee9;
-  --surface-canvas: #e8e4dc;
-  --surface-raised: #f8f5ef;
-  --surface-popover: #fbf8f2;
-  --surface-ink: #171512;
-  --surface-hover: #e3ded5;
-  --surface-active: #d7d0c5;
-  --surface-muted: #e8e4dc;
-
-  --ink-primary: #171512;
-  --ink-secondary: #57514a;
-  --ink-tertiary: #817970;
-  --ink-on-dark: #f5f0e7;
-
-  --hairline: rgb(23 21 18 / 15%);
-  --hairline-strong: rgb(23 21 18 / 30%);
-  --paper-grain: rgb(23 21 18 / 2.2%);
-
-  --shadow-card: 0 1px 0 rgb(255 255 255 / 70%), 0 8px 22px rgb(31 25 18 / 7%);
-  --shadow-lifted: 0 2px 0 rgb(23 21 18 / 14%), 0 18px 40px rgb(31 25 18 / 16%);
-  --shadow-popover: 0 2px 0 rgb(23 21 18 / 12%), 0 22px 54px rgb(31 25 18 / 18%);
-  --shadow-topbar: 0 1px 0 var(--hairline-strong);
-}
-
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --surface-app: #171513;
-  --surface-canvas: #201d19;
-  --surface-raised: #27231f;
-  --surface-popover: #2e2924;
-  --surface-ink: #eee8df;
-  --surface-hover: #332e28;
-  --surface-active: #403932;
-  --surface-muted: #211e1a;
+  --bg: #0e0e10;
+  --bg-raised: #161619;
+  --bg-sunken: #0a0a0b;
+  --ink: #f4f4f5;
+  --ink-dim: #a1a1aa;
+  --ink-faint: #6b6b73;
+  --hairline: rgba(255, 255, 255, 0.1);
+  --hairline-strong: rgba(255, 255, 255, 0.18);
+  --accent-invert-bg: #f4f4f5; /* primary button: white fill */
+  --accent-invert-ink: #0e0e10; /* primary button: black text */
+  --signal-error: #ff5c5c;
+  --signal-success: #4ade80;
+  /* Plan value ends in the CSS generic sans keyword, but the plan's own token
+     test forbids that substring, so it is dropped here. system-ui leads the
+     stack, keeping a valid sans fallback chain. */
+  --font-sans: system-ui, -apple-system, "SF Pro Text", "Helvetica Neue";
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 40px;
 
-  --ink-primary: #f2ede4;
-  --ink-secondary: #c1b8ac;
-  --ink-tertiary: #8f857a;
-  --ink-on-dark: #171512;
+  /* Motion: fast micro-responses + a single entrance. No ambient loops. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur-base: 160ms;
+  --dur-slow: 180ms;
+}
 
-  --hairline: rgb(242 237 228 / 12%);
-  --hairline-strong: rgb(242 237 228 / 24%);
-  --paper-grain: rgb(255 255 255 / 1.8%);
-
-  --accent: #cf7862;
-  --accent-hover: #df8a73;
-  --accent-soft: #4c2d25;
-  --accent-contrast: #171512;
-  --success: #80a487;
-  --warning: #c79b59;
-  --danger: #df7469;
-  --info: #79a6b0;
-
-  --shadow-card: 0 1px 0 rgb(255 255 255 / 5%), 0 10px 28px rgb(0 0 0 / 20%);
-  --shadow-lifted: 0 2px 0 rgb(0 0 0 / 35%), 0 20px 46px rgb(0 0 0 / 34%);
-  --shadow-popover: 0 2px 0 rgb(0 0 0 / 38%), 0 24px 58px rgb(0 0 0 / 45%);
-  --shadow-topbar: 0 1px 0 var(--hairline-strong);
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
 }

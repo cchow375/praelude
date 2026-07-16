@@ -1,49 +1,35 @@
 // Theme resolution + application for CodaKiller.
 //
-// A theme *preference* is one of 'auto' | 'dark' | 'light'. 'auto' defers to the
-// operating system's `prefers-color-scheme`. Everything downstream (the token
-// system in tokens.css) reacts to the `data-theme` attribute on <html>, which is
-// always a *concrete* theme ('dark' | 'light') produced by resolveTheme().
+// v3 is DARK-ONLY. Light mode was dropped (see tokens.css). The `ThemePref`
+// union is retained so the Settings snapshot contract ("auto" | "dark" |
+// "light") still type-checks, but every path resolves to the single concrete
+// theme "dark" and writes `data-theme="dark"` onto <html>.
 
 export type ThemePref = "auto" | "dark" | "light";
-export type Theme = "dark" | "light";
+export type Theme = "dark";
 
-/**
- * Collapse a preference + the current system scheme into a concrete theme.
- * Pure and side-effect free so it is trivially testable.
- */
-export function resolveTheme(pref: ThemePref, system: Theme): Theme {
-  return pref === "auto" ? system : pref;
+/** Dark-only: always resolves to the single concrete theme. */
+export function resolveTheme(_pref?: ThemePref, _system?: Theme): Theme {
+  return "dark";
 }
 
-/** Read the OS color scheme. Safe in non-DOM (test) environments. */
+/** Dark-only: the app never reads the OS scheme anymore. */
 export function getSystemTheme(): Theme {
-  if (typeof window === "undefined" || !window.matchMedia) return "light";
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  return "dark";
 }
 
-/** Write the resolved concrete theme onto <html data-theme>. */
-export function applyTheme(theme: Theme): void {
+/** Write the (only) concrete theme onto <html data-theme>. */
+export function applyTheme(_theme: Theme = "dark"): void {
   if (typeof document === "undefined") return;
-  document.documentElement.setAttribute("data-theme", theme);
+  document.documentElement.setAttribute("data-theme", "dark");
 }
 
 /**
- * Keep <html data-theme> in sync with a preference, re-resolving live whenever
- * the OS scheme changes (only relevant while the preference is 'auto', but we
- * subscribe unconditionally and let resolveTheme decide). Returns an unsubscribe.
+ * Keep <html data-theme> pinned to dark. Retained as a no-op subscription so
+ * existing callers (App, settings) need no signature change. Returns an
+ * unsubscribe.
  */
-export function watchTheme(pref: ThemePref): () => void {
-  applyTheme(resolveTheme(pref, getSystemTheme()));
-
-  if (typeof window === "undefined" || !window.matchMedia) {
-    return () => {};
-  }
-
-  const mql = window.matchMedia("(prefers-color-scheme: dark)");
-  const onChange = () => applyTheme(resolveTheme(pref, getSystemTheme()));
-  mql.addEventListener("change", onChange);
-  return () => mql.removeEventListener("change", onChange);
+export function watchTheme(_pref?: ThemePref): () => void {
+  applyTheme("dark");
+  return () => {};
 }
