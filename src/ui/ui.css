@@ -1,0 +1,197 @@
+/* ==========================================================================
+   CodaKiller v3 — minimal component kit
+   Consumes ONLY tokens from src/design/tokens.css. No hue except the two
+   semantic signals on Receipt. No outlined buttons, no decorative frames.
+   ========================================================================== */
+
+/* --- Button ------------------------------------------------------------- */
+.ck-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  min-height: 34px;
+  padding: 0 var(--s-4);
+  border: none;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.ck-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Primary = solid white-on-black inversion (the only filled button). */
+.ck-btn-primary {
+  background: var(--accent-invert-bg);
+  color: var(--accent-invert-ink);
+}
+.ck-btn-primary:hover:not(:disabled) {
+  background: #ffffff;
+}
+.ck-btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* Text = borderless label; hover only shifts the ink. */
+.ck-btn-text {
+  background: transparent;
+  color: var(--ink-dim);
+  padding: 0 var(--s-2);
+}
+.ck-btn-text:hover:not(:disabled) {
+  color: var(--ink);
+}
+.ck-btn-text:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* --- Panel -------------------------------------------------------------- */
+.ck-panel {
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  padding: var(--s-4);
+}
+.ck-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+}
+.ck-panel-title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ck-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.ck-panel-body {
+  color: var(--ink-dim);
+}
+
+/* --- Disclosure --------------------------------------------------------- */
+.ck-disclosure {
+  border-bottom: 1px solid var(--hairline);
+}
+.ck-disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-3) 0;
+  list-style: none;
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 500;
+  user-select: none;
+}
+.ck-disclosure-summary::-webkit-details-marker {
+  display: none;
+}
+.ck-disclosure-summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--ink-faint);
+  border-bottom: 1.5px solid var(--ink-faint);
+  transform: rotate(-45deg);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.ck-disclosure[open] > .ck-disclosure-summary::before {
+  transform: rotate(45deg);
+}
+.ck-disclosure-body {
+  padding: 0 0 var(--s-4);
+  color: var(--ink-dim);
+}
+
+/* --- Dialog ------------------------------------------------------------- */
+.ck-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-5);
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 100;
+}
+.ck-dialog {
+  width: min(440px, 100%);
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-lg);
+  padding: var(--s-5);
+  animation: ck-dialog-in var(--dur-slow) var(--ease-out);
+}
+.ck-dialog-head {
+  margin-bottom: var(--s-3);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ck-dialog-body {
+  color: var(--ink-dim);
+}
+@keyframes ck-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --- Receipt (the ONLY chrome colour: the two semantic signals) --------- */
+.ck-receipt {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  font-size: 0.875rem;
+  animation: ck-receipt-land var(--dur-base) var(--ease-out);
+}
+.ck-receipt-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.ck-receipt-success {
+  color: var(--signal-success);
+}
+.ck-receipt-success .ck-receipt-dot {
+  background: var(--signal-success);
+}
+.ck-receipt-error {
+  color: var(--signal-error);
+}
+.ck-receipt-error .ck-receipt-dot {
+  background: var(--signal-error);
+}
+@keyframes ck-receipt-land {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
