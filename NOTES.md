@@ -1406,3 +1406,18 @@ N` emit `score://navigate` without TTS over the pianist. This is a deliberate ex
   dev server from an earlier session. The Phase 2 verifier worked around this by running on 5199
   instead of assuming 1420 is free — check for a listener before trusting a "port in use" failure
   is a real bug.
+
+## v3 Phase 3 — Brain workspace rebuild (2026-07-16)
+
+- **The `BrainAskRequest` field set is the contract:** `{question, source, piece_id, thread_id,
+history, context}`. Any frontend/backend change touching the Brain ask path must keep this
+  exact shape — don't add/rename/drop a field without updating both sides together.
+- **The dead `src/components/Shell` was removed** (`Shell.tsx` + its test + its css) after
+  proving zero importers. Its stale "Version 1.3.0" assertion was the suite's only red test —
+  removing the orphaned file, not patching the assertion, was the correct fix (flagged back in
+  the Phase 2 note above as future work for whoever retired the old shell; that was this slice).
+- **`tests/(C) pdf-assets.test.ts` is a known 5s-timeout flake under parallel disk contention.**
+  If it fails in a full-suite run, re-run it isolated before believing it's a real regression —
+  it's disk-contention timing, not logic.
+- **Live DB observed at schema 10 on 2026-07-16**, via a read-only file copy — never open the
+  live DB directly to check its schema version.
