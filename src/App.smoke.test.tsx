@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 const setZoomMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
@@ -16,53 +23,29 @@ import App from "./App";
 // render explicitly to keep queries scoped to a single App instance.
 afterEach(cleanup);
 
-describe("App shell smoke", () => {
-  it("renders the shell and toggles a popover open/closed", async () => {
+describe("App shell smoke (v3)", () => {
+  it("renders the five-workspace shell with Today mounted by default", async () => {
     render(<App />);
-
-    expect(screen.getByLabelText("CodaKiller version 1.3.0")).toBeTruthy();
-
-    const settingsBtn = screen.getByRole("button", { name: "Settings" });
-    fireEvent.click(settingsBtn);
-
-    await waitFor(() =>
-      expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy(),
-    );
-
-    // Escape dismisses.
-    fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() =>
-      expect(settingsBtn.getAttribute("aria-expanded")).toBe("false"),
-    );
+    const nav = screen.getByRole("tablist", { name: /workspace/i });
+    expect(
+      within(nav)
+        .getAllByRole("tab")
+        .map((t) => t.textContent),
+    ).toEqual(["Today", "Score", "Brain", "Ledger", "Universe"]);
+    expect(await screen.findByTestId("workspace-today")).toBeTruthy();
   });
 
-  it("renders the mic button and toggles mute inside its popover", async () => {
+  it("navigates to another workspace on nav click", async () => {
     render(<App />);
-
-    const micBtn = screen.getByRole("button", { name: "Microphone" });
-    expect(micBtn).toBeTruthy();
-
-    fireEvent.click(micBtn);
-    await waitFor(() =>
-      expect(screen.getByRole("dialog", { name: "Microphone" })).toBeTruthy(),
-    );
-
-    // Starts live -> the toggle offers "Mute". Clicking it optimistically
-    // mutes (the mocked invoke rejects, but that is swallowed) so the control
-    // flips to "Unmute".
-    const muteBtn = screen.getByRole("button", { name: "Mute" });
-    fireEvent.click(muteBtn);
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Unmute" })).toBeTruthy(),
-    );
+    await screen.findByTestId("workspace-today");
+    fireEvent.click(screen.getByRole("tab", { name: "Brain" }));
+    expect(await screen.findByTestId("workspace-brain")).toBeTruthy();
   });
 
-  it("applies a concrete data-theme to <html>", async () => {
+  it("pins a concrete dark data-theme to <html>", async () => {
     render(<App />);
     await waitFor(() =>
-      expect(["dark", "light"]).toContain(
-        document.documentElement.getAttribute("data-theme"),
-      ),
+      expect(document.documentElement.getAttribute("data-theme")).toBe("dark"),
     );
   });
 
