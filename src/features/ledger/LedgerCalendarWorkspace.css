@@ -1,0 +1,38 @@
+/* The Ledger/Calendar slot switch: quiet text tabs, ink-weight active state,
+   a single hairline underline. No filled pill, no hue. */
+.ledger-calendar-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-6) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.ledger-calendar-tab {
+  position: relative;
+  border: none;
+  background: transparent;
+  padding: var(--s-2) 0 var(--s-3);
+  font: inherit;
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.ledger-calendar-tab:hover {
+  color: var(--ink-dim);
+}
+.ledger-calendar-tab.is-active {
+  color: var(--ink);
+  font-weight: 600;
+}
+.ledger-calendar-tab.is-active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1.5px;
+  background: var(--ink);
+}

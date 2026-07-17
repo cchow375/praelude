@@ -30,8 +30,15 @@ import type {
   PieceSummary,
   ProgressSummary,
   Region,
+  Rep,
 } from "../features/pieces/types";
-import type { RepSnapshot, RetentionCheckView } from "../features/rep/useRep";
+import type {
+  CheckOutcome,
+  RepSnapshot,
+  RetentionCheckView,
+  Verdict,
+} from "../features/rep/useRep";
+import type { MutationReceipt } from "../features/receipts/ReceiptCenter";
 import type { SessionView } from "../features/session/useSession";
 import type { UniverseSnapshot } from "../features/universe/types";
 
@@ -739,6 +746,166 @@ const MOCK_REP_STATE: RepSnapshot = {
   method: "tempo ladder",
 };
 
+// Sample attempt rows so a Ledger block drill-in (`reps_for_block`) shows real
+// evidence instead of an empty "No attempts logged." list in the static harness.
+const REPS_BY_BLOCK: Record<number, Rep[]> = {
+  101: [
+    {
+      id: 1011,
+      block_id: 101,
+      ts: isoDaysAgo(2),
+      bpm: 88,
+      variant: null,
+      verdict: "clean",
+      note: "even LH",
+      source: "user_click",
+      active_adjustment_ids: [],
+    },
+    {
+      id: 1012,
+      block_id: 101,
+      ts: isoDaysAgo(2),
+      bpm: 90,
+      variant: null,
+      verdict: "flawed",
+      note: null,
+      source: "voice_hot_loop",
+      active_adjustment_ids: [],
+    },
+    {
+      id: 1013,
+      block_id: 101,
+      ts: isoDaysAgo(1),
+      bpm: 92,
+      variant: null,
+      verdict: "clean",
+      note: null,
+      source: "user_click",
+      active_adjustment_ids: [],
+    },
+  ],
+  102: [
+    {
+      id: 1021,
+      block_id: 102,
+      ts: isoDaysAgo(2),
+      bpm: 80,
+      variant: "hands together",
+      verdict: "clean",
+      note: "steadier release",
+      source: "user_click",
+      active_adjustment_ids: [],
+    },
+    {
+      id: 1022,
+      block_id: 102,
+      ts: isoDaysAgo(2),
+      bpm: 84,
+      variant: "hands together",
+      verdict: "clean",
+      note: null,
+      source: "user_click",
+      active_adjustment_ids: [],
+    },
+    {
+      id: 1023,
+      block_id: 102,
+      ts: isoDaysAgo(1),
+      bpm: 84,
+      variant: "hands together",
+      verdict: "clean",
+      note: "in the pocket",
+      source: "voice_hot_loop",
+      active_adjustment_ids: [],
+    },
+  ],
+  201: [
+    {
+      id: 2011,
+      block_id: 201,
+      ts: isoDaysAgo(3),
+      bpm: 50,
+      variant: null,
+      verdict: "failed",
+      note: "lost the voicing",
+      source: "user_click",
+      active_adjustment_ids: [],
+    },
+    {
+      id: 2012,
+      block_id: 201,
+      ts: isoDaysAgo(3),
+      bpm: 52,
+      variant: null,
+      verdict: "clean",
+      note: null,
+      source: "user_click",
+      active_adjustment_ids: [],
+    },
+  ],
+};
+
+// Mutable ledger state for the interactive `rep_check` handler so repeated
+// Clean/Sloppy/Again clicks each advance the count and carry a distinct
+// attempt id (the receipt de-dupe keys on `last_attempt_id`).
+let mockAttemptSeq = MOCK_REP_STATE.last_attempt_id ?? 4402;
+let mockAttempts = MOCK_REP_STATE.attempts_recorded ?? 4;
+let mockCleanStreak = MOCK_REP_STATE.current_clean_streak ?? 3;
+
+/**
+ * A committed CheckOutcome consistent with the `rep_state` mock (block 102).
+ * This is a MOCK, not a simulation: it advances the attempt ledger just enough
+ * for the HUD to reconcile the returned snapshot and land a GREEN receipt. No
+ * mastery/tempo logic is emulated — `new_bpm` stays null so no metronome side
+ * effect fires, and `block_done` stays false.
+ */
+function repCheckOutcome(args: unknown): CheckOutcome {
+  const record = (args ?? {}) as Record<string, unknown>;
+  const verdict: Verdict =
+    record.verdict === "flawed" || record.verdict === "failed"
+      ? record.verdict
+      : "clean";
+  const note = typeof record.note === "string" ? record.note : null;
+  const commandId = String(record.commandId ?? `mock-check-${mockAttemptSeq}`);
+  const attemptId = ++mockAttemptSeq;
+  mockAttempts += 1;
+  mockCleanStreak = verdict === "clean" ? mockCleanStreak + 1 : 0;
+  const nextVerdicts = {
+    ...MOCK_REP_STATE.verdicts,
+    [verdict]: (MOCK_REP_STATE.verdicts[verdict] ?? 0) + 1,
+  };
+  const snap: RepSnapshot = {
+    ...MOCK_REP_STATE,
+    verdicts: nextVerdicts,
+    attempts_recorded: mockAttempts,
+    tries: mockAttempts,
+    reps_done: mockAttempts,
+    current_clean_streak: mockCleanStreak,
+    mastery_progress_streak: mockCleanStreak,
+    best_clean_streak: Math.max(
+      MOCK_REP_STATE.best_clean_streak ?? 0,
+      mockCleanStreak,
+    ),
+    last_attempt_id: attemptId,
+    last: { verdict, note, bpm: MOCK_REP_STATE.bpm },
+  };
+  const receipt: MutationReceipt<RepSnapshot> = {
+    receipt_id: `mock-receipt-${attemptId}`,
+    command_id: commandId,
+    status: "committed",
+    summary: `Attempt ${mockAttempts} saved — ${verdict}.`,
+    value: snap,
+    entity_refs: [{ entity_type: "set", entity_id: snap.block_id }],
+    event_ids: [attemptId],
+    undo_action: "rep_undo",
+    error_code: null,
+    error_detail: null,
+    replayed: false,
+    committed_ts: new Date().toISOString(),
+  };
+  return { snap, new_bpm: null, block_done: false, say: "", receipt };
+}
+
 function mockSession(): SessionView {
   const startedAt = new Date(Date.now() - 22 * 60 * 1000).toISOString();
   return {
@@ -875,6 +1042,10 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return apiKeyStatus(args, false);
     case "rep_state":
       return MOCK_REP_STATE;
+    // Clean/Sloppy/Again in the HUD: return a committed CheckOutcome so the
+    // receipt lands GREEN (previously unmapped → null → red error receipt).
+    case "rep_check":
+      return repCheckOutcome(args);
     case "metro_state":
       return METRO_STATE;
     case "session_current":
@@ -923,6 +1094,11 @@ function routeCommand(cmd: string, args: unknown): unknown {
     }
     case "rep_blocks_for_piece":
       return BLOCKS[pieceIdOf(args)] ?? [];
+    case "reps_for_block": {
+      const record = (args ?? {}) as Record<string, unknown>;
+      const blockId = Number(record.blockId ?? record.block_id);
+      return REPS_BY_BLOCK[blockId] ?? [];
+    }
     case "progress_summary":
       return PROGRESS[pieceIdOf(args)] ?? null;
     case "goal_list":

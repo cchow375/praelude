@@ -85,7 +85,13 @@ const WORKSPACE_COMPONENTS: Record<
       default: m.BrainWorkspace,
     })),
   ),
-  ledger: lazy(async () => ({ default: stub("ledger", "Ledger") })),
+  // One slot hosts BOTH history surfaces (the plan's "Ledger/Calendar"); the
+  // nav stays five entries labelled "Ledger", with an in-workspace switch.
+  ledger: lazy(() =>
+    import("../features/ledger/LedgerCalendarWorkspace").then((m) => ({
+      default: m.LedgerCalendarWorkspace,
+    })),
+  ),
   universe: lazy(async () => ({ default: stub("universe", "Universe") })),
 };
 
