@@ -993,6 +993,9 @@ export function ScoreView({
   );
 
   useEffect(() => {
+    // Alive-guard: cleanup can run before listen() resolves; without this the
+    // subscription would be orphaned (same pattern as useRep's listener).
+    let alive = true;
     let unlisten: (() => void) | undefined;
     void listen<ScoreNavigate>("score://navigate", (event) => {
       const target = event.payload;
@@ -1022,10 +1025,17 @@ export function ScoreView({
       }
     })
       .then((fn) => {
-        unlisten = fn;
+        if (alive) {
+          unlisten = fn;
+        } else {
+          fn();
+        }
       })
       .catch(() => undefined);
-    return () => unlisten?.();
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
   }, [edition, jumpTo, regions, selectRegion]);
 
   const overlayItems: RegionOverlayItem[] = useMemo(() => {

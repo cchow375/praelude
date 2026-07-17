@@ -186,7 +186,7 @@
 }
 
 .ck-primary-action:hover {
-  background: #ffffff;
+  background: var(--accent-invert-bg);
 }
 .ck-primary-action:active {
   transform: translateY(1px);
