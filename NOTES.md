@@ -2,6 +2,48 @@
 
 ## Decisions
 
+- **P7/v3 Phase 5 — Today workspace/practice surfaces rebuild + frontend performance audit
+  (2026-07-16, adversarially verified CONFIRMED 7/7; commits `29d88f2`/`75acdc5`/`78eb5e8`/
+  `da468bf`, follow-up fixes `b3e53f2`):**
+  - **Shell now owns the rep/session/voice surfaces specifically so they persist across tabs.**
+    The retention queue, the voice surfaces (mic/STT toast, wake-cue confirm card), and the
+    session event bar were promoted from Today-local state to SHELL level. Before this, switching
+    tabs mid-session could drop/remount those surfaces; now they mount once at Shell and every
+    workspace shares them. Voice wiring itself was verified TOKEN-IDENTICAL to the old v2 shell —
+    this was a location/lifetime change, not a rewrite of the voice logic.
+  - **ReceiptCenter and useRep are byte-identical through the restyle.** The unmissable green/red
+    save-receipt look is a CSS-only change; the diff on the logic files is empty. Don't assume a
+    visual restyle commit touched behavior — verify with a line diff, not just a glance at the
+    component tree.
+  - **Rep HUD went fully mono-numeral** (measures, N-of-M, streak, focus clock, tempo) with Clean
+    as the single solid primary button; decorative rings are gone. Focus time stayed pause-aware
+    through the restyle (regression-checked, not just visually re-skinned).
+  - **Session Composer's Start-is-the-only-write invariant held through the restyle** — candidates
+    → editable routine → Start still fires exactly one receipted `session_plan_start`; this was
+    machine-verified (not just eyeballed) as part of the Phase 5 checkpoint.
+  - **Gates:** suite 691 passed / 0 failed; headless browser drive showed zero console errors.
+  - **Frontend performance audit — the listen() alive-guard pattern is now the repo standard.**
+    Three read-only analysis lanes produced 14 findings; a fresh-context verification pass re-read
+    every cited line and killed most of them: an invented "250ms tick" that doesn't exist in the
+    code, serial-IPC cost models that don't match the actual async architecture, proposed fixes
+    that couldn't have worked as written, and findings inside code Phase 7 is about to replace
+    wholesale. **ONE real bug survived:** a Tauri `listen()` cleanup race in the new ScoreView —
+    the `score://navigate` subscription could orphan with a stale closure across a fast
+    unmount/remount, firing a callback against a component that had already gone away. Fixed the
+    same day (commit `b3e53f2`) with an "alive" guard captured at effect-setup time and checked
+    before acting inside the callback; `useRep.ts:643` is the reference implementation for this
+    pattern — use it as the template for any future `listen()` cleanup in this codebase.
+  - **Lesson for future perf audits: always fresh-context-verify cost-model claims before trusting
+    them.** 13 of 14 findings from this audit did not survive independent re-verification against
+    the actual cited lines. Treat scouted/audited "perf findings" as hypotheses, not facts, until
+    someone re-reads the exact code fresh and confirms the claimed mechanism is real.
+  - **devMock rep_check gap noted, fix queued into Phase 6.** The dev-mock harness's rep_check
+    mock path doesn't fully mirror the production behavior surfaced during this audit; not fixed
+    here — deliberately deferred into the Phase 6 (Ledger) slice rather than scope-creeping this
+    checkpoint.
+  - **Overall verdict:** the codebase's async hygiene is genuinely good — 14 leak-prone-looking
+    patterns were checked and came back clean; the one real defect found was fixed same day.
+
 - **P7/v3 Phase 4 — score-calibration table un-orphaned, wizard, and premap provenance
   (2026-07-16):**
   - **The `score_edition_calibration` table has existed since schema v8 but was completely
