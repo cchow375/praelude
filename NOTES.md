@@ -1552,3 +1552,32 @@ unregisterListener`, which the mock never defined → 2 pageerrors on effect cle
   never silently rewritten.
 - **Stray watch:** a `docs/qa/premap/*.json|.log.md` set (Task 4.3-shaped pre-map data) appeared
   in the tree mid-session — NOT authored by this slice; left unstaged (rogue-daemon pattern).
+
+## v3 Phase 6 — Ledger + Calendar workspaces (2026-07-16)
+
+- **One-slot Ledger|Calendar decision.** Ledger and Calendar were built as two full workspaces
+  but mounted together behind a single quiet in-workspace switch, sharing ONE nav slot — this
+  preserves the five-tab shell contract (Today/Score/Brain/Ledger-or-Calendar/Universe +
+  Settings) rather than growing the rail to six tabs. Any future workspace addition should default
+  to this pattern (share a slot behind a switch) before proposing a sixth rail item.
+- **The append-only editing boundary.** Block **labels** are editable in place via `block_update`
+  (inline SET-TITLE) — this is metadata, not evidence. Individual **attempts** are never editable:
+  corrections and voids append a new record and the original stays visible in the ledger, it is
+  never overwritten or hidden. Destructive block-delete was deliberately left unsurfaced in the
+  UI even though nothing here required it — don't add a delete affordance to Ledger without a
+  fresh decision, since the whole design intent of this phase is "the original stays."
+- **Scoped-token-alias retheme technique.** Old Ledger/Calendar CSS was written against the v2
+  hued token vocabulary. Rather than rewrite every selector, old token names were kept as scoped
+  aliases that resolve to the new monochrome tokens (same pattern as the Phase 4 `.score-workspace`
+  shim) — this lets legacy component CSS keep working unmodified while the values underneath go
+  monochrome. The fresh-context verifier traced **every** alias to its resolved value and
+  confirmed all of them are neutral except the two semantic signal colors (error red, success
+  green) — this is the standard of proof for "retheme, don't rewrite" claims going forward: don't
+  just grep for banned hex codes, resolve every alias chain to its final value.
+- **Second load-contention test flake found:** `src/features/retention/RetentionQueue.test.tsx`
+  "validates snooze dates" fails under the full parallel suite but passes 14/14 isolated — same
+  class of flake as the pre-existing `tests/(C) pdf-assets.test.ts` timeout (Phase 3 note above).
+  If either fails in a full-suite run, re-run isolated before treating it as a real regression.
+- **Region palette is not a monochrome violation.** `RegionEditor.tsx`'s 7-color region palette is
+  chromatic but is explicitly-allowed user-data color painted onto the score (v3 design decision),
+  pre-existing and untouched by this phase — do not flag it in future monochrome audits.
