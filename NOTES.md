@@ -1581,3 +1581,25 @@ unregisterListener`, which the mock never defined → 2 pageerrors on effect cle
 - **Region palette is not a monochrome violation.** `RegionEditor.tsx`'s 7-color region palette is
   chromatic but is explicitly-allowed user-data color painted onto the score (v3 design decision),
   pre-existing and untouched by this phase — do not flag it in future monochrome audits.
+
+## v3 Phase 7 — Universe force-graph rebuild (2026-07-16)
+
+- **d3-force gotchas worth keeping for future work:**
+  - d3 mutates `link.source`/`link.target` from plain ids into full node object references
+    after the first simulation tick — resolved this by writing a `linkEndId()` helper that
+    normalizes either shape into an id string.
+  - `releasePointerCapture` can throw a `NotFoundError` on plain taps/clicks even when using
+    optional chaining on the pointer id — resolved by wrapping the call in try/catch.
+  - React 19 registers root-level wheel event listeners as passive by default, which breaks
+    `preventDefault`-based custom zoom — resolved by attaching a non-passive wheel listener
+    manually via a ref instead of relying on the synthetic React `onWheel` handler.
+- **The session-scoped `POSITION_MEMORY` decision:** dragged node positions are kept in memory
+  for the current app session only (not persisted to disk/backend), with deterministic seeding
+  so the layout looks visually stable across separate app opens even without real persistence.
+- **The minimal future command needed for durable persistence, deferred to Phase 8+:**
+  `universe_layout_save` / `universe_layout_get` — a small backend command pair to actually
+  persist per-node positions instead of session-only memory.
+- **Why satellites/clusters are synthesized rather than read directly:** satellite/cluster
+  nodes for practice sessions are synthesized client-side from `practice_sessions` COUNTS,
+  because the `UniverseSnapshot` data structure carries aggregate counts, not full individual
+  session rows.
