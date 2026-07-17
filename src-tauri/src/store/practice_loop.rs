@@ -80,13 +80,20 @@ fn validate_retention_condition(
     condition: &RetentionCondition,
     label: &str,
 ) -> rusqlite::Result<()> {
-    if condition.bpm.is_some_and(|bpm| !bpm.is_finite() || !(1.0..=400.0).contains(&bpm)) {
+    if condition
+        .bpm
+        .is_some_and(|bpm| !bpm.is_finite() || !(1.0..=400.0).contains(&bpm))
+    {
         return Err(invalid(format!("{label} BPM must be between 1 and 400")));
     }
     match (condition.m_start, condition.m_end) {
         (Some(start), Some(end)) if start >= 1 && end >= start => {}
         (None, None) => {}
-        _ => return Err(invalid(format!("{label} measure range must be complete and ordered"))),
+        _ => {
+            return Err(invalid(format!(
+                "{label} measure range must be complete and ordered"
+            )))
+        }
     }
     if condition
         .required_clean_streak
@@ -104,7 +111,9 @@ fn validate_retention_condition(
         }
     }
     if condition == &RetentionCondition::default() {
-        return Err(invalid(format!("{label} must contain at least one condition")));
+        return Err(invalid(format!(
+            "{label} must contain at least one condition"
+        )));
     }
     Ok(())
 }
@@ -364,10 +373,7 @@ pub(super) fn resolve_practice_session(
     })
 }
 
-pub(super) fn operation_event_ids(
-    session: PracticeSessionResolution,
-    event_id: i64,
-) -> Vec<i64> {
+pub(super) fn operation_event_ids(session: PracticeSessionResolution, event_id: i64) -> Vec<i64> {
     session
         .start_event_id
         .into_iter()
@@ -867,13 +873,7 @@ impl Store {
             OperationStart::Replay(receipt) => return Ok(receipt),
             OperationStart::New(pending) => pending,
         };
-        let session = resolve_practice_session(
-            &tx,
-            session_hint,
-            source,
-            command_id,
-            now,
-        )?;
+        let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
         let before = project(&tx, block_id)?;
         if before.set_state != "active" {
@@ -954,13 +954,7 @@ impl Store {
             OperationStart::Replay(receipt) => return Ok(receipt),
             OperationStart::New(pending) => pending,
         };
-        let session = resolve_practice_session(
-            &tx,
-            session_hint,
-            source,
-            command_id,
-            now,
-        )?;
+        let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
         let before = project(&tx, block_id)?;
         if before.set_state != "paused" {
@@ -1042,13 +1036,7 @@ impl Store {
             OperationStart::Replay(receipt) => return Ok(receipt),
             OperationStart::New(pending) => pending,
         };
-        let session = resolve_practice_session(
-            &tx,
-            session_hint,
-            source,
-            command_id,
-            now,
-        )?;
+        let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
         let before = project(&tx, block_id)?;
         if before.set_state != "active" {
@@ -1128,13 +1116,7 @@ impl Store {
             OperationStart::Replay(receipt) => return Ok(receipt),
             OperationStart::New(pending) => pending,
         };
-        let session = resolve_practice_session(
-            &tx,
-            session_hint,
-            source,
-            command_id,
-            now,
-        )?;
+        let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
         let before = project(&tx, block_id)?;
         if before.contract_source == "migration_legacy" {
@@ -1213,13 +1195,7 @@ impl Store {
             OperationStart::Replay(receipt) => return Ok(receipt),
             OperationStart::New(pending) => pending,
         };
-        let session = resolve_practice_session(
-            &tx,
-            session_hint,
-            source,
-            command_id,
-            now,
-        )?;
+        let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
         let before = project(&tx, block_id)?;
         if before.set_state != "active" {
@@ -1307,13 +1283,7 @@ impl Store {
             OperationStart::Replay(receipt) => return Ok(receipt),
             OperationStart::New(pending) => pending,
         };
-        let session = resolve_practice_session(
-            &tx,
-            session_hint,
-            source,
-            command_id,
-            now,
-        )?;
+        let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
         let before = project(&tx, block_id)?;
         if !matches!(before.set_state.as_str(), "active" | "paused") {
@@ -1649,13 +1619,7 @@ impl Store {
             }
             OperationStart::New(pending) => pending,
         };
-        let session = resolve_practice_session(
-            &tx,
-            session_hint,
-            source,
-            command_id,
-            now,
-        )?;
+        let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
         let before = retention_view(&tx, check_id)?;
         if !matches!(before.state.as_str(), "due" | "snoozed") {

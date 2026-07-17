@@ -25,7 +25,9 @@ use super::model::{
     IncrementRule, MutationEntityRef, MutationReceipt, RepOpenArgs, RepSnapshot,
     SetFocusContextInput,
 };
-use super::practice_loop::{begin_operation, finish_operation, request_fingerprint, OperationStart};
+use super::practice_loop::{
+    begin_operation, finish_operation, request_fingerprint, OperationStart,
+};
 use super::practice_v2::{invalid, open_set_in_tx, project, validate_open};
 use super::Store;
 use crate::ledger::MutationSource;
@@ -152,7 +154,9 @@ impl Store {
         // Pure validation first: any failure here writes zero rows because no
         // transaction has opened yet.
         if plan.mode != "reviewed_session_draft" {
-            return Err(invalid("session plan payload is not a reviewed session draft"));
+            return Err(invalid(
+                "session plan payload is not a reviewed session draft",
+            ));
         }
         if plan.sequence.is_empty() {
             return Err(invalid("a session plan needs at least one reviewed item"));
@@ -202,7 +206,10 @@ impl Store {
                 .collect::<Vec<_>>(),
         }))?;
 
-        let mut conn = self.conn.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let tx = conn.transaction()?;
         let mut pending = match begin_operation::<SessionPlanStartOutcome>(
             &tx,
@@ -438,7 +445,12 @@ mod tests {
         let (store, piece, region) = store_with_region();
         let plan = plan(vec![item(1, piece, region, 8), item(2, piece, region, 6)]);
         let receipt = store
-            .session_plan_start(None, &payload("plan-a:1", 1, plan), MutationSource::UserClick, NOW)
+            .session_plan_start(
+                None,
+                &payload("plan-a:1", 1, plan),
+                MutationSource::UserClick,
+                NOW,
+            )
             .expect("plan starts");
 
         assert_eq!(receipt.status, "committed");
@@ -672,7 +684,9 @@ mod tests {
                 NOW,
             )
             .unwrap_err();
-        assert!(missing.to_string().contains("no item at the requested sequence"));
+        assert!(missing
+            .to_string()
+            .contains("no item at the requested sequence"));
         assert_eq!(blocks(&store), 0);
     }
 

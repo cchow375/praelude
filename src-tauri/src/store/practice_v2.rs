@@ -850,13 +850,8 @@ pub(super) fn open_set_in_tx(
             return Err(invalid("region does not belong to piece"));
         }
     }
-    let session = super::practice_loop::resolve_practice_session(
-        tx,
-        session_hint,
-        source,
-        command_id,
-        now,
-    )?;
+    let session =
+        super::practice_loop::resolve_practice_session(tx, session_hint, source, command_id, now)?;
     let persisted_start = (args.focus == "tempo" || args.use_metronome).then_some(args.start_bpm);
     let block_id: i64 = tx.query_row(
         "INSERT INTO rep_block
@@ -1062,12 +1057,7 @@ impl Store {
         if before.set_state != "active" {
             return Err(invalid("practice set is not active"));
         }
-        super::practice_loop::checkpoint_active_interval(
-            &tx,
-            block_id,
-            now,
-            Some(pending.id),
-        )?;
+        super::practice_loop::checkpoint_active_interval(&tx, block_id, now, Some(pending.id))?;
         let semantic_bpm = if before.focus == "tempo" || before.use_metronome {
             Some(
                 before
