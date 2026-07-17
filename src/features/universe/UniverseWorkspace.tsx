@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { universeSnapshot } from "./api";
 import { stableIdHash } from "./graphLayout";
@@ -480,13 +479,22 @@ export function UniverseWorkspace({
     [],
   );
 
-  const onWheel = (event: ReactWheelEvent<SVGSVGElement>) => {
-    event.preventDefault();
-    const metrics = svgMetrics(event.currentTarget);
-    const anchorX = (event.clientX - metrics.left) * metrics.scaleX;
-    const anchorY = (event.clientY - metrics.top) * metrics.scaleY;
-    zoomAt(event.deltaY < 0 ? 1.12 : 0.89, anchorX, anchorY);
-  };
+  // React 19 registers root wheel listeners as passive, so preventDefault via
+  // onWheel logs a console error per tick. Attach non-passive directly.
+  const canvasRef = useRef<SVGSVGElement | null>(null);
+  useEffect(() => {
+    const svg = canvasRef.current;
+    if (!svg) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const metrics = svgMetrics(svg);
+      const anchorX = (event.clientX - metrics.left) * metrics.scaleX;
+      const anchorY = (event.clientY - metrics.top) * metrics.scaleY;
+      zoomAt(event.deltaY < 0 ? 1.12 : 0.89, anchorX, anchorY);
+    };
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheel);
+  }, [zoomAt]);
 
   const resetView = useCallback(() => {
     setView(fitToNodes(graph.nodes));
@@ -643,6 +651,7 @@ export function UniverseWorkspace({
             <div className="universe-canvas-and-detail">
               <div className="universe-canvas-frame">
                 <svg
+                  ref={canvasRef}
                   className={`universe-canvas${dragging ? " is-dragging" : ""}${
                     hoveredId ? " is-hovering" : ""
                   }`}
@@ -658,7 +667,6 @@ export function UniverseWorkspace({
                   onPointerCancel={finishActivity}
                   onPointerOver={onPointerOver}
                   onPointerOut={onPointerOut}
-                  onWheel={onWheel}
                 >
                   <defs>
                     {gradientDefs.map((def) => (
