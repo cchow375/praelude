@@ -78,6 +78,17 @@ const PIECES: PieceSummary[] = [
     has_pdf: true,
     intake_done: true,
   },
+  {
+    // A freshly-scanned piece that still needs intake — exercises the now-mounted
+    // IntakeForm (piece_intake_save) and, once past intake, the Details surface
+    // with its GoalsPanel. No PDF so it opens straight to the practice details.
+    id: 3,
+    title: "Gymnopédie No. 1",
+    composer: "Erik Satie",
+    has_xml: true,
+    has_pdf: false,
+    intake_done: false,
+  },
 ];
 
 const PIECE_DETAILS: Record<number, PieceDetailData> = {
@@ -113,6 +124,23 @@ const PIECE_DETAILS: Record<number, PieceDetailData> = {
     target_tempo: 63,
     hard_spots: [{ measures: "40-52", note: "Climax pedaling" }],
     current_state: "Reading the opening",
+    notes: null,
+  },
+  3: {
+    id: 3,
+    title: "Gymnopédie No. 1",
+    composer: "Erik Satie",
+    has_xml: true,
+    has_pdf: false,
+    intake_done: false,
+    folder_path: "/dev-mock/gymnopedie-no-1",
+    xml_path: "/dev-mock/gymnopedie-no-1/score.musicxml",
+    pdf_path: null,
+    goals: [],
+    deadline: null,
+    target_tempo: null,
+    hard_spots: [],
+    current_state: null,
     notes: null,
   },
 };

@@ -13,6 +13,7 @@ import { ScoreView } from "../score/ScoreView";
 import { ReferenceButtons } from "../references/ReferenceButtons";
 import { TrickySectionsPanel } from "./RegionEditor";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
+import { Disclosure } from "../../ui/Disclosure";
 import type { PracticeBrainContext } from "../brain/types";
 import type { ScoreFocusContext } from "../score/types";
 
@@ -104,7 +105,12 @@ export function PieceDetail({
 
   const updatePieceField = useCallback(
     async (
-      patch: Partial<Pick<PieceDetailData, "current_state" | "deadline" | "target_tempo" | "notes">>,
+      patch: Partial<
+        Pick<
+          PieceDetailData,
+          "current_state" | "deadline" | "target_tempo" | "notes"
+        >
+      >,
     ) => {
       await crud.pieceFieldUpdate(piece.id, patch);
       const updated = { ...piece, ...patch };
@@ -126,17 +132,28 @@ export function PieceDetail({
       edition_id: null,
       edition_label: null,
     });
-  }, [onPracticeContextChange, piece.composer, piece.has_pdf, piece.id, piece.intake_done, piece.title, surface]);
+  }, [
+    onPracticeContextChange,
+    piece.composer,
+    piece.has_pdf,
+    piece.id,
+    piece.intake_done,
+    piece.title,
+    surface,
+  ]);
 
-  const onScoreContextChange = useCallback((score: ScoreFocusContext) => {
-    onPracticeContextChange?.({
-      piece_id: piece.id,
-      piece_title: piece.title,
-      composer: piece.composer,
-      surface: "score",
-      ...score,
-    });
-  }, [onPracticeContextChange, piece.composer, piece.id, piece.title]);
+  const onScoreContextChange = useCallback(
+    (score: ScoreFocusContext) => {
+      onPracticeContextChange?.({
+        piece_id: piece.id,
+        piece_title: piece.title,
+        composer: piece.composer,
+        surface: "score",
+        ...score,
+      });
+    },
+    [onPracticeContextChange, piece.composer, piece.id, piece.title],
+  );
 
   return (
     <section
@@ -154,7 +171,11 @@ export function PieceDetail({
           )}
         </div>
         {piece.intake_done && piece.has_pdf && (
-          <div className="piece-surface-tabs" role="tablist" aria-label="Piece workspace">
+          <div
+            className="piece-surface-tabs"
+            role="tablist"
+            aria-label="Piece workspace"
+          >
             <button
               type="button"
               role="tab"
@@ -188,7 +209,11 @@ export function PieceDetail({
       ) : surface === "score" && piece.has_pdf ? (
         <ScoreView
           pieceId={piece.id}
-          activeRange={activeRep ? { m_start: activeRep.m_start, m_end: activeRep.m_end } : null}
+          activeRange={
+            activeRep
+              ? { m_start: activeRep.m_start, m_end: activeRep.m_end }
+              : null
+          }
           defaultTargetBpm={piece.target_tempo}
           defaultCleanStreak={defaultCleanStreak}
           onOpenBlock={openBlock}
@@ -199,14 +224,6 @@ export function PieceDetail({
       ) : (
         <>
           <PieceSummary piece={piece} onUpdate={updatePieceField} />
-          <ReferenceButtons pieceId={piece.id} />
-          <GoalsPanel pieceId={piece.id} />
-          <TrickySectionsPanel
-            pieceId={piece.id}
-            refreshToken={regionRevision}
-            onChanged={() => setRegionRevision((revision) => revision + 1)}
-          />
-          <HistoryPanel pieceId={piece.id} refreshToken={historyRevision + regionRevision} />
           <BlockForm
             pieceId={piece.id}
             defaultTargetBpm={piece.target_tempo}
@@ -214,6 +231,27 @@ export function PieceDetail({
             onOpen={openBlock}
             opening={opening}
           />
+          {/* Secondary sections behind the density primitive so the Details
+              surface never reads as a wall of stacked panels. */}
+          <Disclosure summary="Goals">
+            <GoalsPanel pieceId={piece.id} />
+          </Disclosure>
+          <Disclosure summary="Tricky sections">
+            <TrickySectionsPanel
+              pieceId={piece.id}
+              refreshToken={regionRevision}
+              onChanged={() => setRegionRevision((revision) => revision + 1)}
+            />
+          </Disclosure>
+          <Disclosure summary="History">
+            <HistoryPanel
+              pieceId={piece.id}
+              refreshToken={historyRevision + regionRevision}
+            />
+          </Disclosure>
+          <Disclosure summary="References">
+            <ReferenceButtons pieceId={piece.id} />
+          </Disclosure>
         </>
       )}
     </section>
@@ -226,7 +264,12 @@ function PieceSummary({
 }: {
   piece: PieceDetailData;
   onUpdate: (
-    patch: Partial<Pick<PieceDetailData, "current_state" | "deadline" | "target_tempo" | "notes">>,
+    patch: Partial<
+      Pick<
+        PieceDetailData,
+        "current_state" | "deadline" | "target_tempo" | "notes"
+      >
+    >,
   ) => Promise<void>;
 }) {
   return (
@@ -237,29 +280,55 @@ function PieceSummary({
           value={piece.current_state ?? ""}
           placeholder="Double-click to add your current state"
           ariaLabel="current state"
-          onSave={(current_state) => onUpdate({ current_state: current_state || null })}
+          onSave={(current_state) =>
+            onUpdate({ current_state: current_state || null })
+          }
         />
       </div>
       <div className="piece-summary-facts">
         <div className="piece-fact">
           <span className="ck-label">Deadline</span>
-          <EditableField value={piece.deadline ?? ""} placeholder="None" ariaLabel="deadline" onSave={(deadline) => onUpdate({ deadline: deadline || null })} />
+          <EditableField
+            value={piece.deadline ?? ""}
+            placeholder="None"
+            ariaLabel="deadline"
+            onSave={(deadline) => onUpdate({ deadline: deadline || null })}
+          />
         </div>
         <div className="piece-fact">
           <span className="ck-label">Target tempo</span>
-          <span>♩ = <EditableNumber value={piece.target_tempo} min={1} allowNull ariaLabel="target tempo" onSave={(target_tempo) => onUpdate({ target_tempo })} /></span>
+          <span>
+            ♩ ={" "}
+            <EditableNumber
+              value={piece.target_tempo}
+              min={1}
+              allowNull
+              ariaLabel="target tempo"
+              onSave={(target_tempo) => onUpdate({ target_tempo })}
+            />
+          </span>
         </div>
       </div>
       <div className="piece-summary-block">
         <div className="piece-notes-heading">
           <span className="ck-label">Piece-wide notes</span>
           {piece.notes && (
-            <ConfirmDelete label="Delete the piece-wide note? Tricky Section notes and practice-attempt notes are separate and will stay." onConfirm={() => onUpdate({ notes: null })}>
-              <button type="button" className="piece-note-delete">Delete note</button>
+            <ConfirmDelete
+              label="Delete the piece-wide note? Tricky Section notes and practice-attempt notes are separate and will stay."
+              onConfirm={() => onUpdate({ notes: null })}
+            >
+              <button type="button" className="piece-note-delete">
+                Delete note
+              </button>
             </ConfirmDelete>
           )}
         </div>
-        <EditableField value={piece.notes ?? ""} placeholder="Double-click to add notes" ariaLabel="piece notes" onSave={(notes) => onUpdate({ notes: notes || null })} />
+        <EditableField
+          value={piece.notes ?? ""}
+          placeholder="Double-click to add notes"
+          ariaLabel="piece notes"
+          onSave={(notes) => onUpdate({ notes: notes || null })}
+        />
       </div>
     </div>
   );

@@ -35,6 +35,7 @@ import {
   type NaturalPracticeActionDraft,
 } from "../features/voice/domain/actionDraft";
 import type { TierAContext } from "../features/voice/domain/tierAIntent";
+import { MetronomePopover } from "../features/metronome/MetronomePopover";
 import "./shell.css";
 
 /**
@@ -69,7 +70,7 @@ type View = WorkspaceId | "settings";
 // props), so their map entries are omitted; the others resolve to a stub or the
 // phase's real workspace.
 const WORKSPACE_COMPONENTS: Record<
-  Exclude<WorkspaceId, "today" | "universe">,
+  Exclude<WorkspaceId, "today" | "universe" | "ledger">,
   ComponentType
 > = {
   score: lazy(() =>
@@ -82,14 +83,18 @@ const WORKSPACE_COMPONENTS: Record<
       default: m.BrainWorkspace,
     })),
   ),
-  // One slot hosts BOTH history surfaces (the plan's "Ledger/Calendar"); the
-  // nav stays five entries labelled "Ledger", with an in-workspace switch.
-  ledger: lazy(() =>
-    import("../features/ledger/LedgerCalendarWorkspace").then((m) => ({
-      default: m.LedgerCalendarWorkspace,
-    })),
-  ),
 };
+
+// One slot hosts the two history surfaces AND the piece browser/intake/goals
+// surface (the plan's "Ledger/Calendar", extended in Phase 8.1); the nav stays
+// five entries labelled "Ledger", with an in-workspace switch. It is mounted
+// WITH the shell's rep hook so a practice block opened from the Pieces surface
+// reflects in the shell-level RepHud, exactly like the voice-draft path.
+const LedgerCalendarWorkspace = lazy(() =>
+  import("../features/ledger/LedgerCalendarWorkspace").then((m) => ({
+    default: m.LedgerCalendarWorkspace,
+  })),
+);
 
 // The Universe force graph (Phase 7). Lazy like the rest, but mounted with
 // navigation props so its detail panel can jump into Score and the Ledger.
@@ -215,6 +220,12 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   const voice = useVoice(tierAContext);
   const session = useSession();
   const [ending, setEnding] = useState(false);
+
+  // The free-standing manual metronome control (BPM/boost/sound/live state +
+  // metro_stop). In-set tempo lives in the RepHud; this is the standalone
+  // instrument, re-homed at the shell rail as it was in the pre-v3 header.
+  const metroButtonRef = useRef<HTMLButtonElement>(null);
+  const [metroOpen, setMetroOpen] = useState(false);
 
   const [pendingVoiceDraft, setPendingVoiceDraft] =
     useState<PendingVoiceDraft | null>(null);
@@ -357,7 +368,10 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   }, []);
 
   const ActiveWorkspace =
-    view === "settings" || view === "today" || view === "universe"
+    view === "settings" ||
+    view === "today" ||
+    view === "universe" ||
+    view === "ledger"
       ? null
       : WORKSPACE_COMPONENTS[view];
 
@@ -408,6 +422,17 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         )}
 
         <button
+          ref={metroButtonRef}
+          type="button"
+          className={`shell-settings-button${metroOpen ? " is-active" : ""}`}
+          aria-haspopup="dialog"
+          aria-expanded={metroOpen}
+          onClick={() => setMetroOpen((open) => !open)}
+        >
+          Metronome
+        </button>
+
+        <button
           type="button"
           className={`shell-settings-button${view === "settings" ? " is-active" : ""}`}
           aria-pressed={view === "settings"}
@@ -449,6 +474,12 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                 onOpenLedger={openLedgerForPiece}
               />
             </div>
+          ) : view === "ledger" ? (
+            <LedgerCalendarWorkspace
+              onOpenBlock={rep.open}
+              activeRep={rep.snap}
+              defaultCleanStreak={defaultCleanStreak}
+            />
           ) : (
             ActiveWorkspace && <ActiveWorkspace />
           )}
@@ -495,6 +526,12 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
           )}
         </div>
       )}
+
+      <MetronomePopover
+        anchorRef={metroButtonRef}
+        open={metroOpen}
+        onClose={() => setMetroOpen(false)}
+      />
 
       <VoiceToast
         lastIntent={voice.lastIntent}

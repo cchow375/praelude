@@ -87,4 +87,23 @@ describe("LedgerCalendarWorkspace", () => {
         .getAttribute("aria-selected"),
     ).toBe("true");
   });
+
+  it("mounts the Pieces surface (browser/intake/goals) in the same slot", async () => {
+    renderWorkspace();
+    await screen.findByTestId("ledger-workspace");
+    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
+    // The piece library (browser + pieces_scan) is now reachable.
+    expect(
+      await screen.findByRole("heading", { name: "Score Atlas" }),
+    ).toBeTruthy();
+    expect(await screen.findByText("Scherzo")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Rescan pieces folder" }),
+    ).toBeTruthy();
+    // Only the chosen surface mounts — the ledger surface is gone.
+    expect(screen.queryByTestId("ledger-workspace")).toBeNull();
+    expect(
+      screen.getByRole("tab", { name: "Pieces" }).getAttribute("aria-selected"),
+    ).toBe("true");
+  });
 });

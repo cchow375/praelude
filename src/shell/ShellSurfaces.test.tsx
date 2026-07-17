@@ -138,6 +138,25 @@ describe("Shell app-level practice surfaces", () => {
       await screen.findByRole("button", { name: "End session" }),
     ).toBeTruthy();
   });
+
+  it("re-homes the standalone metronome instrument at the shell rail", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    const trigger = screen.getByRole("button", { name: "Metronome" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(trigger);
+    // Opening mounts the instrument popover (tempo readout is the tell).
+    expect(
+      await screen.findByRole("textbox", {
+        name: "Tempo, beats per minute",
+      }),
+    ).toBeTruthy();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
 });
 
 describe("voiceDraftOpenRequest", () => {

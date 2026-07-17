@@ -1,8 +1,45 @@
 /* ===========================================================================
-   Metronome popover — an Apple-grade instrument. Consumes design tokens only.
+   Metronome popover — an Apple-grade instrument.
+
+   Monochrome remap (Phase 8.1 mount). Like the Pieces subtree, this component
+   predates the Phase 2 pure-monochrome token rewrite and was written against a
+   hued vocabulary that no longer exists — which is why it rendered broken when
+   unmounted. The dead token names are kept as scoped aliases resolving to the
+   monochrome system (the same scoped-token-alias technique the Phase 6 retheme
+   used); every former hue collapses to ink, only the error signal keeps colour.
    ========================================================================== */
 
 .metro {
+  --ink-primary: var(--ink);
+  --ink-secondary: var(--ink-dim);
+  --ink-tertiary: var(--ink-faint);
+  --accent: #2a2a30;
+  --accent-hover: #34343c;
+  --accent-contrast: var(--ink);
+  --surface-raised: var(--bg-raised);
+  --surface-hover: rgba(255, 255, 255, 0.05);
+  --surface-active: rgba(255, 255, 255, 0.09);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-pill: 999px;
+  --space-1: var(--s-1);
+  --space-2: var(--s-2);
+  --space-3: var(--s-3);
+  --space-4: var(--s-4);
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.25rem;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --tracking-tight: -0.01em;
+  --leading-tight: 1.2;
+  --duration-base: var(--dur-base);
+  --duration-fast: var(--dur-fast);
+  --ease-standard: var(--ease-out);
+  --ease-spring: var(--ease-out);
+
   width: 300px;
   display: flex;
   flex-direction: column;
@@ -119,7 +156,13 @@
     #000 82%,
     transparent
   );
-  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 18%,
+    #000 82%,
+    transparent
+  );
 }
 .metro-wheel:focus-visible {
   outline: 2px solid var(--accent);
