@@ -2,6 +2,49 @@
 
 ## Decisions
 
+- **P7/v3 Phase 4 — score-calibration table un-orphaned, wizard, and premap provenance
+  (2026-07-16):**
+  - **The `score_edition_calibration` table has existed since schema v8 but was completely
+    orphaned until commit `36b8bd9`.** Grep of the pre-fix tree confirmed zero production reads
+    or writes against it anywhere — no IPC command registered against it, so the Score
+    workspace's "Mapping required" button had no door behind it: clicking it could never lead
+    anywhere. Fixed by adding two additive backend commands, `score_calibration_save` (strict
+    server-side validation: typed points `{page, y, measure}`, `y` NaN/Infinity rejected,
+    bounded count ≤2000, method forced `'user_confirmed'`, canonical re-serialization before
+    storage, UPSERT) and `score_calibration_get`. No schema change; full Rust suite 484/0.
+  - **Freeze-exception decision trail.** This work proceeded under a documented freeze
+    exception — exception **#2** in the plan — because un-orphaning a schema-v8 table via new
+    IPC commands is additive-only (no migration, no touched column), and the alternative
+    (leaving the dead-end button in place through the rest of Phase 4/5) would have shipped a
+    UI affordance that provably could never function. The exception was scoped narrowly to
+    the calibration read/write path, not a general license to touch schema during the freeze.
+  - **Premap data provenance is important to get right: it is agent-authored, from real PDF
+    page-by-page reads, NOT daemon output.** Committed as `b88c7ae` (`docs/qa/premap/`). Despite
+    the process looking daemon-like mid-session (batch-like, one file per piece, produced in a
+    single pass), every anchor set was built by actually reading the piece's real PDF edition
+    page by page and cross-checking against available ground truth (printed measure numbers
+    where present, MusicXML chain counts, edition-specific citations). 288 anchors total across
+    six pieces: Scherzo Op.31/Ekier (120, XML-validated against 780 measures), Beethoven Op.90
+    mvt.1/Henle (36), Étude Op.10/4/Cortot (27, corroborated by Cortot's own "Bars 79–80"
+    citation), Prokofiev Op.1/Jurgenson (76, no printed measure numbers in that edition — chain
+    240 used instead), Griffes Lake at Evening (12, matched via clef/dynamics signatures, a few
+    honest low-confidence coda seams flagged rather than guessed), Barber Pas de Deux primo (17,
+    edition prints no measure numbers so m.1 convention was noted explicitly).
+  - **Beethoven Op.90 mvt.1 XML LH-truncation-at-measure-160 artifact.** While premapping
+    against the Henle edition (offset 0), the MusicXML's left-hand part was discovered to be
+    truncated at measure 160 — a conversion artifact of the source XML, not a real gap in the
+    music or a mapping error. Anchors past m.160 were still built correctly from the actual PDF
+    pages; this is logged so a future consumer of that MusicXML doesn't mistake the truncation
+    for a missing-data bug in the calibration work.
+  - **Injection of the 288 anchors into Christian's live DB is deliberately NOT done yet.** It
+    will happen only via the new validated `score_calibration_save` path, rehearsed first on a
+    disposable DB copy, at install time with a fresh backup (Task 4.3, still pending).
+  - **`(C) How To Use.md` is explicitly untouched by this update** — the installed app is
+    unchanged (still v1.3.0), this work is source-only, and the tutorial must always describe
+    the installed app exactly. Do not touch it until a v3 build is actually installed.
+  - **Verified:** a fresh-context adversarial verifier independently returned CONFIRMED all 7
+    sub-claims for this Phase 4 slice.
+
 - **Wake-cue conversational draft layer — first cut, verified SHIP (2026-07-16, Opus):**
   - **The trigger decision was Christian's (he chose WAKE-CUE).** The corpus proved conversational
     intent is too varied for regex and that ambient narration must never mutate. Three trigger
@@ -1453,7 +1496,7 @@ history, context}`. Any frontend/backend change touching the Brain ask path must
   button. Low-confidence candidates read "Add more calibration", not "More calibration required".
 - **dev:mock gap surfaced by ScoreView:** it is the first v3-shell component that calls
   `listen()`. @tauri-apps/api v2's unlisten reaches `window.__TAURI_EVENT_PLUGIN_INTERNALS__.
-  unregisterListener`, which the mock never defined → 2 pageerrors on effect cleanup. Fixed by
+unregisterListener`, which the mock never defined → 2 pageerrors on effect cleanup. Fixed by
   adding that global (no-op unregister) in `tauriDevMock.ts`. The mock also now serves
   `score_pdf_*` (a runtime-generated valid blank 1-page PDF) + `score_calibration_*` so the
   Score tab reaches "ready" and the wizard opens with zero console errors on port 5199.
