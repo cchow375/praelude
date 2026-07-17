@@ -1454,6 +1454,232 @@ mod tests {
         );
     }
 
+    /// Release-gate rehearsal / injection tool: push the 288 pre-mapped line
+    /// anchors from `docs/qa/premap/*.json` into a DISPOSABLE copy of the real
+    /// database through the exact validated calibration save path, computing
+    /// each edition's identity with the SAME `score::pdf_editions` code the app
+    /// runs at lookup time (so the stored row carries the identity a runtime
+    /// lookup will match — not a hand-built one).
+    ///
+    /// Like the migration rehearsal, the test never chooses or copies a
+    /// database itself; it only opens the explicit `CODAKILLER_PREMAP_DB` path
+    /// supplied by the release run, and refuses to touch anything inside the
+    /// live app-data directory. Emits self-documenting stdout (piece,
+    /// edition_id, fingerprint, points, OK/SKIP).
+    #[test]
+    #[ignore = "requires CODAKILLER_PREMAP_DB pointing to a disposable database copy"]
+    fn premap_injection_on_database_copy() {
+        #[derive(serde::Deserialize)]
+        struct PremapFile {
+            piece_id: i64,
+            pdf: String,
+            anchors: Vec<PremapAnchor>,
+        }
+        #[derive(serde::Deserialize)]
+        struct PremapAnchor {
+            page: i64,
+            // The grand-staff midpoint — the most robust y for overlap tests.
+            // `yTopPct` is deliberately NOT read.
+            #[serde(rename = "yCenterPct")]
+            y_center_pct: f64,
+            measure: i64,
+        }
+
+        let path = std::env::var("CODAKILLER_PREMAP_DB")
+            .expect("set CODAKILLER_PREMAP_DB to a disposable copy of the database");
+
+        // Guard: never run against the live app-data database. Reject any path
+        // that resolves inside the app's bundle-identifier data directory —
+        // same spirit as the migration rehearsal (operator supplies a copy).
+        let resolved = std::fs::canonicalize(&path)
+            .unwrap_or_else(|e| panic!("resolve CODAKILLER_PREMAP_DB '{path}': {e}"));
+        assert!(
+            !resolved
+                .components()
+                .any(|component| component.as_os_str() == "com.christian.codakiller"),
+            "refuse to run on the live app-data location ({}); copy the database first",
+            resolved.display()
+        );
+
+        // Load every pre-map file from the repo (compile-time located).
+        let premap_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/qa/premap");
+        let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&premap_dir)
+            .unwrap_or_else(|e| panic!("read premap dir {}: {e}", premap_dir.display()))
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|entry| entry.extension().and_then(|ext| ext.to_str()) == Some("json"))
+            .collect();
+        files.sort();
+        assert_eq!(files.len(), 6, "expected exactly 6 pre-map json files");
+
+        let store = Store::open(&path).expect("open premap rehearsal copy");
+
+        let mut ok_count = 0usize;
+        let mut total_points = 0usize;
+        let mut scherzo_points: Option<Vec<_>> = None;
+
+        for file in &files {
+            let name = file.file_name().unwrap().to_string_lossy().into_owned();
+            let raw = std::fs::read_to_string(file).unwrap_or_else(|e| panic!("read {name}: {e}"));
+            let premap: PremapFile =
+                serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {name}: {e}"));
+
+            // (1) piece must exist.
+            if store.piece_pdf_paths(premap.piece_id).unwrap().is_none() {
+                println!(
+                    "SKIP  {name}: piece_id {} not found in this database",
+                    premap.piece_id
+                );
+                continue;
+            }
+
+            // (2) compute the edition identity via the SAME code path the app
+            // uses; match the json's pdf basename to exactly one edition.
+            let editions = match crate::score::pdf_editions(&store, premap.piece_id) {
+                Ok(editions) => editions,
+                Err(e) => {
+                    println!(
+                        "SKIP  {name}: cannot enumerate editions for piece {}: {e}",
+                        premap.piece_id
+                    );
+                    continue;
+                }
+            };
+            let matches: Vec<_> = editions
+                .iter()
+                .filter(|edition| {
+                    edition
+                        .id
+                        .rsplit('/')
+                        .next()
+                        .is_some_and(|base| base == premap.pdf)
+                })
+                .collect();
+            let edition = match matches.as_slice() {
+                [only] => *only,
+                [] => {
+                    println!(
+                        "SKIP  {name}: no edition basename matches json pdf '{}'; found [{}]",
+                        premap.pdf,
+                        editions
+                            .iter()
+                            .map(|edition| edition.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    continue;
+                }
+                _ => {
+                    println!(
+                        "SKIP  {name}: json pdf '{}' matched {} editions (ambiguous)",
+                        premap.pdf,
+                        matches.len()
+                    );
+                    continue;
+                }
+            };
+
+            // (3) anchors -> points_json [{page, y: yCenterPct, measure}].
+            let points: Vec<serde_json::Value> = premap
+                .anchors
+                .iter()
+                .map(|anchor| {
+                    serde_json::json!({
+                        "page": anchor.page,
+                        "y": anchor.y_center_pct,
+                        "measure": anchor.measure,
+                    })
+                })
+                .collect();
+            let anchor_count = points.len();
+            let points_json = serde_json::to_string(&points).unwrap();
+
+            // (4) the real validated save (user_verified = true).
+            let saved = store
+                .score_calibration_save(
+                    premap.piece_id,
+                    &edition.id,
+                    &edition.fingerprint,
+                    &points_json,
+                    true,
+                )
+                .unwrap_or_else(|e| panic!("save calibration for {name}: {e}"));
+            assert_eq!(saved.points.len(), anchor_count, "{name} saved point count");
+
+            // Round-trip via the real get path.
+            let fetched = store
+                .score_calibration_get(premap.piece_id, &edition.id, &edition.fingerprint)
+                .unwrap()
+                .unwrap_or_else(|| panic!("calibration for {name} missing after save"));
+            assert_eq!(
+                fetched.points.len(),
+                anchor_count,
+                "{name} round-trip point count"
+            );
+            assert!(fetched.user_verified, "{name} must be stored user-verified");
+
+            if premap.piece_id == 2 {
+                scherzo_points = Some(fetched.points.clone());
+            }
+
+            println!(
+                "OK    {name}: piece {} edition_id='{}' fingerprint='{}' points={}",
+                premap.piece_id, edition.id, edition.fingerprint, anchor_count
+            );
+            ok_count += 1;
+            total_points += anchor_count;
+        }
+
+        println!("--- rehearsal summary: {ok_count}/6 pieces OK, {total_points} points total ---");
+
+        // Assertions: 6 rows exist, 288 points injected total.
+        assert_eq!(ok_count, 6, "all 6 pre-map pieces must inject cleanly");
+        let row_count: i64 = {
+            let conn = store
+                .conn
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            conn.query_row(
+                "SELECT COUNT(*) FROM score_edition_calibration",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(row_count, 6, "exactly 6 calibration rows must exist");
+        assert_eq!(total_points, 288, "the sum of injected anchors must be 288");
+
+        // Spot resolution sanity: for the Scherzo (piece 2), measure 67 sits on
+        // page 3 between the stored m.65 and m.71 systems. In y-order the stored
+        // page-3 points must bracket measure 67.
+        let scherzo_points = scherzo_points.expect("Scherzo (piece 2) must have injected");
+        let mut page3: Vec<_> = scherzo_points
+            .iter()
+            .filter(|point| point.page == 3)
+            .cloned()
+            .collect();
+        assert!(!page3.is_empty(), "Scherzo page 3 must carry stored points");
+        page3.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+        let brackets_67 = page3
+            .windows(2)
+            .any(|pair| pair[0].measure <= 67 && 67 <= pair[1].measure && pair[0].y < pair[1].y);
+        assert!(
+            brackets_67,
+            "Scherzo page-3 stored points must bracket measure 67 in y-order: {:?}",
+            page3
+                .iter()
+                .map(|point| (point.measure, point.y))
+                .collect::<Vec<_>>()
+        );
+        println!(
+            "OK    Scherzo m.67 brackets on page 3 (measure, y): {:?}",
+            page3
+                .iter()
+                .map(|point| (point.measure, point.y))
+                .collect::<Vec<_>>()
+        );
+    }
+
     // ── v1 → v3 migration ─────────────────────────────────────────────────
 
     /// Build a raw v1 database (the old placeholder schema) with a settings row,
