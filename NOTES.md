@@ -1645,3 +1645,35 @@ unregisterListener`, which the mock never defined → 2 pageerrors on effect cle
 - **Final v3.0.0 gates:** npm **706 passed / 0 failed / 2 todo**; cargo **518 passed / 0
   failed**; `tsc` clean. Installed and verified running at `/Applications/CodaKiller.app`,
   tagged `v3.0.0`.
+
+## v3.0.1 — same-night Score view paging rework (2026-07-16)
+
+- **currentPage-driven mount window replaced the old IntersectionObserver scroll-spy
+  approach.** The continuous-strip renderer used a scroll-spy to decide which page canvases
+  were "visible enough" to mount/keep mounted; that's what produced the whole-25-page strip
+  Christian found laggy. The paged reader instead derives the mount window directly from
+  `currentPage` state (current ±1), so there is no scroll-position heuristic driving what
+  renders — page navigation is the single source of truth for the mount window.
+- **Buffered neighbor pages are pre-rendered via `visibility:hidden` and taken out of layout
+  flow (out-of-flow), not unmounted/remounted.** Keeping the ±1 neighbor canvases mounted but
+  visually hidden and out of flow avoids the re-render/re-layout cost of a full
+  unmount→remount on every page turn, while still guaranteeing never more than 3 canvases
+  exist at once (current + 2 neighbors).
+- **Default scale mode changed from width-fit to page-fit (width→page).** The old default
+  fit the page to the container's width, which is what made a tall multi-page document read
+  as one continuous vertical strip when combined with the scroll-spy mount logic. Page-fit
+  is now the default, matching the "one page fit to the window" behavior Christian asked for.
+- **Added a guarded window-level keyboard handler for PageUp/PageDown/arrow navigation.** It
+  must not fire when focus is inside an input/text field or other editable element — the
+  guard checks the active element before acting, so typing a page number or editing a
+  section's title/notes never gets hijacked into a page turn.
+- **CSS gotcha: independent scroll panes required `grid-template-columns`/`grid-template-rows`
+  using `minmax(0,1fr)` — plain `1fr` without the `minmax(0, ...)` was missing the constraint
+  and caused panes to not scroll independently** (min-content sizing blowout in CSS grid: a
+  bare `1fr` track sizes to its content's min-content by default, so a tall PDF pane or the
+  tricky-sections list can grow the whole grid instead of scrolling inside its own track).
+  `minmax(0, 1fr)` explicitly floors the track's minimum size at 0, which is what actually
+  lets `overflow` scroll independently inside each pane rather than the grid container itself
+  growing to fit everything.
+- **Gates:** npm **706 passed / 0 failed**; `tsc` clean; zero console errors in the drive.
+  Shipped as commit `92cfdb7`, tag `v3.0.1`, release `612b1ec`.
