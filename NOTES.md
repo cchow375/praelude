@@ -2,6 +2,39 @@
 
 ## Decisions
 
+- **v3.0.2 — target-draft dock fix + wizard measure prefill (2026-07-17, commits `6a32bc8` +
+  `851994c`):**
+  - **Prefill architecture: a new `prefill.ts` module with a three-tier `suggestMeasure`
+    function.** Priority order is anchors > PDF text layer > prediction: an existing
+    calibration anchor for the clicked system wins outright (exact, on Christian's six
+    pre-mapped pieces); otherwise the PDF's own text layer is consulted for a standalone
+    left-margin integer near the system's start (validated monotonic against prior entries
+    and bounded within the XML's total measure count), tagged `"from score"`; otherwise, once
+    ≥2 anchors already exist for the edition, a prediction from the last entry plus the median
+    bars-per-system (clamped to a sane range) is offered, tagged `"estimated"`. Every value
+    stays visible/editable in the wizard; typing over a prefill clears its provenance tag;
+    `"Add line"` remains the one confirm action regardless of where the number came from.
+  - **`PdfPageHandle.textItems()` returns normalized top-left 0-1 coordinates via
+    `getTextContent`.** This keeps the text-layer lookup independent of zoom/page size — the
+    prefill logic can compare a clicked y-position against text-item positions without
+    re-deriving pixel geometry per render.
+  - **Scanned PDFs degrade silently — no OCR fallback.** If an edition has no text layer (the
+    scanned CCITT/JBIG2/JPEG library pages), tier (b) simply yields nothing and the wizard
+    falls through to anchors/prediction only. This is a deliberate, unchanged S2 boundary —
+    CodaKiller never OCRs the rendered page image to recover a printed measure number.
+  - **The dock-gating decision: visibility is gated on presence of `targetAnchor`, not on
+    `targetMode`.** The old bug pinned the dock any time target-draft mode was active, even
+    with nothing drawn. The fix ties the floating panel's existence to whether a real
+    `targetAnchor` (an actual drawn box) exists — mode alone no longer renders anything. Once
+    an anchor exists, the dock can collapse to a slim bar and toggle between top-right and
+    bottom-right corners, so it structurally cannot overlap the page controls. The wizard's
+    auto-offer dialog is now dismissible and no longer force-opens on already-mapped pieces.
+  - **Test fixtures:** the mock/test fixture now returns calibration anchors for piece 1, so
+    prefill-tier (a) has a realistic non-empty case to exercise in tests instead of only
+    covering the text-layer/prediction tiers.
+  - **Gates:** npm 728 passed / 0 failed, `tsc` clean, headless drive with dock-count/prefill
+    evidence, zero console errors.
+
 - **P7/v3 Phase 5 — Today workspace/practice surfaces rebuild + frontend performance audit
   (2026-07-16, adversarially verified CONFIRMED 7/7; commits `29d88f2`/`75acdc5`/`78eb5e8`/
   `da468bf`, follow-up fixes `b3e53f2`):**
