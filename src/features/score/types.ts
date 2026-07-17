@@ -42,6 +42,13 @@ export interface PdfRenderTask {
   cancel: () => void;
 }
 
+/** One PDF text-layer run, normalized to 0–1 page coordinates (top-left origin). */
+export interface PdfTextItem {
+  text: string;
+  xPct: number;
+  yPct: number;
+}
+
 export interface PdfPageHandle extends PdfPageSize {
   render: (
     canvas: HTMLCanvasElement,
@@ -49,6 +56,11 @@ export interface PdfPageHandle extends PdfPageSize {
     devicePixelRatio: number,
   ) => PdfRenderTask;
   cleanup: () => void;
+  /**
+   * Normalized text-layer runs for measure-number prefill. Optional: a scanned
+   * edition has no text layer, and test adapters may omit it entirely.
+   */
+  textItems?: () => Promise<PdfTextItem[]>;
 }
 
 export interface PdfDocumentHandle {
@@ -71,7 +83,10 @@ export interface ScorePdfApi {
   bytes: (pieceId: number, editionId: string) => Promise<ArrayBuffer>;
   regions: (pieceId: number) => Promise<Region[]>;
   blocks: (pieceId: number) => Promise<BlockHistory[]>;
-  updateRegion: (regionId: number, pdfAnchor: PdfAnchorMap | null) => Promise<Region>;
+  updateRegion: (
+    regionId: number,
+    pdfAnchor: PdfAnchorMap | null,
+  ) => Promise<Region>;
   /** One atomic Score Atlas target write; native persistence may land separately. */
   createTarget: (payload: AtomicTargetSavePayload) => Promise<Region>;
 }

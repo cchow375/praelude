@@ -1071,6 +1071,36 @@ function mockEdition(pieceId: number) {
 }
 
 /**
+ * A saved line-anchor calibration for the first piece so the Score tab shows the
+ * pre-mapped-edition behavior: drawn boxes resolve to measures, and the wizard
+ * pre-fills the measure "from anchors" when a click lands on a known system.
+ * Pieces without an entry stay unmapped (the fresh-run path).
+ */
+function mockCalibration(pieceId: number): unknown {
+  const points: Record<number, { page: number; y: number; measure: number }[]> =
+    {
+      1: [
+        { page: 1, y: 0.2, measure: 1 },
+        { page: 1, y: 0.34, measure: 5 },
+        { page: 1, y: 0.48, measure: 9 },
+        { page: 1, y: 0.62, measure: 13 },
+      ],
+    };
+  const entry = points[pieceId];
+  if (!entry) return null;
+  return {
+    piece_id: pieceId,
+    edition_id: "score/score.pdf",
+    edition_fingerprint: `mock-fp-${pieceId}`,
+    method: "user_confirmed",
+    confidence: 0.75,
+    points: entry,
+    user_verified: true,
+    updated_ts: new Date().toISOString(),
+  };
+}
+
+/**
  * Coherent sample data for LOAD-path commands only. Any unmapped command (a
  * mutation or a not-yet-exercised read) returns `null`: the read paths guard
  * `?? []`/`?? null`, and mutations are out of scope for this static harness.
@@ -1115,8 +1145,11 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "region_list":
       return REGIONS[pieceIdOf(args)] ?? [];
 
-    // Score atlas: one blank edition + no saved calibration, so the Score tab
-    // reaches "ready" and the Map-this-score wizard can open.
+    // Score atlas: one blank edition + a saved line-anchor calibration for
+    // piece 1 (his six pieces are pre-mapped), so the Score tab reaches "ready",
+    // drawn boxes resolve to measures, and the Map-this-score wizard shows the
+    // "from anchors" measure-number prefill. Other pieces stay unmapped so the
+    // fresh-run auto-offer path is still exercisable.
     case "score_pdf_editions":
       return [mockEdition(pieceIdOf(args))];
     case "score_pdf_select":
@@ -1124,7 +1157,7 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "score_pdf_bytes":
       return minimalPdfBytes();
     case "score_calibration_get":
-      return null;
+      return mockCalibration(pieceIdOf(args));
     case "score_calibration_save": {
       const record = (args ?? {}) as Record<string, unknown>;
       const points = (() => {

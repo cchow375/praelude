@@ -130,4 +130,89 @@ describe("MapScoreWizard", () => {
       { page: 2, yPct: 0.25, measure: 9 },
     ]);
   });
+
+  // --- Measure-number prefill (finding 2) ---
+
+  it("pre-fills the exact measure from existing anchors and tags it 'from anchors'", async () => {
+    const api = fakeApi();
+    render(
+      <MapScoreWizard
+        pieceId={7}
+        edition={edition}
+        pageCount={2}
+        api={api}
+        initialAnchors={[
+          { page: 1, yPct: 0.2, measure: 1 },
+          { page: 1, yPct: 0.34, measure: 5 },
+        ]}
+        onClose={() => {}}
+      />,
+    );
+    // Clicking (here via the line-position field) a system the anchors know
+    // pre-fills its measure without any typing.
+    fireEvent.change(screen.getByLabelText("Line position percent from top"), {
+      target: { value: "34" },
+    });
+    const measure = screen.getByLabelText(
+      "Measure number at this system start",
+    ) as HTMLInputElement;
+    expect(measure.value).toBe("5");
+    expect(screen.getByText("from anchors")).toBeTruthy();
+
+    // Typing over a suggestion clears the provenance tag (it becomes a correction).
+    fireEvent.change(measure, { target: { value: "6" } });
+    expect(screen.queryByText("from anchors")).toBeNull();
+  });
+
+  it("pre-fills from the PDF text layer when no anchor matches, tagged 'from score'", async () => {
+    const api = fakeApi();
+    render(
+      <MapScoreWizard
+        pieceId={7}
+        edition={edition}
+        pageCount={2}
+        api={api}
+        pageTextItems={async () => [{ text: "12", xPct: 0.05, yPct: 0.6 }]}
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Line position percent from top"), {
+      target: { value: "60" },
+    });
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByLabelText(
+            "Measure number at this system start",
+          ) as HTMLInputElement
+        ).value,
+      ).toBe("12"),
+    );
+    expect(screen.getByText("from score")).toBeTruthy();
+  });
+
+  it("predicts the next measure from the run so far, tagged 'estimated'", async () => {
+    const api = fakeApi();
+    render(
+      <MapScoreWizard
+        pieceId={7}
+        edition={edition}
+        pageCount={2}
+        api={api}
+        onClose={() => {}}
+      />,
+    );
+    // Two anchors this run establish a 4-bar-per-system median.
+    addAnchor(20, 1);
+    addAnchor(34, 5);
+    // A third click prefills 5 + 4 = 9 as an estimate.
+    fireEvent.change(screen.getByLabelText("Line position percent from top"), {
+      target: { value: "48" },
+    });
+    const measure = screen.getByLabelText(
+      "Measure number at this system start",
+    ) as HTMLInputElement;
+    expect(measure.value).toBe("9");
+    expect(screen.getByText("estimated")).toBeTruthy();
+  });
 });

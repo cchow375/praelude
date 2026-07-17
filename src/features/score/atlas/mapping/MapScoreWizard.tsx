@@ -2,6 +2,7 @@ import {
   useCallback,
   useId,
   useMemo,
+  useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -12,6 +13,11 @@ import {
   validateAgainstXml,
   type LineAnchor,
 } from "./anchors";
+import {
+  suggestMeasure,
+  type MeasurePrefillSource,
+  type PrefillTextItem,
+} from "./prefill";
 import {
   defaultCalibrationApi,
   type CalibrationApi,
@@ -28,6 +34,12 @@ export interface MapScoreWizardProps {
   renderPage?: (pageNumber: number) => ReactNode;
   /** Anchors already saved for this edition, so the wizard resumes a partial map. */
   initialAnchors?: LineAnchor[];
+  /**
+   * Resolve the page's PDF text layer (normalized runs) for measure-number
+   * prefill. Optional: a scanned edition or a test harness omits it, and the
+   * wizard degrades silently to anchor/prediction prefill.
+   */
+  pageTextItems?: (pageNumber: number) => Promise<PrefillTextItem[] | null>;
   api?: CalibrationApi;
   /** MusicXML measure count, when known, to flag anchors beyond the score. */
   xmlMaxMeasure?: number | null;
@@ -55,6 +67,7 @@ export function MapScoreWizard({
   pageCount,
   renderPage,
   initialAnchors = [],
+  pageTextItems,
   api = defaultCalibrationApi,
   xmlMaxMeasure = null,
   hasPickup = false,
@@ -66,9 +79,12 @@ export function MapScoreWizard({
   const [anchors, setAnchors] = useState<LineAnchor[]>(initialAnchors);
   const [pendingY, setPendingY] = useState<number | null>(null);
   const [measureDraft, setMeasureDraft] = useState("");
+  const [prefillSource, setPrefillSource] =
+    useState<MeasurePrefillSource | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const prefillTokenRef = useRef(0);
 
   const totalPages = Math.max(1, pageCount);
   const pageAnchors = useMemo(
@@ -79,14 +95,75 @@ export function MapScoreWizard({
     [anchors, page],
   );
 
+  // Anchors already saved for this edition are keyed so prediction (priority 3)
+  // only counts systems the user marked during THIS run.
+  const initialKeyset = useMemo(
+    () =>
+      new Set(initialAnchors.map((a) => `${a.page}:${a.yPct}:${a.measure}`)),
+    [initialAnchors],
+  );
+
+  /**
+   * Propose the measure at a clicked system start (anchors → text layer →
+   * prediction) and pre-fill the still-editable measure field with a provenance
+   * tag. Never saves; the user confirms with "Add line".
+   */
+  const applyPrefill = useCallback(
+    (targetPage: number, yPct: number) => {
+      const token = ++prefillTokenRef.current;
+      const runAnchors = anchors.filter(
+        (a) => !initialKeyset.has(`${a.page}:${a.yPct}:${a.measure}`),
+      );
+      const commit = (measure: number, source: MeasurePrefillSource) => {
+        setMeasureDraft(String(measure));
+        setPrefillSource(source);
+      };
+      // Synchronous sources (exact anchor match, then prediction) fill instantly.
+      const immediate = suggestMeasure({
+        anchors,
+        runAnchors,
+        page: targetPage,
+        yPct,
+        textItems: null,
+        xmlMaxMeasure,
+      });
+      if (immediate?.source === "anchors") {
+        commit(immediate.measure, "anchors");
+        return;
+      }
+      // The text layer (async) is preferred over a prediction when it has a
+      // plausible printed number; otherwise the immediate prediction stands.
+      if (pageTextItems) {
+        void pageTextItems(targetPage)
+          .then((textItems) => {
+            if (token !== prefillTokenRef.current) return;
+            const withText = suggestMeasure({
+              anchors,
+              runAnchors,
+              page: targetPage,
+              yPct,
+              textItems: textItems ?? null,
+              xmlMaxMeasure,
+            });
+            if (withText) commit(withText.measure, withText.source);
+          })
+          .catch(() => undefined);
+      }
+      if (immediate) commit(immediate.measure, immediate.source);
+    },
+    [anchors, initialKeyset, pageTextItems, xmlMaxMeasure],
+  );
+
   const placeFromPointer = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const rect = event.currentTarget.getBoundingClientRect();
       if (rect.height <= 0) return;
-      setPendingY(clamp01((event.clientY - rect.top) / rect.height));
+      const yPct = clamp01((event.clientY - rect.top) / rect.height);
+      setPendingY(yPct);
       setError(null);
+      applyPrefill(page, yPct);
     },
-    [],
+    [applyPrefill, page],
   );
 
   const addAnchor = useCallback(() => {
@@ -114,6 +191,7 @@ export function MapScoreWizard({
     ]);
     setPendingY(null);
     setMeasureDraft("");
+    setPrefillSource(null);
     setError(xml.ok ? null : (xml.warning ?? null));
   }, [hasPickup, measureDraft, page, pendingY, xmlMaxMeasure]);
 
@@ -241,20 +319,43 @@ export function MapScoreWizard({
                   }
                   onChange={(event) => {
                     const value = event.target.value;
-                    setPendingY(
-                      value === "" ? null : clamp01(Number(value) / 100),
-                    );
+                    if (value === "") {
+                      setPendingY(null);
+                      setPrefillSource(null);
+                      return;
+                    }
+                    const yPct = clamp01(Number(value) / 100);
+                    setPendingY(yPct);
+                    applyPrefill(page, yPct);
                   }}
                 />
               </label>
               <label>
-                <span>Measure at this system</span>
+                <span>
+                  Measure at this system
+                  {prefillSource && (
+                    <em
+                      className="map-wizard-prefill-tag"
+                      data-source={prefillSource}
+                    >
+                      {prefillSource === "anchors"
+                        ? "from anchors"
+                        : prefillSource === "score"
+                          ? "from score"
+                          : "estimated"}
+                    </em>
+                  )}
+                </span>
                 <input
                   aria-label="Measure number at this system start"
                   type="number"
                   min="1"
                   value={measureDraft}
-                  onChange={(event) => setMeasureDraft(event.target.value)}
+                  onChange={(event) => {
+                    setMeasureDraft(event.target.value);
+                    // Typing corrects a suggestion, so the provenance tag drops.
+                    setPrefillSource(null);
+                  }}
                 />
               </label>
               <Button variant="primary" onClick={addAnchor} disabled={saving}>

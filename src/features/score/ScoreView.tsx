@@ -107,6 +107,34 @@ function wrapPage(page: PDFPageProxy): PdfPageHandle {
     width: base.width,
     height: base.height,
     cleanup: () => page.cleanup(),
+    // Normalized text-layer runs for measure-number prefill. At scale 1 with no
+    // rotation the viewport transform is [1,0,0,-1,0,height], so an item's user-
+    // space (x,y) maps to (x, height - y) in top-left origin; normalize by the
+    // page box. Best-effort: a scanned page returns an empty layer and callers
+    // degrade to prediction.
+    textItems: async () => {
+      try {
+        const content = await page.getTextContent();
+        const width = base.width || 1;
+        const height = base.height || 1;
+        return content.items.flatMap((item) => {
+          if (!("str" in item) || !("transform" in item)) return [];
+          const text = item.str.trim();
+          if (!text) return [];
+          const x = item.transform[4];
+          const y = item.transform[5];
+          return [
+            {
+              text,
+              xPct: x / width,
+              yPct: 1 - y / height,
+            },
+          ];
+        });
+      } catch {
+        return [];
+      }
+    },
     render: (canvas, scale, devicePixelRatio) => {
       const cssViewport = page.getViewport({ scale });
       const renderViewport = page.getViewport({
@@ -454,6 +482,12 @@ export function ScoreView({
     [],
   );
   const [wizardOpen, setWizardOpen] = useState(false);
+  // The floating draft dock renders only once a box is drawn; it is collapsible
+  // to a slim bar and can be re-cornered so it never blocks the score or nav.
+  const [dockCollapsed, setDockCollapsed] = useState(false);
+  const [dockCorner, setDockCorner] = useState<"top-right" | "bottom-right">(
+    "top-right",
+  );
   // Auto-offer the wizard once per edition the first time a box lands on an
   // unmapped page; a manual open or dismissal counts as "offered".
   const autoOfferedRef = useRef(false);
@@ -477,6 +511,8 @@ export function ScoreView({
     setTargetSavePending(false);
     setCalibrationAnchors([]);
     setWizardOpen(false);
+    setDockCollapsed(false);
+    setDockCorner("top-right");
     autoOfferedRef.current = false;
     // A draft in progress force-hid the sidebar; entering the new piece with it
     // stuck hidden strands the tricky-sections panel, so restore what it stashed.
@@ -774,6 +810,8 @@ export function ScoreView({
     setTargetDraftId(null);
     setTargetAnchor(null);
     setTargetDrawError(null);
+    setDockCollapsed(false);
+    setDockCorner("top-right");
     setSectionsVisible(sectionsBeforeTargetRef.current);
     sectionsStashedRef.current = false;
     setNavigationNotice(null);
@@ -793,6 +831,8 @@ export function ScoreView({
     sectionsBeforeTargetRef.current = sectionsVisible;
     sectionsStashedRef.current = true;
     setSectionsVisible(false);
+    setDockCollapsed(false);
+    setDockCorner("top-right");
     setTargetDraftId(newTargetDraftId(pieceId));
     setTargetAnchor(null);
     setTargetDrawError(null);
@@ -828,6 +868,24 @@ export function ScoreView({
     autoOfferedRef.current = true;
     setWizardOpen(true);
   }, []);
+
+  // Resolve a page's PDF text layer for measure-number prefill in the wizard.
+  // Best-effort: a scanned edition (no text layer) or any failure returns null,
+  // and the wizard degrades silently to anchor/prediction prefill.
+  const pageTextItems = useCallback(
+    async (pageNumber: number) => {
+      if (!document) return null;
+      try {
+        const handle = await document.getPage(pageNumber);
+        const items = (await handle.textItems?.()) ?? null;
+        handle.cleanup();
+        return items;
+      } catch {
+        return null;
+      }
+    },
+    [document],
+  );
 
   const saveTarget = useCallback(
     async (payload: AtomicTargetSavePayload) => {
@@ -1520,6 +1578,11 @@ export function ScoreView({
             Drag one rectangle directly on a rendered score page. Its normalized
             geometry stays independent of zoom.
           </span>
+          {targetMode && !targetAnchor && (
+            <span className="score-atlas-draw-hint" role="status">
+              Drag a rectangle on the score to start your target.
+            </span>
+          )}
         </div>
 
         <div className="score-page-controls" aria-label="Page navigation">
@@ -1894,30 +1957,74 @@ export function ScoreView({
             </div>
           </aside>
 
-          {targetMode && targetDraftId && edition && (
+          {targetMode && targetDraftId && edition && targetAnchor && (
             <aside
-              className="score-atlas-draft-dock"
+              className={`score-atlas-draft-dock is-${dockCorner} ${
+                dockCollapsed ? "is-collapsed" : ""
+              }`}
               aria-label="New target draft editor"
             >
-              <TargetDraftEditor
-                key={targetDraftId}
-                draftId={targetDraftId}
-                pieceId={pieceId}
-                edition={{
-                  edition_id: edition.id,
-                  edition_fingerprint: edition.fingerprint,
-                }}
-                pageNumber={targetAnchor?.rects[0]?.page ?? currentPage}
-                minimumCandidateConfidence={TARGET_CANDIDATE_THRESHOLD}
-                resolveMapping={resolveTargetMapping}
-                initialAnchor={targetAnchor}
-                onSelectionChange={acceptTargetSelection}
-                externalScoreSurface
-                externalError={targetDrawError}
-                onSave={saveTarget}
-                onCancel={cancelTargetDraft}
-                onRequestMapping={openWizard}
-              />
+              <div className="score-atlas-dock-bar">
+                <span className="score-atlas-dock-title">Target draft</span>
+                <div className="score-atlas-dock-controls">
+                  <button
+                    type="button"
+                    className="score-atlas-dock-btn"
+                    aria-label={
+                      dockCorner === "top-right"
+                        ? "Move draft to bottom-right corner"
+                        : "Move draft to top-right corner"
+                    }
+                    title="Move corner"
+                    onClick={() =>
+                      setDockCorner((corner) =>
+                        corner === "top-right" ? "bottom-right" : "top-right",
+                      )
+                    }
+                  >
+                    <span aria-hidden="true">
+                      {dockCorner === "top-right" ? "⤓" : "⤒"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="score-atlas-dock-btn"
+                    aria-expanded={!dockCollapsed}
+                    aria-label={
+                      dockCollapsed
+                        ? "Expand target draft"
+                        : "Collapse target draft"
+                    }
+                    title={dockCollapsed ? "Expand" : "Collapse"}
+                    onClick={() => setDockCollapsed((value) => !value)}
+                  >
+                    <span aria-hidden="true">{dockCollapsed ? "▸" : "▾"}</span>
+                  </button>
+                </div>
+              </div>
+              {!dockCollapsed && (
+                <div className="score-atlas-dock-body">
+                  <TargetDraftEditor
+                    key={targetDraftId}
+                    draftId={targetDraftId}
+                    pieceId={pieceId}
+                    edition={{
+                      edition_id: edition.id,
+                      edition_fingerprint: edition.fingerprint,
+                    }}
+                    pageNumber={targetAnchor?.rects[0]?.page ?? currentPage}
+                    minimumCandidateConfidence={TARGET_CANDIDATE_THRESHOLD}
+                    resolveMapping={resolveTargetMapping}
+                    initialAnchor={targetAnchor}
+                    onSelectionChange={acceptTargetSelection}
+                    externalScoreSurface
+                    externalError={targetDrawError}
+                    onSave={saveTarget}
+                    onCancel={cancelTargetDraft}
+                    onRequestMapping={openWizard}
+                  />
+                </div>
+              )}
             </aside>
           )}
         </div>
@@ -1932,6 +2039,7 @@ export function ScoreView({
           }}
           pageCount={pageCount}
           initialAnchors={calibrationAnchors}
+          pageTextItems={pageTextItems}
           onSaved={(_view, anchors) => {
             setCalibrationAnchors(anchors);
             setWizardOpen(false);
