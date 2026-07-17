@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { PieceSummary } from "../pieces/types";
+import type { RepOpenArgs } from "../rep/useRep";
 import { ScoreView } from "./ScoreView";
 import "./ScoreWorkspace.css";
 
@@ -11,16 +12,42 @@ function messageOf(reason: unknown): string {
     : "The score library could not be loaded.";
 }
 
+export interface ScoreWorkspaceProps {
+  /** Shell's rep.open — without it ScoreView's Practice tab renders nothing. */
+  onOpenBlock?: (args: RepOpenArgs) => Promise<void>;
+  defaultCleanStreak?: number;
+}
+
 /**
  * v3 Score workspace: a quiet piece picker over the existing PDF viewer +
  * atlas. It reuses `ScoreView` (PdfPage/RegionOverlay/pdfjs) unchanged and adds
  * the monochrome chrome; the "Map this score" wizard lives inside `ScoreView`.
  */
-export function ScoreWorkspace() {
+export function ScoreWorkspace({
+  onOpenBlock,
+  defaultCleanStreak,
+}: ScoreWorkspaceProps = {}) {
   const [pieces, setPieces] = useState<PieceSummary[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
+
+  const openBlock = useCallback(
+    async (args: RepOpenArgs) => {
+      if (!onOpenBlock) return;
+      setOpening(true);
+      try {
+        await onOpenBlock(args);
+      } finally {
+        // useRep publishes the application-level receipt on failure; the
+        // shell-level RepHud appears on success. Here we only clear the
+        // in-flight flag.
+        setOpening(false);
+      }
+    },
+    [onOpenBlock],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,7 +123,13 @@ export function ScoreWorkspace() {
           </p>
         )}
         {!loading && !error && selectedId != null && (
-          <ScoreView key={selectedId} pieceId={selectedId} />
+          <ScoreView
+            key={selectedId}
+            pieceId={selectedId}
+            onOpenBlock={onOpenBlock ? openBlock : undefined}
+            opening={opening}
+            defaultCleanStreak={defaultCleanStreak}
+          />
         )}
       </div>
     </main>

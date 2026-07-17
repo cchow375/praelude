@@ -70,20 +70,24 @@ type View = WorkspaceId | "settings";
 // props), so their map entries are omitted; the others resolve to a stub or the
 // phase's real workspace.
 const WORKSPACE_COMPONENTS: Record<
-  Exclude<WorkspaceId, "today" | "universe" | "ledger">,
+  Exclude<WorkspaceId, "today" | "universe" | "ledger" | "score">,
   ComponentType
 > = {
-  score: lazy(() =>
-    import("../features/score/ScoreWorkspace").then((m) => ({
-      default: m.ScoreWorkspace,
-    })),
-  ),
   brain: lazy(() =>
     import("../features/brain/BrainWorkspace").then((m) => ({
       default: m.BrainWorkspace,
     })),
   ),
 };
+
+// The Score workspace needs the shell's rep hook: ScoreView's Practice tab
+// renders nothing without onOpenBlock, so a block started on the score must
+// open through the same rep.open that feeds the shell-level RepHud.
+const ScoreWorkspace = lazy(() =>
+  import("../features/score/ScoreWorkspace").then((m) => ({
+    default: m.ScoreWorkspace,
+  })),
+);
 
 // One slot hosts the two history surfaces AND the piece browser/intake/goals
 // surface (the plan's "Ledger/Calendar", extended in Phase 8.1); the nav stays
@@ -371,7 +375,8 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     view === "settings" ||
     view === "today" ||
     view === "universe" ||
-    view === "ledger"
+    view === "ledger" ||
+    view === "score"
       ? null
       : WORKSPACE_COMPONENTS[view];
 
@@ -478,6 +483,11 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
             <LedgerCalendarWorkspace
               onOpenBlock={rep.open}
               activeRep={rep.snap}
+              defaultCleanStreak={defaultCleanStreak}
+            />
+          ) : view === "score" ? (
+            <ScoreWorkspace
+              onOpenBlock={rep.open}
               defaultCleanStreak={defaultCleanStreak}
             />
           ) : (

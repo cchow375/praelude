@@ -6,7 +6,19 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
+// Capture the props ScoreWorkspace hands to ScoreView. The real ScoreView
+// needs pdfjs; here we only prove the workspace forwards the practice seam
+// (the Practice tab renders nothing unless onOpenBlock reaches ScoreView).
+const scoreViewProps = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock("./ScoreView", () => ({
+  ScoreView: (props: unknown) => {
+    scoreViewProps.current = props;
+    return <div data-testid="score-view-stub" />;
+  },
+}));
+
 import { ScoreWorkspace } from "./ScoreWorkspace";
+import type { ScoreViewProps } from "./ScoreView";
 
 afterEach(() => {
   cleanup();
@@ -51,6 +63,31 @@ describe("ScoreWorkspace", () => {
     expect(screen.getByRole("heading", { name: "Scherzo No. 2" })).toBeTruthy();
     // Both PDF-bearing pieces are offered.
     expect(screen.getAllByRole("option")).toHaveLength(2);
+  });
+
+  it("forwards the practice seam so the Practice tab can open a block", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      return Promise.resolve(undefined);
+    });
+    const onOpenBlock = vi.fn().mockResolvedValue(undefined);
+
+    render(<ScoreWorkspace onOpenBlock={onOpenBlock} defaultCleanStreak={4} />);
+
+    await screen.findByTestId("score-view-stub");
+    const props = scoreViewProps.current as ScoreViewProps;
+    expect(typeof props.onOpenBlock).toBe("function");
+    expect(props.defaultCleanStreak).toBe(4);
+
+    // The forwarded handler must reach the shell's rep.open.
+    const args = {
+      piece_id: 2,
+      m_start: 1,
+      m_end: 8,
+      target_bpm: 96,
+    };
+    await props.onOpenBlock?.(args as never);
+    expect(onOpenBlock).toHaveBeenCalledWith(args);
   });
 
   it("shows an empty state when no piece has a PDF", async () => {

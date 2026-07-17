@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NaturalPracticeActionDraft } from "../features/voice/domain/actionDraft";
 import type { RepSnapshot } from "../features/rep/useRep";
@@ -16,6 +16,17 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
+}));
+
+// The Score workspace is lazy-loaded; stub it to capture the props the shell
+// passes. The Practice tab inside ScoreView is dead unless the shell threads
+// rep.open through here (the v3.0.2 "Practice button does nothing" bug).
+const scoreWorkspaceProps = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock("../features/score/ScoreWorkspace", () => ({
+  ScoreWorkspace: (props: unknown) => {
+    scoreWorkspaceProps.current = props;
+    return <div data-testid="score-workspace-stub" />;
+  },
 }));
 
 import { Shell, voiceDraftOpenRequest } from "./Shell";
@@ -213,5 +224,23 @@ describe("voiceDraftOpenRequest", () => {
     );
     expect(request.args.focus).toBe("hands");
     expect(request.context.judging_axis).toBe("accuracy");
+  });
+
+  it("mounts the Score workspace with the shell's rep-open seam", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Score" }));
+
+    await screen.findByTestId("score-workspace-stub");
+    const props = scoreWorkspaceProps.current as {
+      onOpenBlock?: unknown;
+      defaultCleanStreak?: unknown;
+    };
+    expect(typeof props.onOpenBlock).toBe("function");
+    expect(typeof props.defaultCleanStreak).toBe("number");
   });
 });
