@@ -1603,3 +1603,45 @@ unregisterListener`, which the mock never defined → 2 pageerrors on effect cle
   nodes for practice sessions are synthesized client-side from `practice_sessions` COUNTS,
   because the `UniverseSnapshot` data structure carries aggregate counts, not full individual
   session rows.
+
+## v3.0.0 SHIP — Phase 8 (anchor injection, parity audit, package, install) (2026-07-16)
+
+- **The live anchor injection used a copy→inject→verify→swap workflow, not an in-place write
+  against the running app-data file.** A fresh backup was taken first
+  (`(C) pre-v3.0.0-install-2026-07-16.db`, SHA prefix `3d18c0ba`, in the app-data backups
+  directory), then the 288-anchor premap set was rehearsed on a disposable copy of the live
+  database through the validated `score_calibration_save` path end-to-end, the result was
+  diffed/verified against the expected anchor counts per piece, and only then was the same
+  validated path run against the real live database (never a raw SQL write, never bypassing
+  the command's own validation). Post-injection, `quick_check`/`integrity_check` passed and
+  foreign-key violations were zero.
+- **pgrep gotcha: the running installed process name is lowercase `codakiller`, not
+  `CodaKiller`.** Checking for the live app process with `pgrep -x CodaKiller` (matching the
+  bundle/display name casing) silently returns nothing even while the app is genuinely
+  running — the actual OS process name is the lowercase `codakiller` binary name. Always
+  `pgrep -x codakiller` (or `pgrep -if codakiller` for a case-insensitive net) when scripting
+  around "is the app currently running" checks; a false negative here can lead to acting as
+  if the app were closed (e.g. touching the live DB file) when it is actually open and
+  holding a lock.
+- **The parity-audit → Pieces-tab remount arc:** the Phase 8 parity audit against the
+  original P0 inventory surfaced one real gap — the Pieces browser/intake/goals/references
+  surface (folded into the Ledger tab's `Ledger | Calendar | Pieces` switch) had a stale
+  mount boundary left over from the v2-era layout that caused it to occasionally render with
+  a prior piece's stale intake state on fast switches. Fixed by remounting the Pieces panel
+  on piece-id change (a keyed remount, not a state-reset effect) — this closed the parity
+  gap cleanly rather than patching around it with additional effect dependencies.
+- **rustfmt ran as an explicit, isolated side-effect commit, not folded into the semantic
+  Phase 8 commits.** Per the standing whole-crate `cargo fmt --check` drift note earlier in
+  this file, the style commit (`56dada3`) is deliberately mechanical-only — it does not carry
+  any Phase 8 logic changes, so a reviewer (or a future bisect) can trust that commit is
+  format-only and every semantic change lives in `c53230a` (pieces-gap close) and `b2e751f`
+  (version bump).
+- **Version bump locations for a real release — all three must move together:**
+  `package.json` (`"version"`), `src-tauri/tauri.conf.json` (`"version"` under the top-level
+  config, which Tauri also uses to stamp the built bundle's `CFBundleShortVersionString`),
+  and `src-tauri/Cargo.toml` (`[package] version`). All three were bumped to `3.0.0` in
+  commit `b2e751f`; a mismatch between any of these is the classic cause of the on-screen
+  version badge disagreeing with the actual installed bundle's Info.plist.
+- **Final v3.0.0 gates:** npm **706 passed / 0 failed / 2 todo**; cargo **518 passed / 0
+  failed**; `tsc` clean. Installed and verified running at `/Applications/CodaKiller.app`,
+  tagged `v3.0.0`.
