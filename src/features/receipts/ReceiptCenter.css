@@ -1,12 +1,22 @@
+/* ==========================================================================
+   CodaKiller v3 — Receipt Center (Task 5.2)
+   Every durable MutationReceipt lands here, unmissable, on the kit's Receipt
+   visual language. Colour is SIGNAL-ONLY: green = committed/success, red =
+   error. Undone / duplicate / confirmation are neutral ink (a write that did
+   nothing new must never borrow the success green). Each receipt lands with a
+   fast micro-motion so a save is visibly acknowledged. Tokens only.
+   ========================================================================== */
+
 .receipt-center {
   position: fixed;
   z-index: 120;
-  right: var(--space-4);
-  bottom: var(--space-4);
-  width: min(24rem, calc(100vw - 2 * var(--space-4)));
+  right: var(--s-4);
+  bottom: var(--s-4);
+  width: min(24rem, calc(100vw - 2 * var(--s-4)));
   pointer-events: none;
 }
 
+/* Visually-hidden live regions (screen-reader announcements). */
 .receipt-live {
   position: absolute;
   width: 1px;
@@ -21,7 +31,7 @@
 .receipt-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--s-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -32,54 +42,51 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--s-2);
   min-height: 42px;
-  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
   border: 1px solid var(--hairline);
-  border-left: 3px solid var(--success);
-  border-radius: var(--radius-md);
-  background: var(--surface-popover);
-  color: var(--ink-primary);
-  box-shadow: var(--shadow-popover);
+  border-left: 3px solid var(--ink-faint);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+  color: var(--ink);
+  animation: receipt-land var(--dur-base) var(--ease-out) both;
 }
 
-.receipt-item[data-kind="undone"] {
-  border-left-color: var(--accent);
+/* --- Signal channel: only committed (green) and error (red) carry hue ---- */
+.receipt-item[data-kind="committed"] {
+  border-left-color: var(--signal-success);
 }
-
-.receipt-item[data-kind="confirmation"] {
-  border-left-color: var(--warning);
-}
-
-.receipt-item[data-kind="duplicate"] {
-  border-left-color: var(--info);
-}
-
 .receipt-item[data-kind="error"] {
-  border-left-color: var(--danger);
+  border-left-color: var(--signal-error);
 }
+/* undone / duplicate / confirmation keep the neutral ink border. */
 
 .receipt-mark {
-  color: var(--success);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-dim);
 }
-
-.receipt-item[data-kind="undone"] .receipt-mark {
-  color: var(--accent);
+.receipt-item[data-kind="committed"] .receipt-mark {
+  color: var(--signal-success);
 }
-
-.receipt-item[data-kind="confirmation"] .receipt-mark { color: var(--warning); }
-.receipt-item[data-kind="duplicate"] .receipt-mark { color: var(--info); }
-
 .receipt-item[data-kind="error"] .receipt-mark {
-  color: var(--danger);
+  color: var(--signal-error);
 }
 
 .receipt-message {
   min-width: 0;
-  font-size: var(--text-sm);
+  font-size: 0.875rem;
   line-height: 1.35;
+  color: var(--ink);
+}
+.receipt-item[data-kind="error"] .receipt-message {
+  color: var(--ink);
 }
 
 .receipt-dismiss {
@@ -90,41 +97,46 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-sm);
   background: transparent;
-  color: var(--ink-tertiary);
+  color: var(--ink-faint);
   font: inherit;
-  font-size: var(--text-lg);
+  font-size: 1.125rem;
   cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
-
 .receipt-dismiss:hover {
-  background: var(--surface-hover);
-  color: var(--ink-primary);
+  background: var(--bg-sunken);
+  color: var(--ink);
 }
-
 .receipt-dismiss:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 1px solid var(--hairline-strong);
   outline-offset: 1px;
 }
 
 @media (max-width: 760px) {
   .receipt-center {
-    right: var(--space-2);
-    bottom: var(--space-2);
-    width: min(22rem, calc(100vw - 2 * var(--space-2)));
+    right: var(--s-2);
+    bottom: var(--s-2);
+    width: min(22rem, calc(100vw - 2 * var(--s-2)));
   }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .receipt-item {
-    animation: receipt-enter var(--duration-base) var(--ease-spring) both;
-  }
-}
-
-@keyframes receipt-enter {
+/* Fast landing micro-motion — the receipt visibly arrives. */
+@keyframes receipt-land {
   from {
     opacity: 0;
-    transform: translateY(5px);
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .receipt-item {
+    animation: none;
   }
 }
