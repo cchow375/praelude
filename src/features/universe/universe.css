@@ -1,0 +1,481 @@
+/*
+ * Universe workspace — the one place in CodaKiller where color lives. The chrome
+ * (header, totals, detail panel) stays pure monochrome on the app tokens; the
+ * <svg> canvas is pure black space against which the piece palettes glow.
+ */
+
+.universe-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  padding: var(--s-5) var(--s-6);
+  color: var(--ink);
+}
+
+.universe-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-5);
+}
+
+.universe-eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.universe-intro h1 {
+  margin: var(--s-1) 0 var(--s-2);
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+.universe-lede {
+  margin: 0 0 var(--s-2);
+  max-width: 54ch;
+  color: var(--ink-dim);
+}
+
+.universe-growth-rule {
+  margin: 0;
+  max-width: 60ch;
+  font-size: 0.85rem;
+  color: var(--ink-faint);
+}
+
+.universe-growth-rule strong {
+  color: var(--ink-dim);
+}
+
+.universe-atlas-cta {
+  flex: none;
+  border: none;
+  border-radius: var(--r-md);
+  padding: var(--s-2) var(--s-4);
+  background: var(--accent-invert-bg);
+  color: var(--accent-invert-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.universe-atlas-cta:active {
+  transform: translateY(1px);
+}
+
+.universe-error {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  padding: var(--s-3) var(--s-4);
+  color: var(--signal-error);
+}
+
+.universe-error button {
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.universe-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-6);
+  color: var(--ink-dim);
+}
+
+.universe-loading-mark {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.universe-loading-mark i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  animation: universe-pulse 1.1s ease-in-out infinite;
+}
+
+.universe-loading-mark i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.universe-loading-mark i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes universe-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.universe-empty-system {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, #2a2a2e, #0a0a0b);
+  border: 1px solid var(--hairline);
+}
+
+.universe-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-5);
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  padding: var(--s-3) 0;
+}
+
+.universe-summary-value {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.universe-summary-value span {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.universe-summary-value strong {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.universe-canvas-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-4);
+  margin-bottom: var(--s-2);
+}
+
+.universe-section-kicker {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.universe-canvas-heading h2 {
+  margin: var(--s-1) 0 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.universe-canvas-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.universe-canvas-controls button {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  min-width: 32px;
+  height: 32px;
+  padding: 0 var(--s-2);
+  background: var(--bg-raised);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.universe-canvas-controls button:active {
+  transform: translateY(1px);
+}
+
+.universe-canvas-controls output {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+  min-width: 44px;
+  text-align: center;
+}
+
+.universe-canvas-help {
+  margin: 0 0 var(--s-3);
+  font-size: 0.82rem;
+  color: var(--ink-faint);
+}
+
+.universe-canvas-and-detail {
+  display: flex;
+  gap: var(--s-4);
+  align-items: stretch;
+}
+
+.universe-canvas-frame {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: #000;
+}
+
+.universe-canvas {
+  display: block;
+  width: 100%;
+  height: min(64vh, 640px);
+  background: #000;
+  touch-action: none;
+  cursor: grab;
+}
+
+.universe-canvas.is-dragging {
+  cursor: grabbing;
+}
+
+.universe-space {
+  fill: transparent;
+}
+
+/* Links --------------------------------------------------------------- */
+
+.universe-link {
+  stroke: rgba(255, 255, 255, 0.14);
+  stroke-width: 1;
+  transition: opacity 120ms ease;
+}
+
+.universe-link.is-dim {
+  opacity: 0.12;
+}
+
+/* Nodes --------------------------------------------------------------- */
+
+.universe-node {
+  cursor: pointer;
+  transition: opacity 140ms ease;
+}
+
+.universe-node.is-dim {
+  opacity: 0.16;
+}
+
+.universe-node.is-lit {
+  opacity: 1;
+}
+
+.universe-node-body {
+  transition: filter 140ms ease;
+}
+
+.universe-node-sun .universe-node-body {
+  filter: drop-shadow(0 0 10px rgba(255, 240, 200, 0.28));
+}
+
+.universe-node-planet .universe-node-body {
+  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.18));
+}
+
+.universe-node.is-selected .universe-node-body {
+  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.45));
+}
+
+.universe-node-halo {
+  fill: none;
+  stroke-width: 1.5;
+  opacity: 0.8;
+}
+
+.universe-node-core {
+  opacity: 0.9;
+}
+
+.universe-node-label {
+  fill: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  paint-order: stroke;
+  stroke: #000;
+  stroke-width: 3px;
+}
+
+.universe-cluster-label {
+  fill: var(--ink-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  paint-order: stroke;
+  stroke: #000;
+  stroke-width: 3px;
+}
+
+/* Detail panel -------------------------------------------------------- */
+
+.universe-detail {
+  flex: 0 0 320px;
+  align-self: flex-start;
+  max-height: min(64vh, 640px);
+  overflow-y: auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  padding: var(--s-4);
+}
+
+.universe-detail-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+
+.universe-detail-swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  margin-top: 3px;
+}
+
+.universe-detail-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.universe-detail-kicker {
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.universe-detail-sub {
+  font-size: 0.82rem;
+  color: var(--ink-dim);
+}
+
+.universe-detail-close {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.universe-detail-close:hover {
+  color: var(--ink);
+}
+
+.universe-detail-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-2) var(--s-3);
+  margin: 0 0 var(--s-3);
+}
+
+.universe-detail-metric dt {
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.universe-detail-metric dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  color: var(--ink);
+}
+
+.universe-detail-note {
+  margin: 0 0 var(--s-3);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+
+.universe-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.universe-detail-action {
+  border: none;
+  border-radius: var(--r-sm);
+  padding: var(--s-2) var(--s-3);
+  background: transparent;
+  color: var(--ink-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.universe-detail-action:hover {
+  color: var(--ink);
+}
+
+.universe-detail-action.is-primary {
+  background: var(--accent-invert-bg);
+  color: var(--accent-invert-ink);
+  font-weight: 600;
+}
+
+.universe-detail-action:active {
+  transform: translateY(1px);
+}
+
+/* Text-equivalent ledger --------------------------------------------- */
+
+.universe-ledger {
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--s-3);
+}
+
+.universe-ledger summary {
+  cursor: pointer;
+  color: var(--ink-dim);
+  font-size: 0.85rem;
+}
+
+.universe-ledger ul {
+  list-style: none;
+  margin: var(--s-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.universe-ledger li {
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+}
+
+.universe-ledger strong {
+  color: var(--ink);
+}
+
+@media (max-width: 900px) {
+  .universe-canvas-and-detail {
+    flex-direction: column;
+  }
+  .universe-detail {
+    flex-basis: auto;
+    width: 100%;
+  }
+}

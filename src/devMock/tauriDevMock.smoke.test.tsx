@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, within, type RenderResult } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  within,
+  type RenderResult,
+} from "@testing-library/react";
 import type { ReactElement } from "react";
 
 // This suite deliberately does NOT mock "@tauri-apps/api/*": it exercises the
@@ -38,13 +44,13 @@ describe("dev-mock five-workspace render harness", () => {
       />,
     );
     // universe_snapshot drives the "Next honest move" card with the recent piece.
-    expect(await screen.findByRole("heading", { name: "Scherzo No. 2" })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Scherzo No. 2" }),
+    ).toBeTruthy();
   });
 
   it("mounts Atlas (Score Atlas piece library) and lists pieces", async () => {
-    renderWorkspace(
-      <PiecesPanel onOpenBlock={async () => {}} />,
-    );
+    renderWorkspace(<PiecesPanel onOpenBlock={async () => {}} />);
     // pieces_list populates the library rows.
     expect(await screen.findByText("Scherzo No. 2")).toBeTruthy();
     expect(screen.getByText("The White Peacock")).toBeTruthy();
@@ -54,7 +60,9 @@ describe("dev-mock five-workspace render harness", () => {
     renderWorkspace(<LedgerWorkspace />);
     // pieces_list fills the index and auto-selects the first piece (title shown
     // in both the index row and the selected-record header).
-    expect((await screen.findAllByText("Scherzo No. 2")).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText("Scherzo No. 2")).length,
+    ).toBeGreaterThan(0);
     // anomalies_list drives the read-only disclosure panel.
     const anomalies = await screen.findByTestId("ledger-anomalies");
     expect(within(anomalies).getByText("3 disclosed")).toBeTruthy();
@@ -69,9 +77,14 @@ describe("dev-mock five-workspace render harness", () => {
     ).toBeTruthy();
   });
 
-  it("mounts Universe and draws a planet for an earned system", async () => {
-    renderWorkspace(<UniverseWorkspace onOpenPractice={() => {}} />);
-    // universe_snapshot with earned signal renders the interactive graph node.
-    expect(await screen.findByTestId("universe-system-1")).toBeTruthy();
+  it("mounts Universe and draws a sun + planet for an earned system", async () => {
+    const { container } = renderWorkspace(
+      <UniverseWorkspace onOpenPractice={() => {}} />,
+    );
+    // universe_snapshot with earned signal renders the live force-graph galaxy:
+    // a sun for the piece and a planet for each earned region.
+    await screen.findByRole("heading", { name: "Your earned systems" });
+    expect(container.querySelector('[data-node-id="piece-1"]')).toBeTruthy();
+    expect(container.querySelector(".universe-node-planet")).toBeTruthy();
   });
 });

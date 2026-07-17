@@ -9,7 +9,7 @@ import {
   type Simulation,
 } from "d3-force";
 import { starRadius, stableIdHash } from "../graphLayout";
-import type { RegionSignal, UniversePiece, UniverseSnapshot } from "../types";
+import type { RegionSignal, UniverseSnapshot } from "../types";
 
 /**
  * The d3-force model behind the Universe galaxy.

@@ -601,7 +601,7 @@ function universeSnapshot(): UniverseSnapshot {
             recovery_resets: 0,
             recovered: false,
             open_recovery_debt: 0,
-            practice_sessions: 4,
+            practice_sessions: 7,
           },
           {
             region_id: 12,

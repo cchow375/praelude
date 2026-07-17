@@ -65,14 +65,11 @@ const WORKSPACES = [
 type WorkspaceId = (typeof WORKSPACES)[number]["id"];
 type View = WorkspaceId | "settings";
 
-function stub(id: WorkspaceId, name: string): ComponentType {
-  return () => <WorkspaceStub id={id} name={name} />;
-}
-
-// Lazy per slot. Today is rendered directly (it needs live props), so its map
-// entry is unused; the others resolve to a stub or the phase's real workspace.
+// Lazy per slot. Today and Universe are rendered directly (they need live
+// props), so their map entries are omitted; the others resolve to a stub or the
+// phase's real workspace.
 const WORKSPACE_COMPONENTS: Record<
-  Exclude<WorkspaceId, "today">,
+  Exclude<WorkspaceId, "today" | "universe">,
   ComponentType
 > = {
   score: lazy(() =>
@@ -92,8 +89,15 @@ const WORKSPACE_COMPONENTS: Record<
       default: m.LedgerCalendarWorkspace,
     })),
   ),
-  universe: lazy(async () => ({ default: stub("universe", "Universe") })),
 };
+
+// The Universe force graph (Phase 7). Lazy like the rest, but mounted with
+// navigation props so its detail panel can jump into Score and the Ledger.
+const UniverseWorkspace = lazy(() =>
+  import("../features/universe/UniverseWorkspace").then((m) => ({
+    default: m.UniverseWorkspace,
+  })),
+);
 
 interface PendingVoiceDraft {
   readonly deliveryKey: string;
@@ -338,8 +342,24 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     setView("score");
   }, []);
 
+  // Universe detail-panel "Open on score" jump: null piece = open Atlas plain.
+  const openFromUniverse = useCallback(
+    (piece: PracticePieceContext | null) => {
+      if (piece) openPiece(piece);
+      else setView("score");
+    },
+    [openPiece],
+  );
+
+  const openLedgerForPiece = useCallback((piece: PracticePieceContext) => {
+    void invoke("piece_select", { pieceId: piece.piece_id }).catch(() => {});
+    setView("ledger");
+  }, []);
+
   const ActiveWorkspace =
-    view === "settings" || view === "today" ? null : WORKSPACE_COMPONENTS[view];
+    view === "settings" || view === "today" || view === "universe"
+      ? null
+      : WORKSPACE_COMPONENTS[view];
 
   return (
     <div className="shell">
@@ -420,6 +440,13 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                 onOpenPiece={openPiece}
                 defaultCleanStreak={defaultCleanStreak}
                 activeBlock={rep.snap}
+              />
+            </div>
+          ) : view === "universe" ? (
+            <div data-testid="workspace-universe">
+              <UniverseWorkspace
+                onOpenPractice={openFromUniverse}
+                onOpenLedger={openLedgerForPiece}
               />
             </div>
           ) : (
