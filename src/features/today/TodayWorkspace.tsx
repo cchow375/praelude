@@ -22,10 +22,11 @@ interface TodayWorkspaceProps {
   activeBlock?: RepSnapshot | null;
 }
 
-
 function messageOf(reason: unknown) {
   if (reason instanceof Error) return reason.message;
-  return typeof reason === "string" ? reason : "Today's practice state could not be loaded.";
+  return typeof reason === "string"
+    ? reason
+    : "Today's practice state could not be loaded.";
 }
 
 function compactDuration(seconds: number) {
@@ -62,8 +63,11 @@ export function TodayWorkspace({
 
   // The composer only mounts while Today is the visible workspace, so its
   // evidence is always current-and-visible here.
-  const { candidates, loading: candidatesLoading, error: candidatesError } =
-    useComposerCandidates({ active: true, asOfDate: todayLocal() });
+  const {
+    candidates,
+    loading: candidatesLoading,
+    error: candidatesError,
+  } = useComposerCandidates({ active: true, asOfDate: todayLocal() });
   const plan = useSessionPlan();
 
   const load = useCallback(async () => {
@@ -85,30 +89,32 @@ export function TodayWorkspace({
 
   const recent = useMemo(() => {
     const pieces = snapshot?.pieces ?? [];
-    return [...pieces].sort((left, right) => {
-      const a = Date.parse(left.last_practiced ?? "") || 0;
-      const b = Date.parse(right.last_practiced ?? "") || 0;
-      return b - a;
-    })[0] ?? null;
+    return (
+      [...pieces].sort((left, right) => {
+        const a = Date.parse(left.last_practiced ?? "") || 0;
+        const b = Date.parse(right.last_practiced ?? "") || 0;
+        return b - a;
+      })[0] ?? null
+    );
   }, [snapshot]);
 
   return (
-    <main
-      className="today-workspace"
-      data-testid="today-workspace"
-    >
+    <main className="today-workspace" data-testid="today-workspace">
       <header className="today-masthead ck-reveal-item">
         <p className="today-date">{todayLabel()}</p>
-        <h1 aria-label="Make one thing reliable.">Make one thing<br /><em>reliable.</em></h1>
-        <p className="today-thesis">
-          You make the musical judgment. CodaKiller keeps the contract, the clock, and the memory.
-        </p>
+        <h1 aria-label="Make one thing reliable.">
+          Make one thing
+          <br />
+          <em>reliable.</em>
+        </h1>
       </header>
 
       {error && (
         <div className="today-error ck-reveal-item" role="alert">
           <span>{error}</span>
-          <button type="button" onClick={() => void load()}>Try again</button>
+          <button type="button" onClick={() => void load()}>
+            Try again
+          </button>
         </div>
       )}
 
@@ -116,71 +122,139 @@ export function TodayWorkspace({
         <article className="today-next ck-reveal-item">
           <p className="ck-kicker">Next honest move</p>
           {loading ? (
-            <p className="today-loading" role="status">Reading the ledger…</p>
+            <p className="today-loading" role="status">
+              Reading the ledger…
+            </p>
           ) : recent ? (
             <>
-              <div className="today-index" aria-hidden="true">01</div>
+              <div className="today-index" aria-hidden="true">
+                01
+              </div>
               <h2>{recent.title}</h2>
-              <p className="today-composer">{recent.composer ?? "Selected repertoire"}</p>
-              <p className="today-copy">
-                Resume from the score. The previous peak stays historical until a new retention check confirms it.
+              <p className="today-composer">
+                {recent.composer ?? "Selected repertoire"}
               </p>
+              <p className="today-copy">Resume from the score.</p>
               <div className="today-actions">
                 <button
                   type="button"
                   className="ck-primary-action"
-                  onClick={() => onOpenPiece({ piece_id: recent.piece_id, title: recent.title })}
+                  onClick={() =>
+                    onOpenPiece({
+                      piece_id: recent.piece_id,
+                      title: recent.title,
+                    })
+                  }
                 >
                   Continue in Atlas <span aria-hidden="true">↗</span>
                 </button>
-                <button type="button" className="ck-text-action" onClick={onOpenAtlas}>Choose another piece</button>
+                <button
+                  type="button"
+                  className="ck-text-action"
+                  onClick={onOpenAtlas}
+                >
+                  Choose another piece
+                </button>
               </div>
             </>
           ) : (
             <>
-              <div className="today-index" aria-hidden="true">01</div>
+              <div className="today-index" aria-hidden="true">
+                01
+              </div>
               <h2>Open the score.</h2>
-              <p className="today-copy">Choose a piece, mark the exact target, and begin with a small explicit contract.</p>
-              <button type="button" className="ck-primary-action" onClick={onOpenAtlas}>
+              <p className="today-copy">
+                Choose a piece, mark the exact target, and begin with a small
+                explicit contract.
+              </p>
+              <button
+                type="button"
+                className="ck-primary-action"
+                onClick={onOpenAtlas}
+              >
                 Open Score Atlas <span aria-hidden="true">↗</span>
               </button>
             </>
           )}
         </article>
 
-        <aside className="today-rule ck-reveal-item" aria-label={`Default contract: ${defaultCleanStreak} clean attempts in a row`}>
+        <aside
+          className="today-rule ck-reveal-item"
+          aria-label={`Default contract: ${defaultCleanStreak} clean attempts in a row`}
+        >
           <p className="ck-kicker">Default contract</p>
-          <p className="today-rule-number" aria-hidden="true">{defaultCleanStreak}</p>
-          <h2 id="today-rule-title">clean attempts<br />in a row</h2>
-          <p>A miss resets the streak. Nothing is erased; recovery is part of the evidence.</p>
+          <p className="today-rule-number" aria-hidden="true">
+            {defaultCleanStreak}
+          </p>
+          <h2 id="today-rule-title">
+            clean attempts
+            <br />
+            in a row
+          </h2>
+          <p>
+            A miss resets the streak. Nothing is erased; recovery is part of the
+            evidence.
+          </p>
         </aside>
 
-        <article className="today-ledger ck-reveal-item" aria-labelledby="today-ledger-title">
+        <article
+          className="today-ledger ck-reveal-item"
+          aria-labelledby="today-ledger-title"
+        >
           <div>
             <p className="ck-kicker">Ledger, not judgment</p>
             <h2 id="today-ledger-title">What the record can prove</h2>
           </div>
           <dl>
-            <div><dt>Focused time</dt><dd>{snapshot ? compactDuration(snapshot.totals.focused_seconds) : "—"}</dd></div>
-            <div><dt>Active days · 28</dt><dd>{snapshot?.totals.active_days_28 ?? "—"}</dd></div>
-            <div><dt>Targets touched</dt><dd>{snapshot?.totals.regions_practiced ?? "—"}</dd></div>
-            <div><dt>Targets revisited</dt><dd>{snapshot?.totals.regions_revisited ?? "—"}</dd></div>
+            <div>
+              <dt>Focused time</dt>
+              <dd>
+                {snapshot
+                  ? compactDuration(snapshot.totals.focused_seconds)
+                  : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>Active days · 28</dt>
+              <dd>{snapshot?.totals.active_days_28 ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Targets touched</dt>
+              <dd>{snapshot?.totals.regions_practiced ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Targets revisited</dt>
+              <dd>{snapshot?.totals.regions_revisited ?? "—"}</dd>
+            </div>
           </dl>
         </article>
 
-        <button type="button" className="today-plan ck-reveal-item" onClick={onOpenCalendar}>
+        <button
+          type="button"
+          className="today-plan ck-reveal-item"
+          onClick={onOpenCalendar}
+        >
           <span className="ck-kicker">Time available?</span>
           <strong>Shape the day</strong>
           <span>Review the Calendar and due work</span>
-          <span className="today-plan-arrow" aria-hidden="true">→</span>
+          <span className="today-plan-arrow" aria-hidden="true">
+            →
+          </span>
         </button>
       </section>
 
-      <section className="today-composer ck-reveal-item" aria-label="Compose a reviewed session">
+      <section
+        className="today-composer ck-reveal-item"
+        aria-label="Compose a reviewed session"
+      >
         {candidatesError ? (
-          <p className="today-composer-note" role="status">{candidatesError}</p>
+          <p className="today-composer-note" role="status">
+            {candidatesError}
+          </p>
         ) : candidatesLoading && candidates.length === 0 ? (
-          <p className="today-composer-note" role="status">Reading explicit retention, repair, and planned work…</p>
+          <p className="today-composer-note" role="status">
+            Reading explicit retention, repair, and planned work…
+          </p>
         ) : (
           <SessionComposer
             candidates={candidates}
@@ -190,25 +264,39 @@ export function TodayWorkspace({
       </section>
 
       {plan.activePlan && (
-        <section className="today-plan-progress ck-reveal-item" aria-label="Active session plan">
+        <section
+          className="today-plan-progress ck-reveal-item"
+          aria-label="Active session plan"
+        >
           <header className="today-plan-progress-head">
             <div>
               <p className="ck-kicker">Active session plan</p>
               <h2>Start each item when you are ready.</h2>
               <p className="today-plan-progress-copy">
-                One live set at a time. The record already holds the started item; nothing else is written until you start it.
+                One live set at a time. The record already holds the started
+                item; nothing else is written until you start it.
               </p>
             </div>
-            <button type="button" className="ck-text-action" onClick={plan.clearPlan}>Dismiss plan</button>
+            <button
+              type="button"
+              className="ck-text-action"
+              onClick={plan.clearPlan}
+            >
+              Dismiss plan
+            </button>
           </header>
           <ol className="today-plan-list">
             {plan.activePlan.plan.sequence.map((item) => {
-              const started = plan.activePlan?.startedSequences.includes(item.sequence) ?? false;
+              const started =
+                plan.activePlan?.startedSequences.includes(item.sequence) ??
+                false;
               const startable = isStartableTargetRef(item.target_ref);
               const busy = plan.startingSequence !== null;
               const blockedByLive = activeBlock != null;
-              const name = item.target_label?.trim() || `Target ${item.target_ref}`;
-              const piece = item.piece_label?.trim() || `Piece ${item.piece_ref}`;
+              const name =
+                item.target_label?.trim() || `Target ${item.target_ref}`;
+              const piece =
+                item.piece_label?.trim() || `Piece ${item.piece_ref}`;
               return (
                 <li
                   key={item.candidate_id}
@@ -221,11 +309,15 @@ export function TodayWorkspace({
                     </span>
                     <div>
                       <h3>{name}</h3>
-                      <p>{piece} · {item.allocated_minutes} min</p>
+                      <p>
+                        {piece} · {item.allocated_minutes} min
+                      </p>
                     </div>
                   </div>
                   {started ? (
-                    <span className="today-plan-status" data-kind="started">Started</span>
+                    <span className="today-plan-status" data-kind="started">
+                      Started
+                    </span>
                   ) : startable ? (
                     <button
                       type="button"
@@ -233,7 +325,9 @@ export function TodayWorkspace({
                       disabled={busy || blockedByLive}
                       onClick={() => void plan.startItem(item.sequence)}
                     >
-                      {plan.startingSequence === item.sequence ? "Starting…" : "Start item"}
+                      {plan.startingSequence === item.sequence
+                        ? "Starting…"
+                        : "Start item"}
                     </button>
                   ) : (
                     <span className="today-plan-status" data-kind="unstartable">
@@ -252,7 +346,10 @@ export function TodayWorkspace({
         </section>
       )}
 
-      <details className="today-retention ck-reveal-item" onToggle={(event) => setRetentionOpen(event.currentTarget.open)}>
+      <details
+        className="today-retention ck-reveal-item"
+        onToggle={(event) => setRetentionOpen(event.currentTarget.open)}
+      >
         <summary>
           <span className="ck-kicker">What survived?</span>
           <strong>Retention checks</strong>

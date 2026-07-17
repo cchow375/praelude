@@ -71,8 +71,24 @@ export function Popover({
 
     // Clamp within the viewport with an 8px margin.
     const margin = 8;
-    left = Math.max(margin, Math.min(left, window.innerWidth - panelWidth - margin));
-    const top = a.bottom + offset;
+    left = Math.max(
+      margin,
+      Math.min(left, window.innerWidth - panelWidth - margin),
+    );
+
+    // Open below the anchor, but flip above when there is no room (the
+    // metronome trigger lives at the BOTTOM of the rail — opening downward
+    // pushed the whole instrument off-screen). If neither side fits, pin to
+    // the viewport bottom; the panel's max-height scrolls internally.
+    const panelHeight = panel.offsetHeight || p.height;
+    let top = a.bottom + offset;
+    if (top + panelHeight > window.innerHeight - margin) {
+      const above = a.top - offset - panelHeight;
+      top =
+        above >= margin
+          ? above
+          : Math.max(margin, window.innerHeight - margin - panelHeight);
+    }
 
     setPos({ top, left });
   }, [anchorRef, align, offset]);

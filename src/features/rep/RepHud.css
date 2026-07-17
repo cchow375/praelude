@@ -64,12 +64,33 @@
   border-radius: var(--r-sm);
   color: var(--ink-dim);
 }
-.rep-hud-state {
+.rep-hud-time {
   margin-left: auto;
-  font-size: 0.6875rem;
-  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+
+/* Compact-by-default: contract + metrics + rare controls fold away. */
+.rep-hud-more > summary {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--ink-faint);
+  cursor: pointer;
+}
+.rep-hud-more[open] > summary {
+  color: var(--ink-dim);
+  margin-bottom: var(--s-3);
+}
+.rep-hud-more > * + * {
+  margin-top: var(--s-3);
+}
+
+.rep-hud-tempo {
+  font-family: var(--font-mono);
+  font-size: 1.0625rem;
+  color: var(--ink-dim);
 }
 
 /* --- Focus contract strip ---------------------------------------------- */
@@ -107,23 +128,16 @@
   color: var(--ink-dim);
 }
 
-/* --- Main: streak + metrics -------------------------------------------- */
+/* --- Main: the streak line (metrics live in the Details fold) ----------- */
 .rep-hud-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
-  gap: var(--s-5);
-  align-items: start;
-}
-@media (max-width: 620px) {
-  .rep-hud-main {
-    grid-template-columns: 1fr;
-  }
+  display: block;
 }
 
 .rep-hud-streak {
   display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2) var(--s-3);
 }
 .rep-hud-streak-label {
   font-size: 0.6875rem;

@@ -51,9 +51,35 @@ export function PdfPage({
   >("idle");
   const [error, setError] = useState<string | null>(null);
 
+  // A page that MOUNTS as a buffered neighbor waits for idle before decoding:
+  // rendering current ±1 simultaneously made heavy scanned editions (multi-MB
+  // image pages) jank the whole tab on open and on every page turn. The
+  // visible page always decodes immediately, and once a neighbor has warmed
+  // its canvas it keeps it (visible⇄buffered transitions never re-defer).
+  const [deferred, setDeferred] = useState(buffered);
+  useEffect(() => {
+    if (!buffered) {
+      setDeferred(false);
+      return;
+    }
+    if (!deferred) return;
+    const win = window as Window & {
+      requestIdleCallback?: (cb: () => void) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (win.requestIdleCallback && win.cancelIdleCallback) {
+      const handle = win.requestIdleCallback(() => setDeferred(false));
+      return () => win.cancelIdleCallback?.(handle);
+    }
+    const timer = window.setTimeout(() => setDeferred(false), 400);
+    return () => window.clearTimeout(timer);
+  }, [buffered, deferred]);
+
+  const shouldRender = active && !deferred;
+
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!active) {
+    if (!shouldRender) {
       taskRef.current?.cancel();
       taskRef.current = null;
       if (canvas) {
@@ -113,7 +139,7 @@ export function PdfPage({
         target.height = 0;
       }
     };
-  }, [active, document, onSize, pageNumber, scale]);
+  }, [shouldRender, document, onSize, pageNumber, scale]);
 
   const displayed = displaySize(size, scale);
 

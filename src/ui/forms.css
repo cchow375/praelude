@@ -1,0 +1,251 @@
+/* ==========================================================================
+   ck-* form kit — shared by every practice/intake form (BlockForm above all).
+   Extracted from Pieces.css so forms render styled wherever they mount (the
+   Score tab's Practice tab shipped unstyled because these rules only loaded
+   with the Pieces chunk). Consumes the global tokens/aliases in
+   src/design/tokens.css. Native select/checkbox chrome is replaced with flat
+   monochrome — no OS gradient buttons anywhere.
+   ========================================================================== */
+
+.block-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+}
+.ck-form-heading {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--ink-primary);
+  margin: 0;
+}
+.ck-form-sub {
+  font-size: var(--text-sm);
+  color: var(--ink-tertiary);
+  margin: calc(-1 * var(--space-2)) 0 0;
+}
+.block-advanced {
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--space-2);
+}
+.block-advanced summary {
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.block-advanced[open] summary {
+  margin-bottom: var(--space-3);
+  color: var(--ink-secondary);
+}
+.block-advanced > .ck-field + .ck-field {
+  margin-top: var(--space-3);
+}
+.ck-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.ck-field > small {
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+.ck-field-grid {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.ck-field-grid > .ck-field {
+  flex: 1 1 8rem;
+}
+.ck-toggle-field {
+  display: flex;
+  flex: 1 1 10rem;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-app);
+  cursor: pointer;
+}
+.ck-toggle-field input {
+  accent-color: var(--ink-primary);
+}
+.ck-toggle-field span {
+  display: flex;
+  flex-direction: column;
+  color: var(--ink-primary);
+  font-size: var(--text-sm);
+}
+.ck-toggle-field small {
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+}
+.ck-label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink-tertiary);
+}
+.ck-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-base);
+  font-family: var(--font-sans);
+  color: var(--ink-primary);
+  background: var(--surface-app);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+.ck-input:focus {
+  outline: none;
+  border-color: var(--hairline-strong);
+}
+/* Native selects render as OS gradient buttons — flatten them. */
+select.ck-input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: calc(var(--space-3) + 18px);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23a1a1aa' stroke-width='1.5' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right var(--space-3) center;
+  cursor: pointer;
+}
+.ck-textarea {
+  height: auto;
+  padding: var(--space-2) var(--space-3);
+  line-height: var(--leading-normal);
+  resize: vertical;
+}
+.ck-input-measures {
+  flex: 0 0 8rem;
+}
+.ck-input-reps {
+  flex: 0 0 5rem;
+}
+.ck-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.ck-row > .ck-input {
+  flex: 1 1 auto;
+}
+.ck-row-remove {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  font-size: var(--text-lg);
+  line-height: 1;
+  color: var(--ink-tertiary);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.ck-row-remove:hover {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+.ck-add {
+  align-self: flex-start;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-secondary);
+  background: transparent;
+  border: none;
+  padding: var(--space-1) 0;
+  cursor: pointer;
+}
+.ck-add:hover {
+  color: var(--ink-primary);
+}
+.ck-add:focus-visible,
+.ck-row-remove:focus-visible {
+  outline: 2px solid var(--hairline-strong);
+  outline-offset: 2px;
+}
+
+.ck-segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--surface-app);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  align-self: flex-start;
+}
+.ck-segment {
+  padding: var(--space-1) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-secondary);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-md) - 3px);
+  cursor: pointer;
+}
+.ck-segment.is-on {
+  background: var(--surface-raised);
+  color: var(--ink-primary);
+}
+.ck-segment:focus-visible {
+  outline: 2px solid var(--hairline-strong);
+  outline-offset: 2px;
+}
+.ck-manual-rule {
+  margin-top: var(--space-1);
+}
+
+/* Primary action: the v3 inverted button (white fill, black text) — the old
+   dark-gray fill read as a dead button. */
+.ck-primary {
+  align-self: flex-start;
+  height: 40px;
+  padding: 0 var(--space-5);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--accent-invert-ink);
+  background: var(--accent-invert-bg);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-spring);
+}
+.ck-primary:hover {
+  opacity: 0.9;
+}
+.ck-primary:active {
+  transform: scale(0.98);
+}
+.ck-primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ck-primary:focus-visible {
+  outline: 2px solid var(--hairline-strong);
+  outline-offset: 2px;
+}
+
+.ck-inline-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: var(--radius-md);
+}

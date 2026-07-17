@@ -12,6 +12,29 @@ function messageOf(reason: unknown): string {
     : "The score library could not be loaded.";
 }
 
+// The piece list sorts alphabetically, which made the heaviest scanned-PDF
+// piece the permanent default. Remember the last piece Christian actually
+// viewed instead; storage failures (private mode etc.) fall back silently.
+const LAST_PIECE_KEY = "codakiller.score.lastPieceId";
+
+function readLastPieceId(): number | null {
+  try {
+    const raw = window.localStorage.getItem(LAST_PIECE_KEY);
+    const id = raw == null ? NaN : Number(raw);
+    return Number.isSafeInteger(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastPieceId(id: number) {
+  try {
+    window.localStorage.setItem(LAST_PIECE_KEY, String(id));
+  } catch {
+    // Best-effort memory only.
+  }
+}
+
 export interface ScoreWorkspaceProps {
   /** Shell's rep.open — without it ScoreView's Practice tab renders nothing. */
   onOpenBlock?: (args: RepOpenArgs) => Promise<void>;
@@ -57,11 +80,14 @@ export function ScoreWorkspace({
       const withPdf = next.filter((piece) => piece.has_pdf);
       const list = withPdf.length > 0 ? withPdf : next;
       setPieces(list);
-      setSelectedId((current) =>
-        current != null && list.some((piece) => piece.id === current)
-          ? current
-          : (list[0]?.id ?? null),
-      );
+      setSelectedId((current) => {
+        if (current != null && list.some((piece) => piece.id === current))
+          return current;
+        const last = readLastPieceId();
+        if (last != null && list.some((piece) => piece.id === last))
+          return last;
+        return list[0]?.id ?? null;
+      });
     } catch (reason) {
       setPieces([]);
       setSelectedId(null);
@@ -92,7 +118,11 @@ export function ScoreWorkspace({
             <select
               aria-label="Choose a piece"
               value={selectedId ?? ""}
-              onChange={(event) => setSelectedId(Number(event.target.value))}
+              onChange={(event) => {
+                const id = Number(event.target.value);
+                setSelectedId(id);
+                writeLastPieceId(id);
+              }}
             >
               {pieces.map((piece) => (
                 <option key={piece.id} value={piece.id}>

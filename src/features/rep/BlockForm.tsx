@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { RepOpenArgs, VariantSpec } from "./useRep";
+import "../../ui/forms.css";
 
 // ---------------------------------------------------------------------------
 // Compose a practice block, then open it. Measures + start/target tempo define
@@ -92,8 +93,7 @@ export function BlockForm({
 
   const setVariant = (i: number, patch: Partial<VariantSpec>) =>
     setVariants((v) => v.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
-  const addVariant = () =>
-    setVariants((v) => [...v, { name: "", reps: 5 }]);
+  const addVariant = () => setVariants((v) => [...v, { name: "", reps: 5 }]);
   const removeVariant = (i: number) =>
     setVariants((v) => v.filter((_, idx) => idx !== i));
 
@@ -105,13 +105,14 @@ export function BlockForm({
       m_start: parseIntOrNull(mStart) ?? 1,
       m_end: parseIntOrNull(mEnd) ?? parseIntOrNull(mStart) ?? 1,
       label: label.trim() === "" ? null : label.trim(),
-      start_bpm: focus === "tempo" || useMetronome ? parseNumOr(startBpm, 60) : null,
+      start_bpm:
+        focus === "tempo" || useMetronome ? parseNumOr(startBpm, 60) : null,
       target_bpm: focus === "tempo" ? parseIntOrNull(targetBpm) : null,
       planned_reps: parseIntOrNull(plannedReps),
       required_clean_streak: Math.max(
         1,
         streakChoice === "custom"
-          ? parseIntOrNull(customStreak) ?? defaultCleanStreak
+          ? (parseIntOrNull(customStreak) ?? defaultCleanStreak)
           : Number(streakChoice),
       ),
       increment:
@@ -157,8 +158,15 @@ export function BlockForm({
           </select>
         </label>
         <label className="ck-toggle-field">
-          <input type="checkbox" aria-label="Use metronome" checked={useMetronome} onChange={(event) => setUseMetronome(event.target.checked)} />
-          <span><strong>Metronome</strong><small>{useMetronome ? "On for this set" : "Off — attempts are still recorded"}</small></span>
+          <input
+            type="checkbox"
+            aria-label="Use metronome"
+            checked={useMetronome}
+            onChange={(event) => setUseMetronome(event.target.checked)}
+          />
+          <span>
+            <strong>Metronome</strong>
+          </span>
         </label>
       </div>
 
@@ -202,37 +210,41 @@ export function BlockForm({
             onChange={(e) => setLabel(e.target.value)}
           />
         </label>
-      ) : (
-        <p className="block-region-lock"><strong>Section:</strong> {defaultLabel}<span>Edit the section title in the row’s Edit tab.</span></p>
-      )}
+      ) : null}
 
-      {(focus === "tempo" || useMetronome) && <div className="ck-field-grid">
-        <label className="ck-field">
-          <span className="ck-label">{focus === "tempo" ? "Start bpm" : "Metronome bpm"}</span>
-          <input
-            className="ck-input"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            value={startBpm}
-            aria-label="Start bpm"
-            onChange={(e) => setStartBpm(e.target.value)}
-          />
-        </label>
-        {focus === "tempo" && <label className="ck-field">
-          <span className="ck-label">Target bpm</span>
-          <input
-            className="ck-input"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            value={targetBpm}
-            placeholder="optional"
-            aria-label="Target bpm"
-            onChange={(e) => setTargetBpm(e.target.value)}
-          />
-        </label>}
-      </div>}
+      {(focus === "tempo" || useMetronome) && (
+        <div className="ck-field-grid">
+          <label className="ck-field">
+            <span className="ck-label">
+              {focus === "tempo" ? "Start bpm" : "Metronome bpm"}
+            </span>
+            <input
+              className="ck-input"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={startBpm}
+              aria-label="Start bpm"
+              onChange={(e) => setStartBpm(e.target.value)}
+            />
+          </label>
+          {focus === "tempo" && (
+            <label className="ck-field">
+              <span className="ck-label">Target bpm</span>
+              <input
+                className="ck-input"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                value={targetBpm}
+                placeholder="optional"
+                aria-label="Target bpm"
+                onChange={(e) => setTargetBpm(e.target.value)}
+              />
+            </label>
+          )}
+        </div>
+      )}
 
       <div className="ck-field-grid">
         <label className="ck-field">
@@ -246,15 +258,14 @@ export function BlockForm({
               setStreakChoice(event.target.value);
             }}
           >
-            <option value="3">3 consecutive cleans</option>
-            <option value="5">5 consecutive cleans</option>
-            <option value="7">7 consecutive cleans</option>
-            <option value="10">10 consecutive cleans</option>
+            <option value="3">3 cleans</option>
+            <option value="5">5 cleans</option>
+            <option value="7">7 cleans</option>
+            <option value="10">10 cleans</option>
             <option value="custom">Custom…</option>
           </select>
-          <small>Mastery requires this streak; total tries do not complete the set.</small>
         </label>
-        {streakChoice === "custom" ? (
+        {streakChoice === "custom" && (
           <label className="ck-field">
             <span className="ck-label">Custom clean streak</span>
             <input
@@ -271,24 +282,11 @@ export function BlockForm({
               }}
             />
           </label>
-        ) : (
-          <label className="ck-field">
-            <span className="ck-label">Attempt review boundary (optional)</span>
-            <input
-              className="ck-input"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              value={plannedReps}
-              placeholder="No boundary"
-              aria-label="Attempt review boundary"
-              onChange={(event) => setPlannedReps(event.target.value)}
-            />
-            <small>At this try count, review whether to continue, change strategy, restart, or close. Attempts remain available; this never proves mastery.</small>
-          </label>
         )}
       </div>
-      {streakChoice === "custom" && (
+
+      <details className="block-advanced">
+        <summary>Advanced</summary>
         <label className="ck-field">
           <span className="ck-label">Attempt review boundary (optional)</span>
           <input
@@ -301,100 +299,107 @@ export function BlockForm({
             aria-label="Attempt review boundary"
             onChange={(event) => setPlannedReps(event.target.value)}
           />
-          <small>At this try count, review whether to continue, change strategy, restart, or close. Attempts remain available; this never proves mastery.</small>
+          <small>
+            At this try count, pause and review — continue, change strategy,
+            restart, or close.
+          </small>
         </label>
-      )}
+        {focus === "tempo" && (
+          <fieldset className="ck-field">
+            <legend className="ck-label">Tempo increment</legend>
+            <div
+              className="ck-segmented"
+              role="radiogroup"
+              aria-label="Increment mode"
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === "auto"}
+                className={`ck-segment ${mode === "auto" ? "is-on" : ""}`}
+                onClick={() => setMode("auto")}
+              >
+                Auto
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === "manual"}
+                className={`ck-segment ${mode === "manual" ? "is-on" : ""}`}
+                onClick={() => setMode("manual")}
+              >
+                Manual
+              </button>
+            </div>
+            {mode === "manual" && (
+              <div className="ck-field-grid ck-manual-rule">
+                <label className="ck-field">
+                  <span className="ck-label">
+                    Clean attempts before tempo step
+                  </span>
+                  <input
+                    className="ck-input"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    value={cleanNeeded}
+                    aria-label="Cleans needed"
+                    onChange={(e) => setCleanNeeded(e.target.value)}
+                  />
+                </label>
+                <label className="ck-field">
+                  <span className="ck-label">Bpm step</span>
+                  <input
+                    className="ck-input"
+                    type="number"
+                    inputMode="numeric"
+                    value={bpmStep}
+                    aria-label="Bpm step"
+                    onChange={(e) => setBpmStep(e.target.value)}
+                  />
+                </label>
+              </div>
+            )}
+          </fieldset>
+        )}
 
-      <details className="block-advanced">
-        <summary>Advanced ladder + variants</summary>
-      {focus === "tempo" && <fieldset className="ck-field">
-        <legend className="ck-label">Tempo increment</legend>
-        <div className="ck-segmented" role="radiogroup" aria-label="Increment mode">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={mode === "auto"}
-            className={`ck-segment ${mode === "auto" ? "is-on" : ""}`}
-            onClick={() => setMode("auto")}
-          >
-            Auto
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={mode === "manual"}
-            className={`ck-segment ${mode === "manual" ? "is-on" : ""}`}
-            onClick={() => setMode("manual")}
-          >
-            Manual
-          </button>
-        </div>
-        {mode === "manual" && (
-          <div className="ck-field-grid ck-manual-rule">
-            <label className="ck-field">
-              <span className="ck-label">Clean attempts before tempo step</span>
+        <fieldset className="ck-field">
+          <legend className="ck-label">Variants (optional)</legend>
+          {variants.map((v, i) => (
+            <div className="ck-row" key={i}>
               <input
                 className="ck-input"
+                type="text"
+                value={v.name}
+                placeholder="hands separate"
+                aria-label={`Variant ${i + 1} name`}
+                onChange={(e) => setVariant(i, { name: e.target.value })}
+              />
+              <input
+                className="ck-input ck-input-reps"
                 type="number"
                 inputMode="numeric"
                 min={1}
-                value={cleanNeeded}
-                aria-label="Cleans needed"
-                onChange={(e) => setCleanNeeded(e.target.value)}
+                value={v.reps}
+                aria-label={`Variant ${i + 1} attempts`}
+                onChange={(e) =>
+                  setVariant(i, { reps: parseIntOrNull(e.target.value) ?? 1 })
+                }
               />
-            </label>
-            <label className="ck-field">
-              <span className="ck-label">Bpm step</span>
-              <input
-                className="ck-input"
-                type="number"
-                inputMode="numeric"
-                value={bpmStep}
-                aria-label="Bpm step"
-                onChange={(e) => setBpmStep(e.target.value)}
-              />
-            </label>
-          </div>
-        )}
-      </fieldset>}
-
-      <fieldset className="ck-field">
-        <legend className="ck-label">Variants (optional)</legend>
-        {variants.map((v, i) => (
-          <div className="ck-row" key={i}>
-            <input
-              className="ck-input"
-              type="text"
-              value={v.name}
-              placeholder="hands separate"
-              aria-label={`Variant ${i + 1} name`}
-              onChange={(e) => setVariant(i, { name: e.target.value })}
-            />
-            <input
-              className="ck-input ck-input-reps"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              value={v.reps}
-              aria-label={`Variant ${i + 1} attempts`}
-              onChange={(e) =>
-                setVariant(i, { reps: parseIntOrNull(e.target.value) ?? 1 })
-              }
-            />
-            <button
-              type="button"
-              className="ck-row-remove"
-              aria-label={`Remove variant ${i + 1}`}
-              onClick={() => removeVariant(i)}
-            >
-              ×
-            </button>
-          </div>
-        ))}
-        <button type="button" className="ck-add" onClick={addVariant}>
-          + Add variant
-        </button>
-      </fieldset>
+              <button
+                type="button"
+                className="ck-row-remove"
+                aria-label={`Remove variant ${i + 1}`}
+                onClick={() => removeVariant(i)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <button type="button" className="ck-add" onClick={addVariant}>
+            + Add variant
+          </button>
+        </fieldset>
       </details>
 
       <button type="submit" className="ck-primary" disabled={opening}>

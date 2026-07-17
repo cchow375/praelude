@@ -129,10 +129,9 @@ export function RepHud({
     };
   }, [snap?.reset_count]);
 
-  useEffect(() => {
-    if (!snap?.last || snap.last.verdict === "clean") return;
-    setRecoveryOpen(true);
-  }, [snap?.last_attempt_id, snap?.last]);
+  // The recovery desk stays closed until the pianist opens it — auto-opening
+  // on every non-clean verdict buried the verdict loop under a wall of
+  // recovery controls (Christian: "clustered with text, impossible to read").
 
   useEffect(() => {
     setReflection(snap?.reflection ?? "");
@@ -313,50 +312,36 @@ export function RepHud({
         {snap.variant && (
           <span className="rep-hud-variant">{snap.variant}</span>
         )}
-        <span className="rep-hud-state">
-          Set state: {snap.set_state ?? "legacy_unverified"}
+        <span className="rep-hud-time">
+          {formatFocusedTime(snap.active_seconds ?? 0)}
+          {paused ? " · paused" : ""}
         </span>
       </div>
-
-      <section className="rep-focus-strip" aria-label="Focus contract">
-        <div>
-          <span>Intention</span>
-          <strong>{snap.intention || "Make one thing more reliable"}</strong>
-        </div>
-        <div>
-          <span>Judge only</span>
-          <strong>{snap.judging_axis || "One chosen criterion"}</strong>
-        </div>
-        <div>
-          <span>Condition</span>
-          <strong>
-            {[snap.hands, snap.method].filter(Boolean).join(" · ") ||
-              "As opened"}
-          </strong>
-        </div>
-        <div className="rep-focus-clock">
-          <span>Focused time</span>
-          <strong>{formatFocusedTime(snap.active_seconds ?? 0)}</strong>
-          <em>{paused ? "Paused" : "Counting"}</em>
-        </div>
-      </section>
 
       <div className="rep-hud-main">
         <div
           className="rep-hud-streak"
           aria-label={`${tempoMastery ? "Mastery proof at target" : "Current clean streak"} ${masteryStreak ?? "unavailable"} of ${requiredStreak ?? "unavailable"}`}
         >
-          <span className="rep-hud-streak-label">
-            {tempoMastery ? "Mastery proof at target" : "Current clean streak"}
-          </span>
           <span className="rep-hud-streak-value">
             <strong>{masteryStreak ?? "—"}</strong>
             <span aria-hidden="true">/</span>
             <span>{requiredStreak ?? "—"}</span>
           </span>
-          <span className={`rep-hud-mastery ${mastered ? "is-satisfied" : ""}`}>
-            {masteryLabel}
-          </span>
+          {snap.focus === "tempo" || snap.use_metronome ? (
+            snap.bpm != null && (
+              <span className="rep-hud-tempo">♩ {snap.bpm}</span>
+            )
+          ) : (
+            <span className="rep-hud-tempo">{snap.focus}</span>
+          )}
+          {(mastered || !verified) && (
+            <span
+              className={`rep-hud-mastery ${mastered ? "is-satisfied" : ""}`}
+            >
+              {masteryLabel}
+            </span>
+          )}
           {(snap.recovery_remaining ?? 0) > 0 && (
             <span className="rep-hud-recovery" role="status">
               Recovery: {snap.recovery_remaining} clean{" "}
@@ -364,49 +349,6 @@ export function RepHud({
             </span>
           )}
         </div>
-
-        <dl className="rep-hud-metrics">
-          <div>
-            <dt>Tries</dt>
-            <dd>{tries}</dd>
-          </div>
-          {tempoMastery && (
-            <div>
-              <dt>Current rung</dt>
-              <dd>
-                {currentStreak ?? "—"}/{snap.rule.clean_needed}
-              </dd>
-            </div>
-          )}
-          <div>
-            <dt>Best streak</dt>
-            <dd>{snap.best_clean_streak ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>Resets</dt>
-            <dd>{snap.reset_count ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>Accuracy</dt>
-            <dd>{accuracy}</dd>
-          </div>
-          <div>
-            <dt>Voided</dt>
-            <dd>{snap.voided_attempts ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>
-              {snap.focus === "tempo" || snap.use_metronome ? "Tempo" : "Focus"}
-            </dt>
-            <dd>
-              {snap.focus === "tempo" || snap.use_metronome
-                ? snap.bpm == null
-                  ? "—"
-                  : `♩ ${snap.bpm}`
-                : snap.focus}
-            </dd>
-          </div>
-        </dl>
       </div>
 
       <div className="rep-hud-entry" aria-busy={busy === "check"}>
@@ -446,49 +388,15 @@ export function RepHud({
             : busy === "resume"
               ? "Resuming…"
               : paused
-                ? "Resume focus"
-                : "Pause focus"}
+                ? "Resume"
+                : "Pause"}
         </button>
         <button
           type="button"
           disabled={busy != null || tries === 0}
           onClick={() => void runUndo()}
         >
-          {busy === "undo" ? "Undoing…" : "Undo last"}
-        </button>
-        <button
-          type="button"
-          disabled={busy != null || snap.last_attempt_id == null}
-          aria-expanded={correcting}
-          onClick={() => setCorrecting((value) => !value)}
-        >
-          Correct latest
-        </button>
-        {lastAdjustmentId != null && (
-          <button
-            type="button"
-            disabled={busy != null}
-            onClick={() => void runReversal()}
-          >
-            {busy === "reverse" ? "Reversing…" : "Reverse latest adjustment"}
-          </button>
-        )}
-        <button
-          ref={restartTriggerRef}
-          type="button"
-          disabled={busy != null}
-          aria-expanded={restartConfirm}
-          onClick={() => setRestartConfirm(true)}
-        >
-          Restart set
-        </button>
-        <button
-          type="button"
-          disabled={busy != null}
-          aria-expanded={reflectionOpen}
-          onClick={() => setReflectionOpen((value) => !value)}
-        >
-          Reflect
+          {busy === "undo" ? "Undoing…" : "Undo"}
         </button>
         <button
           type="button"
@@ -501,18 +409,103 @@ export function RepHud({
         </button>
       </div>
 
-      <button
-        type="button"
-        className="rep-safety-stop"
-        disabled={safetyBusy || paused || snap.set_state !== "active"}
-        onClick={() => void runSafetyStop()}
-      >
-        {safetyBusy
-          ? "Stopping now…"
-          : paused || snap.set_state !== "active"
-            ? "Practice is already stopped"
-            : "Pain, numbness, or weakness — stop"}
-      </button>
+      <details className="rep-hud-more">
+        <summary>Details</summary>
+        <section className="rep-focus-strip" aria-label="Focus contract">
+          <div>
+            <span>Intention</span>
+            <strong>{snap.intention || "Make one thing more reliable"}</strong>
+          </div>
+          <div>
+            <span>Judge only</span>
+            <strong>{snap.judging_axis || "One chosen criterion"}</strong>
+          </div>
+          <div>
+            <span>Condition</span>
+            <strong>
+              {[snap.hands, snap.method].filter(Boolean).join(" · ") ||
+                "As opened"}
+            </strong>
+          </div>
+        </section>
+        <dl className="rep-hud-metrics">
+          <div>
+            <dt>Tries</dt>
+            <dd>{tries}</dd>
+          </div>
+          {tempoMastery && (
+            <div>
+              <dt>Current rung</dt>
+              <dd>
+                {currentStreak ?? "—"}/{snap.rule.clean_needed}
+              </dd>
+            </div>
+          )}
+          <div>
+            <dt>Best streak</dt>
+            <dd>{snap.best_clean_streak ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Resets</dt>
+            <dd>{snap.reset_count ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Accuracy</dt>
+            <dd>{accuracy}</dd>
+          </div>
+          <div>
+            <dt>Voided</dt>
+            <dd>{snap.voided_attempts ?? "—"}</dd>
+          </div>
+        </dl>
+        <div className="rep-hud-tools" aria-label="More set controls">
+          <button
+            type="button"
+            disabled={busy != null || snap.last_attempt_id == null}
+            aria-expanded={correcting}
+            onClick={() => setCorrecting((value) => !value)}
+          >
+            Correct latest
+          </button>
+          {lastAdjustmentId != null && (
+            <button
+              type="button"
+              disabled={busy != null}
+              onClick={() => void runReversal()}
+            >
+              {busy === "reverse" ? "Reversing…" : "Reverse latest adjustment"}
+            </button>
+          )}
+          <button
+            ref={restartTriggerRef}
+            type="button"
+            disabled={busy != null}
+            aria-expanded={restartConfirm}
+            onClick={() => setRestartConfirm(true)}
+          >
+            Restart set
+          </button>
+          <button
+            type="button"
+            disabled={busy != null}
+            aria-expanded={reflectionOpen}
+            onClick={() => setReflectionOpen((value) => !value)}
+          >
+            Reflect
+          </button>
+        </div>
+      </details>
+
+      {!paused && snap.set_state === "active" && (
+        <button
+          type="button"
+          className="rep-safety-stop"
+          disabled={safetyBusy}
+          onClick={() => void runSafetyStop()}
+        >
+          {safetyBusy ? "Stopping now…" : "Pain, numbness, or weakness — stop"}
+        </button>
+      )}
 
       {snap.review_boundary_reached && !mastered && (
         <p className="rep-hud-boundary" role="status">
@@ -560,10 +553,7 @@ export function RepHud({
         open={recoveryOpen}
         onToggle={(event) => setRecoveryOpen(event.currentTarget.open)}
       >
-        <summary>
-          Change the condition{" "}
-          <span>Recovery is strategy, not punishment.</span>
-        </summary>
+        <summary>Change the condition</summary>
         <div className="rep-recovery-quick">
           <button
             type="button"

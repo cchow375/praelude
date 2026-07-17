@@ -1449,16 +1449,9 @@ export function ScoreView({
             className="score-practice-region"
             aria-label="Start a practice set"
           >
-            <div className="score-practice-region-head">
-              <strong>Practice {region.name}</strong>
-              <span>
-                This block stays linked to this section. Change the section
-                itself under Edit.
-              </span>
-            </div>
             {regionBlocks.length > 0 && (
               <ul className="score-region-blocks">
-                {regionBlocks.slice(0, 4).map((block) => {
+                {regionBlocks.slice(0, 2).map((block) => {
                   const attempts =
                     block.attempts_recorded ?? block.tries ?? block.reps_done;
                   const mastery = block.mastery_verified

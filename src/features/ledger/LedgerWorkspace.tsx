@@ -7,7 +7,9 @@ import "./LedgerWorkspace.css";
 
 function messageOf(reason: unknown) {
   if (reason instanceof Error) return reason.message;
-  return typeof reason === "string" ? reason : "The practice ledger could not be loaded.";
+  return typeof reason === "string"
+    ? reason
+    : "The practice ledger could not be loaded.";
 }
 
 /** Global entry to exact set evidence without duplicating ledger semantics. */
@@ -24,9 +26,11 @@ export function LedgerWorkspace() {
       const next = await invoke<PieceSummary[]>("pieces_list");
       const safe = next ?? [];
       setPieces(safe);
-      setSelectedId((current) => current != null && safe.some((piece) => piece.id === current)
-        ? current
-        : safe[0]?.id ?? null);
+      setSelectedId((current) =>
+        current != null && safe.some((piece) => piece.id === current)
+          ? current
+          : (safe[0]?.id ?? null),
+      );
     } catch (reason) {
       setPieces([]);
       setSelectedId(null);
@@ -43,19 +47,19 @@ export function LedgerWorkspace() {
   const selected = pieces.find((piece) => piece.id === selectedId) ?? null;
 
   return (
-    <main
-      className="ledger-workspace"
-      data-testid="ledger-workspace"
-    >
+    <main className="ledger-workspace" data-testid="ledger-workspace">
       <header className="ledger-masthead ck-reveal-item">
         <div>
           <p className="ck-kicker">Immutable practice evidence</p>
           <h1>Ledger</h1>
         </div>
-        <p>Attempts stay attempts. Corrections are linked events. A reset never erases what happened.</p>
       </header>
 
-      {error && <p className="ledger-error" role="alert">{error}</p>}
+      {error && (
+        <p className="ledger-error" role="alert">
+          {error}
+        </p>
+      )}
 
       <div className="ledger-layout ck-reveal-item">
         <aside className="ledger-piece-index" aria-label="Pieces in ledger">
@@ -78,7 +82,10 @@ export function LedgerWorkspace() {
                     onClick={() => setSelectedId(piece.id)}
                   >
                     <span>{String(index + 1).padStart(2, "0")}</span>
-                    <span><strong>{piece.title}</strong>{piece.composer && <small>{piece.composer}</small>}</span>
+                    <span>
+                      <strong>{piece.title}</strong>
+                      {piece.composer && <small>{piece.composer}</small>}
+                    </span>
                     <span aria-hidden="true">→</span>
                   </button>
                 </li>
@@ -87,7 +94,14 @@ export function LedgerWorkspace() {
           )}
         </aside>
 
-        <section className="ledger-record" aria-label={selected ? `${selected.title} practice evidence` : "Practice evidence"}>
+        <section
+          className="ledger-record"
+          aria-label={
+            selected
+              ? `${selected.title} practice evidence`
+              : "Practice evidence"
+          }
+        >
           {selected ? (
             <>
               <header>
@@ -98,7 +112,9 @@ export function LedgerWorkspace() {
               <HistoryPanel pieceId={selected.id} />
             </>
           ) : !loading ? (
-            <div className="ledger-empty"><p>Select a piece to inspect its exact sets and attempts.</p></div>
+            <div className="ledger-empty">
+              <p>Select a piece to inspect its exact sets and attempts.</p>
+            </div>
           ) : null}
         </section>
       </div>

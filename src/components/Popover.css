@@ -3,8 +3,11 @@
   z-index: 100;
   min-width: 220px;
   max-width: min(92vw, 420px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   padding: var(--space-3);
   background: var(--surface-popover);
+  border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-popover);
   color: var(--ink-primary);

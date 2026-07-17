@@ -615,9 +615,9 @@ describe("ScoreView", () => {
       (screen.getByLabelText("To measure") as HTMLInputElement).value,
     ).toBe("58");
     expect(screen.queryByText("Block label (optional)")).toBeNull();
-    expect(
-      screen.getByText("LH leap", { selector: ".block-region-lock" }),
-    ).toBeTruthy();
+    // The section-lock explainer line was cut in the declutter pass — a
+    // region-bound form simply shows no label field at all.
+    expect(document.querySelector(".block-region-lock")).toBeNull();
   });
 
   it("opens practice reps from the selected score section with its canonical Region id", async () => {
@@ -851,9 +851,13 @@ describe("ScoreView", () => {
 
     await screen.findByLabelText("Score page 1");
     // Default paged view: current page + one buffered neighbor mount canvases;
-    // never the whole 5-page strip.
+    // never the whole 5-page strip. The visible page decodes first — the
+    // neighbor warms up only after idle (heavy-scan jank fix).
+    expect(pdf.getPage.mock.calls[0][0]).toBe(1);
     await waitFor(() =>
-      expect(pdf.getPage.mock.calls.map((call) => call[0])).toEqual([1, 2]),
+      expect(new Set(pdf.getPage.mock.calls.map((call) => call[0]))).toEqual(
+        new Set([1, 2]),
+      ),
     );
     expect(screen.getAllByLabelText(/^Score page \d+$/)).toHaveLength(2);
     const firstCanvas = screen.getByLabelText(

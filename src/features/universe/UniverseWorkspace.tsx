@@ -522,15 +522,6 @@ export function UniverseWorkspace({
         <div>
           <p className="universe-eyebrow">Earned practice evidence</p>
           <h1 id="universe-title">Practice Universe</h1>
-          <p className="universe-lede">
-            A living map of where your attention has gone — draggable, zoomable,
-            clickable. Not a score, rank, or judgment of the music.
-          </p>
-          <p className="universe-growth-rule">
-            <strong>Growth rule.</strong> A system’s size comes only from
-            focused time after idle removal. Clean clicks alone never make a
-            system larger.
-          </p>
         </div>
         <button
           type="button"
@@ -644,8 +635,7 @@ export function UniverseWorkspace({
               </div>
             </div>
             <p id="universe-canvas-help" className="universe-canvas-help">
-              Drag a node to move it; drag empty space to pan; scroll or pinch
-              to zoom. Hover to focus a system; click a node for its detail.
+              Drag · pan · zoom · click a system for detail
             </p>
 
             <div className="universe-canvas-and-detail">

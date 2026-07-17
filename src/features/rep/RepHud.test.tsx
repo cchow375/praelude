@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { formatFocusedTime, RepHud } from "./RepHud";
 import type { RepSnapshot } from "./useRep";
 
@@ -88,9 +95,13 @@ describe("RepHud", () => {
     );
     expect(screen.getByText("Gymnopédie No. 1")).toBeTruthy();
     expect(screen.getByText("mm. 1–8")).toBeTruthy();
-    expect(screen.getByLabelText("Mastery proof at target 0 of 5")).toBeTruthy();
+    expect(
+      screen.getByLabelText("Mastery proof at target 0 of 5"),
+    ).toBeTruthy();
     expect(screen.getByText("2/3")).toBeTruthy();
-    expect(screen.getByText("Mastery not yet satisfied")).toBeTruthy();
+    // Unsatisfied-mastery copy no longer renders by default — the compact HUD
+    // shows mastery text only when verified-satisfied or unverified.
+    expect(screen.queryByText("Mastery not yet satisfied")).toBeNull();
     expect(screen.getByText("75%")).toBeTruthy();
     expect(screen.getByText("hands separate")).toBeTruthy();
     expect(screen.queryByText("4/30")).toBeNull();
@@ -118,7 +129,11 @@ describe("RepHud", () => {
       />,
     );
     expect(screen.getByText("Mastery unverified")).toBeTruthy();
-    expect(screen.getByLabelText("Mastery proof at target unavailable of unavailable")).toBeTruthy();
+    expect(
+      screen.getByLabelText(
+        "Mastery proof at target unavailable of unavailable",
+      ),
+    ).toBeTruthy();
     expect(screen.queryByText("Mastery verified")).toBeNull();
   });
 
@@ -128,12 +143,24 @@ describe("RepHud", () => {
     const note = screen.getByLabelText("Attempt note") as HTMLInputElement;
     fireEvent.change(note, { target: { value: "dragged the trill" } });
     fireEvent.click(screen.getByRole("button", { name: "Clean" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Sloppy" }).hasAttribute("disabled")).toBe(false));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Sloppy" }).hasAttribute("disabled"),
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Sloppy" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Again" }).hasAttribute("disabled")).toBe(false));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Again" }).hasAttribute("disabled"),
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Again" }));
     await waitFor(() => expect(handlers.onCheck).toHaveBeenCalledTimes(3));
-    expect(handlers.onCheck).toHaveBeenNthCalledWith(1, "clean", "dragged the trill");
+    expect(handlers.onCheck).toHaveBeenNthCalledWith(
+      1,
+      "clean",
+      "dragged the trill",
+    );
     expect(handlers.onCheck).toHaveBeenNthCalledWith(2, "flawed", null);
     expect(handlers.onCheck).toHaveBeenNthCalledWith(3, "failed", null);
     expect(note.value).toBe("");
@@ -141,7 +168,9 @@ describe("RepHud", () => {
 
   it("serializes overlapping HUD verdicts so a later check cannot suppress an earlier rung retune", async () => {
     let resolveFirst: () => void = () => undefined;
-    const first = new Promise<void>((resolve) => { resolveFirst = resolve; });
+    const first = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
     const handlers = callbacks();
     handlers.onCheck.mockImplementationOnce(() => first);
     render(<RepHud snap={makeSnap()} feed={[]} error={null} {...handlers} />);
@@ -150,24 +179,36 @@ describe("RepHud", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sloppy" }));
 
     expect(handlers.onCheck).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "Sloppy" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getByLabelText("Attempt note").hasAttribute("disabled")).toBe(true);
+    expect(
+      screen.getByRole("button", { name: "Sloppy" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(screen.getByLabelText("Attempt note").hasAttribute("disabled")).toBe(
+      true,
+    );
 
     resolveFirst();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Sloppy" }).hasAttribute("disabled")).toBe(false));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Sloppy" }).hasAttribute("disabled"),
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Sloppy" }));
     await waitFor(() => expect(handlers.onCheck).toHaveBeenCalledTimes(2));
   });
 
   it("keeps the safety stop available while another practice mutation is pending", async () => {
     let resolveCheck: () => void = () => undefined;
-    const pending = new Promise<void>((resolve) => { resolveCheck = resolve; });
+    const pending = new Promise<void>((resolve) => {
+      resolveCheck = resolve;
+    });
     const handlers = callbacks();
     handlers.onCheck.mockImplementationOnce(() => pending);
     render(<RepHud snap={makeSnap()} feed={[]} error={null} {...handlers} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Clean" }));
-    const safety = screen.getByRole("button", { name: "Pain, numbness, or weakness — stop" });
+    const safety = screen.getByRole("button", {
+      name: "Pain, numbness, or weakness — stop",
+    });
     expect(safety.hasAttribute("disabled")).toBe(false);
     fireEvent.click(safety);
 
@@ -178,7 +219,9 @@ describe("RepHud", () => {
 
   it("restores the attempt note after a rejected save and keeps Close out of the mutation race", async () => {
     let rejectCheck: (cause: Error) => void = () => undefined;
-    const pending = new Promise<void>((_resolve, reject) => { rejectCheck = reject; });
+    const pending = new Promise<void>((_resolve, reject) => {
+      rejectCheck = reject;
+    });
     const handlers = callbacks();
     handlers.onCheck.mockImplementationOnce(() => pending);
     render(<RepHud snap={makeSnap()} feed={[]} error={null} {...handlers} />);
@@ -186,11 +229,19 @@ describe("RepHud", () => {
     fireEvent.change(note, { target: { value: "keep this evidence" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Clean" }));
-    expect(screen.getByRole("button", { name: "Close practice set" }).hasAttribute("disabled")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Close practice set" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
     rejectCheck(new Error("write rejected"));
 
     await waitFor(() => expect(note.value).toBe("keep this evidence"));
-    expect(screen.getByRole("button", { name: "Close practice set" }).hasAttribute("disabled")).toBe(false);
+    expect(
+      screen
+        .getByRole("button", { name: "Close practice set" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
   });
 
   it("makes verified mastery unmistakable and blocks extra verdicts", () => {
@@ -209,21 +260,37 @@ describe("RepHud", () => {
       />,
     );
     expect(screen.getByText("Mastery verified")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Clean" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getByRole("button", { name: "Restart set" }).hasAttribute("disabled")).toBe(false);
+    expect(
+      screen.getByRole("button", { name: "Clean" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Restart set" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
   });
 
   it("undoes without optimistic state and corrects the latest attempt", async () => {
     const handlers = callbacks();
     render(<RepHud snap={makeSnap()} feed={[]} error={null} {...handlers} />);
-    fireEvent.click(screen.getByRole("button", { name: "Undo last" }));
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(() => expect(handlers.onUndo).toHaveBeenCalledTimes(1));
 
     fireEvent.click(screen.getByRole("button", { name: "Correct latest" }));
-    fireEvent.change(screen.getByLabelText("Corrected verdict"), { target: { value: "clean" } });
-    fireEvent.change(screen.getByLabelText("Corrected note"), { target: { value: "steady now" } });
+    fireEvent.change(screen.getByLabelText("Corrected verdict"), {
+      target: { value: "clean" },
+    });
+    fireEvent.change(screen.getByLabelText("Corrected note"), {
+      target: { value: "steady now" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save correction" }));
-    await waitFor(() => expect(handlers.onCorrect).toHaveBeenCalledWith(44, "clean", "steady now"));
+    await waitFor(() =>
+      expect(handlers.onCorrect).toHaveBeenCalledWith(
+        44,
+        "clean",
+        "steady now",
+      ),
+    );
   });
 
   it("offers append-only reversal for the latest active adjustment", async () => {
@@ -237,8 +304,12 @@ describe("RepHud", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Reverse latest adjustment" }));
-    await waitFor(() => expect(handlers.onReverseAdjustment).toHaveBeenCalledWith(19));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reverse latest adjustment" }),
+    );
+    await waitFor(() =>
+      expect(handlers.onReverseAdjustment).toHaveBeenCalledWith(19),
+    );
     expect(document.body.textContent).not.toContain("19");
   });
 
@@ -246,9 +317,15 @@ describe("RepHud", () => {
     const handlers = callbacks();
     render(<RepHud snap={makeSnap()} feed={[]} error={null} {...handlers} />);
     fireEvent.click(screen.getByRole("button", { name: "Restart set" }));
-    expect(screen.getByRole("group", { name: "Restart this set?" }).textContent).toContain("marked restarted");
-    expect(screen.getByRole("group", { name: "Restart this set?" }).textContent).toContain("attempts stay in history");
-    expect(document.activeElement).toBe(screen.getAllByRole("button", { name: "Restart set" })[1]);
+    expect(
+      screen.getByRole("group", { name: "Restart this set?" }).textContent,
+    ).toContain("marked restarted");
+    expect(
+      screen.getByRole("group", { name: "Restart this set?" }).textContent,
+    ).toContain("attempts stay in history");
+    expect(document.activeElement).toBe(
+      screen.getAllByRole("button", { name: "Restart set" })[1],
+    );
     fireEvent.click(screen.getAllByRole("button", { name: "Restart set" })[1]);
     await waitFor(() => expect(handlers.onRestart).toHaveBeenCalledWith(5));
   });
@@ -257,7 +334,12 @@ describe("RepHud", () => {
     const handlers = callbacks();
     const { rerender } = render(
       <RepHud
-        snap={makeSnap({ timer_state: "active", active_seconds: 125, intention: "Even release", judging_axis: "pulse" })}
+        snap={makeSnap({
+          timer_state: "active",
+          active_seconds: 125,
+          intention: "Even release",
+          judging_axis: "pulse",
+        })}
         feed={[]}
         error={null}
         {...handlers}
@@ -266,23 +348,31 @@ describe("RepHud", () => {
 
     expect(screen.getByText("2:05")).toBeTruthy();
     expect(screen.getByText("Even release")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Pause focus" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
     await waitFor(() => expect(handlers.onPause).toHaveBeenCalledTimes(1));
 
     rerender(
       <RepHud
-        snap={makeSnap({ timer_state: "paused", set_state: "paused", active_seconds: 125 })}
+        snap={makeSnap({
+          timer_state: "paused",
+          set_state: "paused",
+          active_seconds: 125,
+        })}
         feed={[]}
         error={null}
         {...handlers}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Resume focus" }));
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
     await waitFor(() => expect(handlers.onResume).toHaveBeenCalledTimes(1));
 
     rerender(
       <RepHud
-        snap={makeSnap({ timer_state: "active", set_state: "active", active_seconds: 125 })}
+        snap={makeSnap({
+          timer_state: "active",
+          set_state: "active",
+          active_seconds: 125,
+        })}
         feed={[]}
         error={null}
         {...handlers}
@@ -290,21 +380,38 @@ describe("RepHud", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Reflect" }));
-    fireEvent.change(screen.getByLabelText("What changed? Keep it short and observable."), { target: { value: "Pulse stayed even below 72." } });
+    fireEvent.change(
+      screen.getByLabelText("What changed? Keep it short and observable."),
+      { target: { value: "Pulse stayed even below 72." } },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Save reflection" }));
-    await waitFor(() => expect(handlers.onReflect).toHaveBeenCalledWith("Pulse stayed even below 72."));
+    await waitFor(() =>
+      expect(handlers.onReflect).toHaveBeenCalledWith(
+        "Pulse stayed even below 72.",
+      ),
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Pain, numbness, or weakness — stop" }));
-    await waitFor(() => expect(handlers.onSafetyStop).toHaveBeenCalledWith(
-      "Pain, numbness, or weakness reported by the pianist.",
-    ));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Pain, numbness, or weakness — stop",
+      }),
+    );
+    await waitFor(() =>
+      expect(handlers.onSafetyStop).toHaveBeenCalledWith(
+        "Pain, numbness, or weakness reported by the pianist.",
+      ),
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Add 2 recovery cleans" }));
-    await waitFor(() => expect(handlers.onRecover).toHaveBeenCalledWith({
-      kind: "clean_debt",
-      clean_count: 2,
-      rationale: "Pianist chose two additional recovery cleans.",
-    }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add 2 recovery cleans" }),
+    );
+    await waitFor(() =>
+      expect(handlers.onRecover).toHaveBeenCalledWith({
+        kind: "clean_debt",
+        clean_count: 2,
+        rationale: "Pianist chose two additional recovery cleans.",
+      }),
+    );
   });
 
   it("shows a review boundary without calling the set complete", () => {
@@ -317,7 +424,9 @@ describe("RepHud", () => {
       />,
     );
     const prompt = screen.getByText(/Review boundary reached/);
-    expect(prompt.textContent).toContain("continue, change strategy, restart, or close");
+    expect(prompt.textContent).toContain(
+      "continue, change strategy, restart, or close",
+    );
     expect(prompt.textContent?.toLowerCase()).not.toContain("complete");
   });
 
@@ -364,6 +473,7 @@ describe("RepHud", () => {
       />,
     );
     expect(document.body.textContent).not.toContain("♩ null");
-    expect(screen.getByText("—")).toBeTruthy();
+    // A null tempo renders no tempo chip at all in the compact HUD.
+    expect(document.body.textContent).not.toContain("♩");
   });
 });

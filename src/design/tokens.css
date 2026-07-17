@@ -47,6 +47,77 @@
   --dur-slow: 180ms;
 }
 
+/* --------------------------------------------------------------------------
+   Legacy token vocabulary, aliased GLOBALLY. Several v1/v2-era stylesheets
+   (Popover, FloatingPanel, the ck-* form kit, Pieces, Metronome) consume these
+   names. Phase 8.1 aliased them per-scope (.pieces-view, .metro, …), which
+   left any consumer mounted OUTSIDE an aliased scope transparent/unstyled —
+   the invisible metronome popover and the raw practice form in the Score tab.
+   Defining the full set once at :root retires that bug class; the per-scope
+   blocks remain as harmless duplicates.
+   -------------------------------------------------------------------------- */
+:root,
+:root[data-theme="dark"] {
+  --ink-primary: var(--ink);
+  --ink-secondary: var(--ink-dim);
+  --ink-tertiary: var(--ink-faint);
+  --ink-on-dark: var(--ink);
+  --accent: #2a2a30;
+  --accent-hover: #34343c;
+  --accent-contrast: var(--ink);
+  --danger: var(--signal-error);
+  --success: var(--signal-success);
+  --warning: var(--ink-dim);
+  --info: var(--ink-dim);
+  --surface-app: var(--bg);
+  --surface-raised: var(--bg-raised);
+  --surface-hover: rgba(255, 255, 255, 0.05);
+  --surface-active: rgba(255, 255, 255, 0.09);
+  --surface-ink: #2a2a30;
+  --surface-popover: #1c1c20;
+  --shadow-popover: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--hairline);
+  --shadow-card: none;
+  --shadow-topbar: none;
+  --font-display: var(--font-sans);
+  --radius-xs: 4px;
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-pill: 999px;
+  --space-1: var(--s-1);
+  --space-2: var(--s-2);
+  --space-3: var(--s-3);
+  --space-4: var(--s-4);
+  --space-5: var(--s-5);
+  --space-6: 32px;
+  --space-7: var(--s-6);
+  --space-8: 56px;
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-hero: 2rem;
+  --weight-normal: 400;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --tracking-tight: -0.01em;
+  --tracking-label: 0.04em;
+  --region-color: var(--ink-faint);
+  --duration-fast: var(--dur-fast);
+  --duration-base: var(--dur-base);
+  --duration-slow: var(--dur-slow);
+  --ease-standard: var(--ease-out);
+  --ease-human: var(--ease-out);
+  --ease-spring: var(--ease-out);
+}
+
 body {
   background: var(--bg);
   color: var(--ink);
