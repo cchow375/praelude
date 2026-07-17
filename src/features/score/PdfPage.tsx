@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { cappedDevicePixelRatio, DEFAULT_PAGE_SIZE, displaySize } from "./geometry";
+import {
+  cappedDevicePixelRatio,
+  DEFAULT_PAGE_SIZE,
+  displaySize,
+} from "./geometry";
 import type { PdfDocumentHandle, PdfPageSize, PdfRenderTask } from "./types";
 
 interface PdfPageProps {
@@ -7,6 +11,12 @@ interface PdfPageProps {
   pageNumber: number;
   active: boolean;
   scale: number;
+  /**
+   * A mounted-but-not-shown neighbor: its canvas still renders (so paging to it
+   * is instant), but it is lifted out of layout and hidden. The paged viewer
+   * keeps only the current page in flow and buffers ±1 like this.
+   */
+  buffered?: boolean;
   onSize?: (pageNumber: number, size: PdfPageSize) => void;
   children?: ReactNode;
 }
@@ -18,16 +28,27 @@ function messageOf(error: unknown): string {
 function isCancelled(error: unknown): boolean {
   return (
     error instanceof Error &&
-    (error.name === "RenderingCancelledException" || /cancel/i.test(error.message))
+    (error.name === "RenderingCancelledException" ||
+      /cancel/i.test(error.message))
   );
 }
 
 /** One persistent page placeholder whose canvas exists only near the viewport. */
-export function PdfPage({ document, pageNumber, active, scale, onSize, children }: PdfPageProps) {
+export function PdfPage({
+  document,
+  pageNumber,
+  active,
+  scale,
+  buffered = false,
+  onSize,
+  children,
+}: PdfPageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const taskRef = useRef<PdfRenderTask | null>(null);
   const [size, setSize] = useState<PdfPageSize>(DEFAULT_PAGE_SIZE);
-  const [status, setStatus] = useState<"idle" | "rendering" | "ready" | "error">("idle");
+  const [status, setStatus] = useState<
+    "idle" | "rendering" | "ready" | "error"
+  >("idle");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -98,15 +119,28 @@ export function PdfPage({ document, pageNumber, active, scale, onSize, children 
 
   return (
     <section
-      className={`pdf-page is-${status}`}
+      className={`pdf-page is-${status} ${buffered ? "is-buffered" : ""}`}
       data-page-number={pageNumber}
+      data-buffered={buffered ? "true" : undefined}
+      aria-hidden={buffered ? "true" : undefined}
       aria-label={`Score page ${pageNumber}`}
       style={{ width: displayed.width, height: displayed.height }}
     >
-      <canvas ref={canvasRef} aria-label={`Rendered score page ${pageNumber}`} />
-      {status === "rendering" && <span className="pdf-page-loading">Rendering page {pageNumber}…</span>}
-      {status === "error" && <span className="pdf-page-error">Page {pageNumber}: {error}</span>}
-      <span className="pdf-page-number" aria-hidden="true">{pageNumber}</span>
+      <canvas
+        ref={canvasRef}
+        aria-label={`Rendered score page ${pageNumber}`}
+      />
+      {status === "rendering" && (
+        <span className="pdf-page-loading">Rendering page {pageNumber}…</span>
+      )}
+      {status === "error" && (
+        <span className="pdf-page-error">
+          Page {pageNumber}: {error}
+        </span>
+      )}
+      <span className="pdf-page-number" aria-hidden="true">
+        {pageNumber}
+      </span>
       {children}
     </section>
   );

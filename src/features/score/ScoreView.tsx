@@ -46,7 +46,6 @@ import {
   DEFAULT_PAGE_SIZE,
   fitPageScale,
   fitWidthScale,
-  renderWindow,
 } from "./geometry";
 import type {
   PdfAdapter,
@@ -277,10 +276,6 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function samePages(a: Set<number>, b: Set<number>): boolean {
-  return a.size === b.size && [...a].every((page) => b.has(page));
-}
-
 function overlaps(
   region: Region,
   range: { m_start: number; m_end: number } | null | undefined,
@@ -402,7 +397,6 @@ export function ScoreView({
   const crud = useCrud();
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageSizesRef = useRef(new Map<number, PdfPageSize>());
-  const intersectionRatios = useRef(new Map<number, number>());
   const graphGeneration = useRef(0);
   const scoreMountedRef = useRef(false);
   const targetSaveGenerationRef = useRef(0);
@@ -429,13 +423,12 @@ export function ScoreView({
   const [mapping, setMapping] = useState<MappingDraft | null>(null);
   const [savingMap, setSavingMap] = useState(false);
   const [navigationNotice, setNavigationNotice] = useState<string | null>(null);
-  const [visiblePages, setVisiblePages] = useState<Set<number>>(
-    () => new Set([1]),
-  );
   const [currentPage, setCurrentPage] = useState(1);
   const [pageDraft, setPageDraft] = useState("1");
   const [manualZoom, setManualZoom] = useState(1);
-  const [scaleMode, setScaleMode] = useState<ScoreScaleMode>("width");
+  // Default to one whole page in view: a true PDF-viewer feel, not a 25-page
+  // strip. Fit-width/manual zoom still overflow into a within-page scroll.
+  const [scaleMode, setScaleMode] = useState<ScoreScaleMode>("page");
   const [sectionsVisible, setSectionsVisible] = useState(true);
   const [containerWidth, setContainerWidth] = useState(900);
   const [containerHeight, setContainerHeight] = useState(700);
@@ -572,10 +565,8 @@ export function ScoreView({
     setError(null);
     setDocument(null);
     setMapping(null);
-    setVisiblePages(new Set([1]));
     setCurrentPage(1);
     setPageDraft("1");
-    intersectionRatios.current.clear();
     pageSizesRef.current.clear();
     setMaxPageWidth(DEFAULT_PAGE_SIZE.width);
     setMaxPageHeight(DEFAULT_PAGE_SIZE.height);
@@ -618,53 +609,26 @@ export function ScoreView({
     return () => observer.disconnect();
   }, [phase]);
 
-  useEffect(() => {
-    const root = scrollRef.current;
-    if (
-      !document ||
-      phase !== "ready" ||
-      !root ||
-      typeof IntersectionObserver === "undefined"
-    )
-      return;
-    intersectionRatios.current.clear();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const page = Number((entry.target as HTMLElement).dataset.pageNumber);
-          if (Number.isInteger(page)) {
-            intersectionRatios.current.set(
-              page,
-              entry.isIntersecting ? entry.intersectionRatio : 0,
-            );
-          }
-        }
-        const ranked = [...intersectionRatios.current.entries()]
-          .filter(([, ratio]) => ratio > 0)
-          .sort((a, b) => b[1] - a[1] || a[0] - b[0]);
-        const next = new Set(ranked.map(([page]) => page));
-        if (ranked[0]) {
-          setCurrentPage(ranked[0][0]);
-          setPageDraft(String(ranked[0][0]));
-        }
-        if (next.size > 0)
-          setVisiblePages((previous) =>
-            samePages(previous, next) ? previous : next,
-          );
-      },
-      { root, threshold: [0, 0.05, 0.25, 0.5, 0.75] },
-    );
-    root
-      .querySelectorAll<HTMLElement>("[data-page-number]")
-      .forEach((page) => observer.observe(page));
-    return () => observer.disconnect();
-  }, [document, phase]);
-
   const pageCount = document?.numPages ?? 0;
-  const activePages = useMemo(
-    () => renderWindow(visiblePages, pageCount),
-    [pageCount, visiblePages],
-  );
+  // A true pager: one page is in view (two side-by-side in 2-page view). Only
+  // those plus one buffered neighbor each side ever mount a canvas — on a
+  // 25-page score at most three canvases exist, and the rest are unmounted.
+  const visiblePageList = useMemo(() => {
+    if (pageCount < 1) return [] as number[];
+    const anchor = Math.min(Math.max(1, currentPage), pageCount);
+    if (scaleMode === "overview" && anchor + 1 <= pageCount) {
+      return [anchor, anchor + 1];
+    }
+    return [anchor];
+  }, [currentPage, pageCount, scaleMode]);
+  const mountedPages = useMemo(() => {
+    const mounted = new Set<number>(visiblePageList);
+    for (const page of visiblePageList) {
+      if (page - 1 >= 1) mounted.add(page - 1);
+      if (page + 1 <= pageCount) mounted.add(page + 1);
+    }
+    return [...mounted].sort((a, b) => a - b);
+  }, [pageCount, visiblePageList]);
   const scale =
     scaleMode === "width"
       ? fitWidthScale(containerWidth, maxPageWidth, 40)
@@ -957,17 +921,44 @@ export function ScoreView({
       );
       setCurrentPage(page);
       setPageDraft(String(page));
-      setVisiblePages(new Set([page]));
-      const root = scrollRef.current;
-      const target = root?.querySelector<HTMLElement>(
-        `[data-page-number="${page}"]`,
-      );
-      if (page !== currentPage && root && target) {
-        root.scrollTo?.({ top: target.offsetTop, behavior: "smooth" });
-      }
+      // Paging swaps which page is mounted, so reset any within-page scroll
+      // (a zoomed page can overflow) back to the top of the new page.
+      scrollRef.current?.scrollTo?.({ top: 0, left: 0 });
     },
-    [currentPage, document],
+    [document],
   );
+
+  // Keyboard paging: PageDown/PageUp and Left/Right arrows flip pages, like a
+  // PDF reader. Up/Down are left to the browser so a zoomed page still scrolls.
+  // Ignored while typing, nudging a drawn box, or inside the draft/wizard.
+  useEffect(() => {
+    if (phase !== "ready" || !document) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (wizardOpen) return;
+      const forward = event.key === "PageDown" || event.key === "ArrowRight";
+      const backward = event.key === "PageUp" || event.key === "ArrowLeft";
+      if (!forward && !backward) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const active = window.document.activeElement as HTMLElement | null;
+      if (active) {
+        const tag = active.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          active.isContentEditable ||
+          active.closest(
+            ".score-region-draft, .score-atlas-draft-dock, .map-wizard",
+          )
+        )
+          return;
+      }
+      event.preventDefault();
+      jumpTo(currentPage + (forward ? 1 : -1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [currentPage, document, jumpTo, phase, wizardOpen]);
 
   const selectRegion = useCallback(
     (regionId: number) => {
@@ -1638,18 +1629,19 @@ export function ScoreView({
             <div
               className={`score-pages ${scaleMode === "overview" ? "is-overview" : ""}`}
             >
-              {Array.from({ length: pageCount }, (_, index) => {
-                const pageNumber = index + 1;
+              {mountedPages.map((pageNumber) => {
                 const mappingRegion = mapping
                   ? (regions.find((region) => region.id === mapping.regionId) ??
                     null)
                   : null;
+                const buffered = !visiblePageList.includes(pageNumber);
                 return (
                   <PdfPage
                     key={pageNumber}
                     document={document}
                     pageNumber={pageNumber}
-                    active={activePages.has(pageNumber)}
+                    active
+                    buffered={buffered}
                     scale={scale}
                     onSize={handlePageSize}
                   >

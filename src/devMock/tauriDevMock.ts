@@ -1012,19 +1012,44 @@ function pieceIdOf(args: unknown): number {
   return Number.isFinite(value) ? value : 1;
 }
 
-/** A valid, blank single-page PDF (correct xref) so the viewer reaches "ready". */
-function minimalPdfBytes(): ArrayBuffer {
-  const objs = [
-    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
-    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
-    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>\nendobj\n",
-  ];
+/**
+ * A valid, blank MULTI-page PDF (correct xref) so the viewer reaches "ready".
+ * Defaults to 25 pages so the mock harness actually exercises the paged,
+ * virtualized viewer (Christian's real scores run ~25 pages). The page objects
+ * carry a printed number so paging is visually obvious while driving.
+ */
+function minimalPdfBytes(pageCount = 25): ArrayBuffer {
+  const total = Math.max(1, Math.floor(pageCount));
+  // obj 1 = Catalog, obj 2 = Pages, obj 3..(2+total) = one Page each. A tiny
+  // shared Helvetica font (obj 3+total) + per-page content streams draw the
+  // page number so a real render is not a blank white sheet.
+  const fontObj = 3 + total;
+  const objs: string[] = [];
+  objs.push("<< /Type /Catalog /Pages 2 0 R >>");
+  const kids = Array.from({ length: total }, (_, i) => `${i + 3} 0 R`).join(
+    " ",
+  );
+  objs.push(`<< /Type /Pages /Kids [${kids}] /Count ${total} >>`);
+  const contentStart = fontObj + 1;
+  for (let i = 0; i < total; i += 1) {
+    objs.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ` +
+        `/Resources << /Font << /F1 ${fontObj} 0 R >> >> ` +
+        `/Contents ${contentStart + i} 0 R >>`,
+    );
+  }
+  objs.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  for (let i = 0; i < total; i += 1) {
+    const stream = `BT /F1 48 Tf 60 700 Td (Mock score page ${i + 1} of ${total}) Tj ET`;
+    objs.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+  }
+
   let body = "%PDF-1.4\n";
   const offsets: number[] = [];
-  for (const obj of objs) {
+  objs.forEach((obj, index) => {
     offsets.push(body.length);
-    body += obj;
-  }
+    body += `${index + 1} 0 obj\n${obj}\nendobj\n`;
+  });
   const xrefStart = body.length;
   let xref = `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
   for (const offset of offsets) {

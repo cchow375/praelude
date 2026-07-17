@@ -782,7 +782,7 @@ describe("ScoreView", () => {
 
     expect(await screen.findByText("temporary read failure")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    await screen.findByLabelText("Score page 5");
+    await screen.findByLabelText("Score page 1");
 
     expect(api.editions).toHaveBeenCalledTimes(2);
     expect(bytes).toHaveBeenCalledTimes(2);
@@ -845,31 +845,42 @@ describe("ScoreView", () => {
     expect(destroy).toHaveBeenCalledTimes(1);
   });
 
-  it("renders only the visible page plus one neighbor and evicts old canvases", async () => {
+  it("mounts only the current page plus a buffered neighbor and evicts the rest when paging", async () => {
     const pdf = makePdf(5);
     render(<ScoreView pieceId={7} api={makeApi()} adapter={pdf.adapter} />);
 
-    await screen.findByLabelText("Score page 5");
+    await screen.findByLabelText("Score page 1");
+    // Default paged view: current page + one buffered neighbor mount canvases;
+    // never the whole 5-page strip.
     await waitFor(() =>
       expect(pdf.getPage.mock.calls.map((call) => call[0])).toEqual([1, 2]),
     );
+    expect(screen.getAllByLabelText(/^Score page \d+$/)).toHaveLength(2);
     const firstCanvas = screen.getByLabelText(
       "Rendered score page 1",
     ) as HTMLCanvasElement;
     expect(firstCanvas.width).toBe(1200);
 
-    FakeIntersectionObserver.latest?.trigger({ 1: 0, 4: 1 });
+    fireEvent.change(screen.getByLabelText("Page number"), {
+      target: { value: "4" },
+    });
+    fireEvent.submit(screen.getByLabelText("Page number").closest("form")!);
+
+    await screen.findByLabelText("Score page 4");
     await waitFor(() => {
       expect(new Set(pdf.getPage.mock.calls.map((call) => call[0]))).toEqual(
         new Set([1, 2, 3, 4, 5]),
       );
     });
-    expect(firstCanvas.width).toBe(0);
-    expect(firstCanvas.height).toBe(0);
-    expect(pdf.cancels.get(1)).toHaveBeenCalled();
+    // Page 1 unmounted entirely — gone from the DOM (its canvas node, and the
+    // bitmap it held, released with the node).
+    expect(screen.queryByLabelText("Score page 1")).toBeNull();
+    expect(screen.queryByLabelText("Rendered score page 1")).toBeNull();
     expect(screen.getByLabelText("Page number").getAttribute("value")).toBe(
       "4",
     );
+    // At most three pages ever mounted (current 4 ± 1) — proven virtualization.
+    expect(screen.getAllByLabelText(/^Score page \d+$/)).toHaveLength(3);
   });
 
   it("persists edition selection before loading the new PDF", async () => {
@@ -892,7 +903,7 @@ describe("ScoreView", () => {
   it("supports zoom controls and direct page jumps", async () => {
     const pdf = makePdf(4);
     render(<ScoreView pieceId={7} api={makeApi()} adapter={pdf.adapter} />);
-    await screen.findByLabelText("Score page 4");
+    await screen.findByLabelText("Score page 1");
 
     const before = screen.getByLabelText("Zoom level").textContent;
     fireEvent.click(screen.getByLabelText("Zoom in"));
@@ -902,6 +913,7 @@ describe("ScoreView", () => {
       target: { value: "4" },
     });
     fireEvent.submit(screen.getByLabelText("Page number").closest("form")!);
+    await screen.findByLabelText("Score page 4");
     expect(HTMLElement.prototype.scrollTo).toHaveBeenCalled();
     expect(screen.getByLabelText("Page number").getAttribute("value")).toBe(
       "4",
