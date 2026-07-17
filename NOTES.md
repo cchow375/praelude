@@ -1710,3 +1710,31 @@ unregisterListener`, which the mock never defined → 2 pageerrors on effect cle
   growing to fit everything.
 - **Gates:** npm **706 passed / 0 failed**; `tsc` clean; zero console errors in the drive.
   Shipped as commit `92cfdb7`, tag `v3.0.1`, release `612b1ec`.
+
+## 2026-07-17 — v3.0.3: the Score tab's Practice tab was completely dead (B32)
+
+- **Christian's third hands-on report** ("click Practice, literally nothing shows up"), fixed
+  within the hour. Root cause, one line: `ScoreView.tsx` gates the entire Practice-tab body on
+  the optional `onOpenBlock` prop (`{sectionTab === "practice" && onOpenBlock && (...)}`), and
+  the v3 Score tab mounted `ScoreWorkspace` propless via the shell's lazy `WORKSPACE_COMPONENTS`
+  map — so `ScoreView` never received the seam and the tab rendered a tab strip over nothing.
+  The Ledger → Pieces → PieceDetail path passes it, which is why Practice worked there and why
+  the v3 parity audit missed the gap (it verified surfaces mount, not that this seam was
+  threaded on the NEW Score-tab mount path).
+- **Fix shape:** pulled `score` out of the propless lazy map (only `brain` remains) and mounted
+  it like Ledger with live props: `<ScoreWorkspace onOpenBlock={rep.open}
+  defaultCleanStreak={defaultCleanStreak} />`. `ScoreWorkspace` wraps the call in a local
+  `opening` flag (mirroring `PieceDetail.openBlock`'s try/finally) and forwards
+  `onOpenBlock`/`opening`/`defaultCleanStreak` to `ScoreView`. Blocks opened from the score now
+  surface in the shell-level RepHud automatically (it keys off `rep.snap`).
+- **Lesson for parity audits:** "surface mounts" is not "seam threaded." Optional callback props
+  that gate whole UI branches (`onOpenBlock`-style) deserve an explicit audit row per mount
+  path. Two wiring tests now pin this: workspace-level (ScoreView receives the seam +
+  forwarding reaches the handler) and shell-level (the Score tab passes `rep.open`).
+- **Rogue daemon again:** it had modified `src-tauri/src/brain/score_context.rs` (timing
+  eprintln in a test — reverted) and dropped ~13 stray test files; one
+  (`useRetention.test.ts`) FAILED and was quarantined to the session scratchpad. None shipped.
+- **Gates:** new tests written failing-first; npm **935 passed / 0 failed / 2 todo**; `tsc`
+  clean; fresh-context verifier CONFIRMED (probed Brain-tab mount, propless fallback, and
+  stuck-`opening` — all clear). Shipped as commit `5a521a1`, release bump + tag `v3.0.3`,
+  installed and verified running (Info.plist reads 3.0.3).
