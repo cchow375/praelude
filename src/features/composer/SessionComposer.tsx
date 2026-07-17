@@ -1,9 +1,4 @@
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   composeSessionDraft,
   DEFAULT_SESSION_MINUTES,
@@ -14,9 +9,13 @@ import {
   type SessionDraft,
   type SessionDraftItem,
 } from "./domain";
+import { Button } from "../../ui";
 import "./SessionComposer.css";
 
-export interface ReviewedSessionItem extends Omit<SessionDraftItem, "sequence" | "allocated_minutes"> {
+export interface ReviewedSessionItem extends Omit<
+  SessionDraftItem,
+  "sequence" | "allocated_minutes"
+> {
   readonly sequence: number;
   readonly allocated_minutes: number;
 }
@@ -72,11 +71,17 @@ const GROUP_LABEL: Readonly<Record<ComposerCandidateKind, string>> = {
 
 function validateBudget(raw: string): BudgetValidation {
   if (raw.trim() === "") {
-    return { value: null, message: "Enter a session length from 5 to 180 minutes." };
+    return {
+      value: null,
+      message: "Enter a session length from 5 to 180 minutes.",
+    };
   }
   const value = Number(raw);
   if (!Number.isFinite(value) || !Number.isInteger(value)) {
-    return { value: null, message: "Session length must be a whole number of minutes." };
+    return {
+      value: null,
+      message: "Session length must be a whole number of minutes.",
+    };
   }
   if (value < MIN_SESSION_MINUTES || value > MAX_SESSION_MINUTES) {
     return {
@@ -88,20 +93,24 @@ function validateBudget(raw: string): BudgetValidation {
 }
 
 function initialEdits(draft: SessionDraft): Record<string, ItemEdit> {
-  return Object.fromEntries(draft.sequence.map((item) => [
-    item.candidate_id,
-    { included: true, minutes: String(item.allocated_minutes) },
-  ]));
+  return Object.fromEntries(
+    draft.sequence.map((item) => [
+      item.candidate_id,
+      { included: true, minutes: String(item.allocated_minutes) },
+    ]),
+  );
 }
 
 function currentEdit(
   edits: Readonly<Record<string, ItemEdit>>,
   item: SessionDraftItem,
 ): ItemEdit {
-  return edits[item.candidate_id] ?? {
-    included: true,
-    minutes: String(item.allocated_minutes),
-  };
+  return (
+    edits[item.candidate_id] ?? {
+      included: true,
+      minutes: String(item.allocated_minutes),
+    }
+  );
 }
 
 function validateAllocations(
@@ -119,11 +128,18 @@ function validateAllocations(
     if (!edit.included) continue;
     includedCount += 1;
     const minutes = Number(edit.minutes);
-    if (edit.minutes.trim() === "" || !Number.isFinite(minutes) || !Number.isInteger(minutes)) {
+    if (
+      edit.minutes.trim() === "" ||
+      !Number.isFinite(minutes) ||
+      !Number.isInteger(minutes)
+    ) {
       errors.set(item.candidate_id, "Use a whole number of minutes.");
       continue;
     }
-    if (minutes < item.editable_minutes.min || minutes > item.editable_minutes.max) {
+    if (
+      minutes < item.editable_minutes.min ||
+      minutes > item.editable_minutes.max
+    ) {
       errors.set(
         item.candidate_id,
         `Use ${item.editable_minutes.min}–${item.editable_minutes.max} minutes for this target.`,
@@ -136,8 +152,10 @@ function validateAllocations(
 
   let message = "";
   if (budget === null) message = "Fix the session length before starting.";
-  else if (draft.status !== "ready") message = "Add at least one valid explicit candidate.";
-  else if (includedCount === 0) message = "Include at least one target before starting.";
+  else if (draft.status !== "ready")
+    message = "Add at least one valid explicit candidate.";
+  else if (includedCount === 0)
+    message = "Include at least one target before starting.";
   else if (errors.size > 0) message = "Fix the highlighted minute allocation.";
   else if (allocatedMinutes > budget) {
     message = `Allocated time exceeds the session by ${allocatedMinutes - budget} minute${allocatedMinutes - budget === 1 ? "" : "s"}.`;
@@ -160,7 +178,9 @@ function makeReviewedDraft(
   budget: number,
   validation: AllocationValidation,
 ): ReviewedSessionDraft {
-  const included = draft.sequence.filter((item) => currentEdit(edits, item).included);
+  const included = draft.sequence.filter(
+    (item) => currentEdit(edits, item).included,
+  );
   const sequence = included.map((item, index): ReviewedSessionItem => ({
     ...item,
     sequence: index + 1,
@@ -188,12 +208,20 @@ export function SessionComposer({
   const [budgetInput, setBudgetInput] = useState(String(initialMinutes));
   const budget = useMemo(() => validateBudget(budgetInput), [budgetInput]);
   const draftBudget = budget.value ?? DEFAULT_SESSION_MINUTES;
-  const draft = useMemo(() => composeSessionDraft({
-    available_minutes: draftBudget,
-    candidates,
-  }), [candidates, draftBudget]);
-  const [edits, setEdits] = useState<Record<string, ItemEdit>>(() => initialEdits(draft));
-  const [startState, setStartState] = useState<"idle" | "starting" | "started" | "error">("idle");
+  const draft = useMemo(
+    () =>
+      composeSessionDraft({
+        available_minutes: draftBudget,
+        candidates,
+      }),
+    [candidates, draftBudget],
+  );
+  const [edits, setEdits] = useState<Record<string, ItemEdit>>(() =>
+    initialEdits(draft),
+  );
+  const [startState, setStartState] = useState<
+    "idle" | "starting" | "started" | "error"
+  >("idle");
   const [startMessage, setStartMessage] = useState("");
 
   useEffect(() => {
@@ -206,16 +234,19 @@ export function SessionComposer({
     () => validateAllocations(draft, edits, budget.value),
     [budget.value, draft, edits],
   );
-  const canStart = budget.value !== null
-    && allocation.message === ""
-    && startState !== "starting"
-    && startState !== "started";
-  const placedCandidateIds = useMemo(() => new Set(
-    draft.sequence.flatMap((item) => item.provenance.candidate_ids),
-  ), [draft]);
-  const unplacedCount = candidates.filter((candidate) => (
-    !placedCandidateIds.has(candidate.id.trim())
-  )).length;
+  const canStart =
+    budget.value !== null &&
+    allocation.message === "" &&
+    startState !== "starting" &&
+    startState !== "started";
+  const placedCandidateIds = useMemo(
+    () =>
+      new Set(draft.sequence.flatMap((item) => item.provenance.candidate_ids)),
+    [draft],
+  );
+  const unplacedCount = candidates.filter(
+    (candidate) => !placedCandidateIds.has(candidate.id.trim()),
+  ).length;
 
   const updateItem = (candidateId: string, patch: Partial<ItemEdit>) => {
     setEdits((current) => ({
@@ -242,29 +273,35 @@ export function SessionComposer({
       );
     } catch {
       setStartState("error");
-      setStartMessage("The session owner did not accept the start request. Nothing was written.");
+      setStartMessage(
+        "The session owner did not accept the start request. Nothing was written.",
+      );
     }
   };
 
-  const remaining = budget.value === null
-    ? 0
-    : budget.value - allocation.allocatedMinutes;
+  const remaining =
+    budget.value === null ? 0 : budget.value - allocation.allocatedMinutes;
   const validationMessage = budget.message || allocation.message;
 
   return (
-    <section className="session-composer" aria-labelledby={`${instanceId}-title`}>
+    <section
+      className="session-composer"
+      aria-labelledby={`${instanceId}-title`}
+    >
       <header className="session-composer__masthead">
         <div>
           <span className="session-composer__kicker">Session composer</span>
           <h2 id={`${instanceId}-title`}>Shape the next twenty minutes.</h2>
           <p>
-            A deterministic draft from explicit retention, repair, and planned work.
-            Review it before anything starts.
+            A deterministic draft from explicit retention, repair, and planned
+            work. Review it before anything starts.
           </p>
         </div>
 
         <div className="session-composer__budget">
-          <label htmlFor={`${instanceId}-budget`}>Session length in minutes</label>
+          <label htmlFor={`${instanceId}-budget`}>
+            Session length in minutes
+          </label>
           <div className="session-composer__budget-entry">
             <input
               id={`${instanceId}-budget`}
@@ -284,7 +321,9 @@ export function SessionComposer({
             />
             <span aria-hidden="true">min</span>
           </div>
-          <small id={`${instanceId}-budget-help`}>Whole minutes · 5–180 · default 20</small>
+          <small id={`${instanceId}-budget-help`}>
+            Whole minutes · 5–180 · default 20
+          </small>
         </div>
       </header>
 
@@ -295,15 +334,21 @@ export function SessionComposer({
         aria-live="polite"
         aria-atomic="true"
       >
-        {validationMessage || `${allocation.allocatedMinutes} allocated · ${remaining} unallocated`}
+        {validationMessage ||
+          `${allocation.allocatedMinutes} allocated · ${remaining} unallocated`}
       </div>
 
       {draft.issues.length > 0 && (
         <details className="session-composer__issues">
-          <summary>{draft.issues.length} source note{draft.issues.length === 1 ? "" : "s"}</summary>
+          <summary>
+            {draft.issues.length} source note
+            {draft.issues.length === 1 ? "" : "s"}
+          </summary>
           <ul>
             {draft.issues.map((issue, index) => (
-              <li key={`${issue.code}-${issue.candidate_id ?? "draft"}-${index}`}>
+              <li
+                key={`${issue.code}-${issue.candidate_id ?? "draft"}-${index}`}
+              >
                 {issue.detail}
               </li>
             ))}
@@ -314,10 +359,16 @@ export function SessionComposer({
       {draft.sequence.length === 0 ? (
         <div className="session-composer__empty">
           <span aria-hidden="true">—</span>
-          <p>No valid explicit candidates are available. The composer will not invent one.</p>
+          <p>
+            No valid explicit candidates are available. The composer will not
+            invent one.
+          </p>
         </div>
       ) : (
-        <ol className="session-composer__sequence" aria-label="Editable session sequence">
+        <ol
+          className="session-composer__sequence"
+          aria-label="Editable session sequence"
+        >
           {draft.sequence.map((item) => {
             const edit = currentEdit(edits, item);
             const error = allocation.errors.get(item.candidate_id) ?? "";
@@ -338,30 +389,44 @@ export function SessionComposer({
                 <div className="session-composer__item-main">
                   <div className="session-composer__item-heading">
                     <div>
-                      <span className="session-composer__group">{GROUP_LABEL[item.kind]}</span>
+                      <span className="session-composer__group">
+                        {GROUP_LABEL[item.kind]}
+                      </span>
                       <h3>{name}</h3>
                       <p>{pieceName(item)}</p>
                     </div>
-                    <label className="session-composer__include" htmlFor={checkboxId}>
+                    <label
+                      className="session-composer__include"
+                      htmlFor={checkboxId}
+                    >
                       <input
                         id={checkboxId}
                         type="checkbox"
                         checked={edit.included}
-                        onChange={(event) => updateItem(item.candidate_id, {
-                          included: event.target.checked,
-                        })}
+                        onChange={(event) =>
+                          updateItem(item.candidate_id, {
+                            included: event.target.checked,
+                          })
+                        }
                       />
                       Include {name}
                     </label>
                   </div>
 
-                  <p className="session-composer__rationale">{item.rationale}</p>
+                  <p className="session-composer__rationale">
+                    {item.rationale}
+                  </p>
 
                   <details className="session-composer__provenance">
                     <summary>Why this target is here</summary>
                     <dl>
                       <div>
-                        <dt>Explicit candidate{item.provenance.candidate_ids.length === 1 ? "" : "s"}</dt>
+                        <dt>
+                          Explicit candidate
+                          {item.provenance.candidate_ids.length === 1
+                            ? ""
+                            : "s"}
+                        </dt>
                         <dd>{item.provenance.candidate_ids.join(", ")}</dd>
                       </div>
                       <div>
@@ -369,10 +434,18 @@ export function SessionComposer({
                         <dd>{item.provenance.evidence_ids.join(", ")}</dd>
                       </div>
                       <div>
-                        <dt>Source{item.provenance.source_refs.length === 1 ? "" : "s"}</dt>
-                        <dd>{item.provenance.source_refs.map((source) => (
-                          `${source.source_type}:${source.source_id}`
-                        )).join(" · ")}</dd>
+                        <dt>
+                          Source
+                          {item.provenance.source_refs.length === 1 ? "" : "s"}
+                        </dt>
+                        <dd>
+                          {item.provenance.source_refs
+                            .map(
+                              (source) =>
+                                `${source.source_type}:${source.source_id}`,
+                            )
+                            .join(" · ")}
+                        </dd>
                       </div>
                     </dl>
                   </details>
@@ -391,12 +464,21 @@ export function SessionComposer({
                     disabled={!edit.included}
                     aria-invalid={error !== ""}
                     aria-describedby={`${helpId}${error ? ` ${errorId}` : ""}`}
-                    onChange={(event) => updateItem(item.candidate_id, {
-                      minutes: event.target.value,
-                    })}
+                    onChange={(event) =>
+                      updateItem(item.candidate_id, {
+                        minutes: event.target.value,
+                      })
+                    }
                   />
                   <small id={helpId}>1–{item.editable_minutes.max} min</small>
-                  {error && <span id={errorId} className="session-composer__field-error">{error}</span>}
+                  {error && (
+                    <span
+                      id={errorId}
+                      className="session-composer__field-error"
+                    >
+                      {error}
+                    </span>
+                  )}
                 </div>
               </li>
             );
@@ -406,19 +488,24 @@ export function SessionComposer({
 
       {unplacedCount > 0 && (
         <p className="session-composer__unplaced">
-          {unplacedCount} explicit candidate{unplacedCount === 1 ? " was" : "s were"} not placed
-          in this small draft. No substitute target was created.
+          {unplacedCount} explicit candidate
+          {unplacedCount === 1 ? " was" : "s were"} not placed in this small
+          draft. No substitute target was created.
         </p>
       )}
 
       <footer className="session-composer__footer">
         <div>
           <span>{allocation.includedCount} included</span>
-          <strong>{allocation.allocatedMinutes} / {budget.value ?? "—"} min</strong>
-          <span>{budget.value === null ? "—" : Math.max(0, remaining)} open</span>
+          <strong>
+            {allocation.allocatedMinutes} / {budget.value ?? "—"} min
+          </strong>
+          <span>
+            {budget.value === null ? "—" : Math.max(0, remaining)} open
+          </span>
         </div>
-        <button
-          type="button"
+        <Button
+          variant="primary"
           className="session-composer__start"
           disabled={!canStart}
           onClick={() => void startSession()}
@@ -428,7 +515,7 @@ export function SessionComposer({
             : startState === "started"
               ? "Session requested"
               : "Start Session"}
-        </button>
+        </Button>
       </footer>
 
       <p

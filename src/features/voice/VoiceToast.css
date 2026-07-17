@@ -1,17 +1,18 @@
 /* ===========================================================================
-   Voice feedback — quiet, transient surfaces. Consumes design tokens only.
+   Voice feedback — quiet, transient surfaces. Pure monochrome; consumes
+   design tokens only.
    ========================================================================== */
 
 .voice-feedback {
   position: fixed;
   left: 50%;
-  bottom: var(--space-5);
+  bottom: var(--s-5);
   transform: translateX(-50%);
   z-index: 50;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--s-2);
   pointer-events: none;
   max-width: min(90vw, 28rem);
 }
@@ -20,18 +21,17 @@
 .voice-toast {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-4);
-  background: var(--surface-popover);
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-4);
+  background: var(--bg-raised);
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-pill);
-  box-shadow: var(--shadow-popover);
-  animation: voice-toast-in var(--duration-base) var(--ease-spring);
+  border-radius: var(--r-lg);
+  animation: voice-toast-in var(--dur-base) var(--ease-out);
 }
 
 .voice-toast-heard {
-  font-size: var(--text-sm);
-  color: var(--ink-secondary);
+  font-size: 0.875rem;
+  color: var(--ink-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -40,21 +40,21 @@
 
 .voice-toast-label {
   flex: 0 0 auto;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-tight);
-  color: var(--accent);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  font-size: 0.875rem;
+  letter-spacing: -0.01em;
+  color: var(--ink);
 }
 
 @keyframes voice-toast-in {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.96);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
@@ -68,14 +68,13 @@
 .voice-banner {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--ink-primary);
-  background: color-mix(in srgb, #e5a23d 16%, var(--surface-popover));
-  border: 1px solid color-mix(in srgb, #e5a23d 40%, transparent);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-popover);
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-4);
+  font-size: 0.875rem;
+  color: var(--ink);
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
   /* The feedback container is pointer-events:none (so it never blocks clicks to
      the app); the banner's dismiss button needs pointer events back on. */
   pointer-events: auto;
@@ -85,40 +84,59 @@
   flex: 0 0 auto;
   width: 8px;
   height: 8px;
-  border-radius: var(--radius-pill);
-  background: #e5a23d;
+  border-radius: 50%;
+  background: var(--signal-error);
 }
 
 .voice-banner-text {
-  line-height: var(--leading-normal);
+  line-height: 1.4;
 }
 
 .voice-banner-dismiss {
   flex: 0 0 auto;
-  margin-left: var(--space-1);
+  margin-left: var(--s-1);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 1.25rem;
   height: 1.25rem;
   padding: 0;
-  font-size: var(--text-xs);
+  font-size: 0.75rem;
   line-height: 1;
-  color: var(--ink-secondary);
+  color: var(--ink-dim);
   background: transparent;
   border: none;
-  border-radius: var(--radius-pill);
+  border-radius: 50%;
   cursor: pointer;
-  transition: color var(--duration-fast) var(--ease-standard),
-    background var(--duration-fast) var(--ease-standard);
+  transition: color var(--dur-fast) var(--ease-out);
 }
 
 .voice-banner-dismiss:hover {
-  color: var(--ink-primary);
-  background: color-mix(in srgb, #e5a23d 22%, transparent);
+  color: var(--ink);
 }
 
 .voice-banner-dismiss:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 1px solid var(--hairline-strong);
   outline-offset: 1px;
+}
+
+/* --- Status-driven mic indicators (data-status / .voice-mic hooks) -------- */
+[data-status="live"] {
+  color: var(--signal-success);
+}
+[data-status="muted"] {
+  color: var(--ink-faint);
+}
+[data-status="down"] {
+  color: var(--signal-error);
+}
+
+.voice-mic.is-live {
+  color: var(--signal-success);
+}
+.voice-mic.is-muted {
+  color: var(--ink-faint);
+}
+.voice-mic.is-down {
+  color: var(--signal-error);
 }
