@@ -1738,3 +1738,43 @@ unregisterListener`, which the mock never defined → 2 pageerrors on effect cle
   clean; fresh-context verifier CONFIRMED (probed Brain-tab mount, propless fallback, and
   stuck-`opening` — all clear). Shipped as commit `5a521a1`, release bump + tag `v3.0.3`,
   installed and verified running (Info.plist reads 3.0.3).
+
+## 2026-07-17 — v3.0.4: the UI repair pass (B33 — legacy-token blackout + clutter)
+
+- **Christian's fourth hands-on report** (five symptoms). The load-bearing discovery: the
+  Phase 8.1 "scoped token-alias retheme" left every v1-era stylesheet consumer OUTSIDE its
+  alias scope unstyled. `Popover.css` consumed `--surface-popover`/`--shadow-popover` which
+  existed NOWHERE → the metronome popover had a fully transparent background; `Popover.tsx`
+  always opened BELOW its anchor (fine in v1 when triggers were at the top; the v3 rail's
+  Metronome button is at the bottom → 552px panel opened off-screen). The ck-* form kit lived
+  at the tail of `Pieces.css` (loaded only with the Pieces chunk) → the Score tab's practice
+  form rendered raw native macOS controls — the user-reported "gradient buttons" were native
+  `<select>`/checkbox chrome, not our CSS (repo has no gradient button styles; verified by
+  computed-style audit).
+- **Fix architecture:** full legacy alias set promoted to `:root` in `tokens.css` (per-scope
+  blocks left as harmless duplicates); popover flips above when out of room + max-height
+  internal scroll; `src/ui/forms.css` extracted and imported by `BlockForm` itself (styles
+  travel with the component, not with whichever workspace chunk loads first);
+  `select.ck-input` flattened with a data-URI chevron; checkbox `accent-color: ink`;
+  `.ck-primary` switched to the inverted white button.
+- **RepHud compaction:** contract strip + metrics + Correct/Reverse/Restart/Reflect moved
+  into a `<details class="rep-hud-more">`; the effect that auto-opened the recovery desk on
+  every non-clean verdict REMOVED (it buried the verdict loop mid-practice); safety stop
+  renders only while active-and-unpaused (the giant disabled "Practice is already stopped"
+  button is gone); "Set state:" line and unsatisfied-mastery copy dropped.
+- **Score:** `codakiller.score.lastPieceId` localStorage memory (alphabetical order had made
+  "Chamber Pieces Tanglewood" — an 8.6MB scanned PDF in the piece ROOT, no score/ subfolder —
+  the permanent default); `PdfPage` defers INITIALLY-buffered neighbors via
+  requestIdleCallback/400ms fallback, and a warmed neighbor never re-defers (visible⇄buffered
+  keeps the canvas). Gotcha: the old ScoreView buffer test asserted exact getPage call order
+  and only passed by winning a waitFor race against the scale-settle re-render; rewritten to
+  set-semantics + explicit current-page-first assertion.
+- **Copy trims:** Today thesis paragraph, Ledger masthead aphorism, Universe lede +
+  growth-rule paragraphs, canvas help → one line. Practice form ~808→~320 chars.
+- **Evidence loop that worked:** headless Playwright screenshot audit (playwright-core from
+  gstack's node_modules + cached Chrome for Testing, pattern in session scratchpad
+  `uiaudit.mjs`) — computed-style gradient hunt, popover geometry measurement, text-volume
+  counts — before/after on every surface. jsdom tests could never have caught B33.
+- **Gates:** npm 935/0, tsc clean, fresh-context verifier CONFIRMED (all legacy names resolve
+  at :root; flip math; no orphaned ck-* styles; all 10 HUD callbacks reachable; deferral
+  semantics). Shipped `780b2d0` + release bump, tag `v3.0.4`, installed (Info.plist 3.0.4).
