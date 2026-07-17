@@ -1,8 +1,17 @@
-import { cleanup, fireEvent, render, screen, waitFor, act } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const invokeMock = vi.fn();
-vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invokeMock(...args) }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
+}));
 
 import { BlockRow } from "./BlockRow";
 import type { BlockHistory, Rep } from "./types";
@@ -47,31 +56,69 @@ describe("BlockRow", () => {
     });
   });
 
-  it("renders historical set metadata and its captured contract as immutable evidence", () => {
-    render(<BlockRow block={block} regions={[{ id: 1, name: "Exposition" }]} onChanged={vi.fn()} />);
+  it("keeps the captured contract immutable while the set TITLE is editable metadata", async () => {
+    render(
+      <BlockRow
+        block={block}
+        regions={[{ id: 1, name: "Exposition" }]}
+        onChanged={vi.fn()}
+      />,
+    );
 
     expect(screen.getByText("opening phrase")).toBeTruthy();
-    expect(screen.getByText("Captured contract").parentElement?.textContent).toContain("5 consecutive clean attempts");
-    expect(screen.getByText("Review after 10 attempts · not mastery")).toBeTruthy();
-    expect(screen.getByText("Contract source").parentElement?.textContent).toContain("set setup");
+    expect(
+      screen.getByText("Captured contract").parentElement?.textContent,
+    ).toContain("5 consecutive clean attempts");
+    expect(
+      screen.getByText("Review after 10 attempts · not mastery"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Contract source").parentElement?.textContent,
+    ).toContain("set setup");
     expect(screen.getByText("Exposition")).toBeTruthy();
-    expect(screen.queryByLabelText("block label")).toBeNull();
+    // The contract, focus, and attempts stay immutable evidence; only the human
+    // title is editable, and destructive set deletion is never surfaced here.
     expect(screen.queryByLabelText("block focus")).toBeNull();
     expect(screen.queryByRole("button", { name: /delete set/i })).toBeNull();
 
-    fireEvent.doubleClick(screen.getByText("opening phrase"));
-    expect(screen.queryByLabelText("block label")).toBeNull();
-    expect(invokeMock).not.toHaveBeenCalledWith("block_update", expect.anything());
-    expect(invokeMock).not.toHaveBeenCalledWith("block_delete", expect.anything());
+    // Renaming a mislabeled set is a metadata edit, not falsified evidence: it
+    // routes through block_update { label } and never touches an attempt.
+    fireEvent.doubleClick(
+      screen.getByRole("button", { name: "Edit set title" }),
+    );
+    const titleInput = screen.getByLabelText("set title");
+    fireEvent.change(titleInput, {
+      target: { value: "opening phrase, cleaner" },
+    });
+    fireEvent.keyDown(titleInput, { key: "Enter" });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("block_update", {
+        blockId: block.block_id,
+        patch: { label: "opening phrase, cleaner" },
+      }),
+    );
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "block_delete",
+      expect.anything(),
+    );
   });
 
   it("does not expose database ids in visible or accessible history copy", () => {
     render(<BlockRow block={block} onChanged={vi.fn()} />);
 
     expect(document.body.textContent).not.toContain(String(block.block_id));
-    const names = screen.getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent ?? "");
+    const names = screen
+      .getAllByRole("button")
+      .map(
+        (button) =>
+          button.getAttribute("aria-label") ?? button.textContent ?? "",
+      );
     expect(names.join(" ")).not.toContain(String(block.block_id));
-    expect(screen.getByRole("button", { name: "Expand attempts for measures 1–8, opening phrase" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Expand attempts for measures 1–8, opening phrase",
+      }),
+    ).toBeTruthy();
   });
 
   it("shows source, correction, void, and null-tempo lineage without editable voided controls", async () => {
@@ -103,7 +150,12 @@ describe("BlockRow", () => {
         active_adjustment_ids: [13],
       },
     ];
-    render(<BlockRow block={{ ...block, start_bpm: null, bpm: null }} onChanged={vi.fn()} />);
+    render(
+      <BlockRow
+        block={{ ...block, start_bpm: null, bpm: null }}
+        onChanged={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /Expand attempts/ }));
     await screen.findByText("Corrected from Again to Clean · 2 active changes");
@@ -118,60 +170,97 @@ describe("BlockRow", () => {
   });
 
   it("keeps attempt correction and void controls on append-only backend commands", async () => {
-    reps = [{
-      id: 403,
-      block_id: block.block_id,
-      ts: "2026-07-15T10:02:00Z",
-      bpm: 44,
-      variant: null,
-      verdict: "failed",
-      original_verdict: "failed",
-      note: "old note",
-      voided: false,
-      source: "user_click",
-      active_adjustment_ids: [],
-    }];
-    render(<ReceiptCenterProvider><BlockRow block={block} onChanged={vi.fn()} /></ReceiptCenterProvider>);
+    reps = [
+      {
+        id: 403,
+        block_id: block.block_id,
+        ts: "2026-07-15T10:02:00Z",
+        bpm: 44,
+        variant: null,
+        verdict: "failed",
+        original_verdict: "failed",
+        note: "old note",
+        voided: false,
+        source: "user_click",
+        active_adjustment_ids: [],
+      },
+    ];
+    render(
+      <ReceiptCenterProvider>
+        <BlockRow block={block} onChanged={vi.fn()} />
+      </ReceiptCenterProvider>,
+    );
     fireEvent.click(screen.getByRole("button", { name: /Expand attempts/ }));
     await screen.findByLabelText("Attempt 1 verdict");
 
-    fireEvent.change(screen.getByLabelText("Attempt 1 verdict"), { target: { value: "clean" } });
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("rep_update", {
-      repId: 403,
-      patch: { verdict: "clean" },
-    }));
+    fireEvent.change(screen.getByLabelText("Attempt 1 verdict"), {
+      target: { value: "clean" },
+    });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("rep_update", {
+        repId: 403,
+        patch: { verdict: "clean" },
+      }),
+    );
 
     fireEvent.doubleClick(screen.getByText("old note"));
-    fireEvent.change(screen.getByLabelText("Attempt 1 note"), { target: { value: "steady" } });
-    fireEvent.keyDown(screen.getByLabelText("Attempt 1 note"), { key: "Enter" });
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("rep_update", {
-      repId: 403,
-      patch: { note: "steady" },
-    }));
+    fireEvent.change(screen.getByLabelText("Attempt 1 note"), {
+      target: { value: "steady" },
+    });
+    fireEvent.keyDown(screen.getByLabelText("Attempt 1 note"), {
+      key: "Enter",
+    });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("rep_update", {
+        repId: 403,
+        patch: { note: "steady" },
+      }),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Void attempt 1" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("rep_delete", { repId: 403 }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("rep_delete", { repId: 403 }),
+    );
     const activity = screen.getByRole("list", { name: "Recent app activity" });
-    expect(activity.textContent).toContain("Attempt 1 verdict correction saved.");
+    expect(activity.textContent).toContain(
+      "Attempt 1 verdict correction saved.",
+    );
     expect(activity.textContent).toContain("Attempt 1 note correction saved.");
-    expect(activity.textContent).toContain("Attempt 1 voided. The original remains in the ledger.");
-    expect(invokeMock).not.toHaveBeenCalledWith("block_update", expect.anything());
-    expect(invokeMock).not.toHaveBeenCalledWith("block_delete", expect.anything());
+    expect(activity.textContent).toContain(
+      "Attempt 1 voided. The original remains in the ledger.",
+    );
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "block_update",
+      expect.anything(),
+    );
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "block_delete",
+      expect.anything(),
+    );
   });
 
   it("labels legacy contracts honestly when v2 contract fields are absent", () => {
-    render(<BlockRow block={{
-      ...block,
-      mastery_verified: false,
-      mastery_status: "unverified_legacy",
-      attempt_ceiling: undefined,
-      contract_source: undefined,
-    }} onChanged={vi.fn()} />);
+    render(
+      <BlockRow
+        block={{
+          ...block,
+          mastery_verified: false,
+          mastery_status: "unverified_legacy",
+          attempt_ceiling: undefined,
+          contract_source: undefined,
+        }}
+        onChanged={vi.fn()}
+      />,
+    );
 
     expect(screen.getAllByText(/Legacy/).length).toBeGreaterThan(0);
-    expect(screen.getByText("Legacy review count: 10 attempts · not mastery")).toBeTruthy();
-    expect(screen.getByText("Contract source").parentElement?.textContent).toContain("legacy source not captured");
+    expect(
+      screen.getByText("Legacy review count: 10 attempts · not mastery"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Contract source").parentElement?.textContent,
+    ).toContain("legacy source not captured");
   });
 
   it("keeps the newest attempt reload when an older expand request resolves last", async () => {
@@ -190,7 +279,9 @@ describe("BlockRow", () => {
     };
     const newRep: Rep = { ...oldRep, id: 502, note: "newest attempt response" };
     let resolveOld: (value: Rep[]) => void = () => undefined;
-    const oldRequest = new Promise<Rep[]>((resolve) => { resolveOld = resolve; });
+    const oldRequest = new Promise<Rep[]>((resolve) => {
+      resolveOld = resolve;
+    });
     let requests = 0;
     invokeMock.mockImplementation((command: string) => {
       if (command !== "reps_for_block") return Promise.resolve(undefined);
@@ -204,51 +295,71 @@ describe("BlockRow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Expand attempts/ }));
     expect(await screen.findByText("newest attempt response")).toBeTruthy();
 
-    await act(async () => { resolveOld([oldRep]); await oldRequest; });
+    await act(async () => {
+      resolveOld([oldRep]);
+      await oldRequest;
+    });
     expect(screen.queryByText("stale attempt response")).toBeNull();
     expect(screen.getByText("newest attempt response")).toBeTruthy();
   });
 
   it("publishes a normalized correction error even after the history row unmounts", async () => {
-    reps = [{
-      id: 601,
-      block_id: block.block_id,
-      ts: "2026-07-15T11:10:00Z",
-      bpm: 44,
-      variant: null,
-      verdict: "failed",
-      note: null,
-      original_verdict: "failed",
-      voided: false,
-      source: "user_click",
-      active_adjustment_ids: [],
-    }];
+    reps = [
+      {
+        id: 601,
+        block_id: block.block_id,
+        ts: "2026-07-15T11:10:00Z",
+        bpm: 44,
+        variant: null,
+        verdict: "failed",
+        note: null,
+        original_verdict: "failed",
+        voided: false,
+        source: "user_click",
+        active_adjustment_ids: [],
+      },
+    ];
     let rejectUpdate: (reason: unknown) => void = () => undefined;
-    const pending = new Promise<void>((_resolve, reject) => { rejectUpdate = reject; });
+    const pending = new Promise<void>((_resolve, reject) => {
+      rejectUpdate = reject;
+    });
     invokeMock.mockImplementation((command: string) => {
       if (command === "reps_for_block") return Promise.resolve(reps);
       if (command === "rep_update") return pending;
       return Promise.resolve(undefined);
     });
     const view = render(
-      <ReceiptCenterProvider><BlockRow block={block} onChanged={vi.fn()} /></ReceiptCenterProvider>,
+      <ReceiptCenterProvider>
+        <BlockRow block={block} onChanged={vi.fn()} />
+      </ReceiptCenterProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: /Expand attempts/ }));
     await screen.findByLabelText("Attempt 1 verdict");
-    fireEvent.change(screen.getByLabelText("Attempt 1 verdict"), { target: { value: "clean" } });
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("rep_update", {
-      repId: 601,
-      patch: { verdict: "clean" },
-    }));
+    fireEvent.change(screen.getByLabelText("Attempt 1 verdict"), {
+      target: { value: "clean" },
+    });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("rep_update", {
+        repId: 601,
+        patch: { verdict: "clean" },
+      }),
+    );
 
-    view.rerender(<ReceiptCenterProvider><p>History row closed.</p></ReceiptCenterProvider>);
+    view.rerender(
+      <ReceiptCenterProvider>
+        <p>History row closed.</p>
+      </ReceiptCenterProvider>,
+    );
     await act(async () => {
-      rejectUpdate({ code: "ledger_conflict", message: "History correction conflicted." });
+      rejectUpdate({
+        code: "ledger_conflict",
+        message: "History correction conflicted.",
+      });
       await pending.catch(() => undefined);
     });
 
-    expect(screen.getByRole("list", { name: "Recent app activity" }).textContent).toContain(
-      "History correction conflicted.",
-    );
+    expect(
+      screen.getByRole("list", { name: "Recent app activity" }).textContent,
+    ).toContain("History correction conflicted.");
   });
 });
