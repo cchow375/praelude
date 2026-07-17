@@ -502,8 +502,8 @@
   padding: var(--space-2) var(--space-3);
   font-size: var(--text-sm);
   color: var(--ink-primary);
-  background: color-mix(in srgb, #e5484d 16%, transparent);
-  border: 1px solid color-mix(in srgb, #e5484d 40%, transparent);
+  background: color-mix(in srgb, var(--signal-error) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--signal-error) 40%, transparent);
   border-radius: var(--radius-md);
 }
 .metro-error-dismiss {
