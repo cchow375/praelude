@@ -31,7 +31,8 @@ import type {
   ProgressSummary,
   Region,
 } from "../features/pieces/types";
-import type { RetentionCheckView } from "../features/rep/useRep";
+import type { RepSnapshot, RetentionCheckView } from "../features/rep/useRep";
+import type { SessionView } from "../features/session/useSession";
 import type { UniverseSnapshot } from "../features/universe/types";
 
 /** Local YYYY-MM-DD, matching calendar/dates.ts `todayLocal()`. */
@@ -690,6 +691,71 @@ function universeSnapshot(): UniverseSnapshot {
   };
 }
 
+// A live, PAUSED active set so the shell-level Rep HUD renders in the static
+// harness. Paused (timer_state) keeps the HUD's focused-time checkpoint interval
+// from firing against the mock (which has no rep_checkpoint receipt).
+const MOCK_REP_STATE: RepSnapshot = {
+  block_id: 102,
+  piece_id: 1,
+  piece_title: "Scherzo No. 2",
+  m_start: 65,
+  m_end: 96,
+  label: "Development",
+  bpm: 84,
+  start_bpm: 60,
+  target_bpm: 96,
+  planned_reps: 30,
+  reps_done: 3,
+  cleans_at_step: 2,
+  rule: { clean_needed: 3, bpm_step: 4 },
+  variant: "hands together",
+  variants: [],
+  verdicts: { clean: 3, flawed: 1, failed: 0 },
+  last: { verdict: "clean", note: "steadier release", bpm: 84 },
+  status: "active",
+  focus: "tempo",
+  use_metronome: true,
+  attempts_recorded: 4,
+  tries: 4,
+  voided_attempts: 0,
+  current_clean_streak: 3,
+  mastery_progress_streak: 3,
+  best_clean_streak: 3,
+  reset_count: 0,
+  accuracy: 0.75,
+  required_clean_streak: 5,
+  effective_required_clean_streak: 5,
+  recovery_remaining: 0,
+  mastery_status: "not_satisfied",
+  mastery_verified: true,
+  set_state: "active",
+  last_attempt_id: 4402,
+  last_adjustment_id: null,
+  active_seconds: 372,
+  timer_state: "paused",
+  intention: "Even development voicing",
+  judging_axis: "pulse",
+  hands: "together",
+  method: "tempo ladder",
+};
+
+function mockSession(): SessionView {
+  const startedAt = new Date(Date.now() - 22 * 60 * 1000).toISOString();
+  return {
+    id: 91,
+    started_at: startedAt,
+    events: [
+      { ts: startedAt, kind: "session_start", payload: {} },
+      { ts: isoDaysAgo(0), kind: "rep_open", payload: { measures: "65–96" } },
+      {
+        ts: isoDaysAgo(0),
+        kind: "verdict",
+        payload: { verdict: "clean", bpm: 84 },
+      },
+    ],
+  };
+}
+
 const METRO_STATE = {
   running: false,
   bpm: 92,
@@ -808,11 +874,11 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "api_key_clear":
       return apiKeyStatus(args, false);
     case "rep_state":
-      return null;
+      return MOCK_REP_STATE;
     case "metro_state":
       return METRO_STATE;
     case "session_current":
-      return null;
+      return mockSession();
     case "voice_state":
       return { muted: false, down: null };
 
