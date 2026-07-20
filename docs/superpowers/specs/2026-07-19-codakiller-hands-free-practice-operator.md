@@ -1,7 +1,7 @@
 # CodaKiller Hands-Free Practice Operator — Design
 
-**Date:** 2026-07-19  
-**Release target:** v3.1.0 stabilization, followed by the complete Practice Operator capability set  
+**Date:** 2026-07-19
+**Release target:** v3.1.0 stabilization, followed by the complete Practice Operator capability set
 **Product sentence:** Less work for Christian; more reliable practice truth.
 
 ## 1. Why this exists

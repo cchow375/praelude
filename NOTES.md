@@ -2,6 +2,49 @@
 
 ## Decisions
 
+- **v3.1.0 — hands-free stabilization + first screen-grounded operator action
+  (2026-07-20, implementation commit `36f21fd`):**
+  - **Receipts have semantic lifetimes, not one blanket close rule.** Routine committed,
+    undone, and duplicate notices auto-dismiss after 1.5 seconds and their card bodies use
+    pointer-through behavior. Errors and confirmation-required cards remain persistent and
+    dismissible. Preserve that distinction; a timer on an error is data loss disguised as polish.
+  - **The Brain sees a typed semantic screen snapshot, never the DOM.** Current context includes
+    selected piece/Region, page, exact edition ID/label, relevant active set, Today's plan,
+    canonical goals/history, bounded notation facts, and cited sources. This is the authority
+    model for future actions: add closed capabilities with server validation, not arbitrary
+    click/selectors or screenshots-as-state.
+  - **Tier A stays deterministic; Tier B/C may draft only after Tier A declines.** Clearly
+    assistant-directed questions can route without a wake phrase. The first new action is a
+    selected-Region set request (`"I want to do dotted rhythms five times on the right hand at
+    80"`) → editable draft → spoken readback → explicit `confirm`/`cancel` → existing command.
+    Bare yes/no remain verdict words. A page number alone never invents a measure range.
+  - **Spoken confirmation must read current mutable draft state.** The production voice callback
+    reads a latest-value ref at confirm time; capturing the draft created before the user edits
+    its card silently executes stale values. Exact-once guards remain mandatory.
+  - **Metronome ownership is one outer serialized command boundary.** Every UI, voice, ladder,
+    set-open, and safety transition holds the same command mutex across authoritative read →
+    mutate/no-op/live-retune → persist → event publication. Serializing only the audio call still
+    lets an older command persist or publish after a newer one. Handled events keep recognized raw/
+    normalized text plus before/after state; exact `metronome stop` and `stop the metronome` are
+    pinned fixtures.
+  - **Compact means normal flow, not hidden safety.** At ≤800 px width or ≤620 px height the active
+    HUD joins page flow and defaults collapsed; `data-compact-visible` keeps the emergency safety
+    stop reachable. Browser QA at 720×520 is the standing overlap gate.
+  - **Today's plan is deliberately local-only in this slice.** It is keyed by local date in
+    WebView storage, survives reload, and enters Brain context, but is not SQLite, export, Goal,
+    Calendar, or session truth. Do not imply otherwise until it gains a backend capability.
+  - **Release duplicate scans must prune user caches and Trash.** `~/Library` and `~/.Trash` can
+    contain rollback/cached `.app` bundles that are not active installations. The release script
+    now excludes both while still requiring filesystem + Spotlight to resolve one active
+    `/Applications/CodaKiller.app`. Two old rollback bundles were moved to Trash during this
+    release and remain recoverable there.
+  - **Release evidence:** frontend 985 passed / 0 failed / 2 todo; Rust 490 passed / 0 failed /
+    11 ignored plus every integration suite; strict clippy/build; sealed 3.1.0 app; valid DMG
+    checksum; exact-one-app audit. Pre-install backup `(C)
+    pre-v3.1.0-install-2026-07-20-000233.db`, SHA-256
+    `91e8c3fe5295d4d652a18b4486c336c96688148bf95ed2f892fd750e239ddb25`; before/after schema 10,
+    integrity `ok`, FK 0, exactly 6 pieces / 63 blocks / 559 reps / 14 sessions.
+
 - **v3.0.2 — target-draft dock fix + wizard measure prefill (2026-07-17, commits `6a32bc8` +
   `851994c`):**
   - **Prefill architecture: a new `prefill.ts` module with a three-tier `suggestMeasure`

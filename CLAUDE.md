@@ -5,10 +5,10 @@ This is the **code** for CodaKiller (Tauri v2, Rust + React/TS). The project's
 version history live in the Obsidian vault**, not here:
 
 > **`~/Desktop/christian's universe/Piano Practice/CodaKiller/`**
-> Start at `CLAUDE.md` there, then `(C) CodaKiller Command Center.md`. The portable
+> Start at `AGENTS.md` there, then `(C) CodaKiller Command Center.md`. The portable
 > whole-project summary is `CodaKiller.md`.
 
-## 🔒 Binding rule (from the vault CLAUDE.md — the most important one)
+## 🔒 Binding rule (from the vault AGENTS.md — the most important one)
 
 **After EVERY change or session, before reporting done, run the UPDATE PROTOCOL:**
 1. Log it in the vault `(C) Changelog.md` (date · what · why · files).
@@ -36,6 +36,10 @@ version history live in the Obsidian vault**, not here:
 
 - `NOTES.md` — engineering decisions, gotchas, hard-won empirical facts (read before touching
   `src-tauri/src/audio`, `stt`, `tts`, `metronome`).
+- `docs/superpowers/specs/2026-07-19-codakiller-hands-free-practice-operator.md` — the current
+  v3.1.0 operator/stabilization contract.
+- `docs/superpowers/plans/2026-07-19-codakiller-hands-free-practice-operator.md` — its execution
+  and verification plan.
 - `docs/superpowers/specs/2026-07-09-codakiller-design.md` — the approved design spec.
 - `docs/superpowers/specs/2026-07-15-codakiller-v2-transformation-design.md` — active P7/v2
   architecture and compatibility contract.
@@ -61,33 +65,23 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**Installed is v1.3.0 (tag `v1.3.0`, 2026-07-13). Active work is P7 / v2.0.0, started 2026-07-15
-from Christian's substantial real use: 481 attempts exposed wrong completion/recovery semantics,
-unclear writes, score/history friction, real voice false-positive/negative evidence, a verbose
-session-only Brain, and a UI/Universe that failed the user.** A verified schema-v7 snapshot is
-preserved at `(C) pre-v2.0.0-feedback-2026-07-15-163528.db`. The current exact-tree checkpoint
-(2026-07-16, verified SHIP after recovering the interrupted overnight build) contains schema-v10;
-the transactional PracticeContract RepEngine path with durable command receipts/idempotency;
-pause-aware focus time (one-minute suspension caps, backward-clock rejection); a fail-safe
-idempotent safety stop; physically-anchored recovery; validated typed retention; terminal mastered
-sets; the transactional Score Atlas target save; single-owner voice lanes (`handled` transcript
-flag); and the five-workspace shell with the earned Universe. Disposable backup copies migrate
-7→10 and reopen idempotently with exact source counts/hashes, integrity `ok`, FK 0, and 792
-disclosed anomalies; the live database was never opened. Later same day: the Composer's receipted
-`session_plan_start` + honest Today mount; the FULL narrated corpus (all four sessions, 1,309
-segments) replaying through production routing with zero false mutations (verbatim fidelity
-machine-checked); a read-only anomaly disclosure panel in the Ledger; and the Brain answer-quality
-upgrade (one-glance default across Claude+Gemini, durable per-piece memory via the now-wired
-`brain_thread`/`brain_turn` tables, retention/ledger grounding — verified to add NO
-practice-mutation authority: the only new production writes are the Brain's own conversation).
-the wake-cue conversational voice-control FIRST CUT (on "Coda, ..." the Brain proposes a typed,
-confirm-gated verdict/tempo/undo/restart draft → existing command; hot-loop untouched; malformed
-proposals drop; nothing mutates without Confirm; independently verified; session-goal deferred).
-**Corpus finding:** the deterministic hot-loop firewall is rock-solid, so the leverage was
-conversational voice control, now built as above. **What remains for a piano session with
-Christian** is the confirm-card FEEL (hands-free approval) + the session-goal draft — they need
-his ear and the browser aesthetic pass is his too (harness ready: `npm run dev:mock`). Objective
-browser QA is done (all five workspaces mount clean; fixed a Calendar copy bug; the Calendar
-7-day overflow is logged to B25). Remaining autonomous-safe: B25 scalable-history fixes needing
-his design direction → then full native/adversarial release. v2 is not shipped and the installed
-app/tutorial remain v1.3.0. Off-disk remote and packaged v2 Steinway acceptance remain open.
+**Installed is v3.1.0 (tag `v3.1.0`, 2026-07-20; implementation commit `36f21fd`).** It ships
+routine 1.5-second nonblocking receipts, state-aware serialized metronome transitions, a compact
+normal-flow HUD with visible safety stop, Today's date-scoped plan, the current in-app guide, and
+restored Brain context for the visible Score piece/Region/page/edition/active set/Today plan.
+Clearly assistant-directed questions work without a wake phrase. With a Region selected, a natural
+set request becomes an editable spoken draft requiring exact-once `confirm` or `cancel`; the model
+never enters the deterministic verdict/metronome hot loop or clicks arbitrary DOM.
+
+Release gates: frontend 985 passed / 0 failed / 2 todo; Rust 490 passed / 0 failed / 11 ignored
+plus every integration suite; strict clippy and production build; sealed app; valid DMG checksum;
+filesystem and Spotlight each resolve exactly one active `/Applications/CodaKiller.app`. The
+pre-install backup is `(C) pre-v3.1.0-install-2026-07-20-000233.db`, SHA-256
+`91e8c3fe5295d4d652a18b4486c336c96688148bf95ed2f892fd750e239ddb25`; live before/after truth is
+schema 10, integrity `ok`, FK 0, exactly 6 pieces / 63 blocks / 559 reps / 14 sessions.
+
+**Next:** real Steinway acceptance using exact verdicts, `metronome stop`, one no-wake question,
+and one selected-Region natural set request. Then build the complete typed capability registry for
+Today/Goals/Calendar/session planning with preview → spoken readback → explicit confirm → durable
+receipt → undo. Page-only targeting, durable unfinished drafts, history-at-scale, and the off-disk
+private remote remain open.

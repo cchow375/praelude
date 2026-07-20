@@ -8,25 +8,17 @@ metronome — hands-free.
 
 ## Status
 
-The installed release is **v1.3.0**: a working local Tauri app with score/PDF workspace, pieces,
-practice history, metronome, voice loop, Goals/Calendar, contextual Brain, and Practice Universe.
+The installed release is **v3.1.0**: the schema-10 PracticeContract backend and five-workspace v3
+shell plus the July 20 hands-free stabilization. Routine receipts clear in 1.5 seconds;
+metronome/set transitions are state-aware and serialized; the compact HUD stays in page flow;
+Today has a plan box; Settings has the current guide; and Brain receives the visible Score context,
+accepts clearly assistant-directed no-wake questions, and can turn one selected-Region set request
+into an editable spoken draft requiring `confirm` or `cancel`.
 
-**v2.0.0 / P7 is in implementation, not shipped.** Christian's July 15 real use produced 481
-attempts and exposed a core semantic/UI transformation: rigorous consecutive-clean/recovery /
-retention protocols, exact reversible history, selection-first Score Atlas, safer natural voice
-actions, concise durable Brain, scalable navigation, a handcrafted shell, and earned interactive
-Universe. Canonical status and contracts live in the Obsidian vault; start at
+This is the first safe Practice Operator slice, not arbitrary AI control. Page-only targeting,
+Goals/Calendar/session-plan voice actions, durable unfinished drafts, and real recognition over the
+Steinway remain open. Canonical status and contracts live in the Obsidian vault; start at
 `~/Desktop/christian's universe/Piano Practice/CodaKiller/(C) CodaKiller Command Center.md`.
-
-The current verified v2 checkpoint has landed in the working tree: additive schema-v8 sidecars
-plus the schema-v9 one-live-set invariant; one transactional PracticeContract RepEngine/store/IPC
-path; exact typed HUD/history/metrics/planner/export/Brain projections; append-only undo/correct /
-reverse/restart; global React receipts and metronome/state race guards; a four-book corpus manifest;
-and the first deterministic voice-firewall fixture. Disposable copies of the preserved schema-v7
-backup migrate and reopen cleanly with every source row/hash preserved. **Pause-aware focus,
-safety/recovery/retention, durable backend receipts, the full narrated voice cutover, later v2
-systems, native packaging, and live migration are still open. Christian's live database remains
-untouched and the installed app remains v1.3.0.**
 
 ## Build / run
 
@@ -51,11 +43,12 @@ npm run dev:mock       # VITE_DEV_MOCK=1 vite — then open the printed localhos
 
 `dev:mock` runs the frontend in a plain browser with a flag-gated, backend-free
 Tauri mock (`src/devMock/tauriDevMock.ts`). It intercepts the single
-`window.__TAURI_INTERNALS__` seam so the five v2 workspaces (Today, Atlas, Ledger,
-Calendar, Universe) mount and render with coherent sample data. This is a
-**DEV-ONLY visual/design-review harness, not functional acceptance**: only
-load-path reads return data, live events are a no-op, and mutations are not
-simulated. The mock activates **only** under `VITE_DEV_MOCK`; a normal
+`window.__TAURI_INTERNALS__` seam so the five v3 workspaces (Today, Score, Brain,
+Ledger/Calendar, Universe) mount and render with coherent sample data. This is a
+**DEV-ONLY visual/design-review harness, not native functional acceptance**: it simulates the
+bounded reads/writes needed by checked-in UI scenarios, while real audio, speech recognition,
+Keychain, SQLite, and native event behavior still require Tauri/native gates. The mock activates
+**only** under `VITE_DEV_MOCK`; a normal
 `npm run dev` and the real Tauri app never load it. Objective mount coverage
 lives in `src/devMock/tauriDevMock.smoke.test.tsx` (part of `npm test`).
 
