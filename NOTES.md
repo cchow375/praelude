@@ -2,6 +2,47 @@
 
 ## Decisions
 
+- **v3.2.0 — endurance/coherence release (2026-07-20, implementation commit `853f440`):**
+  - **The metronome has an explicit owner.** Native state records `manual` or
+    `practice(set_id)`. A stopped practice set claims the click; an already-running manual click
+    can be live-retuned without being stolen; pause/resume/close act only on the matching practice
+    lease; restart transfers it; manual controls reclaim it; safety always stops and clears it;
+    relaunch restores a silent practice lease. Keep ownership inside the serialized native command
+    boundary—frontend inference is not authoritative.
+  - **A session cannot end through a live set.** UI and native commands reject End session until
+    the set closes. Graceful quit closes the set before export, and session logging/export share a
+    serialized boundary so late metronome events cannot fall outside the projection.
+  - **Stateful endurance is a release gate.** The native 220-attempt simulation covers every
+    verdict, notes, variants, idempotent retries, tempo changes, pause/focus, checkpoint,
+    correction/undo, recovery, a three-minute relaunch gap, restart, retention, close, and export;
+    it finishes with exactly 220 immutable attempts, one session, and 180 focused seconds.
+  - **Cached workspaces must be explicitly inactive.** Score stays mounted to preserve page,
+    Region, zoom, inspector, and draft state, but hidden Score must unsubscribe from global paging
+    keys and native score-navigation events. Deep links are navigation events with a revision, not
+    level-triggered IDs; repeating the same requested piece must select it again. A requested
+    no-PDF piece stays exact and explains the missing PDF instead of substituting another score.
+  - **The Brain owns a bounded semantic snapshot, not stale hidden UI.** The visible piece,
+    Region/range, page, edition, active set, and Today plan appear in the `Coda sees` strip. Ledger
+    Pieces publishes the same context. Thread loads and provider answers are generation-guarded;
+    late answers, clears, and piece switches cannot contaminate another thread or execute an action
+    against a newer set. New-set drafts are blocked while a set is live.
+  - **Reviewed session plans and Score work survive ordinary navigation.** The multi-item reviewed
+    plan is date-scoped local storage with corruption guards and explicit dismissal; Score remains
+    cached; Settings returns to its originating workspace. These are local UI continuity, not new
+    database truth.
+  - **Receipts preserve meaning under stress.** Routine success/undo/duplicate cards expire after
+    1.5 seconds and reserve at most the ordinary visual budget. Every error and confirmation stays
+    until explicit dismissal—even a sixth sticky card—so success traffic cannot erase a failure.
+  - **Release evidence:** frontend 99 files / 1,025 tests / zero todo; Rust 495 library passed / 11
+    ignored plus 34 integration tests (529 passed total / 13 external-live ignored); strict clippy,
+    TypeScript, production build, sealed app, DMG checksum, exact-one-app audit, interactive mock
+    workspace/endurance drive, and fresh-context verifier Ship. Pre-install backup `(C)
+    pre-v3.2.0-install-2026-07-20-014755.db`, SHA-256
+    `9b82ceee860cb772a0fb1ea7a1ec99291d6dd598589c29fd104c5e913a00745a`; disposable reopen rehearsal
+    and packaged launch/quit preserved schema 10, integrity `ok`, FK 0, exactly 6 pieces / 63 sets /
+    559 attempts / 14 sessions. DMG SHA-256
+    `0492a63cc6807a5d4ac239ab427242941148ec179d60a65564fc128a4ea5891d`.
+
 - **v3.1.0 — hands-free stabilization + first screen-grounded operator action
   (2026-07-20, implementation commit `36f21fd`):**
   - **Receipts have semantic lifetimes, not one blanket close rule.** Routine committed,
