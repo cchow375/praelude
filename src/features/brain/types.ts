@@ -113,6 +113,9 @@ export interface PracticeBrainContext {
   /** Date-scoped plain-English intention from Today's visible plan box. */
   today_plan?: string | null;
   active_block?: {
+    /** Stable native set identity, used only to keep a delayed proposal bound
+     *  to the set that was active when the question was asked. */
+    block_id?: number;
     m_start: number;
     m_end: number;
     bpm: number | null;

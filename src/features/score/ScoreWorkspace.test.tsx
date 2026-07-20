@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 const invokeMock = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({
@@ -63,6 +69,67 @@ describe("ScoreWorkspace", () => {
     expect(screen.getByRole("heading", { name: "Scherzo No. 2" })).toBeTruthy();
     // Both PDF-bearing pieces are offered.
     expect(screen.getAllByRole("option")).toHaveLength(2);
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("piece_select", { id: 1 }),
+    );
+  });
+
+  it("opens the exact requested piece and synchronizes picker changes to native context", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      return Promise.resolve(undefined);
+    });
+
+    const { rerender } = render(
+      <ScoreWorkspace requestedPieceId={2} requestRevision={1} />,
+    );
+
+    const picker = (await screen.findByLabelText(
+      "Choose a piece",
+    )) as HTMLSelectElement;
+    expect(picker.value).toBe("2");
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("piece_select", { id: 2 }),
+    );
+
+    fireEvent.change(picker, { target: { value: "1" } });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("piece_select", { id: 1 }),
+    );
+
+    rerender(<ScoreWorkspace requestedPieceId={2} requestRevision={2} />);
+    await waitFor(() => expect(picker.value).toBe("2"));
+  });
+
+  it("shows the requested no-PDF piece instead of substituting another score", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "pieces_list") {
+        return Promise.resolve([
+          ...PIECES,
+          {
+            id: 3,
+            title: "Unscanned Prelude",
+            composer: "Composer",
+            has_xml: false,
+            has_pdf: false,
+            intake_done: true,
+          },
+        ]);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    render(
+      <ScoreWorkspace requestedPieceId={3} requestRevision={1} />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Unscanned Prelude" })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /No PDF score is available for Unscanned Prelude/i,
+    );
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("piece_select", { id: 3 }),
+    );
   });
 
   it("forwards the practice seam so the Practice tab can open a block", async () => {
@@ -72,12 +139,19 @@ describe("ScoreWorkspace", () => {
     });
     const onOpenBlock = vi.fn().mockResolvedValue(undefined);
 
-    render(<ScoreWorkspace onOpenBlock={onOpenBlock} defaultCleanStreak={4} />);
+    render(
+      <ScoreWorkspace
+        onOpenBlock={onOpenBlock}
+        defaultCleanStreak={4}
+        isActive={false}
+      />,
+    );
 
     await screen.findByTestId("score-view-stub");
     const props = scoreViewProps.current as ScoreViewProps;
     expect(typeof props.onOpenBlock).toBe("function");
     expect(props.defaultCleanStreak).toBe(4);
+    expect(props.isActive).toBe(false);
 
     // The forwarded handler must reach the shell's rep.open.
     const args = {

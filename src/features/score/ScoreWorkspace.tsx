@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { PieceSummary } from "../pieces/types";
 import type { PracticeBrainContext } from "../brain/types";
-import type { RepOpenArgs } from "../rep/useRep";
+import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
 import { ScoreView } from "./ScoreView";
 import type { ScoreFocusContext } from "./types";
 import "./ScoreWorkspace.css";
@@ -43,6 +43,14 @@ export interface ScoreWorkspaceProps {
   defaultCleanStreak?: number;
   /** Publishes the exact visible score target to the shell-owned Brain context. */
   onPracticeContextChange?: (context: PracticeBrainContext | null) => void;
+  /** Exact piece requested by a cross-workspace jump (Today/Universe). */
+  requestedPieceId?: number | null;
+  /** Changes for every navigation request, including repeat requests. */
+  requestRevision?: number;
+  /** False while Shell keeps Score mounted only to preserve local work. */
+  isActive?: boolean;
+  /** The shell's single live set, used to disable conflicting manual starts. */
+  activeRep?: RepSnapshot | null;
 }
 
 /**
@@ -54,11 +62,17 @@ export function ScoreWorkspace({
   onOpenBlock,
   defaultCleanStreak,
   onPracticeContextChange,
+  requestedPieceId = null,
+  requestRevision = 0,
+  isActive = true,
+  activeRep = null,
 }: ScoreWorkspaceProps = {}) {
   const [pieces, setPieces] = useState<PieceSummary[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [navigationError, setNavigationError] = useState<string | null>(null);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
 
   const openBlock = useCallback(
@@ -83,28 +97,74 @@ export function ScoreWorkspace({
     try {
       const next = (await invoke<PieceSummary[]>("pieces_list")) ?? [];
       const withPdf = next.filter((piece) => piece.has_pdf);
-      const list = withPdf.length > 0 ? withPdf : next;
+      const requested = requestedPieceId == null
+        ? null
+        : next.find((piece) => piece.id === requestedPieceId) ?? null;
+      // Keep an explicitly requested no-PDF piece visible so the destination
+      // can explain why its score cannot open instead of silently substituting
+      // another work.
+      const list = requested && !requested.has_pdf && withPdf.length > 0
+        ? [requested, ...withPdf]
+        : withPdf.length > 0
+          ? withPdf
+          : next;
       setPieces(list);
-      setSelectedId((current) => {
+      if (requestedPieceId != null && requested == null) {
+        setNavigationError("That piece is no longer available in the library.");
+        setSelectedId(null);
+      } else if (requested != null) {
+        setNavigationError(
+          requested.has_pdf
+            ? null
+            : `No PDF score is available for ${requested.title}. Add a PDF to its piece folder and rescan.`,
+        );
+        setSelectedId(requested.id);
+      } else {
+        setNavigationError(null);
+        setSelectedId((current) => {
         if (current != null && list.some((piece) => piece.id === current))
           return current;
         const last = readLastPieceId();
         if (last != null && list.some((piece) => piece.id === last))
           return last;
         return list[0]?.id ?? null;
-      });
+        });
+      }
     } catch (reason) {
       setPieces([]);
       setSelectedId(null);
+      setNavigationError(null);
       setError(messageOf(reason));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [requestRevision, requestedPieceId]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (
+      requestedPieceId != null &&
+      pieces.some((piece) => piece.id === requestedPieceId)
+    ) {
+      setSelectedId(requestedPieceId);
+      writeLastPieceId(requestedPieceId);
+    }
+  }, [pieces, requestRevision, requestedPieceId]);
+
+  // The visible score selection is the application's current piece. Keep the
+  // native setting used by deterministic voice/Brain in lockstep with it.
+  useEffect(() => {
+    if (selectedId == null) return;
+    setSelectionError(null);
+    void invoke("piece_select", { id: selectedId }).catch((reason) => {
+      setSelectionError(
+        `The score changed, but voice context did not: ${messageOf(reason)}`,
+      );
+    });
+  }, [selectedId]);
 
   const selected = pieces.find((piece) => piece.id === selectedId) ?? null;
 
@@ -152,6 +212,7 @@ export function ScoreWorkspace({
               value={selectedId ?? ""}
               onChange={(event) => {
                 const id = Number(event.target.value);
+                setNavigationError(null);
                 setSelectedId(id);
                 writeLastPieceId(id);
               }}
@@ -178,6 +239,16 @@ export function ScoreWorkspace({
             {error}
           </p>
         )}
+        {navigationError && !loading && !error && (
+          <p className="score-workspace-state is-error" role="alert">
+            {navigationError}
+          </p>
+        )}
+        {selectionError && !loading && !error && !navigationError && (
+          <p className="score-workspace-state is-error" role="alert">
+            {selectionError}
+          </p>
+        )}
         {!loading && !error && selectedId == null && (
           <p className="score-workspace-state">
             No pieces with a PDF score yet. Add a PDF to a piece’s folder and
@@ -188,10 +259,16 @@ export function ScoreWorkspace({
           <ScoreView
             key={selectedId}
             pieceId={selectedId}
+            isActive={isActive}
             onOpenBlock={onOpenBlock ? openBlock : undefined}
             opening={opening}
             defaultCleanStreak={defaultCleanStreak}
             onContextChange={publishScoreContext}
+            activeRange={
+              activeRep
+                ? { m_start: activeRep.m_start, m_end: activeRep.m_end }
+                : null
+            }
           />
         )}
       </div>

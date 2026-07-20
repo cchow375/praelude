@@ -51,6 +51,22 @@ vi.mock("../features/score/ScoreWorkspace", () => ({
   },
 }));
 
+const ledgerWorkspaceProps = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock("../features/ledger/LedgerCalendarWorkspace", () => ({
+  LedgerCalendarWorkspace: (props: unknown) => {
+    ledgerWorkspaceProps.current = props;
+    return <div data-testid="ledger-workspace-stub" />;
+  },
+}));
+
+const universeWorkspaceProps = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock("../features/universe/UniverseWorkspace", () => ({
+  UniverseWorkspace: (props: unknown) => {
+    universeWorkspaceProps.current = props;
+    return <div data-testid="universe-workspace-stub" />;
+  },
+}));
+
 import { Shell, voiceDraftOpenRequest } from "./Shell";
 import { ReceiptCenterProvider } from "../features/receipts/ReceiptCenter";
 
@@ -217,6 +233,72 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Shell app-level practice surfaces", () => {
+  it("carries Today and Universe navigation to the exact inner surface and piece", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Shape the day/i }));
+    await screen.findByTestId("ledger-workspace-stub");
+    expect(ledgerWorkspaceProps.current).toEqual(
+      expect.objectContaining({
+        requestedSurface: "calendar",
+        requestedPieceId: null,
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Universe" }));
+    await screen.findByTestId("universe-workspace-stub");
+    const universe = universeWorkspaceProps.current as {
+      onOpenPractice: (piece: { piece_id: number; title: string }) => void;
+      onOpenLedger: (piece: { piece_id: number; title: string }) => void;
+    };
+    act(() => universe.onOpenPractice({ piece_id: 42, title: "Poem" }));
+    await screen.findByTestId("score-workspace-stub");
+    expect(scoreWorkspaceProps.current).toEqual(
+      expect.objectContaining({
+        requestedPieceId: 42,
+        requestRevision: 1,
+        isActive: true,
+      }),
+    );
+
+    // A repeated deep link is a new navigation event even when the requested
+    // piece ID is identical and the cached Score was changed in between.
+    fireEvent.click(screen.getByRole("tab", { name: "Universe" }));
+    act(() => universe.onOpenPractice({ piece_id: 42, title: "Poem" }));
+    await screen.findByTestId("score-workspace-stub");
+    expect(scoreWorkspaceProps.current).toEqual(
+      expect.objectContaining({ requestedPieceId: 42, requestRevision: 2 }),
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Universe" }));
+    act(() => universe.onOpenLedger({ piece_id: 43, title: "Sonata" }));
+    await screen.findByTestId("ledger-workspace-stub");
+    expect(ledgerWorkspaceProps.current).toEqual(
+      expect.objectContaining({
+        requestedSurface: "ledger",
+        requestedPieceId: 43,
+      }),
+    );
+  });
+
+  it("returns Settings to the workspace where it opened", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell settingsContent={<div data-testid="settings-stub" />} />
+      </ReceiptCenterProvider>,
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Score" }));
+    await screen.findByTestId("score-workspace-stub");
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByTestId("settings-stub")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("tab", { name: "Score" }).getAttribute("aria-selected")).toBe("true");
+  });
+
   it("mounts the active-block Rep HUD from authoritative rep state", async () => {
     render(
       <ReceiptCenterProvider>
@@ -239,8 +321,10 @@ describe("Shell app-level practice surfaces", () => {
         <Shell />
       </ReceiptCenterProvider>,
     );
+    const end = await screen.findByRole("button", { name: "End session" });
+    expect((end as HTMLButtonElement).disabled).toBe(true);
     expect(
-      await screen.findByRole("button", { name: "End session" }),
+      screen.getByText("Close the active set before ending the session."),
     ).toBeTruthy();
   });
 
@@ -375,7 +459,7 @@ describe("Shell app-level practice surfaces", () => {
     ).toHaveLength(1);
   });
 
-  it("routes conservative assistant-directed speech without a wake cue", async () => {
+  it("routes a natural practice-advice question to Brain instead of drafting a set", async () => {
     render(
       <ReceiptCenterProvider>
         <Shell />
@@ -386,7 +470,7 @@ describe("Shell app-level practice surfaces", () => {
     await emit("voice://transcript", {
       delivery_id: "natural-question-1",
       revision: 0,
-      text: "Can you tell me what happened last practice session?",
+      text: "How should I practice this section?",
       is_final: true,
       handled: false,
       source: "macos_speech",
@@ -400,7 +484,7 @@ describe("Shell app-level practice surfaces", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.[1]).toEqual({
       request: expect.objectContaining({
-        question: "Can you tell me what happened last practice session?",
+        question: "How should I practice this section?",
         source: "voice",
         context: expect.objectContaining({
           piece_id: 7,
@@ -412,6 +496,84 @@ describe("Shell app-level practice surfaces", () => {
     });
   });
 
+  it("binds a delayed Brain verdict to the set active when the question began", async () => {
+    let resolveAnswer!: (value: typeof BRAIN_ANSWER) => void;
+    const baseInvoke = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((...args: unknown[]) =>
+      args[0] === "brain_ask"
+        ? new Promise((resolve) => { resolveAnswer = resolve; })
+        : baseInvoke?.(...args),
+    );
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await publishSelectedScoreContext();
+
+    await emit("voice://intent", {
+      kind: "question",
+      text: "Was that clean?",
+      bpm: null,
+    });
+    await waitFor(() => expect(
+      invokeMock.mock.calls.filter(([command]) => command === "brain_ask"),
+    ).toHaveLength(1));
+
+    await emit("rep://state", { ...ACTIVE_SNAP, block_id: 2 });
+    resolveAnswer({
+      ...BRAIN_ANSWER,
+      id: "delayed-verdict",
+      proposed_action: {
+        kind: "verdict",
+        summary: "Log clean",
+        verdict: "clean",
+        note: null,
+      },
+    });
+
+    expect(await screen.findByText("The active set changed. Ask again before applying this action.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
+  });
+
+  it("invalidates a natural set draft when the selected Region bounds change", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await publishSelectedScoreContext();
+    await emit("rep://state", null);
+    await emit("voice://transcript", {
+      delivery_id: "natural-range-change",
+      revision: 0,
+      text: "Practice this section five times",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.96,
+    });
+    expect(await screen.findByText("Review the spoken set.")).toBeTruthy();
+
+    const props = scoreWorkspaceProps.current as {
+      onPracticeContextChange?: (context: PracticeBrainContext | null) => void;
+    };
+    act(() => props.onPracticeContextChange?.({
+      ...SCORE_CONTEXT,
+      region: SCORE_CONTEXT.region
+        ? { ...SCORE_CONTEXT.region, m_start: 721 }
+        : null,
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Start this set" }));
+
+    expect(await screen.findByText(
+      "The Score target changed. Review a new spoken draft before starting.",
+    )).toBeTruthy();
+    expect(
+      invokeMock.mock.calls.filter(([command]) => command === "rep_open"),
+    ).toHaveLength(0);
+  });
+
   it("drafts a no-wake natural set from the selected Region and writes only after confirm", async () => {
     render(
       <ReceiptCenterProvider>
@@ -419,6 +581,7 @@ describe("Shell app-level practice surfaces", () => {
       </ReceiptCenterProvider>,
     );
     await publishSelectedScoreContext();
+    await emit("rep://state", null);
 
     await emit("voice://transcript", {
       delivery_id: "natural-set-1",
@@ -489,6 +652,88 @@ describe("Shell app-level practice surfaces", () => {
         method: "rhythmic variants",
       }),
     });
+  });
+
+  it("does not reuse an invisible Score Region after navigating back to Today", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await publishSelectedScoreContext();
+    fireEvent.click(screen.getByRole("tab", { name: "Today" }));
+    await emit("rep://state", null);
+
+    await emit("voice://transcript", {
+      delivery_id: "natural-after-score-left",
+      revision: 0,
+      text: "I want to do dotted rhythms five times on the right hand at 80",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.96,
+    });
+
+    await screen.findByText(BRAIN_ANSWER.answer);
+    const ask = invokeMock.mock.calls.find(
+      ([command]) => command === "brain_ask",
+    );
+    expect(ask?.[1]).toEqual({
+      request: expect.objectContaining({
+        piece_id: null,
+        context: null,
+      }),
+    });
+  });
+
+  it("keeps a natural start-set draft unavailable while another set is active", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await publishSelectedScoreContext();
+
+    await emit("voice://transcript", {
+      delivery_id: "natural-set-while-active",
+      revision: 0,
+      text: "I want to do dotted rhythms five times on the right hand at 80",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.96,
+    });
+
+    expect(await screen.findByText(
+      "A practice set is already active. Close or finish it before starting another.",
+    )).toBeTruthy();
+    expect((screen.getByRole(
+      "button",
+      { name: "Start this set" },
+    ) as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect(
+      invokeMock.mock.calls.find(([command]) => command === "voice_speak")?.[1],
+    ).toEqual({
+      text: "A practice set is already active. Close or finish it before starting another, or say cancel.",
+    }));
+
+    await emit("voice://transcript", {
+      delivery_id: "natural-set-active-confirm",
+      revision: 0,
+      text: "confirm",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.99,
+    });
+    expect(
+      invokeMock.mock.calls.filter(([command]) => command === "rep_open"),
+    ).toHaveLength(0);
+    await waitFor(() => expect(
+      screen.getAllByText(
+        "A practice set is already active. Close or finish it before starting another.",
+      ).some((element) => element.getAttribute("role") === "alert"),
+    ).toBe(true));
   });
 });
 

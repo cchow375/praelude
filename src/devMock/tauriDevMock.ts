@@ -3,9 +3,10 @@
 //
 // This module lets the five-workspace v2 UI mount and render in a plain browser
 // (`npm run dev:mock`) or a jsdom smoke test, WITHOUT a Rust backend. It is a
-// STATIC render harness for visual/design review — NOT a functional acceptance
-// surface. It only ever returns coherent sample data for the commands the five
-// workspaces call on their LOAD path; live event pushes are an explicit no-op.
+// BOUNDED interactive harness for visual/design review and browser journeys —
+// NOT a substitute for native acceptance. It returns coherent sample data for
+// every workspace plus a few high-value interactions; live native event pushes,
+// audio, persistence, and complete domain semantics remain out of scope.
 //
 // Interception point: `window.__TAURI_INTERNALS__`. Both @tauri-apps/api
 // surfaces bottom out here — `invoke(cmd, args)` calls
@@ -1119,6 +1120,41 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return BRAIN_STATUS;
     case "brain_test_connection":
       return BRAIN_TEST_RESULT;
+    case "brain_thread_resume":
+      return { thread_id: 8_001, turns: [] };
+    case "brain_thread_clear":
+      return null;
+    case "brain_plan_preview":
+      return [];
+    case "brain_ask":
+      return {
+        id: `mock-brain-${Date.now()}`,
+        answer:
+          "The record shows repeated development work below the target tempo. Keep the selected section narrow, name one judging axis, and require the clean streak before raising the condition.",
+        provider: "offline",
+        citations: [
+          {
+            source_id: "mock-ledger",
+            label: "Practice ledger",
+            excerpt: "Development: recent work at 84 BPM with mixed outcomes.",
+          },
+        ],
+        methods: [],
+        intake_review: null,
+        proposed_action: null,
+        grounding: {
+          piece_title: "Scherzo No. 2",
+          region_name: "Development",
+          measure_range: [65, 96],
+          recent_rep_count: mockAttempts,
+          active_block_included: true,
+          knowledge_status: "ready",
+          knowledge_shared_with_provider: false,
+          knowledge_sources: ["Practice ledger"],
+          musicxml_status: "ready",
+          warnings: ["Browser mock response; native provider was not called."],
+        },
+      };
     case "api_key_save":
       return apiKeyStatus(args, true);
     case "api_key_clear":

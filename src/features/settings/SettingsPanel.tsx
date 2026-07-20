@@ -60,15 +60,11 @@ const defaultApi: SettingsApi = {
 };
 
 export function SettingsPanel({
-  onResetLayout,
-  onThemeSaved,
   onInterfaceScaleSaved,
   onPracticeDefaultCleanStreakSaved,
   api = defaultApi,
   brainInvoker,
 }: {
-  onResetLayout: () => void;
-  onThemeSaved?: (theme: "auto" | "dark" | "light") => void;
   onInterfaceScaleSaved?: (scale: number) => void;
   onPracticeDefaultCleanStreakSaved?: (target: number) => void;
   api?: SettingsApi;
@@ -93,6 +89,7 @@ export function SettingsPanel({
         if (active) {
           const normalized = {
             ...next,
+            theme: "dark" as const,
             interface_scale: Number.isFinite(next.interface_scale)
               ? next.interface_scale
               : 90,
@@ -149,7 +146,6 @@ export function SettingsPanel({
       });
       setValue(next);
       setAliasDrafts(aliasStrings(next.verdict_aliases));
-      onThemeSaved?.(next.theme);
       onInterfaceScaleSaved?.(next.interface_scale);
       onPracticeDefaultCleanStreakSaved?.(next.practice_default_clean_streak);
       setMessage(
@@ -178,9 +174,6 @@ export function SettingsPanel({
       <header className="settings-head">
         <h2>Settings</h2>
         <div className="settings-head-actions">
-          <Button variant="text" type="button" onClick={onResetLayout}>
-            Reset panel layout
-          </Button>
           <Button variant="primary" type="submit" disabled={saving}>
             {saving ? "Saving…" : "Save"}
           </Button>
@@ -219,7 +212,7 @@ export function SettingsPanel({
               <strong>Choose the music.</strong>
               <span>
                 Select the piece and section in Score, then start a practice set
-                from Score or Today. With a section selected, you can say
+                from Score or Today. With a section selected, you can say{" "}
                 <q>
                   I want to do dotted rhythms five times on the right hand at 80
                 </q>
@@ -229,7 +222,7 @@ export function SettingsPanel({
             <li>
               <strong>Report each attempt.</strong>
               <span>
-                While the set is open, say <q>done</q> for clean, <q>sloppy</q>
+                While the set is open, say <q>done</q> for clean, <q>sloppy</q>{" "}
                 for flawed, or <q>again, missed the left-hand jump</q> for
                 failed with a saved note. CodaKiller does not grade the piano.
               </span>
@@ -289,7 +282,7 @@ export function SettingsPanel({
             <section aria-labelledby="settings-guide-brain">
               <h4 id="settings-guide-brain">Plain-English Brain</h4>
               <p>
-                Type in Brain, or ask an assistant-directed question such as
+                Type in Brain, or ask an assistant-directed question such as{" "}
                 <q>Can you tell me what happened last session?</q> without a
                 wake phrase. Brain receives the selected Score piece, Region,
                 page, edition, active set, and today's written plan, plus
@@ -499,6 +492,10 @@ export function SettingsPanel({
 
       <Disclosure summary="Ladder defaults">
         <div className="settings-group">
+          <p className="settings-note">
+            Mastery uses consecutive clean attempts. Choose any optional
+            attempt review boundary separately when you start a set.
+          </p>
           <NumberField
             label="Default clean streak"
             value={value.practice_default_clean_streak}
@@ -570,22 +567,9 @@ export function SettingsPanel({
 
       <Disclosure summary="Appearance">
         <div className="settings-group">
-          <Row label="Theme">
-            <select
-              aria-label="Theme"
-              value={value.theme}
-              onChange={(event) =>
-                setValue({
-                  ...value,
-                  theme: event.target.value as SettingsSnapshot["theme"],
-                })
-              }
-            >
-              <option value="auto">Follow Mac</option>
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-            </select>
-          </Row>
+          <p className="settings-note">
+            CodaKiller uses its dark practice-room interface.
+          </p>
           <label className="settings-scale">
             <span>
               Interface scale <strong>{value.interface_scale}%</strong>

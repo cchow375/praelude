@@ -59,6 +59,6 @@ describe("Brain navigation (v3 shell)", () => {
   it("shows the persistent Brain status line", async () => {
     render(<Shell />);
     fireEvent.click(screen.getByRole("tab", { name: "Brain" }));
-    expect(await screen.findByText("● online — gemini")).toBeTruthy();
+    expect(await screen.findByText("● configured — gemini")).toBeTruthy();
   });
 });

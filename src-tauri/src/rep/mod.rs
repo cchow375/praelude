@@ -12,6 +12,7 @@
 
 pub mod ladder;
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
@@ -20,7 +21,7 @@ use crate::ledger::MutationSource;
 use crate::protocol::PracticeContract;
 use crate::sessions::{SessionService, StateEmitter};
 use crate::store::model::{
-    CheckOutcome, MutationReceipt, RecoveryActionRequest, RepOpenArgs, RepSnapshot,
+    CheckOutcome, ExportResult, MutationReceipt, RecoveryActionRequest, RepOpenArgs, RepSnapshot,
     RetentionCheckView, RetentionResult, SetFocusContextInput,
 };
 use crate::store::{
@@ -377,6 +378,21 @@ impl RepEngine {
 
     pub fn close_voice(&self) -> Result<Option<RepSnapshot>, String> {
         self.close_from(MutationSource::VoiceHotLoop)
+    }
+
+    /// End and export the practice session only when no set is live.  The
+    /// active-set guard is held across export + end so a concurrent open/check
+    /// cannot split one logical set across two sessions between the preflight
+    /// and the durable session close.
+    pub fn end_session_and_export(
+        &self,
+        pieces_dir: &Path,
+    ) -> Result<Option<ExportResult>, String> {
+        let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+        if active.is_some() {
+            return Err("Close the current practice set before ending the session.".into());
+        }
+        Ok(self.sessions.end_and_export(&self.store, pieces_dir))
     }
 
     fn close_from(&self, source: MutationSource) -> Result<Option<RepSnapshot>, String> {
@@ -1046,6 +1062,13 @@ mod tests {
         fn now(&self, _store: &Store) -> Result<String, String> {
             Ok(self.value.lock().unwrap().clone())
         }
+    }
+
+    fn timestamp_after(seconds: u32) -> String {
+        let hour = 12 + seconds / 3_600;
+        let minute = (seconds % 3_600) / 60;
+        let second = seconds % 60;
+        format!("2026-07-15T{hour:02}:{minute:02}:{second:02}Z")
     }
 
     fn engine_with_fixed_clock(
@@ -1736,6 +1759,278 @@ mod tests {
             1,
             "exactly one session_start event carries the derived command id"
         );
+    }
+
+    #[test]
+    fn public_session_end_rejects_a_live_set_then_exports_after_explicit_close() {
+        let (engine, piece_id, _store, _rec) = engine_with_piece();
+        let opened = engine.open(strict_notes_args(piece_id, 50)).unwrap();
+        engine
+            .check(RepVerdict::Flawed, Some("thumb arrived early".into()))
+            .unwrap();
+        let session_id = engine.sessions.current_id().expect("practice session");
+        let export_root = tempfile::tempdir().unwrap();
+
+        let error = engine
+            .end_session_and_export(export_root.path())
+            .expect_err("a live set cannot be split across sessions");
+        assert!(error.contains("Close the current practice set"));
+        assert_eq!(engine.snapshot().unwrap().block_id, opened.block_id);
+        assert_eq!(engine.sessions.current_id(), Some(session_id));
+
+        let closed = engine.close().unwrap().expect("set closes");
+        assert_eq!(closed.set_state, "closed_unresolved");
+        let exported = engine
+            .end_session_and_export(export_root.path())
+            .unwrap()
+            .expect("session exports after close");
+        assert_eq!(exported.session_id, session_id);
+        assert_eq!(exported.reps, 1);
+        assert!(engine.sessions.current_id().is_none());
+    }
+
+    #[test]
+    fn long_stateful_practice_session_survives_retries_pauses_repairs_relaunch_restart_and_export()
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("long-stateful.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T12:00:00Z"));
+        let (mut engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        let region = store
+            .region_create(RegionCreate {
+                piece_id,
+                name: "Long-session landing".into(),
+                notes: Some("measures 73–78".into()),
+                m_start: 73,
+                m_end: 78,
+                kind: "hard_spot".into(),
+            })
+            .unwrap();
+        let opened = engine
+            .open_with_context(
+                RepOpenArgs {
+                    piece_id,
+                    region_id: Some(region.id),
+                    m_start: 73,
+                    m_end: 78,
+                    label: Some("long-session pulse audit".into()),
+                    start_bpm: 60.0,
+                    target_bpm: Some(300.0),
+                    planned_reps: Some(240),
+                    required_clean_streak: Some(50),
+                    increment: Some(IncrementRule {
+                        clean_needed: 4,
+                        bpm_step: 2.0,
+                    }),
+                    variants: vec![
+                        VariantSpec {
+                            name: "blocked".into(),
+                            reps: 60,
+                        },
+                        VariantSpec {
+                            name: "dotted".into(),
+                            reps: 60,
+                        },
+                        VariantSpec {
+                            name: "reverse dotted".into(),
+                            reps: 60,
+                        },
+                    ],
+                    focus: "tempo".into(),
+                    use_metronome: true,
+                },
+                Some(SetFocusContextInput {
+                    intention: Some("Even pulse through the left-hand landing".into()),
+                    judging_axis: Some("pulse".into()),
+                    hands: Some("together".into()),
+                    method: Some("rhythmic variants".into()),
+                    planned_seconds: Some(1_200),
+                    reflection: None,
+                }),
+            )
+            .unwrap();
+        let original_set_id = opened.block_id;
+        let mut elapsed = 0u32;
+
+        for attempt in 1..=180u32 {
+            elapsed += 1;
+            clock.set(&timestamp_after(elapsed));
+            let (verdict, note) = if attempt % 11 == 0 {
+                (
+                    RepVerdict::Failed,
+                    Some(format!("attempt {attempt}: lost pulse at landing")),
+                )
+            } else if attempt % 5 == 0 {
+                (
+                    RepVerdict::Flawed,
+                    Some(format!("attempt {attempt}: uneven but recovered")),
+                )
+            } else {
+                (RepVerdict::Clean, None)
+            };
+
+            let outcome = if attempt % 17 == 0 {
+                let command_id = format!("long-attempt-{attempt}");
+                let first = engine
+                    .check_idempotent(&command_id, verdict, note.clone())
+                    .unwrap();
+                let replay = engine.check_idempotent(&command_id, verdict, note).unwrap();
+                assert!(replay.receipt.as_ref().unwrap().replayed);
+                assert_eq!(replay.snap.tries, first.snap.tries);
+                replay
+            } else {
+                engine.check(verdict, note).unwrap()
+            };
+
+            assert_eq!(outcome.snap.tries, attempt);
+            assert_eq!(outcome.snap.attempts_recorded, attempt);
+            assert_eq!(outcome.snap.voided_attempts, 0);
+            assert_eq!(
+                outcome.snap.verdicts.clean
+                    + outcome.snap.verdicts.flawed
+                    + outcome.snap.verdicts.failed,
+                attempt
+            );
+            assert!(outcome.snap.bpm.unwrap().is_finite());
+            assert!(outcome.snap.bpm.unwrap() <= 300.0);
+
+            if attempt % 30 == 0 {
+                engine
+                    .checkpoint(&format!("long-checkpoint-{attempt}"))
+                    .unwrap();
+            }
+            if attempt == 60 || attempt == 120 {
+                let paused = engine.pause(&format!("long-pause-{attempt}")).unwrap();
+                assert_eq!(paused.value.as_ref().unwrap().timer_state, "paused");
+                assert!(
+                    engine.check(RepVerdict::Clean, None).is_err(),
+                    "paused practice cannot accept a verdict"
+                );
+                elapsed += 10;
+                clock.set(&timestamp_after(elapsed));
+                let resumed = engine.resume(&format!("long-resume-{attempt}")).unwrap();
+                assert_eq!(resumed.value.as_ref().unwrap().timer_state, "active");
+            }
+            if attempt == 75 {
+                let attempt_id = outcome.snap.last_attempt_id.unwrap();
+                let corrected = engine
+                    .correct(
+                        Some(attempt_id),
+                        RepVerdict::Clean,
+                        Some("reviewed: landing was clean".into()),
+                        true,
+                    )
+                    .unwrap();
+                let adjustment = corrected.snap.last_adjustment_id.unwrap();
+                let restored = engine.reverse_adjustment(adjustment).unwrap();
+                assert_eq!(restored.snap.tries, attempt);
+            }
+            if attempt == 100 {
+                let recovered = engine
+                    .recover(
+                        "long-reset-streak",
+                        &RecoveryActionRequest::ResetStreak {
+                            rationale: "reset after diagnosing pulse drift".into(),
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(recovered.value.as_ref().unwrap().tries, attempt);
+            }
+            if attempt == 125 {
+                let undone = engine.undo().unwrap();
+                assert_eq!(undone.snap.tries, attempt - 1);
+                let void = undone.snap.last_adjustment_id.unwrap();
+                let restored = engine.reverse_adjustment(void).unwrap();
+                assert_eq!(restored.snap.tries, attempt);
+            }
+            if attempt == 90 {
+                // A three-minute app gap must not become practice time. The new
+                // engine restores the same set and exact effective projection.
+                elapsed += 180;
+                clock.set(&timestamp_after(elapsed));
+                engine = RepEngine::new_with_clock(
+                    store.clone(),
+                    Arc::new(SessionService::new(store.clone())),
+                    clock.clone(),
+                );
+                let restored = engine.snapshot().expect("set restored after relaunch");
+                assert_eq!(restored.block_id, original_set_id);
+                assert_eq!(restored.tries, attempt);
+            }
+        }
+
+        let original = engine.snapshot().unwrap();
+        assert_eq!(original.tries, 180);
+        assert_eq!(
+            original.active_seconds, 180,
+            "pause and relaunch gaps excluded"
+        );
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(),
+            180
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM attempt_adjustment")
+                .unwrap(),
+            4,
+            "correction/reversal plus undo/reversal stay append-only"
+        );
+
+        elapsed += 1;
+        clock.set(&timestamp_after(elapsed));
+        let restarted = engine.restart(Some(20)).unwrap();
+        assert_ne!(restarted.block_id, original_set_id);
+        assert_eq!(
+            restarted.bpm,
+            Some(60.0),
+            "restart returns to contract start tempo"
+        );
+        assert_eq!(restarted.tries, 0);
+        for attempt in 1..=40u32 {
+            elapsed += 1;
+            clock.set(&timestamp_after(elapsed));
+            let verdict = if attempt % 9 == 0 {
+                RepVerdict::Failed
+            } else if attempt % 4 == 0 {
+                RepVerdict::Flawed
+            } else {
+                RepVerdict::Clean
+            };
+            let out = engine.check(verdict, None).unwrap();
+            assert_eq!(out.snap.tries, attempt);
+        }
+        engine
+            .recover(
+                "long-schedule-retention",
+                &RecoveryActionRequest::ScheduleRetention {
+                    due_date: "2026-07-22".into(),
+                    condition: retention_condition(engine.snapshot().unwrap().bpm.unwrap()),
+                    rationale: "verify the landing cold next week".into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(engine.retention_due("2026-07-22").unwrap().len(), 1);
+
+        let closed = engine.close().unwrap().expect("replacement closes");
+        assert_eq!(closed.set_state, "closed_unresolved");
+        let exported = engine
+            .end_session_and_export(dir.path())
+            .unwrap()
+            .expect("long session exports");
+        assert_eq!(exported.reps, 220);
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM rep").unwrap(),
+            220
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM session")
+                .unwrap(),
+            1,
+            "the entire set lineage remains in one session"
+        );
+        assert!(engine.sessions.current_id().is_none());
     }
 
     #[test]

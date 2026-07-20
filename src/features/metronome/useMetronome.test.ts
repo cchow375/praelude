@@ -101,6 +101,26 @@ describe("useMetronome — IPC wiring", () => {
     expect(readMetroIntentState().revision).toBeGreaterThan(before.revision);
   });
 
+  it("releases the shared manual-intent lease when native invocation rejects", async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === "metro_state"
+        ? Promise.resolve(DEFAULT_METRO_STATE)
+        : command === "metro_set"
+          ? Promise.reject(new Error("audio unavailable"))
+          : Promise.resolve(null),
+    );
+    const { result } = renderHook(() => useMetronome());
+    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+    const before = readMetroIntentState();
+
+    act(() => result.current.setBpm(132));
+
+    await waitFor(() =>
+      expect(readMetroIntentState().pending).toBe(before.pending),
+    );
+    expect(result.current.error).toContain("audio unavailable");
+  });
+
   it("stop() invokes metro_stop and optimistically stops", async () => {
     const { result } = renderHook(() => useMetronome());
     await waitFor(() => expect(listenMock).toHaveBeenCalled());

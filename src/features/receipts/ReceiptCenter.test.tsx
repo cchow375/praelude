@@ -183,6 +183,37 @@ describe("ReceiptCenter", () => {
     expect(within(activity).getByText("Confirm restarting the set.")).toBeTruthy();
   });
 
+  it("never evicts a sticky receipt when more than five require review", () => {
+    vi.useFakeTimers();
+    render(<ReceiptCenterProvider><Harness /></ReceiptCenterProvider>);
+
+    const fail = screen.getByRole("button", { name: "Fail" });
+    for (let i = 0; i < 6; i += 1) fireEvent.click(fail);
+
+    const activity = screen.getByRole("list", { name: "Recent app activity" });
+    expect(within(activity).getAllByRole("listitem")).toHaveLength(6);
+    expect(within(activity).getAllByText("Practice could not be saved.")).toHaveLength(6);
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(within(activity).getAllByRole("listitem")).toHaveLength(6);
+  });
+
+  it("does not evict a sticky failure during a burst of routine hot-loop receipts", () => {
+    vi.useFakeTimers();
+    render(<ReceiptCenterProvider><Harness /></ReceiptCenterProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Fail" }));
+    const commit = screen.getByRole("button", { name: "Commit" });
+    for (let i = 0; i < 8; i += 1) fireEvent.click(commit);
+
+    const activity = screen.getByRole("list", { name: "Recent app activity" });
+    expect(within(activity).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(activity).getByText("Practice could not be saved.")).toBeTruthy();
+    expect(within(activity).getAllByText("Practice block opened.")).toHaveLength(4);
+
+    act(() => vi.advanceTimersByTime(1_500));
+    expect(within(activity).getByText("Practice could not be saved.")).toBeTruthy();
+  });
+
   it("lets pointer input pass through the card body while keeping dismiss clickable", () => {
     render(<ReceiptCenterProvider><Harness /></ReceiptCenterProvider>);
     fireEvent.click(screen.getByRole("button", { name: "Commit" }));

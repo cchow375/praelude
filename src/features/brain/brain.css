@@ -51,6 +51,31 @@
   font-family: var(--font-sans);
 }
 
+.brain-current-context {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2) var(--s-3);
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+}
+.brain-current-context strong {
+  flex: none;
+  color: var(--ink-dim);
+  font-weight: 500;
+}
+.brain-current-context ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.brain-current-context li:not(:last-child)::after {
+  content: " ·";
+  color: var(--hairline-strong);
+}
+
 /* --- Transcript ---------------------------------------------------------- */
 .brain-transcript {
   display: flex;

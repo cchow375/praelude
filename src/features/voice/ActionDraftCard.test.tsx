@@ -54,6 +54,24 @@ describe("ActionDraftCard", () => {
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(confirm).not.toHaveBeenCalled();
   });
+
+  it("announces the confirmation as a dialog, focuses the safe action, and supports Escape", () => {
+    const cancel = vi.fn();
+    render(
+      <ActionDraftCard
+        draft={readyDraft()}
+        onConfirm={vi.fn()}
+        onCancel={cancel}
+      />,
+    );
+
+    expect(screen.getByRole("dialog", { name: "Review the spoken set." })).toBeTruthy();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Cancel" }),
+    );
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
 });
 
 describe("ActionDraftCard — proposed action slim cards", () => {

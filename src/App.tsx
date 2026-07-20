@@ -31,7 +31,6 @@ function AppContent() {
       defaultCleanStreak={settings.practice_default_clean_streak}
       settingsContent={
         <SettingsPanel
-          onResetLayout={() => {}}
           onInterfaceScaleSaved={(scale) => {
             void applyInterfaceScale(scale);
           }}

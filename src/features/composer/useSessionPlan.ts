@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { CommandError, defineCommand, executeCommand } from "../../services/command";
 import { createCommandId } from "../../services/commandId";
 import { useReceipts, type MutationReceipt } from "../receipts/ReceiptCenter";
@@ -38,6 +38,64 @@ export interface ActiveSessionPlan {
   readonly startedSequences: readonly number[];
 }
 
+const ACTIVE_PLAN_KEY = "codakiller.sessionPlan.active.v1";
+
+function isReviewedPlan(value: unknown): value is ReviewedSessionDraft {
+  if (!value || typeof value !== "object") return false;
+  const plan = value as Partial<ReviewedSessionDraft>;
+  return (
+    plan.mode === "reviewed_session_draft" &&
+    Array.isArray(plan.sequence) &&
+    plan.sequence.length > 0 &&
+    plan.sequence.every(
+      (item) =>
+        item != null &&
+        typeof item === "object" &&
+        Number.isSafeInteger((item as { sequence?: unknown }).sequence) &&
+        typeof (item as { candidate_id?: unknown }).candidate_id === "string",
+    )
+  );
+}
+
+function readActivePlan(): ActiveSessionPlan | null {
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_PLAN_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<ActiveSessionPlan>;
+    if (
+      typeof value.planId !== "string" ||
+      value.planId.trim() === "" ||
+      !isReviewedPlan(value.plan) ||
+      !Array.isArray(value.startedSequences) ||
+      !value.startedSequences.every(Number.isSafeInteger)
+    ) {
+      window.localStorage.removeItem(ACTIVE_PLAN_KEY);
+      return null;
+    }
+    return {
+      planId: value.planId,
+      plan: value.plan,
+      startedSequences: [...new Set(value.startedSequences)],
+    };
+  } catch {
+    try {
+      window.localStorage.removeItem(ACTIVE_PLAN_KEY);
+    } catch {
+      // Storage can be unavailable in hardened webviews; memory still works.
+    }
+    return null;
+  }
+}
+
+function writeActivePlan(value: ActiveSessionPlan | null) {
+  try {
+    if (value) window.localStorage.setItem(ACTIVE_PLAN_KEY, JSON.stringify(value));
+    else window.localStorage.removeItem(ACTIVE_PLAN_KEY);
+  } catch {
+    // A storage failure must not turn a committed practice write into an error.
+  }
+}
+
 export interface UseSessionPlan {
   readonly activePlan: ActiveSessionPlan | null;
   /** The sequence number currently being started, or null when idle. */
@@ -58,8 +116,11 @@ export function isStartableTargetRef(targetRef: string): boolean {
 
 export function useSessionPlan(): UseSessionPlan {
   const receipts = useReceipts();
-  const [activePlan, setActivePlan] = useState<ActiveSessionPlan | null>(null);
+  const [activePlan, setActivePlan] = useState<ActiveSessionPlan | null>(
+    readActivePlan,
+  );
   const [startingSequence, setStartingSequence] = useState<number | null>(null);
+  const startInFlight = useRef(false);
 
   const runStart = useCallback(
     async (
@@ -67,6 +128,10 @@ export function useSessionPlan(): UseSessionPlan {
       sequence: number,
       plan: ReviewedSessionDraft,
     ): Promise<MutationReceipt<SessionPlanStartOutcome>> => {
+      if (startInFlight.current) {
+        throw new Error("Another session-plan item is already starting.");
+      }
+      startInFlight.current = true;
       setStartingSequence(sequence);
       try {
         const receipt = await executeCommand(SESSION_PLAN_START, {
@@ -86,6 +151,7 @@ export function useSessionPlan(): UseSessionPlan {
         if (cause instanceof CommandError) receipts.error(cause);
         throw cause;
       } finally {
+        startInFlight.current = false;
         setStartingSequence(null);
       }
     },
@@ -98,11 +164,13 @@ export function useSessionPlan(): UseSessionPlan {
       if (!first) throw new Error("The reviewed plan has no item to start.");
       const planId = createCommandId("session-plan");
       await runStart(`${planId}:${first.sequence}`, first.sequence, reviewed);
-      setActivePlan({
+      const next = {
         planId,
         plan: reviewed,
         startedSequences: [first.sequence],
-      });
+      } satisfies ActiveSessionPlan;
+      setActivePlan(next);
+      writeActivePlan(next);
     },
     [runStart],
   );
@@ -112,16 +180,17 @@ export function useSessionPlan(): UseSessionPlan {
       if (!activePlan) return;
       try {
         await runStart(`${activePlan.planId}:${sequence}`, sequence, activePlan.plan);
-        setActivePlan((current) =>
-          current
-            ? {
-                ...current,
-                startedSequences: current.startedSequences.includes(sequence)
-                  ? current.startedSequences
-                  : [...current.startedSequences, sequence],
-              }
-            : current,
-        );
+        setActivePlan((current) => {
+          if (!current) return current;
+          const next = {
+            ...current,
+            startedSequences: current.startedSequences.includes(sequence)
+              ? current.startedSequences
+              : [...current.startedSequences, sequence],
+          };
+          writeActivePlan(next);
+          return next;
+        });
       } catch {
         // Already surfaced by runStart; a per-item Start button must not crash.
       }
@@ -129,7 +198,10 @@ export function useSessionPlan(): UseSessionPlan {
     [activePlan, runStart],
   );
 
-  const clearPlan = useCallback(() => setActivePlan(null), []);
+  const clearPlan = useCallback(() => {
+    setActivePlan(null);
+    writeActivePlan(null);
+  }, []);
 
   return { activePlan, startingSequence, startPlan, startItem, clearPlan };
 }

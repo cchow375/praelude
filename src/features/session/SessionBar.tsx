@@ -13,6 +13,7 @@ interface SessionBarProps {
   session: SessionView | null;
   onEnd: () => void;
   ending?: boolean;
+  blockedReason?: string | null;
 }
 
 /** Resolve `started_at` (RFC3339 string or unix number) to epoch millis. */
@@ -46,7 +47,12 @@ function eventSummary(payload: unknown): string {
   return "";
 }
 
-export function SessionBar({ session, onEnd, ending = false }: SessionBarProps) {
+export function SessionBar({
+  session,
+  onEnd,
+  ending = false,
+  blockedReason = null,
+}: SessionBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const startedRef = useRef<number | null>(null);
@@ -85,14 +91,18 @@ export function SessionBar({ session, onEnd, ending = false }: SessionBarProps) 
             {expanded ? "▾" : "▸"}
           </span>
         </button>
-        <button
-          type="button"
-          className="session-end"
-          onClick={onEnd}
-          disabled={ending}
-        >
-          {ending ? "Ending…" : "End session"}
-        </button>
+        <span className="session-end-control">
+          <button
+            type="button"
+            className="session-end"
+            onClick={onEnd}
+            disabled={ending || Boolean(blockedReason)}
+            title={blockedReason ?? undefined}
+          >
+            {ending ? "Ending…" : "End session"}
+          </button>
+          {blockedReason && <small role="status">{blockedReason}</small>}
+        </span>
       </div>
 
       {expanded && (

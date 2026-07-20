@@ -249,3 +249,14 @@ select.ck-input {
   border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   border-radius: var(--radius-md);
 }
+
+.ck-inline-status {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--ink-secondary);
+  background: var(--surface-app);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+}

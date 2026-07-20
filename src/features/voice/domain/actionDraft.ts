@@ -209,13 +209,20 @@ export function parseNaturalPracticeActionDraft(
 ): NaturalPracticeActionDraft | null {
   const text = normalizeSpeech(sourceText);
   const method = extractMethod(text);
-  const practiceRequest = /\b(?:play|practice|work on|start|begin|restart)\b/u.test(text)
-    || (method !== null && /\b(?:do|try|run)\b/u.test(text));
+  const discourse = "(?:(?:okay|ok|so|well)[,.!?;:]?\\s+)?";
+  const intention = "(?:(?:i want to|im going to|im gonna|im about to|id like to|please|lets|let me)\\s+)?";
+  const direct = "(?:(?:can|could|would)\\s+you\\s+(?:please\\s+)?)?";
+  const coreAction = "(?:play|practice|work on|start|begin|restart)";
+  const methodAction = "(?:do|try|run)";
+  const practiceRequest = new RegExp(
+    `^${discourse}(?:${intention}${coreAction}|${direct}${coreAction})\\b`,
+    "u",
+  ).test(text) || (method !== null && new RegExp(
+    `^${discourse}(?:${intention}${methodAction}|${direct}${methodAction})\\b`,
+    "u",
+  ).test(text));
   const explicitScoreCue = /\b(?:measure|measures|mm|section|passage)\b/u.test(text);
-  const selectedTargetCue = context.target != null && (
-    (method !== null && /\b(?:do|try|run)\b/u.test(text))
-    || /^(?:(?:i want to|im going to|im about to|please|lets)\s+)?(?:play|practice|work on|start|begin|restart)\b/u.test(text)
-  );
+  const selectedTargetCue = context.target != null && practiceRequest;
   const scoreCue = explicitScoreCue || selectedTargetCue;
   if (!practiceRequest || !scoreCue) return null;
 
@@ -242,7 +249,7 @@ export function parseNaturalPracticeActionDraft(
     /\b(?:aim|target)(?:\s+for|\s+at|\s+tempo|\s+bpm)?\s+([a-z\d\s-]+?)(?=\s+(?:ish|and|then|for|with|using|left|right|hands?|speed)\b|[,.;!?]|$)/u,
   ]);
   const plannedAttempts = captureNumber(text, [
-    /\b(?:for|do|complete|play(?:\s+it|\s+that|\s+the passage)?)\s+([a-z\d\s-]+?)\s+(?:reps?|repetitions?|times|attempts?)\b/u,
+    /\b(?:for|do|complete|play(?:\s+it|\s+that|\s+this|\s+the passage|\s+the section)?)\s+([a-z\d\s-]+?)\s+(?:reps?|repetitions?|times|attempts?)\b/u,
     /\b(?:dotted rhythms?|rhythmic variants?|blocked chords?|silent fingering|backward chaining)\s+([a-z\d\s-]+?)\s+(?:reps?|repetitions?|times|attempts?)\b/u,
     /\b(\d{1,4})\s+(?:reps?|repetitions?|times|attempts?)\b/u,
   ]);

@@ -11,7 +11,7 @@ import {
 } from "../../services/command";
 
 /**
- * Truthful Brain connection block. The status dot/line reflects `brain_status`
+ * Truthful Brain configuration block. The status dot/line reflects `brain_status`
  * (no network — just key presence + settings), and Test connection runs a real
  * `brain_test_connection` round-trip, surfacing model + latency on success or
  * the exact backend reason on failure. Never displays or transmits a secret.
@@ -83,7 +83,7 @@ export function BrainConnection({ invoker }: { invoker?: CommandInvoker }) {
     : status == null
       ? "Checking Brain connection…"
       : online
-        ? `● online — ${status.provider ?? "provider configured"}`
+        ? `● configured — ${status.provider ?? "provider configured"}`
         : `○ offline — ${status.reason ?? "no provider configured"}`;
 
   return (

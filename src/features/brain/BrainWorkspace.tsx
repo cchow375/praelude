@@ -56,6 +56,9 @@ interface ThreadEntry {
 
 export interface BrainProposedActionEvent {
   readonly answerId: string;
+  /** Grounding captured before provider latency, never from state at answer time. */
+  readonly pieceId: number | null;
+  readonly targetBlockId: number | null;
   readonly action: ProposedAction;
 }
 
@@ -67,6 +70,8 @@ export interface BrainWorkspaceProps {
   /** Exact shell-owned score/practice context. Internal piece selection remains
    *  available when this prop is absent or the user deliberately changes it. */
   practiceContext?: PracticeBrainContext | null;
+  /** Today's plain-English intention also follows manual Brain piece changes. */
+  todayPlan?: string | null;
   /** Confirm UI and command ownership stay in Shell; Brain only emits a draft. */
   onProposedAction?: (event: BrainProposedActionEvent) => void;
 }
@@ -153,6 +158,7 @@ export function BrainWorkspace({
   invoker,
   wakeQuestion = null,
   practiceContext,
+  todayPlan = null,
   onProposedAction,
 }: BrainWorkspaceProps) {
   const [status, setStatus] = useState<BrainStatus | null>(null);
@@ -164,6 +170,9 @@ export function BrainWorkspace({
   const [draft, setDraft] = useState("");
   const [thread, setThread] = useState<ThreadEntry[]>([]);
   const [threadId, setThreadId] = useState<number | null>(null);
+  const [readyThreadPieceId, setReadyThreadPieceId] = useState<number | null>(
+    null,
+  );
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<WorkSuggestion[]>([]);
@@ -173,11 +182,33 @@ export function BrainWorkspace({
   const planGeneration = useRef(0);
   const handledWakeId = useRef<number | null>(null);
   const externalPieceId = useRef(practiceContext?.piece_id ?? null);
+  const conversationGeneration = useRef(0);
+  const activeAskId = useRef(0);
 
   const selectedPiece = pieces.find((piece) => piece.id === pieceId) ?? null;
-  const context = practiceContext?.piece_id === pieceId
-    ? practiceContext
-    : pieceContext(selectedPiece);
+  const selectedPieceContext = pieceContext(selectedPiece);
+  const effectiveTodayPlan =
+    practiceContext?.today_plan?.trim() || todayPlan?.trim() || null;
+  const baseContext =
+    practiceContext?.piece_id === pieceId
+      ? practiceContext
+      : selectedPieceContext
+        ? selectedPieceContext
+        : null;
+  const context =
+    baseContext && effectiveTodayPlan
+      ? { ...baseContext, today_plan: effectiveTodayPlan }
+      : baseContext;
+  const threadReady = pieceId == null || readyThreadPieceId === pieceId;
+
+  const changePiece = useCallback((next: number | null) => {
+    if (next === pieceId) return;
+    conversationGeneration.current += 1;
+    activeAskId.current += 1;
+    setAsking(false);
+    setError(null);
+    setPieceId(next);
+  }, [pieceId]);
 
   // A newly visible Score piece becomes Brain's selected thread. A deliberate
   // picker change remains respected until Score publishes a different piece.
@@ -185,8 +216,10 @@ export function BrainWorkspace({
     const next = practiceContext?.piece_id ?? null;
     if (next === externalPieceId.current) return;
     externalPieceId.current = next;
-    setPieceId(next);
-  }, [practiceContext?.piece_id]);
+    // Losing a transient Score/active-set context must not throw the user out
+    // of the piece conversation they were already reading.
+    if (next !== null) changePiece(next);
+  }, [changePiece, practiceContext?.piece_id]);
 
   // Persistent status line (no network — key presence + settings only).
   useEffect(() => {
@@ -252,19 +285,24 @@ export function BrainWorkspace({
   useEffect(() => {
     setThreadId(null);
     setThread([]);
+    setReadyThreadPieceId(null);
     if (pieceId == null) return;
     let active = true;
     void api
       .resumeThread(pieceId)
       .then((resumed) => {
-        if (!active || !resumed) return;
-        setThreadId(resumed.thread_id);
-        setThread((current) =>
-          current.length === 0 ? seedThreadFromTurns(resumed.turns) : current,
-        );
+        if (!active) return;
+        if (resumed) {
+          setThreadId(resumed.thread_id);
+          setThread((current) =>
+            current.length === 0 ? seedThreadFromTurns(resumed.turns) : current,
+          );
+        }
+        setReadyThreadPieceId(pieceId);
       })
       .catch(() => {
         // Persistence is best-effort; the workspace still answers without memory.
+        if (active) setReadyThreadPieceId(pieceId);
       });
     return () => {
       active = false;
@@ -274,7 +312,11 @@ export function BrainWorkspace({
   const ask = useCallback(
     async (rawQuestion: string, source: BrainQuestionSource) => {
       const question = rawQuestion.trim();
-      if (!question || asking) return;
+      if (!question || asking || !threadReady) return;
+      const generation = conversationGeneration.current;
+      const askId = ++activeAskId.current;
+      const askedPieceId = pieceId;
+      const askedBlockId = context?.active_block?.block_id ?? null;
       setAsking(true);
       setError(null);
       try {
@@ -289,6 +331,7 @@ export function BrainWorkspace({
         if (!isBrainAnswer(answer)) {
           throw new Error("The practice brain returned an invalid response.");
         }
+        if (generation !== conversationGeneration.current) return;
         setThread((current) => [
           ...current,
           { id: `${answer.id}:${current.length}`, question, source, answer },
@@ -297,19 +340,40 @@ export function BrainWorkspace({
         // and the untrusted payload is narrowed again before Shell sees it.
         if (source === "voice" && onProposedAction) {
           const action = parseProposedAction(answer.proposed_action);
-          if (action) onProposedAction({ answerId: answer.id, action });
+          if (action) {
+            onProposedAction({
+              answerId: answer.id,
+              pieceId: askedPieceId,
+              targetBlockId: askedBlockId,
+              action,
+            });
+          }
         }
         if (source === "typed") setDraft("");
       } catch (cause) {
-        setError(errorMessage(cause, "The practice brain could not answer."));
+        if (generation === conversationGeneration.current) {
+          setError(errorMessage(cause, "The practice brain could not answer."));
+        }
       } finally {
-        setAsking(false);
+        if (activeAskId.current === askId) setAsking(false);
       }
     },
-    [api, asking, context, onProposedAction, pieceId, thread, threadId],
+    [
+      api,
+      asking,
+      context,
+      onProposedAction,
+      pieceId,
+      thread,
+      threadId,
+      threadReady,
+    ],
   );
 
   const clearConversation = useCallback(async () => {
+    const generation = ++conversationGeneration.current;
+    activeAskId.current += 1;
+    setAsking(false);
     setError(null);
     if (pieceId == null) {
       setThread([]);
@@ -318,11 +382,16 @@ export function BrainWorkspace({
     }
     try {
       await api.clearThread(pieceId);
+      if (generation !== conversationGeneration.current) return;
       const resumed = await api.resumeThread(pieceId);
+      if (generation !== conversationGeneration.current) return;
       setThreadId(resumed?.thread_id ?? null);
+      setReadyThreadPieceId(pieceId);
       setThread([]);
     } catch (cause) {
-      setError(errorMessage(cause, "Could not clear the conversation."));
+      if (generation === conversationGeneration.current) {
+        setError(errorMessage(cause, "Could not clear the conversation."));
+      }
     }
   }, [api, pieceId]);
 
@@ -334,11 +403,12 @@ export function BrainWorkspace({
     if (
       !wakeQuestion ||
       asking ||
+      !threadReady ||
       handledWakeId.current === wakeQuestion.id
     ) return;
     handledWakeId.current = wakeQuestion.id;
     void ask(wakeQuestion.text, "voice");
-  }, [ask, asking, wakeQuestion]);
+  }, [ask, asking, threadReady, wakeQuestion]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -349,9 +419,9 @@ export function BrainWorkspace({
   const statusLine = statusError
     ? `○ status unavailable — ${statusError}`
     : status == null
-      ? "Checking Brain connection…"
+      ? "Checking Brain configuration…"
       : online
-        ? `● online — ${status.provider ?? "provider configured"}`
+        ? `● configured — ${status.provider ?? "provider"}`
         : `○ offline — ${status.reason ?? "no provider configured"}`;
 
   return (
@@ -374,7 +444,7 @@ export function BrainWorkspace({
             aria-label="Piece thread"
             value={pieceId ?? ""}
             onChange={(event) =>
-              setPieceId(event.target.value ? Number(event.target.value) : null)
+              changePiece(event.target.value ? Number(event.target.value) : null)
             }
           >
             <option value="">General question</option>
@@ -386,6 +456,8 @@ export function BrainWorkspace({
           </select>
         </label>
       </header>
+
+      {context && <CurrentContextStrip context={context} />}
 
       <section
         className="brain-transcript"
@@ -505,7 +577,7 @@ export function BrainWorkspace({
             placeholder="Describe the exact passage and what breaks…"
             rows={2}
             maxLength={8_000}
-            disabled={asking}
+            disabled={asking || !threadReady}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
@@ -526,9 +598,9 @@ export function BrainWorkspace({
             <Button
               type="submit"
               variant="primary"
-              disabled={asking || draft.trim().length === 0}
+              disabled={asking || !threadReady || draft.trim().length === 0}
             >
-              Ask
+              {threadReady ? "Ask" : "Loading memory…"}
             </Button>
           </div>
         </form>
@@ -551,6 +623,40 @@ export function BrainWorkspace({
         />
       </Disclosure>
     </section>
+  );
+}
+
+function CurrentContextStrip({
+  context,
+}: {
+  context: PracticeBrainContext;
+}) {
+  const range = context.region
+    ? `mm. ${context.region.m_start}–${context.region.m_end}`
+    : context.active_block
+      ? `mm. ${context.active_block.m_start}–${context.active_block.m_end}`
+      : null;
+  const chips = [
+    context.piece_title,
+    context.region?.name ?? null,
+    range,
+    context.current_page != null ? `page ${context.current_page}` : null,
+    context.edition_label,
+    context.active_block
+      ? `active set · ${context.active_block.attempts_recorded}/${context.active_block.planned_reps} attempts`
+      : null,
+    context.today_plan ? "Today plan included" : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return (
+    <div className="brain-current-context" aria-label="Current Brain context">
+      <strong>Coda sees</strong>
+      <ul>
+        {chips.map((chip, index) => (
+          <li key={`${index}:${chip}`}>{chip}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

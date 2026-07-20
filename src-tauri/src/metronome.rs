@@ -50,9 +50,19 @@ const DEFAULT_BOOST_LEVEL: u8 = 85;
 
 /// Persisted, serde-serialized metronome state. Emitted verbatim as the
 /// `metro://state` event payload and returned by every command.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MetroOwner {
+    Manual,
+    Practice { set_id: i64 },
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct MetroState {
     pub running: bool,
+    /// The domain that currently owns lifecycle decisions for the click. This
+    /// is intentionally process-local: relaunch starts stopped and unowned.
+    pub owner: Option<MetroOwner>,
     pub bpm: f64,
     pub beats_per_bar: u8,
     pub subdivision: u8,
@@ -66,6 +76,7 @@ impl Default for MetroState {
     fn default() -> Self {
         MetroState {
             running: false,
+            owner: None,
             bpm: 120.0,
             beats_per_bar: 4,
             subdivision: 1,
@@ -276,6 +287,7 @@ impl Metronome {
         inner.guard = None; // drop restores the pre-boost volume
         inner.handle = None; // drop stops the audio stream
         inner.state.running = false;
+        inner.state.owner = None;
     }
 
     /// (Re)build the engine for the current state. Any prior handle is dropped
@@ -395,7 +407,17 @@ impl Metronome {
     ) -> (MetroState, Result<(), String>) {
         let mut inner = self.lock();
         if !inner.state.running {
-            return self.start_locked(&mut inner, bpm);
+            let (state, result) = self.start_locked(&mut inner, bpm);
+            drop(inner);
+            // A start with an explicit tempo is also a settings mutation.  The
+            // old path only persisted live retunes, so "start at 96" sounded at
+            // 96 for the current process but a relaunch restored the previous
+            // persisted BPM.  Persist only after the engine has started
+            // successfully so failed audio starts retain the rollback contract.
+            if result.is_ok() && bpm.is_some() {
+                persist(store, &state);
+            }
+            return (state, result);
         }
 
         let prior_bpm = inner.state.bpm;
@@ -423,6 +445,134 @@ impl Metronome {
         inner.handle = None; // stop audio (joins the audio thread)
         inner.guard = None; // restore the pre-boost volume
         inner.state.running = false;
+        inner.state.clone()
+    }
+
+    /// Mark the latest successful lifecycle/settings command as manual. Manual
+    /// ownership prevents a later practice pause/close from stopping a click
+    /// the pianist deliberately controls.
+    pub(crate) fn claim_manual(&self) -> MetroState {
+        let mut inner = self.lock();
+        inner.state.owner = Some(MetroOwner::Manual);
+        inner.state.clone()
+    }
+
+    /// Re-associate a restored metronome-enabled set without starting audio on
+    /// app launch. This preserves safe silent relaunch while allowing an
+    /// explicit pause/resume/close to retain the same ownership semantics.
+    pub(crate) fn restore_practice_owner(&self, set_id: i64) -> MetroState {
+        let mut inner = self.lock();
+        if !inner.state.running && inner.state.owner.is_none() {
+            inner.state.owner = Some(MetroOwner::Practice { set_id });
+        }
+        inner.state.clone()
+    }
+
+    /// Start or retune for a newly opened practice set. Starting a stopped click
+    /// claims practice ownership; retuning an already-running click preserves
+    /// its existing owner (notably `manual`).
+    pub(crate) fn do_practice_start(
+        &self,
+        store: &Store,
+        set_id: i64,
+        bpm: f64,
+    ) -> (MetroState, Result<(), String>) {
+        let was_running = self.snapshot().running;
+        let (_, result) = self.do_ensure_running(store, Some(bpm));
+        if result.is_ok() && !was_running {
+            self.lock().state.owner = Some(MetroOwner::Practice { set_id });
+        }
+        (self.snapshot(), result)
+    }
+
+    /// Restart replaces one set id with another. A click owned by the old set
+    /// transfers to the replacement; a manual running click remains manual. A
+    /// stopped click is started and claimed by the replacement set.
+    pub(crate) fn do_practice_restart(
+        &self,
+        store: &Store,
+        old_set_id: i64,
+        new_set_id: i64,
+        bpm: f64,
+    ) -> (MetroState, Result<(), String>) {
+        let before = self.snapshot();
+        let (_, result) = self.do_ensure_running(store, Some(bpm));
+        if result.is_ok() {
+            let mut inner = self.lock();
+            if !before.running || before.owner == Some(MetroOwner::Practice { set_id: old_set_id })
+            {
+                inner.state.owner = Some(MetroOwner::Practice { set_id: new_set_id });
+            }
+        }
+        (self.snapshot(), result)
+    }
+
+    /// Pause only a click owned by this exact set. Ownership remains associated
+    /// while stopped so a matching resume can restart it; manual ownership is a
+    /// strict no-op.
+    pub(crate) fn do_practice_pause(&self, set_id: i64) -> MetroState {
+        let mut inner = self.lock();
+        if inner.state.owner == Some(MetroOwner::Practice { set_id }) && inner.state.running {
+            inner.handle = None;
+            inner.guard = None;
+            inner.state.running = false;
+        }
+        inner.state.clone()
+    }
+
+    /// Resume only when this set still owns the click. A manual command issued
+    /// during the pause changes ownership and therefore wins.
+    pub(crate) fn do_practice_resume(
+        &self,
+        store: &Store,
+        set_id: i64,
+        bpm: f64,
+    ) -> (MetroState, Result<(), String>) {
+        if self.snapshot().owner != Some(MetroOwner::Practice { set_id }) {
+            return (self.snapshot(), Ok(()));
+        }
+        self.do_ensure_running(store, Some(bpm))
+    }
+
+    /// Apply a ladder/adjustment retune without stealing manual ownership. A
+    /// delayed command from an older practice-owned set is rejected.
+    pub(crate) fn do_practice_retune(
+        &self,
+        store: &Store,
+        set_id: i64,
+        bpm: f64,
+    ) -> (MetroState, Result<(), String>) {
+        if let Some(MetroOwner::Practice { set_id: owner }) = self.snapshot().owner {
+            if owner != set_id {
+                return (
+                    self.snapshot(),
+                    Err("practice metronome ownership changed".into()),
+                );
+            }
+        }
+        self.do_set(store, Some(bpm), None, None, None, None, None, None)
+    }
+
+    /// Close only stops a click owned by the closing set, then releases that
+    /// association. A manual click continues uninterrupted.
+    pub(crate) fn do_practice_close(&self, set_id: i64) -> MetroState {
+        let mut inner = self.lock();
+        if inner.state.owner == Some(MetroOwner::Practice { set_id }) {
+            inner.handle = None;
+            inner.guard = None;
+            inner.state.running = false;
+            inner.state.owner = None;
+        }
+        inner.state.clone()
+    }
+
+    /// Safety ignores normal ownership and leaves no automatic resume lease.
+    pub(crate) fn do_safety_stop(&self) -> MetroState {
+        let mut inner = self.lock();
+        inner.handle = None;
+        inner.guard = None;
+        inner.state.running = false;
+        inner.state.owner = None;
         inner.state.clone()
     }
 
@@ -647,6 +797,9 @@ pub async fn metro_start(
     let (state, result) = tauri::async_runtime::spawn_blocking(move || {
         metro.serialized(|| {
             let (_, result) = metro.do_ensure_running(&store, bpm);
+            if result.is_ok() {
+                metro.claim_manual();
+            }
             let state = metro.snapshot();
             emit(&app, &state);
             (state, result)
@@ -669,6 +822,7 @@ pub async fn metro_stop(
     let state = tauri::async_runtime::spawn_blocking(move || {
         metro.serialized(|| {
             let _ = metro.do_stop();
+            metro.claim_manual();
             let state = metro.snapshot();
             emit(&app, &state);
             state
@@ -714,6 +868,9 @@ pub async fn metro_set(
                 gain,
                 boost,
             );
+            if result.is_ok() {
+                metro.claim_manual();
+            }
             let state = metro.snapshot();
             emit(&app, &state);
             (state, result)
@@ -722,6 +879,133 @@ pub async fn metro_set(
     .await
     .map_err(|e| format!("metro_set task failed: {e}"))?;
     result.map(|()| state)
+}
+
+/// Practice-owned start/retune used by the rep state machine. Unlike the manual
+/// command, a live click retains its prior owner.
+#[tauri::command]
+pub async fn metro_practice_start(
+    set_id: i64,
+    bpm: f64,
+    app: AppHandle,
+    metro: State<'_, Arc<Metronome>>,
+    store: State<'_, Arc<Store>>,
+) -> Result<MetroState, String> {
+    let metro = Arc::clone(&metro);
+    let store = Arc::clone(&store);
+    let (state, result) = tauri::async_runtime::spawn_blocking(move || {
+        metro.serialized(|| {
+            let (state, result) = metro.do_practice_start(&store, set_id, bpm);
+            emit(&app, &state);
+            (state, result)
+        })
+    })
+    .await
+    .map_err(|error| format!("metro_practice_start task failed: {error}"))?;
+    result.map(|()| state)
+}
+
+#[tauri::command]
+pub async fn metro_practice_restart(
+    old_set_id: i64,
+    new_set_id: i64,
+    bpm: f64,
+    app: AppHandle,
+    metro: State<'_, Arc<Metronome>>,
+    store: State<'_, Arc<Store>>,
+) -> Result<MetroState, String> {
+    let metro = Arc::clone(&metro);
+    let store = Arc::clone(&store);
+    let (state, result) = tauri::async_runtime::spawn_blocking(move || {
+        metro.serialized(|| {
+            let (state, result) = metro.do_practice_restart(&store, old_set_id, new_set_id, bpm);
+            emit(&app, &state);
+            (state, result)
+        })
+    })
+    .await
+    .map_err(|error| format!("metro_practice_restart task failed: {error}"))?;
+    result.map(|()| state)
+}
+
+#[tauri::command]
+pub async fn metro_practice_pause(
+    set_id: i64,
+    app: AppHandle,
+    metro: State<'_, Arc<Metronome>>,
+) -> Result<MetroState, String> {
+    let metro = Arc::clone(&metro);
+    tauri::async_runtime::spawn_blocking(move || {
+        metro.serialized(|| {
+            let state = metro.do_practice_pause(set_id);
+            emit(&app, &state);
+            state
+        })
+    })
+    .await
+    .map_err(|error| format!("metro_practice_pause task failed: {error}"))
+}
+
+#[tauri::command]
+pub async fn metro_practice_resume(
+    set_id: i64,
+    bpm: f64,
+    app: AppHandle,
+    metro: State<'_, Arc<Metronome>>,
+    store: State<'_, Arc<Store>>,
+) -> Result<MetroState, String> {
+    let metro = Arc::clone(&metro);
+    let store = Arc::clone(&store);
+    let (state, result) = tauri::async_runtime::spawn_blocking(move || {
+        metro.serialized(|| {
+            let (state, result) = metro.do_practice_resume(&store, set_id, bpm);
+            emit(&app, &state);
+            (state, result)
+        })
+    })
+    .await
+    .map_err(|error| format!("metro_practice_resume task failed: {error}"))?;
+    result.map(|()| state)
+}
+
+#[tauri::command]
+pub async fn metro_practice_retune(
+    set_id: i64,
+    bpm: f64,
+    app: AppHandle,
+    metro: State<'_, Arc<Metronome>>,
+    store: State<'_, Arc<Store>>,
+) -> Result<MetroState, String> {
+    let metro = Arc::clone(&metro);
+    let store = Arc::clone(&store);
+    let (state, result) = tauri::async_runtime::spawn_blocking(move || {
+        metro.serialized(|| {
+            let (state, result) = metro.do_practice_retune(&store, set_id, bpm);
+            emit(&app, &state);
+            (state, result)
+        })
+    })
+    .await
+    .map_err(|error| format!("metro_practice_retune task failed: {error}"))?;
+    result.map(|()| state)
+}
+
+#[tauri::command]
+pub async fn metro_practice_close(
+    set_id: i64,
+    app: AppHandle,
+    metro: State<'_, Arc<Metronome>>,
+) -> Result<MetroState, String> {
+    let metro = Arc::clone(&metro);
+    tauri::async_runtime::spawn_blocking(move || {
+        metro.serialized(|| {
+            let state = metro.do_practice_close(set_id);
+            emit(&app, &state);
+            state
+        })
+    })
+    .await
+    .map_err(|error| format!("metro_practice_close task failed: {error}"))
 }
 
 /// Return the current metronome state (no side effects). Stays synchronous: it
@@ -1048,6 +1332,16 @@ mod tests {
             1,
             "stopped state starts one engine"
         );
+        assert_eq!(
+            store.get_setting("metronome.bpm").unwrap().as_deref(),
+            Some("96"),
+            "an explicit stopped-state start persists the authoritative tempo"
+        );
+        assert_eq!(
+            load_state(&store).bpm,
+            96.0,
+            "relaunch restores the tempo that actually started"
+        );
 
         let (retuned, retune_result) = metro.do_ensure_running(&store, Some(72.0));
         assert!(retune_result.is_ok());
@@ -1068,6 +1362,185 @@ mod tests {
             1,
             "same-tempo and bare starts are true no-ops while running"
         );
+    }
+
+    #[test]
+    fn ownership_coordinates_manual_and_practice_lifecycle_without_stealing_clicks() {
+        let starts = Arc::new(StdMutex::new(0u32));
+        let recorded_starts = starts.clone();
+        let (boost_seam, _vol) = recording_boost();
+        let metro = Metronome::with_seams(
+            sounds_with(&["woodblock"]),
+            MetroState::default(),
+            85,
+            move |_cfg| {
+                *recorded_starts.lock().unwrap() += 1;
+                Ok(EngineHandle::test_handle(48_000, 0))
+            },
+            boost_seam,
+        );
+        let store = Store::open(":memory:").expect("in-memory store");
+
+        // A manual start owns the running click. Opening a set may retune it but
+        // must not steal lifecycle ownership, so pause/close are no-ops.
+        metro.serialized(|| {
+            let (_, result) = metro.do_ensure_running(&store, Some(90.0));
+            assert!(result.is_ok());
+            metro.claim_manual();
+        });
+        let (manual_retune, result) =
+            metro.serialized(|| metro.do_practice_start(&store, 41, 72.0));
+        assert!(result.is_ok());
+        assert_eq!(manual_retune.owner, Some(MetroOwner::Manual));
+        assert_eq!(manual_retune.bpm, 72.0);
+        assert!(metro.serialized(|| metro.do_practice_pause(41)).running);
+        assert!(metro.serialized(|| metro.do_practice_close(41)).running);
+
+        // A fresh stopped-state practice start claims the set. Pause retains the
+        // association, only the matching set can resume, and restart transfers
+        // the lease atomically to the replacement set id.
+        metro.serialized(|| {
+            metro.do_stop();
+            metro.claim_manual();
+        });
+        let (owned, result) = metro.serialized(|| metro.do_practice_start(&store, 41, 64.0));
+        assert!(result.is_ok());
+        assert_eq!(owned.owner, Some(MetroOwner::Practice { set_id: 41 }));
+        let paused = metro.serialized(|| metro.do_practice_pause(41));
+        assert!(!paused.running);
+        assert_eq!(paused.owner, Some(MetroOwner::Practice { set_id: 41 }));
+
+        let (wrong_resume, result) =
+            metro.serialized(|| metro.do_practice_resume(&store, 99, 68.0));
+        assert!(result.is_ok());
+        assert!(!wrong_resume.running);
+        let (resumed, result) = metro.serialized(|| metro.do_practice_resume(&store, 41, 68.0));
+        assert!(result.is_ok());
+        assert!(resumed.running);
+        assert_eq!(resumed.bpm, 68.0);
+        assert_eq!(
+            store.get_setting("metronome.bpm").unwrap().as_deref(),
+            Some("68")
+        );
+
+        let (restarted, result) =
+            metro.serialized(|| metro.do_practice_restart(&store, 41, 42, 60.0));
+        assert!(result.is_ok());
+        assert_eq!(restarted.owner, Some(MetroOwner::Practice { set_id: 42 }));
+        assert!(metro.serialized(|| metro.do_practice_pause(41)).running);
+        let closed = metro.serialized(|| metro.do_practice_close(42));
+        assert!(!closed.running);
+        assert_eq!(closed.owner, None);
+
+        // Manual intervention revokes the practice lease; safety stops every
+        // owner and deliberately leaves no automatic-resume association.
+        let (owned_again, result) = metro.serialized(|| metro.do_practice_start(&store, 50, 80.0));
+        assert!(result.is_ok());
+        assert_eq!(owned_again.owner, Some(MetroOwner::Practice { set_id: 50 }));
+        metro.serialized(|| {
+            let (_, result) = metro.do_set(&store, Some(82.0), None, None, None, None, None, None);
+            assert!(result.is_ok());
+            metro.claim_manual();
+        });
+        assert_eq!(metro.snapshot().owner, Some(MetroOwner::Manual));
+        assert!(metro.serialized(|| metro.do_practice_close(50)).running);
+        let safe = metro.serialized(|| metro.do_safety_stop());
+        assert!(!safe.running);
+        assert_eq!(safe.owner, None);
+        assert_eq!(
+            *starts.lock().unwrap(),
+            4,
+            "one manual and three practice starts"
+        );
+    }
+
+    #[test]
+    fn relaunch_restores_a_silent_practice_lease_and_only_explicit_resume_starts_audio() {
+        let starts = Arc::new(StdMutex::new(0u32));
+        let recorded_starts = starts.clone();
+        let (boost_seam, _vol) = recording_boost();
+        let metro = Metronome::with_seams(
+            sounds_with(&["woodblock"]),
+            MetroState::default(),
+            85,
+            move |_cfg| {
+                *recorded_starts.lock().unwrap() += 1;
+                Ok(EngineHandle::test_handle(48_000, 0))
+            },
+            boost_seam,
+        );
+        let store = Store::open(":memory:").unwrap();
+
+        let restored = metro.serialized(|| metro.restore_practice_owner(88));
+        assert!(!restored.running, "relaunch never starts audio by itself");
+        assert_eq!(restored.owner, Some(MetroOwner::Practice { set_id: 88 }));
+        assert_eq!(*starts.lock().unwrap(), 0);
+
+        let (resumed, result) =
+            metro.serialized(|| metro.do_practice_resume(&store, 88, 76.0));
+        assert!(result.is_ok());
+        assert!(resumed.running);
+        assert_eq!(resumed.bpm, 76.0);
+        assert_eq!(resumed.owner, Some(MetroOwner::Practice { set_id: 88 }));
+        assert_eq!(*starts.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn ownership_transition_is_ordered_with_the_complete_command_boundary() {
+        let (boost_seam, _vol) = recording_boost();
+        let metro = Arc::new(Metronome::with_seams(
+            sounds_with(&["woodblock"]),
+            MetroState::default(),
+            85,
+            |_cfg| Ok(EngineHandle::test_handle(48_000, 0)),
+            boost_seam,
+        ));
+        let store = Arc::new(Store::open(":memory:").expect("in-memory store"));
+        metro.serialized(|| {
+            let (_, result) = metro.do_practice_start(&store, 7, 72.0);
+            assert!(result.is_ok());
+        });
+
+        let (paused_tx, paused_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (manual_done_tx, manual_done_rx) = mpsc::channel();
+        let pause_metro = metro.clone();
+        let pause_thread = std::thread::spawn(move || {
+            pause_metro.serialized(|| {
+                let state = pause_metro.do_practice_pause(7);
+                paused_tx.send(state).unwrap();
+                release_rx.recv().unwrap();
+            });
+        });
+        let paused = paused_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(!paused.running);
+        assert_eq!(paused.owner, Some(MetroOwner::Practice { set_id: 7 }));
+
+        let manual_metro = metro.clone();
+        let manual_store = store.clone();
+        let manual_thread = std::thread::spawn(move || {
+            manual_metro.serialized(|| {
+                let (_, result) = manual_metro.do_ensure_running(&manual_store, Some(96.0));
+                assert!(result.is_ok());
+                let state = manual_metro.claim_manual();
+                manual_done_tx.send(state).unwrap();
+            });
+        });
+        assert!(
+            manual_done_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "manual ownership cannot overtake an in-flight practice publication"
+        );
+        release_tx.send(()).unwrap();
+        let final_state = manual_done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        pause_thread.join().unwrap();
+        manual_thread.join().unwrap();
+
+        assert!(final_state.running);
+        assert_eq!(final_state.bpm, 96.0);
+        assert_eq!(final_state.owner, Some(MetroOwner::Manual));
+        assert_eq!(metro.snapshot(), final_state);
     }
 
     #[test]

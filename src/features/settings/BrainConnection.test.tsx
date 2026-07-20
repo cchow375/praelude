@@ -33,12 +33,12 @@ describe("BrainConnection", () => {
     expect(screen.getByText(/offline/i)).toBeTruthy();
   });
 
-  it("shows online provider from brain_status", async () => {
+  it("shows configured provider from brain_status without claiming a network check", async () => {
     const invoker = invokerFrom({
       brain_status: { online: true, provider: "gemini", reason: null },
     });
     render(<BrainConnection invoker={invoker} />);
-    expect(await screen.findByText(/online/i)).toBeTruthy();
+    expect(await screen.findByText(/configured/i)).toBeTruthy();
     expect(screen.getByText(/gemini/i)).toBeTruthy();
   });
 
@@ -54,7 +54,7 @@ describe("BrainConnection", () => {
       },
     });
     render(<BrainConnection invoker={invoker} />);
-    await screen.findByText(/online/i);
+    await screen.findByText(/configured/i);
     fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
     expect(await screen.findByText(/gemini-flash-latest/)).toBeTruthy();
     expect(screen.getByText(/412/)).toBeTruthy();
@@ -72,7 +72,7 @@ describe("BrainConnection", () => {
       },
     });
     render(<BrainConnection invoker={invoker} />);
-    await screen.findByText(/online/i);
+    await screen.findByText(/configured/i);
     fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
     await waitFor(() =>
       expect(screen.getByText(/provider error: HTTP 503/)).toBeTruthy(),

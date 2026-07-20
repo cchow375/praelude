@@ -56,10 +56,12 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-function renderWorkspace() {
+function renderWorkspace(
+  props: React.ComponentProps<typeof LedgerCalendarWorkspace> = {},
+) {
   return render(
     <ReceiptCenterProvider>
-      <LedgerCalendarWorkspace />
+      <LedgerCalendarWorkspace {...props} />
     </ReceiptCenterProvider>,
   );
 }
@@ -80,6 +82,34 @@ describe("LedgerCalendarWorkspace", () => {
     await waitFor(() =>
       expect(screen.getByTestId("calendar-workspace")).toBeTruthy(),
     );
+    expect(screen.queryByTestId("ledger-workspace")).toBeNull();
+    expect(
+      screen
+        .getByRole("tab", { name: "Calendar" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("implements arrow-key tab navigation with one tab stop", async () => {
+    renderWorkspace();
+    const ledger = screen.getByRole("tab", { name: "Ledger" });
+    const calendar = screen.getByRole("tab", { name: "Calendar" });
+    expect(ledger.getAttribute("tabindex")).toBe("0");
+    expect(calendar.getAttribute("tabindex")).toBe("-1");
+
+    ledger.focus();
+    fireEvent.keyDown(ledger, { key: "ArrowRight" });
+    expect(await screen.findByTestId("calendar-workspace")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(calendar));
+    expect(calendar.getAttribute("tabindex")).toBe("0");
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
+      "history-tab-calendar",
+    );
+  });
+
+  it("lands directly on the requested Calendar surface", async () => {
+    renderWorkspace({ requestedSurface: "calendar" });
+    expect(await screen.findByTestId("calendar-workspace")).toBeTruthy();
     expect(screen.queryByTestId("ledger-workspace")).toBeNull();
     expect(
       screen

@@ -67,6 +67,18 @@ describe("LedgerWorkspace", () => {
     );
   });
 
+  it("opens the exact requested record and keeps native piece context synchronized", async () => {
+    render(<LedgerWorkspace requestedPieceId={2} />);
+
+    expect(await screen.findByRole("heading", { name: "Poem" })).toBeTruthy();
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("piece_select", { id: 2 }),
+    );
+    expect(invokeMock).toHaveBeenCalledWith("rep_blocks_for_piece", {
+      pieceId: 2,
+    });
+  });
+
   it("drills piece → block summary row → reps via reps_for_block on expand", async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === "pieces_list")

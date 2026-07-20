@@ -279,6 +279,9 @@ impl ActionCtx {
         let (before, state, res) = self.metro.serialized(|| {
             let before = self.metro.snapshot();
             let (_, res) = self.metro.do_ensure_running(&self.store, bpm);
+            if res.is_ok() {
+                self.metro.claim_manual();
+            }
             let state = self.metro.snapshot();
             self.emit_state(&state);
             (before, state, res)
@@ -301,6 +304,7 @@ impl ActionCtx {
             // another source cannot change the engine between ack and stop.
             self.speaker.say("Stopped.");
             let _ = self.metro.do_stop();
+            self.metro.claim_manual();
             let state = self.metro.snapshot();
             self.emit_state(&state);
             (before, state)
@@ -342,6 +346,9 @@ impl ActionCtx {
             } else {
                 return None;
             };
+            if res.is_ok() {
+                self.metro.claim_manual();
+            }
             let state = self.metro.snapshot();
             self.emit_state(&state);
             Some((snap, state, res, spoken, bpm_for_evt, kind))
@@ -374,11 +381,22 @@ impl ActionCtx {
                 // metronome (a metronome-off tempo block still advanced its tempo
                 // in the engine) and it is currently running.
                 if let Some(nb) = outcome.new_bpm {
-                    if outcome.snap.use_metronome && self.metro.snapshot().running {
+                    if outcome.snap.use_metronome {
                         self.metro.serialized(|| {
-                            let _ = self.set_bpm_only(nb);
-                            let state = self.metro.snapshot();
-                            self.emit_state(&state);
+                            // Recheck running state inside the same command
+                            // boundary as the retune.  A stop that wins before
+                            // this boundary must not be followed by a stale
+                            // ladder retune; a stop that wins after it will be
+                            // the final serialized state.
+                            if self.metro.snapshot().running {
+                                let _ = self.metro.do_practice_retune(
+                                    &self.store,
+                                    outcome.snap.block_id,
+                                    nb,
+                                );
+                                let state = self.metro.snapshot();
+                                self.emit_state(&state);
+                            }
                         });
                     }
                 }
@@ -419,9 +437,9 @@ impl ActionCtx {
         match self.rep.open_voice(args) {
             Ok(snap) => {
                 let result = self.metro.serialized(|| {
-                    let (_, result) = self
-                        .metro
-                        .do_ensure_running(&self.store, Some(snap.start_bpm));
+                    let (_, result) =
+                        self.metro
+                            .do_practice_start(&self.store, snap.block_id, snap.start_bpm);
                     let state = self.metro.snapshot();
                     self.emit_state(&state);
                     result
@@ -483,6 +501,10 @@ impl ActionCtx {
                     "Block {}. {} reps, {} clean.",
                     verb, s.reps_done, s.verdicts.clean
                 ));
+                self.metro.serialized(|| {
+                    let state = self.metro.do_practice_close(s.block_id);
+                    self.emit_state(&state);
+                });
             }
             Ok(None) => self.speaker.say("No block open."),
             Err(error) => eprintln!("voice: rep close failed: {error}"),
@@ -491,15 +513,18 @@ impl ActionCtx {
 
     fn act_session_end(&self, text: &str) {
         let pieces_dir = crate::pieces_dir(&self.store);
-        match self.sessions.end_and_export(&self.store, &pieces_dir) {
-            Some(result) => {
+        match self.rep.end_session_and_export(&pieces_dir) {
+            Ok(Some(result)) => {
                 self.emit_intent("session_end", text, None);
                 self.speaker.say(&format!(
                     "Session saved. {} reps across {} pieces.",
                     result.reps, result.pieces
                 ));
             }
-            None => self.speaker.say("No session to save."),
+            Ok(None) => self.speaker.say("No session to save."),
+            Err(_) => self
+                .speaker
+                .say("Close the current practice set before ending the session."),
         }
     }
 
@@ -1088,6 +1113,10 @@ mod tests {
         assert!(ctx.metro.snapshot().running, "metronome started");
         assert_eq!(ctx.metro.snapshot().bpm, 96.0);
         assert_eq!(
+            ctx.metro.snapshot().owner,
+            Some(crate::metronome::MetroOwner::Manual)
+        );
+        assert_eq!(
             rec.said.lock().unwrap().as_slice(),
             &["Ninety-six.".to_string()]
         );
@@ -1107,6 +1136,10 @@ mod tests {
         ctx.handle_final(&final_t("metronome 120")); // start first
         ctx.handle_final(&final_t("stop"));
         assert!(!ctx.metro.snapshot().running, "metronome stopped");
+        assert_eq!(
+            ctx.metro.snapshot().owner,
+            Some(crate::metronome::MetroOwner::Manual)
+        );
         assert_eq!(rec.said.lock().unwrap().last().unwrap(), "Stopped.");
     }
 
@@ -1891,9 +1924,24 @@ mod tests {
         assert!(ctx.rep.active());
         assert_eq!(ctx.metro.snapshot().bpm, 80.0);
         assert_eq!(
+            ctx.metro.snapshot().owner,
+            Some(crate::metronome::MetroOwner::Manual),
+            "opening a set must not steal a running manual click"
+        );
+        assert_eq!(
             rec.said.lock().unwrap().last().unwrap(),
             "Measures 40 to 56 at 80. Go.",
             "live retune must not hit the restart Busy path"
+        );
+
+        ctx.handle_final(&final_t("close the block"));
+        assert!(
+            ctx.metro.snapshot().running,
+            "closing a set must not stop a manually owned click"
+        );
+        assert_eq!(
+            ctx.metro.snapshot().owner,
+            Some(crate::metronome::MetroOwner::Manual)
         );
     }
 
@@ -2116,6 +2164,11 @@ mod tests {
         ctx.handle_final(&final_t("done"));
         ctx.handle_final(&final_t("close the block"));
         assert!(!ctx.rep.active(), "block closed");
+        assert!(
+            !ctx.metro.snapshot().running,
+            "practice-owned click stopped"
+        );
+        assert_eq!(ctx.metro.snapshot().owner, None);
         assert_eq!(
             rec.said.lock().unwrap().last().unwrap(),
             "Block closed. 1 reps, 1 clean."
@@ -2128,6 +2181,18 @@ mod tests {
         let mut ctx = test_ctx(&rec);
         ctx.handle_final(&final_t("open a rep tracker measures 1 to 8 at 80"));
         ctx.handle_final(&final_t("done"));
+        ctx.handle_final(&final_t("end the session"));
+        assert_eq!(
+            rec.said.lock().unwrap().last().unwrap(),
+            "Close the current practice set before ending the session."
+        );
+        assert!(ctx.rep.active(), "rejected session end preserves the set");
+        assert!(
+            ctx.sessions.current_id().is_some(),
+            "rejected session end preserves the session"
+        );
+
+        ctx.handle_final(&final_t("close the block"));
         ctx.handle_final(&final_t("end the session"));
         assert_eq!(
             rec.said.lock().unwrap().last().unwrap(),

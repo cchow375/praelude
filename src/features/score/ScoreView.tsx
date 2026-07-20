@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -273,6 +274,8 @@ type ViewerPhase =
 
 export interface ScoreViewProps {
   pieceId: number;
+  /** False while Shell keeps this workspace mounted only to preserve state. */
+  isActive?: boolean;
   activeRange?: { m_start: number; m_end: number } | null;
   defaultTargetBpm?: number | null;
   defaultCleanStreak?: number;
@@ -299,6 +302,12 @@ interface ScoreNavigate {
 
 type ScoreScaleMode = "width" | "page" | "overview" | "manual";
 type SectionTab = "practice" | "edit" | "marks" | "tutorial";
+const SECTION_TABS: readonly [SectionTab, string][] = [
+  ["practice", "Practice"],
+  ["edit", "Edit"],
+  ["marks", "Score marks"],
+  ["tutorial", "Tutorial"],
+];
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -410,6 +419,7 @@ function newTargetDraftId(pieceId: number): string {
 
 export function ScoreView({
   pieceId,
+  isActive = true,
   activeRange = null,
   defaultTargetBpm = null,
   defaultCleanStreak = 5,
@@ -447,6 +457,9 @@ export function ScoreView({
   const [selectedRegionId, setSelectedRegionId] = useState<number | null>(null);
   const [expandedRegionId, setExpandedRegionId] = useState<number | null>(null);
   const [sectionTab, setSectionTab] = useState<SectionTab>("practice");
+  const sectionTabRefs = useRef<
+    Partial<Record<SectionTab, HTMLButtonElement | null>>
+  >({});
   const [regionQuery, setRegionQuery] = useState("");
   const [mapping, setMapping] = useState<MappingDraft | null>(null);
   const [savingMap, setSavingMap] = useState(false);
@@ -990,8 +1003,9 @@ export function ScoreView({
   // PDF reader. Up/Down are left to the browser so a zoomed page still scrolls.
   // Ignored while typing, nudging a drawn box, or inside the draft/wizard.
   useEffect(() => {
-    if (phase !== "ready" || !document) return;
-    const onKey = (event: KeyboardEvent) => {
+    if (!isActive || phase !== "ready" || !document) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (wizardOpen) return;
       const forward = event.key === "PageDown" || event.key === "ArrowRight";
       const backward = event.key === "PageUp" || event.key === "ArrowLeft";
@@ -1016,7 +1030,7 @@ export function ScoreView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [currentPage, document, jumpTo, phase, wizardOpen]);
+  }, [currentPage, document, isActive, jumpTo, phase, wizardOpen]);
 
   const selectRegion = useCallback(
     (regionId: number) => {
@@ -1042,6 +1056,7 @@ export function ScoreView({
   );
 
   useEffect(() => {
+    if (!isActive) return;
     // Alive-guard: cleanup can run before listen() resolves; without this the
     // subscription would be orphaned (same pattern as useRep's listener).
     let alive = true;
@@ -1085,7 +1100,7 @@ export function ScoreView({
       alive = false;
       unlisten?.();
     };
-  }, [edition, jumpTo, regions, selectRegion]);
+  }, [edition, isActive, jumpTo, regions, selectRegion]);
 
   const overlayItems: RegionOverlayItem[] = useMemo(() => {
     if (!edition) return [];
@@ -1247,26 +1262,52 @@ export function ScoreView({
           role="tablist"
           aria-label={`${region.name} actions`}
         >
-          {(
-            [
-              ["practice", "Practice"],
-              ["edit", "Edit"],
-              ["marks", "Score marks"],
-              ["tutorial", "Tutorial"],
-            ] as [SectionTab, string][]
-          ).map(([tab, label]) => (
+          {SECTION_TABS.map(([tab, label], index) => (
             <button
               key={tab}
+              ref={(node) => {
+                sectionTabRefs.current[tab] = node;
+              }}
               type="button"
               role="tab"
+              id={`score-region-${region.id}-tab-${tab}`}
+              aria-controls={`score-region-${region.id}-panel-${tab}`}
               aria-selected={sectionTab === tab}
+              tabIndex={sectionTab === tab ? 0 : -1}
               className={sectionTab === tab ? "is-active" : ""}
               onClick={() => setSectionTab(tab)}
+              onKeyDown={(event: ReactKeyboardEvent<HTMLButtonElement>) => {
+                let next: number | null = null;
+                if (event.key === "ArrowRight" || event.key === "ArrowDown")
+                  next = (index + 1) % SECTION_TABS.length;
+                else if (
+                  event.key === "ArrowLeft" ||
+                  event.key === "ArrowUp"
+                )
+                  next =
+                    (index - 1 + SECTION_TABS.length) % SECTION_TABS.length;
+                else if (event.key === "Home") next = 0;
+                else if (event.key === "End")
+                  next = SECTION_TABS.length - 1;
+                if (next == null) return;
+                event.preventDefault();
+                const nextTab = SECTION_TABS[next][0];
+                setSectionTab(nextTab);
+                requestAnimationFrame(() =>
+                  sectionTabRefs.current[nextTab]?.focus(),
+                );
+              }}
             >
               {label}
             </button>
           ))}
         </div>
+
+        <div
+          role="tabpanel"
+          id={`score-region-${region.id}-panel-${sectionTab}`}
+          aria-labelledby={`score-region-${region.id}-tab-${sectionTab}`}
+        >
 
         {sectionTab === "edit" && (
           <RegionEditor
@@ -1481,6 +1522,14 @@ export function ScoreView({
               defaultCleanStreak={defaultCleanStreak}
               onOpen={onOpenBlock}
               opening={opening}
+              blockedReason={
+                activeRange
+                  ? activeRange.m_start === region.m_start &&
+                    activeRange.m_end === region.m_end
+                    ? "This section is already active in the practice set above."
+                    : "Close the active practice set before starting another."
+                  : null
+              }
             />
           </section>
         )}
@@ -1488,6 +1537,7 @@ export function ScoreView({
         {sectionTab === "tutorial" && (
           <TutorialPanel pieceId={pieceId} regionId={region.id} />
         )}
+        </div>
       </div>
     );
   };

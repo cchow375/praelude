@@ -96,6 +96,7 @@ function emit(snap: RepSnapshot | null) {
 function makeMetro(over: Partial<MetroState> = {}): MetroState {
   return {
     running: false,
+    owner: null,
     bpm: 120,
     beats_per_bar: 4,
     subdivision: 1,
@@ -292,9 +293,50 @@ describe("useRep — IPC wiring", () => {
     expect(invokeMock).toHaveBeenCalledWith("rep_pause", {
       commandId: expect.stringMatching(/^ui:rep-pause/),
     });
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_pause", { setId: 1 });
     const activity = screen.getByRole("list", { name: "Recent app activity" });
     const item = within(activity).getByText("Practice paused at 18 seconds.").closest("li");
     expect(item?.getAttribute("data-receipt-id")).toBe("receipt:pause:1");
+  });
+
+  it("asks the native owner state machine to resume only the matching practice click", async () => {
+    const paused = makeSnap({ timer_state: "paused", set_state: "paused", bpm: 72 });
+    const resumed = makeSnap({ timer_state: "active", set_state: "active", bpm: 72 });
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "rep_state") return Promise.resolve(paused);
+      if (command === "metro_state") {
+        return Promise.resolve(makeMetro({
+          running: false,
+          owner: { kind: "practice", set_id: 1 },
+          bpm: 72,
+        }));
+      }
+      if (command === "rep_resume") return Promise.resolve({
+        receipt_id: "receipt:resume:1",
+        command_id: "native:resume:1",
+        status: "committed",
+        summary: "Practice resumed.",
+        value: resumed,
+        entity_refs: [{ entity_type: "set", entity_id: 1 }],
+        event_ids: [92],
+        undo_action: null,
+        error_code: null,
+        error_detail: null,
+        replayed: false,
+        committed_ts: "2026-07-15T20:00:10Z",
+      });
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.timer_state).toBe("paused"));
+
+    await act(async () => { await result.current.resume(); });
+
+    expect(result.current.snap?.timer_state).toBe("active");
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_resume", {
+      setId: 1,
+      bpm: 72,
+    });
   });
 
   it("keeps the live set unchanged when a receipt rejects a recovery choice", async () => {
@@ -403,7 +445,7 @@ describe("useRep — IPC wiring", () => {
     expect(screen.getByRole("list", { name: "Recent app activity" }).textContent).toContain(
       "Attempt 1 saved — clean.",
     );
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", { bpm: 64 });
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_retune", expect.anything());
   });
 
   it("open() invokes rep_open with the args bag and applies the returned snapshot", async () => {
@@ -438,7 +480,7 @@ describe("useRep — IPC wiring", () => {
     });
 
     expect(invokeMock).toHaveBeenCalledWith("rep_open", { args, context: null });
-    expect(invokeMock).toHaveBeenCalledWith("metro_start", { bpm: 60 });
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_start", { setId: 42, bpm: 60 });
     expect(result.current.snap?.block_id).toBe(42);
   });
 
@@ -468,8 +510,8 @@ describe("useRep — IPC wiring", () => {
     await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
     await act(async () => { await result.current.open(args); });
 
-    expect(invokeMock).toHaveBeenCalledWith("metro_set", { bpm: 60 });
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_start", expect.anything());
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_retune", { setId: 42, bpm: 60 });
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_start", expect.anything());
   });
 
   it("does not restart an already-running metronome at the opened set tempo", async () => {
@@ -498,8 +540,8 @@ describe("useRep — IPC wiring", () => {
     await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
     await act(async () => { await result.current.open(args); });
 
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", expect.anything());
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_start", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_retune", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_start", expect.anything());
   });
 
   it("starts an opened set after a delayed initial metronome read without delaying the set commit", async () => {
@@ -532,13 +574,13 @@ describe("useRep — IPC wiring", () => {
     let openPromise!: Promise<void>;
     act(() => { openPromise = result.current.open(args); });
     await waitFor(() => expect(result.current.snap?.block_id).toBe(42));
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_start", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_start", expect.anything());
 
     await act(async () => {
       resolveMetroState(makeMetro({ running: false, bpm: 60 }));
       await openPromise;
     });
-    expect(invokeMock).toHaveBeenCalledWith("metro_start", { bpm: 60 });
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_start", { setId: 42, bpm: 60 });
   });
 
   it("rejects a first-open failure and publishes an assertive receipt while no HUD exists", async () => {
@@ -602,7 +644,7 @@ describe("useRep — IPC wiring", () => {
       if (command === "rep_open") {
         return Promise.resolve(makeSnap({ block_id: 44, m_start: 9, m_end: 16, bpm: 72 }));
       }
-      if (command === "metro_start") {
+      if (command === "metro_practice_start") {
         return Promise.reject({
           code: "audio_busy",
           message: "The metronome is busy with speech.",
@@ -671,7 +713,7 @@ describe("useRep — IPC wiring", () => {
     });
 
     expect(result.current.snap).toBeNull();
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_start", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_start", expect.anything());
   });
 
   it("never overwrites a same-block voice attempt with a delayed zero-attempt open return", async () => {
@@ -730,7 +772,7 @@ describe("useRep — IPC wiring", () => {
     expect(result.current.snap?.tries).toBe(1);
     expect(result.current.snap?.last?.note).toBe("voice attempt");
     expect(result.current.feed[0]?.verdict).toBe("clean");
-    expect(invokeMock).toHaveBeenCalledWith("metro_start", { bpm: 64 });
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_start", { setId: 44, bpm: 64 });
   });
 
   it("does not let a delayed open overwrite a newer manual metronome event", async () => {
@@ -768,7 +810,7 @@ describe("useRep — IPC wiring", () => {
     });
 
     expect(result.current.snap?.block_id).toBe(44);
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_start", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_start", expect.anything());
   });
 
   it("applies a ladder step to the metronome only when the block opted in", async () => {
@@ -787,7 +829,7 @@ describe("useRep — IPC wiring", () => {
     const { result } = renderHook(() => useRep());
     await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
     await act(async () => { await result.current.check("clean"); });
-    expect(invokeMock).toHaveBeenCalledWith("metro_set", { bpm: 64 });
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_retune", { setId: 1, bpm: 64 });
   });
 
   it("retunes after a delayed initial metronome read without delaying the committed attempt", async () => {
@@ -816,13 +858,13 @@ describe("useRep — IPC wiring", () => {
     let checkPromise!: Promise<void>;
     act(() => { checkPromise = result.current.check("clean"); });
     await waitFor(() => expect(result.current.snap?.bpm).toBe(64));
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_retune", expect.anything());
 
     await act(async () => {
       resolveMetroState(makeMetro({ running: true, bpm: 60 }));
       await checkPromise;
     });
-    expect(invokeMock).toHaveBeenCalledWith("metro_set", { bpm: 64 });
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_retune", { setId: 1, bpm: 64 });
   });
 
   it("does not retune a delayed check after a newer manual metronome event", async () => {
@@ -856,7 +898,7 @@ describe("useRep — IPC wiring", () => {
     });
 
     expect(result.current.snap?.bpm).toBe(64);
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", { bpm: 64 });
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_retune", expect.anything());
   });
 
   it("does not retune while a manual metronome command is pending before its event", async () => {
@@ -888,7 +930,7 @@ describe("useRep — IPC wiring", () => {
     }
 
     expect(result.current.snap?.bpm).toBe(64);
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", { bpm: 64 });
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_retune", expect.anything());
   });
 
   it("does not auto-retune when the authoritative metronome is stopped", async () => {
@@ -908,7 +950,7 @@ describe("useRep — IPC wiring", () => {
 
     await act(async () => { await result.current.check("clean"); });
 
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", { bpm: 64 });
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_retune", expect.anything());
   });
 
   it("undoes the latest attempt through an append-only command and receipts its ordinal", async () => {
@@ -988,7 +1030,7 @@ describe("useRep — IPC wiring", () => {
     await act(async () => { await result.current.undo(); });
 
     expect(result.current.snap?.bpm).toBe(60);
-    expect(invokeMock).toHaveBeenCalledWith("metro_set", { bpm: 60 });
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_retune", { setId: 1, bpm: 60 });
   });
 
   it("corrects the latest attempt with top-level typed args and no optimistic write", async () => {
@@ -1106,7 +1148,7 @@ describe("useRep — IPC wiring", () => {
 
     expect(invokeMock).toHaveBeenCalledWith("rep_adjustment_reverse", { adjustmentId: 12 });
     expect(result.current.snap?.last_adjustment_id).toBe(13);
-    expect(invokeMock).toHaveBeenCalledWith("metro_set", { bpm: 60 });
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_retune", { setId: 1, bpm: 60 });
   });
 
   it("never retunes from a stale reversal after the set is paused", async () => {
@@ -1144,13 +1186,20 @@ describe("useRep — IPC wiring", () => {
 
     expect(result.current.snap?.set_state).toBe("paused");
     expect(result.current.snap?.bpm).toBe(64);
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", { bpm: 60 });
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_retune", expect.anything());
   });
 
   it("restarts into the returned fresh set and preserves an explicit streak target", async () => {
-    const initial = makeSnap({ block_id: 1, attempts_recorded: 6, tries: 6 });
+    const initial = makeSnap({
+      block_id: 1,
+      bpm: 84,
+      attempts_recorded: 6,
+      tries: 6,
+    });
     const restarted = makeSnap({
       block_id: 2,
+      bpm: 60,
+      start_bpm: 60,
       attempts_recorded: 0,
       tries: 0,
       current_clean_streak: 0,
@@ -1159,7 +1208,13 @@ describe("useRep — IPC wiring", () => {
       set_state: "active",
     });
     invokeMock.mockImplementation((command: string) => Promise.resolve(
-      command === "rep_state" ? initial : command === "rep_restart" ? restarted : null,
+      command === "rep_state"
+        ? initial
+        : command === "metro_state"
+          ? makeMetro({ running: true, bpm: 84 })
+          : command === "rep_restart"
+            ? restarted
+            : null,
     ));
     const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
     await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
@@ -1169,9 +1224,46 @@ describe("useRep — IPC wiring", () => {
     expect(invokeMock).toHaveBeenCalledWith("rep_restart", { requiredCleanStreak: 7 });
     expect(result.current.snap?.block_id).toBe(2);
     expect(result.current.snap?.current_clean_streak).toBe(0);
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_restart", {
+      oldSetId: 1,
+      newSetId: 2,
+      bpm: 60,
+    });
     expect(screen.getByRole("list", { name: "Recent app activity" }).textContent).toContain(
       "Practice set restarted. The previous attempts remain in history.",
     );
+  });
+
+  it("starts a stopped metronome for the fresh set after restart", async () => {
+    const initial = makeSnap({ block_id: 1, bpm: 84, attempts_recorded: 6, tries: 6 });
+    const restarted = makeSnap({
+      block_id: 2,
+      bpm: 60,
+      start_bpm: 60,
+      attempts_recorded: 0,
+      tries: 0,
+      set_state: "active",
+      use_metronome: true,
+    });
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "rep_state"
+        ? initial
+        : command === "metro_state"
+          ? makeMetro({ running: false, bpm: 84 })
+          : command === "rep_restart"
+            ? restarted
+            : null,
+    ));
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
+
+    await act(async () => { await result.current.restart(); });
+
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_restart", {
+      oldSetId: 1,
+      newSetId: 2,
+      bpm: 60,
+    });
   });
 
   it("keeps authoritative state when an older undo response arrives after a new-set event", async () => {
@@ -1201,7 +1293,7 @@ describe("useRep — IPC wiring", () => {
 
     expect(result.current.snap?.block_id).toBe(2);
     expect(result.current.snap?.attempts_recorded).toBe(0);
-    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_practice_retune", expect.anything());
   });
 
   it("rejects failed adjustment commands without changing the visible snapshot", async () => {
@@ -1249,6 +1341,7 @@ describe("useRep — IPC wiring", () => {
     });
 
     expect(invokeMock).toHaveBeenCalledWith("rep_close");
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_close", { setId: 1 });
     expect(result.current.snap).toBeNull();
   });
 

@@ -29,6 +29,10 @@ pub trait StateEmitter: Send + Sync {
 /// the voice loop, and the command layer all log through the one instance.
 pub struct SessionService {
     store: Arc<Store>,
+    /// Serializes event insertion with export/end. Without this boundary a
+    /// metronome event could resolve the old session, then land after its export
+    /// snapshot and durable close, disappearing from the written summary.
+    lifecycle: Mutex<()>,
     /// The open session id, or `None` before the first event of the process's
     /// lifetime. Resolved lazily (reusing a store-side open session on restart).
     current: Mutex<Option<i64>>,
@@ -39,6 +43,7 @@ impl SessionService {
     pub fn new(store: Arc<Store>) -> Self {
         SessionService {
             store,
+            lifecycle: Mutex::new(()),
             current: Mutex::new(None),
             emitter: Mutex::new(None),
         }
@@ -98,6 +103,10 @@ impl SessionService {
     /// Append an event to the current session and emit it. Auto-opens a session
     /// on the first call. Best-effort — a store error is logged, never fatal.
     pub fn log(&self, kind: &str, payload: Value) {
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let Some(sid) = self.resolve_session() else {
             return;
         };
@@ -114,6 +123,10 @@ impl SessionService {
     /// Resolve or open the session required by a rep transaction. Unlike the
     /// generic best-effort logger, practice mutations propagate failure.
     pub(crate) fn ensure_session(&self) -> Result<i64, String> {
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         self.resolve_session()
             .ok_or_else(|| "Could not open a practice session.".to_string())
     }
@@ -197,7 +210,16 @@ impl SessionService {
     /// [`Self::end_and_export`] writes the real markdown) and clear it. Returns
     /// the ended session id, or `None` if none was open. Used by
     /// [`Self::end_and_export`] after the vault summary is written.
+    #[cfg(test)]
     pub fn end_raw(&self) -> Option<i64> {
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        self.end_raw_locked()
+    }
+
+    fn end_raw_locked(&self) -> Option<i64> {
         let mut cur = self.current.lock().unwrap_or_else(|p| p.into_inner());
         let sid = match *cur {
             Some(sid) => sid,
@@ -227,10 +249,14 @@ impl SessionService {
     /// (nothing to save). A session with no rep activity still ends but writes no
     /// vault files. Best-effort and quick — safe to call from the app-exit hook.
     pub fn end_and_export(&self, store: &Store, pieces_dir: &Path) -> Option<ExportResult> {
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let sid = self.current_id()?;
         // Export BEFORE ending: reads the event log (ending does not touch it).
         let result = export::write_session_md(store, sid, pieces_dir);
-        self.end_raw();
+        self.end_raw_locked();
         Some(result)
     }
 }

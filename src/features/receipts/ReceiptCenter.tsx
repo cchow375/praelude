@@ -52,6 +52,25 @@ function autoDismisses(kind: ReceiptKind): boolean {
   return kind === "committed" || kind === "undone" || kind === "duplicate";
 }
 
+function retainVisibleReceipts(current: AppReceipt[], incoming: AppReceipt): AppReceipt[] {
+  const ordered = [incoming, ...current];
+  const sticky = ordered.filter((receipt) => !autoDismisses(receipt.kind));
+  const routine = ordered.filter((receipt) => autoDismisses(receipt.kind));
+  // Errors and confirmations are promises to the user, not decoration. Keep
+  // every sticky receipt until explicit dismissal, even if an error storm
+  // temporarily exceeds the ordinary five-card visual budget. Only routine
+  // success traffic is capped.
+  const routineSlots = Math.max(0, MAX_VISIBLE_RECEIPTS - sticky.length);
+  const retainedIds = new Set([
+    ...sticky,
+    ...routine.slice(0, routineSlots),
+  ].map((receipt) => receipt.id));
+  // Preserve newest-first ordering while reserving capacity for errors and
+  // confirmations. A burst of successful hot-loop receipts must never evict a
+  // failure the pianist still needs to review.
+  return ordered.filter((receipt) => retainedIds.has(receipt.id));
+}
+
 const NOOP_PUBLISHER: ReceiptPublisher = {
   committed: () => -1,
   undone: () => -1,
@@ -88,7 +107,7 @@ export function ReceiptCenterProvider({ children }: { children: ReactNode }) {
   const publish = useCallback((kind: ReceiptKind, rawMessage: string, durableReceiptId?: string) => {
     const message = rawMessage.trim() || "The action completed.";
     const receipt = { id: nextReceiptId++, kind, message, durableReceiptId };
-    setReceipts((current) => [receipt, ...current].slice(0, MAX_VISIBLE_RECEIPTS));
+    setReceipts((current) => retainVisibleReceipts(current, receipt));
     if (kind === "error") setAssertiveAnnouncement(message);
     else setPoliteAnnouncement(message);
     if (autoDismisses(kind)) {

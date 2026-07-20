@@ -25,6 +25,8 @@ interface BlockFormProps {
   defaultCleanStreak?: number;
   onOpen: (args: RepOpenArgs) => void;
   opening?: boolean;
+  /** Prevents a guaranteed backend rejection while another set owns the loop. */
+  blockedReason?: string | null;
 }
 
 function parseIntOrNull(raw: string): number | null {
@@ -50,6 +52,7 @@ export function BlockForm({
   defaultCleanStreak = 5,
   onOpen,
   opening = false,
+  blockedReason = null,
 }: BlockFormProps) {
   const [mStart, setMStart] = useState<string>(
     defaultMeasureStart != null ? String(defaultMeasureStart) : "",
@@ -99,6 +102,7 @@ export function BlockForm({
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (opening || blockedReason) return;
     const args: RepOpenArgs = {
       piece_id: pieceId,
       region_id: regionId,
@@ -402,7 +406,16 @@ export function BlockForm({
         </fieldset>
       </details>
 
-      <button type="submit" className="ck-primary" disabled={opening}>
+      {blockedReason && (
+        <p className="ck-inline-status" role="status">
+          {blockedReason}
+        </p>
+      )}
+      <button
+        type="submit"
+        className="ck-primary"
+        disabled={opening || Boolean(blockedReason)}
+      >
         {opening ? "Starting…" : "Start set"}
       </button>
     </form>

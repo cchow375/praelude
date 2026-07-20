@@ -25,6 +25,7 @@ import { beginMetroIntent } from "./intentGuard";
 /** Mirrors the backend `MetroState` serde payload (flattened, snake_case). */
 export interface MetroState {
   running: boolean;
+  owner: { kind: "manual" } | { kind: "practice"; set_id: number } | null;
   bpm: number;
   beats_per_bar: number;
   subdivision: number;
@@ -36,6 +37,7 @@ export interface MetroState {
 
 export const DEFAULT_METRO_STATE: MetroState = {
   running: false,
+  owner: null,
   bpm: 120,
   beats_per_bar: 4,
   subdivision: 1,

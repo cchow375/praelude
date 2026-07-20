@@ -12,12 +12,23 @@ function messageOf(reason: unknown) {
     : "The practice ledger could not be loaded.";
 }
 
+interface LedgerWorkspaceProps {
+  /** Exact record requested by a Universe/deep-link jump. */
+  requestedPieceId?: number | null;
+  /** Changes for every navigation request, including repeat requests. */
+  requestRevision?: number;
+}
+
 /** Global entry to exact set evidence without duplicating ledger semantics. */
-export function LedgerWorkspace() {
+export function LedgerWorkspace({
+  requestedPieceId = null,
+  requestRevision = 0,
+}: LedgerWorkspaceProps = {}) {
   const [pieces, setPieces] = useState<PieceSummary[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -26,11 +37,16 @@ export function LedgerWorkspace() {
       const next = await invoke<PieceSummary[]>("pieces_list");
       const safe = next ?? [];
       setPieces(safe);
-      setSelectedId((current) =>
-        current != null && safe.some((piece) => piece.id === current)
+      setSelectedId((current) => {
+        if (
+          requestedPieceId != null &&
+          safe.some((piece) => piece.id === requestedPieceId)
+        )
+          return requestedPieceId;
+        return current != null && safe.some((piece) => piece.id === current)
           ? current
-          : (safe[0]?.id ?? null),
-      );
+          : (safe[0]?.id ?? null);
+      });
     } catch (reason) {
       setPieces([]);
       setSelectedId(null);
@@ -38,11 +54,30 @@ export function LedgerWorkspace() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [requestRevision, requestedPieceId]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (
+      requestedPieceId != null &&
+      pieces.some((piece) => piece.id === requestedPieceId)
+    ) {
+      setSelectedId(requestedPieceId);
+    }
+  }, [pieces, requestRevision, requestedPieceId]);
+
+  useEffect(() => {
+    if (selectedId == null) return;
+    setSelectionError(null);
+    void invoke("piece_select", { id: selectedId }).catch((reason) => {
+      setSelectionError(
+        `The ledger changed, but voice context did not: ${messageOf(reason)}`,
+      );
+    });
+  }, [selectedId]);
 
   const selected = pieces.find((piece) => piece.id === selectedId) ?? null;
 
@@ -58,6 +93,11 @@ export function LedgerWorkspace() {
       {error && (
         <p className="ledger-error" role="alert">
           {error}
+        </p>
+      )}
+      {selectionError && !error && (
+        <p className="ledger-error" role="alert">
+          {selectionError}
         </p>
       )}
 

@@ -99,25 +99,3 @@ describe("beginMetroIntent — releasing a lease", () => {
     expect(readMetroIntentState().pending).toBeGreaterThanOrEqual(0);
   });
 });
-
-describe("integration: consumers that depend on intentGuard's contract", () => {
-  // These are documented as TODOs rather than fake assertions because they
-  // require either mocking @tauri-apps/api/core (see useMetronome.test.ts's
-  // vi.mock pattern) or importing useRep's private guard helpers, which are
-  // not exported from useRep.ts today.
-  it.todo(
-    "useMetronome's call() (src/features/metronome/useMetronome.ts) wraps " +
-      "every invoke() in beginMetroIntent()/release() via try/finally — " +
-      "assert pending returns to its pre-call baseline after invoke() " +
-      "resolves AND after invoke() rejects (error path), using the " +
-      'vi.mock("@tauri-apps/api/core") pattern from useMetronome.test.ts',
-  );
-  it.todo(
-    "useRep's metroCommandGuardIsCurrent (src/features/rep/useRep.ts) treats " +
-      "a captured guard as current only when pendingIntents === 0 and " +
-      "intentRevision is unchanged — assert that a manual metronome action " +
-      "started mid-rep-mutation correctly invalidates that mutation's guard " +
-      "(see the existing 'holds a shared manual-intent lease' test in " +
-      "src/features/rep/useRep.test.ts for the pattern)",
-  );
-});

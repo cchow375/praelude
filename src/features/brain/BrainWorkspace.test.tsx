@@ -78,6 +78,7 @@ const scoreContext: PracticeBrainContext = {
   edition_id: "ekier.pdf",
   edition_label: "Ekier National Edition",
   active_block: {
+    block_id: 99,
     m_start: 720,
     m_end: 732,
     bpm: 80,
@@ -183,6 +184,8 @@ describe("BrainWorkspace", () => {
     );
     expect(onProposedAction).toHaveBeenCalledWith({
       answerId: "voice-answer-1",
+      pieceId: 7,
+      targetBlockId: 99,
       action: {
         kind: "tempo",
         summary: "Set the metronome to 80 BPM",
@@ -255,9 +258,29 @@ describe("BrainWorkspace", () => {
     expect(chips.textContent).toContain("source-1");
   });
 
-  it("renders a persistent online status line from brain_status", async () => {
+  it("reports provider configuration without claiming a network check", async () => {
     render(<BrainWorkspace api={makeApi()} invoker={makeInvoker()} />);
-    expect(await screen.findByText("● online — gemini")).toBeTruthy();
+    expect(await screen.findByText("● configured — gemini")).toBeTruthy();
+  });
+
+  it("shows the exact score and active-set context before the user asks", async () => {
+    render(
+      <BrainWorkspace
+        api={makeApi()}
+        invoker={makeInvoker()}
+        practiceContext={{ ...scoreContext, today_plan: "Secure the coda" }}
+      />,
+    );
+
+    const strip = await screen.findByLabelText("Current Brain context");
+    expect(strip.textContent).toContain("Coda sees");
+    expect(strip.textContent).toContain("Scherzo No. 2");
+    expect(strip.textContent).toContain("Coda landing");
+    expect(strip.textContent).toContain("mm. 720–732");
+    expect(strip.textContent).toContain("page 18");
+    expect(strip.textContent).toContain("Ekier National Edition");
+    expect(strip.textContent).toContain("active set · 2/5 attempts");
+    expect(strip.textContent).toContain("Today plan included");
   });
 
   it("renders the truthful offline reason in the status line", async () => {
@@ -341,6 +364,86 @@ describe("BrainWorkspace", () => {
         }),
       ),
     );
+  });
+
+  it("waits for durable memory before sending an immediate wake question", async () => {
+    let resolveResume!: (value: { thread_id: number; turns: [] }) => void;
+    const api = makeApi();
+    vi.mocked(api.resumeThread).mockImplementation(
+      () => new Promise((resolve) => { resolveResume = resolve; }),
+    );
+    render(
+      <BrainWorkspace
+        api={api}
+        invoker={makeInvoker()}
+        practiceContext={scoreContext}
+        wakeQuestion={{ id: 1, text: "What happened last time?" }}
+      />,
+    );
+
+    expect((await screen.findByRole(
+      "button",
+      { name: "Loading memory…" },
+    ) as HTMLButtonElement).disabled).toBe(true);
+    expect(api.ask).not.toHaveBeenCalled();
+    resolveResume({ thread_id: 42, turns: [] });
+    await waitFor(() => expect(api.ask).toHaveBeenCalledTimes(1));
+    expect(api.ask).toHaveBeenCalledWith(
+      expect.objectContaining({ thread_id: 42, piece_id: 7 }),
+    );
+  });
+
+  it("drops a late answer and action after the user switches pieces", async () => {
+    let resolveAnswer!: (value: BrainAnswer) => void;
+    const api = makeApi();
+    vi.mocked(api.ask).mockImplementation(
+      () => new Promise((resolve) => { resolveAnswer = resolve; }),
+    );
+    const onProposedAction = vi.fn();
+    const invoker = makeInvoker({
+      pieces_list: [
+        { id: 7, title: "Scherzo No. 2", composer: "Chopin", has_xml: true, has_pdf: true, intake_done: true },
+        { id: 8, title: "Ballade No. 1", composer: "Chopin", has_xml: true, has_pdf: true, intake_done: true },
+      ],
+    });
+    render(
+      <BrainWorkspace
+        api={api}
+        invoker={invoker}
+        practiceContext={scoreContext}
+        wakeQuestion={{ id: 1, text: "How should I work on this?" }}
+        onProposedAction={onProposedAction}
+      />,
+    );
+    await waitFor(() => expect(api.ask).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByLabelText("Piece thread"), {
+      target: { value: "8" },
+    });
+    resolveAnswer({
+      ...groundedAnswer,
+      id: "late-answer",
+      answer: "This belongs to the Scherzo.",
+      proposed_action: {
+        kind: "verdict",
+        summary: "Log clean",
+        verdict: "clean",
+        note: null,
+      },
+    });
+
+    await waitFor(() => expect(api.resumeThread).toHaveBeenCalledWith(8));
+    expect(screen.queryByText("This belongs to the Scherzo.")).toBeNull();
+    expect(onProposedAction).not.toHaveBeenCalled();
+  });
+
+  it("keeps the selected piece thread when transient shell context disappears", async () => {
+    const props = { api: makeApi(), invoker: makeInvoker() };
+    const { rerender } = render(
+      <BrainWorkspace {...props} practiceContext={scoreContext} />,
+    );
+    await waitFor(() => expect(props.api.resumeThread).toHaveBeenCalledWith(7));
+    rerender(<BrainWorkspace {...props} practiceContext={undefined} />);
+    expect((screen.getByLabelText("Piece thread") as HTMLSelectElement).value).toBe("7");
   });
 
   it("shows the deterministic next-work suggestions independently of AI answers", async () => {

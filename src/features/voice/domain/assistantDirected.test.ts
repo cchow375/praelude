@@ -10,6 +10,11 @@ describe("parseAssistantDirectedQuestion", () => {
     "Help me plan the next twenty minutes",
     "I'm about to diagnose this passage",
     "I want to work on the landing today",
+    "Okay, can you recap the last session?",
+    "Should I slow this down?",
+    "Did I improve this passage yesterday?",
+    "Is this due for retention?",
+    "Which section was weakest?",
   ])("accepts assistant-directed speech without a wake cue: %s", (text) => {
     expect(parseAssistantDirectedQuestion(text)).toBe(text);
   });
@@ -18,6 +23,7 @@ describe("parseAssistantDirectedQuestion", () => {
     "the landing is still uneven",
     "that was pretty bad",
     "okay maybe later",
+    "can young pianists improve this way",
     "confirm",
     "cancel",
     "",

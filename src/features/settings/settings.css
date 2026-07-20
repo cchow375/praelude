@@ -165,6 +165,13 @@
   gap: var(--s-3);
   padding-top: var(--s-2);
 }
+.settings-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
 .settings-row {
   display: grid;
   gap: var(--s-1);

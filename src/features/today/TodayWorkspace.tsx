@@ -68,8 +68,9 @@ export function TodayWorkspace({
   const date = todayLocal();
   const [todayPlan, setTodayPlan] = useState(() => readTodayPlan(date));
 
-  // The composer only mounts while Today is the visible workspace, so its
-  // evidence is always current-and-visible here.
+  // Candidate evidence reloads whenever Today is visible. The reviewed active
+  // plan itself is persisted by useSessionPlan so Score/Brain navigation or a
+  // relaunch cannot silently discard the remaining sequence.
   const {
     candidates,
     loading: candidatesLoading,

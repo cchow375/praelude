@@ -373,17 +373,37 @@ const REP_RECOVERY = defineCommand<
   { commandId: string; action: RecoveryActionRequest },
   MutationReceipt<RepSnapshot>
 >("rep_recovery", "The recovery choice could not be saved.");
-const METRO_START = defineCommand<{ bpm: number }, unknown>(
-  "metro_start",
+const METRO_START = defineCommand<{ setId: number; bpm: number }, unknown>(
+  "metro_practice_start",
   "The set opened, but the metronome could not be started.",
 );
 const METRO_STATE = defineCommand<undefined, MetroState>(
   "metro_state",
   "The metronome state could not be loaded.",
 );
-const METRO_SET = defineCommand<{ bpm: number }, unknown>(
-  "metro_set",
+const METRO_SET = defineCommand<{ setId: number; bpm: number }, unknown>(
+  "metro_practice_retune",
   "The attempt saved, but the metronome tempo could not be updated.",
+);
+const METRO_RESTART = defineCommand<{
+  oldSetId: number;
+  newSetId: number;
+  bpm: number;
+}, unknown>(
+  "metro_practice_restart",
+  "The set restarted, but the metronome could not be synchronized.",
+);
+const METRO_PAUSE = defineCommand<{ setId: number }, unknown>(
+  "metro_practice_pause",
+  "Practice paused, but the metronome could not be synchronized.",
+);
+const METRO_RESUME = defineCommand<{ setId: number; bpm: number }, unknown>(
+  "metro_practice_resume",
+  "Practice resumed, but the metronome could not be synchronized.",
+);
+const METRO_CLOSE = defineCommand<{ setId: number }, unknown>(
+  "metro_practice_close",
+  "The set closed, but the metronome could not be synchronized.",
 );
 
 export interface UseRep {
@@ -577,7 +597,10 @@ export function useRep(): UseRep {
       || metroRef.current?.running !== true
     ) return;
     try {
-      await executeCommand(METRO_SET, { bpm: outcome.new_bpm });
+      await executeCommand(METRO_SET, {
+        setId: current.block_id,
+        bpm: outcome.new_bpm,
+      });
     } catch (cause) {
       const message = commandErrorMessage(
         cause,
@@ -753,6 +776,7 @@ export function useRep(): UseRep {
       if (metroRef.current == null) await metroReadiness.promise;
       const current = snapRef.current;
       const metro = metroRef.current;
+      const setId = current?.block_id ?? null;
       const authoritativeStartBpm = (
         metro != null
         && metroCommandGuardIsCurrent(metroAtStart, metroRevision.current)
@@ -761,19 +785,25 @@ export function useRep(): UseRep {
         && current.set_state === "active"
         && current.use_metronome
       ) ? current.bpm : null;
-      if (authoritativeStartBpm != null) {
+      if (authoritativeStartBpm != null && setId != null) {
         try {
           if (metro?.running === true) {
             if (metro.bpm !== authoritativeStartBpm) {
-              await executeCommand(METRO_SET, { bpm: authoritativeStartBpm });
+              await executeCommand(METRO_SET, {
+                setId,
+                bpm: authoritativeStartBpm,
+              });
             }
           } else {
-            await executeCommand(METRO_START, { bpm: authoritativeStartBpm });
+            await executeCommand(METRO_START, {
+              setId,
+              bpm: authoritativeStartBpm,
+            });
           }
         } catch (cause) {
           const message = commandErrorMessage(
             cause,
-          "The set opened, but the metronome could not be started.",
+            "The set opened, but the metronome could not be started.",
           );
           showError(message);
           receipts.error(cause, message);
@@ -938,6 +968,7 @@ export function useRep(): UseRep {
     clearError();
     const blockAtStart = snapRef.current?.block_id ?? null;
     const eventsAtStart = eventRevision.current;
+    const metroAtStart = captureMetroCommandGuard(metroRevision.current);
     const mutationAtStart = mutationRevision.current + 1;
     mutationRevision.current = mutationAtStart;
     try {
@@ -956,6 +987,42 @@ export function useRep(): UseRep {
       receipts.committed(
         "Practice set restarted. The previous attempts remain in history.",
       );
+
+      // Restart creates a new authoritative set at its original start tempo.
+      // Keep the click aligned with that fresh state, but only while no newer
+      // rep mutation/event or manual/voice metronome command has taken ownership.
+      if (metroRef.current == null) await metroReadiness.promise;
+      const current = snapRef.current;
+      const restartIsCurrent = (
+        mutationRevision.current === mutationAtStart
+        && metroCommandGuardIsCurrent(metroAtStart, metroRevision.current)
+        && current != null
+        && current.block_id === next.block_id
+        && sameRepProjection(current, next)
+      );
+      const bpm = next.bpm ?? next.start_bpm;
+      if (
+        restartIsCurrent
+        && blockAtStart != null
+        && current.use_metronome
+        && current.set_state === "active"
+        && Number.isFinite(bpm)
+      ) {
+        try {
+          await executeCommand(METRO_RESTART, {
+            oldSetId: blockAtStart,
+            newSetId: next.block_id,
+            bpm,
+          });
+        } catch (cause) {
+          const message = commandErrorMessage(
+            cause,
+            "The set restarted, but the metronome could not be synchronized.",
+          );
+          showError(message);
+          receipts.error(cause, message);
+        }
+      }
     } catch (cause) {
       const message = commandErrorMessage(
         cause,
@@ -965,23 +1032,65 @@ export function useRep(): UseRep {
       receipts.error(cause, message);
       throw cause;
     }
-  }, [applySnapshot, clearError, receipts, showError]);
+  }, [applySnapshot, clearError, metroReadiness, receipts, showError]);
 
   const pause = useCallback(async () => {
-    await runSnapshotReceiptMutation(
+    const blockAtStart = snapRef.current?.block_id ?? null;
+    const metroAtStart = captureMetroCommandGuard(metroRevision.current);
+    const next = await runSnapshotReceiptMutation(
       `rep-pause:${snapRef.current?.block_id ?? "none"}`,
       "The practice timer could not be paused.",
       (id) => executeCommand(REP_PAUSE, { commandId: id }),
     );
-  }, [runSnapshotReceiptMutation]);
+    if (
+      blockAtStart != null
+      && next.block_id === blockAtStart
+      && snapRef.current?.block_id === blockAtStart
+      && next.use_metronome
+      && metroCommandGuardIsCurrent(metroAtStart, metroRevision.current)
+    ) {
+      try {
+        await executeCommand(METRO_PAUSE, { setId: blockAtStart });
+      } catch (cause) {
+        const message = commandErrorMessage(
+          cause,
+          "Practice paused, but the metronome could not be synchronized.",
+        );
+        showError(message);
+        receipts.error(cause, message);
+      }
+    }
+  }, [receipts, runSnapshotReceiptMutation, showError]);
 
   const resume = useCallback(async () => {
-    await runSnapshotReceiptMutation(
+    const blockAtStart = snapRef.current?.block_id ?? null;
+    const metroAtStart = captureMetroCommandGuard(metroRevision.current);
+    const next = await runSnapshotReceiptMutation(
       `rep-resume:${snapRef.current?.block_id ?? "none"}`,
       "The practice timer could not be resumed.",
       (id) => executeCommand(REP_RESUME, { commandId: id }),
     );
-  }, [runSnapshotReceiptMutation]);
+    const bpm = next.bpm ?? next.start_bpm;
+    if (
+      blockAtStart != null
+      && next.block_id === blockAtStart
+      && snapRef.current?.block_id === blockAtStart
+      && next.use_metronome
+      && Number.isFinite(bpm)
+      && metroCommandGuardIsCurrent(metroAtStart, metroRevision.current)
+    ) {
+      try {
+        await executeCommand(METRO_RESUME, { setId: blockAtStart, bpm });
+      } catch (cause) {
+        const message = commandErrorMessage(
+          cause,
+          "Practice resumed, but the metronome could not be synchronized.",
+        );
+        showError(message);
+        receipts.error(cause, message);
+      }
+    }
+  }, [receipts, runSnapshotReceiptMutation, showError]);
 
   const checkpoint = useCallback(async () => {
     await runSnapshotReceiptMutation(
@@ -1041,6 +1150,8 @@ export function useRep(): UseRep {
   const close = useCallback(async () => {
     clearError();
     const blockAtStart = snapRef.current?.block_id ?? null;
+    const metroAtStart = captureMetroCommandGuard(metroRevision.current);
+    const usedMetronome = snapRef.current?.use_metronome === true;
     const eventsAtStart = eventRevision.current;
     const mutationAtStart = mutationRevision.current + 1;
     mutationRevision.current = mutationAtStart;
@@ -1063,6 +1174,22 @@ export function useRep(): UseRep {
         applySnapshot(null);
       }
       receipts.committed("Practice set closed.");
+      if (
+        blockAtStart != null
+        && usedMetronome
+        && metroCommandGuardIsCurrent(metroAtStart, metroRevision.current)
+      ) {
+        try {
+          await executeCommand(METRO_CLOSE, { setId: blockAtStart });
+        } catch (cause) {
+          const message = commandErrorMessage(
+            cause,
+            "The set closed, but the metronome could not be synchronized.",
+          );
+          showError(message);
+          receipts.error(cause, message);
+        }
+      }
     } catch (cause) {
       const message = commandErrorMessage(
         cause,

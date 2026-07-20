@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Intake, PieceDetailData } from "./types";
 import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
@@ -61,6 +67,35 @@ export function PieceDetail({
   const [surface, setSurface] = useState<"practice" | "score">(
     initial.has_pdf ? "score" : "practice",
   );
+  const scoreTabRef = useRef<HTMLButtonElement>(null);
+  const detailsTabRef = useRef<HTMLButtonElement>(null);
+
+  const chooseSurface = (next: "score" | "practice", focus = false) => {
+    setSurface(next);
+    if (focus) {
+      requestAnimationFrame(() =>
+        (next === "score" ? scoreTabRef : detailsTabRef).current?.focus(),
+      );
+    }
+  };
+
+  const onSurfaceKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    current: "score" | "practice",
+  ) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key))
+      return;
+    event.preventDefault();
+    const next =
+      event.key === "Home"
+        ? "score"
+        : event.key === "End"
+          ? "practice"
+          : current === "score"
+            ? "practice"
+            : "score";
+    chooseSurface(next, true);
+  };
 
   const saveIntake = useCallback(
     async (intake: Intake) => {
@@ -177,20 +212,30 @@ export function PieceDetail({
             aria-label="Piece workspace"
           >
             <button
+              ref={scoreTabRef}
               type="button"
               role="tab"
+              id="piece-surface-tab-score"
+              aria-controls="piece-surface-panel-score"
               aria-selected={surface === "score"}
+              tabIndex={surface === "score" ? 0 : -1}
               className={surface === "score" ? "is-on" : ""}
-              onClick={() => setSurface("score")}
+              onClick={() => chooseSurface("score")}
+              onKeyDown={(event) => onSurfaceKeyDown(event, "score")}
             >
               Score
             </button>
             <button
+              ref={detailsTabRef}
               type="button"
               role="tab"
+              id="piece-surface-tab-practice"
+              aria-controls="piece-surface-panel-practice"
               aria-selected={surface === "practice"}
+              tabIndex={surface === "practice" ? 0 : -1}
               className={surface === "practice" ? "is-on" : ""}
-              onClick={() => setSurface("practice")}
+              onClick={() => chooseSurface("practice")}
+              onKeyDown={(event) => onSurfaceKeyDown(event, "practice")}
             >
               Details
             </button>
@@ -204,6 +249,19 @@ export function PieceDetail({
         </p>
       )}
 
+      <div
+        role={piece.intake_done && piece.has_pdf ? "tabpanel" : undefined}
+        id={
+          piece.intake_done && piece.has_pdf
+            ? `piece-surface-panel-${surface}`
+            : undefined
+        }
+        aria-labelledby={
+          piece.intake_done && piece.has_pdf
+            ? `piece-surface-tab-${surface}`
+            : undefined
+        }
+      >
       {!piece.intake_done ? (
         <IntakeForm piece={piece} onSave={saveIntake} saving={saving} />
       ) : surface === "score" && piece.has_pdf ? (
@@ -230,6 +288,11 @@ export function PieceDetail({
             defaultCleanStreak={defaultCleanStreak}
             onOpen={openBlock}
             opening={opening}
+            blockedReason={
+              activeRep
+                ? "Close the active practice set before starting another."
+                : null
+            }
           />
           {/* Secondary sections behind the density primitive so the Details
               surface never reads as a wall of stacked panels. */}
@@ -254,6 +317,7 @@ export function PieceDetail({
           </Disclosure>
         </>
       )}
+      </div>
     </section>
   );
 }

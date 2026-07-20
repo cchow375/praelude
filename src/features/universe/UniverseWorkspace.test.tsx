@@ -201,6 +201,26 @@ describe("UniverseWorkspace force graph", () => {
     ).toBeTruthy();
   });
 
+  it("opens graph detail with the keyboard and from the text equivalent", async () => {
+    render(<UniverseWorkspace onOpenPractice={vi.fn()} />);
+    await screen.findByRole("heading", { name: "Your earned systems" });
+
+    const region = screen.getByRole("button", { name: /planet · Opening/i });
+    region.focus();
+    fireEvent.keyDown(region, { key: "Enter" });
+    expect(
+      await screen.findByRole("complementary", { name: "Opening" }),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Evidence ledger — text equivalent"));
+    fireEvent.click(screen.getByRole("button", { name: "Nocturne Op. 9 No. 2" }));
+    expect(
+      await screen.findByRole("complementary", {
+        name: "Nocturne Op. 9 No. 2",
+      }),
+    ).toBeTruthy();
+  });
+
   it("hover focuses a system: the canvas takes the hovering class", async () => {
     const { container } = render(
       <UniverseWorkspace onOpenPractice={vi.fn()} />,

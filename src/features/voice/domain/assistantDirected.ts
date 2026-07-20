@@ -8,7 +8,7 @@ function normalizeAssistantSpeech(text: string): string {
     .trim();
 }
 
-const DIRECTED_OPENING = /^(?:can you|could you|would you|what\b|why\b|how\b|when\b|where\b|tell me\b|help me\b|i want to\b|im going to\b|im about to\b)/u;
+const DIRECTED_OPENING = /^(?:(?:okay|ok|so|well)\s+)?(?:can you\b|could you\b|would you\b|what\b|why\b|how\b|when\b|where\b|which\b|who\b|should i\b|do you\b|did i\b|have i\b|is (?:this|that|there)\b|are (?:these|those|there)\b|tell me\b|help me\b|i want to\b|im going to\b|im about to\b)/u;
 
 /**
  * Conservative no-wake Brain boundary. It accepts only whole utterances whose

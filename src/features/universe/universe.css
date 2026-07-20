@@ -470,6 +470,33 @@
   color: var(--ink);
 }
 
+.universe-ledger-piece {
+  padding: 0;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-weight: 650;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.universe-ledger-piece:hover,
+.universe-ledger-piece:focus-visible {
+  text-decoration-color: currentColor;
+}
+
+.universe-node:focus-visible {
+  outline: none;
+}
+
+.universe-node:focus-visible .universe-node-body {
+  stroke: var(--ink);
+  stroke-width: 3px;
+}
+
 @media (max-width: 900px) {
   .universe-canvas-and-detail {
     flex-direction: column;

@@ -9,7 +9,7 @@ afterEach(cleanup);
 
 describe("SettingsPanel", () => {
   it("opens with a truthful, accessible practice guide", async () => {
-    render(<SettingsPanel api={api()} onResetLayout={vi.fn()} />);
+    render(<SettingsPanel api={api()} />);
 
     const guide = await screen.findByRole("region", {
       name: "One practice loop, two voice lanes",
@@ -26,9 +26,9 @@ describe("SettingsPanel", () => {
   });
 
   it("loads typed values and saves one validated projection", async () => {
-    const settingsApi = api(); const onThemeSaved = vi.fn(); const onInterfaceScaleSaved = vi.fn(); const onPracticeDefaultCleanStreakSaved = vi.fn();
-    render(<SettingsPanel api={settingsApi} onResetLayout={vi.fn()} onThemeSaved={onThemeSaved} onInterfaceScaleSaved={onInterfaceScaleSaved} onPracticeDefaultCleanStreakSaved={onPracticeDefaultCleanStreakSaved} />);
-    fireEvent.change(await screen.findByLabelText("Theme"), { target: { value: "dark" } });
+    const settingsApi = api(); const onInterfaceScaleSaved = vi.fn(); const onPracticeDefaultCleanStreakSaved = vi.fn();
+    render(<SettingsPanel api={settingsApi} onInterfaceScaleSaved={onInterfaceScaleSaved} onPracticeDefaultCleanStreakSaved={onPracticeDefaultCleanStreakSaved} />);
+    await screen.findByText(/dark practice-room interface/i);
     fireEvent.change(screen.getByLabelText("Interface scale"), { target: { value: "80" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /Share retrieved knowledge/ }));
     fireEvent.change(screen.getByLabelText("Default clean streak"), { target: { value: "7" } });
@@ -36,7 +36,6 @@ describe("SettingsPanel", () => {
     await waitFor(() => expect(settingsApi.update).toHaveBeenCalledWith(expect.objectContaining({ theme: "dark", interface_scale: 80, practice_default_clean_streak: 7, knowledge_dir: "/vault/Knowledge and Resources", share_retrieved_knowledge: false })));
     expect(settingsApi.update).not.toHaveBeenCalledWith(expect.objectContaining({ ladder_default_reps: expect.anything() }));
     expect(settingsApi.update).toHaveBeenCalledTimes(1);
-    expect(onThemeSaved).toHaveBeenCalledWith("dark");
     expect(onInterfaceScaleSaved).toHaveBeenCalledWith(80);
     expect(onPracticeDefaultCleanStreakSaved).toHaveBeenCalledWith(7);
   });
@@ -45,7 +44,7 @@ describe("SettingsPanel", () => {
     let resolve: (value: { provider: "claude"; configured: true; source: "keychain" }) => void = () => undefined;
     const settingsApi = api();
     settingsApi.saveKey = vi.fn().mockReturnValue(new Promise((next) => { resolve = next; }));
-    render(<SettingsPanel api={settingsApi} onResetLayout={vi.fn()} />);
+    render(<SettingsPanel api={settingsApi} />);
     const control = await screen.findByRole("region", { name: "Claude API key" });
     const input = within(control).getByLabelText("New Claude API key") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "secret-value-123" } });
@@ -58,7 +57,7 @@ describe("SettingsPanel", () => {
 
   it("submits the currently focused alias draft when Enter saves", async () => {
     const settingsApi = api();
-    render(<SettingsPanel api={settingsApi} onResetLayout={vi.fn()} />);
+    render(<SettingsPanel api={settingsApi} />);
     const alias = await screen.findByLabelText("Clean verdict aliases");
     fireEvent.change(alias, { target: { value: "solid landing, easy arrival" } });
     fireEvent.submit(alias.closest("form")!);
@@ -75,10 +74,10 @@ describe("SettingsPanel", () => {
     });
     render(
       <ReceiptCenterProvider>
-        <SettingsPanel api={settingsApi} onResetLayout={vi.fn()} />
+        <SettingsPanel api={settingsApi} />
       </ReceiptCenterProvider>,
     );
-    await screen.findByLabelText("Theme");
+    await screen.findByText(/dark practice-room interface/i);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {

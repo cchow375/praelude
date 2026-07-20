@@ -514,6 +514,19 @@ export function UniverseWorkspace({
     setSelectedId(null);
   }, []);
 
+  const activateNode = useCallback((node: GraphNode) => {
+    if (node.kind === "cluster") {
+      setExpandedClusters((current) => {
+        const next = new Set(current);
+        next.add(node.id);
+        return next;
+      });
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId(node.id);
+  }, []);
+
   const pieces = snapshot?.pieces ?? [];
 
   return (
@@ -728,6 +741,18 @@ export function UniverseWorkspace({
                           data-node-id={node.id}
                           data-node-kind={node.kind}
                           transform={`translate(${node.x ?? 0} ${node.y ?? 0})`}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`${node.kind} · ${node.label}`}
+                          aria-pressed={node.kind === "cluster" ? undefined : selected}
+                          onFocus={() => setHoveredId(node.id)}
+                          onBlur={() => setHoveredId(null)}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            activateNode(node);
+                          }}
                         >
                           {selected && (
                             <circle
@@ -796,7 +821,13 @@ export function UniverseWorkspace({
                   key={piece.piece_id}
                   data-testid={`universe-text-${piece.piece_id}`}
                 >
-                  <strong>{piece.title}</strong>
+                  <button
+                    type="button"
+                    className="universe-ledger-piece"
+                    onClick={() => setSelectedId(`piece-${piece.piece_id}`)}
+                  >
+                    {piece.title}
+                  </button>
                   {piece.composer ? ` · ${piece.composer}` : ""} —{" "}
                   {formatDuration(piece.focused_seconds)} focused ·{" "}
                   {piece.regions_practiced}/{piece.regions_total} targets ·{" "}

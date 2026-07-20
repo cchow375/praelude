@@ -661,6 +661,45 @@ describe("ScoreView", () => {
     );
   });
 
+  it("uses arrow-key navigation and tabpanel relationships in Region tools", async () => {
+    const region = {
+      id: 4,
+      piece_id: 7,
+      name: "Development",
+      notes: "Even groups",
+      m_start: 40,
+      m_end: 56,
+      kind: "hard_spot",
+      order: 0,
+      color: "#8b7cf6",
+      pdf_anchor: null,
+    };
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ regions: vi.fn().mockResolvedValue([region]) })}
+        adapter={makePdf(1).adapter}
+        onOpenBlock={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Development, measures 40 to 56",
+      }),
+    );
+
+    const practice = screen.getByRole("tab", { name: "Practice" });
+    const edit = screen.getByRole("tab", { name: "Edit" });
+    practice.focus();
+    fireEvent.keyDown(practice, { key: "ArrowRight" });
+    await waitFor(() => expect(document.activeElement).toBe(edit));
+    expect(edit.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
+      "score-region-4-tab-edit",
+    );
+  });
+
   it("ignores a stale graph response after switching pieces", async () => {
     const oldRegion = {
       id: 4,
@@ -885,6 +924,28 @@ describe("ScoreView", () => {
     );
     // At most three pages ever mounted (current 4 ± 1) — proven virtualization.
     expect(screen.getAllByLabelText(/^Score page \d+$/)).toHaveLength(3);
+  });
+
+  it("does not capture global paging keys while cached behind another workspace", async () => {
+    render(
+      <ScoreView
+        pieceId={7}
+        isActive={false}
+        api={makeApi()}
+        adapter={makePdf(5).adapter}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+
+    const key = new KeyboardEvent("keydown", {
+      key: "PageDown",
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(key);
+
+    expect(key.defaultPrevented).toBe(false);
+    expect((screen.getByLabelText("Page number") as HTMLInputElement).value).toBe("1");
   });
 
   it("persists edition selection before loading the new PDF", async () => {

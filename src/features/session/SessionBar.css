@@ -92,6 +92,21 @@
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out);
 }
+
+.session-end-control {
+  display: flex;
+  max-width: 12rem;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.session-end-control small {
+  color: var(--ink-tertiary);
+  font-size: 0.64rem;
+  line-height: 1.2;
+  text-align: right;
+}
 .session-end:active {
   transform: translateY(1px);
 }

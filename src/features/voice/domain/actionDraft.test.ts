@@ -139,4 +139,40 @@ describe("parseNaturalPracticeActionDraft", () => {
       CONTEXT,
     )).toBeNull();
   });
+
+  it.each([
+    "How should I practice this section?",
+    "I'm having trouble when I practice this section",
+    "I can't do dotted rhythms in this section",
+    "Do you think I should practice this passage slowly?",
+  ])("does not turn advice or failure narration into a set: %s", (text) => {
+    expect(parseNaturalPracticeActionDraft(text, {
+      ...CONTEXT,
+      target: {
+        region_id: 44,
+        label: "Coda landing",
+        m_start: 720,
+        m_end: 732,
+      },
+    })).toBeNull();
+  });
+
+  it.each([
+    "Okay, I'm gonna play this five times",
+    "Can you start measures 720 to 732 for five reps?",
+    "Could you do dotted rhythms five times?",
+  ])("accepts an explicitly framed practice action: %s", (text) => {
+    const draft = parseNaturalPracticeActionDraft(text, {
+      ...CONTEXT,
+      target: {
+        region_id: 44,
+        label: "Coda landing",
+        m_start: 720,
+        m_end: 732,
+      },
+    });
+    expect(draft?.status).toBe("ready_to_confirm");
+    expect(draft?.target).toMatchObject({ m_start: 720, m_end: 732 });
+    expect(draft?.contract.planned_attempts).toBe(5);
+  });
 });

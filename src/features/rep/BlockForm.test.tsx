@@ -71,4 +71,23 @@ describe("BlockForm focus", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start set" }));
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ focus: "phrasing", use_metronome: true, start_bpm: 60, increment: null }));
   });
+
+  it("explains and blocks a second manual set while one is active", () => {
+    const onOpen = vi.fn();
+    render(
+      <BlockForm
+        pieceId={1}
+        onOpen={onOpen}
+        blockedReason="Close the active practice set before starting another."
+      />,
+    );
+
+    expect(screen.getByRole("status").textContent).toContain(
+      "Close the active practice set",
+    );
+    const start = screen.getByRole("button", { name: "Start set" });
+    expect((start as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(start);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
 });

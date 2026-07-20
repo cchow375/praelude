@@ -402,7 +402,7 @@ async fn rep_safety_stop(
     let result = tauri::async_runtime::spawn_blocking(move || {
         metro.serialized(|| {
             let (receipt, stopped) =
-                rep.execute_safety_stop(&command_id, reason.as_deref(), || metro.do_stop());
+                rep.execute_safety_stop(&command_id, reason.as_deref(), || metro.do_safety_stop());
             let state = stopped.map(|_| metro.snapshot());
             if let Some(state) = &state {
                 metronome::emit(&task_app, state);
@@ -418,7 +418,7 @@ async fn rep_safety_stop(
         Err(error) => {
             let _ = tauri::async_runtime::spawn_blocking(move || {
                 join_failure_metro.serialized(|| {
-                    let _ = join_failure_metro.do_stop();
+                    let _ = join_failure_metro.do_safety_stop();
                     let state = join_failure_metro.snapshot();
                     metronome::emit(&join_failure_app, &state);
                 })
@@ -514,10 +514,21 @@ fn session_current(sessions: State<'_, Arc<SessionService>>) -> Option<SessionVi
 #[tauri::command]
 fn session_end(
     store: State<'_, Arc<Store>>,
-    sessions: State<'_, Arc<SessionService>>,
-) -> Option<ExportResult> {
+    rep: State<'_, Arc<RepEngine>>,
+) -> Result<Option<ExportResult>, String> {
     let dir = pieces_dir(&store);
-    sessions.end_and_export(&store, &dir)
+    rep.end_session_and_export(&dir)
+}
+
+/// Graceful app exit is an explicit practice boundary: close the live set first
+/// and only then export/end its session. If the durable close fails, leave the
+/// session open for relaunch recovery instead of silently splitting the set.
+fn finalize_practice_on_exit(store: &Store, rep: &RepEngine) {
+    if rep.close().is_err() {
+        return;
+    }
+    let dir = pieces_dir(store);
+    let _ = rep.end_session_and_export(&dir);
 }
 
 /// Remember the piece the user is working on (setting `ui.current_piece`). The
@@ -1214,6 +1225,11 @@ pub fn run() {
             // Arcs so a block opened by voice is the block the UI sees.
             let sessions = Arc::new(SessionService::new(store.clone()));
             let rep = Arc::new(RepEngine::new(store.clone(), sessions.clone()));
+            if let Some(snapshot) = rep.snapshot().filter(|snapshot| snapshot.use_metronome) {
+                metro.serialized(|| {
+                    metro.restore_practice_owner(snapshot.block_id);
+                });
+            }
             let app_emitter: Arc<dyn StateEmitter> = Arc::new(AppEmitter(app.handle().clone()));
             sessions.set_emitter(app_emitter.clone());
             rep.set_emitter(app_emitter);
@@ -1292,12 +1308,11 @@ pub fn run() {
                 // the pipelines down. Idempotent with the ExitRequested arm:
                 // ending twice is a no-op (`latest_open_session` only finds
                 // sessions with `ended_at IS NULL`).
-                if let (Some(store), Some(sessions)) = (
+                if let (Some(store), Some(rep)) = (
                     window.try_state::<Arc<Store>>(),
-                    window.try_state::<Arc<SessionService>>(),
+                    window.try_state::<Arc<RepEngine>>(),
                 ) {
-                    let dir = pieces_dir(&store);
-                    let _ = sessions.end_and_export(&store, &dir);
+                    finalize_practice_on_exit(&store, &rep);
                 }
                 if let Some(voice) = window.try_state::<Arc<VoiceLoop>>() {
                     voice.shutdown();
@@ -1398,6 +1413,12 @@ pub fn run() {
             metronome::metro_stop,
             metronome::metro_set,
             metronome::metro_state,
+            metronome::metro_practice_start,
+            metronome::metro_practice_restart,
+            metronome::metro_practice_pause,
+            metronome::metro_practice_resume,
+            metronome::metro_practice_retune,
+            metronome::metro_practice_close,
             voice_mute,
             voice_state,
             voice_speak,
@@ -1416,12 +1437,11 @@ pub fn run() {
                 // Best-effort session export on quit. Must never block exit for
                 // long or panic: end_and_export only reads the event log + appends
                 // a small markdown file, and any I/O error inside is swallowed.
-                if let (Some(store), Some(sessions)) = (
+                if let (Some(store), Some(rep)) = (
                     app_handle.try_state::<Arc<Store>>(),
-                    app_handle.try_state::<Arc<SessionService>>(),
+                    app_handle.try_state::<Arc<RepEngine>>(),
                 ) {
-                    let dir = pieces_dir(&store);
-                    let _ = sessions.end_and_export(&store, &dir);
+                    finalize_practice_on_exit(&store, &rep);
                 }
                 if let Some(voice) = app_handle.try_state::<Arc<VoiceLoop>>() {
                     voice.shutdown();

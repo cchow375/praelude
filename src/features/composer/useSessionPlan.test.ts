@@ -92,6 +92,20 @@ function makeReceipt(
 
 beforeEach(() => {
   invokeMock.mockReset();
+  const memory = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => memory.set(key, value),
+      removeItem: (key: string) => memory.delete(key),
+      clear: () => memory.clear(),
+      key: (index: number) => [...memory.keys()][index] ?? null,
+      get length() {
+        return memory.size;
+      },
+    },
+  });
 });
 
 afterEach(() => {
@@ -315,7 +329,7 @@ describe("useSessionPlan — startItem", () => {
     expect(result.current.startingSequence).toBeNull();
   });
 
-  it("race: two overlapping startItem calls do not leave startingSequence stuck on the wrong sequence", async () => {
+  it("race: a second overlapping startItem is ignored before it can write", async () => {
     const plan = makePlan({
       sequence: [
         makeItem({ sequence: 1 }),
@@ -331,32 +345,23 @@ describe("useSessionPlan — startItem", () => {
     });
 
     let resolveFirst: (value: unknown) => void = () => undefined;
-    let resolveSecond: (value: unknown) => void = () => undefined;
     invokeMock.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveFirst = resolve;
       }),
     );
-    invokeMock.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveSecond = resolve;
-      }),
-    );
 
     let firstCall: Promise<void>;
-    let secondCall: Promise<void>;
     act(() => {
       firstCall = result.current.startItem(1);
     });
     await waitFor(() => expect(result.current.startingSequence).toBe(1));
     act(() => {
-      secondCall = result.current.startItem(2);
+      void result.current.startItem(2);
     });
-    await waitFor(() => expect(result.current.startingSequence).toBe(2));
+    expect(result.current.startingSequence).toBe(1);
+    expect(invokeMock).toHaveBeenCalledTimes(2);
 
-    // The first call resolves after the second has already overwritten
-    // startingSequence; this documents today's behavior (last-writer-wins on
-    // a single shared flag) rather than per-sequence in-flight tracking.
     await act(async () => {
       resolveFirst(
         makeReceipt({
@@ -366,17 +371,7 @@ describe("useSessionPlan — startItem", () => {
       await firstCall;
     });
     expect(result.current.startingSequence).toBeNull();
-
-    await act(async () => {
-      resolveSecond(
-        makeReceipt({
-          value: { ...makeReceipt().value!, started_sequence: 2 },
-        }),
-      );
-      await secondCall;
-    });
-    expect(result.current.startingSequence).toBeNull();
-    expect(result.current.activePlan?.startedSequences.sort()).toEqual([1, 2]);
+    expect(result.current.activePlan?.startedSequences).toEqual([1]);
   });
 });
 
@@ -395,5 +390,39 @@ describe("useSessionPlan — clearPlan", () => {
       result.current.clearPlan();
     });
     expect(result.current.activePlan).toBeNull();
+  });
+
+  it("restores a started multi-item plan after unmount and removes it on dismiss", async () => {
+    const plan = makePlan({
+      sequence: [
+        makeItem({ sequence: 1 }),
+        makeItem({ sequence: 2, candidate_id: "candidate-2" }),
+      ],
+    });
+    invokeMock.mockResolvedValueOnce(makeReceipt());
+    const first = renderHook(() => useSessionPlan(), {
+      wrapper: receiptWrapper,
+    });
+    await act(async () => {
+      await first.result.current.startPlan(plan);
+    });
+    const planId = first.result.current.activePlan?.planId;
+    first.unmount();
+
+    const resumed = renderHook(() => useSessionPlan(), {
+      wrapper: receiptWrapper,
+    });
+    expect(resumed.result.current.activePlan).toMatchObject({
+      planId,
+      plan,
+      startedSequences: [1],
+    });
+
+    act(() => resumed.result.current.clearPlan());
+    resumed.unmount();
+    const afterDismiss = renderHook(() => useSessionPlan(), {
+      wrapper: receiptWrapper,
+    });
+    expect(afterDismiss.result.current.activePlan).toBeNull();
   });
 });

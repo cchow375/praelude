@@ -53,6 +53,8 @@ import type {
 } from "../features/brain/types";
 import type { BrainProposedActionEvent } from "../features/brain/BrainWorkspace";
 import { MetronomePopover } from "../features/metronome/MetronomePopover";
+import { useMetronome } from "../features/metronome/useMetronome";
+import type { LedgerSurface } from "../features/ledger/LedgerCalendarWorkspace";
 import "./shell.css";
 
 /**
@@ -195,6 +197,7 @@ export function groundPracticeBrainContext(
     active_block:
       snap?.piece_id === context.piece_id
         ? {
+            block_id: snap.block_id,
             m_start: snap.m_start,
             m_end: snap.m_end,
             bpm: snap.bpm,
@@ -225,6 +228,8 @@ function practiceContextKey(context: PracticeBrainContext | null): string {
   return [
     context.piece_id,
     context.region?.id ?? "no-region",
+    context.region?.m_start ?? "no-start",
+    context.region?.m_end ?? "no-end",
     context.current_page ?? "no-page",
     context.edition_id ?? "no-edition",
   ].join(":");
@@ -238,13 +243,13 @@ export interface ShellProps {
 }
 
 const DOCK_STYLE: CSSProperties = {
-  position: "fixed",
-  right: "var(--s-5)",
-  bottom: "var(--s-5)",
-  width: "min(440px, calc(100vw - 2 * var(--s-5)))",
-  maxHeight: "calc(100vh - 2 * var(--s-5))",
+  position: "relative",
+  width: "100%",
+  maxHeight: "min(680px, 70vh)",
   overflowY: "auto",
-  zIndex: 90,
+  marginTop: "calc(var(--s-6) + var(--s-5))",
+  marginBottom: "var(--s-5)",
+  zIndex: 1,
 };
 
 const COMPACT_DOCK_STYLE: CSSProperties = {
@@ -269,13 +274,31 @@ const VOICE_DRAFT_STYLE: CSSProperties = {
   zIndex: 95,
 };
 
+const ACTIVE_SET_DRAFT_UNAVAILABLE =
+  "A practice set is already active. Close or finish it before starting another.";
+
 export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   const [view, setView] = useState<View>("today");
+  const [settingsReturnView, setSettingsReturnView] =
+    useState<WorkspaceId>("today");
+  const [requestedScorePiece, setRequestedScorePiece] = useState({
+    pieceId: null as number | null,
+    revision: 0,
+  });
+  const [ledgerSurface, setLedgerSurface] =
+    useState<LedgerSurface>("ledger");
+  const [requestedLedgerPiece, setRequestedLedgerPiece] = useState({
+    pieceId: null as number | null,
+    revision: 0,
+  });
   const [repHudCollapsed, setRepHudCollapsed] = useState(
     () => window.innerWidth <= 800 || window.innerHeight <= 620,
   );
   const [scorePracticeContext, setScorePracticeContext] =
     useState<PracticeBrainContext | null>(null);
+  const [ledgerPracticeContext, setLedgerPracticeContext] =
+    useState<PracticeBrainContext | null>(null);
+  const lastVisiblePracticeContext = useRef<PracticeBrainContext | null>(null);
   const [wakeQuestion, setWakeQuestion] = useState<WakeQuestion | null>(null);
   const wakeQuestionId = useRef(0);
   const today = todayLocal();
@@ -285,19 +308,20 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   >({});
 
   const rep = useRep();
+  const metronome = useMetronome();
   const tierAContext = useMemo<TierAContext>(() => {
     const snap = rep.snap;
     const paused =
       snap?.timer_state === "paused" || snap?.set_state === "paused";
     return {
       practice_state: snap == null ? "idle" : paused ? "paused" : "active",
-      metronome_running: snap?.use_metronome === true && !paused,
+      metronome_running: metronome.state.running,
       last_attempt_available:
         snap != null && (snap.last_attempt_id != null || repTries(snap) > 0),
       pending_duplicate_attempt: false,
       retention_due: snap?.retention_check?.state === "due",
     };
-  }, [rep.snap]);
+  }, [metronome.state.running, rep.snap]);
   const voice = useVoice(tierAContext);
   const session = useSession();
   const [ending, setEnding] = useState(false);
@@ -315,7 +339,22 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       active_block: null,
     };
   }, [rep.snap]);
-  const visiblePracticeContext = scorePracticeContext ?? repFallbackContext;
+  const screenPracticeContext =
+    view === "score"
+      ? scorePracticeContext
+      : view === "ledger"
+        ? ledgerPracticeContext
+        : null;
+  if (view !== "brain") {
+    // Leaving Score/Pieces for Today, Calendar, Universe, or Settings clears
+    // the old visual target. Entering Brain directly preserves the context
+    // captured on the immediately preceding render.
+    lastVisiblePracticeContext.current = screenPracticeContext;
+  }
+  const visiblePracticeContext =
+    screenPracticeContext ??
+    (view === "brain" ? lastVisiblePracticeContext.current : null) ??
+    repFallbackContext;
   const groundedBrainContext = useMemo(() => {
     const context = groundPracticeBrainContext(
       visiblePracticeContext,
@@ -349,6 +388,16 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   const handledConfirmationDeliveries = useRef(new Set<string>());
   const routedNaturalQuestions = useRef(new Set<string>());
   const spokenDraftKeys = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!rep.snap && voiceDraftError === ACTIVE_SET_DRAFT_UNAVAILABLE) {
+      setVoiceDraftError(null);
+    }
+  }, [rep.snap, voiceDraftError]);
+
+  useEffect(() => {
+    setTodayPlan(readTodayPlan(today));
+  }, [today]);
 
   useEffect(() => {
     const onTodayPlanChanged = (event: Event) => {
@@ -469,6 +518,9 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       setVoiceDraftConfirming(true);
       setVoiceDraftError(null);
       try {
+        if (rep.snap) {
+          throw new Error(ACTIVE_SET_DRAFT_UNAVAILABLE);
+        }
         if (contextKey !== practiceContextKey(visiblePracticeContext)) {
           throw new Error(
             "The Score target changed. Review a new spoken draft before starting.",
@@ -500,8 +552,19 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   );
 
   const brainActionUnavailableReason = useCallback(
-    (action: ProposedAction): string | null => {
-      if (action.kind === "tempo" || rep.snap) return null;
+    (pending: PendingBrainAction): string | null => {
+      const { action, targetBlockId } = pending;
+      if (action.kind === "tempo") return null;
+      if (targetBlockId === null) {
+        return "This answer was not grounded in an active set. Ask again while the set is open.";
+      }
+      if (
+        rep.snap &&
+        targetBlockId !== rep.snap.block_id
+      ) {
+        return "The active set changed. Ask again before applying this action.";
+      }
+      if (rep.snap) return null;
       switch (action.kind) {
         case "verdict":
           return "A verdict needs an active set. Open a set first, then ask again.";
@@ -533,12 +596,12 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       });
       setPendingBrainAction({
         answerId: event.answerId,
-        targetBlockId: rep.snap?.block_id ?? null,
+        targetBlockId: event.targetBlockId,
         action: event.action,
       });
       setBrainActionError(null);
     },
-    [rep.snap?.block_id, suppressVoiceDraft],
+    [suppressVoiceDraft],
   );
 
   const cancelBrainAction = useCallback(() => {
@@ -553,7 +616,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     async (pending: PendingBrainAction) => {
       const { answerId, action, targetBlockId } = pending;
       if (brainActionInFlight.current !== null) return;
-      const unavailable = brainActionUnavailableReason(action);
+      const unavailable = brainActionUnavailableReason(pending);
       if (unavailable) {
         setBrainActionError(unavailable);
         return;
@@ -623,10 +686,13 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       const oldest = spokenDraftKeys.current.values().next().value;
       if (oldest) spokenDraftKeys.current.delete(oldest);
     }
-    void invoke("voice_speak", { text: actionDraftSpeech(draft) }).catch(() => {
+    const text = pendingVoiceDraft && rep.snap
+      ? "A practice set is already active. Close or finish it before starting another, or say cancel."
+      : actionDraftSpeech(draft);
+    void invoke("voice_speak", { text }).catch(() => {
       // The visual confirmation remains authoritative if TTS is unavailable.
     });
-  }, [pendingBrainAction, pendingVoiceDraft]);
+  }, [pendingBrainAction, pendingVoiceDraft, rep.snap]);
 
   // While a card is pending, collision-free whole utterances can confirm or
   // cancel it. The backend-routed flag is fail-closed: React never treats an
@@ -693,6 +759,24 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     requestAnimationFrame(() => tabRefs.current[id]?.focus());
   };
 
+  const openSettings = () => {
+    if (view === "settings") {
+      setView(settingsReturnView);
+      return;
+    }
+    setSettingsReturnView(view);
+    setView("settings");
+  };
+
+  const openCalendar = useCallback(() => {
+    setLedgerSurface("calendar");
+    setRequestedLedgerPiece((current) => ({
+      pieceId: null,
+      revision: current.revision + 1,
+    }));
+    setView("ledger");
+  }, []);
+
   const onTabKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
     id: WorkspaceId,
@@ -714,9 +798,10 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   };
 
   const openPiece = useCallback((piece: PracticePieceContext) => {
-    // Best-effort selection so the Score workspace opens on the chosen piece;
-    // a missing backend (browser dev) just navigates.
-    void invoke("piece_select", { pieceId: piece.piece_id }).catch(() => {});
+    setRequestedScorePiece((current) => ({
+      pieceId: piece.piece_id,
+      revision: current.revision + 1,
+    }));
     setView("score");
   }, []);
 
@@ -730,7 +815,11 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   );
 
   const openLedgerForPiece = useCallback((piece: PracticePieceContext) => {
-    void invoke("piece_select", { pieceId: piece.piece_id }).catch(() => {});
+    setLedgerSurface("ledger");
+    setRequestedLedgerPiece((current) => ({
+      pieceId: piece.piece_id,
+      revision: current.revision + 1,
+    }));
     setView("ledger");
   }, []);
 
@@ -776,6 +865,11 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
               session={session.session}
               onEnd={endSession}
               ending={ending}
+              blockedReason={
+                rep.snap
+                  ? "Close the active set before ending the session."
+                  : null
+              }
             />
           </div>
         )}
@@ -795,11 +889,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
           type="button"
           className={`shell-settings-button${view === "settings" ? " is-active" : ""}`}
           aria-pressed={view === "settings"}
-          onClick={() =>
-            setView((current) =>
-              current === "settings" ? "today" : "settings",
-            )
-          }
+          onClick={openSettings}
         >
           Settings
         </button>
@@ -841,45 +931,71 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         <Suspense
           fallback={<div className="shell-loading" aria-hidden="true" />}
         >
-          {view === "settings" ? (
-            (settingsContent ?? <WorkspaceStub id="settings" name="Settings" />)
-          ) : view === "today" ? (
-            <div data-testid="workspace-today">
-              <TodayWorkspace
-                onOpenAtlas={() => setView("score")}
-                onOpenCalendar={() => setView("ledger")}
-                onOpenPiece={openPiece}
+          {view === "settings" &&
+            (settingsContent ?? (
+              <WorkspaceStub id="settings" name="Settings" />
+            ))}
+          {view !== "settings" && (
+            <>
+              {view === "today" && (
+                <div data-testid="workspace-today">
+                  <TodayWorkspace
+                    onOpenAtlas={() => {
+                      setRequestedScorePiece((current) => ({
+                        pieceId: null,
+                        revision: current.revision + 1,
+                      }));
+                      setView("score");
+                    }}
+                    onOpenCalendar={openCalendar}
+                    onOpenPiece={openPiece}
+                    defaultCleanStreak={defaultCleanStreak}
+                    activeBlock={rep.snap}
+                  />
+                </div>
+              )}
+              {view === "universe" && (
+                <div data-testid="workspace-universe">
+                  <UniverseWorkspace
+                    onOpenPractice={openFromUniverse}
+                    onOpenLedger={openLedgerForPiece}
+                  />
+                </div>
+              )}
+              {view === "ledger" && (
+                <LedgerCalendarWorkspace
+                  onOpenBlock={rep.open}
+                  activeRep={rep.snap}
+                  defaultCleanStreak={defaultCleanStreak}
+                  requestedSurface={ledgerSurface}
+                  requestedPieceId={requestedLedgerPiece.pieceId}
+                  requestRevision={requestedLedgerPiece.revision}
+                  onSurfaceChange={setLedgerSurface}
+                  onPracticeContextChange={setLedgerPracticeContext}
+                />
+              )}
+              {view === "brain" && (
+                <BrainWorkspace
+                  wakeQuestion={wakeQuestion}
+                  practiceContext={groundedBrainContext ?? undefined}
+                  todayPlan={todayPlan}
+                  onProposedAction={onBrainProposedAction}
+                />
+              )}
+            </>
+          )}
+          {(view === "score" || scorePracticeContext != null) && (
+            <div hidden={view !== "score"} data-testid="score-shell-cache">
+              <ScoreWorkspace
+                onOpenBlock={rep.open}
                 defaultCleanStreak={defaultCleanStreak}
-                activeBlock={rep.snap}
+                onPracticeContextChange={setScorePracticeContext}
+                requestedPieceId={requestedScorePiece.pieceId}
+                requestRevision={requestedScorePiece.revision}
+                isActive={view === "score"}
+                activeRep={rep.snap}
               />
             </div>
-          ) : view === "universe" ? (
-            <div data-testid="workspace-universe">
-              <UniverseWorkspace
-                onOpenPractice={openFromUniverse}
-                onOpenLedger={openLedgerForPiece}
-              />
-            </div>
-          ) : view === "ledger" ? (
-            <LedgerCalendarWorkspace
-              onOpenBlock={rep.open}
-              activeRep={rep.snap}
-              defaultCleanStreak={defaultCleanStreak}
-            />
-          ) : view === "score" ? (
-            <ScoreWorkspace
-              onOpenBlock={rep.open}
-              defaultCleanStreak={defaultCleanStreak}
-              onPracticeContextChange={setScorePracticeContext}
-            />
-          ) : view === "brain" ? (
-            <BrainWorkspace
-              wakeQuestion={wakeQuestion}
-              practiceContext={groundedBrainContext ?? undefined}
-              onProposedAction={onBrainProposedAction}
-            />
-          ) : (
-            <WorkspaceStub id={view} name={view} />
           )}
         </Suspense>
       </main>
@@ -890,9 +1006,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
             <ActionDraftCard
               draft={pendingBrainAction.action}
               confirming={brainActionConfirming}
-              unavailableReason={brainActionUnavailableReason(
-                pendingBrainAction.action,
-              )}
+              unavailableReason={brainActionUnavailableReason(pendingBrainAction)}
               onCancel={cancelBrainAction}
               onConfirm={() => void confirmBrainAction(pendingBrainAction)}
             />
@@ -900,6 +1014,9 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
             <ActionDraftCard
               draft={pendingVoiceDraft.draft}
               confirming={voiceDraftConfirming}
+              unavailableReason={rep.snap
+                ? ACTIVE_SET_DRAFT_UNAVAILABLE
+                : null}
               onDraftChange={(draft) => {
                 latestVoiceDraft.current = {
                   ...pendingVoiceDraft,

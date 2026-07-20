@@ -52,6 +52,7 @@ export function ActionDraftCard({
         onCancel={onCancel}
         onDraftChange={onDraftChange}
         confirming={confirming}
+        unavailableReason={unavailableReason}
       />
     );
   }
@@ -79,10 +80,17 @@ function ProposedActionSlimCard({
   confirming: boolean;
   unavailableReason: string | null;
 }) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => cancelRef.current?.focus(), [draft]);
   return (
     <section
       className="voice-action-draft voice-action-draft-slim"
+      role="dialog"
+      aria-modal="true"
       aria-labelledby="voice-proposed-action-title"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !confirming) onCancel();
+      }}
     >
       <header>
         <div>
@@ -101,7 +109,7 @@ function ProposedActionSlimCard({
       )}
 
       <footer>
-        <button type="button" onClick={onCancel} disabled={confirming}>
+        <button ref={cancelRef} type="button" onClick={onCancel} disabled={confirming}>
           Cancel
         </button>
         {!unavailableReason && (
@@ -149,15 +157,20 @@ function NaturalPracticeDraftCard({
   onCancel,
   onDraftChange,
   confirming = false,
+  unavailableReason = null,
 }: {
   draft: NaturalPracticeActionDraft;
   onConfirm: (draft: ActionDraft) => Promise<void> | void;
   onCancel: () => void;
   onDraftChange?: (draft: NaturalPracticeActionDraft) => void;
   confirming?: boolean;
+  unavailableReason?: string | null;
 }) {
   const [value, setValue] = useState(() => revalidate(draft));
   const onDraftChangeRef = useRef(onDraftChange);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => cancelRef.current?.focus(), [draft]);
 
   useEffect(() => {
     onDraftChangeRef.current = onDraftChange;
@@ -191,7 +204,12 @@ function NaturalPracticeDraftCard({
   return (
     <section
       className="voice-action-draft"
+      role="dialog"
+      aria-modal="true"
       aria-labelledby="voice-action-draft-title"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !confirming) onCancel();
+      }}
     >
       <header>
         <div>
@@ -383,14 +401,22 @@ function NaturalPracticeDraftCard({
         </ul>
       )}
 
+      {unavailableReason && (
+        <p className="voice-action-draft-unavailable" role="note">
+          {unavailableReason}
+        </p>
+      )}
+
       <footer>
-        <button type="button" onClick={onCancel} disabled={confirming}>
+        <button ref={cancelRef} type="button" onClick={onCancel} disabled={confirming}>
           Cancel
         </button>
         <button
           type="button"
           className="is-confirm"
-          disabled={confirming || value.issues.length > 0}
+          disabled={
+            confirming || value.issues.length > 0 || unavailableReason != null
+          }
           onClick={() => void onConfirm(value)}
         >
           {confirming ? "Starting…" : "Start this set"}

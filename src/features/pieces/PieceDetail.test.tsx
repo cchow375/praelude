@@ -62,6 +62,27 @@ const piece: PieceDetailData = {
 afterEach(cleanup);
 
 describe("PieceDetail block-open history revision", () => {
+  it("provides keyboard navigation and tabpanel semantics for Score and Details", async () => {
+    render(
+      <PieceDetail
+        piece={{ ...piece, has_pdf: true, pdf_path: "/vault/Scherzo/score.pdf" }}
+        onBack={vi.fn()}
+        onOpenBlock={vi.fn()}
+      />,
+    );
+
+    const score = screen.getByRole("tab", { name: "Score" });
+    const details = screen.getByRole("tab", { name: "Details" });
+    expect(score.getAttribute("tabindex")).toBe("0");
+    score.focus();
+    fireEvent.keyDown(score, { key: "ArrowRight" });
+    await waitFor(() => expect(document.activeElement).toBe(details));
+    expect(details.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
+      "piece-surface-tab-practice",
+    );
+  });
+
   it("does not refresh history when opening the block rejects", async () => {
     const onOpenBlock = vi.fn().mockRejectedValue(
       new Error("The practice block could not be opened."),
