@@ -8,6 +8,23 @@ function api(): SettingsApi { return { snapshot: vi.fn().mockResolvedValue(snaps
 afterEach(cleanup);
 
 describe("SettingsPanel", () => {
+  it("opens with a truthful, accessible practice guide", async () => {
+    render(<SettingsPanel api={api()} onResetLayout={vi.fn()} />);
+
+    const guide = await screen.findByRole("region", {
+      name: "One practice loop, two voice lanes",
+    });
+    expect(guide.closest("details")?.open).toBe(true);
+    expect(within(guide).getByRole("list", { name: "Golden practice flow" })).toBeTruthy();
+    expect(within(guide).getByText("metronome off")).toBeTruthy();
+    expect(within(guide).getByText(/Exact commands run immediately and offline/)).toBeTruthy();
+    expect(within(guide).getByText(/without a wake phrase/)).toBeTruthy();
+    expect(within(guide).getByText(/selected Score piece, Region, page/)).toBeTruthy();
+    expect(within(guide).getByText(/manage Calendar and Goals by voice yet/)).toBeTruthy();
+    expect(within(guide).getByRole("complementary", { name: "Confirmation safety" })).toBeTruthy();
+    expect(within(guide).getByText(/Wake-word mode is off/)).toBeTruthy();
+  });
+
   it("loads typed values and saves one validated projection", async () => {
     const settingsApi = api(); const onThemeSaved = vi.fn(); const onInterfaceScaleSaved = vi.fn(); const onPracticeDefaultCleanStreakSaved = vi.fn();
     render(<SettingsPanel api={settingsApi} onResetLayout={vi.fn()} onThemeSaved={onThemeSaved} onInterfaceScaleSaved={onInterfaceScaleSaved} onPracticeDefaultCleanStreakSaved={onPracticeDefaultCleanStreakSaved} />);

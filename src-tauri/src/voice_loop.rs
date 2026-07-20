@@ -276,20 +276,17 @@ impl ActionCtx {
     }
 
     fn act_start(&self, bpm: Option<f64>, text: &str) {
-        let running = self.metro.snapshot().running;
-        let (state, res) = match bpm {
-            // A tempo change on an already-running metronome is a smooth live set,
-            // not a full engine restart.
-            Some(b) if running => self.set_bpm_only(b),
-            Some(b) => self.metro.do_start(Some(b)),
-            None => self.metro.do_start(None),
-        };
-        self.emit_state(&state);
+        let (before, state, res) = self.metro.serialized(|| {
+            let before = self.metro.snapshot();
+            let (_, res) = self.metro.do_ensure_running(&self.store, bpm);
+            let state = self.metro.snapshot();
+            self.emit_state(&state);
+            (before, state, res)
+        });
         match res {
             Ok(()) => {
                 self.emit_intent("start", text, Some(state.bpm));
-                self.sessions
-                    .log("metro", json!({ "action": "start", "bpm": state.bpm }));
+                self.log_metro_action("start", text, &before, &state, Some(state.bpm));
                 self.speaker.say(&bpm_to_speech(state.bpm));
             }
             Err(e) => self.speak_error(&e, text),
@@ -297,54 +294,64 @@ impl ActionCtx {
     }
 
     fn act_stop(&self, text: &str) {
-        // Speak BEFORE stopping: the engine must still be alive to play the
-        // confirmation (stop drops it). See the module docs.
-        self.speaker.say("Stopped.");
-        let state = self.metro.do_stop();
-        self.emit_state(&state);
+        let (before, state) = self.metro.serialized(|| {
+            let before = self.metro.snapshot();
+            // Speak BEFORE stopping: the engine must still be alive to play the
+            // confirmation (stop drops it). The command boundary stays held so
+            // another source cannot change the engine between ack and stop.
+            self.speaker.say("Stopped.");
+            let _ = self.metro.do_stop();
+            let state = self.metro.snapshot();
+            self.emit_state(&state);
+            (before, state)
+        });
         self.emit_intent("stop", text, None);
-        self.sessions.log("metro", json!({ "action": "stop" }));
+        self.log_metro_action("stop", text, &before, &state, None);
     }
 
     fn act_set(&self, args: MetroSetArgs, text: &str) {
-        let snap = self.metro.snapshot();
-        let (state, res, spoken, bpm_for_evt, kind) = if let Some(d) = args.bpm_delta {
-            let nb = (snap.bpm + d).clamp(1.0, 1000.0);
-            let (s, r) = self.set_bpm_only(nb);
-            (s, r, bpm_to_speech(nb), Some(nb), "set")
-        } else if let Some(v) = args.bpm_abs {
-            let (s, r) = self.set_bpm_only(v);
-            (s, r, bpm_to_speech(v), Some(v), "set")
-        } else if let Some(bp) = args.beats_per_bar {
-            let (s, r) = self.metro.do_set(
-                &self.store,
-                None,
-                Some(bp),
-                None,
-                Some(true),
-                None,
-                None,
-                None,
-            );
-            // "accent", not "set" — this is a beats-per-bar/accent change, not a
-            // tempo change, and the UI toast label should say so instead of
-            // mislabeling it "Tempo set".
-            (
-                s,
-                r,
-                format!("Accent every {}.", cardinal(bp as i64)),
-                None,
-                "accent",
-            )
-        } else {
+        let Some((snap, state, res, spoken, bpm_for_evt, kind)) = self.metro.serialized(|| {
+            let snap = self.metro.snapshot();
+            let (_, res, spoken, bpm_for_evt, kind) = if let Some(d) = args.bpm_delta {
+                let nb = (snap.bpm + d).clamp(1.0, 1000.0);
+                let (s, r) = self.set_bpm_only(nb);
+                (s, r, bpm_to_speech(nb), Some(nb), "set")
+            } else if let Some(v) = args.bpm_abs {
+                let (s, r) = self.set_bpm_only(v);
+                (s, r, bpm_to_speech(v), Some(v), "set")
+            } else if let Some(bp) = args.beats_per_bar {
+                let (s, r) = self.metro.do_set(
+                    &self.store,
+                    None,
+                    Some(bp),
+                    None,
+                    Some(true),
+                    None,
+                    None,
+                    None,
+                );
+                // "accent", not "set" — this is a beats-per-bar/accent change,
+                // not a tempo change, so the UI toast must not mislabel it.
+                (
+                    s,
+                    r,
+                    format!("Accent every {}.", cardinal(bp as i64)),
+                    None,
+                    "accent",
+                )
+            } else {
+                return None;
+            };
+            let state = self.metro.snapshot();
+            self.emit_state(&state);
+            Some((snap, state, res, spoken, bpm_for_evt, kind))
+        }) else {
             return;
         };
-        self.emit_state(&state);
         match res {
             Ok(()) => {
                 self.emit_intent(kind, text, bpm_for_evt);
-                self.sessions
-                    .log("metro", json!({ "action": kind, "bpm": bpm_for_evt }));
+                self.log_metro_action(kind, text, &snap, &state, bpm_for_evt);
                 self.speaker.say(&spoken);
             }
             Err(e) => self.speak_error(&e, text),
@@ -368,8 +375,11 @@ impl ActionCtx {
                 // in the engine) and it is currently running.
                 if let Some(nb) = outcome.new_bpm {
                     if outcome.snap.use_metronome && self.metro.snapshot().running {
-                        let (state, _res) = self.set_bpm_only(nb);
-                        self.emit_state(&state);
+                        self.metro.serialized(|| {
+                            let _ = self.set_bpm_only(nb);
+                            let state = self.metro.snapshot();
+                            self.emit_state(&state);
+                        });
                     }
                 }
                 self.emit_intent("rep", text, outcome.new_bpm);
@@ -383,7 +393,7 @@ impl ActionCtx {
 
     /// Open a rep block from voice. Resolves the piece from `ui.current_piece`;
     /// with no piece selected, says so and does nothing. Starts the metronome at
-    /// the block's start tempo if it is not already running.
+    /// the block's start tempo, live-retuning an existing click without a restart.
     fn act_rep_open(&self, spec: RepOpenSpec, text: &str) {
         let Some(piece_id) = self.current_piece_id() else {
             self.speaker.say("Pick a piece first.");
@@ -408,10 +418,17 @@ impl ActionCtx {
         };
         match self.rep.open_voice(args) {
             Ok(snap) => {
-                // Start the metronome at the block tempo if it is idle.
-                if !self.metro.snapshot().running {
-                    let (state, _res) = self.metro.do_start(Some(snap.start_bpm));
+                let result = self.metro.serialized(|| {
+                    let (_, result) = self
+                        .metro
+                        .do_ensure_running(&self.store, Some(snap.start_bpm));
+                    let state = self.metro.snapshot();
                     self.emit_state(&state);
+                    result
+                });
+                if let Err(error) = result {
+                    self.speak_error(&error, text);
+                    return;
                 }
                 self.emit_intent("rep_open", text, Some(snap.start_bpm));
                 self.speaker.say(&format!(
@@ -500,6 +517,41 @@ impl ActionCtx {
     fn set_bpm_only(&self, bpm: f64) -> (MetroState, Result<(), String>) {
         self.metro
             .do_set(&self.store, Some(bpm), None, None, None, None, None, None)
+    }
+
+    /// Persist the exact phrase that produced a handled metronome action. The
+    /// recognizer does not expose confidence or alternatives, so retain the raw
+    /// final plus before/after state; this makes ASR homophones (for example
+    /// "stop" arriving as "sixty") diagnosable from the local session ledger.
+    fn log_metro_action(
+        &self,
+        action: &str,
+        text: &str,
+        before: &MetroState,
+        after: &MetroState,
+        bpm: Option<f64>,
+    ) {
+        let normalized_text = text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        self.sessions.log(
+            "metro",
+            json!({
+                "action": action,
+                "bpm": bpm,
+                "raw_text": text,
+                "normalized_text": normalized_text,
+                "routed_intent": format!("metronome_{action}"),
+                "recognition": {
+                    "source": "macos_speech",
+                    "confidence": serde_json::Value::Null,
+                },
+                "metro_before": before,
+                "metro_after": after,
+            }),
+        );
     }
 
     /// A metronome command rejected. A Busy ("speech playing") gets a spoken
@@ -1056,6 +1108,53 @@ mod tests {
         ctx.handle_final(&final_t("stop"));
         assert!(!ctx.metro.snapshot().running, "metronome stopped");
         assert_eq!(rec.said.lock().unwrap().last().unwrap(), "Stopped.");
+    }
+
+    #[test]
+    fn explicit_metronome_stop_persists_the_raw_handled_phrase() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.handle_final(&final_t("metronome 120"));
+        ctx.handle_final(&final_t("metronome stop"));
+
+        assert!(!ctx.metro.snapshot().running);
+        let session = ctx
+            .sessions
+            .current()
+            .expect("voice actions open a session");
+        let stopped = session
+            .events
+            .iter()
+            .find(|event| event.kind == "metro" && event.payload["action"] == "stop")
+            .expect("stop action is persisted");
+        assert_eq!(stopped.payload["raw_text"], json!("metronome stop"));
+        assert_eq!(stopped.payload["routed_intent"], json!("metronome_stop"));
+        assert_eq!(stopped.payload["metro_before"]["running"], json!(true));
+        assert_eq!(stopped.payload["metro_after"]["running"], json!(false));
+        assert_eq!(
+            stopped.payload["recognition"]["source"],
+            json!("macos_speech")
+        );
+    }
+
+    #[test]
+    fn repeated_start_while_running_is_idempotent_even_with_speech_buffered() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.handle_final(&final_t("metronome ninety six"));
+        ctx.metro
+            .tts_enqueue(&[0.25; 64], 48_000)
+            .expect("test engine accepts buffered speech");
+
+        ctx.handle_final(&final_t("metronome on"));
+
+        assert!(ctx.metro.snapshot().running);
+        assert_eq!(ctx.metro.snapshot().bpm, 96.0);
+        assert_eq!(
+            rec.said.lock().unwrap().last().unwrap(),
+            "Ninety-six.",
+            "idempotent start must not hit the restart Busy path"
+        );
     }
 
     #[test]
@@ -1773,6 +1872,28 @@ mod tests {
         assert_eq!(
             rec.said.lock().unwrap().last().unwrap(),
             "Pick a piece first."
+        );
+    }
+
+    #[test]
+    fn voice_rep_open_live_retunes_an_existing_metronome_without_restart() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.handle_final(&final_t("metronome ninety six"));
+        ctx.metro
+            .tts_enqueue(&[0.25; 64], 48_000)
+            .expect("test engine accepts buffered speech");
+
+        ctx.handle_final(&final_t(
+            "open a rep tracker measures 40 to 56 start at 80 target 120",
+        ));
+
+        assert!(ctx.rep.active());
+        assert_eq!(ctx.metro.snapshot().bpm, 80.0);
+        assert_eq!(
+            rec.said.lock().unwrap().last().unwrap(),
+            "Measures 40 to 56 at 80. Go.",
+            "live retune must not hit the restart Busy path"
         );
     }
 

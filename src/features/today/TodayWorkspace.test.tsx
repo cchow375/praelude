@@ -151,6 +151,16 @@ function renderToday(props: Partial<Parameters<typeof TodayWorkspace>[0]> = {}) 
 
 beforeEach(() => {
   invokeMock.mockReset();
+  const values = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+      clear: () => values.clear(),
+    },
+  });
   installRouter();
 });
 afterEach(cleanup);
@@ -198,6 +208,23 @@ describe("TodayWorkspace", () => {
     await screen.findByRole("heading", { name: "Scherzo No. 2" });
     expect(screen.getByLabelText("Default contract: 7 clean attempts in a row")).toBeTruthy();
     expect(screen.getByText("7")).toBeTruthy();
+  });
+
+  it("makes today's plain-language plan obvious and restores it for the same date", async () => {
+    const first = renderToday();
+    const plan = screen.getByRole("textbox", { name: "Today's plan and intention" });
+
+    fireEvent.change(plan, {
+      target: { value: "20 minutes: diagnose page 4, then dotted rhythms at 72." },
+    });
+    expect(screen.getByText("Saved for today on this Mac.")).toBeTruthy();
+
+    first.unmount();
+    renderToday();
+    expect(
+      (screen.getByRole("textbox", { name: "Today's plan and intention" }) as HTMLTextAreaElement)
+        .value,
+    ).toBe("20 minutes: diagnose page 4, then dotted rhythms at 72.");
   });
 
   it("mounts the session composer and loads explicit candidates", async () => {

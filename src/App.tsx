@@ -15,7 +15,7 @@ async function applyInterfaceScale(percent: number) {
 }
 
 function AppContent() {
-  const { settings } = useSettings();
+  const { settings, acceptSetting } = useSettings();
 
   // v3 is dark-only: pin <html data-theme="dark"> once.
   useEffect(() => {
@@ -28,11 +28,15 @@ function AppContent() {
 
   return (
     <Shell
+      defaultCleanStreak={settings.practice_default_clean_streak}
       settingsContent={
         <SettingsPanel
           onResetLayout={() => {}}
           onInterfaceScaleSaved={(scale) => {
             void applyInterfaceScale(scale);
+          }}
+          onPracticeDefaultCleanStreakSaved={(target) => {
+            acceptSetting("practice_default_clean_streak", target);
           }}
         />
       }

@@ -8,6 +8,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BrainWorkspace } from "./BrainWorkspace";
 import type { BrainAnswer, BrainApi } from "./types";
+import type { PracticeBrainContext } from "./types";
 import type { CommandInvoker } from "../../services/command";
 
 const groundedAnswer: BrainAnswer = {
@@ -61,6 +62,41 @@ const groundedAnswer: BrainAnswer = {
   },
 };
 
+const scoreContext: PracticeBrainContext = {
+  piece_id: 7,
+  piece_title: "Scherzo No. 2",
+  composer: "Chopin",
+  surface: "score",
+  region: {
+    id: 44,
+    name: "Coda landing",
+    notes: "Release before the leap",
+    m_start: 720,
+    m_end: 732,
+  },
+  current_page: 18,
+  edition_id: "ekier.pdf",
+  edition_label: "Ekier National Edition",
+  active_block: {
+    m_start: 720,
+    m_end: 732,
+    bpm: 80,
+    target_bpm: 96,
+    focus: "tempo",
+    use_metronome: true,
+    reps_done: 2,
+    planned_reps: 5,
+    attempts_recorded: 2,
+    tries: 2,
+    current_clean_streak: 1,
+    mastery_progress_streak: 1,
+    required_clean_streak: 5,
+    mastery_status: "not_satisfied",
+    mastery_verified: true,
+    set_state: "active",
+  },
+};
+
 function makeApi(answer: BrainAnswer = groundedAnswer): BrainApi {
   return {
     ask: vi.fn().mockResolvedValue(answer),
@@ -111,6 +147,87 @@ function makeInvoker(
 afterEach(cleanup);
 
 describe("BrainWorkspace", () => {
+  it("sends each wake question once as Voice with the exact shell context", async () => {
+    const answer = {
+      ...groundedAnswer,
+      id: "voice-answer-1",
+      proposed_action: {
+        kind: "tempo",
+        summary: "Set the metronome to 80 BPM",
+        bpm: 80,
+      },
+    } satisfies BrainAnswer;
+    const api = makeApi(answer);
+    const onProposedAction = vi.fn();
+    const props = {
+      api,
+      invoker: makeInvoker(),
+      practiceContext: scoreContext,
+      onProposedAction,
+    };
+    const { rerender } = render(
+      <BrainWorkspace
+        {...props}
+        wakeQuestion={{ id: 1, text: "How should I work on this?" }}
+      />,
+    );
+
+    await waitFor(() => expect(api.ask).toHaveBeenCalledTimes(1));
+    expect(api.ask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        question: "How should I work on this?",
+        source: "voice",
+        piece_id: 7,
+        context: scoreContext,
+      }),
+    );
+    expect(onProposedAction).toHaveBeenCalledWith({
+      answerId: "voice-answer-1",
+      action: {
+        kind: "tempo",
+        summary: "Set the metronome to 80 BPM",
+        bpm: 80,
+      },
+    });
+
+    // A rerender of the same event identity cannot ask or propose twice.
+    rerender(
+      <BrainWorkspace
+        {...props}
+        wakeQuestion={{ id: 1, text: "How should I work on this?" }}
+      />,
+    );
+    await waitFor(() => expect(api.ask).toHaveBeenCalledTimes(1));
+    expect(onProposedAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("never surfaces a proposed mutation from a typed answer", async () => {
+    const api = makeApi({
+      ...groundedAnswer,
+      proposed_action: {
+        kind: "tempo",
+        summary: "Set the metronome to 80 BPM",
+        bpm: 80,
+      },
+    });
+    const onProposedAction = vi.fn();
+    render(
+      <BrainWorkspace
+        api={api}
+        invoker={makeInvoker()}
+        practiceContext={scoreContext}
+        onProposedAction={onProposedAction}
+      />,
+    );
+
+    fireEvent.change(await screen.findByLabelText("Ask Coda"), {
+      target: { value: "Set the tempo" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await screen.findByText(groundedAnswer.answer);
+    expect(onProposedAction).not.toHaveBeenCalled();
+  });
+
   it("asks a typed question and renders the one-glance answer plus citation chips", async () => {
     const api = makeApi();
     render(<BrainWorkspace api={api} invoker={makeInvoker()} />);

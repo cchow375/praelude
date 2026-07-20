@@ -139,6 +139,16 @@ describe("Tier A parser boundaries", () => {
     });
   });
 
+  it.each(["metronome stop", "stop the metronome", "metronome off"])(
+    "routes the explicit stop form without interpreting it as a tempo: %s",
+    (text) => {
+      expect(parseTierAIntent(delivery(text), ACTIVE)).toMatchObject({
+        classification: "matched",
+        intent: { kind: "metronome_off" },
+      });
+    },
+  );
+
   it.each([
     [`count ${TIER_A_COUNT_MIN}`, TIER_A_COUNT_MIN],
     [`count ${TIER_A_COUNT_MAX}`, TIER_A_COUNT_MAX],

@@ -338,7 +338,13 @@ export function parseTierAIntent(
   if (["metronome on", "turn metronome on", "turn the metronome on"].includes(text)) {
     return match({ kind: "metronome_on" }, evidence);
   }
-  if (["metronome off", "turn metronome off", "turn the metronome off"].includes(text)) {
+  if ([
+    "metronome off",
+    "metronome stop",
+    "stop the metronome",
+    "turn metronome off",
+    "turn the metronome off",
+  ].includes(text)) {
     return match({ kind: "metronome_off" }, evidence);
   }
   if (text === "faster" || text === "slower") {

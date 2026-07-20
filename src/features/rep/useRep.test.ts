@@ -442,6 +442,66 @@ describe("useRep — IPC wiring", () => {
     expect(result.current.snap?.block_id).toBe(42);
   });
 
+  it("live-retunes an already-running metronome when a set opens at another tempo", async () => {
+    const args: RepOpenArgs = {
+      piece_id: 7,
+      m_start: 1,
+      m_end: 8,
+      label: null,
+      start_bpm: 60,
+      target_bpm: 84,
+      planned_reps: null,
+      increment: null,
+      variants: [],
+      focus: "tempo",
+      use_metronome: true,
+    };
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "rep_open"
+        ? makeSnap({ block_id: 42, bpm: 60 })
+        : command === "metro_state"
+          ? makeMetro({ running: true, bpm: 96 })
+          : null,
+    ));
+
+    const { result } = renderHook(() => useRep());
+    await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
+    await act(async () => { await result.current.open(args); });
+
+    expect(invokeMock).toHaveBeenCalledWith("metro_set", { bpm: 60 });
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_start", expect.anything());
+  });
+
+  it("does not restart an already-running metronome at the opened set tempo", async () => {
+    const args: RepOpenArgs = {
+      piece_id: 7,
+      m_start: 1,
+      m_end: 8,
+      label: null,
+      start_bpm: 60,
+      target_bpm: 84,
+      planned_reps: null,
+      increment: null,
+      variants: [],
+      focus: "tempo",
+      use_metronome: true,
+    };
+    invokeMock.mockImplementation((command: string) => Promise.resolve(
+      command === "rep_open"
+        ? makeSnap({ block_id: 42, bpm: 60 })
+        : command === "metro_state"
+          ? makeMetro({ running: true, bpm: 60 })
+          : null,
+    ));
+
+    const { result } = renderHook(() => useRep());
+    await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
+    await act(async () => { await result.current.open(args); });
+
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_set", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith("metro_start", expect.anything());
+  });
+
   it("starts an opened set after a delayed initial metronome read without delaying the set commit", async () => {
     const args: RepOpenArgs = {
       piece_id: 7,

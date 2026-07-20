@@ -98,7 +98,11 @@ while IFS= read -r -d '' CANDIDATE; do
   if [[ "$CANDIDATE_ID" == "$IDENTIFIER" ]]; then
     FOUND="${FOUND}${FOUND:+$'\n'}${CANDIDATE}"
   fi
-done < <(find /Applications "$HOME" /Users/Shared -type d -name '*.app' -prune -print0 2>/dev/null)
+done < <(
+  find /Applications "$HOME" /Users/Shared \
+    \( -path "$HOME/Library" -o -path "$HOME/.Trash" \) -prune -o \
+    -type d -name '*.app' -prune -print0 2>/dev/null
+)
 [[ "$FOUND" == "$INSTALLED_APP" ]] || fail "expected exactly $INSTALLED_APP across /Applications, the user home, and /Users/Shared; found: ${FOUND:-none}"
 # Bundle replacement and Spotlight indexing are asynchronous. Request an
 # import, then give metadata a short bounded window instead of racing mdfind.

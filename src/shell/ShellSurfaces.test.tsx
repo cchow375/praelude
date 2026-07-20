@@ -1,7 +1,17 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NaturalPracticeActionDraft } from "../features/voice/domain/actionDraft";
 import type { RepSnapshot } from "../features/rep/useRep";
+import type { PracticeBrainContext } from "../features/brain/types";
+import { todayLocal } from "../features/calendar/dates";
+import { TODAY_PLAN_CHANGED_EVENT } from "../features/today/todayPlan";
 
 // The shell owns the three app-level practice state machines (rep, session,
 // voice) so their surfaces persist across every workspace. These tests mock the
@@ -11,11 +21,23 @@ import type { RepSnapshot } from "../features/rep/useRep";
 // one-shot fetch (the eventless path), exactly as in browser dev.
 
 const invokeMock = vi.fn();
+const eventBus = vi.hoisted(() => ({
+  handlers: new Map<string, (event: { payload: unknown }) => void>(),
+}));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn().mockResolvedValue(() => {}),
+  listen: vi.fn(
+    async (name: string, handler: (event: { payload: unknown }) => void) => {
+      eventBus.handlers.set(name, handler);
+      return () => {
+        if (eventBus.handlers.get(name) === handler) {
+          eventBus.handlers.delete(name);
+        }
+      };
+    },
+  ),
 }));
 
 // The Score workspace is lazy-loaded; stub it to capture the props the shell
@@ -77,6 +99,25 @@ const ACTIVE_SESSION = {
   events: [{ ts: new Date().toISOString(), kind: "rep_open", payload: {} }],
 };
 
+const BRAIN_ANSWER = {
+  id: "voice-answer-1",
+  answer: "Use the selected landing and keep the wrist released.",
+  provider: "claude",
+  citations: [],
+  methods: [],
+  intake_review: null,
+  proposed_action: {
+    kind: "tempo",
+    summary: "Set the metronome to 80 BPM",
+    bpm: 80,
+  },
+};
+
+async function emit(name: string, payload: unknown) {
+  await waitFor(() => expect(eventBus.handlers.has(name)).toBe(true));
+  act(() => eventBus.handlers.get(name)?.({ payload }));
+}
+
 function readyDraft(
   over: Partial<NaturalPracticeActionDraft> = {},
 ): NaturalPracticeActionDraft {
@@ -103,7 +144,35 @@ function readyDraft(
   };
 }
 
+const SCORE_CONTEXT: PracticeBrainContext = {
+  piece_id: 7,
+  piece_title: "Scherzo No. 2",
+  composer: "Chopin",
+  surface: "score",
+  region: {
+    id: 44,
+    name: "Coda landing",
+    notes: "Release before the leap",
+    m_start: 720,
+    m_end: 732,
+  },
+  current_page: 18,
+  edition_id: "ekier.pdf",
+  edition_label: "Ekier National Edition",
+  active_block: null,
+};
+
+async function publishSelectedScoreContext() {
+  fireEvent.click(await screen.findByRole("tab", { name: "Score" }));
+  await screen.findByTestId("score-workspace-stub");
+  const props = scoreWorkspaceProps.current as {
+    onPracticeContextChange?: (context: PracticeBrainContext | null) => void;
+  };
+  act(() => props.onPracticeContextChange?.(SCORE_CONTEXT));
+}
+
 beforeEach(() => {
+  eventBus.handlers.clear();
   invokeMock.mockReset();
   invokeMock.mockImplementation((command: string) => {
     switch (command) {
@@ -115,6 +184,31 @@ beforeEach(() => {
         return Promise.resolve({ muted: false, down: null });
       case "metro_state":
         return Promise.resolve({ running: false, bpm: 84 });
+      case "pieces_list":
+        return Promise.resolve([
+          {
+            id: 7,
+            title: "Scherzo No. 2",
+            composer: "Chopin",
+            has_xml: true,
+            has_pdf: true,
+            intake_done: true,
+          },
+        ]);
+      case "brain_status":
+        return Promise.resolve({
+          online: true,
+          provider: "claude",
+          reason: null,
+        });
+      case "brain_plan_preview":
+        return Promise.resolve([]);
+      case "brain_thread_resume":
+        return Promise.resolve({ thread_id: 42, turns: [] });
+      case "brain_ask":
+        return Promise.resolve(BRAIN_ANSWER);
+      case "rep_open":
+        return Promise.resolve({ ...ACTIVE_SNAP, block_id: 2 });
       default:
         return Promise.resolve(null);
     }
@@ -167,6 +261,234 @@ describe("Shell app-level practice surfaces", () => {
       }),
     ).toBeTruthy();
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("routes a wake question to Brain with exact Score and active-set context", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await publishSelectedScoreContext();
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(TODAY_PLAN_CHANGED_EVENT, {
+          detail: {
+            date: todayLocal(),
+            value: "Diagnose page 18, then make the landing reliable at 80.",
+          },
+        }),
+      );
+    });
+
+    await emit("voice://intent", {
+      kind: "question",
+      text: "How should I practice this landing?",
+      bpm: null,
+    });
+
+    await screen.findByText(BRAIN_ANSWER.answer);
+    const askCall = invokeMock.mock.calls.find(
+      ([command]) => command === "brain_ask",
+    );
+    expect(askCall?.[1]).toEqual({
+      request: expect.objectContaining({
+        question: "How should I practice this landing?",
+        source: "voice",
+        piece_id: 7,
+        context: expect.objectContaining({
+          ...SCORE_CONTEXT,
+          today_plan: "Diagnose page 18, then make the landing reliable at 80.",
+          active_block: expect.objectContaining({
+            m_start: 65,
+            m_end: 96,
+            tries: 2,
+            mastery_verified: true,
+          }),
+        }),
+      }),
+    });
+    expect(await screen.findByText("Set the metronome to 80 BPM")).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === "voice_speak"),
+      ).toHaveLength(1),
+    );
+    expect(
+      invokeMock.mock.calls.find(([command]) => command === "voice_speak")?.[1],
+    ).toEqual({
+      text: "Set the metronome to 80 BPM. Say confirm or cancel.",
+    });
+    expect(
+      invokeMock.mock.calls.filter(([command]) => command === "metro_set"),
+    ).toHaveLength(0);
+
+    // Bare yes/no remain inert because the native hot loop owns them first.
+    await emit("voice://transcript", {
+      delivery_id: "confirm-unsafe-yes",
+      revision: 0,
+      text: "yes",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.99,
+    });
+    await emit("voice://transcript", {
+      delivery_id: "confirm-unsafe-no",
+      revision: 0,
+      text: "no",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.99,
+    });
+    expect(
+      invokeMock.mock.calls.filter(([command]) => command === "metro_set"),
+    ).toHaveLength(0);
+
+    await emit("voice://transcript", {
+      delivery_id: "confirm-safe",
+      revision: 0,
+      text: "confirm",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.99,
+    });
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === "metro_set"),
+      ).toHaveLength(1),
+    );
+    // The delivery firewall + confirmation ledger make replay exact-once.
+    await emit("voice://transcript", {
+      delivery_id: "confirm-safe",
+      revision: 0,
+      text: "confirm",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.99,
+    });
+    expect(
+      invokeMock.mock.calls.filter(([command]) => command === "metro_set"),
+    ).toHaveLength(1);
+  });
+
+  it("routes conservative assistant-directed speech without a wake cue", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await publishSelectedScoreContext();
+
+    await emit("voice://transcript", {
+      delivery_id: "natural-question-1",
+      revision: 0,
+      text: "Can you tell me what happened last practice session?",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.94,
+    });
+
+    await screen.findByText(BRAIN_ANSWER.answer);
+    const calls = invokeMock.mock.calls.filter(
+      ([command]) => command === "brain_ask",
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[1]).toEqual({
+      request: expect.objectContaining({
+        question: "Can you tell me what happened last practice session?",
+        source: "voice",
+        context: expect.objectContaining({
+          piece_id: 7,
+          region: SCORE_CONTEXT.region,
+          current_page: 18,
+          edition_id: "ekier.pdf",
+        }),
+      }),
+    });
+  });
+
+  it("drafts a no-wake natural set from the selected Region and writes only after confirm", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await publishSelectedScoreContext();
+
+    await emit("voice://transcript", {
+      delivery_id: "natural-set-1",
+      revision: 0,
+      text: "I want to do dotted rhythms five times on the right hand at 80",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.96,
+    });
+
+    expect(await screen.findByText("Review the spoken set.")).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === "voice_speak"),
+      ).toHaveLength(1),
+    );
+    expect(
+      invokeMock.mock.calls.find(([command]) => command === "voice_speak")?.[1],
+    ).toEqual({
+      text: "Start Scherzo No. 2, Coda landing, right hand, rhythmic variants, 5 attempts, at 80 beats per minute? Say confirm or cancel.",
+    });
+    expect(
+      (screen.getByLabelText("Draft start measure") as HTMLInputElement).value,
+    ).toBe("720");
+    expect(
+      (screen.getByLabelText("Draft end measure") as HTMLInputElement).value,
+    ).toBe("732");
+    expect(
+      invokeMock.mock.calls.filter(([command]) => command === "rep_open"),
+    ).toHaveLength(0);
+
+    // A spoken confirmation must apply the edited card, not the parser's stale
+    // original. This is the hands-free equivalent of pressing the card button.
+    fireEvent.change(screen.getByLabelText("Draft start measure"), {
+      target: { value: "721" },
+    });
+
+    await emit("voice://transcript", {
+      delivery_id: "natural-set-confirm",
+      revision: 0,
+      text: "confirm",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.99,
+    });
+
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === "rep_open"),
+      ).toHaveLength(1),
+    );
+    const openCall = invokeMock.mock.calls.find(
+      ([command]) => command === "rep_open",
+    );
+    expect(openCall?.[1]).toEqual({
+      args: expect.objectContaining({
+        piece_id: 7,
+        m_start: 721,
+        region_id: 44,
+        m_end: 732,
+        start_bpm: 80,
+        planned_reps: 5,
+      }),
+      context: expect.objectContaining({
+        hands: "right",
+        method: "rhythmic variants",
+      }),
+    });
   });
 });
 

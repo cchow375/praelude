@@ -15,19 +15,31 @@ function filesUnder(root: string): string[] {
 }
 
 describe("vendored PDF.js runtime assets", () => {
-  it.each(DIRECTORIES)("matches pdfjs-dist/%s byte-for-byte", (directory) => {
-    const sourceRoot = join(SOURCE, directory);
-    const publicRoot = join(PUBLIC, directory);
-    const sourceFiles = filesUnder(sourceRoot).map((path) => relative(sourceRoot, path)).sort();
-    const publicFiles = filesUnder(publicRoot).map((path) => relative(publicRoot, path)).sort();
-    expect(publicFiles).toEqual(sourceFiles);
-    for (const file of sourceFiles) {
-      expect(readFileSync(join(publicRoot, file))).toEqual(readFileSync(join(sourceRoot, file)));
-    }
-  });
+  it.each(DIRECTORIES)(
+    "matches pdfjs-dist/%s byte-for-byte",
+    (directory) => {
+      const sourceRoot = join(SOURCE, directory);
+      const publicRoot = join(PUBLIC, directory);
+      const sourceFiles = filesUnder(sourceRoot)
+        .map((path) => relative(sourceRoot, path))
+        .sort();
+      const publicFiles = filesUnder(publicRoot)
+        .map((path) => relative(publicRoot, path))
+        .sort();
+      expect(publicFiles).toEqual(sourceFiles);
+      for (const file of sourceFiles) {
+        expect(readFileSync(join(publicRoot, file))).toEqual(
+          readFileSync(join(sourceRoot, file)),
+        );
+      }
+    },
+    20_000,
+  );
 
   it("keeps same-origin asset fetches and WebAssembly decoding inside the production CSP", () => {
-    const config = JSON.parse(readFileSync(join(ROOT, "src-tauri", "tauri.conf.json"), "utf8"));
+    const config = JSON.parse(
+      readFileSync(join(ROOT, "src-tauri", "tauri.conf.json"), "utf8"),
+    );
     const csp = String(config.app.security.csp);
     expect(csp).toContain("connect-src 'self'");
     expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval'");

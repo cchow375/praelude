@@ -37,6 +37,127 @@
   font-size: 0.875rem;
 }
 
+/* First-run guide: compact enough to scan at the piano, explicit about the
+   command/Brain boundary so it never promises autonomy the app does not have. */
+.settings-guide {
+  display: grid;
+  gap: var(--s-5);
+  padding-top: var(--s-2);
+}
+.settings-guide-intro {
+  display: grid;
+  gap: var(--s-1);
+}
+.settings-guide-kicker {
+  margin: 0;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.settings-guide h3,
+.settings-guide h4,
+.settings-guide p {
+  margin: 0;
+}
+.settings-guide h3 {
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 600;
+}
+.settings-guide h4 {
+  color: var(--ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.settings-guide-intro > p:last-child,
+.settings-guide-lanes p,
+.settings-guide-safety p {
+  color: var(--ink-dim);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.settings-guide-flow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: guide-step;
+}
+.settings-guide-flow li {
+  display: grid;
+  align-content: start;
+  gap: var(--s-1);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--hairline);
+  counter-increment: guide-step;
+}
+.settings-guide-flow strong {
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.settings-guide-flow strong::before {
+  content: counter(guide-step) ". ";
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+}
+.settings-guide-flow span {
+  color: var(--ink-dim);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+.settings-guide-lanes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-5);
+}
+.settings-guide-lanes > section {
+  display: grid;
+  align-content: start;
+  gap: var(--s-2);
+}
+.settings-guide-commands {
+  display: grid;
+  gap: var(--s-1);
+  margin: 0;
+}
+.settings-guide-commands > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--s-2);
+  padding-block: var(--s-1);
+  border-bottom: 1px solid var(--hairline);
+  font-size: 0.75rem;
+}
+.settings-guide-commands dt {
+  color: var(--ink);
+  font-family: var(--font-mono);
+}
+.settings-guide-commands dd {
+  margin: 0;
+  color: var(--ink-dim);
+}
+.settings-guide .settings-guide-note {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+}
+.settings-guide-safety {
+  display: grid;
+  gap: var(--s-1);
+  padding: var(--s-3);
+  border-left: 2px solid var(--hairline-strong);
+  background: var(--bg-sunken);
+}
+.settings-guide-safety strong {
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
 /* Plain value rows inside each disclosure. */
 .settings-group {
   display: grid;
@@ -154,7 +275,9 @@
 
 @media (max-width: 640px) {
   .settings-group,
-  .settings-keys {
+  .settings-keys,
+  .settings-guide-flow,
+  .settings-guide-lanes {
     grid-template-columns: 1fr;
   }
 }

@@ -13,6 +13,8 @@ interface RepHudProps {
   snap: RepSnapshot | null;
   feed: LastRep[];
   error: string | null;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
   onCheck: (verdict: Verdict, note?: string | null) => Promise<void>;
   onUndo: () => Promise<void>;
   onCorrect: (
@@ -57,6 +59,8 @@ export function RepHud({
   snap,
   feed,
   error,
+  collapsed = false,
+  onToggleCollapsed,
   onCheck,
   onUndo,
   onCorrect,
@@ -300,7 +304,7 @@ export function RepHud({
 
   return (
     <div
-      className={`rep-hud ${resetPulse ? "is-reset-pulse" : ""} ${mastered ? "is-mastered" : ""} ${!verified ? "is-unverified" : ""}`}
+      className={`rep-hud ${collapsed ? "is-collapsed" : ""} ${resetPulse ? "is-reset-pulse" : ""} ${mastered ? "is-mastered" : ""} ${!verified ? "is-unverified" : ""}`}
       role="region"
       aria-label="Active practice set"
       data-set-state={snap.set_state ?? "legacy_unverified"}
@@ -316,6 +320,16 @@ export function RepHud({
           {formatFocusedTime(snap.active_seconds ?? 0)}
           {paused ? " · paused" : ""}
         </span>
+        {onToggleCollapsed && (
+          <button
+            type="button"
+            className="rep-hud-collapse"
+            aria-expanded={!collapsed}
+            onClick={onToggleCollapsed}
+          >
+            {collapsed ? "Expand set" : "Collapse set"}
+          </button>
+        )}
       </div>
 
       <div className="rep-hud-main">
@@ -500,6 +514,7 @@ export function RepHud({
         <button
           type="button"
           className="rep-safety-stop"
+          data-compact-visible="true"
           disabled={safetyBusy}
           onClick={() => void runSafetyStop()}
         >

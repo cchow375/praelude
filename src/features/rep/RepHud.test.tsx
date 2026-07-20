@@ -84,6 +84,32 @@ describe("RepHud", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it("offers a compact state without making the active set disappear", () => {
+    const onToggleCollapsed = vi.fn();
+    render(
+      <RepHud
+        snap={makeSnap()}
+        feed={[]}
+        error={null}
+        collapsed
+        onToggleCollapsed={onToggleCollapsed}
+        {...callbacks()}
+      />,
+    );
+    const hud = screen.getByRole("region", { name: "Active practice set" });
+    expect(hud.classList.contains("is-collapsed")).toBe(true);
+    expect(screen.getByText("Gymnopédie No. 1")).toBeTruthy();
+    const expand = screen.getByRole("button", { name: "Expand set" });
+    expect(expand.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      screen
+        .getByRole("button", { name: "Pain, numbness, or weakness — stop" })
+        .getAttribute("data-compact-visible"),
+    ).toBe("true");
+    fireEvent.click(expand);
+    expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
+  });
+
   it("separates the current tempo rung from target-condition mastery proof", () => {
     render(
       <RepHud

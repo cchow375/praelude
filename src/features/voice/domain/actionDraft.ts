@@ -6,11 +6,23 @@ export interface NaturalPracticeDraftContext {
   readonly piece_id: number | null;
   readonly piece_title: string | null;
   readonly default_clean_streak: number;
+  /** Exact target already selected in Score. A page without a selected Region
+   *  deliberately does not satisfy the native measure-range requirement. */
+  readonly target?: {
+    readonly region_id: number;
+    readonly label: string;
+    readonly m_start: number;
+    readonly m_end: number;
+  } | null;
+  readonly current_page?: number | null;
 }
 
 export interface PracticeTargetDraft {
   readonly m_start: number | null;
   readonly m_end: number | null;
+  readonly region_id?: number | null;
+  readonly label?: string | null;
+  readonly page?: number | null;
 }
 
 export interface PracticeContractDraft {
@@ -196,14 +208,34 @@ export function parseNaturalPracticeActionDraft(
   context: NaturalPracticeDraftContext,
 ): NaturalPracticeActionDraft | null {
   const text = normalizeSpeech(sourceText);
-  const practiceRequest = /\b(?:play|practice|work on|start|begin|restart)\b/u.test(text);
-  const scoreCue = /\b(?:measure|measures|mm|section|passage)\b/u.test(text);
+  const method = extractMethod(text);
+  const practiceRequest = /\b(?:play|practice|work on|start|begin|restart)\b/u.test(text)
+    || (method !== null && /\b(?:do|try|run)\b/u.test(text));
+  const explicitScoreCue = /\b(?:measure|measures|mm|section|passage)\b/u.test(text);
+  const selectedTargetCue = context.target != null && (
+    (method !== null && /\b(?:do|try|run)\b/u.test(text))
+    || /^(?:(?:i want to|im going to|im about to|please|lets)\s+)?(?:play|practice|work on|start|begin|restart)\b/u.test(text)
+  );
+  const scoreCue = explicitScoreCue || selectedTargetCue;
   if (!practiceRequest || !scoreCue) return null;
 
-  const target = extractRange(text);
+  const spokenTarget = extractRange(text);
+  const target: PracticeTargetDraft = (
+    spokenTarget.m_start === null
+    && spokenTarget.m_end === null
+    && context.target != null
+  ) ? {
+      m_start: context.target.m_start,
+      m_end: context.target.m_end,
+      region_id: context.target.region_id,
+      label: context.target.label,
+      page: context.current_page ?? null,
+    }
+    : spokenTarget;
   const startBpm = captureNumber(text, [
     /\b(?:starting|start|begin)(?:\s+at)?(?:\s+(?:tempo|bpm))?\s+([a-z\d\s-]+?)(?=\s+(?:and|then|to|get|aim|target|for|with|using|left|right|hands?|speed)\b|[,.;!?]|$)/u,
     /\b(?:at|from)\s+(?:tempo|bpm)\s+([a-z\d\s-]+?)(?=\s+(?:and|then|to|get|aim|target|for|with|using|left|right|hands?|speed)\b|[,.;!?]|$)/u,
+    /\bat\s+([a-z\d\s-]+?)(?=\s+(?:bpm|and|then|for|with|using|left|right|hands?)\b|[,.;!?]|$)/u,
   ]);
   const targetBpm = captureNumber(text, [
     /\b(?:get|build|work|go|up)\s+to\s+(?:tempo\s+|bpm\s+)?([a-z\d\s-]+?)(?=\s+(?:ish|and|then|for|with|using|left|right|hands?|speed)\b|[,.;!?]|$)/u,
@@ -211,10 +243,10 @@ export function parseNaturalPracticeActionDraft(
   ]);
   const plannedAttempts = captureNumber(text, [
     /\b(?:for|do|complete|play(?:\s+it|\s+that|\s+the passage)?)\s+([a-z\d\s-]+?)\s+(?:reps?|repetitions?|times|attempts?)\b/u,
+    /\b(?:dotted rhythms?|rhythmic variants?|blocked chords?|silent fingering|backward chaining)\s+([a-z\d\s-]+?)\s+(?:reps?|repetitions?|times|attempts?)\b/u,
     /\b(\d{1,4})\s+(?:reps?|repetitions?|times|attempts?)\b/u,
   ]);
   const hands = extractHands(text);
-  const method = extractMethod(text);
   const useMetronome = startBpm !== null
     || targetBpm !== null
     || method === "tempo ladder"

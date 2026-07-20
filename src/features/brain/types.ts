@@ -110,6 +110,8 @@ export interface PracticeBrainContext {
   current_page: number | null;
   edition_id: string | null;
   edition_label: string | null;
+  /** Date-scoped plain-English intention from Today's visible plan box. */
+  today_plan?: string | null;
   active_block?: {
     m_start: number;
     m_end: number;

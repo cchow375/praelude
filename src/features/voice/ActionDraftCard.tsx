@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   validateNaturalPracticeActionDraft,
   type NaturalPracticeActionDraft,
@@ -15,6 +15,9 @@ interface ActionDraftCardProps {
   draft: ActionDraft;
   onConfirm: (draft: ActionDraft) => Promise<void> | void;
   onCancel: () => void;
+  /** Editable set cards report their latest validated value so a spoken
+   * confirmation and the visible button always confirm the same draft. */
+  onDraftChange?: (draft: NaturalPracticeActionDraft) => void;
   confirming?: boolean;
   /** Slim cards only: when set, the action cannot run right now (e.g. a verdict
    *  with no active set). The card explains why and offers no Confirm. */
@@ -37,6 +40,7 @@ export function ActionDraftCard({
   draft,
   onConfirm,
   onCancel,
+  onDraftChange,
   confirming = false,
   unavailableReason = null,
 }: ActionDraftCardProps) {
@@ -46,6 +50,7 @@ export function ActionDraftCard({
         draft={draft}
         onConfirm={onConfirm}
         onCancel={onCancel}
+        onDraftChange={onDraftChange}
         confirming={confirming}
       />
     );
@@ -90,11 +95,15 @@ function ProposedActionSlimCard({
       <p className="voice-action-draft-summary">{draft.summary}</p>
 
       {unavailableReason && (
-        <p className="voice-action-draft-unavailable" role="note">{unavailableReason}</p>
+        <p className="voice-action-draft-unavailable" role="note">
+          {unavailableReason}
+        </p>
       )}
 
       <footer>
-        <button type="button" onClick={onCancel} disabled={confirming}>Cancel</button>
+        <button type="button" onClick={onCancel} disabled={confirming}>
+          Cancel
+        </button>
         {!unavailableReason && (
           <button
             type="button"
@@ -106,7 +115,9 @@ function ProposedActionSlimCard({
           </button>
         )}
       </footer>
-      <small>Nothing changes until you confirm. This runs one existing command.</small>
+      <small>
+        Nothing changes until you confirm. This runs one existing command.
+      </small>
     </section>
   );
 }
@@ -136,36 +147,60 @@ function NaturalPracticeDraftCard({
   draft,
   onConfirm,
   onCancel,
+  onDraftChange,
   confirming = false,
 }: {
   draft: NaturalPracticeActionDraft;
   onConfirm: (draft: ActionDraft) => Promise<void> | void;
   onCancel: () => void;
+  onDraftChange?: (draft: NaturalPracticeActionDraft) => void;
   confirming?: boolean;
 }) {
   const [value, setValue] = useState(() => revalidate(draft));
+  const onDraftChangeRef = useRef(onDraftChange);
 
-  useEffect(() => setValue(revalidate(draft)), [draft]);
+  useEffect(() => {
+    onDraftChangeRef.current = onDraftChange;
+  }, [onDraftChange]);
+
+  useEffect(() => {
+    const next = revalidate(draft);
+    setValue(next);
+    onDraftChangeRef.current?.(next);
+  }, [draft]);
 
   const update = (
-    updater: (current: NaturalPracticeActionDraft) => NaturalPracticeActionDraft,
-  ) => setValue((current) => revalidate(updater(current)));
+    updater: (
+      current: NaturalPracticeActionDraft,
+    ) => NaturalPracticeActionDraft,
+  ) =>
+    setValue((current) => {
+      const next = revalidate(updater(current));
+      onDraftChangeRef.current?.(next);
+      return next;
+    });
 
   const updateContract = (
     patch: Partial<NaturalPracticeActionDraft["contract"]>,
-  ) => update((current) => ({
-    ...current,
-    contract: { ...current.contract, ...patch },
-  }));
+  ) =>
+    update((current) => ({
+      ...current,
+      contract: { ...current.contract, ...patch },
+    }));
 
   return (
-    <section className="voice-action-draft" aria-labelledby="voice-action-draft-title">
+    <section
+      className="voice-action-draft"
+      aria-labelledby="voice-action-draft-title"
+    >
       <header>
         <div>
           <p>Action draft · nothing changed</p>
           <h2 id="voice-action-draft-title">Review the spoken set.</h2>
         </div>
-        <span>{value.status === "ready_to_confirm" ? "Ready" : "Needs input"}</span>
+        <span>
+          {value.status === "ready_to_confirm" ? "Ready" : "Needs input"}
+        </span>
       </header>
 
       <blockquote>{value.source_text}</blockquote>
@@ -184,11 +219,20 @@ function NaturalPracticeDraftCard({
               aria-label="Draft start measure"
               type="number"
               min="1"
-              value={Number.isFinite(value.target.m_start) ? value.target.m_start ?? "" : ""}
-              onChange={(event) => update((current) => ({
-                ...current,
-                target: { ...current.target, m_start: optionalInteger(event.target.value) },
-              }))}
+              value={
+                Number.isFinite(value.target.m_start)
+                  ? (value.target.m_start ?? "")
+                  : ""
+              }
+              onChange={(event) =>
+                update((current) => ({
+                  ...current,
+                  target: {
+                    ...current.target,
+                    m_start: optionalInteger(event.target.value),
+                  },
+                }))
+              }
             />
           </label>
           <label>
@@ -197,11 +241,20 @@ function NaturalPracticeDraftCard({
               aria-label="Draft end measure"
               type="number"
               min="1"
-              value={Number.isFinite(value.target.m_end) ? value.target.m_end ?? "" : ""}
-              onChange={(event) => update((current) => ({
-                ...current,
-                target: { ...current.target, m_end: optionalInteger(event.target.value) },
-              }))}
+              value={
+                Number.isFinite(value.target.m_end)
+                  ? (value.target.m_end ?? "")
+                  : ""
+              }
+              onChange={(event) =>
+                update((current) => ({
+                  ...current,
+                  target: {
+                    ...current.target,
+                    m_end: optionalInteger(event.target.value),
+                  },
+                }))
+              }
             />
           </label>
         </fieldset>
@@ -215,8 +268,16 @@ function NaturalPracticeDraftCard({
               type="number"
               min="20"
               max="300"
-              value={Number.isFinite(value.contract.start_bpm) ? value.contract.start_bpm ?? "" : ""}
-              onChange={(event) => updateContract({ start_bpm: optionalInteger(event.target.value) })}
+              value={
+                Number.isFinite(value.contract.start_bpm)
+                  ? (value.contract.start_bpm ?? "")
+                  : ""
+              }
+              onChange={(event) =>
+                updateContract({
+                  start_bpm: optionalInteger(event.target.value),
+                })
+              }
             />
           </label>
           <label>
@@ -226,8 +287,16 @@ function NaturalPracticeDraftCard({
               type="number"
               min="20"
               max="300"
-              value={Number.isFinite(value.contract.target_bpm) ? value.contract.target_bpm ?? "" : ""}
-              onChange={(event) => updateContract({ target_bpm: optionalInteger(event.target.value) })}
+              value={
+                Number.isFinite(value.contract.target_bpm)
+                  ? (value.contract.target_bpm ?? "")
+                  : ""
+              }
+              onChange={(event) =>
+                updateContract({
+                  target_bpm: optionalInteger(event.target.value),
+                })
+              }
             />
           </label>
         </fieldset>
@@ -239,8 +308,16 @@ function NaturalPracticeDraftCard({
             type="number"
             min="1"
             max="100"
-            value={Number.isFinite(value.contract.planned_attempts) ? value.contract.planned_attempts ?? "" : ""}
-            onChange={(event) => updateContract({ planned_attempts: optionalInteger(event.target.value) })}
+            value={
+              Number.isFinite(value.contract.planned_attempts)
+                ? (value.contract.planned_attempts ?? "")
+                : ""
+            }
+            onChange={(event) =>
+              updateContract({
+                planned_attempts: optionalInteger(event.target.value),
+              })
+            }
           />
         </label>
 
@@ -252,7 +329,11 @@ function NaturalPracticeDraftCard({
             min="1"
             max="100"
             value={value.contract.required_clean_streak}
-            onChange={(event) => updateContract({ required_clean_streak: optionalInteger(event.target.value) ?? 0 })}
+            onChange={(event) =>
+              updateContract({
+                required_clean_streak: optionalInteger(event.target.value) ?? 0,
+              })
+            }
           />
         </label>
 
@@ -261,9 +342,11 @@ function NaturalPracticeDraftCard({
           <select
             aria-label="Draft hands"
             value={value.contract.hands ?? ""}
-            onChange={(event) => updateContract({
-              hands: (event.target.value || null) as PracticeHands | null,
-            })}
+            onChange={(event) =>
+              updateContract({
+                hands: (event.target.value || null) as PracticeHands | null,
+              })
+            }
           >
             <option value="">Not specified</option>
             <option value="left">Left hand</option>
@@ -278,7 +361,9 @@ function NaturalPracticeDraftCard({
           <select
             aria-label="Draft method"
             value={value.contract.method ?? ""}
-            onChange={(event) => updateContract({ method: event.target.value || null })}
+            onChange={(event) =>
+              updateContract({ method: event.target.value || null })
+            }
           >
             <option value="">Not specified</option>
             <option value="tempo ladder">Tempo ladder</option>
@@ -292,12 +377,16 @@ function NaturalPracticeDraftCard({
 
       {value.issues.length > 0 && (
         <ul className="voice-action-draft-issues" aria-label="Draft issues">
-          {value.issues.map((entry) => <li key={entry.code}>{entry.message}</li>)}
+          {value.issues.map((entry) => (
+            <li key={entry.code}>{entry.message}</li>
+          ))}
         </ul>
       )}
 
       <footer>
-        <button type="button" onClick={onCancel} disabled={confirming}>Cancel</button>
+        <button type="button" onClick={onCancel} disabled={confirming}>
+          Cancel
+        </button>
         <button
           type="button"
           className="is-confirm"
@@ -307,7 +396,10 @@ function NaturalPracticeDraftCard({
           {confirming ? "Starting…" : "Start this set"}
         </button>
       </footer>
-      <small>Confirmation writes one audited set. You can undo or restart it afterward.</small>
+      <small>
+        Confirmation writes one audited set. You can undo or restart it
+        afterward.
+      </small>
     </section>
   );
 }

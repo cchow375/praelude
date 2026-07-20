@@ -38,7 +38,10 @@
 }
 
 .receipt-item {
-  pointer-events: auto;
+  /* Routine receipts disappear quickly, but even during that interval the card
+     body must never cover a practice control. Only the explicit dismiss target
+     opts back into hit-testing below. */
+  pointer-events: none;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -90,6 +93,7 @@
 }
 
 .receipt-dismiss {
+  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;

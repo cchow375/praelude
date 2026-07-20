@@ -1,6 +1,10 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReceiptCenterProvider, useReceipts, type MutationReceipt } from "./ReceiptCenter";
+
+const receiptCss = readFileSync(resolve("src/features/receipts/ReceiptCenter.css"), "utf8");
 
 function Harness() {
   const receipts = useReceipts();
@@ -57,7 +61,10 @@ function Harness() {
   );
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("ReceiptCenter", () => {
   it("announces committed and undone receipts politely", () => {
@@ -121,5 +128,75 @@ describe("ReceiptCenter", () => {
       .closest("li");
     expect(duplicate?.getAttribute("data-kind")).toBe("duplicate");
     expect(duplicate?.getAttribute("data-receipt-id")).toBe("receipt:native-1");
+  });
+
+  it("auto-dismisses each routine receipt after 1.5 seconds without resetting older timers", () => {
+    vi.useFakeTimers();
+    render(<ReceiptCenterProvider><Harness /></ReceiptCenterProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Commit" }));
+    let activity = screen.getByRole("list", { name: "Recent app activity" });
+    expect(within(activity).getByText("Practice block opened.")).toBeTruthy();
+
+    act(() => vi.advanceTimersByTime(1_000));
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+    act(() => vi.advanceTimersByTime(500));
+    activity = screen.getByRole("list", { name: "Recent app activity" });
+    expect(within(activity).queryByText("Practice block opened.")).toBeNull();
+    expect(within(activity).getByText("Last attempt undone.")).toBeTruthy();
+
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(screen.queryByRole("list", { name: "Recent app activity" })).toBeNull();
+  });
+
+  it("expires a rapid stack independently and clears a timer on manual dismiss", () => {
+    vi.useFakeTimers();
+    render(<ReceiptCenterProvider><Harness /></ReceiptCenterProvider>);
+    const commit = screen.getByRole("button", { name: "Commit" });
+
+    for (let i = 0; i < 5; i += 1) fireEvent.click(commit);
+    const activity = screen.getByRole("list", { name: "Recent app activity" });
+    expect(within(activity).getAllByText("Practice block opened.")).toHaveLength(5);
+    expect(vi.getTimerCount()).toBe(5);
+
+    fireEvent.click(screen.getAllByRole("button", {
+      name: "Dismiss committed receipt: Practice block opened.",
+    })[0]);
+    expect(vi.getTimerCount()).toBe(4);
+
+    act(() => vi.advanceTimersByTime(1_500));
+    expect(screen.queryByRole("list", { name: "Recent app activity" })).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps errors and confirmations reviewable until explicitly dismissed", () => {
+    vi.useFakeTimers();
+    render(<ReceiptCenterProvider><Harness /></ReceiptCenterProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Fail" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    act(() => vi.advanceTimersByTime(10_000));
+
+    const activity = screen.getByRole("list", { name: "Recent app activity" });
+    expect(within(activity).getByText("Practice could not be saved.")).toBeTruthy();
+    expect(within(activity).getByText("Confirm restarting the set.")).toBeTruthy();
+  });
+
+  it("lets pointer input pass through the card body while keeping dismiss clickable", () => {
+    render(<ReceiptCenterProvider><Harness /></ReceiptCenterProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Commit" }));
+
+    const activity = screen.getByRole("list", { name: "Recent app activity" });
+    const receipt = within(activity).getByText("Practice block opened.").closest("li");
+    const dismiss = screen.getByRole("button", {
+      name: "Dismiss committed receipt: Practice block opened.",
+    });
+    expect(receipt?.className).toBe("receipt-item");
+    expect(receiptCss).toMatch(/\.receipt-item\s*\{[^}]*pointer-events:\s*none/s);
+    expect(receiptCss).toMatch(/\.receipt-dismiss\s*\{[^}]*pointer-events:\s*auto/s);
+
+    fireEvent.click(dismiss);
+    expect(screen.queryByRole("list", { name: "Recent app activity" })).toBeNull();
   });
 });

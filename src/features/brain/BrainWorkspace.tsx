@@ -9,6 +9,10 @@ import { brainApi } from "./api";
 import { todayLocal } from "../calendar/dates";
 import { Button, Disclosure, Receipt } from "../../ui";
 import {
+  parseProposedAction,
+  type ProposedAction,
+} from "../voice/domain/proposedAction";
+import {
   brainStatus,
   commandErrorMessage,
   defineCommand,
@@ -23,9 +27,11 @@ import type {
   BrainGroundingSummary,
   BrainIntakeReview,
   BrainProvider,
+  BrainQuestionSource,
   BrainTurnRow,
   IntakeChange,
   PracticeBrainContext,
+  WakeQuestion,
   WorkSuggestion,
 } from "./types";
 import "./brain.css";
@@ -44,12 +50,25 @@ import "./brain.css";
 interface ThreadEntry {
   id: string;
   question: string;
+  source: BrainQuestionSource;
   answer: BrainAnswer;
+}
+
+export interface BrainProposedActionEvent {
+  readonly answerId: string;
+  readonly action: ProposedAction;
 }
 
 export interface BrainWorkspaceProps {
   api?: BrainApi;
   invoker?: CommandInvoker;
+  /** A new id represents one accepted wake-cue question, even if text repeats. */
+  wakeQuestion?: WakeQuestion | null;
+  /** Exact shell-owned score/practice context. Internal piece selection remains
+   *  available when this prop is absent or the user deliberately changes it. */
+  practiceContext?: PracticeBrainContext | null;
+  /** Confirm UI and command ownership stay in Shell; Brain only emits a draft. */
+  onProposedAction?: (event: BrainProposedActionEvent) => void;
 }
 
 const MAX_HISTORY_EXCHANGES = 6;
@@ -96,6 +115,7 @@ function seedThreadFromTurns(turns: BrainTurnRow[]): ThreadEntry[] {
       entries.push({
         id,
         question: pendingQuestion,
+        source: "typed",
         answer: {
           id,
           answer: turn.content,
@@ -131,11 +151,16 @@ function pieceContext(piece: PieceSummary | null): PracticeBrainContext | null {
 export function BrainWorkspace({
   api = brainApi,
   invoker,
+  wakeQuestion = null,
+  practiceContext,
+  onProposedAction,
 }: BrainWorkspaceProps) {
   const [status, setStatus] = useState<BrainStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [pieces, setPieces] = useState<PieceSummary[]>([]);
-  const [pieceId, setPieceId] = useState<number | null>(null);
+  const [pieceId, setPieceId] = useState<number | null>(
+    () => practiceContext?.piece_id ?? null,
+  );
   const [draft, setDraft] = useState("");
   const [thread, setThread] = useState<ThreadEntry[]>([]);
   const [threadId, setThreadId] = useState<number | null>(null);
@@ -146,9 +171,22 @@ export function BrainWorkspace({
   const [planError, setPlanError] = useState<string | null>(null);
   const threadEnd = useRef<HTMLDivElement>(null);
   const planGeneration = useRef(0);
+  const handledWakeId = useRef<number | null>(null);
+  const externalPieceId = useRef(practiceContext?.piece_id ?? null);
 
   const selectedPiece = pieces.find((piece) => piece.id === pieceId) ?? null;
-  const context = pieceContext(selectedPiece);
+  const context = practiceContext?.piece_id === pieceId
+    ? practiceContext
+    : pieceContext(selectedPiece);
+
+  // A newly visible Score piece becomes Brain's selected thread. A deliberate
+  // picker change remains respected until Score publishes a different piece.
+  useEffect(() => {
+    const next = practiceContext?.piece_id ?? null;
+    if (next === externalPieceId.current) return;
+    externalPieceId.current = next;
+    setPieceId(next);
+  }, [practiceContext?.piece_id]);
 
   // Persistent status line (no network — key presence + settings only).
   useEffect(() => {
@@ -234,7 +272,7 @@ export function BrainWorkspace({
   }, [api, pieceId]);
 
   const ask = useCallback(
-    async (rawQuestion: string) => {
+    async (rawQuestion: string, source: BrainQuestionSource) => {
       const question = rawQuestion.trim();
       if (!question || asking) return;
       setAsking(true);
@@ -242,7 +280,7 @@ export function BrainWorkspace({
       try {
         const answer = await api.ask({
           question,
-          source: "typed",
+          source,
           piece_id: pieceId,
           thread_id: threadId,
           history: boundedHistory(thread),
@@ -253,16 +291,22 @@ export function BrainWorkspace({
         }
         setThread((current) => [
           ...current,
-          { id: `${answer.id}:${current.length}`, question, answer },
+          { id: `${answer.id}:${current.length}`, question, source, answer },
         ]);
-        setDraft("");
+        // Defense in depth: only a spoken answer can surface a backend action,
+        // and the untrusted payload is narrowed again before Shell sees it.
+        if (source === "voice" && onProposedAction) {
+          const action = parseProposedAction(answer.proposed_action);
+          if (action) onProposedAction({ answerId: answer.id, action });
+        }
+        if (source === "typed") setDraft("");
       } catch (cause) {
         setError(errorMessage(cause, "The practice brain could not answer."));
       } finally {
         setAsking(false);
       }
     },
-    [api, asking, context, pieceId, thread, threadId],
+    [api, asking, context, onProposedAction, pieceId, thread, threadId],
   );
 
   const clearConversation = useCallback(async () => {
@@ -286,9 +330,19 @@ export function BrainWorkspace({
     threadEnd.current?.scrollIntoView?.({ behavior: "auto", block: "nearest" });
   }, [thread.length]);
 
+  useEffect(() => {
+    if (
+      !wakeQuestion ||
+      asking ||
+      handledWakeId.current === wakeQuestion.id
+    ) return;
+    handledWakeId.current = wakeQuestion.id;
+    void ask(wakeQuestion.text, "voice");
+  }, [ask, asking, wakeQuestion]);
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    void ask(draft);
+    void ask(draft, "typed");
   };
 
   const online = status?.online === true;
@@ -347,7 +401,9 @@ export function BrainWorkspace({
         {thread.map((entry) => (
           <article className="brain-turn" key={entry.id}>
             <p className="brain-q">
-              <span className="brain-who">You</span>
+              <span className="brain-who">
+                {entry.source === "voice" ? "Voice" : "You"}
+              </span>
               {entry.question}
             </p>
             <div className="brain-a">

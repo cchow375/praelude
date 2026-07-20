@@ -90,6 +90,62 @@ describe("ScoreWorkspace", () => {
     expect(onOpenBlock).toHaveBeenCalledWith(args);
   });
 
+  it("lifts the selected piece and exact Score focus into Brain context", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      return Promise.resolve(undefined);
+    });
+    const onPracticeContextChange = vi.fn();
+
+    render(
+      <ScoreWorkspace onPracticeContextChange={onPracticeContextChange} />,
+    );
+
+    await screen.findByTestId("score-view-stub");
+    await waitFor(() =>
+      expect(onPracticeContextChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          piece_id: 1,
+          piece_title: "Scherzo No. 2",
+          surface: "score",
+          region: null,
+        }),
+      ),
+    );
+
+    const props = scoreViewProps.current as ScoreViewProps;
+    props.onContextChange?.({
+      region: {
+        id: 44,
+        name: "Coda landing",
+        notes: "Release before the leap",
+        m_start: 720,
+        m_end: 732,
+      },
+      current_page: 18,
+      edition_id: "ekier.pdf",
+      edition_label: "Ekier National Edition",
+    });
+
+    expect(onPracticeContextChange).toHaveBeenLastCalledWith({
+      piece_id: 1,
+      piece_title: "Scherzo No. 2",
+      composer: "Chopin",
+      surface: "score",
+      region: {
+        id: 44,
+        name: "Coda landing",
+        notes: "Release before the leap",
+        m_start: 720,
+        m_end: 732,
+      },
+      current_page: 18,
+      edition_id: "ekier.pdf",
+      edition_label: "Ekier National Edition",
+      active_block: null,
+    });
+  });
+
   it("shows an empty state when no piece has a PDF", async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === "pieces_list") return Promise.resolve([]);

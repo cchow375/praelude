@@ -10,6 +10,11 @@ import {
   useSessionPlan,
 } from "../composer";
 import type { RepSnapshot } from "../rep/useRep";
+import {
+  readTodayPlan,
+  TODAY_PLAN_MAX_LENGTH,
+  writeTodayPlan,
+} from "./todayPlan";
 import "./TodayWorkspace.css";
 
 interface TodayWorkspaceProps {
@@ -60,6 +65,8 @@ export function TodayWorkspace({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retentionOpen, setRetentionOpen] = useState(false);
+  const date = todayLocal();
+  const [todayPlan, setTodayPlan] = useState(() => readTodayPlan(date));
 
   // The composer only mounts while Today is the visible workspace, so its
   // evidence is always current-and-visible here.
@@ -117,6 +124,36 @@ export function TodayWorkspace({
           </button>
         </div>
       )}
+
+      <section
+        className="today-intention ck-reveal-item"
+        aria-labelledby="today-intention-title"
+      >
+        <div className="today-intention-copy">
+          <p className="ck-kicker">Today's plan</p>
+          <h2 id="today-intention-title">What are you here to get done?</h2>
+          <p>
+            Write the outcome in ordinary language. Coda keeps it with today so
+            the Brain can use it as practice context.
+          </p>
+        </div>
+        <label>
+          <span className="ck-visually-hidden">Today's plan and intention</span>
+          <textarea
+            aria-label="Today's plan and intention"
+            maxLength={TODAY_PLAN_MAX_LENGTH}
+            placeholder="Example: 20 minutes — diagnose page 4, then make the right-hand dotted rhythm reliable at 72."
+            value={todayPlan}
+            onChange={(event) => {
+              const next = writeTodayPlan(date, event.currentTarget.value);
+              setTodayPlan(next);
+            }}
+          />
+        </label>
+        <p className="today-intention-status" role="status">
+          {todayPlan.trim() ? "Saved for today on this Mac." : "Nothing is scheduled by typing here."}
+        </p>
+      </section>
 
       <section className="today-board" aria-label="Today's practice launchpad">
         <article className="today-next ck-reveal-item">

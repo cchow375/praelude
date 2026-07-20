@@ -86,6 +86,64 @@
   color: var(--ink);
 }
 
+.today-intention {
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.7fr) minmax(18rem, 1.3fr);
+  gap: var(--s-4) var(--s-6);
+  max-width: 78rem;
+  margin: 0 auto var(--s-5);
+  padding: var(--s-5);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+}
+
+.today-intention-copy h2 {
+  margin: var(--s-2) 0 0;
+  color: var(--ink);
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+.today-intention-copy > p:last-child {
+  max-width: 34rem;
+  margin: var(--s-2) 0 0;
+  color: var(--ink-dim);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.today-intention label {
+  display: block;
+}
+
+.today-intention textarea {
+  display: block;
+  width: 100%;
+  min-height: 6.5rem;
+  resize: vertical;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  background: var(--bg-sunken);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.today-intention textarea:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.today-intention-status {
+  grid-column: 2;
+  margin: calc(-1 * var(--s-2)) 0 0;
+  color: var(--ink-faint);
+  font-size: 0.72rem;
+}
+
 .today-board {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(13rem, 0.64fr) minmax(
@@ -451,6 +509,12 @@
   .today-board {
     display: flex;
     flex-direction: column;
+  }
+  .today-intention {
+    grid-template-columns: 1fr;
+  }
+  .today-intention-status {
+    grid-column: 1;
   }
   .today-next {
     min-height: 26rem;

@@ -72,7 +72,13 @@ pub struct ClientBrainContext {
     #[serde(default)]
     pub current_page: Option<u32>,
     #[serde(default)]
+    pub edition_id: Option<String>,
+    #[serde(default)]
     pub edition_label: Option<String>,
+    /// Date-scoped plain-English intention from Today's visible plan box. It is
+    /// context only; the provider cannot mutate it through this request.
+    #[serde(default)]
+    pub today_plan: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

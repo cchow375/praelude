@@ -752,8 +752,9 @@ export function useRep(): UseRep {
 
       if (metroRef.current == null) await metroReadiness.promise;
       const current = snapRef.current;
+      const metro = metroRef.current;
       const authoritativeStartBpm = (
-        metroRef.current != null
+        metro != null
         && metroCommandGuardIsCurrent(metroAtStart, metroRevision.current)
         && current != null
         && current.block_id === openedBlockId
@@ -762,7 +763,13 @@ export function useRep(): UseRep {
       ) ? current.bpm : null;
       if (authoritativeStartBpm != null) {
         try {
-          await executeCommand(METRO_START, { bpm: authoritativeStartBpm });
+          if (metro?.running === true) {
+            if (metro.bpm !== authoritativeStartBpm) {
+              await executeCommand(METRO_SET, { bpm: authoritativeStartBpm });
+            }
+          } else {
+            await executeCommand(METRO_START, { bpm: authoritativeStartBpm });
+          }
         } catch (cause) {
           const message = commandErrorMessage(
             cause,

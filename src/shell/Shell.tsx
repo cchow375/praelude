@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ComponentType,
   type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
@@ -14,11 +13,20 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceStub } from "./WorkspaceStub";
 import { TodayWorkspace } from "../features/today/TodayWorkspace";
+import { todayLocal } from "../features/calendar/dates";
+import {
+  readTodayPlan,
+  TODAY_PLAN_CHANGED_EVENT,
+} from "../features/today/todayPlan";
 import type { PracticePieceContext } from "../features/universe/types";
 import {
+  repAttempts,
+  repMasteryStatus,
+  repMasteryVerified,
   repTries,
   useRep,
   type RepOpenArgs,
+  type RepSnapshot,
   type SetFocusContextInput,
 } from "../features/rep/useRep";
 import { RepHud } from "../features/rep/RepHud";
@@ -35,6 +43,15 @@ import {
   type NaturalPracticeActionDraft,
 } from "../features/voice/domain/actionDraft";
 import type { TierAContext } from "../features/voice/domain/tierAIntent";
+import type { ProposedAction } from "../features/voice/domain/proposedAction";
+import { parseSpokenConfirmationDecision } from "../features/voice/domain/spokenConfirmation";
+import { parseAssistantDirectedQuestion } from "../features/voice/domain/assistantDirected";
+import { actionDraftSpeech } from "../features/voice/domain/actionDraftSpeech";
+import type {
+  PracticeBrainContext,
+  WakeQuestion,
+} from "../features/brain/types";
+import type { BrainProposedActionEvent } from "../features/brain/BrainWorkspace";
 import { MetronomePopover } from "../features/metronome/MetronomePopover";
 import "./shell.css";
 
@@ -66,19 +83,11 @@ const WORKSPACES = [
 type WorkspaceId = (typeof WORKSPACES)[number]["id"];
 type View = WorkspaceId | "settings";
 
-// Lazy per slot. Today and Universe are rendered directly (they need live
-// props), so their map entries are omitted; the others resolve to a stub or the
-// phase's real workspace.
-const WORKSPACE_COMPONENTS: Record<
-  Exclude<WorkspaceId, "today" | "universe" | "ledger" | "score">,
-  ComponentType
-> = {
-  brain: lazy(() =>
-    import("../features/brain/BrainWorkspace").then((m) => ({
-      default: m.BrainWorkspace,
-    })),
-  ),
-};
+const BrainWorkspace = lazy(() =>
+  import("../features/brain/BrainWorkspace").then((m) => ({
+    default: m.BrainWorkspace,
+  })),
+);
 
 // The Score workspace needs the shell's rep hook: ScoreView's Practice tab
 // renders nothing without onOpenBlock, so a block started on the score must
@@ -110,7 +119,14 @@ const UniverseWorkspace = lazy(() =>
 
 interface PendingVoiceDraft {
   readonly deliveryKey: string;
+  readonly contextKey: string;
   readonly draft: NaturalPracticeActionDraft;
+}
+
+interface PendingBrainAction {
+  readonly answerId: string;
+  readonly targetBlockId: number | null;
+  readonly action: ProposedAction;
 }
 
 export interface VoiceDraftOpenRequest {
@@ -142,10 +158,10 @@ export function voiceDraftOpenRequest(
   return {
     args: {
       piece_id: draft.piece_id,
-      region_id: null,
+      region_id: draft.target.region_id ?? null,
       m_start: draft.target.m_start,
       m_end: draft.target.m_end,
-      label: null,
+      label: draft.target.label ?? null,
       start_bpm: draft.contract.start_bpm,
       target_bpm: draft.contract.target_bpm,
       planned_reps: draft.contract.planned_attempts,
@@ -168,6 +184,52 @@ export function voiceDraftOpenRequest(
   };
 }
 
+/** Add the authoritative active RepEngine projection to the visible UI target. */
+export function groundPracticeBrainContext(
+  context: PracticeBrainContext | null,
+  snap: RepSnapshot | null,
+): PracticeBrainContext | null {
+  if (!context) return null;
+  return {
+    ...context,
+    active_block:
+      snap?.piece_id === context.piece_id
+        ? {
+            m_start: snap.m_start,
+            m_end: snap.m_end,
+            bpm: snap.bpm,
+            target_bpm: snap.target_bpm,
+            focus: snap.focus,
+            use_metronome: snap.use_metronome,
+            reps_done: snap.reps_done,
+            planned_reps: snap.planned_reps,
+            attempts_recorded: repAttempts(snap),
+            tries: repTries(snap),
+            current_clean_streak: snap.current_clean_streak ?? null,
+            mastery_progress_streak:
+              snap.mastery_progress_streak ?? snap.current_clean_streak ?? null,
+            required_clean_streak:
+              snap.effective_required_clean_streak ??
+              snap.required_clean_streak ??
+              null,
+            mastery_status: repMasteryStatus(snap),
+            mastery_verified: repMasteryVerified(snap),
+            set_state: snap.set_state ?? "legacy_unverified",
+          }
+        : null,
+  };
+}
+
+function practiceContextKey(context: PracticeBrainContext | null): string {
+  if (!context) return "none";
+  return [
+    context.piece_id,
+    context.region?.id ?? "no-region",
+    context.current_page ?? "no-page",
+    context.edition_id ?? "no-edition",
+  ].join(":");
+}
+
 export interface ShellProps {
   /** The real Settings surface (Task 2.4). Falls back to a stub when absent. */
   settingsContent?: ReactNode;
@@ -183,6 +245,12 @@ const DOCK_STYLE: CSSProperties = {
   maxHeight: "calc(100vh - 2 * var(--s-5))",
   overflowY: "auto",
   zIndex: 90,
+};
+
+const COMPACT_DOCK_STYLE: CSSProperties = {
+  width: "100%",
+  marginTop: "calc(var(--s-6) + var(--s-5))",
+  marginBottom: "var(--s-5)",
 };
 
 const SESSION_DOCK_STYLE: CSSProperties = {
@@ -203,6 +271,15 @@ const VOICE_DRAFT_STYLE: CSSProperties = {
 
 export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   const [view, setView] = useState<View>("today");
+  const [repHudCollapsed, setRepHudCollapsed] = useState(
+    () => window.innerWidth <= 800 || window.innerHeight <= 620,
+  );
+  const [scorePracticeContext, setScorePracticeContext] =
+    useState<PracticeBrainContext | null>(null);
+  const [wakeQuestion, setWakeQuestion] = useState<WakeQuestion | null>(null);
+  const wakeQuestionId = useRef(0);
+  const today = todayLocal();
+  const [todayPlan, setTodayPlan] = useState(() => readTodayPlan(today));
   const tabRefs = useRef<
     Partial<Record<WorkspaceId, HTMLButtonElement | null>>
   >({});
@@ -224,6 +301,31 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   const voice = useVoice(tierAContext);
   const session = useSession();
   const [ending, setEnding] = useState(false);
+  const repFallbackContext = useMemo<PracticeBrainContext | null>(() => {
+    if (!rep.snap) return null;
+    return {
+      piece_id: rep.snap.piece_id,
+      piece_title: rep.snap.piece_title,
+      composer: null,
+      surface: "details",
+      region: null,
+      current_page: null,
+      edition_id: null,
+      edition_label: null,
+      active_block: null,
+    };
+  }, [rep.snap]);
+  const visiblePracticeContext = scorePracticeContext ?? repFallbackContext;
+  const groundedBrainContext = useMemo(() => {
+    const context = groundPracticeBrainContext(
+      visiblePracticeContext,
+      rep.snap,
+    );
+    return context
+      ? { ...context, today_plan: todayPlan.trim() || null }
+      : null;
+  }, [rep.snap, todayPlan, visiblePracticeContext]);
+  const visiblePracticeContextKey = practiceContextKey(visiblePracticeContext);
 
   // The free-standing manual metronome control (BPM/boost/sound/live state +
   // metro_stop). In-set tempo lives in the RepHud; this is the standalone
@@ -235,8 +337,41 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     useState<PendingVoiceDraft | null>(null);
   const [voiceDraftConfirming, setVoiceDraftConfirming] = useState(false);
   const [voiceDraftError, setVoiceDraftError] = useState<string | null>(null);
+  const [pendingBrainAction, setPendingBrainAction] =
+    useState<PendingBrainAction | null>(null);
+  const [brainActionConfirming, setBrainActionConfirming] = useState(false);
+  const [brainActionError, setBrainActionError] = useState<string | null>(null);
   const suppressedVoiceDrafts = useRef(new Set<string>());
   const voiceDraftInFlight = useRef<string | null>(null);
+  const latestVoiceDraft = useRef<PendingVoiceDraft | null>(null);
+  const suppressedBrainActions = useRef(new Set<string>());
+  const brainActionInFlight = useRef<string | null>(null);
+  const handledConfirmationDeliveries = useRef(new Set<string>());
+  const routedNaturalQuestions = useRef(new Set<string>());
+  const spokenDraftKeys = useRef(new Set<string>());
+
+  useEffect(() => {
+    const onTodayPlanChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ date?: string; value?: string }>)
+        .detail;
+      if (detail?.date === today && typeof detail.value === "string") {
+        setTodayPlan(detail.value);
+      }
+    };
+    window.addEventListener(TODAY_PLAN_CHANGED_EVENT, onTodayPlanChanged);
+    return () =>
+      window.removeEventListener(TODAY_PLAN_CHANGED_EVENT, onTodayPlanChanged);
+  }, [today]);
+
+  useEffect(() => {
+    if (voice.lastIntent?.kind !== "question") return;
+    wakeQuestionId.current += 1;
+    setWakeQuestion({
+      id: wakeQuestionId.current,
+      text: voice.lastIntent.text,
+    });
+    setView("brain");
+  }, [voice.lastIntent]);
 
   const suppressVoiceDraft = useCallback((deliveryKey: string) => {
     suppressedVoiceDrafts.current.add(deliveryKey);
@@ -263,36 +398,86 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       parsed.reason !== "not_exact_command"
     )
       return;
+    if (pendingBrainAction || pendingVoiceDraft) return;
     const draft = parseNaturalPracticeActionDraft(delivery.text, {
-      piece_id: null,
-      piece_title: null,
+      piece_id: visiblePracticeContext?.piece_id ?? null,
+      piece_title: visiblePracticeContext?.piece_title ?? null,
       default_clean_streak: defaultCleanStreak,
+      target: visiblePracticeContext?.region
+        ? {
+            region_id: visiblePracticeContext.region.id,
+            label: visiblePracticeContext.region.name,
+            m_start: visiblePracticeContext.region.m_start,
+            m_end: visiblePracticeContext.region.m_end,
+          }
+        : null,
+      current_page: visiblePracticeContext?.current_page ?? null,
     });
-    if (!draft) return;
-    setPendingVoiceDraft((current) =>
-      current?.deliveryKey === deliveryKey ? current : { deliveryKey, draft },
-    );
-    setVoiceDraftError(null);
-  }, [defaultCleanStreak, voice.acceptedFinalDelivery, voice.tierAResult]);
+    if (draft) {
+      setPendingVoiceDraft((current) =>
+        current?.deliveryKey === deliveryKey
+          ? current
+          : {
+              deliveryKey,
+              contextKey: visiblePracticeContextKey,
+              draft,
+            },
+      );
+      setVoiceDraftError(null);
+      return;
+    }
+
+    // No-wake questions enter Brain only after the bounded set parser declines
+    // them. This never sees a final the native hot loop already handled.
+    const question = parseAssistantDirectedQuestion(delivery.text);
+    if (!question || routedNaturalQuestions.current.has(deliveryKey)) return;
+    routedNaturalQuestions.current.add(deliveryKey);
+    if (routedNaturalQuestions.current.size > 100) {
+      const oldest = routedNaturalQuestions.current.values().next().value;
+      if (oldest) routedNaturalQuestions.current.delete(oldest);
+    }
+    wakeQuestionId.current += 1;
+    setWakeQuestion({ id: wakeQuestionId.current, text: question });
+    setView("brain");
+  }, [
+    defaultCleanStreak,
+    pendingBrainAction,
+    pendingVoiceDraft,
+    visiblePracticeContext,
+    visiblePracticeContextKey,
+    voice.acceptedFinalDelivery,
+    voice.tierAResult,
+  ]);
 
   const cancelVoiceDraft = useCallback(() => {
     setPendingVoiceDraft((current) => {
       if (current) suppressVoiceDraft(current.deliveryKey);
       return null;
     });
+    latestVoiceDraft.current = null;
     setVoiceDraftError(null);
   }, [suppressVoiceDraft]);
 
   const confirmVoiceDraft = useCallback(
-    async (deliveryKey: string, draft: NaturalPracticeActionDraft) => {
+    async (
+      deliveryKey: string,
+      contextKey: string,
+      draft: NaturalPracticeActionDraft,
+    ) => {
       if (voiceDraftInFlight.current !== null) return;
       voiceDraftInFlight.current = deliveryKey;
       setVoiceDraftConfirming(true);
       setVoiceDraftError(null);
       try {
+        if (contextKey !== practiceContextKey(visiblePracticeContext)) {
+          throw new Error(
+            "The Score target changed. Review a new spoken draft before starting.",
+          );
+        }
         const request = voiceDraftOpenRequest(draft);
         await rep.open(request.args, request.context);
         suppressVoiceDraft(deliveryKey);
+        latestVoiceDraft.current = null;
         setPendingVoiceDraft((current) =>
           current?.deliveryKey === deliveryKey ? null : current,
         );
@@ -311,8 +496,186 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         }
       }
     },
-    [rep, suppressVoiceDraft],
+    [rep, suppressVoiceDraft, visiblePracticeContext],
   );
+
+  const brainActionUnavailableReason = useCallback(
+    (action: ProposedAction): string | null => {
+      if (action.kind === "tempo" || rep.snap) return null;
+      switch (action.kind) {
+        case "verdict":
+          return "A verdict needs an active set. Open a set first, then ask again.";
+        case "undo":
+          return "There is no active set to undo an attempt from.";
+        case "restart":
+          return "There is no active set to restart.";
+      }
+    },
+    [rep.snap],
+  );
+
+  const suppressBrainAction = useCallback((answerId: string) => {
+    suppressedBrainActions.current.add(answerId);
+    if (suppressedBrainActions.current.size > 100) {
+      const oldest = suppressedBrainActions.current.values().next().value;
+      if (oldest) suppressedBrainActions.current.delete(oldest);
+    }
+  }, []);
+
+  const onBrainProposedAction = useCallback(
+    (event: BrainProposedActionEvent) => {
+      if (suppressedBrainActions.current.has(event.answerId)) return;
+      // There is one confirmation owner. Replacing a natural draft suppresses
+      // its delivery so it cannot reappear after this Brain action closes.
+      setPendingVoiceDraft((current) => {
+        if (current) suppressVoiceDraft(current.deliveryKey);
+        return null;
+      });
+      setPendingBrainAction({
+        answerId: event.answerId,
+        targetBlockId: rep.snap?.block_id ?? null,
+        action: event.action,
+      });
+      setBrainActionError(null);
+    },
+    [rep.snap?.block_id, suppressVoiceDraft],
+  );
+
+  const cancelBrainAction = useCallback(() => {
+    setPendingBrainAction((current) => {
+      if (current) suppressBrainAction(current.answerId);
+      return null;
+    });
+    setBrainActionError(null);
+  }, [suppressBrainAction]);
+
+  const confirmBrainAction = useCallback(
+    async (pending: PendingBrainAction) => {
+      const { answerId, action, targetBlockId } = pending;
+      if (brainActionInFlight.current !== null) return;
+      const unavailable = brainActionUnavailableReason(action);
+      if (unavailable) {
+        setBrainActionError(unavailable);
+        return;
+      }
+      if (
+        action.kind !== "tempo" &&
+        targetBlockId !== (rep.snap?.block_id ?? null)
+      ) {
+        setBrainActionError(
+          "The active set changed. Ask again before applying this action.",
+        );
+        return;
+      }
+      brainActionInFlight.current = answerId;
+      setBrainActionConfirming(true);
+      setBrainActionError(null);
+      try {
+        switch (action.kind) {
+          case "verdict":
+            await rep.check(action.verdict, action.note);
+            break;
+          case "tempo":
+            await invoke("metro_set", { bpm: action.bpm });
+            break;
+          case "undo":
+            await rep.undo();
+            break;
+          case "restart":
+            await rep.restart(action.required_clean_streak);
+            break;
+        }
+        suppressBrainAction(answerId);
+        setPendingBrainAction((current) =>
+          current?.answerId === answerId ? null : current,
+        );
+      } catch (cause) {
+        setBrainActionError(
+          cause instanceof Error
+            ? cause.message
+            : typeof cause === "string"
+              ? cause
+              : "The spoken action could not be applied.",
+        );
+      } finally {
+        if (brainActionInFlight.current === answerId) {
+          brainActionInFlight.current = null;
+          setBrainActionConfirming(false);
+        }
+      }
+    },
+    [brainActionUnavailableReason, rep, suppressBrainAction],
+  );
+
+  // Read every consequential draft back through the same half-duplex TTS owner
+  // as Brain. Identity guards keep React rerenders from repeating the prompt.
+  useEffect(() => {
+    const key = pendingBrainAction
+      ? `brain:${pendingBrainAction.answerId}`
+      : pendingVoiceDraft
+        ? `set:${pendingVoiceDraft.deliveryKey}`
+        : null;
+    const draft =
+      pendingBrainAction?.action ?? pendingVoiceDraft?.draft ?? null;
+    if (!key || !draft || spokenDraftKeys.current.has(key)) return;
+    spokenDraftKeys.current.add(key);
+    if (spokenDraftKeys.current.size > 100) {
+      const oldest = spokenDraftKeys.current.values().next().value;
+      if (oldest) spokenDraftKeys.current.delete(oldest);
+    }
+    void invoke("voice_speak", { text: actionDraftSpeech(draft) }).catch(() => {
+      // The visual confirmation remains authoritative if TTS is unavailable.
+    });
+  }, [pendingBrainAction, pendingVoiceDraft]);
+
+  // While a card is pending, collision-free whole utterances can confirm or
+  // cancel it. The backend-routed flag is fail-closed: React never treats an
+  // utterance the native hot loop already handled as a confirmation.
+  useEffect(() => {
+    const delivery = voice.acceptedFinalDelivery;
+    if (!delivery || delivery.handled) return;
+    const decision = parseSpokenConfirmationDecision(delivery.text);
+    if (!decision) return;
+    const deliveryKey = `${delivery.delivery_id}:r${delivery.revision}`;
+    if (handledConfirmationDeliveries.current.has(deliveryKey)) return;
+    const pending = pendingBrainAction ?? pendingVoiceDraft;
+    if (!pending) return;
+    handledConfirmationDeliveries.current.add(deliveryKey);
+    if (handledConfirmationDeliveries.current.size > 100) {
+      const oldest = handledConfirmationDeliveries.current
+        .values()
+        .next().value;
+      if (oldest) handledConfirmationDeliveries.current.delete(oldest);
+    }
+    if (decision === "cancel") {
+      if (pendingBrainAction) cancelBrainAction();
+      else cancelVoiceDraft();
+      return;
+    }
+    if (pendingBrainAction) {
+      void confirmBrainAction(pendingBrainAction);
+    } else if (pendingVoiceDraft) {
+      const latest = latestVoiceDraft.current;
+      const draft =
+        latest?.deliveryKey === pendingVoiceDraft.deliveryKey &&
+        latest.contextKey === pendingVoiceDraft.contextKey
+          ? latest.draft
+          : pendingVoiceDraft.draft;
+      void confirmVoiceDraft(
+        pendingVoiceDraft.deliveryKey,
+        pendingVoiceDraft.contextKey,
+        draft,
+      );
+    }
+  }, [
+    cancelBrainAction,
+    cancelVoiceDraft,
+    confirmBrainAction,
+    confirmVoiceDraft,
+    pendingBrainAction,
+    pendingVoiceDraft,
+    voice.acceptedFinalDelivery,
+  ]);
 
   const endSession = useCallback(async () => {
     setEnding(true);
@@ -370,15 +733,6 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     void invoke("piece_select", { pieceId: piece.piece_id }).catch(() => {});
     setView("ledger");
   }, []);
-
-  const ActiveWorkspace =
-    view === "settings" ||
-    view === "today" ||
-    view === "universe" ||
-    view === "ledger" ||
-    view === "score"
-      ? null
-      : WORKSPACE_COMPONENTS[view];
 
   return (
     <div className="shell">
@@ -457,6 +811,33 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         role="tabpanel"
         aria-labelledby={view === "settings" ? undefined : `tab-${view}`}
       >
+        {rep.snap && (
+          <aside
+            style={repHudCollapsed ? COMPACT_DOCK_STYLE : DOCK_STYLE}
+            aria-label="Active practice set"
+          >
+            <RepHud
+              snap={rep.snap}
+              feed={rep.feed}
+              error={rep.error}
+              collapsed={repHudCollapsed}
+              onToggleCollapsed={() =>
+                setRepHudCollapsed((collapsed) => !collapsed)
+              }
+              onCheck={rep.check}
+              onUndo={rep.undo}
+              onCorrect={rep.correct}
+              onReverseAdjustment={rep.reverseAdjustment}
+              onRestart={rep.restart}
+              onPause={rep.pause}
+              onResume={rep.resume}
+              onReflect={rep.reflect}
+              onSafetyStop={rep.safetyStop}
+              onRecover={rep.recover}
+              onClose={rep.close}
+            />
+          </aside>
+        )}
         <Suspense
           fallback={<div className="shell-loading" aria-hidden="true" />}
         >
@@ -489,49 +870,62 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
             <ScoreWorkspace
               onOpenBlock={rep.open}
               defaultCleanStreak={defaultCleanStreak}
+              onPracticeContextChange={setScorePracticeContext}
+            />
+          ) : view === "brain" ? (
+            <BrainWorkspace
+              wakeQuestion={wakeQuestion}
+              practiceContext={groundedBrainContext ?? undefined}
+              onProposedAction={onBrainProposedAction}
             />
           ) : (
-            ActiveWorkspace && <ActiveWorkspace />
+            <WorkspaceStub id={view} name={view} />
           )}
         </Suspense>
       </main>
 
-      {rep.snap && (
-        <aside style={DOCK_STYLE} aria-label="Active practice set">
-          <RepHud
-            snap={rep.snap}
-            feed={rep.feed}
-            error={rep.error}
-            onCheck={rep.check}
-            onUndo={rep.undo}
-            onCorrect={rep.correct}
-            onReverseAdjustment={rep.reverseAdjustment}
-            onRestart={rep.restart}
-            onPause={rep.pause}
-            onResume={rep.resume}
-            onReflect={rep.reflect}
-            onSafetyStop={rep.safetyStop}
-            onRecover={rep.recover}
-            onClose={rep.close}
-          />
-        </aside>
-      )}
-
-      {pendingVoiceDraft && (
+      {(pendingBrainAction || pendingVoiceDraft) && (
         <div style={VOICE_DRAFT_STYLE} className="voice-command-surface">
-          <ActionDraftCard
-            draft={pendingVoiceDraft.draft}
-            confirming={voiceDraftConfirming}
-            onCancel={cancelVoiceDraft}
-            onConfirm={(draft: ActionDraft) => {
-              if (draft.kind === "start_practice_set") {
-                void confirmVoiceDraft(pendingVoiceDraft.deliveryKey, draft);
-              }
-            }}
-          />
+          {pendingBrainAction ? (
+            <ActionDraftCard
+              draft={pendingBrainAction.action}
+              confirming={brainActionConfirming}
+              unavailableReason={brainActionUnavailableReason(
+                pendingBrainAction.action,
+              )}
+              onCancel={cancelBrainAction}
+              onConfirm={() => void confirmBrainAction(pendingBrainAction)}
+            />
+          ) : pendingVoiceDraft ? (
+            <ActionDraftCard
+              draft={pendingVoiceDraft.draft}
+              confirming={voiceDraftConfirming}
+              onDraftChange={(draft) => {
+                latestVoiceDraft.current = {
+                  ...pendingVoiceDraft,
+                  draft,
+                };
+              }}
+              onCancel={cancelVoiceDraft}
+              onConfirm={(draft: ActionDraft) => {
+                if (draft.kind === "start_practice_set") {
+                  void confirmVoiceDraft(
+                    pendingVoiceDraft.deliveryKey,
+                    pendingVoiceDraft.contextKey,
+                    draft,
+                  );
+                }
+              }}
+            />
+          ) : null}
           {voiceDraftError && (
             <p className="voice-draft-error" role="alert">
               {voiceDraftError}
+            </p>
+          )}
+          {brainActionError && (
+            <p className="voice-draft-error" role="alert">
+              {brainActionError}
             </p>
           )}
         </div>

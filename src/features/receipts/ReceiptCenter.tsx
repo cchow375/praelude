@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useEffect,
   useState,
   type ReactNode,
   useRef,
@@ -45,6 +46,11 @@ export interface ReceiptPublisher {
 
 let nextReceiptId = 1;
 const MAX_VISIBLE_RECEIPTS = 5;
+const ROUTINE_RECEIPT_MS = 1_500;
+
+function autoDismisses(kind: ReceiptKind): boolean {
+  return kind === "committed" || kind === "undone" || kind === "duplicate";
+}
 
 const NOOP_PUBLISHER: ReceiptPublisher = {
   committed: () => -1,
@@ -65,6 +71,19 @@ export function ReceiptCenterProvider({ children }: { children: ReactNode }) {
   const [politeAnnouncement, setPoliteAnnouncement] = useState("");
   const [assertiveAnnouncement, setAssertiveAnnouncement] = useState("");
   const committedDurableIds = useRef(new Set<string>());
+  const dismissTimers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+
+  const dismiss = useCallback((id: number) => {
+    const timer = dismissTimers.current.get(id);
+    if (timer != null) clearTimeout(timer);
+    dismissTimers.current.delete(id);
+    setReceipts((current) => current.filter((receipt) => receipt.id !== id));
+  }, []);
+
+  useEffect(() => () => {
+    for (const timer of dismissTimers.current.values()) clearTimeout(timer);
+    dismissTimers.current.clear();
+  }, []);
 
   const publish = useCallback((kind: ReceiptKind, rawMessage: string, durableReceiptId?: string) => {
     const message = rawMessage.trim() || "The action completed.";
@@ -72,8 +91,12 @@ export function ReceiptCenterProvider({ children }: { children: ReactNode }) {
     setReceipts((current) => [receipt, ...current].slice(0, MAX_VISIBLE_RECEIPTS));
     if (kind === "error") setAssertiveAnnouncement(message);
     else setPoliteAnnouncement(message);
+    if (autoDismisses(kind)) {
+      const timer = setTimeout(() => dismiss(receipt.id), ROUTINE_RECEIPT_MS);
+      dismissTimers.current.set(receipt.id, timer);
+    }
     return receipt.id;
-  }, []);
+  }, [dismiss]);
 
   const publisher = useMemo<ReceiptPublisher>(() => ({
     committed: (message) => publish("committed", message),
@@ -107,10 +130,8 @@ export function ReceiptCenterProvider({ children }: { children: ReactNode }) {
         receipt.receipt_id,
       );
     },
-    dismiss: (id) => setReceipts((current) => (
-      current.filter((receipt) => receipt.id !== id)
-    )),
-  }), [publish]);
+    dismiss,
+  }), [dismiss, publish]);
 
   return (
     <ReceiptContext.Provider value={publisher}>

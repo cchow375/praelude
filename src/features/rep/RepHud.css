@@ -70,6 +70,41 @@
   font-size: 0.8125rem;
   color: var(--ink-dim);
 }
+.rep-hud-collapse {
+  min-height: 28px;
+  padding: 0 var(--s-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.rep-hud-collapse:hover {
+  border-color: var(--hairline-strong);
+  color: var(--ink);
+}
+.rep-hud-collapse:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* A practice set must not become a modal wall on a short laptop window. */
+.rep-hud.is-collapsed {
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+}
+.rep-hud.is-collapsed
+  > :not(.rep-hud-context):not(.rep-hud-main):not([data-compact-visible]) {
+  display: none;
+}
+.rep-hud.is-collapsed .rep-hud-streak-value strong {
+  font-size: 1.625rem;
+}
+.rep-hud.is-collapsed .rep-hud-streak-value span {
+  font-size: 1rem;
+}
 
 /* Compact-by-default: contract + metrics + rare controls fold away. */
 .rep-hud-more > summary {

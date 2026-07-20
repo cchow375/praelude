@@ -396,25 +396,34 @@ async fn rep_safety_stop(
     let rep = Arc::clone(&rep);
     let metro = Arc::clone(&metro);
     let join_failure_metro = Arc::clone(&metro);
+    let task_app = app.clone();
+    let join_failure_app = app.clone();
     let rejected_command_id = command_id.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        rep.execute_safety_stop(&command_id, reason.as_deref(), || metro.do_stop())
+        metro.serialized(|| {
+            let (receipt, stopped) =
+                rep.execute_safety_stop(&command_id, reason.as_deref(), || metro.do_stop());
+            let state = stopped.map(|_| metro.snapshot());
+            if let Some(state) = &state {
+                metronome::emit(&task_app, state);
+            }
+            (receipt, state)
+        })
     })
     .await;
     Ok(match result {
-        Ok((receipt, state)) => {
-            if let Some(state) = state {
-                metronome::emit(&app, &state);
-            }
+        Ok((receipt, _state)) => {
             receipt.unwrap_or_else(|error| rejected_snapshot(&rejected_command_id, error))
         }
         Err(error) => {
-            let state = tauri::async_runtime::spawn_blocking(move || join_failure_metro.do_stop())
-                .await
-                .ok();
-            if let Some(state) = state {
-                metronome::emit(&app, &state);
-            }
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                join_failure_metro.serialized(|| {
+                    let _ = join_failure_metro.do_stop();
+                    let state = join_failure_metro.snapshot();
+                    metronome::emit(&join_failure_app, &state);
+                })
+            })
+            .await;
             rejected_snapshot(
                 &rejected_command_id,
                 format!("rep_safety_stop task failed: {error}"),
@@ -1152,6 +1161,14 @@ fn voice_state(voice: State<'_, Arc<VoiceLoop>>) -> VoiceStatus {
     voice.state()
 }
 
+/// Speak a bounded app-owned confirmation prompt through the same half-duplex
+/// TTS owner as Brain answers. This is presentation only: it cannot route an
+/// intent or mutate practice state.
+#[tauri::command]
+fn voice_speak(text: String, voice: State<'_, Arc<VoiceLoop>>) -> Result<(), String> {
+    voice.speak_brain_answer(&text)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1383,6 +1400,7 @@ pub fn run() {
             metronome::metro_state,
             voice_mute,
             voice_state,
+            voice_speak,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

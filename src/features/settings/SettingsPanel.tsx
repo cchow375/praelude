@@ -197,6 +197,130 @@ export function SettingsPanel({
         </p>
       )}
 
+      <Disclosure summary="How to use CodaKiller" defaultOpen>
+        <section
+          className="settings-guide"
+          aria-labelledby="settings-guide-title"
+        >
+          <div className="settings-guide-intro">
+            <p className="settings-guide-kicker">Start here</p>
+            <h3 id="settings-guide-title">
+              One practice loop, two voice lanes
+            </h3>
+            <p>
+              Use short, exact commands for immediate practice control. Use the
+              Brain for plain-English questions, screen-grounded help, and
+              reviewable action drafts.
+            </p>
+          </div>
+
+          <ol className="settings-guide-flow" aria-label="Golden practice flow">
+            <li>
+              <strong>Choose the music.</strong>
+              <span>
+                Select the piece and section in Score, then start a practice set
+                from Score or Today. With a section selected, you can say
+                <q>
+                  I want to do dotted rhythms five times on the right hand at 80
+                </q>
+                . A page alone is not guessed into measures.
+              </span>
+            </li>
+            <li>
+              <strong>Report each attempt.</strong>
+              <span>
+                While the set is open, say <q>done</q> for clean, <q>sloppy</q>
+                for flawed, or <q>again, missed the left-hand jump</q> for
+                failed with a saved note. CodaKiller does not grade the piano.
+              </span>
+            </li>
+            <li>
+              <strong>Check, correct, finish.</strong>
+              <span>
+                Watch the HUD and heard-command toast. Say <q>where are we</q>{" "}
+                for status, <q>close the block</q> when the set is done, and use
+                Ledger if an attempt needs correction.
+              </span>
+            </li>
+          </ol>
+
+          <div className="settings-guide-lanes">
+            <section aria-labelledby="settings-guide-instant">
+              <h4 id="settings-guide-instant">Instant commands</h4>
+              <p>
+                Exact commands run immediately and offline. They do not wait for
+                confirmation, so check the toast or receipt if speech was
+                misheard.
+              </p>
+              <dl className="settings-guide-commands">
+                <div>
+                  <dt>
+                    <q>metronome 96</q>
+                  </dt>
+                  <dd>Start at 96 BPM</dd>
+                </div>
+                <div>
+                  <dt>
+                    <q>tempo 104</q>
+                  </dt>
+                  <dd>Set the running tempo</dd>
+                </div>
+                <div>
+                  <dt>
+                    <q>bump it up 4</q>
+                  </dt>
+                  <dd>Raise the tempo by 4 BPM</dd>
+                </div>
+                <div>
+                  <dt>
+                    <q>metronome off</q>
+                  </dt>
+                  <dd>Stop the metronome</dd>
+                </div>
+              </dl>
+              <p className="settings-guide-note">
+                Wake-word mode is {value.wake_word_enabled ? "on" : "off"}.
+                {value.wake_word_enabled
+                  ? ` Begin commands with “${value.wake_word.trim() || "your wake word"}”.`
+                  : " Say exact commands without a wake word."}
+              </p>
+            </section>
+
+            <section aria-labelledby="settings-guide-brain">
+              <h4 id="settings-guide-brain">Plain-English Brain</h4>
+              <p>
+                Type in Brain, or ask an assistant-directed question such as
+                <q>Can you tell me what happened last session?</q> without a
+                wake phrase. Brain receives the selected Score piece, Region,
+                page, edition, active set, and today's written plan, plus
+                grounded practice history and cited references.
+              </p>
+              <p className="settings-guide-note">
+                Brain may draft a verdict, tempo change, undo, or streak
+                restart. Coda reads the draft back; say <q>confirm</q> or{" "}
+                <q>cancel</q>. It still cannot hear or grade playing, interpret
+                a page without a selected section, or manage Calendar and Goals
+                by voice yet.
+              </p>
+            </section>
+          </div>
+
+          <aside
+            className="settings-guide-safety"
+            aria-label="Confirmation safety"
+          >
+            <strong>Before anything ambiguous changes</strong>
+            <p>
+              If CodaKiller shows a draft or confirmation card, review every
+              field and choose or say Confirm or Cancel; nothing on that card
+              runs first. Exact commands above are different: they run
+              immediately. In a noisy room, use the HUD or Metronome button
+              instead of repeating a command you are unsure it heard.
+            </p>
+          </aside>
+        </section>
+      </Disclosure>
+
       <Disclosure summary="Brain" defaultOpen>
         <div className="settings-group">
           <BrainConnection invoker={brainInvoker} />

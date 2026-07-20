@@ -152,6 +152,11 @@ pub struct Metronome {
     /// make one pass and the other fail).
     #[cfg(test)]
     force_restart_busy: std::sync::atomic::AtomicBool,
+    /// Serializes the complete command boundary: mutate, persist, publish, and
+    /// choose the state returned to the caller. The inner lock protects the
+    /// engine itself; this outer lock prevents a slower earlier command from
+    /// persisting or publishing after a newer one has already won.
+    command: Mutex<()>,
     inner: Mutex<Inner>,
 }
 
@@ -174,6 +179,7 @@ impl Metronome {
             boost_engage: Box::new(BoostGuard::engage),
             #[cfg(test)]
             force_restart_busy: std::sync::atomic::AtomicBool::new(false),
+            command: Mutex::new(()),
             inner: Mutex::new(Inner {
                 state,
                 handle: None,
@@ -199,6 +205,7 @@ impl Metronome {
             engine_start: Box::new(engine_start),
             boost_engage: Box::new(boost_engage),
             force_restart_busy: std::sync::atomic::AtomicBool::new(false),
+            command: Mutex::new(()),
             inner: Mutex::new(Inner {
                 state,
                 handle: None,
@@ -211,6 +218,14 @@ impl Metronome {
     /// propagating (a panicked command must not brick the metronome).
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Run one complete app-facing command in issue order. Production callers
+    /// include their persistence, event publication, and returned snapshot in
+    /// this boundary. Core `do_*` methods remain independently unit-testable.
+    pub(crate) fn serialized<T>(&self, operation: impl FnOnce() -> T) -> T {
+        let _command = self.command.lock().unwrap_or_else(|p| p.into_inner());
+        operation()
     }
 
     /// A snapshot of the current state (for `metro_state`).
@@ -317,8 +332,17 @@ impl Metronome {
     /// (re)start the engine — with rollback on failure. Returns the state to emit
     /// (post-rollback on failure) plus the outcome. Does no I/O beyond the engine /
     /// boost seams, so it runs inside `spawn_blocking` and is directly unit-testable.
+    #[cfg(test)]
     pub(crate) fn do_start(&self, bpm: Option<f64>) -> (MetroState, Result<(), String>) {
         let mut inner = self.lock();
+        self.start_locked(&mut inner, bpm)
+    }
+
+    fn start_locked(
+        &self,
+        inner: &mut Inner,
+        bpm: Option<f64>,
+    ) -> (MetroState, Result<(), String>) {
         let prev = inner.state.clone();
         // Whether boost was already engaged *before* this call, so a rollback releases
         // only the boost this call raised (never one a prior call left engaged).
@@ -328,9 +352,9 @@ impl Metronome {
             inner.state.set_bpm(b);
         }
         inner.state.running = true;
-        self.sync_boost(&mut inner);
+        self.sync_boost(inner);
 
-        match self.start_engine(&mut inner) {
+        match self.start_engine(inner) {
             Ok(()) => {
                 let state = inner.state.clone();
                 (state, Ok(()))
@@ -357,6 +381,40 @@ impl Metronome {
                 (state, Err(msg))
             }
         }
+    }
+
+    /// Put the metronome in the requested running state without rebuilding an
+    /// engine that is already playing. A changed tempo is handed to the live
+    /// audio pattern and persisted; an equal tempo (or bare resume) is a true
+    /// no-op. The state decision and live handoff share the control lock, so UI
+    /// and voice callers cannot race a check-then-restart sequence.
+    pub(crate) fn do_ensure_running(
+        &self,
+        store: &Store,
+        bpm: Option<f64>,
+    ) -> (MetroState, Result<(), String>) {
+        let mut inner = self.lock();
+        if !inner.state.running {
+            return self.start_locked(&mut inner, bpm);
+        }
+
+        let prior_bpm = inner.state.bpm;
+        if let Some(value) = bpm {
+            inner.state.set_bpm(value);
+        }
+        let bpm_changed = inner.state.bpm != prior_bpm;
+        if bpm_changed {
+            let pattern = inner.state.pattern();
+            if let Some(handle) = &inner.handle {
+                handle.set_pattern(pattern);
+            }
+        }
+        let state = inner.state.clone();
+        drop(inner);
+        if bpm_changed {
+            persist(store, &state);
+        }
+        (state, Ok(()))
     }
 
     /// Core of `metro_stop`: drop the engine and boost guard and mark stopped.
@@ -568,7 +626,9 @@ pub(crate) fn emit(app: &AppHandle, s: &MetroState) {
     }
 }
 
-/// Start (or restart) the metronome. Optional `bpm` updates the tempo first.
+/// Ensure the metronome is running. Optional `bpm` updates the tempo first.
+/// Repeated starts are idempotent; a changed tempo is applied live without an
+/// engine restart.
 ///
 /// `async` + `spawn_blocking`: the blocking work — spawning `osascript` for the
 /// boost, joining the audio thread + reopening the output device on an engine
@@ -580,12 +640,20 @@ pub async fn metro_start(
     bpm: Option<f64>,
     app: AppHandle,
     metro: State<'_, Arc<Metronome>>,
+    store: State<'_, Arc<Store>>,
 ) -> Result<MetroState, String> {
     let metro = Arc::clone(&metro);
-    let (state, result) = tauri::async_runtime::spawn_blocking(move || metro.do_start(bpm))
-        .await
-        .map_err(|e| format!("metro_start task failed: {e}"))?;
-    emit(&app, &state);
+    let store = Arc::clone(&store);
+    let (state, result) = tauri::async_runtime::spawn_blocking(move || {
+        metro.serialized(|| {
+            let (_, result) = metro.do_ensure_running(&store, bpm);
+            let state = metro.snapshot();
+            emit(&app, &state);
+            (state, result)
+        })
+    })
+    .await
+    .map_err(|e| format!("metro_start task failed: {e}"))?;
     result.map(|()| state)
 }
 
@@ -598,10 +666,16 @@ pub async fn metro_stop(
     metro: State<'_, Arc<Metronome>>,
 ) -> Result<MetroState, String> {
     let metro = Arc::clone(&metro);
-    let state = tauri::async_runtime::spawn_blocking(move || metro.do_stop())
-        .await
-        .map_err(|e| format!("metro_stop task failed: {e}"))?;
-    emit(&app, &state);
+    let state = tauri::async_runtime::spawn_blocking(move || {
+        metro.serialized(|| {
+            let _ = metro.do_stop();
+            let state = metro.snapshot();
+            emit(&app, &state);
+            state
+        })
+    })
+    .await
+    .map_err(|e| format!("metro_stop task failed: {e}"))?;
     Ok(state)
 }
 
@@ -629,20 +703,24 @@ pub async fn metro_set(
     let metro = Arc::clone(&metro);
     let store = Arc::clone(&store);
     let (state, result) = tauri::async_runtime::spawn_blocking(move || {
-        metro.do_set(
-            &store,
-            bpm,
-            beats_per_bar,
-            subdivision,
-            accent,
-            sound,
-            gain,
-            boost,
-        )
+        metro.serialized(|| {
+            let (_, result) = metro.do_set(
+                &store,
+                bpm,
+                beats_per_bar,
+                subdivision,
+                accent,
+                sound,
+                gain,
+                boost,
+            );
+            let state = metro.snapshot();
+            emit(&app, &state);
+            (state, result)
+        })
     })
     .await
     .map_err(|e| format!("metro_set task failed: {e}"))?;
-    emit(&app, &state);
     result.map(|()| state)
 }
 
@@ -656,7 +734,8 @@ pub fn metro_state(metro: State<'_, Arc<Metronome>>) -> MetroState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex as StdMutex;
+    use std::sync::{mpsc, Mutex as StdMutex};
+    use std::time::Duration;
 
     /// A loaded click set with the given names (empty `Clicks`, enough to exercise
     /// sound validation / lookup).
@@ -940,6 +1019,132 @@ mod tests {
         assert!(
             metro.lock().handle.is_some(),
             "live engine handle installed"
+        );
+    }
+
+    #[test]
+    fn ensure_running_starts_once_then_live_retunes_without_restart() {
+        let starts = Arc::new(StdMutex::new(0u32));
+        let recorded_starts = starts.clone();
+        let (boost_seam, _vol) = recording_boost();
+        let metro = Metronome::with_seams(
+            sounds_with(&["woodblock"]),
+            MetroState::default(),
+            85,
+            move |_cfg| {
+                *recorded_starts.lock().unwrap() += 1;
+                Ok(EngineHandle::test_handle(48_000, 0))
+            },
+            boost_seam,
+        );
+        let store = Store::open(":memory:").expect("in-memory store");
+
+        let (started, start_result) = metro.do_ensure_running(&store, Some(96.0));
+        assert!(start_result.is_ok());
+        assert!(started.running);
+        assert_eq!(started.bpm, 96.0);
+        assert_eq!(
+            *starts.lock().unwrap(),
+            1,
+            "stopped state starts one engine"
+        );
+
+        let (retuned, retune_result) = metro.do_ensure_running(&store, Some(72.0));
+        assert!(retune_result.is_ok());
+        assert_eq!(retuned.bpm, 72.0);
+        assert_eq!(*starts.lock().unwrap(), 1, "live retune keeps the engine");
+        assert_eq!(
+            store.get_setting("metronome.bpm").unwrap().as_deref(),
+            Some("72"),
+            "live retune persists the authoritative tempo"
+        );
+
+        let (_, same_result) = metro.do_ensure_running(&store, Some(72.0));
+        let (_, resume_result) = metro.do_ensure_running(&store, None);
+        assert!(same_result.is_ok());
+        assert!(resume_result.is_ok());
+        assert_eq!(
+            *starts.lock().unwrap(),
+            1,
+            "same-tempo and bare starts are true no-ops while running"
+        );
+    }
+
+    #[test]
+    fn app_command_boundary_orders_mutation_persistence_and_publication() {
+        let initial = MetroState {
+            running: true,
+            ..MetroState::default()
+        };
+        let (boost_seam, _vol) = recording_boost();
+        let metro = Arc::new(Metronome::with_seams(
+            sounds_with(&["woodblock"]),
+            initial,
+            85,
+            |_cfg| Ok(EngineHandle::test_handle(48_000, 0)),
+            boost_seam,
+        ));
+        let store = Arc::new(Store::open(":memory:").expect("in-memory store"));
+        let (first_ready_tx, first_ready_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (second_done_tx, second_done_rx) = mpsc::channel();
+
+        let first_metro = Arc::clone(&metro);
+        let first_store = Arc::clone(&store);
+        let first = std::thread::spawn(move || {
+            first_metro.serialized(|| {
+                let _ = first_metro.do_ensure_running(&first_store, Some(60.0));
+                first_ready_tx
+                    .send(first_metro.snapshot())
+                    .expect("publish first state");
+                release_rx.recv().expect("release first command");
+            });
+        });
+
+        let first_state = first_ready_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("first command reached publication boundary");
+        assert_eq!(first_state.bpm, 60.0);
+
+        let second_metro = Arc::clone(&metro);
+        let second_store = Arc::clone(&store);
+        let second = std::thread::spawn(move || {
+            second_metro.serialized(|| {
+                let _ = second_metro.do_set(
+                    &second_store,
+                    Some(80.0),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+                second_done_tx
+                    .send(second_metro.snapshot())
+                    .expect("publish second state");
+            });
+        });
+
+        assert!(
+            second_done_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "the newer command cannot overtake an earlier publication"
+        );
+        release_tx.send(()).expect("release first command");
+        let second_state = second_done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("second command completes after release");
+        first.join().expect("first command thread");
+        second.join().expect("second command thread");
+
+        assert_eq!(second_state.bpm, 80.0);
+        assert_eq!(metro.snapshot().bpm, 80.0);
+        assert_eq!(
+            store.get_setting("metronome.bpm").unwrap().as_deref(),
+            Some("80"),
+            "the last published command is also the last persisted command"
         );
     }
 

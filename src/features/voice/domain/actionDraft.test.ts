@@ -63,6 +63,55 @@ describe("parseNaturalPracticeActionDraft", () => {
     expect(draft?.confirmation_required).toBe(true);
   });
 
+  it("grounds 'this section' in the exact selected Score Region", () => {
+    const draft = parseNaturalPracticeActionDraft(
+      "I want to do dotted rhythms five times on the right hand at 80",
+      {
+        ...CONTEXT,
+        target: {
+          region_id: 44,
+          label: "Coda landing",
+          m_start: 720,
+          m_end: 732,
+        },
+        current_page: 18,
+      },
+    );
+
+    expect(draft).toMatchObject({
+      piece_id: 9,
+      target: {
+        region_id: 44,
+        label: "Coda landing",
+        m_start: 720,
+        m_end: 732,
+        page: 18,
+      },
+      contract: {
+        start_bpm: 80,
+        planned_attempts: 5,
+        hands: "right",
+        method: "rhythmic variants",
+        use_metronome: true,
+      },
+      status: "ready_to_confirm",
+      issues: [],
+    });
+  });
+
+  it("keeps a page-only reference as a reviewable draft instead of inventing measures", () => {
+    const draft = parseNaturalPracticeActionDraft(
+      "Practice this section at 60",
+      { ...CONTEXT, target: null, current_page: 18 },
+    );
+
+    expect(draft?.target).toEqual({ m_start: null, m_end: null });
+    expect(draft?.issues.map((entry) => entry.code)).toContain(
+      "missing_score_range",
+    );
+    expect(draft?.status).toBe("needs_input");
+  });
+
   it("rejects reversed ranges and impossible counts instead of repairing them silently", () => {
     const draft = parseNaturalPracticeActionDraft(
       "Practice measures 512 to 492 for 101 reps",

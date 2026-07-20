@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { PieceSummary } from "../pieces/types";
+import type { PracticeBrainContext } from "../brain/types";
 import type { RepOpenArgs } from "../rep/useRep";
 import { ScoreView } from "./ScoreView";
+import type { ScoreFocusContext } from "./types";
 import "./ScoreWorkspace.css";
 
 function messageOf(reason: unknown): string {
@@ -39,6 +41,8 @@ export interface ScoreWorkspaceProps {
   /** Shell's rep.open — without it ScoreView's Practice tab renders nothing. */
   onOpenBlock?: (args: RepOpenArgs) => Promise<void>;
   defaultCleanStreak?: number;
+  /** Publishes the exact visible score target to the shell-owned Brain context. */
+  onPracticeContextChange?: (context: PracticeBrainContext | null) => void;
 }
 
 /**
@@ -49,6 +53,7 @@ export interface ScoreWorkspaceProps {
 export function ScoreWorkspace({
   onOpenBlock,
   defaultCleanStreak,
+  onPracticeContextChange,
 }: ScoreWorkspaceProps = {}) {
   const [pieces, setPieces] = useState<PieceSummary[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -102,6 +107,33 @@ export function ScoreWorkspace({
   }, [load]);
 
   const selected = pieces.find((piece) => piece.id === selectedId) ?? null;
+
+  const publishScoreContext = useCallback(
+    (focus: ScoreFocusContext | null) => {
+      if (!selected) {
+        onPracticeContextChange?.(null);
+        return;
+      }
+      onPracticeContextChange?.({
+        piece_id: selected.id,
+        piece_title: selected.title,
+        composer: selected.composer,
+        surface: "score",
+        region: focus?.region ?? null,
+        current_page: focus?.current_page ?? null,
+        edition_id: focus?.edition_id ?? null,
+        edition_label: focus?.edition_label ?? null,
+        active_block: null,
+      });
+    },
+    [onPracticeContextChange, selected],
+  );
+
+  // Publish the selected piece immediately. ScoreView follows with the exact
+  // page/edition/Region once its document state is ready.
+  useEffect(() => {
+    publishScoreContext(null);
+  }, [publishScoreContext]);
 
   return (
     <main className="score-workspace" data-testid="score-workspace">
@@ -159,6 +191,7 @@ export function ScoreWorkspace({
             onOpenBlock={onOpenBlock ? openBlock : undefined}
             opening={opening}
             defaultCleanStreak={defaultCleanStreak}
+            onContextChange={publishScoreContext}
           />
         )}
       </div>
