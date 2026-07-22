@@ -207,6 +207,17 @@
   font-size: 0.8125rem;
   color: var(--ink);
 }
+.rep-hud-tempo-target {
+  color: var(--ink-faint);
+}
+/* While climbing the ladder the big number is the current rung, not the target
+   proof — this caption tells the pianist the number they're watching moves per
+   clean and what the target proof will ask once they reach the target tempo. */
+.rep-hud-climb {
+  flex-basis: 100%;
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
 
 .rep-hud-metrics {
   display: grid;

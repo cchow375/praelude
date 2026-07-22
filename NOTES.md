@@ -2,6 +2,33 @@
 
 ## Decisions
 
+- **v3.2.0 hotfix — HUD showed a frozen "0/N" while climbing to target (2026-07-22):**
+  - **Symptom (Christian, at the piano):** opened a Tempo set climbing 45 → 52, clicked Clean
+    repeatedly, receipts said "logged," but the big HUD number sat at `0/7` and never moved.
+    Live DB blocks 70 & 71 (piece 3, m.7, start 45 / target 52) each had several clean attempts
+    at 45/49 BPM and were both abandoned in frustration.
+  - **Root cause was a DISPLAY choice, not the engine.** For a Tempo set the backend projection
+    (`store/practice_v2.rs:504-526`) deliberately splits two streaks: `current_clean_streak`
+    (the _rung_ — advances on every clean at the current tempo) and `mastery_progress_streak`
+    (`trailing_clean_at_or_above(target_bpm)` — legitimately 0 until you reach the target). The
+    engine test `sub_target_speech_reports_rung_not_a_false_mastery_fraction` (`rep/mod.rs:3361`)
+    encodes this: 3 cleans below target ⇒ `current_clean_streak==3`, `mastery_progress_streak==0`.
+    The old `RepHud` rendered the _mastery_ streak as the primary number, so below target every
+    logged clean looked ignored while the number that actually moved was buried in the Details fold.
+  - **Fix (frontend only, `RepHud.tsx`):** while `climbingToTarget` (tempo set, numeric rung
+    streak, `bpm < target_bpm`, mastery not yet satisfied) the primary number is the _rung_
+    streak `current_clean_streak / rule.clean_needed` with a "Climbing to ♩{target} — then
+    {required} clean in a row" caption and a `♩{bpm} → {target}` hint; at/above target it reverts
+    to the `mastery_progress_streak / required` proof. This never renders a _false_ mastery
+    fraction (the original honest-design rule) — it shows the honest rung fraction instead. This
+    now matches what the voice status already said (`voice_loop.rs:471-482` "Rung X of N" below
+    target), so HUD and speech agree.
+  - **Gates:** tsc clean; frontend `npm test` 1026/0; rep suite 69/0 incl. two new regression
+    tests (climbing case + at-target switch); fresh-context verifier CONFIRMED (root cause traced
+    to the backend, edge cases — legacy/undefined, non-tempo, bpm==target, mastered-below-target,
+    Details redundancy, other consumers — all checked). Built + installed over v3.2.0 (display-only;
+    no schema/version change). DB backed up `pre-repstreak-fix-2026-07-22-212419.db`, integrity ok.
+
 - **v3.2.0 — endurance/coherence release (2026-07-20, implementation commit `853f440`):**
   - **The metronome has an explicit owner.** Native state records `manual` or
     `practice(set_id)`. A stopped practice set claims the click; an already-running manual click
@@ -37,7 +64,7 @@
     ignored plus 34 integration tests (529 passed total / 13 external-live ignored); strict clippy,
     TypeScript, production build, sealed app, DMG checksum, exact-one-app audit, interactive mock
     workspace/endurance drive, and fresh-context verifier Ship. Pre-install backup `(C)
-    pre-v3.2.0-install-2026-07-20-014755.db`, SHA-256
+pre-v3.2.0-install-2026-07-20-014755.db`, SHA-256
     `9b82ceee860cb772a0fb1ea7a1ec99291d6dd598589c29fd104c5e913a00745a`; disposable reopen rehearsal
     and packaged launch/quit preserved schema 10, integrity `ok`, FK 0, exactly 6 pieces / 63 sets /
     559 attempts / 14 sessions. DMG SHA-256
@@ -57,7 +84,7 @@
   - **Tier A stays deterministic; Tier B/C may draft only after Tier A declines.** Clearly
     assistant-directed questions can route without a wake phrase. The first new action is a
     selected-Region set request (`"I want to do dotted rhythms five times on the right hand at
-    80"`) → editable draft → spoken readback → explicit `confirm`/`cancel` → existing command.
+80"`) → editable draft → spoken readback → explicit `confirm`/`cancel` → existing command.
     Bare yes/no remain verdict words. A page number alone never invents a measure range.
   - **Spoken confirmation must read current mutable draft state.** The production voice callback
     reads a latest-value ref at confirm time; capturing the draft created before the user edits
@@ -82,7 +109,7 @@
   - **Release evidence:** frontend 985 passed / 0 failed / 2 todo; Rust 490 passed / 0 failed /
     11 ignored plus every integration suite; strict clippy/build; sealed 3.1.0 app; valid DMG
     checksum; exact-one-app audit. Pre-install backup `(C)
-    pre-v3.1.0-install-2026-07-20-000233.db`, SHA-256
+pre-v3.1.0-install-2026-07-20-000233.db`, SHA-256
     `91e8c3fe5295d4d652a18b4486c336c96688148bf95ed2f892fd750e239ddb25`; before/after schema 10,
     integrity `ok`, FK 0, exactly 6 pieces / 63 blocks / 559 reps / 14 sessions.
 
@@ -1807,7 +1834,7 @@ unregisterListener`, which the mock never defined → 2 pageerrors on effect cle
   threaded on the NEW Score-tab mount path).
 - **Fix shape:** pulled `score` out of the propless lazy map (only `brain` remains) and mounted
   it like Ledger with live props: `<ScoreWorkspace onOpenBlock={rep.open}
-  defaultCleanStreak={defaultCleanStreak} />`. `ScoreWorkspace` wraps the call in a local
+defaultCleanStreak={defaultCleanStreak} />`. `ScoreWorkspace` wraps the call in a local
   `opening` flag (mirroring `PieceDetail.openBlock`'s try/finally) and forwards
   `onOpenBlock`/`opening`/`defaultCleanStreak` to `ScoreView`. Blocks opened from the score now
   surface in the shell-level RepHud automatically (it keys off `rep.snap`).

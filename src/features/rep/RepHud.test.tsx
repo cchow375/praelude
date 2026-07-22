@@ -110,7 +110,11 @@ describe("RepHud", () => {
     expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
   });
 
-  it("separates the current tempo rung from target-condition mastery proof", () => {
+  it("shows the moving rung streak while climbing to target, not a frozen mastery fraction", () => {
+    // Regression: Christian opened a tempo set at 45 with target 52, clicked
+    // Clean repeatedly, and the prominent number sat at "0/7" the whole time —
+    // because below target the target-mastery streak is legitimately 0. The big
+    // number must instead show the rung streak, which moves on every clean.
     render(
       <RepHud
         snap={makeSnap({ variant: "hands separate" })}
@@ -121,16 +125,44 @@ describe("RepHud", () => {
     );
     expect(screen.getByText("Gymnopédie No. 1")).toBeTruthy();
     expect(screen.getByText("mm. 1–8")).toBeTruthy();
+    // Below target (72 < 84) the primary number is the moving rung streak, and
+    // it is NOT mislabeled as a mastery fraction.
     expect(
-      screen.getByLabelText("Mastery proof at target 0 of 5"),
+      screen.getByLabelText(
+        "Clean streak at this rung 2 of 3, climbing to 84 BPM",
+      ),
     ).toBeTruthy();
-    expect(screen.getByText("2/3")).toBeTruthy();
-    // Unsatisfied-mastery copy no longer renders by default — the compact HUD
-    // shows mastery text only when verified-satisfied or unverified.
+    expect(screen.queryByLabelText(/Mastery proof at target/)).toBeNull();
+    const climb = screen.getByRole("status");
+    expect(climb.textContent).toContain("Climbing to");
+    expect(climb.textContent).toContain("84");
+    expect(climb.textContent).toContain("5 clean");
     expect(screen.queryByText("Mastery not yet satisfied")).toBeNull();
     expect(screen.getByText("75%")).toBeTruthy();
     expect(screen.getByText("hands separate")).toBeTruthy();
     expect(screen.queryByText("4/30")).toBeNull();
+  });
+
+  it("switches to the N-in-a-row target proof once the working tempo reaches target", () => {
+    render(
+      <RepHud
+        snap={makeSnap({
+          bpm: 84,
+          target_bpm: 84,
+          current_clean_streak: 4,
+          mastery_progress_streak: 3,
+        })}
+        feed={[]}
+        error={null}
+        {...callbacks()}
+      />,
+    );
+    // At target the primary number is the target-mastery proof, and the
+    // climbing caption is gone.
+    expect(
+      screen.getByLabelText("Mastery proof at target 3 of 5"),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Climbing to/)).toBeNull();
   });
 
   it("never infers mastery from a legacy attempt count", () => {

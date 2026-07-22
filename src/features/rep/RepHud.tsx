@@ -276,6 +276,27 @@ export function RepHud({
     : currentStreak;
   const requiredStreak =
     snap.effective_required_clean_streak ?? snap.required_clean_streak;
+  // Below the target tempo, target-mastery progress is legitimately 0 — the
+  // pianist must first climb the ladder to the target before any clean can
+  // count toward the "N in a row at target" proof. Showing that frozen "0/7"
+  // as the primary number made every logged clean look ignored (the number
+  // never moved) — exactly the confusion Christian hit climbing 45 → 52.
+  // While climbing we instead surface the RUNG streak, which advances on every
+  // clean (mirroring the spoken "Rung X of N"), and only switch to the target
+  // proof once the working tempo has reached the target. This keeps the
+  // honest-design rule — never render a false mastery fraction — while making
+  // the primary number always respond to the current clean.
+  const climbingToTarget =
+    tempoMastery &&
+    typeof currentStreak === "number" &&
+    snap.bpm != null &&
+    snap.target_bpm != null &&
+    snap.bpm < snap.target_bpm &&
+    snap.mastery_status !== "satisfied";
+  const streakValue = climbingToTarget ? currentStreak : masteryStreak;
+  const streakRequired = climbingToTarget
+    ? snap.rule.clean_needed
+    : requiredStreak;
   const verified = repMasteryVerified(snap);
   const mastery = repMasteryStatus(snap);
   const mastered = verified && mastery === "satisfied";
@@ -335,19 +356,37 @@ export function RepHud({
       <div className="rep-hud-main">
         <div
           className="rep-hud-streak"
-          aria-label={`${tempoMastery ? "Mastery proof at target" : "Current clean streak"} ${masteryStreak ?? "unavailable"} of ${requiredStreak ?? "unavailable"}`}
+          aria-label={
+            climbingToTarget
+              ? `Clean streak at this rung ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}, climbing to ${snap.target_bpm} BPM`
+              : `${tempoMastery ? "Mastery proof at target" : "Current clean streak"} ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}`
+          }
         >
           <span className="rep-hud-streak-value">
-            <strong>{masteryStreak ?? "—"}</strong>
+            <strong>{streakValue ?? "—"}</strong>
             <span aria-hidden="true">/</span>
-            <span>{requiredStreak ?? "—"}</span>
+            <span>{streakRequired ?? "—"}</span>
           </span>
           {snap.focus === "tempo" || snap.use_metronome ? (
             snap.bpm != null && (
-              <span className="rep-hud-tempo">♩ {snap.bpm}</span>
+              <span className="rep-hud-tempo">
+                ♩ {snap.bpm}
+                {climbingToTarget && (
+                  <span className="rep-hud-tempo-target">
+                    {" → "}
+                    {snap.target_bpm}
+                  </span>
+                )}
+              </span>
             )
           ) : (
             <span className="rep-hud-tempo">{snap.focus}</span>
+          )}
+          {climbingToTarget && (
+            <span className="rep-hud-climb" role="status">
+              Climbing to ♩{snap.target_bpm} — then {requiredStreak ?? "—"}{" "}
+              clean in a row
+            </span>
           )}
           {(mastered || !verified) && (
             <span
