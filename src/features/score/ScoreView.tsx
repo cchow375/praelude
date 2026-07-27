@@ -693,6 +693,10 @@ export function ScoreView({
         : scaleMode === "overview"
           ? clampZoom((containerWidth - 64) / (maxPageWidth * 2))
           : clampZoom(manualZoom);
+  // The live scale, mirrored into a ref so the native wheel/pinch listeners can
+  // zoom relative to the current level without re-subscribing on every tick.
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
   const edition = editions.find((item) => item.id === editionId) ?? null;
   const selectedRegion =
     regions.find((region) => region.id === selectedRegionId) ?? null;
@@ -700,6 +704,55 @@ export function ScoreView({
     livePieceIdRef.current = pieceId;
     liveEditionRef.current = edition;
   }, [edition, pieceId]);
+
+  // Trackpad pinch and Cmd/Ctrl+wheel zoom the score like an image. WKWebView
+  // (Chromium-synthesized paths and mice) delivers pinch/zoom as a wheel event
+  // with ctrlKey set; a plain wheel stays a scroll. WebKit's own trackpad pinch
+  // arrives as gesturestart/change/end instead, so both surfaces are handled and
+  // each is mutually exclusive per engine. Every zoom input only moves the live
+  // scale — the crisp re-raster is debounced inside PdfPage — so a pinch tracks
+  // the fingers within the frame with no PDF.js work on the gesture path.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root || phase !== "ready") return;
+    const zoomBy = (factor: number) => {
+      setScaleMode("manual");
+      setManualZoom(clampZoom(scaleRef.current * factor));
+    };
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      // Multiplicative so each notch/pinch delta is a constant proportion of the
+      // current zoom; the small factor keeps a mouse notch near a 10% step while
+      // fine pinch deltas stay smooth.
+      zoomBy(Math.exp(-event.deltaY * 0.0015));
+    };
+    let gestureBase = 1;
+    const onGestureStart = (event: Event) => {
+      event.preventDefault();
+      gestureBase = scaleRef.current;
+      setScaleMode("manual");
+    };
+    const onGestureChange = (event: Event) => {
+      event.preventDefault();
+      const gestureScale = (event as unknown as { scale?: number }).scale ?? 1;
+      setManualZoom(clampZoom(gestureBase * gestureScale));
+    };
+    const onGestureEnd = (event: Event) => event.preventDefault();
+    root.addEventListener("wheel", onWheel, { passive: false });
+    root.addEventListener("gesturestart", onGestureStart as EventListener);
+    root.addEventListener("gesturechange", onGestureChange as EventListener);
+    root.addEventListener("gestureend", onGestureEnd as EventListener);
+    return () => {
+      root.removeEventListener("wheel", onWheel);
+      root.removeEventListener("gesturestart", onGestureStart as EventListener);
+      root.removeEventListener(
+        "gesturechange",
+        onGestureChange as EventListener,
+      );
+      root.removeEventListener("gestureend", onGestureEnd as EventListener);
+    };
+  }, [phase]);
 
   // Load the visible edition's saved calibration so drawn boxes resolve to
   // measures. Empty on a fingerprint the wizard has not mapped yet.
@@ -1280,15 +1333,11 @@ export function ScoreView({
                 let next: number | null = null;
                 if (event.key === "ArrowRight" || event.key === "ArrowDown")
                   next = (index + 1) % SECTION_TABS.length;
-                else if (
-                  event.key === "ArrowLeft" ||
-                  event.key === "ArrowUp"
-                )
+                else if (event.key === "ArrowLeft" || event.key === "ArrowUp")
                   next =
                     (index - 1 + SECTION_TABS.length) % SECTION_TABS.length;
                 else if (event.key === "Home") next = 0;
-                else if (event.key === "End")
-                  next = SECTION_TABS.length - 1;
+                else if (event.key === "End") next = SECTION_TABS.length - 1;
                 if (next == null) return;
                 event.preventDefault();
                 const nextTab = SECTION_TABS[next][0];
@@ -1308,235 +1357,242 @@ export function ScoreView({
           id={`score-region-${region.id}-panel-${sectionTab}`}
           aria-labelledby={`score-region-${region.id}-tab-${sectionTab}`}
         >
+          {sectionTab === "edit" && (
+            <RegionEditor
+              region={region}
+              regions={regions}
+              blocks={regionBlocks}
+              alwaysOpen
+              onChanged={graphChanged}
+            />
+          )}
 
-        {sectionTab === "edit" && (
-          <RegionEditor
-            region={region}
-            regions={regions}
-            blocks={regionBlocks}
-            alwaysOpen
-            onChanged={graphChanged}
-          />
-        )}
-
-        {sectionTab === "marks" &&
-          (mappingThisRegion ? (
-            <div className="score-map-actions">
-              <p>
-                Drag on the score to add a mark. Drag an existing mark to move
-                it; drag its corner to resize. Text notes use this section’s
-                Practice notes.
-              </p>
-              <div
-                className="score-annotation-tools"
-                role="radiogroup"
-                aria-label="Score annotation tool"
-              >
-                {(["box", "highlight", "note"] as PdfAnchorKind[]).map(
-                  (tool) => (
-                    <button
-                      key={tool}
-                      type="button"
-                      role="radio"
-                      aria-checked={mappingThisRegion.tool === tool}
-                      className={mappingThisRegion.tool === tool ? "is-on" : ""}
-                      onClick={() =>
-                        setMapping((current) =>
-                          current ? { ...current, tool } : current,
-                        )
-                      }
-                    >
-                      {tool === "box"
-                        ? "Selection box"
-                        : tool === "highlight"
-                          ? "Highlight"
-                          : "Text note"}
+          {sectionTab === "marks" &&
+            (mappingThisRegion ? (
+              <div className="score-map-actions">
+                <p>
+                  Drag on the score to add a mark. Drag an existing mark to move
+                  it; drag its corner to resize. Text notes use this section’s
+                  Practice notes.
+                </p>
+                <div
+                  className="score-annotation-tools"
+                  role="radiogroup"
+                  aria-label="Score annotation tool"
+                >
+                  {(["box", "highlight", "note"] as PdfAnchorKind[]).map(
+                    (tool) => (
+                      <button
+                        key={tool}
+                        type="button"
+                        role="radio"
+                        aria-checked={mappingThisRegion.tool === tool}
+                        className={
+                          mappingThisRegion.tool === tool ? "is-on" : ""
+                        }
+                        onClick={() =>
+                          setMapping((current) =>
+                            current ? { ...current, tool } : current,
+                          )
+                        }
+                      >
+                        {tool === "box"
+                          ? "Selection box"
+                          : tool === "highlight"
+                            ? "Highlight"
+                            : "Text note"}
+                      </button>
+                    ),
+                  )}
+                </div>
+                {mappingThisRegion.rects.length > 0 && (
+                  <ol className="score-annotation-list">
+                    {mappingThisRegion.rects.map((rect, index) => (
+                      <li key={`${rect.page}-${index}`}>
+                        <button
+                          type="button"
+                          className="score-annotation-jump"
+                          onClick={() => jumpTo(rect.page)}
+                        >
+                          {anchorKind(rect) === "box"
+                            ? "Selection box"
+                            : anchorKind(rect) === "highlight"
+                              ? "Highlight"
+                              : "Text note"}{" "}
+                          · page {rect.page}
+                        </button>
+                        <div className="score-annotation-row-actions">
+                          <select
+                            aria-label={`Annotation ${index + 1} type`}
+                            value={anchorKind(rect)}
+                            onChange={(event) =>
+                              setMapping((current) => {
+                                if (!current) return current;
+                                const kind = event.target
+                                  .value as PdfAnchorKind;
+                                return {
+                                  ...current,
+                                  rects: current.rects.map(
+                                    (item, itemIndex) => {
+                                      if (itemIndex !== index) return item;
+                                      const { kind: _oldKind, ...geometry } =
+                                        item;
+                                      return kind === "box"
+                                        ? geometry
+                                        : { ...geometry, kind };
+                                    },
+                                  ),
+                                };
+                              })
+                            }
+                          >
+                            <option value="box">Selection box</option>
+                            <option value="highlight">Highlight</option>
+                            <option value="note">Text note</option>
+                          </select>
+                          <ConfirmDelete
+                            label={`Remove this ${anchorKind(rect)} from page ${rect.page}? This remains a draft until Save changes.`}
+                            onConfirm={async () =>
+                              setMapping((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      rects: current.rects.filter(
+                                        (_, itemIndex) => itemIndex !== index,
+                                      ),
+                                    }
+                                  : current,
+                              )
+                            }
+                          >
+                            <button type="button">Remove</button>
+                          </ConfirmDelete>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                <button
+                  type="button"
+                  aria-label="Undo last score annotation"
+                  disabled={mappingThisRegion.rects.length === 0}
+                  onClick={() =>
+                    setMapping((current) =>
+                      current
+                        ? { ...current, rects: current.rects.slice(0, -1) }
+                        : current,
+                    )
+                  }
+                >
+                  Undo last
+                </button>
+                <button
+                  type="button"
+                  aria-label="Save score annotations"
+                  disabled={savingMap}
+                  onClick={() => void persistMapping(mappingThisRegion.rects)}
+                >
+                  Save changes
+                </button>
+                <button type="button" onClick={() => setMapping(null)}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="score-map-actions">
+                {savedAnchor?.rects.length ? (
+                  <ol className="score-annotation-list score-saved-annotation-list">
+                    {savedAnchor.rects.map((rect, index) => (
+                      <li key={`${rect.page}-${index}`}>
+                        <button
+                          type="button"
+                          className="score-annotation-jump"
+                          onClick={() => jumpTo(rect.page)}
+                        >
+                          Go to{" "}
+                          {anchorKind(rect) === "box"
+                            ? "box"
+                            : anchorKind(rect)}{" "}
+                          {index + 1} · page {rect.page}
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p>No score marks in this edition yet.</p>
+                )}
+                <button
+                  type="button"
+                  aria-label={`Edit score annotations for ${region.name}`}
+                  onClick={() => beginMapping(region)}
+                >
+                  {savedAnchor ? "Edit score marks" : "Add to score"}
+                </button>
+                {savedAnchor && (
+                  <ConfirmDelete
+                    label={`Delete every score box, highlight, and note for “${region.name}” in this edition? The Tricky Section and its practice history will stay.`}
+                    onConfirm={() => persistMapping([])}
+                  >
+                    <button type="button" className="is-danger">
+                      Clear this edition
                     </button>
-                  ),
+                  </ConfirmDelete>
                 )}
               </div>
-              {mappingThisRegion.rects.length > 0 && (
-                <ol className="score-annotation-list">
-                  {mappingThisRegion.rects.map((rect, index) => (
-                    <li key={`${rect.page}-${index}`}>
-                      <button
-                        type="button"
-                        className="score-annotation-jump"
-                        onClick={() => jumpTo(rect.page)}
-                      >
-                        {anchorKind(rect) === "box"
-                          ? "Selection box"
-                          : anchorKind(rect) === "highlight"
-                            ? "Highlight"
-                            : "Text note"}{" "}
-                        · page {rect.page}
-                      </button>
-                      <div className="score-annotation-row-actions">
-                        <select
-                          aria-label={`Annotation ${index + 1} type`}
-                          value={anchorKind(rect)}
-                          onChange={(event) =>
-                            setMapping((current) => {
-                              if (!current) return current;
-                              const kind = event.target.value as PdfAnchorKind;
-                              return {
-                                ...current,
-                                rects: current.rects.map((item, itemIndex) => {
-                                  if (itemIndex !== index) return item;
-                                  const { kind: _oldKind, ...geometry } = item;
-                                  return kind === "box"
-                                    ? geometry
-                                    : { ...geometry, kind };
-                                }),
-                              };
-                            })
-                          }
-                        >
-                          <option value="box">Selection box</option>
-                          <option value="highlight">Highlight</option>
-                          <option value="note">Text note</option>
-                        </select>
-                        <ConfirmDelete
-                          label={`Remove this ${anchorKind(rect)} from page ${rect.page}? This remains a draft until Save changes.`}
-                          onConfirm={async () =>
-                            setMapping((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    rects: current.rects.filter(
-                                      (_, itemIndex) => itemIndex !== index,
-                                    ),
-                                  }
-                                : current,
-                            )
-                          }
-                        >
-                          <button type="button">Remove</button>
-                        </ConfirmDelete>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
+            ))}
+
+          {sectionTab === "practice" && onOpenBlock && (
+            <section
+              className="score-practice-region"
+              aria-label="Start a practice set"
+            >
+              {regionBlocks.length > 0 && (
+                <ul className="score-region-blocks">
+                  {regionBlocks.slice(0, 2).map((block) => {
+                    const attempts =
+                      block.attempts_recorded ?? block.tries ?? block.reps_done;
+                    const mastery = block.mastery_verified
+                      ? block.mastery_status === "satisfied"
+                        ? "mastery verified"
+                        : "mastery not yet"
+                      : "mastery unverified";
+                    return (
+                      <li key={block.block_id}>
+                        mm. {block.m_start}–{block.m_end}
+                        <span>
+                          {attempts} attempts · {mastery}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
-              <button
-                type="button"
-                aria-label="Undo last score annotation"
-                disabled={mappingThisRegion.rects.length === 0}
-                onClick={() =>
-                  setMapping((current) =>
-                    current
-                      ? { ...current, rects: current.rects.slice(0, -1) }
-                      : current,
-                  )
+              <BlockForm
+                key={`${region.id}:${region.name}:${region.m_start}:${region.m_end}`}
+                pieceId={pieceId}
+                regionId={region.id}
+                defaultMeasureStart={region.m_start}
+                defaultMeasureEnd={region.m_end}
+                defaultLabel={region.name}
+                defaultTargetBpm={defaultTargetBpm}
+                defaultCleanStreak={defaultCleanStreak}
+                onOpen={onOpenBlock}
+                opening={opening}
+                blockedReason={
+                  activeRange
+                    ? activeRange.m_start === region.m_start &&
+                      activeRange.m_end === region.m_end
+                      ? "This section is already active in the practice set above."
+                      : "Close the active practice set before starting another."
+                    : null
                 }
-              >
-                Undo last
-              </button>
-              <button
-                type="button"
-                aria-label="Save score annotations"
-                disabled={savingMap}
-                onClick={() => void persistMapping(mappingThisRegion.rects)}
-              >
-                Save changes
-              </button>
-              <button type="button" onClick={() => setMapping(null)}>
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <div className="score-map-actions">
-              {savedAnchor?.rects.length ? (
-                <ol className="score-annotation-list score-saved-annotation-list">
-                  {savedAnchor.rects.map((rect, index) => (
-                    <li key={`${rect.page}-${index}`}>
-                      <button
-                        type="button"
-                        className="score-annotation-jump"
-                        onClick={() => jumpTo(rect.page)}
-                      >
-                        Go to{" "}
-                        {anchorKind(rect) === "box" ? "box" : anchorKind(rect)}{" "}
-                        {index + 1} · page {rect.page}
-                      </button>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p>No score marks in this edition yet.</p>
-              )}
-              <button
-                type="button"
-                aria-label={`Edit score annotations for ${region.name}`}
-                onClick={() => beginMapping(region)}
-              >
-                {savedAnchor ? "Edit score marks" : "Add to score"}
-              </button>
-              {savedAnchor && (
-                <ConfirmDelete
-                  label={`Delete every score box, highlight, and note for “${region.name}” in this edition? The Tricky Section and its practice history will stay.`}
-                  onConfirm={() => persistMapping([])}
-                >
-                  <button type="button" className="is-danger">
-                    Clear this edition
-                  </button>
-                </ConfirmDelete>
-              )}
-            </div>
-          ))}
+              />
+            </section>
+          )}
 
-        {sectionTab === "practice" && onOpenBlock && (
-          <section
-            className="score-practice-region"
-            aria-label="Start a practice set"
-          >
-            {regionBlocks.length > 0 && (
-              <ul className="score-region-blocks">
-                {regionBlocks.slice(0, 2).map((block) => {
-                  const attempts =
-                    block.attempts_recorded ?? block.tries ?? block.reps_done;
-                  const mastery = block.mastery_verified
-                    ? block.mastery_status === "satisfied"
-                      ? "mastery verified"
-                      : "mastery not yet"
-                    : "mastery unverified";
-                  return (
-                    <li key={block.block_id}>
-                      mm. {block.m_start}–{block.m_end}
-                      <span>
-                        {attempts} attempts · {mastery}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            <BlockForm
-              key={`${region.id}:${region.name}:${region.m_start}:${region.m_end}`}
-              pieceId={pieceId}
-              regionId={region.id}
-              defaultMeasureStart={region.m_start}
-              defaultMeasureEnd={region.m_end}
-              defaultLabel={region.name}
-              defaultTargetBpm={defaultTargetBpm}
-              defaultCleanStreak={defaultCleanStreak}
-              onOpen={onOpenBlock}
-              opening={opening}
-              blockedReason={
-                activeRange
-                  ? activeRange.m_start === region.m_start &&
-                    activeRange.m_end === region.m_end
-                    ? "This section is already active in the practice set above."
-                    : "Close the active practice set before starting another."
-                  : null
-              }
-            />
-          </section>
-        )}
-
-        {sectionTab === "tutorial" && (
-          <TutorialPanel pieceId={pieceId} regionId={region.id} />
-        )}
+          {sectionTab === "tutorial" && (
+            <TutorialPanel pieceId={pieceId} regionId={region.id} />
+          )}
         </div>
       </div>
     );

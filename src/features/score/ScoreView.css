@@ -343,9 +343,10 @@
   border: 1px solid var(--hairline);
   background: white;
   box-shadow: var(--shadow-popover);
-  transition:
-    width var(--duration-fast) var(--ease-standard),
-    height var(--duration-fast) var(--ease-standard);
+  /* The page box is laid out at the live zoom scale every frame, so a zoom
+     press or trackpad pinch must resize it instantly. A width/height transition
+     here would make the box trail ~120ms behind the gesture — the very lag this
+     viewer is tuned to remove — so page sizing is deliberately un-animated. */
 }
 
 /* A buffered neighbor stays mounted so its canvas is pre-rendered for instant
