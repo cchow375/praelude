@@ -1,5 +1,6 @@
 import {
   cleanup,
+  createEvent,
   fireEvent,
   render,
   screen,
@@ -201,6 +202,27 @@ describe("UniverseWorkspace force graph", () => {
     ).toBeTruthy();
   });
 
+  it("suppresses mouse-press focus on a node so a click can't scroll-teleport it", async () => {
+    const { container } = render(
+      <UniverseWorkspace onOpenPractice={vi.fn()} />,
+    );
+    await screen.findByRole("heading", { name: "Your earned systems" });
+
+    const planet = node(container, "region-1");
+    // The node stays keyboard-focusable for a11y (Tab + Enter still work).
+    expect(planet.getAttribute("tabindex")).toBe("0");
+
+    // A primary-button press must call preventDefault. Because the <g> is
+    // focusable, the browser's focus-on-press would otherwise scroll it to the
+    // centre of the nearest scroll container — the reported "clicked ball
+    // teleports to the middle of the view" regression. preventDefault on the
+    // (delegated) pointerdown cancels the compat mousedown whose default action
+    // is focus, while leaving keyboard Tab focus untouched.
+    const down = createEvent.pointerDown(planet, { button: 0, pointerId: 5 });
+    fireEvent(planet, down);
+    expect(down.defaultPrevented).toBe(true);
+  });
+
   it("opens graph detail with the keyboard and from the text equivalent", async () => {
     render(<UniverseWorkspace onOpenPractice={vi.fn()} />);
     await screen.findByRole("heading", { name: "Your earned systems" });
@@ -213,7 +235,9 @@ describe("UniverseWorkspace force graph", () => {
     ).toBeTruthy();
 
     fireEvent.click(screen.getByText("Evidence ledger — text equivalent"));
-    fireEvent.click(screen.getByRole("button", { name: "Nocturne Op. 9 No. 2" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Nocturne Op. 9 No. 2" }),
+    );
     expect(
       await screen.findByRole("complementary", {
         name: "Nocturne Op. 9 No. 2",

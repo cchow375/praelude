@@ -355,6 +355,13 @@ export function UniverseWorkspace({
 
   const onPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {
     if (event.button !== 0) return;
+    // Suppress the browser's focus-on-press: the node <g> is keyboard-focusable
+    // (tabIndex 0, for a11y), and a mouse press would otherwise focus it and
+    // scroll it to the centre of the nearest scroll container — the node appears
+    // to "teleport" to the middle of the view. preventDefault on this (bubbled)
+    // pointerdown cancels the compat mousedown whose default action is focus,
+    // while leaving Tab keyboard focus untouched.
+    event.preventDefault();
     const targetEl = event.target as Element;
     const nodeEl = targetEl.closest?.("[data-node-id]") as HTMLElement | null;
     const metrics = svgMetrics(event.currentTarget);
@@ -744,11 +751,14 @@ export function UniverseWorkspace({
                           role="button"
                           tabIndex={0}
                           aria-label={`${node.kind} · ${node.label}`}
-                          aria-pressed={node.kind === "cluster" ? undefined : selected}
+                          aria-pressed={
+                            node.kind === "cluster" ? undefined : selected
+                          }
                           onFocus={() => setHoveredId(node.id)}
                           onBlur={() => setHoveredId(null)}
                           onKeyDown={(event) => {
-                            if (event.key !== "Enter" && event.key !== " ") return;
+                            if (event.key !== "Enter" && event.key !== " ")
+                              return;
                             event.preventDefault();
                             event.stopPropagation();
                             activateNode(node);
