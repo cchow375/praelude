@@ -200,6 +200,29 @@ function makePdf(pageCount = 5) {
   return { adapter, document, getPage, cancels };
 }
 
+// A fake whose page dimensions match DEFAULT_PAGE_SIZE (612×792), so the initial
+// fit scale never shifts when the true page size is discovered — that keeps the
+// getPage (rasterize) count deterministic for the zoom-debounce assertions.
+function makeSizedPdf(pageWidth = 612, pageHeight = 792, pageCount = 1) {
+  const getPage = vi.fn(async () => ({
+    width: pageWidth,
+    height: pageHeight,
+    cleanup: vi.fn(),
+    render: (canvas: HTMLCanvasElement): PdfRenderTask => {
+      canvas.width = Math.round(pageWidth * 2);
+      canvas.height = Math.round(pageHeight * 2);
+      return { promise: Promise.resolve(), cancel: vi.fn() };
+    },
+  }));
+  const document: PdfDocumentHandle = {
+    numPages: pageCount,
+    getPage,
+    destroy: vi.fn().mockResolvedValue(undefined),
+  };
+  const adapter: PdfAdapter = { load: vi.fn().mockResolvedValue(document) };
+  return { adapter, document, getPage };
+}
+
 function makeMinimalPdf(): ArrayBuffer {
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
@@ -945,7 +968,9 @@ describe("ScoreView", () => {
     window.dispatchEvent(key);
 
     expect(key.defaultPrevented).toBe(false);
-    expect((screen.getByLabelText("Page number") as HTMLInputElement).value).toBe("1");
+    expect(
+      (screen.getByLabelText("Page number") as HTMLInputElement).value,
+    ).toBe("1");
   });
 
   it("persists edition selection before loading the new PDF", async () => {
@@ -983,6 +1008,95 @@ describe("ScoreView", () => {
     expect(screen.getByLabelText("Page number").getAttribute("value")).toBe(
       "4",
     );
+  });
+
+  it("resizes the page within the frame on zoom but debounces the crisp re-render", async () => {
+    const pdf = makeSizedPdf();
+    render(<ScoreView pieceId={7} api={makeApi()} adapter={pdf.adapter} />);
+    const page = await screen.findByLabelText("Score page 1");
+    await waitFor(() => expect(pdf.getPage).toHaveBeenCalledTimes(1));
+
+    const widthBefore = Number.parseFloat(page.style.width);
+    const rasterBefore = pdf.getPage.mock.calls.length;
+
+    fireEvent.click(screen.getByLabelText("Zoom in"));
+
+    // Instant: the page box grows the same tick the button is pressed…
+    expect(Number.parseFloat(page.style.width)).toBeGreaterThan(widthBefore);
+    // …but PDF.js is NOT invoked on the input path — no synchronous re-raster.
+    expect(pdf.getPage.mock.calls.length).toBe(rasterBefore);
+    // The sharp bitmap is rasterized exactly once, after the zoom settles.
+    await waitFor(() =>
+      expect(pdf.getPage.mock.calls.length).toBeGreaterThan(rasterBefore),
+    );
+  });
+
+  it("does not re-rasterize page canvases while drawing a selection", async () => {
+    const region = {
+      id: 4,
+      piece_id: 7,
+      name: "Development",
+      notes: "Even groups",
+      m_start: 40,
+      m_end: 56,
+      kind: "section",
+      order: 0,
+      color: "#8b7cf6",
+      pdf_anchor: null,
+    };
+    const pdf = makeSizedPdf();
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ regions: vi.fn().mockResolvedValue([region]) })}
+        adapter={pdf.adapter}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+    await waitFor(() => expect(pdf.getPage).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Development, measures 40 to 56",
+      }),
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Score marks" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit score annotations for Development",
+      }),
+    );
+
+    // Freeze the rasterize count once mapping mode is armed; the drag below must
+    // not move it — a drag-select is overlay-only and never touches the bitmap.
+    const overlay = screen.getByTestId("page-overlay-1");
+    const rasterBefore = pdf.getPage.mock.calls.length;
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 800,
+      width: 1000,
+      height: 800,
+      toJSON: () => ({}),
+    } as DOMRect);
+    fireEvent.pointerDown(overlay, {
+      pointerId: 1,
+      clientX: 100,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(overlay, {
+      pointerId: 1,
+      clientX: 500,
+      clientY: 400,
+    });
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
+
+    // The draft rect now lives in ScoreView state and re-rendered the overlay,
+    // but the page bitmap was never re-decoded.
+    expect(pdf.getPage.mock.calls.length).toBe(rasterBefore);
   });
 
   it("sends one validated, idempotent Score Atlas payload from a drawn, confirmed target", async () => {
