@@ -210,6 +210,22 @@
 .rep-hud-tempo-target {
   color: var(--ink-faint);
 }
+/* Rung-completion step receipt: a clean cleared the rung and the tempo steps up.
+   The ✓ reads in the same success signal as a clean feed symbol / verified
+   mastery (monochrome law: the only non-ink tokens are the two semantic
+   signals). No gradient, no motion — the headline simply holds N/N briefly. */
+.rep-hud-step-receipt {
+  font-family: var(--font-mono);
+  color: var(--signal-success);
+}
+/* A single quiet border emphasis while the filled rung holds — same hairline
+   idiom as the reset pulse, deliberately not flashy. */
+@media (prefers-reduced-motion: reduce) {
+  .rep-hud,
+  .rep-hud.is-reset-pulse {
+    animation: none;
+  }
+}
 /* While climbing the ladder the big number is the current rung, not the target
    proof — this caption tells the pianist the number they're watching moves per
    clean and what the target proof will ask once they reach the target tempo. */
