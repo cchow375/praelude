@@ -285,8 +285,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     pieceId: null as number | null,
     revision: 0,
   });
-  const [ledgerSurface, setLedgerSurface] =
-    useState<LedgerSurface>("ledger");
+  const [ledgerSurface, setLedgerSurface] = useState<LedgerSurface>("ledger");
   const [requestedLedgerPiece, setRequestedLedgerPiece] = useState({
     pieceId: null as number | null,
     revision: 0,
@@ -558,10 +557,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       if (targetBlockId === null) {
         return "This answer was not grounded in an active set. Ask again while the set is open.";
       }
-      if (
-        rep.snap &&
-        targetBlockId !== rep.snap.block_id
-      ) {
+      if (rep.snap && targetBlockId !== rep.snap.block_id) {
         return "The active set changed. Ask again before applying this action.";
       }
       if (rep.snap) return null;
@@ -686,9 +682,10 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       const oldest = spokenDraftKeys.current.values().next().value;
       if (oldest) spokenDraftKeys.current.delete(oldest);
     }
-    const text = pendingVoiceDraft && rep.snap
-      ? "A practice set is already active. Close or finish it before starting another, or say cancel."
-      : actionDraftSpeech(draft);
+    const text =
+      pendingVoiceDraft && rep.snap
+        ? "A practice set is already active. Close or finish it before starting another, or say cancel."
+        : actionDraftSpeech(draft);
     void invoke("voice_speak", { text }).catch(() => {
       // The visual confirmation remains authoritative if TTS is unavailable.
     });
@@ -770,6 +767,17 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
 
   const openCalendar = useCallback(() => {
     setLedgerSurface("calendar");
+    setRequestedLedgerPiece((current) => ({
+      pieceId: null,
+      revision: current.revision + 1,
+    }));
+    setView("ledger");
+  }, []);
+
+  // The main menu's "Ledger" entry opens the history surface (not the calendar
+  // one openCalendar forces), resetting any prior piece selection.
+  const openLedgerHistory = useCallback(() => {
+    setLedgerSurface("ledger");
     setRequestedLedgerPiece((current) => ({
       pieceId: null,
       revision: current.revision + 1,
@@ -949,6 +957,10 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                     }}
                     onOpenCalendar={openCalendar}
                     onOpenPiece={openPiece}
+                    onOpenBrain={() => setView("brain")}
+                    onOpenLedger={openLedgerHistory}
+                    onOpenUniverse={() => setView("universe")}
+                    onOpenSettings={openSettings}
                     defaultCleanStreak={defaultCleanStreak}
                     activeBlock={rep.snap}
                   />
@@ -1006,7 +1018,9 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
             <ActionDraftCard
               draft={pendingBrainAction.action}
               confirming={brainActionConfirming}
-              unavailableReason={brainActionUnavailableReason(pendingBrainAction)}
+              unavailableReason={brainActionUnavailableReason(
+                pendingBrainAction,
+              )}
               onCancel={cancelBrainAction}
               onConfirm={() => void confirmBrainAction(pendingBrainAction)}
             />
@@ -1014,9 +1028,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
             <ActionDraftCard
               draft={pendingVoiceDraft.draft}
               confirming={voiceDraftConfirming}
-              unavailableReason={rep.snap
-                ? ACTIVE_SET_DRAFT_UNAVAILABLE
-                : null}
+              unavailableReason={rep.snap ? ACTIVE_SET_DRAFT_UNAVAILABLE : null}
               onDraftChange={(draft) => {
                 latestVoiceDraft.current = {
                   ...pendingVoiceDraft,

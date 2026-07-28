@@ -1,18 +1,28 @@
-.today-workspace {
+/* ── Main menu ─────────────────────────────────────────────────────────── */
+.today-menu {
+  display: flex;
   min-height: 100%;
-  padding: clamp(1.25rem, 4vw, 3.5rem) clamp(1.25rem, 4.5vw, 4.5rem) 5rem;
-  overflow-x: hidden;
-  overflow-y: auto;
+  padding: clamp(1.5rem, 6vh, 5rem) clamp(1.25rem, 5vw, 4rem);
   background: var(--bg);
 }
-
-.today-masthead {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(14rem, 0.7fr);
-  align-items: end;
-  gap: var(--s-6);
-  max-width: 78rem;
-  margin: 0 auto clamp(2rem, 5vw, 5rem);
+.today-menu-inner {
+  width: 100%;
+  max-width: 30rem;
+  margin: auto;
+}
+.today-menu-mark {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--ink);
+}
+.today-menu-mark-glyph {
+  color: var(--ink-dim);
+}
+.today-menu-wordmark {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .today-date,
@@ -25,34 +35,159 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-
-.today-date {
-  grid-column: 1 / -1;
+.today-menu-date {
+  margin-top: var(--s-5);
+}
+.today-menu-quote {
+  margin: var(--s-2) 0 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--ink-dim);
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  font-style: italic;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.today-masthead h1 {
-  margin: 0;
+.today-menu-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin-top: clamp(1.5rem, 4vh, 2.5rem);
+}
+.today-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  padding: var(--s-3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+.today-menu-item:hover {
+  color: var(--ink);
+  background: var(--bg-raised);
+}
+.today-menu-item:active {
+  transform: translateY(1px);
+}
+.today-menu-item.is-primary {
+  color: var(--ink);
+  font-weight: 600;
+}
+.today-menu-icon {
+  flex: none;
+  color: var(--ink-faint);
+}
+.today-menu-item:hover .today-menu-icon,
+.today-menu-item.is-primary .today-menu-icon {
+  color: var(--ink-dim);
+}
+
+/* ── Today's Practice window (opens over the menu) ─────────────────────── */
+.today-practice-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  padding: clamp(0.75rem, 3vh, 2.5rem);
+  background: rgba(6, 6, 8, 0.62);
+  animation: today-overlay-in var(--dur-base) var(--ease-out);
+}
+.today-practice-window {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 78rem;
+  max-height: 100%;
+  margin: auto;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  box-shadow: var(--shadow-popover);
+  animation: today-window-in var(--dur-slow) var(--ease-out);
+}
+.today-practice-window:focus {
+  outline: none;
+}
+.today-practice-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-5) var(--s-5) var(--s-4);
+  border-bottom: 1px solid var(--hairline);
+}
+.today-practice-head h1 {
+  margin: var(--s-1) 0 0;
   color: var(--ink);
   font-family: var(--font-sans);
-  font-size: clamp(2.6rem, 6vw, 4.5rem);
+  font-size: 1.5rem;
   font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.02;
+  letter-spacing: -0.01em;
+}
+.today-practice-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+.today-practice-close:hover {
+  color: var(--ink);
+  background: var(--bg-raised);
+}
+.today-practice-body {
+  padding: var(--s-5);
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
-.today-masthead h1 em {
-  color: var(--ink-dim);
-  font-style: normal;
-  font-weight: 600;
+@keyframes today-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
-
-.today-thesis {
-  max-width: 27rem;
-  margin: 0 0 0.35rem;
-  color: var(--ink-dim);
-  font-family: var(--font-sans);
-  font-size: clamp(0.95rem, 1.4vw, 1.1rem);
-  line-height: 1.45;
+@keyframes today-window-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .today-practice-overlay,
+  .today-practice-window {
+    animation: none;
+  }
 }
 
 .today-error {

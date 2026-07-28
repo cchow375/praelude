@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   within,
@@ -41,8 +42,14 @@ describe("dev-mock five-workspace render harness", () => {
         onOpenAtlas={() => {}}
         onOpenCalendar={() => {}}
         onOpenPiece={() => {}}
+        onOpenBrain={() => {}}
+        onOpenLedger={() => {}}
+        onOpenUniverse={() => {}}
+        onOpenSettings={() => {}}
       />,
     );
+    // Today is the app menu now; the day surfaces open as a window over it.
+    fireEvent.click(screen.getByRole("button", { name: "Today's Practice" }));
     // universe_snapshot drives the "Next honest move" card with the recent piece.
     expect(
       await screen.findByRole("heading", { name: "Scherzo No. 2" }),
