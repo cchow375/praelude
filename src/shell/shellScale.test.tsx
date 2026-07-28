@@ -43,8 +43,13 @@ describe("Shell rail scale (B4)", () => {
 
   it("gives the Metronome and Settings foot buttons the same inline-SVG glyph", () => {
     render(<Shell />);
+    // Scope to the rail: the Today main menu renders its own "Settings" entry.
+    const rail = screen
+      .getByRole("tablist", { name: /workspace/i })
+      .closest(".shell-rail") as HTMLElement;
+    expect(rail, "rail container exists").not.toBeNull();
     for (const name of ["Metronome", "Settings"]) {
-      const button = screen.getByRole("button", { name });
+      const button = within(rail).getByRole("button", { name });
       expect(
         button.querySelector("svg.shell-nav-icon"),
         `${name} foot button has an inline-SVG glyph`,
