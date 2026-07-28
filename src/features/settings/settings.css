@@ -28,6 +28,22 @@
   gap: var(--s-2);
 }
 
+/* Icon-labelled section headers (same monochrome idiom as the metronome). */
+.settings-section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.settings-section-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--ink-faint);
+}
+.settings-section-icon svg {
+  display: block;
+}
+
 .settings-success {
   color: var(--signal-success);
   font-size: 0.875rem;

@@ -1,0 +1,119 @@
+/* ===========================================================================
+   Metronome quick bar — always-available compact controls in a header.
+   One monochrome pill group: instrument icon, play/stop, a draggable BPM
+   readout, and tap-tempo. No hue, no borders beyond a single hairline.
+   ========================================================================== */
+
+.metro-qb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  user-select: none;
+}
+
+.metro-qb-icon,
+.metro-qb-play {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-dim);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+.metro-qb-icon:hover,
+.metro-qb-play:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.metro-qb-play:active {
+  transform: scale(0.9);
+}
+.metro-qb-icon.is-open {
+  background: var(--surface-active);
+  color: var(--ink);
+}
+.metro-qb-play[data-running="true"] {
+  color: var(--ink);
+  background: var(--surface-active);
+}
+.metro-qb-icon:focus-visible,
+.metro-qb-play:focus-visible,
+.metro-qb-tap:focus-visible,
+.metro-qb-readout:focus-visible {
+  outline: 2px solid var(--ink-dim);
+  outline-offset: 2px;
+}
+
+/* Live BPM readout — drag horizontally or scroll to change the tempo. */
+.metro-qb-readout {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 0 var(--s-2);
+  height: 30px;
+  border-radius: var(--r-sm);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.metro-qb-readout:hover {
+  background: var(--surface-hover);
+}
+.metro-qb-bpm {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  line-height: 30px;
+  min-width: 2.4ch;
+  text-align: center;
+}
+.metro-qb-unit {
+  font-size: 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+
+.metro-qb-tap {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: 30px;
+  padding: 0 var(--s-2);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--ink-dim);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.metro-qb-tap:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.metro-qb-tap:active {
+  color: var(--ink);
+}
+.metro-qb-tap svg {
+  display: block;
+}

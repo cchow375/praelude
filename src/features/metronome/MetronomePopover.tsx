@@ -4,7 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { Popover } from "../../components/Popover";
@@ -20,11 +20,20 @@ import {
   tempoName,
   useMetronome,
 } from "./useMetronome";
+import { useTempoScrubber } from "./useTempoScrubber";
+import {
+  AccentGlyph,
+  BeatsGlyph,
+  BoostGlyph,
+  MinusGlyph,
+  PlayGlyph,
+  PlusGlyph,
+  SoundGlyph,
+  StopGlyph,
+  SubdivGlyph,
+  VolumeGlyph,
+} from "./MetronomeIcons";
 import "./MetronomePopover.css";
-
-// Pixels of horizontal drag per 1 bpm on the tempo wheel — a light touch so the
-// tempo responds immediately but stays controllable.
-const PX_PER_BPM = 3.2;
 
 // Interactive controls that must keep native Space/Enter activation — the
 // space-toggle window listener must never hijack Space from these.
@@ -38,15 +47,25 @@ interface MetronomePopoverProps {
 }
 
 /**
- * The metronome instrument: a single popover with a large tempo readout (tap
- * ±1, drag-wheel, direct type), Italian tempo name, beats-per-bar & subdivision
- * steppers, a 6-sound picker with instant preview, a gain slider, a boost
- * toggle, and start/stop. Space toggles start/stop while the popover is open.
- * Nothing is pinned outside the popover.
+ * The metronome instrument: a single fixed-grid popover that never scrolls at
+ * the default window size. A large tempo readout (nudge ±1, drag/scroll wheel,
+ * direct type) with its Italian tempo name, icon-labelled beats-per-bar &
+ * subdivision steppers, a 6-sound picker with instant preview, an icon volume
+ * slider, accent + boost toggles, and start/stop. Space toggles start/stop
+ * while the popover is open. Nothing is pinned outside the popover.
  */
-export function MetronomePopover({ anchorRef, open, onClose }: MetronomePopoverProps) {
+export function MetronomePopover({
+  anchorRef,
+  open,
+  onClose,
+}: MetronomePopoverProps) {
   return (
-    <Popover anchorRef={anchorRef} open={open} onClose={onClose} label="Metronome">
+    <Popover
+      anchorRef={anchorRef}
+      open={open}
+      onClose={onClose}
+      label="Metronome"
+    >
       <MetronomePanel open={open} />
     </Popover>
   );
@@ -79,7 +98,9 @@ function MetronomePanel({ open }: { open: boolean }) {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== "Space" && e.key !== " ") return;
-      const t = (e.target as HTMLElement | null) ?? (document.activeElement as HTMLElement | null);
+      const t =
+        (e.target as HTMLElement | null) ??
+        (document.activeElement as HTMLElement | null);
       if (t?.closest(INTERACTIVE_SELECTOR)) return;
       e.preventDefault();
       toggle();
@@ -88,60 +109,18 @@ function MetronomePanel({ open }: { open: boolean }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, toggle]);
 
-  // --- Tempo wheel (horizontal drag = ±1 bpm / few px, with pointer capture) --
-  const drag = useRef<{ startX: number; startBpm: number; lastBpm: number } | null>(null);
-
-  const onWheelPointerDown = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        // Not implemented in some environments (e.g. jsdom) — drag still
-        // works via document-level pointermove/up in real browsers that
-        // lack capture; here it degrades to plain move tracking.
-      }
-      drag.current = { startX: e.clientX, startBpm: state.bpm, lastBpm: state.bpm };
-    },
-    [state.bpm],
-  );
-
-  const onWheelPointerMove = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      const d = drag.current;
-      if (!d) return;
-      const next = d.startBpm + Math.round((e.clientX - d.startX) / PX_PER_BPM);
-      if (next !== d.lastBpm) {
-        d.lastBpm = next;
-        m.setBpmDrag(next);
-      }
-    },
-    [m],
-  );
-
-  const endWheelDrag = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      const d = drag.current;
-      if (d) {
-        try {
-          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-            e.currentTarget.releasePointerCapture(e.pointerId);
-          }
-        } catch {
-          // Not implemented in some environments — nothing to release.
-        }
-        m.commitBpmDrag(d.lastBpm);
-      }
-      drag.current = null;
-    },
-    [m],
-  );
+  // Shared drag/scroll/arrow tempo gestures for the wheel band.
+  const scrub = useTempoScrubber(m, state.bpm);
 
   // Beat-flash sweep: pure CSS. The dots animate at the bar/beat period derived
   // from bpm — durations set here, never a per-beat JS timer.
   const beatPeriod = 60 / Math.max(state.bpm, 1);
   const barPeriod = beatPeriod * Math.max(state.beats_per_bar, 1);
   const beats = Math.min(Math.max(state.beats_per_bar, 1), MAX_BEATS_PER_BAR);
-  const beatDots = useMemo(() => Array.from({ length: beats }, (_, i) => i), [beats]);
+  const beatDots = useMemo(
+    () => Array.from({ length: beats }, (_, i) => i),
+    [beats],
+  );
 
   const tempoValue = draft ?? String(state.bpm);
 
@@ -156,7 +135,7 @@ function MetronomePanel({ open }: { open: boolean }) {
             aria-label="Decrease tempo"
             onClick={() => m.nudgeBpm(-1)}
           >
-            −
+            <MinusGlyph size={18} />
           </button>
           <div className="metro-readout">
             <input
@@ -170,7 +149,9 @@ function MetronomePanel({ open }: { open: boolean }) {
                 setDraft(String(state.bpm));
                 e.currentTarget.select();
               }}
-              onChange={(e) => setDraft(e.currentTarget.value.replace(/[^0-9]/g, ""))}
+              onChange={(e) =>
+                setDraft(e.currentTarget.value.replace(/[^0-9]/g, ""))
+              }
               onBlur={commitDraft}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -190,7 +171,7 @@ function MetronomePanel({ open }: { open: boolean }) {
             aria-label="Increase tempo"
             onClick={() => m.nudgeBpm(1)}
           >
-            +
+            <PlusGlyph size={18} />
           </button>
         </div>
         <p className="metro-tempo-name">{tempoName(state.bpm)}</p>
@@ -202,19 +183,9 @@ function MetronomePanel({ open }: { open: boolean }) {
           aria-valuemax={UI_BPM_MAX}
           aria-valuenow={state.bpm}
           tabIndex={0}
-          onPointerDown={onWheelPointerDown}
-          onPointerMove={onWheelPointerMove}
-          onPointerUp={endWheelDrag}
-          onPointerCancel={endWheelDrag}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
-              e.preventDefault();
-              m.nudgeBpm(-1);
-            } else if (e.key === "ArrowRight" || e.key === "ArrowUp") {
-              e.preventDefault();
-              m.nudgeBpm(1);
-            }
-          }}
+          {...scrub.dragHandlers}
+          onWheel={scrub.onWheel}
+          onKeyDown={scrub.onKeyDown}
         >
           <div
             className="metro-wheel-ticks"
@@ -245,8 +216,9 @@ function MetronomePanel({ open }: { open: boolean }) {
       </div>
 
       {/* Steppers ----------------------------------------------------------- */}
-      <div className="metro-steppers">
+      <div className="metro-grid">
         <Stepper
+          icon={<BeatsGlyph size={17} />}
           label="Beats"
           value={state.beats_per_bar}
           min={MIN_BEATS_PER_BAR}
@@ -254,7 +226,8 @@ function MetronomePanel({ open }: { open: boolean }) {
           onChange={m.setBeatsPerBar}
         />
         <Stepper
-          label="Subdiv"
+          icon={<SubdivGlyph size={17} />}
+          label="Subdivision"
           value={state.subdivision}
           min={1}
           max={MAX_SUBDIVISION}
@@ -262,34 +235,33 @@ function MetronomePanel({ open }: { open: boolean }) {
         />
       </div>
 
-      {/* Accent toggle ------------------------------------------------------ */}
-      <label className="metro-accent">
-        <span className="metro-accent-label">Accent first beat</span>
-        <Switch checked={state.accent_first} onChange={m.setAccent} label="Accent first beat" />
-      </label>
-
       {/* Sound picker ------------------------------------------------------- */}
-      <section className="metro-sounds" aria-label="Click sound">
-        {SOUNDS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            className="metro-sound"
-            aria-pressed={state.sound === s.id}
-            data-selected={state.sound === s.id}
-            onClick={() => void m.selectSound(s.id)}
-          >
-            {s.label}
-          </button>
-        ))}
+      <section className="metro-sound-group" aria-label="Click sound">
+        <span className="metro-section-label">
+          <SoundGlyph size={16} />
+          Sound
+        </span>
+        <div className="metro-sounds">
+          {SOUNDS.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className="metro-sound"
+              aria-pressed={state.sound === s.id}
+              data-selected={state.sound === s.id}
+              onClick={() => void m.selectSound(s.id)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
       </section>
 
-      {/* Gain slider -------------------------------------------------------- */}
-      <div className="metro-gain">
-        <div className="metro-gain-head">
-          <span className="metro-gain-label">Volume</span>
-          <span className="metro-gain-value">{Math.round(state.gain * 100)}%</span>
-        </div>
+      {/* Volume ------------------------------------------------------------- */}
+      <div className="metro-volume">
+        <span className="metro-volume-icon" aria-hidden="true">
+          <VolumeGlyph size={18} />
+        </span>
         <input
           className="metro-slider"
           type="range"
@@ -300,16 +272,28 @@ function MetronomePanel({ open }: { open: boolean }) {
           aria-label="Click volume"
           onChange={(e) => m.setGain(Number(e.currentTarget.value))}
         />
+        <span className="metro-volume-value">
+          {Math.round(state.gain * 100)}%
+        </span>
       </div>
 
-      {/* Boost toggle ------------------------------------------------------- */}
-      <label className="metro-boost">
-        <span className="metro-boost-text">
-          <span className="metro-boost-label">Boost</span>
-          <span className="metro-boost-hint">Raises system volume while playing</span>
-        </span>
-        <Switch checked={state.boost} onChange={m.setBoost} label="Boost system volume" />
-      </label>
+      {/* Toggles ------------------------------------------------------------ */}
+      <div className="metro-toggles">
+        <IconToggle
+          icon={<AccentGlyph size={17} />}
+          label="Accent"
+          checked={state.accent_first}
+          onChange={m.setAccent}
+          switchLabel="Accent first beat"
+        />
+        <IconToggle
+          icon={<BoostGlyph size={17} />}
+          label="Boost"
+          checked={state.boost}
+          onChange={m.setBoost}
+          switchLabel="Boost system volume"
+        />
+      </div>
 
       {/* Transport ---------------------------------------------------------- */}
       <button
@@ -318,6 +302,7 @@ function MetronomePanel({ open }: { open: boolean }) {
         data-running={state.running}
         onClick={m.toggle}
       >
+        {state.running ? <StopGlyph size={18} /> : <PlayGlyph size={18} />}
         {state.running ? "Stop" : "Start"}
       </button>
 
@@ -340,12 +325,14 @@ function MetronomePanel({ open }: { open: boolean }) {
 }
 
 function Stepper({
+  icon,
   label,
   value,
   min,
   max,
   onChange,
 }: {
+  icon: ReactNode;
   label: string;
   value: number;
   min: number;
@@ -354,7 +341,12 @@ function Stepper({
 }) {
   return (
     <div className="metro-stepper">
-      <span className="metro-stepper-label">{label}</span>
+      <span className="metro-stepper-label">
+        <span className="metro-stepper-icon" aria-hidden="true">
+          {icon}
+        </span>
+        {label}
+      </span>
       <div className="metro-stepper-control">
         <button
           type="button"
@@ -363,7 +355,7 @@ function Stepper({
           disabled={value <= min}
           onClick={() => onChange(value - 1)}
         >
-          −
+          <MinusGlyph size={14} />
         </button>
         <span className="metro-stepper-value">{value}</span>
         <button
@@ -373,9 +365,35 @@ function Stepper({
           disabled={value >= max}
           onClick={() => onChange(value + 1)}
         >
-          +
+          <PlusGlyph size={14} />
         </button>
       </div>
+    </div>
+  );
+}
+
+function IconToggle({
+  icon,
+  label,
+  checked,
+  onChange,
+  switchLabel,
+}: {
+  icon: ReactNode;
+  label: string;
+  checked: boolean;
+  onChange: (on: boolean) => void;
+  switchLabel: string;
+}) {
+  return (
+    <div className="metro-toggle" data-on={checked}>
+      <span className="metro-toggle-label">
+        <span className="metro-toggle-icon" aria-hidden="true">
+          {icon}
+        </span>
+        {label}
+      </span>
+      <Switch checked={checked} onChange={onChange} label={switchLabel} />
     </div>
   );
 }
