@@ -84,20 +84,28 @@ function lineIndexForY(sorted: LineAnchor[], y: number): number {
   return index;
 }
 
-/** A system is "bounded" (interpolatable) when a following anchor caps its measure span. */
+/**
+ * A system is "bounded" (interpolatable) when a following anchor caps its measure
+ * span MONOTONICALLY. A next anchor whose measure does not exceed this system's
+ * start marks a section boundary (a repeat, a mis-entered anchor, a new
+ * movement); the interpolation clamps there instead of running a nonsense span
+ * backward across the break.
+ */
 function isBounded(sorted: LineAnchor[], index: number): boolean {
-  return index + 1 < sorted.length;
+  const next = sorted[index + 1];
+  return next != null && next.measure > sorted[index].measure;
 }
 
 /**
  * Measure at horizontal position `x` (0–1) on system `index`. A bounded system
- * interpolates linearly toward the next system's starting measure; the final
- * (unbounded) system can only report its own start — coarse, not extrapolated.
+ * interpolates linearly toward the next system's starting measure; a final or
+ * post-section-boundary (unbounded) system can only report its own start —
+ * coarse, not extrapolated and never run backward.
  */
 function measureAtX(sorted: LineAnchor[], index: number, x: number): number {
   const start = sorted[index].measure;
+  if (!isBounded(sorted, index)) return start;
   const next = sorted[index + 1];
-  if (!next) return start;
   return start + clamp01(x) * (next.measure - start);
 }
 
