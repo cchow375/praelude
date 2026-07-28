@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { PieceDetailData, PieceSummary } from "./types";
 import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
 import { PieceDetail } from "./PieceDetail";
+import { AddScore } from "./AddScore";
 import type { PracticeBrainContext } from "../brain/types";
 import "./Pieces.css";
 
@@ -42,6 +43,7 @@ export function PiecesPanel({
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const selectionGeneration = useRef(0);
 
   const loadList = useCallback(async () => {
@@ -123,6 +125,12 @@ export function PiecesPanel({
           activeRep={activeRep}
           defaultCleanStreak={defaultCleanStreak}
           onUpdated={onPieceUpdated}
+          onRemoved={(id) => {
+            setPieces((list) => list.filter((p) => p.id !== id));
+            setSelected(null);
+            onPracticeContextChange?.(null);
+            onLeavePiece?.();
+          }}
           onPracticeContextChange={onPracticeContextChange}
         />
       </div>
@@ -139,17 +147,35 @@ export function PiecesPanel({
             Choose a score, then work from an exact visible target.
           </p>
         </div>
-        <button
-          type="button"
-          className="pieces-scan"
-          aria-label="Rescan pieces folder"
-          onClick={scan}
-          disabled={scanning}
-        >
-          <RescanGlyph spinning={scanning} />
-          <span>{scanning ? "Scanning…" : "Scan"}</span>
-        </button>
+        <div className="pieces-header-actions">
+          <button
+            type="button"
+            className="pieces-scan"
+            aria-label="Add a score from IMSLP"
+            aria-pressed={adding}
+            onClick={() => setAdding((v) => !v)}
+          >
+            <span>Add score</span>
+          </button>
+          <button
+            type="button"
+            className="pieces-scan"
+            aria-label="Rescan pieces folder"
+            onClick={scan}
+            disabled={scanning}
+          >
+            <RescanGlyph spinning={scanning} />
+            <span>{scanning ? "Scanning…" : "Scan"}</span>
+          </button>
+        </div>
       </div>
+
+      {adding && (
+        <AddScore
+          onImported={() => void scan()}
+          onClose={() => setAdding(false)}
+        />
+      )}
 
       <div className="atlas-instruction" aria-label="Score Atlas workflow">
         <span>01 · choose score</span>
