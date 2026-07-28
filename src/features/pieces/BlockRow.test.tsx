@@ -228,7 +228,7 @@ describe("BlockRow", () => {
     );
     expect(activity.textContent).toContain("Attempt 1 note correction saved.");
     expect(activity.textContent).toContain(
-      "Attempt 1 voided. The original remains in the ledger.",
+      "Attempt 1 voided. The original remains in your history.",
     );
     expect(invokeMock).not.toHaveBeenCalledWith(
       "block_update",

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { HISTORY_LOWER } from "../../shell/terms";
 import "./AnomaliesPanel.css";
 
 /** One disclosed anomaly row, mirroring the Rust `AnomalyEntry` wire shape. */
@@ -34,10 +35,13 @@ export interface AnomalyReport {
  * from the migration/backfill, never a judgment of how the human played. Each
  * "why" explains why the observation is disclosed rather than silently repaired.
  */
-const EXPLANATIONS: Record<string, { label: string; what: string; why: string }> = {
+const EXPLANATIONS: Record<
+  string,
+  { label: string; what: string; why: string }
+> = {
   incomplete_event_provenance: {
     label: "Legacy events without full provenance",
-    what: "These practice events were recorded before the app tracked how each command entered the ledger, so their input source and command identity are unknown.",
+    what: `These practice events were recorded before the app tracked how each command entered your ${HISTORY_LOWER}, so their input source and command identity are unknown.`,
     why: "The events are kept exactly as they happened. The app cannot invent a provenance it never captured, so it discloses the gap instead of guessing.",
   },
   same_second_attempt_burst: {
@@ -114,7 +118,9 @@ function formatDetailValue(value: unknown): string {
 
 function messageOf(reason: unknown): string {
   if (reason instanceof Error) return reason.message;
-  return typeof reason === "string" ? reason : "The anomaly disclosure could not be loaded.";
+  return typeof reason === "string"
+    ? reason
+    : "The anomaly disclosure could not be loaded.";
 }
 
 const SEVERITY_LABEL: Record<string, string> = {
@@ -159,19 +165,28 @@ export function AnomaliesPanel() {
         <span className="anomalies-chevron" aria-hidden="true" />
         <span className="anomalies-summary-title">Data anomalies</span>
         <span className="anomalies-summary-meta">
-          {loading ? "Reading…" : total === 0 ? "None disclosed" : `${total} disclosed`}
+          {loading
+            ? "Reading…"
+            : total === 0
+              ? "None disclosed"
+              : `${total} disclosed`}
         </span>
       </summary>
 
       <div className="anomalies-body">
         <p className="anomalies-preamble">
-          These are observations about the <em>shape</em> of stored practice data, recorded when the
-          database was migrated. They are disclosed honestly, never silently repaired — the app does
-          not judge how you played, and it will not guess at a correction it cannot be sure of.
+          These are observations about the <em>shape</em> of stored practice
+          data, recorded when the database was migrated. They are disclosed
+          honestly, never silently repaired — the app does not judge how you
+          played, and it will not guess at a correction it cannot be sure of.
         </p>
 
         {error && (
-          <p className="anomalies-error" role="status" data-testid="anomalies-error">
+          <p
+            className="anomalies-error"
+            role="status"
+            data-testid="anomalies-error"
+          >
             {error}
           </p>
         )}
@@ -185,7 +200,8 @@ export function AnomaliesPanel() {
         {!error && report && total > 0 && (
           <div className="anomalies-groups">
             {report.groups.map((group) => {
-              const copy = EXPLANATIONS[group.kind] ?? fallbackExplanation(group.kind);
+              const copy =
+                EXPLANATIONS[group.kind] ?? fallbackExplanation(group.kind);
               return (
                 <details
                   className="anomalies-group"
@@ -213,7 +229,8 @@ export function AnomaliesPanel() {
                       <strong>What this means.</strong> {copy.what}
                     </p>
                     <p className="anomalies-why">
-                      <strong>Why it is disclosed, not repaired.</strong> {copy.why}
+                      <strong>Why it is disclosed, not repaired.</strong>{" "}
+                      {copy.why}
                     </p>
                     <ul
                       className="anomalies-rows"
@@ -221,14 +238,22 @@ export function AnomaliesPanel() {
                     >
                       {group.rows.map((row) => (
                         <li key={row.id} className="anomalies-row">
-                          <span className="anomalies-row-entity">{entityLabel(row)}</span>
+                          <span className="anomalies-row-entity">
+                            {entityLabel(row)}
+                          </span>
                           <span className="anomalies-row-detail">
-                            {Object.entries(row.detail).map(([field, value]) => (
-                              <span className="anomalies-fact" key={field}>
-                                <span className="anomalies-fact-key">{field.replace(/_/g, " ")}</span>
-                                <span className="anomalies-fact-value">{formatDetailValue(value)}</span>
-                              </span>
-                            ))}
+                            {Object.entries(row.detail).map(
+                              ([field, value]) => (
+                                <span className="anomalies-fact" key={field}>
+                                  <span className="anomalies-fact-key">
+                                    {field.replace(/_/g, " ")}
+                                  </span>
+                                  <span className="anomalies-fact-value">
+                                    {formatDetailValue(value)}
+                                  </span>
+                                </span>
+                              ),
+                            )}
                           </span>
                         </li>
                       ))}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HistoryPanel } from "../pieces/HistoryPanel";
-import { HISTORY } from "../../shell/terms";
+import { HISTORY, HISTORY_LOWER } from "../../shell/terms";
 import type { PieceSummary } from "../pieces/types";
 import { AnomaliesPanel } from "./AnomaliesPanel";
 import "./LedgerWorkspace.css";
@@ -10,7 +10,7 @@ function messageOf(reason: unknown) {
   if (reason instanceof Error) return reason.message;
   return typeof reason === "string"
     ? reason
-    : "The practice ledger could not be loaded.";
+    : `The practice ${HISTORY_LOWER} could not be loaded.`;
 }
 
 interface LedgerWorkspaceProps {
@@ -75,7 +75,7 @@ export function LedgerWorkspace({
     setSelectionError(null);
     void invoke("piece_select", { id: selectedId }).catch((reason) => {
       setSelectionError(
-        `The ledger changed, but voice context did not: ${messageOf(reason)}`,
+        `Your ${HISTORY_LOWER} changed, but voice context did not: ${messageOf(reason)}`,
       );
     });
   }, [selectedId]);
@@ -103,7 +103,10 @@ export function LedgerWorkspace({
       )}
 
       <div className="ledger-layout ck-reveal-item">
-        <aside className="ledger-piece-index" aria-label="Pieces in ledger">
+        <aside
+          className="ledger-piece-index"
+          aria-label={`Pieces in ${HISTORY}`}
+        >
           <div className="ledger-index-head">
             <span>Repertoire</span>
             <strong>{pieces.length}</strong>

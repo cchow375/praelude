@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { universeSnapshot } from "../universe/api";
-import { HISTORY } from "../../shell/terms";
+import { HISTORY, HISTORY_LOWER } from "../../shell/terms";
 import type { PracticePieceContext, UniverseSnapshot } from "../universe/types";
 import { todayLocal } from "../calendar/dates";
 import { RetentionQueue } from "../retention";
@@ -200,7 +200,7 @@ export function TodayPracticePanel({
               <p className="ck-kicker">Next honest move</p>
               {loading ? (
                 <p className="today-loading" role="status">
-                  Reading the ledger…
+                  Reading your {HISTORY_LOWER}…
                 </p>
               ) : recent ? (
                 <>

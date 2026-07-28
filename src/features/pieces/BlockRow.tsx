@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
 import { EditableField } from "../../components/EditableField";
-import { ASSISTANT } from "../../shell/terms";
+import { ASSISTANT, HISTORY_LOWER } from "../../shell/terms";
 import { commandErrorMessage } from "../../services/command";
 import { useReceipts } from "../receipts/ReceiptCenter";
 import { useCrud } from "../rep/useCrud";
@@ -363,11 +363,11 @@ export function BlockRow({ block, onChanged, regions = [] }: BlockRowProps) {
                   )}
                   {!rep.voided && (
                     <ConfirmDelete
-                      label="Void this attempt? The original stays in the ledger and the set projection will be recalculated."
+                      label={`Void this attempt? The original stays in your ${HISTORY_LOWER} and the set projection will be recalculated.`}
                       onConfirm={() =>
                         mutateRep(
                           rep.id,
-                          `Attempt ${ordinal} voided. The original remains in the ledger.`,
+                          `Attempt ${ordinal} voided. The original remains in your ${HISTORY_LOWER}.`,
                           "The attempt could not be voided.",
                           () => crud.repDelete(rep.id),
                         )

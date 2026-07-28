@@ -234,7 +234,7 @@ describe("UniverseWorkspace force graph", () => {
       await screen.findByRole("complementary", { name: "Opening" }),
     ).toBeTruthy();
 
-    fireEvent.click(screen.getByText("Evidence ledger — text equivalent"));
+    fireEvent.click(screen.getByText("Evidence history — text equivalent"));
     fireEvent.click(
       screen.getByRole("button", { name: "Nocturne Op. 9 No. 2" }),
     );

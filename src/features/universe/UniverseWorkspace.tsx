@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { universeSnapshot } from "./api";
+import { HISTORY_LOWER } from "../../shell/terms";
 import { stableIdHash } from "./graphLayout";
 import type { PracticePieceContext, UniverseSnapshot } from "./types";
 import { DetailPanel } from "./graph/DetailPanel";
@@ -824,7 +825,7 @@ export function UniverseWorkspace({
           </section>
 
           <details className="universe-ledger">
-            <summary>Evidence ledger — text equivalent</summary>
+            <summary>Evidence {HISTORY_LOWER} — text equivalent</summary>
             <ul>
               {pieces.map((piece) => (
                 <li
