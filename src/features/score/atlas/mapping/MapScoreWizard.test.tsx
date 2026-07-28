@@ -191,6 +191,95 @@ describe("MapScoreWizard", () => {
     expect(screen.getByText("from score")).toBeTruthy();
   });
 
+  // --- Parallel XML measure strip + two-way highlight (D5 / ledger #31) ---
+
+  it("renders a measure strip from the anchors, marking anchored measures", () => {
+    const api = fakeApi();
+    render(
+      <MapScoreWizard
+        pieceId={7}
+        edition={edition}
+        pageCount={1}
+        api={api}
+        initialAnchors={[
+          { page: 1, yPct: 0.2, measure: 1 },
+          { page: 1, yPct: 0.4, measure: 5 },
+        ]}
+        onClose={() => {}}
+      />,
+    );
+    // Strip enumerates measures 1..5; the two anchors are marked "anchored".
+    expect(screen.getByLabelText("Measure 1, anchored")).toBeTruthy();
+    expect(screen.getByLabelText("Measure 5, anchored")).toBeTruthy();
+    // An interior measure is present but not anchored.
+    expect(screen.getByLabelText("Measure 3")).toBeTruthy();
+  });
+
+  it("clicking a strip measure selects it (aria-pressed) — measure→system direction", () => {
+    const api = fakeApi();
+    render(
+      <MapScoreWizard
+        pieceId={7}
+        edition={edition}
+        pageCount={1}
+        api={api}
+        initialAnchors={[
+          { page: 1, yPct: 0.2, measure: 1 },
+          { page: 1, yPct: 0.4, measure: 5 },
+        ]}
+        onClose={() => {}}
+      />,
+    );
+    const m3 = screen.getByLabelText("Measure 3");
+    expect(m3.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(m3);
+    expect(m3.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("clicking a system tag on the page highlights its measure range in the strip — system→measure direction", () => {
+    const api = fakeApi();
+    render(
+      <MapScoreWizard
+        pieceId={7}
+        edition={edition}
+        pageCount={1}
+        api={api}
+        initialAnchors={[
+          { page: 1, yPct: 0.2, measure: 1 },
+          { page: 1, yPct: 0.4, measure: 5 },
+        ]}
+        onClose={() => {}}
+      />,
+    );
+    // The page shows a clickable tag per system; click the one starting at m.1.
+    fireEvent.click(
+      screen.getByLabelText("Highlight measures of the system starting at m.1"),
+    );
+    // Selecting the system selects its starting measure in the strip.
+    expect(
+      screen.getByLabelText("Measure 1, anchored").getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("surfaces a quiet warning row when an anchor breaks monotonicity", () => {
+    const api = fakeApi();
+    render(
+      <MapScoreWizard
+        pieceId={7}
+        edition={edition}
+        pageCount={1}
+        api={api}
+        initialAnchors={[
+          { page: 1, yPct: 0.2, measure: 10 },
+          { page: 1, yPct: 0.5, measure: 3 },
+        ]}
+        onClose={() => {}}
+      />,
+    );
+    const warnings = screen.getByLabelText("Mapping warnings");
+    expect(warnings.textContent).toMatch(/backward|check/i);
+  });
+
   it("predicts the next measure from the run so far, tagged 'estimated'", async () => {
     const api = fakeApi();
     render(

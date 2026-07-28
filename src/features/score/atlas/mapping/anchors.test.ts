@@ -117,6 +117,33 @@ describe("resolveMeasureRange", () => {
     expect(range.mStart).toBeLessThanOrEqual(range.mEnd);
   });
 
+  it("clamps at a section boundary: does not interpolate backward across a non-monotonic anchor", () => {
+    // System 1 (m.10) is followed by a backward anchor (m.3) — a section break.
+    // A box on system 1 must not interpolate toward 3; it clamps to m.10.
+    const sectionBreak: LineAnchor[] = [
+      { page: 1, yPct: 0.2, measure: 10 },
+      { page: 1, yPct: 0.5, measure: 3 },
+    ];
+    const range = resolveMeasureRange(
+      box({ xPct: 0.0, wPct: 0.9, yPct: 0.25 }),
+      sectionBreak,
+    );
+    // Whole box sits on system 1; both ends clamp to m.10 (no backward slope).
+    expect(range.mStart).toBe(10);
+    expect(range.mEnd).toBe(10);
+  });
+
+  it("treats a post-section-boundary system as unbounded (lower confidence, no crash)", () => {
+    const sectionBreak: LineAnchor[] = [
+      { page: 1, yPct: 0.2, measure: 10 },
+      { page: 1, yPct: 0.5, measure: 3 },
+    ];
+    const range = resolveMeasureRange(box({ yPct: 0.25 }), sectionBreak);
+    // Bounded fraction is 0 for this system → confidence rests on density only.
+    expect(range.confidence).toBeLessThan(0.5);
+    expect(range.confidence).toBeGreaterThanOrEqual(0);
+  });
+
   it("always yields mStart<=mEnd even when anchor measures decrease down the page", () => {
     const reversed: LineAnchor[] = [
       { page: 1, yPct: 0.2, measure: 52 },
