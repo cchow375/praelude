@@ -9,6 +9,7 @@ mod knowledge;
 pub mod ledger;
 mod metrics;
 mod metronome;
+mod pieces;
 mod planner;
 pub mod protocol;
 mod recovery;
@@ -141,6 +142,133 @@ fn imslp_open_download(file_name: String) -> Result<imslp::FileInfo, String> {
     } else {
         Err("macOS rejected the IMSLP download handoff.".into())
     }
+}
+
+/// Open an `https` URL in the user's system browser. Shared by the paste-URL
+/// score-download fallback; refuses anything that is not `https`.
+fn open_in_browser(url: &str) -> Result<(), String> {
+    let status = std::process::Command::new("/usr/bin/open")
+        .arg(url)
+        .status()
+        .map_err(|_| "macOS could not open the link in your browser.".to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("macOS rejected the browser handoff.".into())
+    }
+}
+
+/// Import a browser-downloaded score PDF into a piece's vault `score/` folder.
+/// Validates + COPIES the file (never moves the user's download). Returns the
+/// piece folder path; the frontend then calls `pieces_scan` so it appears.
+#[tauri::command]
+fn piece_import_pdf(
+    folder_name: String,
+    source_path: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<String, String> {
+    let dir = pieces_dir(&store);
+    pieces::import_pdf(&dir, &folder_name, std::path::Path::new(&source_path))
+}
+
+/// Archive a piece: move its vault folder into `.trash/` and re-point its DB row
+/// so it leaves the Pieces workspace while all practice history is preserved.
+/// `typed_name` must exactly match the piece's folder name or title. Returns the
+/// refreshed piece list.
+#[tauri::command]
+fn piece_archive(
+    folder_name: String,
+    typed_name: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<PieceSummary>, String> {
+    let dir = pieces_dir(&store);
+    pieces::archive(&dir, &store, &folder_name, &typed_name)?;
+    store.list_pieces().map_err(|e| e.to_string())
+}
+
+/// One regular file in `~/Downloads`, for the import step's arrival poll.
+#[derive(serde::Serialize)]
+struct DownloadEntry {
+    name: String,
+    path: String,
+    modified_ms: i64,
+}
+
+/// List importable files (`.pdf`/`.musicxml`/`.mxl`) currently in `~/Downloads`
+/// so the import panel can offer the arriving score. Read-only; a missing or
+/// unreadable Downloads folder is an empty list, never an error.
+#[tauri::command]
+fn downloads_list() -> Result<Vec<DownloadEntry>, String> {
+    let home = std::env::var("HOME").map_err(|_| "No home directory.".to_string())?;
+    let dir = std::path::Path::new(&home).join("Downloads");
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(out);
+    };
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+        let path = entry.path();
+        let importable = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("pdf")
+                    || ext.eq_ignore_ascii_case("musicxml")
+                    || ext.eq_ignore_ascii_case("mxl")
+            });
+        if !importable {
+            continue;
+        }
+        let modified_ms = entry
+            .metadata()
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        out.push(DownloadEntry {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            path: path.to_string_lossy().into_owned(),
+            modified_ms,
+        });
+    }
+    Ok(out)
+}
+
+/// Open a native macOS file picker for the manual-import fallback, returning the
+/// chosen POSIX path (or `None` when the user cancels). Uses `osascript` so it
+/// needs no extra plugin dependency.
+#[tauri::command]
+fn pick_import_file() -> Result<Option<String>, String> {
+    let output = std::process::Command::new("/usr/bin/osascript")
+        .args([
+            "-e",
+            "POSIX path of (choose file with prompt \"Choose the downloaded score\")",
+        ])
+        .output()
+        .map_err(|_| "Could not open the file picker.".to_string())?;
+    if !output.status.success() {
+        // Non-zero includes the user pressing Cancel (osascript -128): no file.
+        return Ok(None);
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(if path.is_empty() { None } else { Some(path) })
+}
+
+/// Open a pasted score-download URL in the system browser (paste-URL fallback
+/// for IMSLP parse failures). Refuses anything that is not `https`.
+#[tauri::command]
+fn piece_open_source_url(url: String) -> Result<(), String> {
+    let url = url.trim();
+    if !url.starts_with("https://") {
+        return Err("Only https links can be opened.".into());
+    }
+    open_in_browser(url)
 }
 
 #[tauri::command]
@@ -1462,6 +1590,11 @@ pub fn run() {
             layout_set,
             pieces_scan,
             pieces_list,
+            piece_import_pdf,
+            piece_archive,
+            piece_open_source_url,
+            downloads_list,
+            pick_import_file,
             piece_get,
             score_pdf_editions,
             score_pdf_select,

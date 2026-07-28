@@ -1336,3 +1336,204 @@
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
 }
+
+/* ---------------------------------------------------------------------------
+   Add-a-score (IMSLP) panel + typed-name Remove — ledger #29. Monochrome, solid
+   fills only (no gradients / outlined buttons), no explainer paragraphs.
+   -------------------------------------------------------------------------- */
+.pieces-header-actions {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.add-score {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.add-score-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.add-score-title {
+  margin: 0;
+  color: var(--ink-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-normal);
+}
+.add-score-search,
+.add-score-folder input,
+.add-score-manual-path,
+.add-score-paste input {
+  width: 100%;
+  height: 40px;
+  padding: 0 var(--space-3);
+  background: var(--surface-app);
+  color: var(--ink-primary);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+.add-score-status,
+.add-score-warn,
+.add-score-done {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+}
+.add-score-warn {
+  color: var(--warning);
+}
+.add-score-done {
+  color: var(--success);
+}
+.add-score-results,
+.add-score-edition-list,
+.add-score-matches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.add-score-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  background: var(--surface-app);
+  color: var(--ink-primary);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.add-score-hit:hover,
+.add-score-hit[aria-pressed="true"] {
+  background: var(--surface-hover);
+}
+.add-score-hit.is-redirect {
+  opacity: 0.55;
+}
+.add-score-hit-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+.add-score-hit-snippet {
+  font-size: var(--text-xs);
+  color: var(--ink-tertiary);
+}
+.add-score-edition {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface-app);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+}
+.add-score-edition-desc {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-primary);
+}
+.add-score-edition-meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--space-3);
+  font-size: var(--text-xs);
+}
+.add-score-edition-meta div {
+  display: contents;
+}
+.add-score-edition-meta dt {
+  color: var(--ink-tertiary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  font-size: var(--text-2xs);
+}
+.add-score-edition-meta dd {
+  margin: 0;
+  color: var(--ink-secondary);
+}
+.add-score-download,
+.add-score-import-one,
+.add-score-pick,
+.add-score-import-manual button,
+.add-score-paste button {
+  align-self: flex-start;
+  height: 38px;
+  padding: 0 var(--space-4);
+  background: var(--surface-ink);
+  color: var(--ink-on-dark);
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.add-score-download:hover,
+.add-score-import-one:hover,
+.add-score-pick:hover,
+.add-score-import-manual button:hover,
+.add-score-paste button:hover {
+  background: var(--accent);
+}
+.add-score-download:disabled,
+.add-score-import-manual button:disabled,
+.add-score-paste button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.add-score-import,
+.add-score-import-manual,
+.add-score-paste,
+.add-score-folder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.add-score-import {
+  padding: var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+}
+.add-score-import-manual {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.add-score-folder span,
+.add-score-paste span {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--ink-tertiary);
+}
+
+.piece-remove {
+  margin-left: auto;
+  align-self: center;
+  height: 34px;
+  padding: 0 var(--space-3);
+  background: transparent;
+  color: var(--ink-tertiary);
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.piece-remove:hover {
+  color: var(--danger);
+  background: var(--surface-hover);
+}

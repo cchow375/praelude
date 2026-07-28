@@ -92,6 +92,53 @@ const PIECES: PieceSummary[] = [
   },
 ];
 
+// Canned IMSLP add-a-score data for the dev harness (no network). The search
+// snippet carries a highlight `<span>` on purpose so the panel's plain-text
+// stripping is exercised; the publisher field carries raw `{{…}}` wikitext.
+const IMSLP_HITS = [
+  {
+    title: "Nocturnes, Op.9 (Chopin, Frédéric)",
+    page_id: 6789,
+    snippet: 'Complete <span class="searchmatch">Nocturnes</span> score',
+    size: 42942,
+    word_count: 3000,
+    is_redirect: false,
+  },
+  {
+    title: "Nocturne in E minor, Op.72 No.1 (Chopin, Frédéric)",
+    page_id: 12345,
+    snippet: "Posthumous nocturne",
+    size: 9637,
+    word_count: 1175,
+    is_redirect: false,
+  },
+];
+
+const IMSLP_EDITIONS = [
+  {
+    file_name: "PMLP02312-Chopin_Nocturnes_Op_9_Kistner.pdf",
+    description: "Complete Score",
+    editor: "{{FE}} (German)",
+    publisher: "{{P|Kistner|Fr. Kistner|Leipzig|{{HMB|1833|7}}|1832||995}}",
+    copyright: "Public Domain",
+    image_type: "Normal Scan",
+  },
+];
+
+const IMSLP_FILE_INFO = {
+  url: "https://imslp.org/images/9/91/PMLP02312-Chopin_Nocturnes_Op_9_Kistner.pdf",
+  size: 1964066,
+  mime: "application/pdf",
+};
+
+const MOCK_DOWNLOADS = [
+  {
+    name: "PMLP02312-Chopin_Nocturnes_Op_9_Kistner.pdf",
+    path: "/Users/you/Downloads/PMLP02312-Chopin_Nocturnes_Op_9_Kistner.pdf",
+    modified_ms: Date.now(),
+  },
+];
+
 const PIECE_DETAILS: Record<number, PieceDetailData> = {
   1: {
     id: 1,
@@ -1269,6 +1316,29 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "pieces_list":
     case "pieces_scan":
       return PIECES;
+
+    // Add-a-score (IMSLP) flow. Canned data so the panel is fully browsable in
+    // the dev harness without any network.
+    case "imslp_search": {
+      const q = String(
+        ((args ?? {}) as { query?: unknown }).query ?? "",
+      ).trim();
+      return q ? IMSLP_HITS : [];
+    }
+    case "imslp_editions":
+      return IMSLP_EDITIONS;
+    case "imslp_open_download":
+      return IMSLP_FILE_INFO;
+    case "piece_import_pdf":
+      return "/vault/Pieces/Chopin - Nocturne";
+    case "piece_archive":
+      return PIECES.filter((p) => p.id !== pieceIdOf(args));
+    case "piece_open_source_url":
+      return null;
+    case "downloads_list":
+      return MOCK_DOWNLOADS;
+    case "pick_import_file":
+      return null;
     case "piece_get":
       return PIECE_DETAILS[pieceIdOf(args)] ?? null;
     case "region_list":

@@ -217,7 +217,23 @@ impl Store {
         )
     }
 
+    /// Re-point a piece's `folder_path` (used by `pieces::archive` to move the
+    /// row's folder reference to a `.trash/` location so it drops out of
+    /// [`Store::list_pieces`] without deleting the row or any practice history).
+    /// Returns the number of rows updated (0 when the piece was never scanned).
+    pub fn repoint_piece_folder(&self, old: &str, new: &str) -> rusqlite::Result<usize> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.execute(
+            "UPDATE piece SET folder_path = ?2 WHERE folder_path = ?1",
+            rusqlite::params![old, new],
+        )
+    }
+
     /// All pieces as list-view summaries, ordered by title (case-insensitive).
+    ///
+    /// Archived pieces (moved to a `.trash/` folder by `pieces::archive`, which
+    /// re-points their `folder_path`) are excluded so they leave the workspace
+    /// while their rows — and all referencing practice history — remain in the DB.
     pub fn list_pieces(&self) -> rusqlite::Result<Vec<PieceSummary>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut stmt = conn.prepare(
@@ -226,6 +242,7 @@ impl Store {
                     COALESCE(preferred_pdf_path, pdf_path) IS NOT NULL,
                     intake_done
              FROM piece
+             WHERE folder_path NOT LIKE '%/.trash/%'
              ORDER BY title COLLATE NOCASE",
         )?;
         let rows = stmt.query_map([], |row| {
