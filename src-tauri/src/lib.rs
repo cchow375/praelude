@@ -128,6 +128,10 @@ fn imslp_editions(page_title: String) -> Result<Vec<imslp::Edition>, String> {
 #[tauri::command]
 fn imslp_open_download(file_name: String) -> Result<imslp::FileInfo, String> {
     let info = imslp::ImslpClient::new().file_url(&file_name)?;
+    // Defense in depth: only ever hand an https URL to the system browser.
+    if !info.url.starts_with("https://") {
+        return Err("IMSLP returned a non-https download URL; refusing to open it.".into());
+    }
     let status = std::process::Command::new("/usr/bin/open")
         .arg(&info.url)
         .status()
