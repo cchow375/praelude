@@ -11,6 +11,7 @@ mod provider;
 mod score_context;
 
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -22,6 +23,7 @@ use crate::store::model::{PieceFieldPatch, RepSnapshot};
 use crate::store::Store;
 
 pub use context::GroundingSummary;
+pub use corpus::{BookExcerpt, BookKind, BookListing};
 pub use library::{Citation, MethodCard};
 use library::{EmbeddedLibrary, PracticeLibrary};
 use provider::{NativeTransport, ProviderChain, ProviderName, ProviderOutput, Transport};
@@ -392,6 +394,57 @@ pub fn ask_native(
     )
 }
 
+/// Resolve the active knowledge directory: the `brain.knowledge_dir` setting
+/// when set to a non-empty value, otherwise the built-in default. Shared by
+/// retrieval and every book-library command so they agree on one folder.
+pub fn resolve_knowledge_dir(store: &Store) -> PathBuf {
+    store
+        .get_setting("brain.knowledge_dir")
+        .ok()
+        .flatten()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_KNOWLEDGE_DIR))
+}
+
+/// Manifest entries + per-book availability for the Settings "Books" panel.
+pub fn list_books(store: &Store) -> Result<Vec<BookListing>, String> {
+    corpus::list_books(&resolve_knowledge_dir(store))
+}
+
+/// Copy a readable `.md` book into the knowledge folder and append the manifest.
+/// The frontend owns the confirmation UI; this validates and acts.
+pub fn add_book(
+    store: &Store,
+    path: &str,
+    title: &str,
+    author: &str,
+    kind: BookKind,
+) -> Result<BookListing, String> {
+    corpus::add_book(
+        &resolve_knowledge_dir(store),
+        Path::new(path),
+        title,
+        author,
+        kind,
+    )
+}
+
+/// Remove a manifest entry, moving its file to `.trash/` (never hard-delete).
+pub fn remove_book(store: &Store, id: &str) -> Result<(), String> {
+    corpus::remove_book(&resolve_knowledge_dir(store), id)
+}
+
+/// The markdown section around a quote for the Reader window (D2).
+pub fn book_excerpt(
+    store: &Store,
+    source_id: &str,
+    heading: Option<&str>,
+    contains: Option<&str>,
+) -> Result<BookExcerpt, String> {
+    corpus::book_excerpt(&resolve_knowledge_dir(store), source_id, heading, contains)
+}
+
 /// Truthful, no-network Brain status for the Settings/status UI. `online` means
 /// a provider is configured (key present + not disabled), not that a live
 /// round-trip succeeded. `reason` is set only when offline.
@@ -538,13 +591,8 @@ fn ask_with(
     // Retrieval is always local and remains useful in offline/private mode.
     // The setting controls only whether bounded hits cross the provider
     // boundary, never whether Christian can search his own books.
-    let directory = store
-        .get_setting("brain.knowledge_dir")
-        .ok()
-        .flatten()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_KNOWLEDGE_DIR.into());
-    let corpus = corpus::search(std::path::Path::new(&directory), &retrieval_query, 6);
+    let directory = resolve_knowledge_dir(store);
+    let corpus = corpus::search(&directory, &retrieval_query, 6);
     let (context, grounding) = context::build(
         store,
         sessions,
