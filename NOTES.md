@@ -2,6 +2,40 @@
 
 ## Decisions
 
+- **v4 Phase A — bug/perf lanes (2026-07-27/28, merged to main, all fresh-verifier CONFIRMED):**
+  - **Universe "teleport" was focus-scroll, not d3.** `853f440` made node `<g>`s
+    keyboard-focusable (`tabIndex={0}`/`role="button"`); a mouse press focused the node and the
+    browser's scroll-into-view recentred it (~750px), swallowing the perceived click. Fix:
+    `event.preventDefault()` in the delegated `onPointerDown` (`UniverseWorkspace.tsx`); Tab/Enter
+    a11y intact. Lesson: adding focusability to positioned canvas/SVG nodes needs focus-on-press
+    suppressed or clicks read as teleports.
+  - **The rep engine had NO bug.** The perceived "counter reset" is the rung-completion step:
+    the clean that fills a rung steps the tempo and legitimately resets `current_clean_streak`.
+    Display-only fix in `RepHud.tsx`: ~1.2s filled-rung hold ("N/N ✓ → ♩next") keyed on
+    `last_attempt_id` change + clean verdict + BPM rise — the unique rung-completion signature, so
+    undo/manual-retune/recovery can never false-celebrate. Reset pulse now gated on prior streak
+    > 0. `reset_count` ledger semantics deliberately unchanged (`rep/mod.rs:3222` locks
+    > failures-from-zero as attempt evidence; universe aggregates consume it).
+  - **PdfPage's raster effect must never depend on the live scale.** It re-decoded and
+    `width=0`-cleared every canvas per zoom tick (the flash + lag). Transform-first pipeline:
+    box laid out at live scale each frame with the existing bitmap CSS-scaled; crisp render
+    debounced 140ms (`CRISP_RENDER_DELAY_MS`) into an offscreen canvas, blitted in one
+    `drawImage` (never blanks). Pinch = `ctrlKey` wheel in WKWebView + `gesture*` events. Mounted
+    pages stay current±1 regardless of zoom. Open: piece-switch first-decode cost (plan: cached
+    fitted first-page bitmap per piece).
+  - **gitignore gotcha that destroyed node_modules:** `node_modules/` (trailing slash) matches
+    directories only — NOT a symlink. A worktree lane committed its `node_modules` symlink and
+    the merge checkout replaced the real directory with a self-referential link (deps wiped;
+    `npm install` restored). Fixed in `eb8adcf` (pattern without slash). Rule for parallel
+    worktree lanes: symlinked `node_modules`, and pre-commit verify `git ls-files node_modules`
+    is empty.
+  - **12 orphan test files** (untracked, well-formed, 217 passing tests) sit in `src/` — likely
+    claude-flow daemon output; they pass on the merged tree; adopt-or-quarantine decision at
+    ship. The daemon still runs (workspaces `~` and `~/codakiller`) and Christian still needs to
+    shut it down properly.
+  - **Subagent stream-watchdog stalls recur** (5 in one day, all mid-work); resume-from-transcript
+    recovers with zero loss — resume, don't respawn.
+
 - **v3.2.0 hotfix — HUD showed a frozen "0/N" while climbing to target (2026-07-22):**
   - **Symptom (Christian, at the piano):** opened a Tempo set climbing 45 → 52, clicked Clean
     repeatedly, receipts said "logged," but the big HUD number sat at `0/7` and never moved.
