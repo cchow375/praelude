@@ -240,7 +240,13 @@ describe("Shell app-level practice surfaces", () => {
       </ReceiptCenterProvider>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Shape the day/i }));
+    // Today is the app menu now; "Shape the day" lives in the practice window.
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Today's Practice" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Shape the day/i }),
+    );
     await screen.findByTestId("ledger-workspace-stub");
     expect(ledgerWorkspaceProps.current).toEqual(
       expect.objectContaining({
@@ -296,7 +302,9 @@ describe("Shell app-level practice surfaces", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByTestId("settings-stub")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("tab", { name: "Score" }).getAttribute("aria-selected")).toBe("true");
+    expect(
+      screen.getByRole("tab", { name: "Score" }).getAttribute("aria-selected"),
+    ).toBe("true");
   });
 
   it("mounts the active-block Rep HUD from authoritative rep state", async () => {
@@ -501,7 +509,9 @@ describe("Shell app-level practice surfaces", () => {
     const baseInvoke = invokeMock.getMockImplementation();
     invokeMock.mockImplementation((...args: unknown[]) =>
       args[0] === "brain_ask"
-        ? new Promise((resolve) => { resolveAnswer = resolve; })
+        ? new Promise((resolve) => {
+            resolveAnswer = resolve;
+          })
         : baseInvoke?.(...args),
     );
     render(
@@ -516,9 +526,11 @@ describe("Shell app-level practice surfaces", () => {
       text: "Was that clean?",
       bpm: null,
     });
-    await waitFor(() => expect(
-      invokeMock.mock.calls.filter(([command]) => command === "brain_ask"),
-    ).toHaveLength(1));
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === "brain_ask"),
+      ).toHaveLength(1),
+    );
 
     await emit("rep://state", { ...ACTIVE_SNAP, block_id: 2 });
     resolveAnswer({
@@ -532,7 +544,11 @@ describe("Shell app-level practice surfaces", () => {
       },
     });
 
-    expect(await screen.findByText("The active set changed. Ask again before applying this action.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "The active set changed. Ask again before applying this action.",
+      ),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
   });
 
@@ -558,17 +574,21 @@ describe("Shell app-level practice surfaces", () => {
     const props = scoreWorkspaceProps.current as {
       onPracticeContextChange?: (context: PracticeBrainContext | null) => void;
     };
-    act(() => props.onPracticeContextChange?.({
-      ...SCORE_CONTEXT,
-      region: SCORE_CONTEXT.region
-        ? { ...SCORE_CONTEXT.region, m_start: 721 }
-        : null,
-    }));
+    act(() =>
+      props.onPracticeContextChange?.({
+        ...SCORE_CONTEXT,
+        region: SCORE_CONTEXT.region
+          ? { ...SCORE_CONTEXT.region, m_start: 721 }
+          : null,
+      }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Start this set" }));
 
-    expect(await screen.findByText(
-      "The Score target changed. Review a new spoken draft before starting.",
-    )).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "The Score target changed. Review a new spoken draft before starting.",
+      ),
+    ).toBeTruthy();
     expect(
       invokeMock.mock.calls.filter(([command]) => command === "rep_open"),
     ).toHaveLength(0);
@@ -704,18 +724,27 @@ describe("Shell app-level practice surfaces", () => {
       confidence: 0.96,
     });
 
-    expect(await screen.findByText(
-      "A practice set is already active. Close or finish it before starting another.",
-    )).toBeTruthy();
-    expect((screen.getByRole(
-      "button",
-      { name: "Start this set" },
-    ) as HTMLButtonElement).disabled).toBe(true);
-    await waitFor(() => expect(
-      invokeMock.mock.calls.find(([command]) => command === "voice_speak")?.[1],
-    ).toEqual({
-      text: "A practice set is already active. Close or finish it before starting another, or say cancel.",
-    }));
+    expect(
+      await screen.findByText(
+        "A practice set is already active. Close or finish it before starting another.",
+      ),
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Start this set",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.find(
+          ([command]) => command === "voice_speak",
+        )?.[1],
+      ).toEqual({
+        text: "A practice set is already active. Close or finish it before starting another, or say cancel.",
+      }),
+    );
 
     await emit("voice://transcript", {
       delivery_id: "natural-set-active-confirm",
@@ -729,11 +758,15 @@ describe("Shell app-level practice surfaces", () => {
     expect(
       invokeMock.mock.calls.filter(([command]) => command === "rep_open"),
     ).toHaveLength(0);
-    await waitFor(() => expect(
-      screen.getAllByText(
-        "A practice set is already active. Close or finish it before starting another.",
-      ).some((element) => element.getAttribute("role") === "alert"),
-    ).toBe(true));
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByText(
+            "A practice set is already active. Close or finish it before starting another.",
+          )
+          .some((element) => element.getAttribute("role") === "alert"),
+      ).toBe(true),
+    );
   });
 });
 

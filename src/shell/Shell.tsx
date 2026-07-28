@@ -863,6 +863,17 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     setView("ledger");
   }, []);
 
+  // The main menu's "Ledger" entry opens the history surface (not the calendar
+  // one openCalendar forces), resetting any prior piece selection.
+  const openLedgerHistory = useCallback(() => {
+    setLedgerSurface("ledger");
+    setRequestedLedgerPiece((current) => ({
+      pieceId: null,
+      revision: current.revision + 1,
+    }));
+    setView("ledger");
+  }, []);
+
   const onTabKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
     id: WorkspaceId,
@@ -1038,6 +1049,10 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                     }}
                     onOpenCalendar={openCalendar}
                     onOpenPiece={openPiece}
+                    onOpenBrain={() => setView("brain")}
+                    onOpenLedger={openLedgerHistory}
+                    onOpenUniverse={() => setView("universe")}
+                    onOpenSettings={openSettings}
                     defaultCleanStreak={defaultCleanStreak}
                     activeBlock={rep.snap}
                   />
