@@ -1135,7 +1135,7 @@ function routeCommand(cmd: string, args: unknown): unknown {
         citations: [
           {
             source_id: "mock-ledger",
-            label: "Practice ledger",
+            label: "Practice history",
             excerpt: "Development: recent work at 84 BPM with mixed outcomes.",
           },
         ],
@@ -1150,7 +1150,7 @@ function routeCommand(cmd: string, args: unknown): unknown {
           active_block_included: true,
           knowledge_status: "ready",
           knowledge_shared_with_provider: false,
-          knowledge_sources: ["Practice ledger"],
+          knowledge_sources: ["Practice history"],
           musicxml_status: "ready",
           warnings: ["Browser mock response; native provider was not called."],
         },
