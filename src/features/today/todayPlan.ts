@@ -40,3 +40,22 @@ export function writeTodayPlan(date: string, value: string): string {
   }
   return bounded;
 }
+
+/**
+ * Retire the legacy key for a date. Used once by the day-sheet migration after
+ * the value has been seeded into the durable sheet, so the notebook — not this
+ * localStorage slot — becomes the single source of truth going forward.
+ */
+export function clearTodayPlan(date: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(storageKey(date));
+    window.dispatchEvent(
+      new CustomEvent(TODAY_PLAN_CHANGED_EVENT, {
+        detail: { date, value: "" },
+      }),
+    );
+  } catch {
+    // A blocked storage layer is a no-op; the seed already holds the value.
+  }
+}

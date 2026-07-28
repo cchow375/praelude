@@ -2,6 +2,46 @@
 
 ## Decisions
 
+- **v4 Phase C2 — notebook data layer (2026-07-28, lane `lane/c-notebook`):** the frontend half
+  of the day-sheet/piece-plan contract (`.workflow/scratch/day-sheet-contract.md`).
+  - **Pure line model split in two:** `src/features/notebook/lines.ts` owns the 7 `NotebookLine`
+    shapes, bounds, and `canonicalizeBody`/`parseBodyJson`/`assertPiecePlanText` — the SAME
+    canonical re-serialization + validation the Rust backend does (unknown type/field rejected,
+    `checked` defaulted, null optionals dropped). The dev mock imports these so the browser
+    harness validates byte-identically to native; hooks reconcile editor state from whatever the
+    save returns.
+  - **lines <-> plaintext round-trip** (`linesText.ts`, spec 9/12): text is the sigil-less
+    fallback, every structured type has a paper-legible marker (`# @<id>`, `- [ ] … @p<id>`,
+    `25 min`, `> notes`, `>> bring: … | want: …`, `goal @<id>`). `parseLine(renderLine(x))` is
+    identity for every canonical line. Deliberate non-inverse: prose that literally equals a
+    marker is re-read as that marker (typing `- [ ]` makes a checkbox — the "paper" feel). Empty
+    sheet `[]` <-> `""`.
+  - **One autosave core** (`useAutosavedDocument.ts`) under both `useDaySheet`/`usePiecePlan`.
+    Three concurrency guards, each pinned by a test that bites: (1) an **edit-sequence** counter
+    skips the canonical reconcile when a keystroke landed mid-save (no clobber); (2) **outgoing
+    handles** captured per key epoch so a date/piece switch (or unmount) flushes the OLD document
+    with the OLD save closure — not the newly-loaded one; (3) a **load token** discards a load
+    that resolves after the key changed/unmounted. Debounce 600ms, immediate `flush()` on
+    blur/unmount.
+  - **Migration** (gated `date === todayLocal()`): first `day_sheet_get` → null AND a legacy
+    `todayPlan` value exists → seed `[{text}]` via a durable `day_sheet_save`, then
+    `clearTodayPlan` (new export) retires the key so it never runs twice. Seed-save failure leaves
+    the legacy key intact and shows a blank sheet (retry next open) — no half-state.
+  - **Dev mock now rejects on throw:** the `__TAURI_INTERNALS__.invoke` seam wraps `routeCommand`
+    in try/catch → `Promise.reject(<plain string>)`, matching the contract's error convention
+    (previously a thrown handler propagated synchronously). Notebook maps are date/piece-keyed and
+    cleared on each `installTauriDevMock()` so keyed tests don't bleed.
+  - **Test-env gotcha:** this jsdom/Node has NO `window.localStorage` (warns
+    "--localstorage-file not provided"); `todayPlan`'s try/catch silently no-ops it. Migration
+    tests install a Map-backed shim via `Object.defineProperty(window,"localStorage",…)` — the
+    same pattern the Today/composer suites already use.
+  - **Open/flag for the design eye:** every debounced save publishes a committed "Saved." receipt
+    (spec C2 asks for save receipts; the receipt kind auto-dismisses in 1.5s). If it reads noisy
+    at the piano, gate it to meaningful-change only. No UI built here — data layer only.
+  - Gates: `npx tsc --noEmit` clean (tests excluded from tsc); targeted vitest 44 notebook +
+    devMock tests green; blast-radius suites (today/shell/composer/devMock) 57 green; reconcile
+    bite proven by disabling the reconcile and watching the test fail.
+
 - **v4 Phase A — bug/perf lanes (2026-07-27/28, merged to main, all fresh-verifier CONFIRMED):**
   - **Universe "teleport" was focus-scroll, not d3.** `853f440` made node `<g>`s
     keyboard-focusable (`tabIndex={0}`/`role="button"`); a mouse press focused the node and the

@@ -42,6 +42,13 @@ import type {
 import type { MutationReceipt } from "../features/receipts/ReceiptCenter";
 import type { SessionView } from "../features/session/useSession";
 import type { UniverseSnapshot } from "../features/universe/types";
+import {
+  assertPiecePlanText,
+  parseBodyJson,
+  type DaySheet,
+  type NotebookLine,
+  type PiecePlan,
+} from "../features/notebook/lines";
 
 /** Local YYYY-MM-DD, matching calendar/dates.ts `todayLocal()`. */
 function todayLocal(): string {
@@ -1101,6 +1108,75 @@ function mockCalibration(pieceId: number): unknown {
   };
 }
 
+// --- Practice notebook (day sheet + piece plan) ---------------------------
+//
+// Unlike the read-only samples above these are STATEFUL and date/piece-keyed, so
+// the browser harness exercises real save→reload round-trips. Saves validate and
+// re-serialize through the shared `parseBodyJson`/`assertPiecePlanText`, i.e. the
+// same canonical rules the Rust backend applies: unknown line types/fields and
+// out-of-bound values REJECT (a thrown string → a rejected invoke promise), and
+// stored bodies are canonical (`checked` defaulted, null optionals dropped). Both
+// maps are cleared on each install so tests start from an empty backend.
+
+const DAY_SHEETS = new Map<string, DaySheet>();
+const PIECE_PLANS = new Map<number, PiecePlan>();
+
+function argsRecord(args: unknown): Record<string, unknown> {
+  return (args ?? {}) as Record<string, unknown>;
+}
+
+/** Re-throw a validation Error as the plain string the contract rejects with. */
+function asRejectionString(cause: unknown): never {
+  throw cause instanceof Error ? cause.message : String(cause);
+}
+
+function daySheetGet(args: unknown): DaySheet | null {
+  const date = String(argsRecord(args).date ?? "");
+  return DAY_SHEETS.get(date) ?? null;
+}
+
+function daySheetSave(args: unknown): DaySheet {
+  const record = argsRecord(args);
+  const date = String(record.date ?? "");
+  if (!date) throw "day_sheet_save requires a date";
+  let body: NotebookLine[];
+  try {
+    body = parseBodyJson(String(record.bodyJson ?? ""));
+  } catch (cause) {
+    asRejectionString(cause);
+  }
+  const saved: DaySheet = { date, body, updated_at: new Date().toISOString() };
+  DAY_SHEETS.set(date, saved);
+  return saved;
+}
+
+function piecePlanGet(args: unknown): PiecePlan | null {
+  const record = argsRecord(args);
+  const pieceId = Number(record.pieceId ?? record.piece_id);
+  return PIECE_PLANS.get(pieceId) ?? null;
+}
+
+function piecePlanSave(args: unknown): PiecePlan {
+  const record = argsRecord(args);
+  const pieceId = Number(record.pieceId ?? record.piece_id);
+  if (!Number.isInteger(pieceId) || pieceId < 1) {
+    throw "piece_plan_save requires a piece id";
+  }
+  let bodyText: string;
+  try {
+    bodyText = assertPiecePlanText(String(record.bodyText ?? ""));
+  } catch (cause) {
+    asRejectionString(cause);
+  }
+  const saved: PiecePlan = {
+    piece_id: pieceId,
+    body_text: bodyText,
+    updated_at: new Date().toISOString(),
+  };
+  PIECE_PLANS.set(pieceId, saved);
+  return saved;
+}
+
 /**
  * Coherent sample data for LOAD-path commands only. Any unmapped command (a
  * mutation or a not-yet-exercised read) returns `null`: the read paths guard
@@ -1240,6 +1316,16 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "retention_due":
       return retentionDue();
 
+    // Practice notebook — stateful, date/piece-keyed round-trips.
+    case "day_sheet_get":
+      return daySheetGet(args);
+    case "day_sheet_save":
+      return daySheetSave(args);
+    case "piece_plan_get":
+      return piecePlanGet(args);
+    case "piece_plan_save":
+      return piecePlanSave(args);
+
     default:
       return null;
   }
@@ -1254,6 +1340,10 @@ let installed = false;
 export function installTauriDevMock(): void {
   if (installed) return;
   installed = true;
+  // Fresh, empty notebook backend per install so date/piece-keyed tests do not
+  // bleed state into one another.
+  DAY_SHEETS.clear();
+  PIECE_PLANS.clear();
 
   let callbackId = 0;
   let subscriptionId = 0;
@@ -1267,7 +1357,13 @@ export function installTauriDevMock(): void {
       if (cmd === "plugin:event|listen")
         return Promise.resolve(++subscriptionId);
       if (cmd === "plugin:event|unlisten") return Promise.resolve(null);
-      return Promise.resolve(routeCommand(cmd, args));
+      // A handler that throws (e.g. notebook validation) rejects the promise
+      // with a plain string, matching the real backend's error convention.
+      try {
+        return Promise.resolve(routeCommand(cmd, args));
+      } catch (cause) {
+        return Promise.reject(cause);
+      }
     },
     // Returns a callback id; the registered handler is intentionally never invoked.
     transformCallback(_callback?: unknown, _once?: boolean): number {
