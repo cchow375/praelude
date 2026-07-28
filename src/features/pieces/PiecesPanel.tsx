@@ -135,7 +135,9 @@ export function PiecesPanel({
         <div>
           <p className="ck-kicker">Score-centered workspace</p>
           <h2 className="pieces-heading">Score Atlas</h2>
-          <p className="pieces-subheading">Choose a score, then work from an exact visible target.</p>
+          <p className="pieces-subheading">
+            Choose a score, then work from an exact visible target.
+          </p>
         </div>
         <button
           type="button"
@@ -178,27 +180,29 @@ export function PiecesPanel({
             <li key={p.id}>
               <button
                 type="button"
-                className="piece-row"
+                className="piece-row ck-fit-reveal"
                 onClick={() => select(p.id)}
               >
-                <span className="piece-row-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+                <span className="piece-row-index" aria-hidden="true">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
                 <span className="piece-row-main">
-                  <span className="piece-row-title">{p.title}</span>
+                  <span className="piece-row-title ck-fit">{p.title}</span>
                   {p.composer && (
-                    <span className="piece-row-composer">{p.composer}</span>
+                    <span className="piece-row-composer ck-fit">
+                      {p.composer}
+                    </span>
                   )}
                 </span>
                 <span className="piece-row-badges">
-                  {p.has_xml && (
-                    <span className="piece-badge is-xml">XML</span>
-                  )}
-                  {p.has_pdf && (
-                    <span className="piece-badge is-pdf">PDF</span>
-                  )}
+                  {p.has_xml && <span className="piece-badge is-xml">XML</span>}
+                  {p.has_pdf && <span className="piece-badge is-pdf">PDF</span>}
                   {!p.intake_done && (
                     <span className="piece-badge is-intake">needs intake</span>
                   )}
-                  <span className="piece-row-arrow" aria-hidden="true">↗</span>
+                  <span className="piece-row-arrow" aria-hidden="true">
+                    ↗
+                  </span>
                 </span>
               </button>
             </li>

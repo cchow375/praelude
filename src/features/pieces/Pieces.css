@@ -242,22 +242,24 @@
 .piece-row-main {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
 }
+/* The display title fits via .ck-fit: it keeps its large clamp() size but now
+   wraps to a second line at a word boundary instead of clipping mid-word, and
+   the whole title is revealed on row hover/focus (.ck-fit-reveal). */
 .piece-row-title {
+  --ck-fit-size: clamp(1.5rem, 2.6vw, 2.5rem);
+  --ck-fit-lines: 2;
+  --ck-fit-leading: 1.05;
   font-family: var(--font-display);
-  font-size: clamp(1.55rem, 2.7vw, 2.6rem);
   font-weight: var(--weight-normal);
   letter-spacing: -0.03em;
-  line-height: 1;
   color: var(--ink-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .piece-row-composer {
-  font-size: var(--text-sm);
+  --ck-fit-size: var(--text-sm);
+  --ck-fit-lines: 1;
   color: var(--ink-tertiary);
 }
 

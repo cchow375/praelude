@@ -85,6 +85,95 @@ const WORKSPACES = [
 type WorkspaceId = (typeof WORKSPACES)[number]["id"];
 type View = WorkspaceId | "settings";
 
+/**
+ * Quiet monochrome rail glyphs (B4). Every icon is inline SVG on a 24-unit
+ * grid, a consistent 1.5px stroke in currentColor so it dims/brightens with
+ * its label and the active ink weight — no emoji, no icon-font dependency, no
+ * fill except the small "today" and bullet accents. The glyph is decorative:
+ * the visible text label names the target, so the SVG is aria-hidden and the
+ * accessible name still comes from the label alone.
+ */
+function ShellGlyph({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      className="shell-nav-icon"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+const NAV_ICONS: Record<WorkspaceId, ReactNode> = {
+  today: (
+    <ShellGlyph>
+      <rect x="3" y="4.5" width="18" height="17" rx="2.5" />
+      <line x1="8" y1="2.5" x2="8" y2="6" />
+      <line x1="16" y1="2.5" x2="16" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      <circle cx="12" cy="15.5" r="1.6" fill="currentColor" stroke="none" />
+    </ShellGlyph>
+  ),
+  score: (
+    <ShellGlyph>
+      <path d="M9 18V5l12-2v13" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="16" r="3" />
+    </ShellGlyph>
+  ),
+  brain: (
+    <ShellGlyph>
+      <path d="M20.5 11.7a8 8 0 0 1-8.6 8 8 8 0 0 1-3.4-.9L3.5 20.5l1.7-5a8 8 0 0 1-.7-3.3 8 8 0 0 1 8-8h.5a8 8 0 0 1 7.5 7.5Z" />
+    </ShellGlyph>
+  ),
+  ledger: (
+    <ShellGlyph>
+      <circle cx="4" cy="6.5" r="1.1" fill="currentColor" stroke="none" />
+      <line x1="8" y1="6.5" x2="20.5" y2="6.5" />
+      <circle cx="4" cy="12" r="1.1" fill="currentColor" stroke="none" />
+      <line x1="8" y1="12" x2="20.5" y2="12" />
+      <circle cx="4" cy="17.5" r="1.1" fill="currentColor" stroke="none" />
+      <line x1="8" y1="17.5" x2="16" y2="17.5" />
+    </ShellGlyph>
+  ),
+  universe: (
+    <ShellGlyph>
+      <circle cx="12" cy="12" r="3.2" />
+      <ellipse cx="12" cy="12" rx="9.5" ry="4" transform="rotate(-28 12 12)" />
+    </ShellGlyph>
+  ),
+};
+
+function MetronomeGlyph() {
+  return (
+    <ShellGlyph>
+      <path d="M9.3 4.5h5.4l3 15.5H6.3z" />
+      <line x1="6.6" y1="15.5" x2="17.4" y2="15.5" />
+      <line x1="12" y1="17.5" x2="15" y2="8" />
+      <circle cx="15" cy="8" r="1" fill="currentColor" stroke="none" />
+    </ShellGlyph>
+  );
+}
+
+function SettingsGlyph() {
+  return (
+    <ShellGlyph>
+      <line x1="4" y1="8" x2="20" y2="8" />
+      <line x1="4" y1="16" x2="20" y2="16" />
+      <circle cx="10" cy="8" r="2.4" fill="var(--bg-sunken)" />
+      <circle cx="15" cy="16" r="2.4" fill="var(--bg-sunken)" />
+    </ShellGlyph>
+  );
+}
+
 const BrainWorkspace = lazy(() =>
   import("../features/brain/BrainWorkspace").then((m) => ({
     default: m.BrainWorkspace,
@@ -285,8 +374,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     pieceId: null as number | null,
     revision: 0,
   });
-  const [ledgerSurface, setLedgerSurface] =
-    useState<LedgerSurface>("ledger");
+  const [ledgerSurface, setLedgerSurface] = useState<LedgerSurface>("ledger");
   const [requestedLedgerPiece, setRequestedLedgerPiece] = useState({
     pieceId: null as number | null,
     revision: 0,
@@ -558,10 +646,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       if (targetBlockId === null) {
         return "This answer was not grounded in an active set. Ask again while the set is open.";
       }
-      if (
-        rep.snap &&
-        targetBlockId !== rep.snap.block_id
-      ) {
+      if (rep.snap && targetBlockId !== rep.snap.block_id) {
         return "The active set changed. Ask again before applying this action.";
       }
       if (rep.snap) return null;
@@ -686,9 +771,10 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       const oldest = spokenDraftKeys.current.values().next().value;
       if (oldest) spokenDraftKeys.current.delete(oldest);
     }
-    const text = pendingVoiceDraft && rep.snap
-      ? "A practice set is already active. Close or finish it before starting another, or say cancel."
-      : actionDraftSpeech(draft);
+    const text =
+      pendingVoiceDraft && rep.snap
+        ? "A practice set is already active. Close or finish it before starting another, or say cancel."
+        : actionDraftSpeech(draft);
     void invoke("voice_speak", { text }).catch(() => {
       // The visual confirmation remains authoritative if TTS is unavailable.
     });
@@ -853,7 +939,8 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                 onClick={() => setView(workspace.id)}
                 onKeyDown={(event) => onTabKeyDown(event, workspace.id)}
               >
-                {workspace.label}
+                {NAV_ICONS[workspace.id]}
+                <span className="shell-nav-label">{workspace.label}</span>
               </button>
             );
           })}
@@ -877,12 +964,13 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         <button
           ref={metroButtonRef}
           type="button"
-          className={`shell-settings-button${metroOpen ? " is-active" : ""}`}
+          className={`shell-settings-button is-foot-lead${metroOpen ? " is-active" : ""}`}
           aria-haspopup="dialog"
           aria-expanded={metroOpen}
           onClick={() => setMetroOpen((open) => !open)}
         >
-          Metronome
+          <MetronomeGlyph />
+          <span className="shell-nav-label">Metronome</span>
         </button>
 
         <button
@@ -891,7 +979,8 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
           aria-pressed={view === "settings"}
           onClick={openSettings}
         >
-          Settings
+          <SettingsGlyph />
+          <span className="shell-nav-label">Settings</span>
         </button>
       </aside>
 
@@ -1006,7 +1095,9 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
             <ActionDraftCard
               draft={pendingBrainAction.action}
               confirming={brainActionConfirming}
-              unavailableReason={brainActionUnavailableReason(pendingBrainAction)}
+              unavailableReason={brainActionUnavailableReason(
+                pendingBrainAction,
+              )}
               onCancel={cancelBrainAction}
               onConfirm={() => void confirmBrainAction(pendingBrainAction)}
             />
@@ -1014,9 +1105,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
             <ActionDraftCard
               draft={pendingVoiceDraft.draft}
               confirming={voiceDraftConfirming}
-              unavailableReason={rep.snap
-                ? ACTIVE_SET_DRAFT_UNAVAILABLE
-                : null}
+              unavailableReason={rep.snap ? ACTIVE_SET_DRAFT_UNAVAILABLE : null}
               onDraftChange={(draft) => {
                 latestVoiceDraft.current = {
                   ...pendingVoiceDraft,

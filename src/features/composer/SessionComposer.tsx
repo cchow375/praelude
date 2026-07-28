@@ -380,7 +380,7 @@ export function SessionComposer({
             return (
               <li
                 key={item.candidate_id}
-                className={`session-composer__item${edit.included ? "" : " is-excluded"}`}
+                className={`session-composer__item ck-fit-reveal${edit.included ? "" : " is-excluded"}`}
                 data-kind={item.kind}
               >
                 <div className="session-composer__order" aria-hidden="true">
@@ -392,8 +392,8 @@ export function SessionComposer({
                       <span className="session-composer__group">
                         {GROUP_LABEL[item.kind]}
                       </span>
-                      <h3>{name}</h3>
-                      <p>{pieceName(item)}</p>
+                      <h3 className="ck-fit">{name}</h3>
+                      <p className="ck-fit">{pieceName(item)}</p>
                     </div>
                     <label
                       className="session-composer__include"

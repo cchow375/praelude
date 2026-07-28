@@ -4,7 +4,8 @@
 
 .shell {
   display: grid;
-  grid-template-columns: 200px 1fr;
+  /* Rail trimmed 200px -> 148px (B4); the stage keeps the reclaimed width. */
+  grid-template-columns: 148px 1fr;
   min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
@@ -35,16 +36,36 @@
 }
 .shell-nav-item {
   appearance: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
   border: none;
   background: transparent;
   text-align: left;
-  padding: var(--s-2) var(--s-2);
+  /* Tight inline padding so the longest label ("Universe") clears the 148px
+     rail without truncating; the button is full-width, so click area is kept. */
+  padding: var(--s-2) var(--s-1);
   border-radius: var(--r-sm);
   font: inherit;
   font-size: 0.9375rem;
   color: var(--ink-faint);
   cursor: pointer;
   transition: color var(--dur-fast) var(--ease-out);
+}
+
+/* Quiet monochrome nav glyph: inherits the item's ink so it dims/brightens
+   with the label and the active state. Never a filled pill, never colour. */
+.shell-nav-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: inherit;
+}
+.shell-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .shell-nav-item:hover {
   color: var(--ink-dim);
@@ -59,17 +80,24 @@
 
 .shell-settings-button {
   appearance: none;
-  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
   border: none;
   background: transparent;
   text-align: left;
-  padding: var(--s-2);
+  padding: var(--s-2) var(--s-1);
   border-radius: var(--r-sm);
   font: inherit;
   font-size: 0.875rem;
   color: var(--ink-faint);
   cursor: pointer;
   transition: color var(--dur-fast) var(--ease-out);
+}
+/* The metronome control is the first foot button; it carries the auto margin
+   that floats the metronome + settings pair to the base of the rail. */
+.shell-settings-button.is-foot-lead {
+  margin-top: auto;
 }
 .shell-settings-button:hover {
   color: var(--ink-dim);

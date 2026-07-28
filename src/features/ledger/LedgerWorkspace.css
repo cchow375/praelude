@@ -180,20 +180,21 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
+  gap: 3px;
 }
+/* Title + composer fit via the shared .ck-fit utility: floored size, up to two
+   word-wrapped lines, full text revealed on row hover/focus (.ck-fit-reveal on
+   the button) — no more mid-word ellipsis clipping. */
 .ledger-piece-index button strong {
-  overflow: hidden;
+  --ck-fit-size: var(--text-base);
+  --ck-fit-lines: 2;
+  --ck-fit-leading: 1.2;
   font-family: var(--font-display);
-  font-size: var(--text-base);
   font-weight: var(--weight-normal);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .ledger-piece-index button small {
-  overflow: hidden;
-  font-size: var(--text-2xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  --ck-fit-size: var(--text-sm);
+  --ck-fit-lines: 1;
   opacity: 0.58;
 }
 
