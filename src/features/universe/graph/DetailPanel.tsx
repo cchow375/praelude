@@ -6,6 +6,7 @@ import type {
   UniverseSnapshot,
 } from "../types";
 import { formatDate, formatDuration } from "./format";
+import { HISTORY } from "../../../shell/terms";
 import { paletteAt } from "./palettes";
 import type { GraphNode } from "./simulation";
 
@@ -183,7 +184,7 @@ export function DetailPanel({
           <p className="universe-detail-note">
             {region.revisited ? "Revisited on distinct dates. " : ""}
             {region.recovered ? "Honestly recovered. " : ""}
-            Streak and tempo-path detail live in the Ledger, not the snapshot.
+            Streak and tempo-path detail live in {HISTORY}, not the snapshot.
           </p>
         </>
       )}
@@ -193,8 +194,8 @@ export function DetailPanel({
           One recorded practice session
           {region ? ` on ${region.name}` : ""}
           {piece ? ` in ${piece.title}` : ""}. The Universe snapshot aggregates
-          sessions as counts, so the full story of this session lives in the
-          Ledger.
+          sessions as counts, so the full story of this session lives in{" "}
+          {HISTORY}.
         </p>
       )}
 
@@ -232,7 +233,7 @@ export function DetailPanel({
               className="universe-detail-action"
               onClick={() => onOpenLedger(jumpContext)}
             >
-              Open in Ledger
+              Open in {HISTORY}
             </button>
           )}
         </div>

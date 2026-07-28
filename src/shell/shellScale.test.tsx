@@ -35,8 +35,8 @@ describe("Shell rail scale (B4)", () => {
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Today",
       "Score",
-      "Brain",
-      "Ledger",
+      "Assistant",
+      "History",
       "Universe",
     ]);
   });

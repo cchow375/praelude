@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 
 // ---------------------------------------------------------------------------
 // Mock the Tauri IPC surface. PiecesPanel + PieceDetail only use `invoke`; the
@@ -31,7 +37,10 @@ const SATIE: PieceSummary = {
   intake_done: true,
 };
 
-function detailOf(p: PieceSummary, over: Partial<PieceDetailData> = {}): PieceDetailData {
+function detailOf(
+  p: PieceSummary,
+  over: Partial<PieceDetailData> = {},
+): PieceDetailData {
   return {
     ...p,
     folder_path: `/pieces/${p.id}`,
@@ -57,17 +66,21 @@ afterEach(cleanup);
 describe("PiecesPanel", () => {
   it("lists pieces from pieces_list with XML/PDF/needs-intake badges", async () => {
     invokeMock.mockImplementation((cmd: string) =>
-      cmd === "pieces_list" ? Promise.resolve([LISZT, SATIE]) : Promise.resolve([]),
+      cmd === "pieces_list"
+        ? Promise.resolve([LISZT, SATIE])
+        : Promise.resolve([]),
     );
 
     render(<PiecesPanel onOpenBlock={vi.fn()} />);
 
-    await waitFor(() => expect(screen.getByText("Liebestraum No. 3")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("Liebestraum No. 3")).toBeTruthy(),
+    );
     expect(screen.getByRole("heading", { name: "Score Atlas" })).toBeTruthy();
     expect(screen.getByText("02 · mark target")).toBeTruthy();
     expect(screen.getByText("Gymnopédie No. 1")).toBeTruthy();
     // Liszt: XML + needs intake; Satie: XML + PDF (intake done).
-    expect(screen.getByText("needs intake")).toBeTruthy();
+    expect(screen.getByText("needs setup")).toBeTruthy();
     expect(screen.getAllByText("XML")).toHaveLength(2);
     expect(screen.getByText("PDF")).toBeTruthy();
   });
@@ -80,11 +93,17 @@ describe("PiecesPanel", () => {
     });
 
     render(<PiecesPanel onOpenBlock={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText("No pieces yet.")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("No pieces yet.")).toBeTruthy(),
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Rescan pieces folder" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Rescan pieces folder" }),
+    );
 
-    await waitFor(() => expect(screen.getByText("Gymnopédie No. 1")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("Gymnopédie No. 1")).toBeTruthy(),
+    );
     expect(invokeMock).toHaveBeenCalledWith("pieces_scan");
   });
 
@@ -98,7 +117,9 @@ describe("PiecesPanel", () => {
     });
 
     render(<PiecesPanel onOpenBlock={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText("Liebestraum No. 3")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("Liebestraum No. 3")).toBeTruthy(),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /Liebestraum No\. 3/ }));
 
@@ -114,13 +135,20 @@ describe("PiecesPanel", () => {
       if (cmd === "pieces_list") return Promise.resolve([LISZT, SATIE]);
       if (cmd === "piece_select") return Promise.resolve(undefined);
       if (cmd === "piece_get") return Promise.resolve(detailOf(SATIE));
-      if (cmd === "rep_blocks_for_piece" || cmd === "region_list" || cmd === "goal_list") return Promise.resolve([]);
+      if (
+        cmd === "rep_blocks_for_piece" ||
+        cmd === "region_list" ||
+        cmd === "goal_list"
+      )
+        return Promise.resolve([]);
       return Promise.resolve([]);
     });
 
     render(<PiecesPanel initialPieceId={SATIE.id} onOpenBlock={vi.fn()} />);
 
-    expect(await screen.findByRole("heading", { name: "Gymnopédie No. 1" })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Gymnopédie No. 1" }),
+    ).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Pieces" })).toBeNull();
     expect(invokeMock).toHaveBeenCalledWith("piece_select", { id: SATIE.id });
     expect(invokeMock).toHaveBeenCalledWith("piece_get", { id: SATIE.id });
@@ -128,13 +156,21 @@ describe("PiecesPanel", () => {
 
   it("ignores a stale slower piece response after a newer selection wins", async () => {
     let resolveLiszt!: (value: PieceDetailData) => void;
-    const slowLiszt = new Promise<PieceDetailData>((resolve) => { resolveLiszt = resolve; });
+    const slowLiszt = new Promise<PieceDetailData>((resolve) => {
+      resolveLiszt = resolve;
+    });
     invokeMock.mockImplementation((cmd: string, payload?: { id?: number }) => {
       if (cmd === "pieces_list") return Promise.resolve([LISZT, SATIE]);
       if (cmd === "piece_get" && payload?.id === LISZT.id) return slowLiszt;
-      if (cmd === "piece_get" && payload?.id === SATIE.id) return Promise.resolve(detailOf(SATIE));
+      if (cmd === "piece_get" && payload?.id === SATIE.id)
+        return Promise.resolve(detailOf(SATIE));
       if (cmd === "piece_select") return Promise.resolve(undefined);
-      if (cmd === "rep_blocks_for_piece" || cmd === "region_list" || cmd === "goal_list") return Promise.resolve([]);
+      if (
+        cmd === "rep_blocks_for_piece" ||
+        cmd === "region_list" ||
+        cmd === "goal_list"
+      )
+        return Promise.resolve([]);
       return Promise.resolve([]);
     });
     render(<PiecesPanel onOpenBlock={vi.fn()} />);
@@ -142,12 +178,18 @@ describe("PiecesPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Liebestraum No\. 3/ }));
     fireEvent.click(screen.getByRole("button", { name: /Gymnopédie No\. 1/ }));
-    expect(await screen.findByRole("heading", { name: "Gymnopédie No. 1" })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Gymnopédie No. 1" }),
+    ).toBeTruthy();
     resolveLiszt(detailOf(LISZT));
     await Promise.resolve();
 
-    expect(screen.getByRole("heading", { name: "Gymnopédie No. 1" })).toBeTruthy();
-    expect(invokeMock).not.toHaveBeenCalledWith("piece_select", { id: LISZT.id });
+    expect(
+      screen.getByRole("heading", { name: "Gymnopédie No. 1" }),
+    ).toBeTruthy();
+    expect(invokeMock).not.toHaveBeenCalledWith("piece_select", {
+      id: LISZT.id,
+    });
   });
 
   it("shows summary + block form (not intake) for a piece with intake done", async () => {
@@ -155,16 +197,31 @@ describe("PiecesPanel", () => {
       if (cmd === "pieces_list") return Promise.resolve([SATIE]);
       if (cmd === "piece_select") return Promise.resolve(undefined);
       if (cmd === "piece_get")
-        return Promise.resolve(detailOf(SATIE, { goals: ["from memory"], target_tempo: 120 }));
+        return Promise.resolve(
+          detailOf(SATIE, { goals: ["from memory"], target_tempo: 120 }),
+        );
       if (cmd === "rep_blocks_for_piece") return Promise.resolve([]);
-      if (cmd === "goal_list") return Promise.resolve([
-        { id: 1, piece_id: 2, text: "from memory", kind: "big", parent_goal_id: null, done: false, order: 0, target_date: null, created_ts: "now" },
-      ]);
+      if (cmd === "goal_list")
+        return Promise.resolve([
+          {
+            id: 1,
+            piece_id: 2,
+            text: "from memory",
+            kind: "big",
+            parent_goal_id: null,
+            done: false,
+            order: 0,
+            target_date: null,
+            created_ts: "now",
+          },
+        ]);
       return Promise.resolve([]);
     });
 
     render(<PiecesPanel onOpenBlock={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText("Gymnopédie No. 1")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("Gymnopédie No. 1")).toBeTruthy(),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /Gymnopédie No\. 1/ }));
 

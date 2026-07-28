@@ -19,8 +19,8 @@ describe("Shell", () => {
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Today",
       "Score",
-      "Brain",
-      "Ledger",
+      "Assistant",
+      "History",
       "Universe",
     ]);
   });

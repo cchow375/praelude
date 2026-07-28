@@ -7,9 +7,6 @@
    ========================================================================== */
 
 .metro {
-  --accent: #2a2a30;
-  --accent-hover: #34343c;
-
   width: 300px;
   display: flex;
   flex-direction: column;

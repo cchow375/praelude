@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { PracticePieceContext } from "../universe/types";
 import type { RepSnapshot } from "../rep/useRep";
+import { ASSISTANT, HISTORY } from "../../shell/terms";
 import { TodayPracticePanel } from "./TodayPracticePanel";
 import { compactDuration, todayLabel } from "./format";
 import {
@@ -98,7 +99,7 @@ export function TodayWorkspace({
             onClick={onOpenBrain}
           >
             <SparkIcon className="today-menu-icon" />
-            <span>Brain</span>
+            <span>{ASSISTANT}</span>
           </button>
           <button
             type="button"
@@ -106,7 +107,7 @@ export function TodayWorkspace({
             onClick={onOpenLedger}
           >
             <ListIcon className="today-menu-icon" />
-            <span>Ledger</span>
+            <span>{HISTORY}</span>
           </button>
           <button
             type="button"

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HistoryPanel } from "../pieces/HistoryPanel";
+import { HISTORY } from "../../shell/terms";
 import type { PieceSummary } from "../pieces/types";
 import { AnomaliesPanel } from "./AnomaliesPanel";
 import "./LedgerWorkspace.css";
@@ -86,7 +87,7 @@ export function LedgerWorkspace({
       <header className="ledger-masthead ck-reveal-item">
         <div>
           <p className="ck-kicker">Immutable practice evidence</p>
-          <h1>Ledger</h1>
+          <h1>{HISTORY}</h1>
         </div>
       </header>
 

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { ASSISTANT } from "../shell/terms";
 
 /**
  * Typed description of one native command. Feature modules own the request and
@@ -150,7 +151,7 @@ export interface BrainTestResult {
 
 export const brainStatus = defineCommand<undefined, BrainStatus>(
   "brain_status",
-  "Brain status could not be read.",
+  `${ASSISTANT} status could not be read.`,
 );
 
 export const brainTestConnection = defineCommand<undefined, BrainTestResult>(

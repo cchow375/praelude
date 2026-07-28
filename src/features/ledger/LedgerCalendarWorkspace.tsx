@@ -1,10 +1,6 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { LedgerWorkspace } from "./LedgerWorkspace";
+import { HISTORY } from "../../shell/terms";
 import { CalendarWorkspace } from "../calendar/CalendarWorkspace";
 import { PiecesPanel } from "../pieces/PiecesPanel";
 import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
@@ -14,7 +10,7 @@ import "./LedgerCalendarWorkspace.css";
 export type LedgerSurface = "ledger" | "calendar" | "pieces";
 
 const SURFACES: { id: LedgerSurface; label: string }[] = [
-  { id: "ledger", label: "Ledger" },
+  { id: "ledger", label: HISTORY },
   { id: "calendar", label: "Calendar" },
   { id: "pieces", label: "Pieces" },
 ];
@@ -61,9 +57,9 @@ export function LedgerCalendarWorkspace({
   const [surface, setSurface] = useState<LedgerSurface>(
     requestedSurface ?? "ledger",
   );
-  const tabRefs = useRef<Partial<Record<LedgerSurface, HTMLButtonElement | null>>>(
-    {},
-  );
+  const tabRefs = useRef<
+    Partial<Record<LedgerSurface, HTMLButtonElement | null>>
+  >({});
 
   useEffect(() => {
     if (requestedSurface) setSurface(requestedSurface);

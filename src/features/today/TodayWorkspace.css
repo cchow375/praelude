@@ -586,18 +586,6 @@
 
 /* Keep the first real action above the fold in CodaKiller's 720×520 gate. */
 @media (max-width: 800px), (max-height: 620px) {
-  .today-workspace {
-    padding-top: var(--s-4);
-  }
-  .today-masthead {
-    margin-bottom: var(--s-5);
-  }
-  .today-masthead h1 {
-    font-size: clamp(2.6rem, 9vw, 3.6rem);
-  }
-  .today-thesis {
-    font-size: 0.95rem;
-  }
   .today-next {
     min-height: 22rem;
     padding: var(--s-5);
@@ -616,9 +604,6 @@
 }
 
 @media (max-height: 620px) {
-  .today-masthead {
-    margin-bottom: var(--s-3);
-  }
   .today-next .today-copy {
     display: none;
   }
@@ -628,18 +613,8 @@
 }
 
 @media (max-width: 650px) {
-  .today-workspace {
-    padding: var(--s-4);
-  }
-  .today-masthead {
-    grid-template-columns: 1fr;
-    gap: var(--s-4);
-  }
   .today-date {
     grid-column: 1;
-  }
-  .today-masthead h1 {
-    font-size: clamp(2.2rem, 12vw, 3.4rem);
   }
   .today-board {
     display: flex;

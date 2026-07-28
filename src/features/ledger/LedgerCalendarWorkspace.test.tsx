@@ -71,7 +71,7 @@ describe("LedgerCalendarWorkspace", () => {
     renderWorkspace();
     expect(screen.getByTestId("workspace-ledger")).toBeTruthy();
     expect(await screen.findByTestId("ledger-workspace")).toBeTruthy();
-    const ledgerTab = screen.getByRole("tab", { name: "Ledger" });
+    const ledgerTab = screen.getByRole("tab", { name: "History" });
     expect(ledgerTab.getAttribute("aria-selected")).toBe("true");
   });
 
@@ -92,7 +92,7 @@ describe("LedgerCalendarWorkspace", () => {
 
   it("implements arrow-key tab navigation with one tab stop", async () => {
     renderWorkspace();
-    const ledger = screen.getByRole("tab", { name: "Ledger" });
+    const ledger = screen.getByRole("tab", { name: "History" });
     const calendar = screen.getByRole("tab", { name: "Calendar" });
     expect(ledger.getAttribute("tabindex")).toBe("0");
     expect(calendar.getAttribute("tabindex")).toBe("-1");

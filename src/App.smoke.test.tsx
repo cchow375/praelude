@@ -31,14 +31,14 @@ describe("App shell smoke (v3)", () => {
       within(nav)
         .getAllByRole("tab")
         .map((t) => t.textContent),
-    ).toEqual(["Today", "Score", "Brain", "Ledger", "Universe"]);
+    ).toEqual(["Today", "Score", "Assistant", "History", "Universe"]);
     expect(await screen.findByTestId("workspace-today")).toBeTruthy();
   });
 
   it("navigates to another workspace on nav click", async () => {
     render(<App />);
     await screen.findByTestId("workspace-today");
-    fireEvent.click(screen.getByRole("tab", { name: "Brain" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Assistant" }));
     expect(await screen.findByTestId("workspace-brain")).toBeTruthy();
   });
 

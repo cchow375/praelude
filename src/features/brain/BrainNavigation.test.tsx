@@ -39,7 +39,7 @@ afterEach(cleanup);
 describe("Brain navigation (v3 shell)", () => {
   it("navigates to the Brain workspace from the shell nav", async () => {
     render(<Shell />);
-    fireEvent.click(screen.getByRole("tab", { name: "Brain" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Assistant" }));
     expect(await screen.findByTestId("workspace-brain")).toBeTruthy();
     // Today is no longer mounted once Brain is the active tab.
     expect(screen.queryByTestId("workspace-today")).toBeNull();
@@ -47,7 +47,7 @@ describe("Brain navigation (v3 shell)", () => {
 
   it("answers a typed question inside the Brain workspace", async () => {
     render(<Shell />);
-    fireEvent.click(screen.getByRole("tab", { name: "Brain" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Assistant" }));
 
     fireEvent.change(await screen.findByLabelText("Ask Coda"), {
       target: { value: "How do I land this leap?" },
@@ -58,7 +58,7 @@ describe("Brain navigation (v3 shell)", () => {
 
   it("shows the persistent Brain status line", async () => {
     render(<Shell />);
-    fireEvent.click(screen.getByRole("tab", { name: "Brain" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Assistant" }));
     expect(await screen.findByText("● configured — gemini")).toBeTruthy();
   });
 });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
 import { EditableField } from "../../components/EditableField";
+import { ASSISTANT } from "../../shell/terms";
 import { commandErrorMessage } from "../../services/command";
 import { useReceipts } from "../receipts/ReceiptCenter";
 import { useCrud } from "../rep/useCrud";
@@ -33,7 +34,7 @@ function attemptSourceLabel(source: string | undefined): string {
     case "voice_draft":
       return "voice draft";
     case "brain_draft":
-      return "Brain draft";
+      return `${ASSISTANT} draft`;
     case "import_review":
       return "reviewed import";
     case "migration_legacy":
@@ -342,7 +343,7 @@ export function BlockRow({ block, onChanged, regions = [] }: BlockRowProps) {
                     {attemptLineage(rep)}
                   </span>
                   {rep.voided ? (
-                    <span className="history-rep-note">
+                    <span className="history-rep-note ck-fit">
                       {rep.note || "No note"}
                     </span>
                   ) : (

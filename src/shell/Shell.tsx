@@ -12,6 +12,7 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceStub } from "./WorkspaceStub";
+import { ASSISTANT, HISTORY } from "./terms";
 import { TodayWorkspace } from "../features/today/TodayWorkspace";
 import { todayLocal } from "../features/calendar/dates";
 import {
@@ -76,9 +77,9 @@ import "./shell.css";
 const WORKSPACES = [
   { id: "today", label: "Today" },
   { id: "score", label: "Score" },
-  { id: "brain", label: "Brain" },
+  { id: "brain", label: ASSISTANT },
   // The Ledger/Calendar slot (Phase 6 fills both behind this one entry).
-  { id: "ledger", label: "Ledger" },
+  { id: "ledger", label: HISTORY },
   { id: "universe", label: "Universe" },
 ] as const;
 

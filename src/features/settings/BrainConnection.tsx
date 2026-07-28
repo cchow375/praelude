@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Receipt } from "../../ui";
+import { ASSISTANT } from "../../shell/terms";
 import {
   brainStatus,
   brainTestConnection,
@@ -33,7 +34,9 @@ export function BrainConnection({ invoker }: { invoker?: CommandInvoker }) {
       .catch((cause) => {
         if (!mounted.current) return;
         setStatus(null);
-        setStatusError(commandErrorMessage(cause, "Brain status unavailable."));
+        setStatusError(
+          commandErrorMessage(cause, `${ASSISTANT} status unavailable.`),
+        );
       });
   };
 
@@ -81,13 +84,13 @@ export function BrainConnection({ invoker }: { invoker?: CommandInvoker }) {
   const statusLine = statusError
     ? `○ status unavailable — ${statusError}`
     : status == null
-      ? "Checking Brain connection…"
+      ? `Checking ${ASSISTANT} connection…`
       : online
         ? `● configured — ${status.provider ?? "provider configured"}`
         : `○ offline — ${status.reason ?? "no provider configured"}`;
 
   return (
-    <div className="brain-connection" aria-label="Brain connection">
+    <div className="brain-connection" aria-label={`${ASSISTANT} connection`}>
       <p
         className={`brain-connection-line is-${online ? "online" : "offline"}`}
         role="status"

@@ -272,7 +272,7 @@ describe("BrainWorkspace", () => {
       />,
     );
 
-    const strip = await screen.findByLabelText("Current Brain context");
+    const strip = await screen.findByLabelText("Current Assistant context");
     expect(strip.textContent).toContain("Coda sees");
     expect(strip.textContent).toContain("Scherzo No. 2");
     expect(strip.textContent).toContain("Coda landing");
@@ -370,7 +370,10 @@ describe("BrainWorkspace", () => {
     let resolveResume!: (value: { thread_id: number; turns: [] }) => void;
     const api = makeApi();
     vi.mocked(api.resumeThread).mockImplementation(
-      () => new Promise((resolve) => { resolveResume = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveResume = resolve;
+        }),
     );
     render(
       <BrainWorkspace
@@ -381,10 +384,13 @@ describe("BrainWorkspace", () => {
       />,
     );
 
-    expect((await screen.findByRole(
-      "button",
-      { name: "Loading memory…" },
-    ) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (
+        (await screen.findByRole("button", {
+          name: "Loading memory…",
+        })) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
     expect(api.ask).not.toHaveBeenCalled();
     resolveResume({ thread_id: 42, turns: [] });
     await waitFor(() => expect(api.ask).toHaveBeenCalledTimes(1));
@@ -397,13 +403,30 @@ describe("BrainWorkspace", () => {
     let resolveAnswer!: (value: BrainAnswer) => void;
     const api = makeApi();
     vi.mocked(api.ask).mockImplementation(
-      () => new Promise((resolve) => { resolveAnswer = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveAnswer = resolve;
+        }),
     );
     const onProposedAction = vi.fn();
     const invoker = makeInvoker({
       pieces_list: [
-        { id: 7, title: "Scherzo No. 2", composer: "Chopin", has_xml: true, has_pdf: true, intake_done: true },
-        { id: 8, title: "Ballade No. 1", composer: "Chopin", has_xml: true, has_pdf: true, intake_done: true },
+        {
+          id: 7,
+          title: "Scherzo No. 2",
+          composer: "Chopin",
+          has_xml: true,
+          has_pdf: true,
+          intake_done: true,
+        },
+        {
+          id: 8,
+          title: "Ballade No. 1",
+          composer: "Chopin",
+          has_xml: true,
+          has_pdf: true,
+          intake_done: true,
+        },
       ],
     });
     render(
@@ -443,7 +466,9 @@ describe("BrainWorkspace", () => {
     );
     await waitFor(() => expect(props.api.resumeThread).toHaveBeenCalledWith(7));
     rerender(<BrainWorkspace {...props} practiceContext={undefined} />);
-    expect((screen.getByLabelText("Piece thread") as HTMLSelectElement).value).toBe("7");
+    expect(
+      (screen.getByLabelText("Piece thread") as HTMLSelectElement).value,
+    ).toBe("7");
   });
 
   it("shows the deterministic next-work suggestions independently of AI answers", async () => {

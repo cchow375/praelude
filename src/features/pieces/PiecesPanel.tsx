@@ -198,7 +198,7 @@ export function PiecesPanel({
                   {p.has_xml && <span className="piece-badge is-xml">XML</span>}
                   {p.has_pdf && <span className="piece-badge is-pdf">PDF</span>}
                   {!p.intake_done && (
-                    <span className="piece-badge is-intake">needs intake</span>
+                    <span className="piece-badge is-intake">needs setup</span>
                   )}
                   <span className="piece-row-arrow" aria-hidden="true">
                     ↗

@@ -6,6 +6,7 @@ import {
   type FormEvent,
 } from "react";
 import { brainApi } from "./api";
+import { ASSISTANT } from "../../shell/terms";
 import { todayLocal } from "../calendar/dates";
 import { Button, Disclosure, Receipt } from "../../ui";
 import {
@@ -201,14 +202,17 @@ export function BrainWorkspace({
       : baseContext;
   const threadReady = pieceId == null || readyThreadPieceId === pieceId;
 
-  const changePiece = useCallback((next: number | null) => {
-    if (next === pieceId) return;
-    conversationGeneration.current += 1;
-    activeAskId.current += 1;
-    setAsking(false);
-    setError(null);
-    setPieceId(next);
-  }, [pieceId]);
+  const changePiece = useCallback(
+    (next: number | null) => {
+      if (next === pieceId) return;
+      conversationGeneration.current += 1;
+      activeAskId.current += 1;
+      setAsking(false);
+      setError(null);
+      setPieceId(next);
+    },
+    [pieceId],
+  );
 
   // A newly visible Score piece becomes Brain's selected thread. A deliberate
   // picker change remains respected until Score publishes a different piece.
@@ -233,7 +237,9 @@ export function BrainWorkspace({
       .catch((cause) => {
         if (!active) return;
         setStatus(null);
-        setStatusError(commandErrorMessage(cause, "Brain status unavailable."));
+        setStatusError(
+          commandErrorMessage(cause, `${ASSISTANT} status unavailable.`),
+        );
       });
     return () => {
       active = false;
@@ -405,7 +411,8 @@ export function BrainWorkspace({
       asking ||
       !threadReady ||
       handledWakeId.current === wakeQuestion.id
-    ) return;
+    )
+      return;
     handledWakeId.current = wakeQuestion.id;
     void ask(wakeQuestion.text, "voice");
   }, [ask, asking, threadReady, wakeQuestion]);
@@ -419,7 +426,7 @@ export function BrainWorkspace({
   const statusLine = statusError
     ? `○ status unavailable — ${statusError}`
     : status == null
-      ? "Checking Brain configuration…"
+      ? `Checking ${ASSISTANT} configuration…`
       : online
         ? `● configured — ${status.provider ?? "provider"}`
         : `○ offline — ${status.reason ?? "no provider configured"}`;
@@ -428,7 +435,7 @@ export function BrainWorkspace({
     <section
       className="brain"
       data-testid="workspace-brain"
-      aria-label="Brain workspace"
+      aria-label={`${ASSISTANT} workspace`}
     >
       <header className="brain-head">
         <p
@@ -444,7 +451,9 @@ export function BrainWorkspace({
             aria-label="Piece thread"
             value={pieceId ?? ""}
             onChange={(event) =>
-              changePiece(event.target.value ? Number(event.target.value) : null)
+              changePiece(
+                event.target.value ? Number(event.target.value) : null,
+              )
             }
           >
             <option value="">General question</option>
@@ -626,11 +635,7 @@ export function BrainWorkspace({
   );
 }
 
-function CurrentContextStrip({
-  context,
-}: {
-  context: PracticeBrainContext;
-}) {
+function CurrentContextStrip({ context }: { context: PracticeBrainContext }) {
   const range = context.region
     ? `mm. ${context.region.m_start}–${context.region.m_end}`
     : context.active_block
@@ -649,7 +654,10 @@ function CurrentContextStrip({
   ].filter((value): value is string => Boolean(value));
 
   return (
-    <div className="brain-current-context" aria-label="Current Brain context">
+    <div
+      className="brain-current-context"
+      aria-label={`Current ${ASSISTANT} context`}
+    >
       <strong>Coda sees</strong>
       <ul>
         {chips.map((chip, index) => (
@@ -939,7 +947,7 @@ function IntakeReviewCard({
   return (
     <div
       className="brain-intake-review"
-      aria-label={`Intake review for ${review.piece_title}`}
+      aria-label={`Piece setup review for ${review.piece_title}`}
     >
       <p className="brain-intake-summary">{review.summary}</p>
       <div className="brain-intake-fields">

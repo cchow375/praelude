@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { universeSnapshot } from "../universe/api";
+import { HISTORY } from "../../shell/terms";
 import type { PracticePieceContext, UniverseSnapshot } from "../universe/types";
 import { todayLocal } from "../calendar/dates";
 import { RetentionQueue } from "../retention";
@@ -278,7 +279,7 @@ export function TodayPracticePanel({
               aria-labelledby="today-ledger-title"
             >
               <div>
-                <p className="ck-kicker">Ledger, not judgment</p>
+                <p className="ck-kicker">{HISTORY}, not judgment</p>
                 <h2 id="today-ledger-title">What the record can prove</h2>
               </div>
               <dl>

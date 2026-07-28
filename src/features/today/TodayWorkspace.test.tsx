@@ -211,8 +211,8 @@ describe("TodayWorkspace main menu", () => {
     for (const label of [
       "Today's Practice",
       "Score",
-      "Brain",
-      "Ledger",
+      "Assistant",
+      "History",
       "Universe",
       "Settings",
     ]) {
@@ -253,8 +253,8 @@ describe("TodayWorkspace main menu", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Score" }));
-    fireEvent.click(screen.getByRole("button", { name: "Brain" }));
-    fireEvent.click(screen.getByRole("button", { name: "Ledger" }));
+    fireEvent.click(screen.getByRole("button", { name: "Assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
     fireEvent.click(screen.getByRole("button", { name: "Universe" }));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 

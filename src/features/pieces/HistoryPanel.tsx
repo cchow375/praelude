@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { commandErrorMessage } from "../../services/command";
 import { BlockRow } from "./BlockRow";
-import type { BlockHistory, ProgressSummary, Region, RegionMastery } from "./types";
+import type {
+  BlockHistory,
+  ProgressSummary,
+  Region,
+  RegionMastery,
+} from "./types";
 
 export interface HistoryGroup {
   region: Region | null;
@@ -15,22 +20,24 @@ export interface HistoryGroup {
 export type HistorySort = "recent" | "by-measure" | "most-practiced";
 export type HistoryFocus = "all" | BlockHistory["focus"];
 export type HistoryEvidence =
-  | "all"
-  | "mastered"
-  | "unresolved"
-  | "recovery"
-  | "errors"
-  | "legacy";
+  "all" | "mastered" | "unresolved" | "recovery" | "errors" | "legacy";
 
 const INITIAL_VISIBLE_GROUPS = 10;
 
-function blockMatchesEvidence(block: BlockHistory, evidence: HistoryEvidence): boolean {
+function blockMatchesEvidence(
+  block: BlockHistory,
+  evidence: HistoryEvidence,
+): boolean {
   if (evidence === "all") return true;
   if (evidence === "mastered") {
-    return block.mastery_verified === true && block.mastery_status === "satisfied";
+    return (
+      block.mastery_verified === true && block.mastery_status === "satisfied"
+    );
   }
   if (evidence === "unresolved") {
-    return block.mastery_verified === true && block.mastery_status !== "satisfied";
+    return (
+      block.mastery_verified === true && block.mastery_status !== "satisfied"
+    );
   }
   if (evidence === "recovery") {
     return (block.recovery_remaining ?? 0) > 0 || (block.reset_count ?? 0) > 0;
@@ -38,7 +45,10 @@ function blockMatchesEvidence(block: BlockHistory, evidence: HistoryEvidence): b
   if (evidence === "errors") {
     return block.verdicts.flawed > 0 || block.verdicts.failed > 0;
   }
-  return block.mastery_verified !== true || block.mastery_status === "unverified_legacy";
+  return (
+    block.mastery_verified !== true ||
+    block.mastery_status === "unverified_legacy"
+  );
 }
 
 export function filterSortHistory(
@@ -54,36 +64,51 @@ export function filterSortHistory(
   const focus = options.focus ?? "all";
   const evidence = options.evidence ?? "all";
   const filtered = groups.flatMap((group) => {
-    const matchingBlocks = group.blocks.filter((block) => (
-      (focus === "all" || block.focus === focus)
-      && blockMatchesEvidence(block, evidence)
-    ));
+    const matchingBlocks = group.blocks.filter(
+      (block) =>
+        (focus === "all" || block.focus === focus) &&
+        blockMatchesEvidence(block, evidence),
+    );
     if (matchingBlocks.length === 0) return [];
     if (query) {
-        const regionText = group.region
-          ? `${group.region.name} ${group.region.m_start} ${group.region.m_end} mm.${group.region.m_start}-${group.region.m_end}`
-          : group.unavailableRegionId != null
-            ? "section metadata unavailable"
-            : "ungrouped no region";
-        const blockText = matchingBlocks
-          .map((block) => `${block.label ?? ""} ${block.m_start} ${block.m_end} mm.${block.m_start}-${block.m_end}`)
-          .join(" ");
-        if (!`${regionText} ${blockText}`.toLocaleLowerCase().includes(query)) return [];
+      const regionText = group.region
+        ? `${group.region.name} ${group.region.m_start} ${group.region.m_end} mm.${group.region.m_start}-${group.region.m_end}`
+        : group.unavailableRegionId != null
+          ? "section metadata unavailable"
+          : "ungrouped no region";
+      const blockText = matchingBlocks
+        .map(
+          (block) =>
+            `${block.label ?? ""} ${block.m_start} ${block.m_end} mm.${block.m_start}-${block.m_end}`,
+        )
+        .join(" ");
+      if (!`${regionText} ${blockText}`.toLocaleLowerCase().includes(query))
+        return [];
     }
     return [{ ...group, blocks: matchingBlocks }];
   });
   return filtered.sort((a, b) => {
     if (options.sort === "by-measure") {
-      const aStart = a.region?.m_start ?? Math.min(...a.blocks.map((block) => block.m_start));
-      const bStart = b.region?.m_start ?? Math.min(...b.blocks.map((block) => block.m_start));
+      const aStart =
+        a.region?.m_start ??
+        Math.min(...a.blocks.map((block) => block.m_start));
+      const bStart =
+        b.region?.m_start ??
+        Math.min(...b.blocks.map((block) => block.m_start));
       return aStart - bStart;
     }
     if (options.sort === "most-practiced") {
-      const attempts = (group: HistoryGroup) => group.mastery?.reps
-        ?? group.blocks.reduce((sum, block) => sum + (block.attempts_recorded ?? block.tries ?? block.reps_done), 0);
+      const attempts = (group: HistoryGroup) =>
+        group.mastery?.reps ??
+        group.blocks.reduce(
+          (sum, block) =>
+            sum + (block.attempts_recorded ?? block.tries ?? block.reps_done),
+          0,
+        );
       return attempts(b) - attempts(a);
     }
-    const when = (group: HistoryGroup) => Date.parse(group.mastery?.last_practiced ?? "") || 0;
+    const when = (group: HistoryGroup) =>
+      Date.parse(group.mastery?.last_practiced ?? "") || 0;
     return when(b) - when(a);
   });
 }
@@ -97,7 +122,11 @@ export function groupBlocksByRegion(
   const ungrouped: BlockHistory[] = [];
   for (const block of blocks) {
     if (block.region_id == null) ungrouped.push(block);
-    else byRegion.set(block.region_id, [...(byRegion.get(block.region_id) ?? []), block]);
+    else
+      byRegion.set(block.region_id, [
+        ...(byRegion.get(block.region_id) ?? []),
+        block,
+      ]);
   }
   const summaries = new Map(mastery.map((item) => [item.region_id, item]));
   const availableRegionIds = new Set(regions.map((region) => region.id));
@@ -122,7 +151,8 @@ export function groupBlocksByRegion(
       mastery: summaries.get(regionId) ?? null,
     });
   }
-  if (ungrouped.length) groups.push({ region: null, blocks: ungrouped, mastery: null });
+  if (ungrouped.length)
+    groups.push({ region: null, blocks: ungrouped, mastery: null });
   return groups;
 }
 
@@ -132,10 +162,19 @@ function formatWhen(value: string | null | undefined) {
   if (Number.isNaN(date.getTime())) return value;
   const today = new Date();
   if (date.toDateString() === today.toDateString()) return "today";
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+  }).format(date);
 }
 
-export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; refreshToken?: number }) {
+export function HistoryPanel({
+  pieceId,
+  refreshToken = 0,
+}: {
+  pieceId: number;
+  refreshToken?: number;
+}) {
   const [regions, setRegions] = useState<Region[]>([]);
   const [blocks, setBlocks] = useState<BlockHistory[]>([]);
   const [summary, setSummary] = useState<ProgressSummary | null>(null);
@@ -145,7 +184,9 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
   const [sort, setSort] = useState<HistorySort>("recent");
   const [focus, setFocus] = useState<HistoryFocus>("all");
   const [evidence, setEvidence] = useState<HistoryEvidence>("all");
-  const [visibleGroupCount, setVisibleGroupCount] = useState(INITIAL_VISIBLE_GROUPS);
+  const [visibleGroupCount, setVisibleGroupCount] = useState(
+    INITIAL_VISIBLE_GROUPS,
+  );
   const mounted = useRef(false);
   const loadGeneration = useRef(0);
 
@@ -169,24 +210,49 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
       setBlocks([]);
       setSummary(null);
     }
-    const [regionResult, blockResult, summaryResult] = await Promise.allSettled([
-      invoke<Region[]>("region_list", { pieceId }),
-      invoke<BlockHistory[]>("rep_blocks_for_piece", { pieceId }),
-      invoke<ProgressSummary>("progress_summary", { pieceId }),
-    ]);
+    const [regionResult, blockResult, summaryResult] = await Promise.allSettled(
+      [
+        invoke<Region[]>("region_list", { pieceId }),
+        invoke<BlockHistory[]>("rep_blocks_for_piece", { pieceId }),
+        invoke<ProgressSummary>("progress_summary", { pieceId }),
+      ],
+    );
     if (!mounted.current || loadGeneration.current !== generation) return;
-    setRegions(regionResult.status === "fulfilled" ? (regionResult.value ?? []) : []);
-    setBlocks(blockResult.status === "fulfilled" ? (blockResult.value ?? []) : []);
-    setSummary(summaryResult.status === "fulfilled" ? (summaryResult.value ?? null) : null);
+    setRegions(
+      regionResult.status === "fulfilled" ? (regionResult.value ?? []) : [],
+    );
+    setBlocks(
+      blockResult.status === "fulfilled" ? (blockResult.value ?? []) : [],
+    );
+    setSummary(
+      summaryResult.status === "fulfilled"
+        ? (summaryResult.value ?? null)
+        : null,
+    );
     const failures: string[] = [];
     if (regionResult.status === "rejected") {
-      failures.push(commandErrorMessage(regionResult.reason, "Practice sections could not be loaded."));
+      failures.push(
+        commandErrorMessage(
+          regionResult.reason,
+          "Practice sections could not be loaded.",
+        ),
+      );
     }
     if (blockResult.status === "rejected") {
-      failures.push(commandErrorMessage(blockResult.reason, "Practice sets could not be loaded."));
+      failures.push(
+        commandErrorMessage(
+          blockResult.reason,
+          "Practice sets could not be loaded.",
+        ),
+      );
     }
     if (summaryResult.status === "rejected") {
-      failures.push(commandErrorMessage(summaryResult.reason, "The progress summary could not be loaded."));
+      failures.push(
+        commandErrorMessage(
+          summaryResult.reason,
+          "The progress summary could not be loaded.",
+        ),
+      );
     }
     setError(failures.length > 0 ? failures.join(" ") : null);
     setLoading(false);
@@ -216,15 +282,38 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
   return (
     <section className="history-panel" aria-label="Practice history">
       <div className="history-heading">
-        <div><span className="ck-label">Practice history</span><p>Organized by section. Attempts are evidence; only an explicit verified streak is mastery.</p></div>
-        <span className="history-total">{blocks.length} set{blocks.length === 1 ? "" : "s"}</span>
+        <div>
+          <span className="ck-label">Practice history</span>
+          <p>
+            Organized by section. Attempts are evidence; only an explicit
+            verified streak is mastery.
+          </p>
+        </div>
+        <span className="history-total">
+          {blocks.length} set{blocks.length === 1 ? "" : "s"}
+        </span>
       </div>
       {!loading && groups.length > 0 && (
         <div className="history-toolbar">
-          <label className="history-search"><span className="history-search-icon" aria-hidden="true">⌕</span><input type="search" aria-label="Search practice history" placeholder="Section, label, or measure…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+          <label className="history-search">
+            <span className="history-search-icon" aria-hidden="true">
+              ⌕
+            </span>
+            <input
+              type="search"
+              aria-label="Search practice history"
+              placeholder="Section, label, or measure…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
           <label className="history-filter">
             <span>Focus</span>
-            <select aria-label="Filter practice history by focus" value={focus} onChange={(event) => setFocus(event.target.value as HistoryFocus)}>
+            <select
+              aria-label="Filter practice history by focus"
+              value={focus}
+              onChange={(event) => setFocus(event.target.value as HistoryFocus)}
+            >
               <option value="all">All focus</option>
               <option value="tempo">Tempo</option>
               <option value="notes">Notes</option>
@@ -237,7 +326,13 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
           </label>
           <label className="history-filter">
             <span>Evidence</span>
-            <select aria-label="Filter practice history by evidence" value={evidence} onChange={(event) => setEvidence(event.target.value as HistoryEvidence)}>
+            <select
+              aria-label="Filter practice history by evidence"
+              value={evidence}
+              onChange={(event) =>
+                setEvidence(event.target.value as HistoryEvidence)
+              }
+            >
               <option value="all">All evidence</option>
               <option value="mastered">Mastery verified</option>
               <option value="unresolved">Unresolved</option>
@@ -246,39 +341,82 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
               <option value="legacy">Legacy/unverified</option>
             </select>
           </label>
-          <select aria-label="Sort practice history" value={sort} onChange={(event) => setSort(event.target.value as HistorySort)}>
+          <select
+            aria-label="Sort practice history"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as HistorySort)}
+          >
             <option value="recent">Most recent</option>
             <option value="by-measure">By measure</option>
             <option value="most-practiced">Most practiced</option>
           </select>
         </div>
       )}
-      {loading ? <p className="history-empty">Loading history…</p> : groups.length === 0 ? <p className="history-empty">No practice sets yet.</p> : visibleGroups.length === 0 ? <p className="history-empty">{query ? `No sections match “${query}”.` : "No sections match these filters."}</p> : (
+      {loading ? (
+        <p className="history-empty">Loading history…</p>
+      ) : groups.length === 0 ? (
+        <p className="history-empty">No practice sets yet.</p>
+      ) : visibleGroups.length === 0 ? (
+        <p className="history-empty">
+          {query
+            ? `No sections match “${query}”.`
+            : "No sections match these filters."}
+        </p>
+      ) : (
         <div className="history-groups">
           {renderedGroups.map((group) => {
             const region = group.region;
             const unavailableRegionId = group.unavailableRegionId;
             const best = group.mastery?.best_bpm;
-            const fallbackStart = Math.min(...group.blocks.map((block) => block.m_start));
-            const fallbackEnd = Math.max(...group.blocks.map((block) => block.m_end));
-            const fallbackRange = fallbackStart === fallbackEnd
-              ? `m. ${fallbackStart}`
-              : `mm. ${fallbackStart}–${fallbackEnd}`;
-            const groupKey = region != null
-              ? `region-${region.id}`
-              : unavailableRegionId != null
-                ? `unavailable-region-${unavailableRegionId}`
-                : "ungrouped";
+            const fallbackStart = Math.min(
+              ...group.blocks.map((block) => block.m_start),
+            );
+            const fallbackEnd = Math.max(
+              ...group.blocks.map((block) => block.m_end),
+            );
+            const fallbackRange =
+              fallbackStart === fallbackEnd
+                ? `m. ${fallbackStart}`
+                : `mm. ${fallbackStart}–${fallbackEnd}`;
+            const groupKey =
+              region != null
+                ? `region-${region.id}`
+                : unavailableRegionId != null
+                  ? `unavailable-region-${unavailableRegionId}`
+                  : "ungrouped";
             return (
               <details className="history-group" key={groupKey}>
                 <summary>
                   <span className="history-group-chevron" aria-hidden="true" />
-                  <span className="history-group-range">{region ? `mm. ${region.m_start}–${region.m_end}` : unavailableRegionId != null ? fallbackRange : "No region"}</span>
-                  <span className="history-group-name">{region?.name ?? (unavailableRegionId != null ? "Section metadata unavailable" : "Ungrouped")}</span>
-                  <span className="history-group-meta">{group.blocks.length} set{group.blocks.length === 1 ? "" : "s"}{best != null ? ` · best ♩${best}` : ""} · last {formatWhen(group.mastery?.last_practiced)}</span>
+                  <span className="history-group-range">
+                    {region
+                      ? `mm. ${region.m_start}–${region.m_end}`
+                      : unavailableRegionId != null
+                        ? fallbackRange
+                        : "No region"}
+                  </span>
+                  <span className="history-group-name ck-fit">
+                    {region?.name ??
+                      (unavailableRegionId != null
+                        ? "Section metadata unavailable"
+                        : "Ungrouped")}
+                  </span>
+                  <span className="history-group-meta">
+                    {group.blocks.length} set
+                    {group.blocks.length === 1 ? "" : "s"}
+                    {best != null ? ` · best ♩${best}` : ""} · last{" "}
+                    {formatWhen(group.mastery?.last_practiced)}
+                  </span>
                 </summary>
                 <div className="history-group-blocks">
-                  {group.blocks.map((block) => <BlockRow key={block.block_id} block={block} regions={regions} onChanged={load} />)}
+                  {group.blocks.map((block) => (
+                    <BlockRow
+                      key={block.block_id}
+                      block={block}
+                      regions={regions}
+                      onChanged={load}
+                    />
+                  ))}
                 </div>
               </details>
             );
@@ -287,14 +425,25 @@ export function HistoryPanel({ pieceId, refreshToken = 0 }: { pieceId: number; r
             <button
               type="button"
               className="history-show-more"
-              onClick={() => setVisibleGroupCount((count) => count + INITIAL_VISIBLE_GROUPS)}
+              onClick={() =>
+                setVisibleGroupCount((count) => count + INITIAL_VISIBLE_GROUPS)
+              }
             >
-              Show {Math.min(INITIAL_VISIBLE_GROUPS, visibleGroups.length - renderedGroups.length)} more sections
+              Show{" "}
+              {Math.min(
+                INITIAL_VISIBLE_GROUPS,
+                visibleGroups.length - renderedGroups.length,
+              )}{" "}
+              more sections
             </button>
           )}
         </div>
       )}
-      {error && <p className="ck-inline-error" role="alert">{error}</p>}
+      {error && (
+        <p className="ck-inline-error" role="alert">
+          {error}
+        </p>
+      )}
     </section>
   );
 }

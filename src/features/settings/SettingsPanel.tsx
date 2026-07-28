@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useReceipts } from "../receipts/ReceiptCenter";
+import { ASSISTANT, HISTORY } from "../../shell/terms";
 import { Button, Disclosure } from "../../ui";
 import type { CommandInvoker } from "../../services/command";
 import { BrainConnection } from "./BrainConnection";
@@ -219,8 +220,8 @@ export function SettingsPanel({
               One practice loop, two voice lanes
             </h3>
             <p>
-              Use short, exact commands for immediate practice control. Use the
-              Brain for plain-English questions, screen-grounded help, and
+              Use short, exact commands for immediate practice control. Use the{" "}
+              {ASSISTANT} for plain-English questions, screen-grounded help, and
               reviewable action drafts.
             </p>
           </div>
@@ -249,8 +250,8 @@ export function SettingsPanel({
               <strong>Check, correct, finish.</strong>
               <span>
                 Watch the HUD and heard-command toast. Say <q>where are we</q>{" "}
-                for status, <q>close the block</q> when the set is done, and use
-                Ledger if an attempt needs correction.
+                for status, <q>close the block</q> when the set is done, and use{" "}
+                {HISTORY} if an attempt needs correction.
               </span>
             </li>
           </ol>
@@ -298,17 +299,18 @@ export function SettingsPanel({
             </section>
 
             <section aria-labelledby="settings-guide-brain">
-              <h4 id="settings-guide-brain">Plain-English Brain</h4>
+              <h4 id="settings-guide-brain">Plain-English {ASSISTANT}</h4>
               <p>
-                Type in Brain, or ask an assistant-directed question such as{" "}
-                <q>Can you tell me what happened last session?</q> without a
-                wake phrase. Brain receives the selected Score piece, Region,
-                page, edition, active set, and today's written plan, plus
-                grounded practice history and cited references.
+                Type in the {ASSISTANT}, or ask an assistant-directed question
+                such as <q>Can you tell me what happened last session?</q>{" "}
+                without a wake phrase. The {ASSISTANT} receives the selected
+                Score piece, Region, page, edition, active set, and today's
+                written plan, plus grounded practice history and cited
+                references.
               </p>
               <p className="settings-guide-note">
-                Brain may draft a verdict, tempo change, undo, or streak
-                restart. Coda reads the draft back; say <q>confirm</q> or{" "}
+                The {ASSISTANT} may draft a verdict, tempo change, undo, or
+                streak restart. Coda reads the draft back; say <q>confirm</q> or{" "}
                 <q>cancel</q>. It still cannot hear or grade playing, interpret
                 a page without a selected section, or manage Calendar and Goals
                 by voice yet.
@@ -333,14 +335,16 @@ export function SettingsPanel({
       </Disclosure>
 
       <Disclosure
-        summary={<SectionLabel icon={<AssistantIcon />}>Brain</SectionLabel>}
+        summary={
+          <SectionLabel icon={<AssistantIcon />}>{ASSISTANT}</SectionLabel>
+        }
         defaultOpen
       >
         <div className="settings-group">
           <BrainConnection invoker={brainInvoker} />
-          <Row label="Brain provider">
+          <Row label={`${ASSISTANT} provider`}>
             <select
-              aria-label="Brain provider"
+              aria-label={`${ASSISTANT} provider`}
               value={value.brain_provider}
               onChange={(event) =>
                 setValue({
