@@ -2,6 +2,7 @@ mod anomalies;
 pub mod audio;
 mod brain;
 mod date;
+pub mod imslp;
 pub mod intent;
 mod keys;
 mod knowledge;
@@ -103,6 +104,39 @@ fn reference_open(
     store: State<'_, Arc<Store>>,
 ) -> Result<references::ReferenceOpenResult, String> {
     references::open_reference(&store, piece_id, provider)
+}
+
+/// Search IMSLP for a work by title/composer. Returns up to 20 hits; an empty
+/// list means "no results," not an error.
+#[tauri::command]
+fn imslp_search(query: String) -> Result<Vec<imslp::WorkHit>, String> {
+    imslp::ImslpClient::new().search(&query)
+}
+
+/// List the downloadable editions of an IMSLP work page. A work with no score
+/// files returns an empty list (audio-only / misfiled), which the picker shows
+/// as "no scores found" rather than treating as an error.
+#[tauri::command]
+fn imslp_editions(page_title: String) -> Result<Vec<imslp::Edition>, String> {
+    imslp::ImslpClient::new().editions(&page_title)
+}
+
+/// Resolve one edition file's direct URL (via `imageinfo`) and open it in the
+/// user's system browser so THEY can clear IMSLP's one-time CAPTCHA and let the
+/// browser download the PDF. The app never fetches the CAPTCHA-gated bytes
+/// itself. Returns the resolved [`imslp::FileInfo`] so the UI can show size/mime.
+#[tauri::command]
+fn imslp_open_download(file_name: String) -> Result<imslp::FileInfo, String> {
+    let info = imslp::ImslpClient::new().file_url(&file_name)?;
+    let status = std::process::Command::new("/usr/bin/open")
+        .arg(&info.url)
+        .status()
+        .map_err(|_| "macOS could not open the IMSLP download in your browser.".to_string())?;
+    if status.success() {
+        Ok(info)
+    } else {
+        Err("macOS rejected the IMSLP download handoff.".into())
+    }
 }
 
 #[tauri::command]
@@ -1378,6 +1412,9 @@ pub fn run() {
             api_key_save,
             api_key_clear,
             reference_open,
+            imslp_search,
+            imslp_editions,
+            imslp_open_download,
             layout_get,
             layout_set,
             pieces_scan,
