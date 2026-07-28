@@ -335,7 +335,7 @@ export function BrainWorkspace({
           context,
         });
         if (!isBrainAnswer(answer)) {
-          throw new Error("The practice brain returned an invalid response.");
+          throw new Error("The Assistant returned an invalid response.");
         }
         if (generation !== conversationGeneration.current) return;
         setThread((current) => [
@@ -358,7 +358,7 @@ export function BrainWorkspace({
         if (source === "typed") setDraft("");
       } catch (cause) {
         if (generation === conversationGeneration.current) {
-          setError(errorMessage(cause, "The practice brain could not answer."));
+          setError(errorMessage(cause, "The Assistant could not answer."));
         }
       } finally {
         if (activeAskId.current === askId) setAsking(false);
@@ -575,7 +575,7 @@ export function BrainWorkspace({
         )}
         <form
           className="brain-composer"
-          aria-label="Ask the practice brain"
+          aria-label="Ask the Assistant"
           onSubmit={submit}
         >
           <label htmlFor="brain-question">Ask Coda</label>
