@@ -117,14 +117,16 @@ export function LedgerWorkspace({
                 <li key={piece.id}>
                   <button
                     type="button"
-                    className={piece.id === selectedId ? "is-selected" : ""}
+                    className={`ck-fit-reveal${piece.id === selectedId ? " is-selected" : ""}`}
                     aria-pressed={piece.id === selectedId}
                     onClick={() => setSelectedId(piece.id)}
                   >
                     <span>{String(index + 1).padStart(2, "0")}</span>
                     <span>
-                      <strong>{piece.title}</strong>
-                      {piece.composer && <small>{piece.composer}</small>}
+                      <strong className="ck-fit">{piece.title}</strong>
+                      {piece.composer && (
+                        <small className="ck-fit">{piece.composer}</small>
+                      )}
                     </span>
                     <span aria-hidden="true">→</span>
                   </button>

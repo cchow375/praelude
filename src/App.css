@@ -1,5 +1,8 @@
 /* Global base styles. Design tokens live in ./design/tokens.css. */
 @import "./design/tokens.css";
+/* Shared text-fitting utility (.ck-fit), loaded globally so every workspace
+   that crams long titles can floor + clamp + reveal them the same way. */
+@import "./ui/text-fit.css";
 
 *,
 *::before,
@@ -34,9 +37,19 @@ body::before {
   pointer-events: none;
   opacity: 0.42;
   background-image:
-    radial-gradient(circle at 17% 21%, var(--paper-grain) 0 0.7px, transparent 0.9px),
-    radial-gradient(circle at 72% 64%, var(--paper-grain) 0 0.6px, transparent 0.8px);
-  background-size: 11px 13px, 17px 19px;
+    radial-gradient(
+      circle at 17% 21%,
+      var(--paper-grain) 0 0.7px,
+      transparent 0.9px
+    ),
+    radial-gradient(
+      circle at 72% 64%,
+      var(--paper-grain) 0 0.6px,
+      transparent 0.8px
+    );
+  background-size:
+    11px 13px,
+    17px 19px;
 }
 
 /* Disable native drag/select chrome that reads as "web page" rather than app. */

@@ -1,0 +1,53 @@
+/* ==========================================================================
+   ck-fit — shared text-fitting utility (spec B4, ledger 32-33)
+   --------------------------------------------------------------------------
+   One utility for every surface where a title or subtitle used to clip mid-word
+   or cram: History (Ledger) rows, piece-selection rows/cards, Today candidate
+   cards. It is engine-simple because the app is a single WebKit target (Tauri
+   WKWebView on macOS), so -webkit-box line clamping is fully supported.
+
+   Rules it guarantees (all four from the spec):
+   1. Min font size — the size never renders below a 13px floor, even when a use
+      site asks for something smaller.
+   2. Line-clamp with full text on hover/expand — text is clamped to a few lines
+      (default 2); the FULL string is always in the DOM and is revealed when the
+      text, or the row/card marked .ck-fit-reveal around it, is hovered or
+      keyboard-focused. Nothing is ever truly lost.
+   3. No mid-word truncation — ordinary words wrap at whitespace; only a single
+      unbreakable token longer than the line is broken, so a box can never be
+      forced to overflow horizontally.
+   4. Breathing room — a comfortable line box, not a crammed one.
+
+   Per use site, tune with three custom properties (all optional):
+     --ck-fit-lines   : how many lines before clamping   (default 2)
+     --ck-fit-size    : the intended font size            (default inherit)
+     --ck-fit-leading : line-height                       (default 1.3)
+   ========================================================================== */
+.ck-fit {
+  min-width: 0;
+  /* Floor the requested size at 13px so nothing crams below legibility. */
+  font-size: max(var(--ck-fit-size, 1em), 0.8125rem);
+  line-height: var(--ck-fit-leading, 1.3);
+  overflow: hidden;
+  /* Wrap at word boundaries; break only a token that cannot fit on its own
+     line. Never hyphenate or split ordinary words mid-character. */
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--ck-fit-lines, 2);
+  line-clamp: var(--ck-fit-lines, 2);
+}
+
+/* Full text on demand. Hovering or focusing the text itself, or the row/card
+   marked .ck-fit-reveal that contains it, lifts the clamp so every line shows.
+   The growth is vertical only — layout reflows down, text is never cut. */
+.ck-fit:hover,
+.ck-fit:focus-visible,
+.ck-fit-reveal:hover .ck-fit,
+.ck-fit-reveal:focus-within .ck-fit {
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  overflow: visible;
+}
