@@ -8,7 +8,7 @@
 use rusqlite::Connection;
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 10;
+pub const SCHEMA_VERSION: i32 = 11;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -910,6 +910,27 @@ BEGIN
 END;
 ";
 
+/// Schema v11 — the Practice Notebook storage layer (spec §C2). Two additive,
+/// sidecar tables: `day_sheet` holds one ordered typed-line body per calendar
+/// date (validated in Rust before write, see `store::day_sheet`), and
+/// `piece_plan` holds the fully-editable long-term "arch" plan keyed one-to-one
+/// on a piece. This step rebuilds nothing and touches no existing row: a day
+/// sheet exists only once the user saves one, and daily-reset is a read-time
+/// semantic (a missing row reads as an empty sheet), not a stored default.
+pub(crate) const SCHEMA_V11: &str = "\
+CREATE TABLE day_sheet (
+  id INTEGER PRIMARY KEY,
+  date TEXT NOT NULL UNIQUE,
+  body_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE piece_plan (
+  piece_id INTEGER PRIMARY KEY REFERENCES piece(id),
+  body_text TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+";
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
@@ -1102,6 +1123,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         }
     }
 
+    if version < 11 {
+        let v11 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            conn.execute_batch(SCHEMA_V11)?;
+            conn.execute_batch("PRAGMA user_version = 11;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v11 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
     Ok(())
 }
 
@@ -1201,6 +1236,132 @@ mod v3_tests {
         c.execute_batch(SCHEMA_V7).unwrap();
         c.execute_batch("PRAGMA user_version = 7; COMMIT;").unwrap();
         c
+    }
+
+    /// A representative v10 database, built by replaying the exact v8/v9/v10 steps
+    /// `migrate` runs. Used to prove the v10→v11 step is purely additive.
+    fn seed_v10() -> Connection {
+        let c = seed_v7();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        super::super::history_backfill::backfill_history(&c).unwrap();
+        c.execute_batch(SCHEMA_V8).unwrap();
+        super::super::v8_backfill::backfill_v8(&c).unwrap();
+        c.execute_batch("PRAGMA user_version = 8;").unwrap();
+        c.execute_batch(SCHEMA_V9).unwrap();
+        c.execute_batch("PRAGMA user_version = 9;").unwrap();
+        c.execute_batch(SCHEMA_V10).unwrap();
+        c.execute_batch("PRAGMA user_version = 10; COMMIT;")
+            .unwrap();
+        c
+    }
+
+    #[test]
+    fn migrate_v10_to_v11_preserves_every_graph_row_and_adds_notebook_tables() {
+        let c = seed_v10();
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            10
+        );
+        // Snapshot every count/invariant that must survive the step.
+        let counted_tables = [
+            "piece",
+            "region",
+            "rep_block",
+            "rep",
+            "goal",
+            "session",
+            "session_event",
+            "event",
+            "daily_work",
+            "set_contract",
+        ];
+        let before: Vec<i64> = counted_tables
+            .iter()
+            .map(|table| {
+                c.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap()
+            })
+            .collect();
+
+        migrate(&c).unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+        let after: Vec<i64> = counted_tables
+            .iter()
+            .map(|table| {
+                c.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap()
+            })
+            .collect();
+        assert_eq!(
+            after, before,
+            "v11 must preserve every existing graph row count"
+        );
+
+        // The two additive tables now exist and start empty.
+        for table in ["day_sheet", "piece_plan"] {
+            assert_eq!(
+                c.query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+                1,
+                "missing additive v11 table {table}"
+            );
+            assert_eq!(
+                c.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0,
+                "v11 must not invent {table} rows"
+            );
+        }
+
+        // Reopening is a clean no-op and referential integrity holds.
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
+        // The date UNIQUE and piece FK are live after migration.
+        c.execute(
+            "INSERT INTO day_sheet(date,body_json,updated_at)
+             VALUES ('2026-07-28','[]','2026-07-28T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        assert!(
+            c.execute(
+                "INSERT INTO day_sheet(date,body_json,updated_at)
+                 VALUES ('2026-07-28','[]','2026-07-28T00:00:00Z')",
+                [],
+            )
+            .is_err(),
+            "date is UNIQUE"
+        );
+        assert!(
+            c.execute(
+                "INSERT INTO piece_plan(piece_id,body_text,updated_at)
+                 VALUES (999999,'x','2026-07-28T00:00:00Z')",
+                [],
+            )
+            .is_err(),
+            "piece_plan.piece_id references piece(id)"
+        );
     }
 
     #[test]
@@ -2304,7 +2465,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            10
+            SCHEMA_VERSION
         );
         for table in [
             "practice_operation",
@@ -2551,7 +2712,7 @@ mod v3_tests {
         c.execute_batch(
             "CREATE TABLE sentinel(id INTEGER PRIMARY KEY,value TEXT);
              INSERT INTO sentinel(id,value) VALUES (1,'preserve me');
-             PRAGMA user_version = 11;",
+             PRAGMA user_version = 12;",
         )
         .unwrap();
 
@@ -2560,7 +2721,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            11
+            12
         );
         assert_eq!(
             c.query_row("SELECT value FROM sentinel WHERE id=1", [], |row| {

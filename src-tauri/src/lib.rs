@@ -642,6 +642,54 @@ fn score_calibration_get(
         .map_err(|e| e.to_string())
 }
 
+// ── Practice Notebook: day sheets + per-piece long-term plans (spec §C2) ────
+
+/// Read the Practice Notebook day sheet for `date`, or `null` when none has been
+/// saved for that exact date (the frontend then renders a blank sheet; nothing
+/// carries over from a prior day).
+#[tauri::command]
+fn day_sheet_get(
+    date: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<Option<store::DaySheet>, String> {
+    store.day_sheet_get(&date).map_err(|e| e.to_string())
+}
+
+/// Validate and upsert the day sheet for `date`. `body_json` is an ordered array
+/// of typed lines; malformed JSON, unknown line types, and unknown fields are
+/// rejected. Returns the saved sheet as its save receipt.
+#[tauri::command]
+fn day_sheet_save(
+    date: String,
+    body_json: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::DaySheet, String> {
+    store
+        .day_sheet_save(&date, &body_json)
+        .map_err(|e| e.to_string())
+}
+
+/// Read one piece's long-term "arch" plan, or `null` when it has none yet.
+#[tauri::command]
+fn piece_plan_get(
+    piece_id: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<Option<store::PiecePlan>, String> {
+    store.piece_plan_get(piece_id).map_err(|e| e.to_string())
+}
+
+/// Validate and upsert one piece's long-term "arch" plan. Returns the saved plan.
+#[tauri::command]
+fn piece_plan_save(
+    piece_id: i64,
+    body_text: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::PiecePlan, String> {
+    store
+        .piece_plan_save(piece_id, &body_text)
+        .map_err(|e| e.to_string())
+}
+
 fn rejected_plan(
     command_id: &str,
     error: String,
@@ -1369,6 +1417,10 @@ pub fn run() {
             score_atlas_target_save,
             score_calibration_save,
             score_calibration_get,
+            day_sheet_get,
+            day_sheet_save,
+            piece_plan_get,
+            piece_plan_save,
             session_plan_start,
             tutorial_video_list,
             tutorial_video_scan,
