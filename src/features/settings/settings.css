@@ -335,3 +335,66 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* ==========================================================================
+   Books panel (D3, ledger 30). Data-driven corpus registry: list existing
+   books, add a .md source, remove one (typed-title confirm). Monochrome,
+   plain rows — same idiom as the value rows above.
+   ========================================================================== */
+.books-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-1);
+}
+.books-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.books-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.books-item-title {
+  color: var(--ink);
+  font-weight: 500;
+}
+.books-item-meta {
+  color: var(--ink-dim);
+  font-size: 0.8125rem;
+}
+.books-item-unavailable {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+}
+.books-add {
+  display: grid;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+}
+.books-drop {
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--r-sm);
+  padding: var(--s-2);
+}
+.books-drop.is-dragging {
+  border-color: var(--ink-dim);
+  background: var(--bg-sunken);
+}
+.books-add-actions,
+.books-remove-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s-2);
+}
+.books-remove {
+  display: grid;
+  gap: var(--s-3);
+}

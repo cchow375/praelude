@@ -881,6 +881,82 @@ let mockAttemptSeq = MOCK_REP_STATE.last_attempt_id ?? 4402;
 let mockAttempts = MOCK_REP_STATE.attempts_recorded ?? 4;
 let mockCleanStreak = MOCK_REP_STATE.current_clean_streak ?? 3;
 
+// Books panel (D3): the four built-ins the native manifest bootstraps, plus any
+// books added this session. In-memory only — a reload restores the built-ins,
+// which mirrors the native "bootstrap from built-ins on first read" behaviour.
+interface MockBook {
+  id: string;
+  file_name: string;
+  title: string;
+  author: string;
+  kind: "practice-method" | "composer-life" | "interpretation";
+  visual_dependency: boolean;
+  available: boolean;
+}
+let mockBooks: MockBook[] = [
+  {
+    id: "roskell-complete-pianist",
+    file_name: "the-complete-pianist.md",
+    title: "The Complete Pianist",
+    author: "Penelope Roskell",
+    kind: "practice-method",
+    visual_dependency: true,
+    available: true,
+  },
+  {
+    id: "gebrian-learn-faster",
+    file_name: "learn-faster-perform-better.md",
+    title: "Learn Faster, Perform Better",
+    author: "Molly Gebrian",
+    kind: "practice-method",
+    visual_dependency: false,
+    available: true,
+  },
+  {
+    id: "breth-effective-practicing",
+    file_name: "the-piano-students-guide-to-effective-practicing.md",
+    title: "The Piano Student's Guide to Effective Practicing",
+    author: "Nancy O'Neill Breth",
+    kind: "practice-method",
+    visual_dependency: true,
+    available: true,
+  },
+  {
+    id: "gieseking-leimer-technique",
+    file_name: "gieseking-leimer-piano-technique.md",
+    title: "Piano Technique",
+    author: "Walter Gieseking and Karl Leimer",
+    kind: "interpretation",
+    visual_dependency: true,
+    available: true,
+  },
+];
+
+/** Add a book to the in-memory manifest, echoing the native validation. */
+function mockBookAdd(args: unknown): MockBook {
+  const record = (args ?? {}) as Record<string, unknown>;
+  const path = String(record.path ?? "").trim();
+  const title = String(record.title ?? "").trim();
+  const author = String(record.author ?? "").trim();
+  const kind = record.kind as MockBook["kind"];
+  if (!title) throw "A book needs a title.";
+  if (!path.toLowerCase().endsWith(".md")) {
+    throw "Only Markdown (.md) files can be added to the library.";
+  }
+  const fileName = path.split("/").pop() || `${title}.md`;
+  const book: MockBook = {
+    id: `added-${Date.now()}`,
+    file_name: fileName,
+    title,
+    author,
+    kind: kind ?? "practice-method",
+    visual_dependency: false,
+    available: true,
+  };
+  mockBooks = [...mockBooks, book];
+  return book;
+}
+
 /**
  * A committed CheckOutcome consistent with the `rep_state` mock (block 102).
  * This is a MOCK, not a simulation: it advances the attempt ledger just enough
@@ -1159,6 +1235,23 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return apiKeyStatus(args, true);
     case "api_key_clear":
       return apiKeyStatus(args, false);
+
+    // Books panel (D3): data-driven corpus registry.
+    case "books_list":
+      return mockBooks;
+    case "book_add":
+      // Native validation failures arrive as rejected promises; mirror that so
+      // the seam never throws synchronously out of `invoke`.
+      try {
+        return mockBookAdd(args);
+      } catch (reason) {
+        return Promise.reject(reason);
+      }
+    case "book_remove": {
+      const id = String(((args ?? {}) as { id?: unknown }).id ?? "");
+      mockBooks = mockBooks.filter((book) => book.id !== id);
+      return null;
+    }
     case "rep_state":
       return MOCK_REP_STATE;
     // Clean/Sloppy/Again in the HUD: return a committed CheckOutcome so the

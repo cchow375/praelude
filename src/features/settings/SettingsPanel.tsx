@@ -5,9 +5,11 @@ import { ASSISTANT, HISTORY } from "../../shell/terms";
 import { Button, Disclosure } from "../../ui";
 import type { CommandInvoker } from "../../services/command";
 import { BrainConnection } from "./BrainConnection";
+import { BooksPanel, type BooksApi } from "./BooksPanel";
 import {
   AppearanceIcon,
   AssistantIcon,
+  BooksIcon,
   CalendarIcon,
   FolderIcon,
   GuideIcon,
@@ -76,11 +78,13 @@ export function SettingsPanel({
   onPracticeDefaultCleanStreakSaved,
   api = defaultApi,
   brainInvoker,
+  booksApi,
 }: {
   onInterfaceScaleSaved?: (scale: number) => void;
   onPracticeDefaultCleanStreakSaved?: (target: number) => void;
   api?: SettingsApi;
   brainInvoker?: CommandInvoker;
+  booksApi?: BooksApi;
 }) {
   const receipts = useReceipts();
   const [value, setValue] = useState<SettingsSnapshot | null>(null);
@@ -409,6 +413,12 @@ export function SettingsPanel({
             ))}
           </div>
         </div>
+      </Disclosure>
+
+      <Disclosure
+        summary={<SectionLabel icon={<BooksIcon />}>Books</SectionLabel>}
+      >
+        <BooksPanel {...(booksApi ? { api: booksApi } : {})} />
       </Disclosure>
 
       <Disclosure
