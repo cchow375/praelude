@@ -1229,17 +1229,81 @@ fn section_at(lines: &[&str], headings: &[HeadingRec], index: usize) -> Section 
     }
 }
 
+/// Collapse the source's whitespace so a single-line quote matches hard-wrapped
+/// prose, while returning a per-byte map back to raw byte offsets. Intra-
+/// paragraph whitespace (spaces, tabs, a single hard-wrap newline) becomes one
+/// space; a paragraph break (a blank line — two or more newlines) becomes a
+/// single `\n` sentinel. Because a normalized needle carries only spaces, it can
+/// never match across that sentinel, so a quote that straddles a paragraph
+/// boundary is correctly rejected rather than stitched into a false positive.
+fn normalize_with_map(raw: &str) -> (String, Vec<usize>) {
+    let mut normalized = String::with_capacity(raw.len());
+    let mut map = Vec::with_capacity(raw.len());
+    let mut chars = raw.char_indices().peekable();
+    while let Some((index, character)) = chars.next() {
+        if character.is_whitespace() {
+            let mut newlines = usize::from(character == '\n');
+            while let Some(&(_, next)) = chars.peek() {
+                if next.is_whitespace() {
+                    newlines += usize::from(next == '\n');
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            // Leading whitespace is dropped so offsets stay aligned to content.
+            if normalized.is_empty() {
+                continue;
+            }
+            normalized.push(if newlines >= 2 { '\n' } else { ' ' });
+            map.push(index);
+        } else {
+            let start = normalized.len();
+            normalized.push(character);
+            for offset in 0..(normalized.len() - start) {
+                map.push(index + offset);
+            }
+        }
+    }
+    (normalized, map)
+}
+
+/// A quote is a single paragraph: every whitespace run collapses to one space,
+/// ends trimmed. Matches exactly how quotes.json was verbatim-verified.
+fn normalize_whitespace(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn line_of_substring(raw: &str, needle: &str) -> Option<usize> {
-    let position = raw.find(needle)?;
+    let needle = normalize_whitespace(needle);
+    if needle.is_empty() {
+        return None;
+    }
+    let (normalized, map) = normalize_with_map(raw);
+    let position = normalized.find(&needle)?;
+    let raw_offset = *map.get(position)?;
     Some(
-        raw[..position]
+        raw[..raw_offset]
             .bytes()
             .filter(|byte| *byte == b'\n')
             .count(),
     )
 }
 
+/// The final segment of a breadcrumb heading path, so a stored locator like
+/// "Foundations › Concentration and mental study" matches the leaf markdown
+/// heading. Tolerates both the corpus separator `›` and a plain `>`.
+fn heading_leaf(query: &str) -> &str {
+    query
+        .rsplit(['›', '>'])
+        .next()
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+        .unwrap_or_else(|| query.trim())
+}
+
 fn match_heading_index(headings: &[HeadingRec], query: &str) -> Option<usize> {
+    let query = heading_leaf(query);
     if let Some(index) = headings
         .iter()
         .position(|heading| heading.text.eq_ignore_ascii_case(query))
@@ -1739,5 +1803,108 @@ mod tests {
         assert!(!is_safe_file_name("../book.md"));
         assert!(!is_safe_file_name("sub/book.md"));
         assert!(!is_safe_file_name(".."));
+    }
+
+    // -- D2 hard-wrap normalization (verifier regression) -----------------
+
+    /// A book whose prose is hard-wrapped mid-paragraph, with two paragraphs in
+    /// one section separated by a blank line.
+    fn hard_wrapped_book(temp: &TempDir) -> BookListing {
+        let source_dir = TempDir::new().unwrap();
+        let source = source_dir.path().join("problem-solving.md");
+        fs::write(
+            &source,
+            "# Practice\n\n\
+## Problem solving\n\
+Good practicing is problem solving. Good practice focuses on\n\
+weaknesses, not strengths. Repeat the hard measures until they\n\
+are secure.\n\n\
+A second paragraph in the same section that must stay separate\n\
+from the first across the blank line.\n",
+        )
+        .unwrap();
+        add_book(
+            temp.path(),
+            &source,
+            "Problem Solving",
+            "A Teacher",
+            BookKind::PracticeMethod,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn excerpt_contains_matches_across_hard_wrapped_lines() {
+        let temp = corpus();
+        let book = hard_wrapped_book(&temp);
+        // (c) The q-gebrian-1 counterexample shape: needle single-spaced, source
+        // wraps "focuses on\nweaknesses, not strengths".
+        let excerpt = book_excerpt(
+            temp.path(),
+            &book.id,
+            None,
+            Some("Good practicing is problem solving. Good practice focuses on weaknesses, not strengths."),
+        )
+        .unwrap();
+        assert_eq!(excerpt.heading, "Problem solving");
+        assert!(excerpt.text.contains("problem solving"));
+    }
+
+    #[test]
+    fn excerpt_contains_matches_a_quote_spanning_three_wrapped_lines() {
+        let temp = corpus();
+        let book = hard_wrapped_book(&temp);
+        // (a) Spans three source lines with mixed wrapping.
+        let excerpt = book_excerpt(
+            temp.path(),
+            &book.id,
+            None,
+            Some("focuses on weaknesses, not strengths. Repeat the hard measures until they are secure."),
+        )
+        .unwrap();
+        assert_eq!(excerpt.heading, "Problem solving");
+    }
+
+    #[test]
+    fn excerpt_contains_does_not_stitch_across_a_paragraph_break() {
+        let temp = corpus();
+        let book = hard_wrapped_book(&temp);
+        // (b) Needle straddling the blank-line boundary must NOT match: the
+        // paragraph sentinel blocks the single-spaced needle.
+        let result = book_excerpt(
+            temp.path(),
+            &book.id,
+            None,
+            Some("across the blank line. A second paragraph in the same section"),
+        );
+        assert!(result.is_err(), "cross-paragraph needle must not match");
+    }
+
+    #[test]
+    fn excerpt_heading_matches_a_breadcrumb_leaf() {
+        let temp = corpus();
+        // A stored locator carrying the corpus breadcrumb separator resolves to
+        // its leaf markdown heading.
+        let excerpt = book_excerpt(
+            temp.path(),
+            "gebrian-learn-faster",
+            Some("Learning › Old way/new way"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(excerpt.heading, "Old way/new way");
+    }
+
+    #[test]
+    fn normalize_with_map_resolves_positions_back_to_raw_offsets() {
+        let raw = "alpha beta\ngamma\n\ndelta";
+        let (normalized, map) = normalize_with_map(raw);
+        assert_eq!(normalized, "alpha beta gamma\ndelta");
+        // The 'd' of "delta" in normalized maps back to its raw byte offset.
+        let position = normalized.find("delta").unwrap();
+        assert_eq!(&raw[map[position]..map[position] + 5], "delta");
+        // A single hard-wrap newline became a space; the blank line became \n.
+        assert!(normalized.contains("beta gamma"));
+        assert!(normalized.contains("gamma\ndelta"));
     }
 }
