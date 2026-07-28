@@ -27,6 +27,7 @@ pub use corpus::{BookExcerpt, BookKind, BookListing};
 pub use library::{Citation, MethodCard};
 use library::{EmbeddedLibrary, PracticeLibrary};
 use provider::{NativeTransport, ProviderChain, ProviderName, ProviderOutput, Transport};
+pub use score_context::XmlMeasureFacts;
 
 const MAX_QUESTION_CHARS: usize = 8_000;
 const MAX_HISTORY_TURNS: usize = 10;
@@ -505,6 +506,18 @@ pub fn status_native(store: &Store) -> BrainStatus {
     let preference = store.get_setting("brain.provider").ok().flatten();
     let chain = ProviderChain::from_native_config_with_preference(preference.as_deref());
     status_from_chain(preference.as_deref(), &chain)
+}
+
+/// Whole-score MusicXML measure landmarks for the mapping wizard's measure
+/// strip (ledger #31). Resolves the piece, then reuses the exact same score
+/// resolution and parser as `brain_ask`'s grounded context. Read-only: it never
+/// mutates practice state and never enters the deterministic voice/rep loop.
+pub fn score_xml_measure_facts(store: &Store, piece_id: i64) -> Result<XmlMeasureFacts, String> {
+    let piece = store
+        .get_piece(piece_id)
+        .map_err(|_| "Could not read the selected piece".to_string())?
+        .ok_or_else(|| format!("piece {piece_id} not found"))?;
+    score_context::xml_measure_facts(&piece)
 }
 
 /// Pure round-trip mapping: run one minimal question through the chain and map

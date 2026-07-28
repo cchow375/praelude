@@ -1254,6 +1254,21 @@ async fn brain_ask(
     Ok(answer)
 }
 
+/// Whole-score MusicXML measure landmarks for the mapping wizard's measure
+/// strip (ledger #31). Reuses the same score resolution and parser as
+/// `brain_ask`'s grounded context. Runs off the UI thread on the blocking pool
+/// and never mutates practice state.
+#[tauri::command]
+async fn score_xml_measure_facts(
+    piece_id: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<brain::XmlMeasureFacts, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || brain::score_xml_measure_facts(&store, piece_id))
+        .await
+        .map_err(|_| "Score facts worker stopped unexpectedly".to_string())?
+}
+
 /// Resume (or create) the piece's active Brain conversation thread and return
 /// its bounded recent turns. Read-or-create only; never mutates practice state.
 #[tauri::command]
@@ -1660,6 +1675,7 @@ pub fn run() {
             anomalies_list,
             brain_plan_preview,
             brain_ask,
+            score_xml_measure_facts,
             brain_thread_resume,
             brain_thread_clear,
             brain_intake_apply,
