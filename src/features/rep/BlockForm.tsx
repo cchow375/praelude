@@ -8,6 +8,12 @@ import "../../ui/forms.css";
 // optional legacy planned-reps field is only a neutral review boundary; it
 // neither blocks continued attempts nor proves mastery. Increment is "auto"
 // by default — the backend resolves the tempo rule — or manual.
+//
+// Layout (v4/B3): the common case is frictionless — section + target only.
+// A one-line plain-words summary shows every strategy default, and a single
+// "More" disclosure holds the editable controls (focus, clean streak, tempo
+// ladder, variants, review boundary). The submitted RepOpenArgs shape is
+// unchanged; only the arrangement collapsed.
 // ---------------------------------------------------------------------------
 
 interface BlockFormProps {
@@ -29,6 +35,17 @@ interface BlockFormProps {
   blockedReason?: string | null;
 }
 
+/** Short, plain-words labels for the summary line (no niche jargon). */
+const FOCUS_LABELS: Record<string, string> = {
+  tempo: "Tempo",
+  notes: "Notes",
+  phrasing: "Phrasing",
+  dynamics: "Dynamics",
+  memory: "Memory",
+  hands: "Hands",
+  other: "Other",
+};
+
 function parseIntOrNull(raw: string): number | null {
   const t = raw.trim();
   if (t === "") return null;
@@ -39,6 +56,26 @@ function parseIntOrNull(raw: string): number | null {
 function parseNumOr(raw: string, fallback: number): number {
   const n = Number(raw.trim());
   return Number.isFinite(n) ? n : fallback;
+}
+
+/** Decorative disclosure caret. Monochrome inline SVG, 1.5px currentColor. */
+function DisclosureCaret({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={`block-more-caret${open ? " is-open" : ""}`}
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 4.5L6 7.5L9 4.5" />
+    </svg>
+  );
 }
 
 export function BlockForm({
@@ -80,6 +117,7 @@ export function BlockForm({
   const [variants, setVariants] = useState<VariantSpec[]>([]);
   const [focus, setFocus] = useState("tempo");
   const [useMetronome, setUseMetronome] = useState(true);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   // Settings can finish saving while this form remains mounted. Adopt that
   // saved default until the pianist has started editing this form's target;
@@ -99,6 +137,38 @@ export function BlockForm({
   const addVariant = () => setVariants((v) => [...v, { name: "", reps: 5 }]);
   const removeVariant = (i: number) =>
     setVariants((v) => v.filter((_, idx) => idx !== i));
+
+  // Effective consecutive-clean target — same resolution the payload uses.
+  const resolvedStreak = Math.max(
+    1,
+    streakChoice === "custom"
+      ? (parseIntOrNull(customStreak) ?? defaultCleanStreak)
+      : Number(streakChoice),
+  );
+
+  // One-line, plain-words summary of the strategy defaults tucked in "More".
+  // Recomputed each render so edits made in the disclosure show immediately.
+  const summaryParts: string[] = [
+    FOCUS_LABELS[focus] ?? focus,
+    `${resolvedStreak} clean in a row`,
+  ];
+  if (focus === "tempo") {
+    summaryParts.push(
+      mode === "auto"
+        ? "auto tempo ladder"
+        : `+${parseNumOr(bpmStep, 4)} bpm every ${parseIntOrNull(cleanNeeded) ?? 3} clean`,
+    );
+  }
+  if (useMetronome) summaryParts.push("metronome");
+  const namedVariants = variants.filter((v) => v.name.trim() !== "").length;
+  if (namedVariants > 0) {
+    summaryParts.push(
+      `${namedVariants} variant${namedVariants > 1 ? "s" : ""}`,
+    );
+  }
+  const reviewAt = parseIntOrNull(plannedReps);
+  if (reviewAt != null) summaryParts.push(`review at ${reviewAt}`);
+  const defaultsSummary = summaryParts.join(" · ");
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,41 +209,7 @@ export function BlockForm({
     <form className="block-form" onSubmit={submit}>
       <h3 className="ck-form-heading">New practice set</h3>
 
-      <div className="ck-field-grid block-mode-row">
-        <label className="ck-field">
-          <span className="ck-label">Practice focus</span>
-          <select
-            className="ck-input"
-            aria-label="Focus"
-            value={focus}
-            onChange={(event) => {
-              const next = event.target.value;
-              setFocus(next);
-              if (next !== "tempo") setUseMetronome(false);
-            }}
-          >
-            <option value="tempo">Tempo</option>
-            <option value="notes">Notes & accuracy</option>
-            <option value="phrasing">Phrasing</option>
-            <option value="dynamics">Dynamics</option>
-            <option value="memory">Memory</option>
-            <option value="hands">Hands / coordination</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-        <label className="ck-toggle-field">
-          <input
-            type="checkbox"
-            aria-label="Use metronome"
-            checked={useMetronome}
-            onChange={(event) => setUseMetronome(event.target.checked)}
-          />
-          <span>
-            <strong>Metronome</strong>
-          </span>
-        </label>
-      </div>
-
+      {/* Section context: which measures (and an optional free label). */}
       <div className="ck-field-grid">
         <label className="ck-field">
           <span className="ck-label">From measure</span>
@@ -216,6 +252,8 @@ export function BlockForm({
         </label>
       ) : null}
 
+      {/* Target: the tempo the pianist is driving toward (or a plain metronome
+          beat when a non-tempo focus still wants the click). */}
       {(focus === "tempo" || useMetronome) && (
         <div className="ck-field-grid">
           <label className="ck-field">
@@ -250,161 +288,217 @@ export function BlockForm({
         </div>
       )}
 
-      <div className="ck-field-grid">
-        <label className="ck-field">
-          <span className="ck-label">Clean streak target</span>
-          <select
-            className="ck-input"
-            aria-label="Clean streak target"
-            value={streakChoice}
-            onChange={(event) => {
-              streakEdited.current = true;
-              setStreakChoice(event.target.value);
-            }}
-          >
-            <option value="3">3 cleans</option>
-            <option value="5">5 cleans</option>
-            <option value="7">7 cleans</option>
-            <option value="10">10 cleans</option>
-            <option value="custom">Custom…</option>
-          </select>
-        </label>
-        {streakChoice === "custom" && (
-          <label className="ck-field">
-            <span className="ck-label">Custom clean streak</span>
-            <input
-              className="ck-input"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={100}
-              value={customStreak}
-              aria-label="Custom clean streak"
-              onChange={(event) => {
-                streakEdited.current = true;
-                setCustomStreak(event.target.value);
-              }}
-            />
-          </label>
-        )}
-      </div>
+      {/* One-line editable defaults summary + the single "More" disclosure. */}
+      <div className="block-more">
+        <button
+          type="button"
+          className="block-more-toggle"
+          aria-expanded={moreOpen}
+          aria-controls="block-more-panel"
+          onClick={() => setMoreOpen((v) => !v)}
+        >
+          <span className="block-defaults" title={defaultsSummary}>
+            {defaultsSummary}
+          </span>
+          <span className="block-more-cue">
+            {moreOpen ? "Fewer" : "More"}
+            <DisclosureCaret open={moreOpen} />
+          </span>
+        </button>
 
-      <details className="block-advanced">
-        <summary>Advanced</summary>
-        <label className="ck-field">
-          <span className="ck-label">Attempt review boundary (optional)</span>
-          <input
-            className="ck-input"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            value={plannedReps}
-            placeholder="No boundary"
-            aria-label="Attempt review boundary"
-            onChange={(event) => setPlannedReps(event.target.value)}
-          />
-          <small>
-            At this try count, pause and review — continue, change strategy,
-            restart, or close.
-          </small>
-        </label>
-        {focus === "tempo" && (
-          <fieldset className="ck-field">
-            <legend className="ck-label">Tempo increment</legend>
-            <div
-              className="ck-segmented"
-              role="radiogroup"
-              aria-label="Increment mode"
-            >
-              <button
-                type="button"
-                role="radio"
-                aria-checked={mode === "auto"}
-                className={`ck-segment ${mode === "auto" ? "is-on" : ""}`}
-                onClick={() => setMode("auto")}
-              >
-                Auto
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={mode === "manual"}
-                className={`ck-segment ${mode === "manual" ? "is-on" : ""}`}
-                onClick={() => setMode("manual")}
-              >
-                Manual
-              </button>
+        {moreOpen && (
+          <div id="block-more-panel" className="block-more-panel">
+            <div className="ck-field-grid">
+              <label className="ck-field">
+                <span className="ck-label">Practice focus</span>
+                <select
+                  className="ck-input"
+                  aria-label="Focus"
+                  value={focus}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setFocus(next);
+                    if (next !== "tempo") setUseMetronome(false);
+                  }}
+                >
+                  <option value="tempo">Tempo</option>
+                  <option value="notes">Notes & accuracy</option>
+                  <option value="phrasing">Phrasing</option>
+                  <option value="dynamics">Dynamics</option>
+                  <option value="memory">Memory</option>
+                  <option value="hands">Hands / coordination</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label className="ck-toggle-field">
+                <input
+                  type="checkbox"
+                  aria-label="Use metronome"
+                  checked={useMetronome}
+                  onChange={(event) => setUseMetronome(event.target.checked)}
+                />
+                <span>
+                  <strong>Metronome</strong>
+                </span>
+              </label>
             </div>
-            {mode === "manual" && (
-              <div className="ck-field-grid ck-manual-rule">
+
+            <div className="ck-field-grid">
+              <label className="ck-field">
+                <span className="ck-label">Clean streak target</span>
+                <select
+                  className="ck-input"
+                  aria-label="Clean streak target"
+                  value={streakChoice}
+                  onChange={(event) => {
+                    streakEdited.current = true;
+                    setStreakChoice(event.target.value);
+                  }}
+                >
+                  <option value="3">3 cleans</option>
+                  <option value="5">5 cleans</option>
+                  <option value="7">7 cleans</option>
+                  <option value="10">10 cleans</option>
+                  <option value="custom">Custom…</option>
+                </select>
+              </label>
+              {streakChoice === "custom" && (
                 <label className="ck-field">
-                  <span className="ck-label">
-                    Clean attempts before tempo step
-                  </span>
+                  <span className="ck-label">Custom clean streak</span>
                   <input
                     className="ck-input"
                     type="number"
                     inputMode="numeric"
                     min={1}
-                    value={cleanNeeded}
-                    aria-label="Cleans needed"
-                    onChange={(e) => setCleanNeeded(e.target.value)}
+                    max={100}
+                    value={customStreak}
+                    aria-label="Custom clean streak"
+                    onChange={(event) => {
+                      streakEdited.current = true;
+                      setCustomStreak(event.target.value);
+                    }}
                   />
                 </label>
-                <label className="ck-field">
-                  <span className="ck-label">Bpm step</span>
-                  <input
-                    className="ck-input"
-                    type="number"
-                    inputMode="numeric"
-                    value={bpmStep}
-                    aria-label="Bpm step"
-                    onChange={(e) => setBpmStep(e.target.value)}
-                  />
-                </label>
-              </div>
-            )}
-          </fieldset>
-        )}
+              )}
+            </div>
 
-        <fieldset className="ck-field">
-          <legend className="ck-label">Variants (optional)</legend>
-          {variants.map((v, i) => (
-            <div className="ck-row" key={i}>
+            {focus === "tempo" && (
+              <fieldset className="ck-field">
+                <legend className="ck-label">Tempo ladder</legend>
+                <div
+                  className="ck-segmented"
+                  role="radiogroup"
+                  aria-label="Increment mode"
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={mode === "auto"}
+                    className={`ck-segment ${mode === "auto" ? "is-on" : ""}`}
+                    onClick={() => setMode("auto")}
+                  >
+                    Auto
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={mode === "manual"}
+                    className={`ck-segment ${mode === "manual" ? "is-on" : ""}`}
+                    onClick={() => setMode("manual")}
+                  >
+                    Manual
+                  </button>
+                </div>
+                {mode === "manual" && (
+                  <div className="ck-field-grid ck-manual-rule">
+                    <label className="ck-field">
+                      <span className="ck-label">
+                        Clean attempts before tempo step
+                      </span>
+                      <input
+                        className="ck-input"
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        value={cleanNeeded}
+                        aria-label="Cleans needed"
+                        onChange={(e) => setCleanNeeded(e.target.value)}
+                      />
+                    </label>
+                    <label className="ck-field">
+                      <span className="ck-label">Bpm step</span>
+                      <input
+                        className="ck-input"
+                        type="number"
+                        inputMode="numeric"
+                        value={bpmStep}
+                        aria-label="Bpm step"
+                        onChange={(e) => setBpmStep(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                )}
+              </fieldset>
+            )}
+
+            <label className="ck-field">
+              <span className="ck-label">
+                Attempt review boundary (optional)
+              </span>
               <input
                 className="ck-input"
-                type="text"
-                value={v.name}
-                placeholder="hands separate"
-                aria-label={`Variant ${i + 1} name`}
-                onChange={(e) => setVariant(i, { name: e.target.value })}
-              />
-              <input
-                className="ck-input ck-input-reps"
                 type="number"
                 inputMode="numeric"
                 min={1}
-                value={v.reps}
-                aria-label={`Variant ${i + 1} attempts`}
-                onChange={(e) =>
-                  setVariant(i, { reps: parseIntOrNull(e.target.value) ?? 1 })
-                }
+                value={plannedReps}
+                placeholder="No boundary"
+                aria-label="Attempt review boundary"
+                onChange={(event) => setPlannedReps(event.target.value)}
               />
-              <button
-                type="button"
-                className="ck-row-remove"
-                aria-label={`Remove variant ${i + 1}`}
-                onClick={() => removeVariant(i)}
-              >
-                ×
+            </label>
+
+            <fieldset className="ck-field">
+              <legend className="ck-label">Variants (optional)</legend>
+              {variants.map((v, i) => (
+                <div className="ck-row" key={i}>
+                  <input
+                    className="ck-input"
+                    type="text"
+                    value={v.name}
+                    placeholder="hands separate"
+                    aria-label={`Variant ${i + 1} name`}
+                    onChange={(e) => setVariant(i, { name: e.target.value })}
+                  />
+                  <input
+                    className="ck-input ck-input-reps"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    value={v.reps}
+                    aria-label={`Variant ${i + 1} attempts`}
+                    onChange={(e) =>
+                      setVariant(i, {
+                        reps: parseIntOrNull(e.target.value) ?? 1,
+                      })
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="ck-row-remove"
+                    aria-label={`Remove variant ${i + 1}`}
+                    onClick={() => removeVariant(i)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button type="button" className="ck-add" onClick={addVariant}>
+                + Add variant
               </button>
-            </div>
-          ))}
-          <button type="button" className="ck-add" onClick={addVariant}>
-            + Add variant
-          </button>
-        </fieldset>
-      </details>
+            </fieldset>
+          </div>
+        )}
+      </div>
 
       {blockedReason && (
         <p className="ck-inline-status" role="status">
