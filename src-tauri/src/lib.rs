@@ -1147,6 +1147,45 @@ fn brain_thread_clear(piece_id: i64, store: State<'_, Arc<Store>>) -> Result<(),
         .map_err(|error| error.to_string())
 }
 
+/// List every book in the knowledge-folder manifest with its file availability.
+/// Bootstraps `books.json` from the built-ins on first read (zero action).
+#[tauri::command]
+fn books_list(store: State<'_, Arc<Store>>) -> Result<Vec<brain::BookListing>, String> {
+    brain::list_books(&store)
+}
+
+/// Add a book: validate the `.md` source, copy it into the knowledge folder
+/// (collision-safe), and append a manifest entry. The frontend owns the dialog.
+#[tauri::command]
+fn book_add(
+    path: String,
+    title: String,
+    author: String,
+    kind: brain::BookKind,
+    store: State<'_, Arc<Store>>,
+) -> Result<brain::BookListing, String> {
+    brain::add_book(&store, &path, &title, &author, kind)
+}
+
+/// Remove a book: drop the manifest entry and move its file to `.trash/`.
+/// Never hard-deletes; built-in books are removable by the same path.
+#[tauri::command]
+fn book_remove(id: String, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    brain::remove_book(&store, &id)
+}
+
+/// Reader source (D2): the markdown section around a quote, located by verbatim
+/// `contains` substring and/or the nearest `heading` match.
+#[tauri::command]
+fn book_excerpt(
+    source_id: String,
+    heading: Option<String>,
+    contains: Option<String>,
+    store: State<'_, Arc<Store>>,
+) -> Result<brain::BookExcerpt, String> {
+    brain::book_excerpt(&store, &source_id, heading.as_deref(), contains.as_deref())
+}
+
 #[tauri::command]
 fn brain_intake_apply(
     request: brain::BrainIntakeApplyRequest,
@@ -1493,6 +1532,10 @@ pub fn run() {
             brain_intake_apply,
             brain_status,
             brain_test_connection,
+            books_list,
+            book_add,
+            book_remove,
+            book_excerpt,
             daily_work_list,
             daily_work_create,
             daily_work_update,
