@@ -53,6 +53,27 @@ describe("home quote rotation", () => {
     expect(new Set(cycle2).size).toBe(20);
   });
 
+  it("gives every cycle a fresh permutation, not just the second (2v3, 3v4)", () => {
+    const store = fakeStore();
+    const quotes = corpus(50);
+    const cycle = (): string[] => {
+      const ids: string[] = [];
+      for (let i = 0; i < 50; i += 1)
+        ids.push(pickQuoteOnOpen(store, quotes, () => 424242).id);
+      return ids;
+    };
+    const c1 = cycle();
+    const c2 = cycle();
+    const c3 = cycle();
+    const c4 = cycle();
+    // Each lap is a full permutation…
+    for (const c of [c2, c3, c4]) expect(new Set(c).size).toBe(50);
+    // …and consecutive laps differ (the pre-fix bug froze the order from lap 2 on).
+    expect(c2).not.toEqual(c1);
+    expect(c3).not.toEqual(c2);
+    expect(c4).not.toEqual(c3);
+  });
+
   it("is deterministic: the same stored seed reproduces the same sequence", () => {
     const quotes = corpus(30);
     const runA: string[] = [];

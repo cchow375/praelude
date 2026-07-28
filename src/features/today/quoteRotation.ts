@@ -12,6 +12,7 @@ import { QUOTES, type Quote } from "../../content/quotes";
 const SEED_KEY = "ck.homeQuote.seed";
 const ORDER_KEY = "ck.homeQuote.order";
 const CURSOR_KEY = "ck.homeQuote.cursor";
+const CYCLE_KEY = "ck.homeQuote.cycle";
 
 /** Minimal storage surface — real localStorage or an injected fake (tests). */
 export interface QuoteStore {
@@ -96,9 +97,11 @@ export function pickQuoteOnOpen(
 
   if (order == null || cursor < 0 || cursor >= n) {
     // First run, a corpus-size change, or an exhausted cycle: (re)build a
-    // permutation. Each exhausted cycle derives a fresh seed from the stored one
-    // so the next lap differs while staying reproducible.
-    const cyclesDone = order == null ? 0 : Math.floor(cursor / n) || 1;
+    // permutation. A persisted monotonic cycle counter feeds the reshuffle seed
+    // so EVERY lap gets a distinct order (cursor alone can't count laps — it
+    // resets to 0 each cycle) while staying reproducible.
+    const cyclesDone = order == null ? 0 : (readInt(store, CYCLE_KEY) ?? 0) + 1;
+    store.setItem(CYCLE_KEY, String(cyclesDone));
     const cycleSeed = (seed + cyclesDone * 0x9e3779b1) >>> 0;
     order = shuffledOrder(n, cycleSeed);
     cursor = 0;
