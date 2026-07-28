@@ -1005,6 +1005,64 @@ function mockBookAdd(args: unknown): MockBook {
 }
 
 /**
+ * Canned `book_excerpt` response (D2 reader). For any sourceId this returns a
+ * multi-paragraph section with a heading, weaving the requested `contains` quote
+ * into a middle paragraph so the reader can anchor it. The heading-less OCR book
+ * (`gieseking-leimer-technique`) instead returns a HUGE whole-book body with
+ * heading:"" so the reader's client-side windowing (±paragraphs + Show more) is
+ * exercisable in the dev harness with no vault present.
+ */
+function mockBookExcerpt(args: unknown): {
+  source_id: string;
+  title: string;
+  author: string;
+  heading: string;
+  text: string;
+} {
+  const record = (args ?? {}) as Record<string, unknown>;
+  const sourceId = String(record.sourceId ?? record.source_id ?? "mock-book");
+  const contains =
+    typeof record.contains === "string" && record.contains.trim() !== ""
+      ? record.contains.trim()
+      : "Slow practice is fast learning.";
+  const book = mockBooks.find((b) => b.id === sourceId);
+  const author = book?.author ?? "A Piano Pedagogue";
+  const title = book?.title ?? "A Practice Method";
+
+  if (sourceId === "gieseking-leimer-technique") {
+    // No headings in the OCR source → whole-book body, heading "". Padded well
+    // past the reader's window threshold so windowing must engage.
+    const filler = Array.from(
+      { length: 40 },
+      (_, i) =>
+        `Paragraph ${i + 1}. Visualize the passage away from the keyboard, ` +
+        "hearing each voice before the hands move; the ear leads and the " +
+        "fingers merely obey what the mind has already made concrete.",
+    );
+    const body = [...filler.slice(0, 20), contains, ...filler.slice(20)].join(
+      "\n\n",
+    );
+    return { source_id: sourceId, title, author, heading: "", text: body };
+  }
+
+  const text = [
+    "Practising is not the same as playing through. A rehearsal that only " +
+      "repeats what you can already do is a comfortable way to avoid the work.",
+    `${contains} The point is deliberate attention on the one thing that is ` +
+      "not yet secure, at a speed slow enough that no error is rehearsed.",
+    "When the passage is reliable three times in a row, and only then, let " +
+      "the tempo rise by a small, honest increment.",
+  ].join("\n\n");
+  return {
+    source_id: sourceId,
+    title,
+    author,
+    heading: "Practising: healthy, effective and inspired",
+    text,
+  };
+}
+
+/**
  * A committed CheckOutcome consistent with the `rep_state` mock (block 102).
  * This is a MOCK, not a simulation: it advances the attempt ledger just enough
  * for the HUD to reconcile the returned snapshot and land a GREEN receipt. No
@@ -1299,6 +1357,10 @@ function routeCommand(cmd: string, args: unknown): unknown {
       mockBooks = mockBooks.filter((book) => book.id !== id);
       return null;
     }
+    // Excerpt reader (D2): canned section for any book; the OCR book returns a
+    // huge heading-less body to exercise client-side windowing.
+    case "book_excerpt":
+      return mockBookExcerpt(args);
     case "rep_state":
       return MOCK_REP_STATE;
     // Clean/Sloppy/Again in the HUD: return a committed CheckOutcome so the

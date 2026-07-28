@@ -3,6 +3,9 @@ import type { PracticePieceContext } from "../universe/types";
 import type { RepSnapshot } from "../rep/useRep";
 import { ASSISTANT, HISTORY } from "../../shell/terms";
 import { TodayPracticePanel } from "./TodayPracticePanel";
+import { ReaderWindow } from "../reader/ReaderWindow";
+import { clampToWords, pickQuoteOnOpen } from "./quoteRotation";
+import type { Quote } from "../../content/quotes";
 import { compactDuration, todayLabel } from "./format";
 import {
   CodaMark,
@@ -15,10 +18,15 @@ import {
 } from "./menuIcons";
 import "./TodayWorkspace.css";
 
-// One tasteful placeholder practice line for the menu's quote slot. Phase D
-// replaces this with a deterministic rotation over the verified quotes.json
-// corpus — the single-line slot, styling, and behaviour are already final.
-const PLACEHOLDER_QUOTE = "Slow practice is fast learning.";
+/** Pick this app-open's quote once, advancing the deterministic rotation (D1).
+ *  Guarded so a storage failure never blanks the menu. */
+function openQuote(): Quote | null {
+  try {
+    return pickQuoteOnOpen(window.localStorage);
+  } catch {
+    return null;
+  }
+}
 
 interface TodayWorkspaceProps {
   /** Opens the Score workspace with no requested piece (the "Score" entry and
@@ -54,6 +62,10 @@ export function TodayWorkspace({
 }: TodayWorkspaceProps) {
   const [practiceOpen, setPracticeOpen] = useState(false);
   const practiceTriggerRef = useRef<HTMLButtonElement>(null);
+  // One quote per app open (this component mounts once at app launch). Picking
+  // in the initializer advances the rotation exactly once per open.
+  const [quote] = useState(openQuote);
+  const [readerOpen, setReaderOpen] = useState(false);
 
   const closePractice = () => {
     setPracticeOpen(false);
@@ -71,9 +83,21 @@ export function TodayWorkspace({
         </div>
 
         <p className="today-date today-menu-date">{todayLabel()}</p>
-        <p className="today-menu-quote" title={PLACEHOLDER_QUOTE}>
-          {PLACEHOLDER_QUOTE}
-        </p>
+        {quote && (
+          <button
+            type="button"
+            className="today-menu-quote"
+            title={`${quote.text} — ${quote.author}`}
+            aria-label={`Open the reader for this quote by ${quote.author}`}
+            data-testid="today-menu-quote"
+            onClick={() => setReaderOpen(true)}
+          >
+            <span className="today-menu-quote-text">
+              “{clampToWords(quote.text)}”
+            </span>
+            <span className="today-menu-quote-author"> — {quote.author}</span>
+          </button>
+        )}
 
         <nav className="today-menu-nav" aria-label="Main menu">
           <button
@@ -127,6 +151,19 @@ export function TodayWorkspace({
           </button>
         </nav>
       </div>
+
+      {readerOpen && quote && (
+        <ReaderWindow
+          quote={{
+            sourceId: quote.source_id,
+            text: quote.text,
+            author: quote.author,
+            book: quote.book,
+            heading: quote.heading,
+          }}
+          onClose={() => setReaderOpen(false)}
+        />
+      )}
 
       {practiceOpen && (
         <TodayPracticePanel

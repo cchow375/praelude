@@ -132,7 +132,7 @@ interface RouteOptions {
 function installRouter(options: RouteOptions = {}) {
   const regions = options.regions ?? [];
   const retention = options.retention ?? [];
-  invokeMock.mockImplementation((command: string) => {
+  invokeMock.mockImplementation((command: string, args?: unknown) => {
     switch (command) {
       case "universe_snapshot":
         return Promise.resolve(SNAPSHOT);
@@ -146,6 +146,18 @@ function installRouter(options: RouteOptions = {}) {
         return Promise.resolve(retention);
       case "daily_work_list":
         return Promise.resolve([]);
+      case "book_excerpt": {
+        const contains = String(
+          (args as { contains?: unknown })?.contains ?? "the quote",
+        );
+        return Promise.resolve({
+          source_id: "roskell-complete-pianist",
+          title: "The Complete Pianist",
+          author: "Penelope Roskell",
+          heading: "Practising: healthy, effective and inspired",
+          text: `A practice paragraph.\n\n${contains}\n\nA closing line.`,
+        });
+      }
       case "session_plan_start":
         return options.planStart
           ? options.planStart()
@@ -205,9 +217,12 @@ describe("TodayWorkspace main menu", () => {
   it("shows a quiet menu and hides the day surfaces until Today's Practice opens", () => {
     renderToday();
 
-    // App mark, the date, the single-line practice quote, and quiet entries.
+    // App mark, the date, the single-line rotating quote, and quiet entries.
     expect(screen.getByText("CodaKiller")).toBeTruthy();
-    expect(screen.getByText("Slow practice is fast learning.")).toBeTruthy();
+    const quote = screen.getByTestId("today-menu-quote");
+    expect(quote).toBeTruthy();
+    // A real corpus quote with an attribution, not the old placeholder.
+    expect(quote.textContent).toMatch(/—\s+\S/);
     for (const label of [
       "Today's Practice",
       "Score",
@@ -236,6 +251,27 @@ describe("TodayWorkspace main menu", () => {
     expect(
       screen.getByRole("textbox", { name: "Today's plan and intention" }),
     ).toBeTruthy();
+  });
+
+  it("opens the excerpt reader when the quote line is clicked (D2)", async () => {
+    renderToday();
+
+    expect(screen.queryByRole("dialog", { name: "Reader" })).toBeNull();
+    fireEvent.click(screen.getByTestId("today-menu-quote"));
+
+    const reader = await screen.findByRole("dialog", { name: "Reader" });
+    expect(reader).toBeTruthy();
+    // The passage loads and the source attribution shows.
+    await screen.findByTestId("reader-quote-anchor");
+    expect(screen.getByTestId("reader-attribution").textContent).toContain(
+      "Penelope Roskell",
+    );
+
+    // × closes it back to the menu.
+    fireEvent.click(screen.getByRole("button", { name: "Close reader" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Reader" })).toBeNull(),
+    );
   });
 
   it("routes each quiet menu entry to its workspace", () => {
