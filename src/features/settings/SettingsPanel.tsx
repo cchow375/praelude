@@ -4,6 +4,17 @@ import { useReceipts } from "../receipts/ReceiptCenter";
 import { Button, Disclosure } from "../../ui";
 import type { CommandInvoker } from "../../services/command";
 import { BrainConnection } from "./BrainConnection";
+import {
+  AppearanceIcon,
+  AssistantIcon,
+  CalendarIcon,
+  FolderIcon,
+  GuideIcon,
+  LadderIcon,
+  MetronomeSectionIcon,
+  TagIcon,
+  VoiceIcon,
+} from "./SettingsIcons";
 import "./settings.css";
 
 type Provider = "claude" | "gemini";
@@ -190,7 +201,14 @@ export function SettingsPanel({
         </p>
       )}
 
-      <Disclosure summary="How to use CodaKiller" defaultOpen>
+      <Disclosure
+        summary={
+          <SectionLabel icon={<GuideIcon />}>
+            How to use CodaKiller
+          </SectionLabel>
+        }
+        defaultOpen
+      >
         <section
           className="settings-guide"
           aria-labelledby="settings-guide-title"
@@ -314,7 +332,10 @@ export function SettingsPanel({
         </section>
       </Disclosure>
 
-      <Disclosure summary="Brain" defaultOpen>
+      <Disclosure
+        summary={<SectionLabel icon={<AssistantIcon />}>Brain</SectionLabel>}
+        defaultOpen
+      >
         <div className="settings-group">
           <BrainConnection invoker={brainInvoker} />
           <Row label="Brain provider">
@@ -386,7 +407,13 @@ export function SettingsPanel({
         </div>
       </Disclosure>
 
-      <Disclosure summary="Voice & wake-word">
+      <Disclosure
+        summary={
+          <SectionLabel icon={<VoiceIcon />}>
+            Voice &amp; wake-word
+          </SectionLabel>
+        }
+      >
         <div className="settings-group">
           <label className="settings-check">
             <input
@@ -451,7 +478,11 @@ export function SettingsPanel({
         </div>
       </Disclosure>
 
-      <Disclosure summary="Metronome">
+      <Disclosure
+        summary={
+          <SectionLabel icon={<MetronomeSectionIcon />}>Metronome</SectionLabel>
+        }
+      >
         <div className="settings-group">
           <Row label="Click sound">
             <select
@@ -490,11 +521,15 @@ export function SettingsPanel({
         </div>
       </Disclosure>
 
-      <Disclosure summary="Ladder defaults">
+      <Disclosure
+        summary={
+          <SectionLabel icon={<LadderIcon />}>Ladder defaults</SectionLabel>
+        }
+      >
         <div className="settings-group">
           <p className="settings-note">
-            Mastery uses consecutive clean attempts. Choose any optional
-            attempt review boundary separately when you start a set.
+            Mastery uses consecutive clean attempts. Choose any optional attempt
+            review boundary separately when you start a set.
           </p>
           <NumberField
             label="Default clean streak"
@@ -517,7 +552,11 @@ export function SettingsPanel({
         </div>
       </Disclosure>
 
-      <Disclosure summary="Calendar capacity">
+      <Disclosure
+        summary={
+          <SectionLabel icon={<CalendarIcon />}>Calendar capacity</SectionLabel>
+        }
+      >
         <div className="settings-group">
           <NumberField
             label="Calendar capacity"
@@ -531,7 +570,11 @@ export function SettingsPanel({
         </div>
       </Disclosure>
 
-      <Disclosure summary="Vault directory">
+      <Disclosure
+        summary={
+          <SectionLabel icon={<FolderIcon />}>Vault directory</SectionLabel>
+        }
+      >
         <div className="settings-group">
           <Row label="Pieces folder" wide>
             <input
@@ -545,7 +588,11 @@ export function SettingsPanel({
         </div>
       </Disclosure>
 
-      <Disclosure summary="Verdict aliases">
+      <Disclosure
+        summary={
+          <SectionLabel icon={<TagIcon />}>Verdict aliases</SectionLabel>
+        }
+      >
         <div className="settings-group">
           <AliasField
             label="Clean verdict aliases"
@@ -565,7 +612,11 @@ export function SettingsPanel({
         </div>
       </Disclosure>
 
-      <Disclosure summary="Appearance">
+      <Disclosure
+        summary={
+          <SectionLabel icon={<AppearanceIcon />}>Appearance</SectionLabel>
+        }
+      >
         <div className="settings-group">
           <p className="settings-note">
             CodaKiller uses its dark practice-room interface.
@@ -592,6 +643,23 @@ export function SettingsPanel({
         </div>
       </Disclosure>
     </form>
+  );
+}
+
+function SectionLabel({
+  icon,
+  children,
+}: {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className="settings-section-label">
+      <span className="settings-section-icon" aria-hidden="true">
+        {icon}
+      </span>
+      {children}
+    </span>
   );
 }
 

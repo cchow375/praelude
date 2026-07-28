@@ -4,6 +4,7 @@ import type { PieceSummary } from "../pieces/types";
 import type { PracticeBrainContext } from "../brain/types";
 import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
 import { ScoreView } from "./ScoreView";
+import { MetronomeQuickBar } from "../metronome/MetronomeQuickBar";
 import type { ScoreFocusContext } from "./types";
 import "./ScoreWorkspace.css";
 
@@ -97,17 +98,19 @@ export function ScoreWorkspace({
     try {
       const next = (await invoke<PieceSummary[]>("pieces_list")) ?? [];
       const withPdf = next.filter((piece) => piece.has_pdf);
-      const requested = requestedPieceId == null
-        ? null
-        : next.find((piece) => piece.id === requestedPieceId) ?? null;
+      const requested =
+        requestedPieceId == null
+          ? null
+          : (next.find((piece) => piece.id === requestedPieceId) ?? null);
       // Keep an explicitly requested no-PDF piece visible so the destination
       // can explain why its score cannot open instead of silently substituting
       // another work.
-      const list = requested && !requested.has_pdf && withPdf.length > 0
-        ? [requested, ...withPdf]
-        : withPdf.length > 0
-          ? withPdf
-          : next;
+      const list =
+        requested && !requested.has_pdf && withPdf.length > 0
+          ? [requested, ...withPdf]
+          : withPdf.length > 0
+            ? withPdf
+            : next;
       setPieces(list);
       if (requestedPieceId != null && requested == null) {
         setNavigationError("That piece is no longer available in the library.");
@@ -122,12 +125,12 @@ export function ScoreWorkspace({
       } else {
         setNavigationError(null);
         setSelectedId((current) => {
-        if (current != null && list.some((piece) => piece.id === current))
-          return current;
-        const last = readLastPieceId();
-        if (last != null && list.some((piece) => piece.id === last))
-          return last;
-        return list[0]?.id ?? null;
+          if (current != null && list.some((piece) => piece.id === current))
+            return current;
+          const last = readLastPieceId();
+          if (last != null && list.some((piece) => piece.id === last))
+            return last;
+          return list[0]?.id ?? null;
         });
       }
     } catch (reason) {
@@ -198,34 +201,37 @@ export function ScoreWorkspace({
   return (
     <main className="score-workspace" data-testid="score-workspace">
       <header className="score-workspace-head">
-        <div>
+        <div className="score-workspace-headline">
           <span className="score-workspace-kicker">Score</span>
           <h1 className="score-workspace-title">
             {selected ? selected.title : "Your scores"}
           </h1>
         </div>
-        {pieces.length > 0 && (
-          <label className="score-workspace-picker">
-            <span>Piece</span>
-            <select
-              aria-label="Choose a piece"
-              value={selectedId ?? ""}
-              onChange={(event) => {
-                const id = Number(event.target.value);
-                setNavigationError(null);
-                setSelectedId(id);
-                writeLastPieceId(id);
-              }}
-            >
-              {pieces.map((piece) => (
-                <option key={piece.id} value={piece.id}>
-                  {piece.title}
-                  {piece.composer ? ` · ${piece.composer}` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <div className="score-workspace-tools">
+          <MetronomeQuickBar />
+          {pieces.length > 0 && (
+            <label className="score-workspace-picker">
+              <span>Piece</span>
+              <select
+                aria-label="Choose a piece"
+                value={selectedId ?? ""}
+                onChange={(event) => {
+                  const id = Number(event.target.value);
+                  setNavigationError(null);
+                  setSelectedId(id);
+                  writeLastPieceId(id);
+                }}
+              >
+                {pieces.map((piece) => (
+                  <option key={piece.id} value={piece.id}>
+                    {piece.title}
+                    {piece.composer ? ` · ${piece.composer}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
       </header>
 
       <div className="score-workspace-body">
