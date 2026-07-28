@@ -48,6 +48,29 @@ const VERDICT_SYMBOL: Record<string, string> = {
   failed: "✗",
 };
 
+/**
+ * A clean that COMPLETES a rung is a success: the engine steps the tempo up and
+ * resets `current_clean_streak` to 0 in the very same snapshot. Rendering that
+ * raw snapshot makes the big headline number drop to 0 the instant a clean is
+ * logged — Christian reads it as "my clean didn't count / it reset". This holds
+ * the reconstructed FILLED rung ("N/N" at the old tempo with a step receipt) for
+ * a beat so the headline only ever moves upward as the immediate consequence of a
+ * clean; the live new-rung "0/N at the new tempo" appears once the hold releases.
+ */
+interface RungCelebration {
+  /** rule.clean_needed — the just-completed rung renders as filledStreak/filledStreak. */
+  filledStreak: number;
+  /** Tempo the completed rung was proven at (the prior snapshot's BPM). */
+  atBpm: number;
+  /** Tempo the engine stepped to (the new snapshot's BPM). */
+  nextBpm: number;
+  /** Whether the stepped tempo is still below the target (a new rung follows). */
+  belowTarget: boolean;
+}
+
+/** How long the filled-rung receipt holds before the live new-rung state shows. */
+const RUNG_CELEBRATION_MS = 1200;
+
 export function formatFocusedTime(seconds: number): string {
   const safe = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
   const minutes = Math.floor(safe / 60);
@@ -93,6 +116,7 @@ export function RepHud({
   const [correctNote, setCorrectNote] = useState("");
   const [restartConfirm, setRestartConfirm] = useState(false);
   const [resetPulse, setResetPulse] = useState(false);
+  const [celebration, setCelebration] = useState<RungCelebration | null>(null);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [reflectionOpen, setReflectionOpen] = useState(false);
   const [reflection, setReflection] = useState("");
@@ -101,6 +125,11 @@ export function RepHud({
   const [recoveryHands, setRecoveryHands] = useState("left hand");
   const [recoveryMethod, setRecoveryMethod] = useState("rhythmic variants");
   const previousResetCount = useRef<number | undefined>(undefined);
+  // Prior-snapshot values, read by the celebration + pulse effects and committed
+  // by a trailing effect AFTER those reads, so both always see the pre-transition
+  // state (the streak/tempo before the clean that changed them).
+  const prevBpmRef = useRef<number | null>(null);
+  const prevStreakRef = useRef<number | undefined>(undefined);
   const restartTriggerRef = useRef<HTMLButtonElement>(null);
   const restartConfirmRef = useRef<HTMLButtonElement>(null);
   // React state does not update until the next render, so keep a same-tick
@@ -124,6 +153,11 @@ export function RepHud({
     const previous = previousResetCount.current;
     previousResetCount.current = next;
     if (next == null || previous == null || next <= previous) return;
+    // Only announce a reset that actually cost the pianist a streak. A resetting
+    // verdict against an already-zero streak breaks nothing, so pulsing "Streak
+    // reset" there is a false alarm — stay silent. prevStreakRef still holds the
+    // pre-reset streak (the trailing commit effect runs after this one).
+    if ((prevStreakRef.current ?? 0) <= 0) return;
     setResetPulse(false);
     const frame = requestAnimationFrame(() => setResetPulse(true));
     const timer = window.setTimeout(() => setResetPulse(false), 520);
@@ -132,6 +166,48 @@ export function RepHud({
       window.clearTimeout(timer);
     };
   }, [snap?.reset_count]);
+
+  // Rung-completion celebration: when a clean steps the tempo up (the sole cause
+  // of an upward BPM step in this engine) we reconstruct the filled rung the
+  // engine never surfaces and hold it briefly. Keyed on the attempt identity so
+  // it fires once per new verdict; any following verdict clears the hold.
+  useEffect(() => {
+    if (!snap) return;
+    const prevBpm = prevBpmRef.current;
+    const curBpm = snap.bpm;
+    const targetBpm = snap.target_bpm;
+    const completing =
+      prevBpm != null &&
+      curBpm != null &&
+      targetBpm != null &&
+      curBpm > prevBpm &&
+      snap.focus === "tempo" &&
+      snap.last?.verdict === "clean";
+    if (!completing) {
+      setCelebration(null);
+      return;
+    }
+    setCelebration({
+      filledStreak: snap.rule.clean_needed,
+      atBpm: prevBpm,
+      nextBpm: curBpm,
+      belowTarget: curBpm < targetBpm,
+    });
+    const timer = window.setTimeout(
+      () => setCelebration(null),
+      RUNG_CELEBRATION_MS,
+    );
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastAttemptId]);
+
+  // Commit the current snapshot's tempo/streak as "previous" AFTER the effects
+  // above have read the prior values. No dependency array: it must trail every
+  // render so the next transition compares against the state just displayed.
+  useEffect(() => {
+    prevBpmRef.current = snap?.bpm ?? null;
+    prevStreakRef.current = snap?.current_clean_streak;
+  });
 
   // The recovery desk stays closed until the pianist opens it — auto-opening
   // on every non-clean verdict buried the verdict loop under a wall of
@@ -297,6 +373,16 @@ export function RepHud({
   const streakRequired = climbingToTarget
     ? snap.rule.clean_needed
     : requiredStreak;
+  // While the celebration hold is active, the headline shows the FILLED rung the
+  // clean just completed instead of the engine's already-reset live streak. This
+  // is the guarantee that the big number never drops as the direct result of a
+  // clean: it fills up to N/N, holds the step receipt, then the live 0/N at the
+  // new tempo takes over once the hold releases.
+  const headlineStreak = celebration ? celebration.filledStreak : streakValue;
+  const headlineRequired = celebration
+    ? celebration.filledStreak
+    : streakRequired;
+  const headlineBpm = celebration ? celebration.atBpm : snap.bpm;
   const verified = repMasteryVerified(snap);
   const mastery = repMasteryStatus(snap);
   const mastered = verified && mastery === "satisfied";
@@ -355,38 +441,56 @@ export function RepHud({
 
       <div className="rep-hud-main">
         <div
-          className="rep-hud-streak"
+          className={`rep-hud-streak ${celebration ? "is-rung-complete" : ""}`}
           aria-label={
-            climbingToTarget
-              ? `Clean streak at this rung ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}, climbing to ${snap.target_bpm} BPM`
-              : `${tempoMastery ? "Mastery proof at target" : "Current clean streak"} ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}`
+            celebration
+              ? `Rung ${celebration.filledStreak} of ${celebration.filledStreak} clean at ♩${celebration.atBpm} — stepping to ♩${celebration.nextBpm}`
+              : climbingToTarget
+                ? `Clean streak at this rung ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}, climbing to ${snap.target_bpm} BPM`
+                : `${tempoMastery ? "Mastery proof at target" : "Current clean streak"} ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}`
           }
         >
           <span className="rep-hud-streak-value">
-            <strong>{streakValue ?? "—"}</strong>
+            <strong>{headlineStreak ?? "—"}</strong>
             <span aria-hidden="true">/</span>
-            <span>{streakRequired ?? "—"}</span>
+            <span>{headlineRequired ?? "—"}</span>
           </span>
           {snap.focus === "tempo" || snap.use_metronome ? (
-            snap.bpm != null && (
+            headlineBpm != null && (
               <span className="rep-hud-tempo">
-                ♩ {snap.bpm}
-                {climbingToTarget && (
-                  <span className="rep-hud-tempo-target">
-                    {" → "}
-                    {snap.target_bpm}
+                ♩ {headlineBpm}
+                {celebration ? (
+                  <span className="rep-hud-step-receipt">
+                    {" ✓ → ♩"}
+                    {celebration.nextBpm}
                   </span>
+                ) : (
+                  climbingToTarget && (
+                    <span className="rep-hud-tempo-target">
+                      {" → "}
+                      {snap.target_bpm}
+                    </span>
+                  )
                 )}
               </span>
             )
           ) : (
             <span className="rep-hud-tempo">{snap.focus}</span>
           )}
-          {climbingToTarget && (
+          {celebration ? (
             <span className="rep-hud-climb" role="status">
-              Climbing to ♩{snap.target_bpm} — then {requiredStreak ?? "—"}{" "}
-              clean in a row
+              Rung cleared — stepping to ♩{celebration.nextBpm}
+              {celebration.belowTarget && snap.target_bpm != null
+                ? `, climbing to ♩${snap.target_bpm}`
+                : ""}
             </span>
+          ) : (
+            climbingToTarget && (
+              <span className="rep-hud-climb" role="status">
+                Climbing to ♩{snap.target_bpm} — then {requiredStreak ?? "—"}{" "}
+                clean in a row
+              </span>
+            )
           )}
           {(mastered || !verified) && (
             <span

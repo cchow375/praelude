@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -519,6 +520,193 @@ describe("RepHud", () => {
     const feed = screen.getByLabelText("Recent attempt verdicts");
     expect(within(feed).queryByText("0")).toBeNull();
     expect(screen.getByText("memory")).toBeTruthy();
+  });
+
+  describe("rung-completion celebration (display only)", () => {
+    afterEach(() => vi.useRealTimers());
+
+    // A tempo set climbing 44 -> target 52, rung = 3 clean, +4 BPM per rung.
+    function climbSnap(over: Partial<RepSnapshot> = {}): RepSnapshot {
+      return makeSnap({
+        bpm: 44,
+        start_bpm: 40,
+        target_bpm: 52,
+        rule: { clean_needed: 3, bpm_step: 4 },
+        current_clean_streak: 2,
+        mastery_progress_streak: 0,
+        mastery_status: "not_satisfied",
+        last: { verdict: "flawed", note: null, bpm: 44 },
+        last_attempt_id: 100,
+        ...over,
+      });
+    }
+
+    const headline = (c: HTMLElement | Element) =>
+      c.querySelector(".rep-hud-streak-value strong")?.textContent;
+
+    it("holds the FILLED rung receipt before the new rung, and never jumps downward on a clean", () => {
+      vi.useFakeTimers();
+      const { container, rerender } = render(
+        <RepHud snap={climbSnap()} feed={[]} error={null} {...callbacks()} />,
+      );
+      // Climbing: the big number is the moving rung streak — 2 of 3 at ♩44.
+      expect(headline(container)).toBe("2");
+
+      // The clean that COMPLETES the rung: the engine steps 44 -> 48 and resets
+      // the rung streak to 0 in the SAME snapshot Christian sees.
+      act(() => {
+        rerender(
+          <RepHud
+            snap={climbSnap({
+              bpm: 48,
+              current_clean_streak: 0,
+              last: { verdict: "clean", note: null, bpm: 48 },
+              last_attempt_id: 101,
+            })}
+            feed={[]}
+            error={null}
+            {...callbacks()}
+          />,
+        );
+      });
+
+      // (a) + (b): the immediate rendered consequence of the clean is the FILLED
+      // rung 3/3 with a step receipt — the headline moved UP (2 -> 3), never the
+      // downward 2 -> 0 drop the raw snapshot would show.
+      expect(headline(container)).toBe("3");
+      expect(headline(container)).not.toBe("0");
+      expect(container.textContent).toContain("✓ → ♩48");
+      expect(
+        screen.getByLabelText("Rung 3 of 3 clean at ♩44 — stepping to ♩48"),
+      ).toBeTruthy();
+
+      // After the ~1.2s hold, the live new rung takes over: 0/3 at the new ♩48.
+      act(() => vi.advanceTimersByTime(1200));
+      expect(headline(container)).toBe("0");
+      expect(container.querySelector(".rep-hud-tempo")?.textContent).toContain(
+        "48",
+      );
+      expect(container.textContent).not.toContain("✓ → ♩");
+    });
+
+    it("releases the filled-rung hold early when the next verdict arrives", () => {
+      vi.useFakeTimers();
+      const { container, rerender } = render(
+        <RepHud snap={climbSnap()} feed={[]} error={null} {...callbacks()} />,
+      );
+      act(() => {
+        rerender(
+          <RepHud
+            snap={climbSnap({
+              bpm: 48,
+              current_clean_streak: 0,
+              last: { verdict: "clean", note: null, bpm: 48 },
+              last_attempt_id: 101,
+            })}
+            feed={[]}
+            error={null}
+            {...callbacks()}
+          />,
+        );
+      });
+      expect(headline(container)).toBe("3");
+
+      // A clean at the NEW rung lands before the hold elapses — the receipt gives
+      // way immediately to the live rung streak (now 1), no stale 3/3 lingering.
+      act(() => {
+        rerender(
+          <RepHud
+            snap={climbSnap({
+              bpm: 48,
+              current_clean_streak: 1,
+              last: { verdict: "clean", note: null, bpm: 48 },
+              last_attempt_id: 102,
+            })}
+            feed={[]}
+            error={null}
+            {...callbacks()}
+          />,
+        );
+      });
+      expect(headline(container)).toBe("1");
+      expect(container.textContent).not.toContain("✓ → ♩");
+    });
+  });
+
+  describe("streak-reset pulse (display only)", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("does NOT announce a reset when the broken streak was already zero", () => {
+      vi.useFakeTimers();
+      const { rerender } = render(
+        <RepHud
+          snap={makeSnap({
+            current_clean_streak: 0,
+            reset_count: 2,
+            last: { verdict: "flawed", note: null, bpm: 72 },
+            last_attempt_id: 200,
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+        />,
+      );
+      // A resetting verdict against an already-zero streak: reset_count ticks up
+      // but nothing was lost, so the pulse must stay silent.
+      act(() => {
+        rerender(
+          <RepHud
+            snap={makeSnap({
+              current_clean_streak: 0,
+              reset_count: 3,
+              last: { verdict: "failed", note: null, bpm: 72 },
+              last_attempt_id: 201,
+            })}
+            feed={[]}
+            error={null}
+            {...callbacks()}
+          />,
+        );
+      });
+      act(() => vi.advanceTimersByTime(40));
+      expect(screen.queryByText(/Streak reset\./)).toBeNull();
+      const hud = screen.getByRole("region", { name: "Active practice set" });
+      expect(hud.classList.contains("is-reset-pulse")).toBe(false);
+    });
+
+    it("still announces a reset when a real streak was broken (control)", () => {
+      vi.useFakeTimers();
+      const { rerender } = render(
+        <RepHud
+          snap={makeSnap({
+            current_clean_streak: 2,
+            reset_count: 2,
+            last: { verdict: "clean", note: null, bpm: 72 },
+            last_attempt_id: 200,
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+        />,
+      );
+      act(() => {
+        rerender(
+          <RepHud
+            snap={makeSnap({
+              current_clean_streak: 0,
+              reset_count: 3,
+              last: { verdict: "failed", note: null, bpm: 72 },
+              last_attempt_id: 201,
+            })}
+            feed={[]}
+            error={null}
+            {...callbacks()}
+          />,
+        );
+      });
+      act(() => vi.advanceTimersByTime(40));
+      expect(screen.getByText(/Streak reset\./)).toBeTruthy();
+    });
   });
 
   it("does not render a null active tempo as copy", () => {
