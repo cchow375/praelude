@@ -8,6 +8,7 @@
 mod backfill;
 pub(crate) mod calendar;
 mod crud;
+mod day_sheet;
 mod events;
 mod history_backfill;
 mod migrations;
@@ -19,6 +20,7 @@ mod session_plan;
 mod tutorials;
 mod v8_backfill;
 
+pub use day_sheet::{DaySheet, PiecePlan};
 pub use events::EventKind;
 pub(crate) use practice_v2::{command_id as v2_command_id, validate_open as v2_validate_open};
 pub use score_atlas::{AtomicTargetSavePayload, CalibrationView};
@@ -1425,6 +1427,27 @@ mod tests {
             assert!(
                 rows.next().unwrap().is_none(),
                 "migration must leave no FK violations"
+            );
+        }
+        // The additive v11 Practice Notebook tables exist after rehearsal, and
+        // the migration invents no rows in them.
+        for table in ["day_sheet", "piece_plan"] {
+            assert_eq!(
+                conn.query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+                1,
+                "migration rehearsal must create the v11 table {table}"
+            );
+            assert_eq!(
+                conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0,
+                "v11 migration must not invent {table} rows"
             );
         }
         drop(conn);
