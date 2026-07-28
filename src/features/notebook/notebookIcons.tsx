@@ -1,0 +1,125 @@
+import type { ReactNode, SVGProps } from "react";
+
+/** Every glyph accepts the standard SVG props plus a pixel `size` (default 16). */
+type IconProps = SVGProps<SVGSVGElement> & { size?: number };
+
+/**
+ * The day sheet's icon set: inline monochrome SVG, one consistent 1.5px stroke,
+ * `currentColor` so each glyph inherits its row's ink (design law: no emoji, no
+ * icon-font dependency). Every glyph is decorative — its control carries a text
+ * label or aria-label — so the glyphs are aria-hidden.
+ */
+function Glyph({
+  children,
+  size = 16,
+  ...props
+}: { children: ReactNode; size?: number } & SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+      {...props}
+    >
+      {children}
+    </svg>
+  );
+}
+
+/** An empty plan-item checkbox. */
+export function BoxIcon(props: IconProps) {
+  return (
+    <Glyph {...props}>
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+    </Glyph>
+  );
+}
+
+/** A checked plan-item checkbox. */
+export function BoxCheckedIcon(props: IconProps) {
+  return (
+    <Glyph {...props}>
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+      <path d="M8 12.5l2.5 2.5L16 9" />
+    </Glyph>
+  );
+}
+
+/** A piece heading: a single note. */
+export function PieceIcon(props: IconProps) {
+  return (
+    <Glyph {...props}>
+      <path d="M9 18V6l9-2v12" />
+      <circle cx="6.5" cy="18" r="2.5" />
+      <circle cx="15.5" cy="16" r="2.5" />
+    </Glyph>
+  );
+}
+
+/** A timed block: a clock. */
+export function ClockIcon(props: IconProps) {
+  return (
+    <Glyph {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </Glyph>
+  );
+}
+
+/** Goal promotion: a flag. */
+export function FlagIcon(props: IconProps) {
+  return (
+    <Glyph {...props}>
+      <path d="M6 21V4" />
+      <path d="M6 4.5h11l-2 3.5 2 3.5H6" />
+    </Glyph>
+  );
+}
+
+/** A quiet add affordance. */
+export function PlusIcon(props: IconProps) {
+  return (
+    <Glyph {...props}>
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </Glyph>
+  );
+}
+
+/** A fold's disclosure chevron (points right when closed; CSS rotates it open). */
+export function ChevronIcon(props: IconProps) {
+  return (
+    <Glyph {...props}>
+      <path d="M9 6l6 6-6 6" />
+    </Glyph>
+  );
+}
+
+/** A quiet remove/unlink affordance. */
+export function CloseIcon(props: IconProps) {
+  return (
+    <Glyph {...props}>
+      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1="18" y1="6" x2="6" y2="18" />
+    </Glyph>
+  );
+}
+
+/** Lesson notes: a folded-corner page. */
+export function NotesIcon(props: IconProps) {
+  return (
+    <Glyph {...props}>
+      <path d="M6 3h8l4 4v14H6z" />
+      <path d="M14 3v4h4" />
+      <line x1="9" y1="12" x2="15" y2="12" />
+      <line x1="9" y1="16" x2="13" y2="16" />
+    </Glyph>
+  );
+}

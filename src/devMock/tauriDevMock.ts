@@ -399,6 +399,69 @@ const GOALS: Record<number, Goal[]> = {
   ],
 };
 
+// Goals promoted from the day sheet at runtime (spec 13). Kept apart from the
+// read-only seeded GOALS so `goal_create`/`goal_update` round-trip and reload
+// without mutating the samples other suites read; cleared on each install.
+const CREATED_GOALS = new Map<number, Goal>();
+let mockGoalSeq = 900;
+
+function findSeededGoal(id: number): Goal | undefined {
+  for (const list of Object.values(GOALS)) {
+    const found = list.find((goal) => goal.id === id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function goalListFor(pieceId: number): Goal[] {
+  const seeded = GOALS[pieceId] ?? [];
+  const created = [...CREATED_GOALS.values()].filter(
+    (goal) => goal.piece_id === pieceId,
+  );
+  return [...seeded, ...created];
+}
+
+function goalCreate(args: unknown): Goal {
+  const outer = argsRecord(args);
+  const spec = (outer.args ?? {}) as Record<string, unknown>;
+  const pieceId = Number(spec.piece_id);
+  const goal: Goal = {
+    id: (mockGoalSeq += 1),
+    piece_id: Number.isInteger(pieceId) && pieceId >= 1 ? pieceId : 1,
+    text: String(spec.text ?? ""),
+    kind: spec.kind === "sub" ? "sub" : "big",
+    parent_goal_id:
+      spec.parent_goal_id == null ? null : Number(spec.parent_goal_id),
+    done: false,
+    order: 0,
+    target_date: spec.target_date == null ? null : String(spec.target_date),
+    created_ts: new Date().toISOString(),
+  };
+  CREATED_GOALS.set(goal.id, goal);
+  return goal;
+}
+
+function goalUpdate(args: unknown): Goal {
+  const record = argsRecord(args);
+  const id = Number(record.id);
+  const patch = (record.patch ?? {}) as Record<string, unknown>;
+  const existing = CREATED_GOALS.get(id) ?? findSeededGoal(id);
+  if (!existing) throw "goal_update: unknown goal";
+  const updated: Goal = { ...existing };
+  if ("text" in patch) updated.text = String(patch.text ?? "");
+  if ("done" in patch) updated.done = Boolean(patch.done);
+  if ("target_date" in patch) {
+    updated.target_date =
+      patch.target_date == null ? null : String(patch.target_date);
+  }
+  if ("parent_goal_id" in patch) {
+    updated.parent_goal_id =
+      patch.parent_goal_id == null ? null : Number(patch.parent_goal_id);
+  }
+  CREATED_GOALS.set(id, updated);
+  return updated;
+}
+
 function dailyWork(): DailyWork[] {
   const base = {
     origin_date: TODAY,
@@ -1300,7 +1363,11 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "progress_summary":
       return PROGRESS[pieceIdOf(args)] ?? null;
     case "goal_list":
-      return GOALS[pieceIdOf(args)] ?? [];
+      return goalListFor(pieceIdOf(args));
+    case "goal_create":
+      return goalCreate(args);
+    case "goal_update":
+      return goalUpdate(args);
     case "anomalies_list":
       return anomalies();
 
@@ -1344,6 +1411,9 @@ export function installTauriDevMock(): void {
   // bleed state into one another.
   DAY_SHEETS.clear();
   PIECE_PLANS.clear();
+  // Reset runtime-created goals so promotion tests start from the seeded set.
+  CREATED_GOALS.clear();
+  mockGoalSeq = 900;
 
   let callbackId = 0;
   let subscriptionId = 0;
