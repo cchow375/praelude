@@ -99,6 +99,53 @@ const PIECES: PieceSummary[] = [
   },
 ];
 
+// Canned IMSLP add-a-score data for the dev harness (no network). The search
+// snippet carries a highlight `<span>` on purpose so the panel's plain-text
+// stripping is exercised; the publisher field carries raw `{{…}}` wikitext.
+const IMSLP_HITS = [
+  {
+    title: "Nocturnes, Op.9 (Chopin, Frédéric)",
+    page_id: 6789,
+    snippet: 'Complete <span class="searchmatch">Nocturnes</span> score',
+    size: 42942,
+    word_count: 3000,
+    is_redirect: false,
+  },
+  {
+    title: "Nocturne in E minor, Op.72 No.1 (Chopin, Frédéric)",
+    page_id: 12345,
+    snippet: "Posthumous nocturne",
+    size: 9637,
+    word_count: 1175,
+    is_redirect: false,
+  },
+];
+
+const IMSLP_EDITIONS = [
+  {
+    file_name: "PMLP02312-Chopin_Nocturnes_Op_9_Kistner.pdf",
+    description: "Complete Score",
+    editor: "{{FE}} (German)",
+    publisher: "{{P|Kistner|Fr. Kistner|Leipzig|{{HMB|1833|7}}|1832||995}}",
+    copyright: "Public Domain",
+    image_type: "Normal Scan",
+  },
+];
+
+const IMSLP_FILE_INFO = {
+  url: "https://imslp.org/images/9/91/PMLP02312-Chopin_Nocturnes_Op_9_Kistner.pdf",
+  size: 1964066,
+  mime: "application/pdf",
+};
+
+const MOCK_DOWNLOADS = [
+  {
+    name: "PMLP02312-Chopin_Nocturnes_Op_9_Kistner.pdf",
+    path: "/Users/you/Downloads/PMLP02312-Chopin_Nocturnes_Op_9_Kistner.pdf",
+    modified_ms: Date.now(),
+  },
+];
+
 const PIECE_DETAILS: Record<number, PieceDetailData> = {
   1: {
     id: 1,
@@ -951,6 +998,140 @@ let mockAttemptSeq = MOCK_REP_STATE.last_attempt_id ?? 4402;
 let mockAttempts = MOCK_REP_STATE.attempts_recorded ?? 4;
 let mockCleanStreak = MOCK_REP_STATE.current_clean_streak ?? 3;
 
+// Books panel (D3): the four built-ins the native manifest bootstraps, plus any
+// books added this session. In-memory only — a reload restores the built-ins,
+// which mirrors the native "bootstrap from built-ins on first read" behaviour.
+interface MockBook {
+  id: string;
+  file_name: string;
+  title: string;
+  author: string;
+  kind: "practice-method" | "composer-life" | "interpretation";
+  visual_dependency: boolean;
+  available: boolean;
+}
+let mockBooks: MockBook[] = [
+  {
+    id: "roskell-complete-pianist",
+    file_name: "the-complete-pianist.md",
+    title: "The Complete Pianist",
+    author: "Penelope Roskell",
+    kind: "practice-method",
+    visual_dependency: true,
+    available: true,
+  },
+  {
+    id: "gebrian-learn-faster",
+    file_name: "learn-faster-perform-better.md",
+    title: "Learn Faster, Perform Better",
+    author: "Molly Gebrian",
+    kind: "practice-method",
+    visual_dependency: false,
+    available: true,
+  },
+  {
+    id: "breth-effective-practicing",
+    file_name: "the-piano-students-guide-to-effective-practicing.md",
+    title: "The Piano Student's Guide to Effective Practicing",
+    author: "Nancy O'Neill Breth",
+    kind: "practice-method",
+    visual_dependency: true,
+    available: true,
+  },
+  {
+    id: "gieseking-leimer-technique",
+    file_name: "gieseking-leimer-piano-technique.md",
+    title: "Piano Technique",
+    author: "Walter Gieseking and Karl Leimer",
+    kind: "interpretation",
+    visual_dependency: true,
+    available: true,
+  },
+];
+
+/** Add a book to the in-memory manifest, echoing the native validation. */
+function mockBookAdd(args: unknown): MockBook {
+  const record = (args ?? {}) as Record<string, unknown>;
+  const path = String(record.path ?? "").trim();
+  const title = String(record.title ?? "").trim();
+  const author = String(record.author ?? "").trim();
+  const kind = record.kind as MockBook["kind"];
+  if (!title) throw "A book needs a title.";
+  if (!path.toLowerCase().endsWith(".md")) {
+    throw "Only Markdown (.md) files can be added to the library.";
+  }
+  const fileName = path.split("/").pop() || `${title}.md`;
+  const book: MockBook = {
+    id: `added-${Date.now()}`,
+    file_name: fileName,
+    title,
+    author,
+    kind: kind ?? "practice-method",
+    visual_dependency: false,
+    available: true,
+  };
+  mockBooks = [...mockBooks, book];
+  return book;
+}
+
+/**
+ * Canned `book_excerpt` response (D2 reader). For any sourceId this returns a
+ * multi-paragraph section with a heading, weaving the requested `contains` quote
+ * into a middle paragraph so the reader can anchor it. The heading-less OCR book
+ * (`gieseking-leimer-technique`) instead returns a HUGE whole-book body with
+ * heading:"" so the reader's client-side windowing (±paragraphs + Show more) is
+ * exercisable in the dev harness with no vault present.
+ */
+function mockBookExcerpt(args: unknown): {
+  source_id: string;
+  title: string;
+  author: string;
+  heading: string;
+  text: string;
+} {
+  const record = (args ?? {}) as Record<string, unknown>;
+  const sourceId = String(record.sourceId ?? record.source_id ?? "mock-book");
+  const contains =
+    typeof record.contains === "string" && record.contains.trim() !== ""
+      ? record.contains.trim()
+      : "Slow practice is fast learning.";
+  const book = mockBooks.find((b) => b.id === sourceId);
+  const author = book?.author ?? "A Piano Pedagogue";
+  const title = book?.title ?? "A Practice Method";
+
+  if (sourceId === "gieseking-leimer-technique") {
+    // No headings in the OCR source → whole-book body, heading "". Padded well
+    // past the reader's window threshold so windowing must engage.
+    const filler = Array.from(
+      { length: 40 },
+      (_, i) =>
+        `Paragraph ${i + 1}. Visualize the passage away from the keyboard, ` +
+        "hearing each voice before the hands move; the ear leads and the " +
+        "fingers merely obey what the mind has already made concrete.",
+    );
+    const body = [...filler.slice(0, 20), contains, ...filler.slice(20)].join(
+      "\n\n",
+    );
+    return { source_id: sourceId, title, author, heading: "", text: body };
+  }
+
+  const text = [
+    "Practising is not the same as playing through. A rehearsal that only " +
+      "repeats what you can already do is a comfortable way to avoid the work.",
+    `${contains} The point is deliberate attention on the one thing that is ` +
+      "not yet secure, at a speed slow enough that no error is rehearsed.",
+    "When the passage is reliable three times in a row, and only then, let " +
+      "the tempo rise by a small, honest increment.",
+  ].join("\n\n");
+  return {
+    source_id: sourceId,
+    title,
+    author,
+    heading: "Practising: healthy, effective and inspired",
+    text,
+  };
+}
+
 /**
  * A committed CheckOutcome consistent with the `rep_state` mock (block 102).
  * This is a MOCK, not a simulation: it advances the attempt ledger just enough
@@ -1298,6 +1479,27 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return apiKeyStatus(args, true);
     case "api_key_clear":
       return apiKeyStatus(args, false);
+
+    // Books panel (D3): data-driven corpus registry.
+    case "books_list":
+      return mockBooks;
+    case "book_add":
+      // Native validation failures arrive as rejected promises; mirror that so
+      // the seam never throws synchronously out of `invoke`.
+      try {
+        return mockBookAdd(args);
+      } catch (reason) {
+        return Promise.reject(reason);
+      }
+    case "book_remove": {
+      const id = String(((args ?? {}) as { id?: unknown }).id ?? "");
+      mockBooks = mockBooks.filter((book) => book.id !== id);
+      return null;
+    }
+    // Excerpt reader (D2): canned section for any book; the OCR book returns a
+    // huge heading-less body to exercise client-side windowing.
+    case "book_excerpt":
+      return mockBookExcerpt(args);
     case "rep_state":
       return MOCK_REP_STATE;
     // Clean/Sloppy/Again in the HUD: return a committed CheckOutcome so the
@@ -1315,6 +1517,29 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "pieces_list":
     case "pieces_scan":
       return PIECES;
+
+    // Add-a-score (IMSLP) flow. Canned data so the panel is fully browsable in
+    // the dev harness without any network.
+    case "imslp_search": {
+      const q = String(
+        ((args ?? {}) as { query?: unknown }).query ?? "",
+      ).trim();
+      return q ? IMSLP_HITS : [];
+    }
+    case "imslp_editions":
+      return IMSLP_EDITIONS;
+    case "imslp_open_download":
+      return IMSLP_FILE_INFO;
+    case "piece_import_pdf":
+      return "/vault/Pieces/Chopin - Nocturne";
+    case "piece_archive":
+      return PIECES.filter((p) => p.id !== pieceIdOf(args));
+    case "piece_open_source_url":
+      return null;
+    case "downloads_list":
+      return MOCK_DOWNLOADS;
+    case "pick_import_file":
+      return null;
     case "piece_get":
       return PIECE_DETAILS[pieceIdOf(args)] ?? null;
     case "region_list":

@@ -19,6 +19,7 @@ import { ScoreView } from "../score/ScoreView";
 import { ReferenceButtons } from "../references/ReferenceButtons";
 import { TrickySectionsPanel } from "./RegionEditor";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
+import { ConfirmArchive } from "./ConfirmArchive";
 import { Disclosure } from "../../ui/Disclosure";
 import type { PracticeBrainContext } from "../brain/types";
 import type { ScoreFocusContext } from "../score/types";
@@ -39,6 +40,8 @@ interface PieceDetailProps {
   defaultCleanStreak?: number;
   /** Notifies the parent list when the piece record changes (badges/summary). */
   onUpdated?: (piece: PieceDetailData) => void;
+  /** Notifies the parent that this piece was archived (removed from the vault). */
+  onRemoved?: (pieceId: number) => void;
   onPracticeContextChange?: (context: PracticeBrainContext | null) => void;
 }
 
@@ -55,6 +58,7 @@ export function PieceDetail({
   activeRep = null,
   defaultCleanStreak = 5,
   onUpdated,
+  onRemoved,
   onPracticeContextChange,
 }: PieceDetailProps) {
   const crud = useCrud();
@@ -83,7 +87,16 @@ export function PieceDetail({
     event: KeyboardEvent<HTMLButtonElement>,
     current: "score" | "practice",
   ) => {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key))
+    if (
+      ![
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "Home",
+        "End",
+      ].includes(event.key)
+    )
       return;
     event.preventDefault();
     const next =
@@ -241,6 +254,31 @@ export function PieceDetail({
             </button>
           </div>
         )}
+        <ConfirmArchive
+          expected={piece.title}
+          onConfirm={async () => {
+            const folderName =
+              piece.folder_path.split("/").filter(Boolean).pop() ?? "";
+            try {
+              await invoke("piece_archive", {
+                folderName,
+                typedName: piece.title,
+              });
+              onRemoved?.(piece.id);
+              onBack();
+            } catch (e) {
+              setError(messageOf(e));
+            }
+          }}
+        >
+          <button
+            type="button"
+            className="piece-remove"
+            aria-label="Remove this piece"
+          >
+            Remove
+          </button>
+        </ConfirmArchive>
       </div>
 
       {error && (
@@ -262,61 +300,63 @@ export function PieceDetail({
             : undefined
         }
       >
-      {!piece.intake_done ? (
-        <IntakeForm piece={piece} onSave={saveIntake} saving={saving} />
-      ) : surface === "score" && piece.has_pdf ? (
-        <ScoreView
-          pieceId={piece.id}
-          activeRange={
-            activeRep
-              ? { m_start: activeRep.m_start, m_end: activeRep.m_end }
-              : null
-          }
-          defaultTargetBpm={piece.target_tempo}
-          defaultCleanStreak={defaultCleanStreak}
-          onOpenBlock={openBlock}
-          opening={opening}
-          onRegionsChanged={() => setRegionRevision((revision) => revision + 1)}
-          onContextChange={onScoreContextChange}
-        />
-      ) : (
-        <>
-          <PieceSummary piece={piece} onUpdate={updatePieceField} />
-          <BlockForm
+        {!piece.intake_done ? (
+          <IntakeForm piece={piece} onSave={saveIntake} saving={saving} />
+        ) : surface === "score" && piece.has_pdf ? (
+          <ScoreView
             pieceId={piece.id}
-            defaultTargetBpm={piece.target_tempo}
-            defaultCleanStreak={defaultCleanStreak}
-            onOpen={openBlock}
-            opening={opening}
-            blockedReason={
+            activeRange={
               activeRep
-                ? "Close the active practice set before starting another."
+                ? { m_start: activeRep.m_start, m_end: activeRep.m_end }
                 : null
             }
+            defaultTargetBpm={piece.target_tempo}
+            defaultCleanStreak={defaultCleanStreak}
+            onOpenBlock={openBlock}
+            opening={opening}
+            onRegionsChanged={() =>
+              setRegionRevision((revision) => revision + 1)
+            }
+            onContextChange={onScoreContextChange}
           />
-          {/* Secondary sections behind the density primitive so the Details
+        ) : (
+          <>
+            <PieceSummary piece={piece} onUpdate={updatePieceField} />
+            <BlockForm
+              pieceId={piece.id}
+              defaultTargetBpm={piece.target_tempo}
+              defaultCleanStreak={defaultCleanStreak}
+              onOpen={openBlock}
+              opening={opening}
+              blockedReason={
+                activeRep
+                  ? "Close the active practice set before starting another."
+                  : null
+              }
+            />
+            {/* Secondary sections behind the density primitive so the Details
               surface never reads as a wall of stacked panels. */}
-          <Disclosure summary="Goals">
-            <GoalsPanel pieceId={piece.id} />
-          </Disclosure>
-          <Disclosure summary="Tricky sections">
-            <TrickySectionsPanel
-              pieceId={piece.id}
-              refreshToken={regionRevision}
-              onChanged={() => setRegionRevision((revision) => revision + 1)}
-            />
-          </Disclosure>
-          <Disclosure summary="History">
-            <HistoryPanel
-              pieceId={piece.id}
-              refreshToken={historyRevision + regionRevision}
-            />
-          </Disclosure>
-          <Disclosure summary="References">
-            <ReferenceButtons pieceId={piece.id} />
-          </Disclosure>
-        </>
-      )}
+            <Disclosure summary="Goals">
+              <GoalsPanel pieceId={piece.id} />
+            </Disclosure>
+            <Disclosure summary="Tricky sections">
+              <TrickySectionsPanel
+                pieceId={piece.id}
+                refreshToken={regionRevision}
+                onChanged={() => setRegionRevision((revision) => revision + 1)}
+              />
+            </Disclosure>
+            <Disclosure summary="History">
+              <HistoryPanel
+                pieceId={piece.id}
+                refreshToken={historyRevision + regionRevision}
+              />
+            </Disclosure>
+            <Disclosure summary="References">
+              <ReferenceButtons pieceId={piece.id} />
+            </Disclosure>
+          </>
+        )}
       </div>
     </section>
   );

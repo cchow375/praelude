@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
@@ -25,6 +25,10 @@ const MAX_MEASURES: u32 = 24;
 const MAX_NOTE_TOKENS_PER_MEASURE: usize = 16;
 const MAX_FACT_VALUES_PER_FIELD: usize = 16;
 const MAX_DIRECTION_CHARS: usize = 180;
+/// The mapping wizard's measure strip only needs one tiny landmark record per
+/// measure, so a whole score fits well within this defensive cap. Beyond it we
+/// return an honest error rather than a truncated, misleading map.
+const MAX_LANDMARK_MEASURES: usize = 10_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -87,6 +91,143 @@ impl ScoreContext {
     }
 }
 
+/// One compact MusicXML landmark for the mapping wizard's measure strip. Every
+/// field beyond the measure number is optional and omitted from JSON when the
+/// score does not notate it — the wizard shows only the landmarks that exist.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct XmlMeasureFact {
+    pub number: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tempo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rehearsal: Option<String>,
+    // MusicXML has no standard "section" element; reserved so the wizard
+    // contract is stable if a future editor convention becomes derivable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+}
+
+/// The whole-score landmark map returned by `score_xml_measure_facts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct XmlMeasureFacts {
+    pub measures: Vec<XmlMeasureFact>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_measure: Option<u32>,
+    pub has_pickup: bool,
+}
+
+/// Resolve the piece's on-disk MusicXML file with exactly the same honest
+/// validation `summarize` applies (extension, folder containment, symlink and
+/// size limits, real MusicXML root). Returns the canonical path ready to open,
+/// or a `(status, message)` pair so callers can surface the honest reason.
+fn resolve_score_file(piece: &PieceDetail) -> Result<PathBuf, (ScoreContextStatus, &'static str)> {
+    use ScoreContextStatus::{Missing, Unavailable, Unsupported};
+
+    let raw_path = piece.xml_path.as_deref().ok_or((
+        Missing,
+        "This piece has no MusicXML file; advice is grounded in the practice record and library only",
+    ))?;
+    let path = Path::new(raw_path);
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if extension.eq_ignore_ascii_case("mxl") {
+        return Err((
+            Unsupported,
+            "Compressed .mxl score analysis is not supported yet",
+        ));
+    }
+    if !extension.eq_ignore_ascii_case("musicxml") && !extension.eq_ignore_ascii_case("xml") {
+        return Err((
+            Unsupported,
+            "The selected score is not a supported .musicxml file",
+        ));
+    }
+    let root = match Path::new(&piece.folder_path).canonicalize() {
+        Ok(root) if root.is_dir() => root,
+        _ => return Err((Unavailable, "The piece folder is unavailable")),
+    };
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
+        _ => {
+            return Err((
+                Unavailable,
+                "The MusicXML file is missing, unreadable, or a symbolic link",
+            ))
+        }
+    };
+    if metadata.len() == 0 || metadata.len() > MAX_XML_BYTES {
+        return Err((
+            Unavailable,
+            "The MusicXML file is empty or exceeds the 16 MB analysis limit",
+        ));
+    }
+    let canonical = match path.canonicalize() {
+        Ok(canonical) if canonical.starts_with(&root) => canonical,
+        _ => return Err((Unavailable, "The MusicXML file is outside its piece folder")),
+    };
+    if !has_musicxml_root(&canonical) {
+        return Err((
+            Unsupported,
+            "The selected XML file is not a MusicXML score-partwise or score-timewise document",
+        ));
+    }
+    Ok(canonical)
+}
+
+/// Whole-score measure landmarks for the mapping wizard's measure strip
+/// (ledger #31). Reuses the exact same score resolution and parser as
+/// `summarize`, then keeps only one compact record per measure. Read-only; it
+/// never mutates practice state and leaves `brain_ask`'s behavior untouched.
+pub(crate) fn xml_measure_facts(piece: &PieceDetail) -> Result<XmlMeasureFacts, String> {
+    let canonical = resolve_score_file(piece).map_err(|(_, message)| message.to_string())?;
+    let file =
+        File::open(&canonical).map_err(|_| "The MusicXML file could not be opened".to_string())?;
+    // Start at measure 0 so a numbered pickup (anacrusis) is captured.
+    let measures = parse_measures(BufReader::new(file), 0, u32::MAX, MAX_XML_EVENTS)
+        .map_err(|_| "The MusicXML file could not be parsed safely".to_string())?;
+    if measures.len() > MAX_LANDMARK_MEASURES {
+        return Err(format!(
+            "This score has more than {MAX_LANDMARK_MEASURES} measures; the measure map is too large to display"
+        ));
+    }
+    let max_measure = measures.keys().copied().max();
+    // A pickup shows up either as an explicit measure 0 or as the lowest
+    // measure carrying MusicXML's `implicit="yes"` attribute.
+    let has_pickup = measures.contains_key(&0)
+        || measures
+            .values()
+            .next()
+            .map(|measure| measure.implicit)
+            .unwrap_or(false);
+    let facts = measures
+        .into_values()
+        .map(|measure| XmlMeasureFact {
+            number: measure.number,
+            key: measure.key_signatures.iter().next().map(|key| {
+                // Stored as "<part>: <n> fifths"; the strip wants just "<n> fifths".
+                key.split_once(": ")
+                    .map(|(_, value)| value.to_string())
+                    .unwrap_or_else(|| key.clone())
+            }),
+            time: measure.time_signatures.into_iter().next(),
+            tempo: measure.tempos.into_iter().next(),
+            rehearsal: measure.rehearsals.into_iter().next(),
+            section: None,
+        })
+        .collect();
+    Ok(XmlMeasureFacts {
+        measures: facts,
+        max_measure,
+        has_pickup,
+    })
+}
+
 /// Parse the score path already owned by the canonical piece row. A caller can
 /// request no range, in which case no filesystem access occurs.
 pub fn summarize(piece: &PieceDetail, range: Option<(u32, u32)>) -> ScoreContext {
@@ -100,78 +241,11 @@ pub fn summarize(piece: &PieceDetail, range: Option<(u32, u32)>) -> ScoreContext
             format!("MusicXML context supports at most {MAX_MEASURES} measures per question"),
         );
     }
-    let Some(raw_path) = piece.xml_path.as_deref() else {
-        return ScoreContext::status(
-            ScoreContextStatus::Missing,
-            Some((start, end)),
-            "This piece has no MusicXML file; advice is grounded in the practice record and library only",
-        );
+    let canonical = match resolve_score_file(piece) {
+        Ok(canonical) => canonical,
+        Err((status, message)) => return ScoreContext::status(status, Some((start, end)), message),
     };
-    let path = Path::new(raw_path);
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    if extension.eq_ignore_ascii_case("mxl") {
-        return ScoreContext::status(
-            ScoreContextStatus::Unsupported,
-            Some((start, end)),
-            "Compressed .mxl score analysis is not supported yet",
-        );
-    }
-    if !extension.eq_ignore_ascii_case("musicxml") && !extension.eq_ignore_ascii_case("xml") {
-        return ScoreContext::status(
-            ScoreContextStatus::Unsupported,
-            Some((start, end)),
-            "The selected score is not a supported .musicxml file",
-        );
-    }
-
-    let root = match Path::new(&piece.folder_path).canonicalize() {
-        Ok(root) if root.is_dir() => root,
-        _ => {
-            return ScoreContext::status(
-                ScoreContextStatus::Unavailable,
-                Some((start, end)),
-                "The piece folder is unavailable",
-            )
-        }
-    };
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
-        _ => {
-            return ScoreContext::status(
-                ScoreContextStatus::Unavailable,
-                Some((start, end)),
-                "The MusicXML file is missing, unreadable, or a symbolic link",
-            )
-        }
-    };
-    if metadata.len() == 0 || metadata.len() > MAX_XML_BYTES {
-        return ScoreContext::status(
-            ScoreContextStatus::Unavailable,
-            Some((start, end)),
-            "The MusicXML file is empty or exceeds the 16 MB analysis limit",
-        );
-    }
-    let canonical = match path.canonicalize() {
-        Ok(canonical) if canonical.starts_with(&root) => canonical,
-        _ => {
-            return ScoreContext::status(
-                ScoreContextStatus::Unavailable,
-                Some((start, end)),
-                "The MusicXML file is outside its piece folder",
-            )
-        }
-    };
-    if !has_musicxml_root(&canonical) {
-        return ScoreContext::status(
-            ScoreContextStatus::Unsupported,
-            Some((start, end)),
-            "The selected XML file is not a MusicXML score-partwise or score-timewise document",
-        );
-    }
-    let file = match File::open(canonical) {
+    let file = match File::open(&canonical) {
         Ok(file) => file,
         Err(_) => {
             return ScoreContext::status(
@@ -254,6 +328,10 @@ struct MeasureAccumulator {
     chord_tones: u32,
     pitches_and_rhythms: Vec<String>,
     ties: BTreeSet<String>,
+    // Landmark-only fields consumed by `xml_measure_facts`. `finish` ignores
+    // them, so the brain's `ScoreMeasureFact` shape is byte-for-byte unchanged.
+    rehearsals: BTreeSet<String>,
+    implicit: bool,
 }
 
 impl MeasureAccumulator {
@@ -297,6 +375,20 @@ fn parse(
     end_measure: u32,
     max_events: usize,
 ) -> Result<Vec<ScoreMeasureFact>, ()> {
+    Ok(
+        parse_measures(source, start_measure, end_measure, max_events)?
+            .into_values()
+            .map(MeasureAccumulator::finish)
+            .collect(),
+    )
+}
+
+fn parse_measures(
+    source: impl std::io::BufRead,
+    start_measure: u32,
+    end_measure: u32,
+    max_events: usize,
+) -> Result<BTreeMap<u32, MeasureAccumulator>, ()> {
     let mut reader = Reader::from_reader(source);
     reader.config_mut().trim_text(true);
     reader.config_mut().check_end_names = true;
@@ -346,6 +438,11 @@ fn parse(
                                     number,
                                     ..Default::default()
                                 });
+                        if attribute(&event, b"implicit", reader.decoder())
+                            .is_some_and(|value| value.eq_ignore_ascii_case("yes"))
+                        {
+                            measure.implicit = true;
+                        }
                         if let Some(state) = part_states.get(&part_id) {
                             if let Some(key) = &state.key {
                                 insert_bounded(&mut measure.key_signatures, key.clone());
@@ -453,10 +550,7 @@ fn parse(
         }
         buffer.clear();
     }
-    Ok(measures
-        .into_values()
-        .map(MeasureAccumulator::finish)
-        .collect())
+    Ok(measures)
 }
 
 fn handle_marker(
@@ -557,6 +651,14 @@ fn handle_text(
         "words" | "rehearsal" => {
             if let Some(number) = measure_number {
                 add_direction(number, value, measures);
+                // Additionally record rehearsal marks distinctly for the
+                // landmark map. This does not change the brain's directions.
+                if tag == "rehearsal" {
+                    insert_bounded(
+                        &mut measures.entry(number).or_default().rehearsals,
+                        value.to_string(),
+                    );
+                }
             }
         }
         _ => {}
@@ -858,6 +960,76 @@ mod tests {
         let facts = parse(score.as_bytes(), 1, 2, MAX_XML_EVENTS).unwrap();
         assert_eq!(facts.len(), 2);
         assert!(facts.iter().all(|measure| measure.note_count == 2));
+    }
+
+    const LANDMARK_SCORE: &str = r#"<?xml version="1.0"?>
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="0" implicit="yes"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><note><rest/><duration>4</duration><type>quarter</type></note></measure>
+    <measure number="1"><attributes><key><fifths>2</fifths></key></attributes><direction><direction-type><rehearsal>A</rehearsal></direction-type><sound tempo="120"/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>16</duration><type>whole</type></note></measure>
+    <measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>16</duration><type>whole</type></note></measure>
+  </part>
+</score-partwise>"#;
+
+    #[test]
+    fn xml_measure_facts_returns_compact_landmarks() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("score.musicxml");
+        fs::write(&path, SCORE).unwrap();
+        let facts = xml_measure_facts(&piece(temp.path(), Some(&path))).unwrap();
+        assert_eq!(facts.measures.len(), 1);
+        assert_eq!(facts.max_measure, Some(40));
+        assert!(!facts.has_pickup);
+        let measure = &facts.measures[0];
+        assert_eq!(measure.number, 40);
+        assert_eq!(measure.key.as_deref(), Some("-2 fifths"));
+        assert_eq!(measure.time.as_deref(), Some("3/4"));
+        assert!(measure.tempo.as_deref().unwrap().contains("92"));
+        assert_eq!(measure.rehearsal, None);
+        assert_eq!(measure.section, None);
+    }
+
+    #[test]
+    fn xml_measure_facts_captures_pickup_rehearsal_and_range() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("landmarks.musicxml");
+        fs::write(&path, LANDMARK_SCORE).unwrap();
+        let facts = xml_measure_facts(&piece(temp.path(), Some(&path))).unwrap();
+        assert_eq!(
+            facts.measures.iter().map(|m| m.number).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        assert_eq!(facts.max_measure, Some(2));
+        assert!(facts.has_pickup);
+        assert_eq!(facts.measures[0].time.as_deref(), Some("4/4"));
+        let bar_one = &facts.measures[1];
+        assert_eq!(bar_one.key.as_deref(), Some("2 fifths"));
+        assert_eq!(bar_one.rehearsal.as_deref(), Some("A"));
+        assert!(bar_one.tempo.as_deref().unwrap().contains("120"));
+    }
+
+    #[test]
+    fn xml_measure_facts_is_honest_when_the_piece_has_no_musicxml() {
+        let temp = TempDir::new().unwrap();
+        let error = xml_measure_facts(&piece(temp.path(), None)).unwrap_err();
+        assert!(error.contains("no MusicXML file"), "{error}");
+    }
+
+    #[test]
+    fn xml_measure_facts_rejects_scores_beyond_the_measure_cap() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("huge.musicxml");
+        let inner = (1..=(MAX_LANDMARK_MEASURES + 1))
+            .map(|number| format!("<measure number=\"{number}\"></measure>"))
+            .collect::<String>();
+        fs::write(
+            &path,
+            format!("<score-partwise><part id=\"P1\">{inner}</part></score-partwise>"),
+        )
+        .unwrap();
+        let error = xml_measure_facts(&piece(temp.path(), Some(&path))).unwrap_err();
+        assert!(error.contains("more than 10000 measures"), "{error}");
     }
 
     #[test]
