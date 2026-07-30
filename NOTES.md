@@ -2,6 +2,55 @@
 
 ## Decisions
 
+- **v4 Phases B–D — Practice Notebook OS, UI overhaul, quotes/books/IMSLP/mapping (2026-07-28…30,
+  merged to `main`, all lanes fresh-verifier CONFIRMED):**
+  - **Chips are shortcuts that INSERT editable text — never structure.** Every day-sheet chip
+    (`mm.`, `learn:`, `♩`, minutes `25 min`, `⚑ goal`) writes a plaintext fragment into the focused
+    line; the sheet round-trips through the same typed line store (`notebook/lines.ts` +
+    `linesText.ts`), so the whole thing reads and edits as a plain-text practice document. The law:
+    a chip may never produce a line the user can't then retype by hand. Checking a Plan checkbox is
+    plan metadata, spy-tested to never mutate practice truth (no rep, no block).
+  - **`assistant_suggest` uses provider StructuredOutput discipline.** The passage-helper asks the
+    provider for a bounded, typed shape (2–4 one-line strategies + optional citation), validated
+    before it ever reaches the UI; a malformed/unsafe response drops to nothing rather than free
+    text. **Accept is the ONLY write path** — it appends exactly one checkbox line to the shared day
+    sheet and nothing else (spy-proven). `No`/`More` never write. Citations resolve to a real book
+    section and open the scholarly reader.
+  - **Book-excerpt matching is whitespace-normalized against a byte map (the hard-wrap trap).** The
+    182 home quotes are stored verbatim and an honesty-gate test bites if one drifts. But sources
+    are **hard-wrapped**, so a verbatim quote spanning a line-wrap failed a naive `contains` on the
+    raw text. Fix (`caf54f6`): normalize whitespace on both sides for the _match_, but keep a byte
+    map back to the original so the reader still highlights the exact source span. Heading-less/huge
+    books can't return a tight section — `book_excerpt` returns a wide/whole match and the **reader
+    windows ±paragraphs client-side** (honest limit, logged as B45).
+  - **Quote rotation needs a persisted monotonic cycle counter.** First cut reshuffled per-open but
+    re-derived the permutation from a value that repeated, so the rotation **froze into one lap**
+    (verifier catch). Fix (`4b1cfb9`): persist a monotonic counter; each lap seeds a fresh
+    no-repeat permutation.
+  - **IMSLP download is a browser handoff by design — CAPTCHA reality, not a bug.** In-app search +
+    edition picker are real; the file download **opens the system browser** because IMSLP
+    CAPTCHA-gates its links. Assert `https` scheme before handoff (`923333e`), then auto-match the
+    finished file from Downloads (picker + drag-drop + paste-URL fallbacks). Do not try to bypass
+    the bot check. Removal is a **typed-name archive** to the vault `.trash` (history rows kept).
+  - **The mapping-wizard page pane was a blank placeholder since v3 — that was the root of the pain.**
+    Discovered mid-Phase-D: the "PDF page" the wizard showed had never rendered actual engraving. It
+    now renders the real page (`81c8c99`) with a parallel measure strip, two-way highlight, and
+    clamped/density-aware interpolation with honest out-of-range warnings; real MusicXML landmarks
+    (key/time/tempo/rehearsal, pickup-aware) come from a new **`score_xml_measure_facts`** command
+    (`04220aa`). Full auto-OMR stays out of scope (B43) — no OCR of printed measure numbers.
+  - **`devMock` goal fixture:** the browser harness seeds a promotable goal so the ⚑ day-sheet →
+    real-Goal promotion path (and the deadline picker) can be QA'd end-to-end without native; keep
+    the fixture in sync with the `goal_*` command shapes when they change.
+  - **Terminology purge took three verify→fix cycles.** `Brain→Assistant` / `Ledger→History` routes
+    through `src/shell/terms.ts`; the fresh-context verifier kept finding survivors the prior passes
+    missed (error copy ×2, a composer `aria-label`, then lowercase `"ledger"`/`"practice brain"`
+    strings). Lesson: a rename isn't done until an independent full-text sweep comes back clean. The
+    voice grammar and the **"Coda"** wake word are deliberately untouched.
+  - **Workflow-harness / subagent stream-watchdog stalls recur; resume-from-transcript is the
+    recovery.** Multiple lanes stalled mid-work across B–D (same class as Phase A). Every time,
+    **resume** from the transcript recovered with zero loss — never respawn a fresh agent, and never
+    re-run a merged lane.
+
 - **v4 Phase C2 — notebook data layer (2026-07-28, lane `lane/c-notebook`):** the frontend half
   of the day-sheet/piece-plan contract (`.workflow/scratch/day-sheet-contract.md`).
   - **Pure line model split in two:** `src/features/notebook/lines.ts` owns the 7 `NotebookLine`
