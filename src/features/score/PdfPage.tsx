@@ -18,6 +18,13 @@ interface PdfPageProps {
    */
   buffered?: boolean;
   onSize?: (pageNumber: number, size: PdfPageSize) => void;
+  /**
+   * Fired right after a crisp bitmap has been blitted onto the visible canvas,
+   * with that canvas. The piece-switch cache uses it to snapshot the fitted
+   * first page. Held in a ref internally so a fresh callback identity each
+   * render never re-runs the raster effect.
+   */
+  onRasterized?: (pageNumber: number, canvas: HTMLCanvasElement) => void;
   children?: ReactNode;
 }
 
@@ -50,9 +57,15 @@ export function PdfPage({
   scale,
   buffered = false,
   onSize,
+  onRasterized,
   children,
 }: PdfPageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Keep the latest onRasterized without listing it in the raster effect's
+  // deps: the parent passes a fresh closure each render and re-running the
+  // decode on identity churn would defeat the whole cache.
+  const onRasterizedRef = useRef(onRasterized);
+  onRasterizedRef.current = onRasterized;
   const taskRef = useRef<PdfRenderTask | null>(null);
   const [size, setSize] = useState<PdfPageSize>(DEFAULT_PAGE_SIZE);
   const [status, setStatus] = useState<
@@ -174,6 +187,7 @@ export function PdfPage({
             // dimensions above; there is simply nothing to paint into.
           }
           hasPaintedRef.current = true;
+          onRasterizedRef.current?.(pageNumber, target);
         });
       })
       .then(() => {

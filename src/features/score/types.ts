@@ -89,6 +89,25 @@ export interface ScorePdfApi {
   ) => Promise<Region>;
   /** One atomic Score Atlas target write; native persistence may land separately. */
   createTarget: (payload: AtomicTargetSavePayload) => Promise<Region>;
+  /**
+   * Load a persisted fitted first-page snapshot. Resolves to an empty buffer on
+   * a miss (never rejects for absence); a display-only accelerator, so any
+   * failure degrades to "no cached bitmap" rather than blocking the switch.
+   */
+  loadFirstPage: (
+    pieceId: number,
+    fingerprint: string,
+    page: number,
+    bucket: string,
+  ) => Promise<ArrayBuffer>;
+  /** Persist a fitted first-page snapshot (compressed WebP/JPEG bytes). */
+  saveFirstPage: (
+    pieceId: number,
+    fingerprint: string,
+    page: number,
+    bucket: string,
+    bytes: ArrayBuffer,
+  ) => Promise<void>;
 }
 
 /** Visible score state lifted to the shell for the persistent Practice Brain. */
