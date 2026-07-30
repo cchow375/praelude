@@ -15,6 +15,7 @@ import type { DaySheet as DaySheetData, NotebookLine } from "./lines";
 import { useDaySheet, type UseDaySheet } from "./useDaySheet";
 import {
   addBring,
+  appendPlanItem,
   clampMinutes,
   convertToPiece,
   insertAfter,
@@ -51,6 +52,7 @@ import {
   PieceIcon,
   PlusIcon,
 } from "./notebookIcons";
+import { PassageHelper } from "./PassageHelper";
 import "./DaySheet.css";
 
 // Read-only companions the editor needs but the day-sheet hook doesn't own:
@@ -567,6 +569,14 @@ export function DaySheetView({
               <ClockIcon size={13} /> {DEFAULT_BLOCK_MINUTES} min
             </button>
           </div>
+        )}
+        {focused && (
+          <PassageHelper
+            pieceId={line.piece_id}
+            onAccept={(text) =>
+              setBody((prev) => appendPlanItem(prev, line.piece_id, text).body)
+            }
+          />
         )}
       </div>
     );

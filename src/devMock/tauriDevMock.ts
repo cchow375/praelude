@@ -1075,6 +1075,59 @@ function mockBookAdd(args: unknown): MockBook {
 }
 
 /**
+ * Canned `assistant_suggest` response (C4 passage-helper). Reads `expandOf`,
+ * `description`, and `pieceId` off the invoke args (camelCase, as Tauri maps
+ * them). In expand mode it returns exactly one fuller ≤3-line row; otherwise it
+ * returns three one-line strategies, one cited into the corpus
+ * (`roskell-complete-pianist`) so the reader marker is exercised. Mirrors the
+ * native shape: `{ suggestions: [{ id, text, source_id?, source_author?,
+ * source_heading? }] }`.
+ */
+function mockAssistantSuggest(args: unknown): {
+  suggestions: {
+    id: string;
+    text: string;
+    source_id?: string;
+    source_author?: string;
+    source_heading?: string;
+  }[];
+} {
+  const record = (args ?? {}) as Record<string, unknown>;
+  const expandOf =
+    typeof record.expandOf === "string" ? record.expandOf.trim() : "";
+  const stamp = Date.now();
+  if (expandOf) {
+    return {
+      suggestions: [
+        {
+          id: `mock-suggest-${stamp}`,
+          text: "Play the leap hand alone, five times, stopping silently on the landing chord.\nThen add the beat before it at half tempo.\nRaise the tempo only after three clean, unhurried arrivals.",
+        },
+      ],
+    };
+  }
+  return {
+    suggestions: [
+      {
+        id: `mock-suggest-${stamp}-1`,
+        text: "Practice hands separately at half tempo, watching the landing shape.",
+      },
+      {
+        id: `mock-suggest-${stamp}-2`,
+        text: "Place a silent landing before the leap so the arm learns the distance.",
+        source_id: "roskell-complete-pianist",
+        source_author: "Penelope Roskell",
+        source_heading: "Leaps and lateral movements",
+      },
+      {
+        id: `mock-suggest-${stamp}-3`,
+        text: "Chunk the passage into two-note cells, then join them at tempo.",
+      },
+    ],
+  };
+}
+
+/**
  * Canned `book_excerpt` response (D2 reader). For any sourceId this returns a
  * multi-paragraph section with a heading, weaving the requested `contains` quote
  * into a middle paragraph so the reader can anchor it. The heading-less OCR book
@@ -1475,6 +1528,10 @@ function routeCommand(cmd: string, args: unknown): unknown {
           warnings: ["Browser mock response; native provider was not called."],
         },
       };
+    // Passage-helper (C4): canned strategies, one cited into the corpus so the
+    // reader marker is exercised. In expand mode return one fuller ≤3-line row.
+    case "assistant_suggest":
+      return mockAssistantSuggest(args);
     case "api_key_save":
       return apiKeyStatus(args, true);
     case "api_key_clear":

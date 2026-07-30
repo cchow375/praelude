@@ -26,7 +26,9 @@ pub use context::GroundingSummary;
 pub use corpus::{BookExcerpt, BookKind, BookListing};
 pub use library::{Citation, MethodCard};
 use library::{EmbeddedLibrary, PracticeLibrary};
-use provider::{NativeTransport, ProviderChain, ProviderName, ProviderOutput, Transport};
+use provider::{
+    NativeTransport, ProviderChain, ProviderName, ProviderOutput, SuggestionDraft, Transport,
+};
 pub use score_context::XmlMeasureFacts;
 
 const MAX_QUESTION_CHARS: usize = 8_000;
@@ -372,6 +374,204 @@ impl std::fmt::Display for BrainError {
 }
 
 impl std::error::Error for BrainError {}
+
+/// Passage-helper request (spec C4). The pianist names a piece and describes the
+/// passage; an optional selected region scopes the MusicXML facts. `expand_of`
+/// switches to expand mode: one selected suggestion in, one fuller version out.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AssistantSuggestRequest {
+    pub piece_id: i64,
+    pub description: String,
+    #[serde(default)]
+    pub region_id: Option<i64>,
+    #[serde(default)]
+    pub expand_of: Option<String>,
+}
+
+/// One passage-helper strategy row. The three source fields are all-or-nothing:
+/// they are populated only when the provider cited a real corpus book that the
+/// reader can open, joined against local retrieval. `source_id` is the book
+/// manifest id; `source_author` labels the quiet marker; `source_heading` is a
+/// verbatim book heading the reader uses as its `contains` locator — never a
+/// fabricated page or a non-verbatim line.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AssistantSuggestion {
+    pub id: String,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_heading: Option<String>,
+}
+
+/// The reader-openable citation for one book, joined from local retrieval. Every
+/// field is real book metadata, so the marker can honestly open the section.
+#[derive(Debug, Clone)]
+struct CitationMarker {
+    book_id: String,
+    author: String,
+    heading: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AssistantSuggestions {
+    pub suggestions: Vec<AssistantSuggestion>,
+}
+
+/// The passage-helper caps the visible rows at four; the provider is already held
+/// to the same ceiling, so this is defense in depth.
+const MAX_ASSISTANT_SUGGESTIONS: usize = 4;
+
+/// Production entry point for the passage-helper (C4). Reads and suggests only —
+/// it has no practice-mutation authority and never enters the deterministic hot
+/// loop. Offline / no key returns an honest `Err`, never a fabricated card.
+pub fn assistant_suggest_native(
+    request: AssistantSuggestRequest,
+    store: Arc<Store>,
+    sessions: Arc<SessionService>,
+) -> Result<AssistantSuggestions, BrainError> {
+    let library = EmbeddedLibrary::load();
+    let preference = store.get_setting("brain.provider").ok().flatten();
+    let chain = ProviderChain::from_native_config_with_preference(preference.as_deref());
+    suggest_with(
+        request,
+        &store,
+        &sessions,
+        &library,
+        &chain,
+        &NativeTransport::new(),
+    )
+}
+
+/// Unit-testable core of the passage-helper. Builds the same bounded, read-only
+/// grounded context as `brain_ask` (the piece's MusicXML facts for the selected
+/// passage plus corpus retrieval on the description), then asks the provider for
+/// strategies — or, in expand mode, a fuller version of one strategy.
+fn suggest_with(
+    request: AssistantSuggestRequest,
+    store: &Store,
+    sessions: &SessionService,
+    library: &dyn PracticeLibrary,
+    chain: &ProviderChain,
+    transport: &dyn Transport,
+) -> Result<AssistantSuggestions, BrainError> {
+    let description = request.description.trim();
+    if description.is_empty() {
+        return Err(BrainError::InvalidQuestion(
+            "Describe the passage you are stuck on".into(),
+        ));
+    }
+    if description.chars().count() > MAX_QUESTION_CHARS {
+        return Err(BrainError::InvalidQuestion(format!(
+            "Description is too long (maximum {MAX_QUESTION_CHARS} characters)"
+        )));
+    }
+    // The passage-helper has no offline fallback: it must reach a provider or say
+    // so honestly. This is the deliberate contrast with `brain_ask`.
+    if chain.is_empty() {
+        return Err(BrainError::ProviderUnavailable(OfflineCause::NoProvider));
+    }
+
+    let methods = library.retrieve(description, 3);
+    let share_knowledge = store
+        .get_setting("brain.share_retrieved_knowledge")
+        .ok()
+        .flatten()
+        .as_deref()
+        != Some("false");
+    let directory = resolve_knowledge_dir(store);
+    let corpus = corpus::search(&directory, description, 6);
+    let (context, _grounding) = context::build(
+        store,
+        sessions,
+        Some(request.piece_id),
+        request.region_id,
+        None,
+        None,
+        &methods,
+        &corpus,
+        share_knowledge,
+        &[],
+        None,
+    )?;
+
+    // Expand mode: rewrite one selected strategy into a single ≤3-line version.
+    if let Some(expand_of) = request
+        .expand_of
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let expanded = chain.expand(expand_of, &context, transport)?;
+        if output_policy_violation_reason(&expanded).is_some() {
+            return Err(BrainError::PolicyViolation);
+        }
+        return Ok(AssistantSuggestions {
+            suggestions: vec![AssistantSuggestion {
+                id: next_answer_id(),
+                text: expanded,
+                source_id: None,
+                source_author: None,
+                source_heading: None,
+            }],
+        });
+    }
+
+    let drafts = chain.suggest(description, &context, transport)?;
+
+    // Source allowlist join, mirroring `brain_ask`'s citation discipline. A
+    // provider may cite either a retrieval chunk id (what the context exposes) or
+    // a book manifest id; either resolves to the same reader-openable marker. Only
+    // corpus books produce a marker — they carry the manifest id, author, and a
+    // verbatim heading the reader can open. Embedded method-card sources are not
+    // reader books, so they never become a clickable marker; anything unknown is
+    // dropped to an uncited row.
+    let mut markers: HashMap<String, CitationMarker> = HashMap::new();
+    if share_knowledge {
+        for hit in &corpus.hits {
+            let marker = CitationMarker {
+                book_id: hit.source_id.clone(),
+                author: hit.author.clone(),
+                heading: hit.heading.clone(),
+            };
+            markers
+                .entry(hit.id.clone())
+                .or_insert_with(|| marker.clone());
+            markers.entry(hit.source_id.clone()).or_insert(marker);
+        }
+    }
+
+    let mut suggestions = Vec::new();
+    for SuggestionDraft { text, source_id } in drafts.into_iter().take(MAX_ASSISTANT_SUGGESTIONS) {
+        // The same output firewall as `brain_ask`: a strategy that claims a rep
+        // verdict or app control fails the whole batch rather than reaching a card.
+        if output_policy_violation_reason(&text).is_some() {
+            return Err(BrainError::PolicyViolation);
+        }
+        let marker = source_id.and_then(|id| markers.get(&id).cloned());
+        let (source_id, source_author, source_heading) = match marker {
+            Some(marker) => (
+                Some(marker.book_id),
+                Some(marker.author),
+                Some(marker.heading),
+            ),
+            None => (None, None, None),
+        };
+        suggestions.push(AssistantSuggestion {
+            id: next_answer_id(),
+            text,
+            source_id,
+            source_author,
+            source_heading,
+        });
+    }
+    if suggestions.is_empty() {
+        return Err(BrainError::ProviderResponse);
+    }
+    Ok(AssistantSuggestions { suggestions })
+}
 
 /// Production entry point used by the Tauri command. Network work is blocking;
 /// the command runs this function on Tauri's blocking pool.
@@ -2042,6 +2242,191 @@ mod tests {
             &ProviderChain::default(),
             &transport,
             None,
+        );
+        assert!(matches!(result, Err(BrainError::InvalidQuestion(_))));
+        assert!(transport.requests().is_empty());
+    }
+
+    // -- C4 passage-helper coverage ---------------------------------------
+
+    fn suggest_request(description: &str) -> AssistantSuggestRequest {
+        AssistantSuggestRequest {
+            piece_id: 1,
+            description: description.into(),
+            region_id: None,
+            expand_of: None,
+        }
+    }
+
+    fn claude_chain() -> ProviderChain {
+        ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Claude,
+            "secret-claude",
+            "claude-test",
+        )])
+    }
+
+    #[test]
+    fn passage_helper_returns_grounded_one_line_strategies() {
+        let (store, sessions, _) = fixture();
+        // A real corpus book so a cited source resolves to a reader-openable
+        // marker (manifest id + author + verbatim heading).
+        let corpus_dir = external_corpus_fixture();
+        store
+            .set_setting("brain.knowledge_dir", corpus_dir.path().to_str().unwrap())
+            .unwrap();
+        let chain = claude_chain();
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type": "text", "text": "{\"suggestions\":[{\"text\":\"Practice hands separately at half tempo.\"},{\"text\":\"Place a silent landing before the leap.\",\"source_id\":\"roskell-complete-pianist\"}]}"}]
+        }))]);
+        let result = suggest_with(
+            suggest_request("A released wrist during lateral leaps"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+        )
+        .unwrap();
+        assert_eq!(result.suggestions.len(), 2);
+        assert!(result.suggestions[0].text.chars().count() <= 140);
+        assert_eq!(result.suggestions[0].source_id, None);
+        // The provider-cited book resolves to a reader-openable marker.
+        assert_eq!(
+            result.suggestions[1].source_id.as_deref(),
+            Some("roskell-complete-pianist")
+        );
+        assert_eq!(
+            result.suggestions[1].source_author.as_deref(),
+            Some("Penelope Roskell")
+        );
+        // The heading is a verbatim book heading the reader can open as `contains`.
+        assert!(result.suggestions[1]
+            .source_heading
+            .as_deref()
+            .is_some_and(|heading| !heading.is_empty()));
+        // It really reached the provider (not an offline fabrication).
+        assert_eq!(transport.requests().len(), 1);
+        assert!(transport.requests()[0].url.ends_with("/v1/messages"));
+    }
+
+    #[test]
+    fn passage_helper_drops_an_unknown_cited_source_to_an_uncited_row() {
+        let (store, sessions, _) = fixture();
+        let chain = claude_chain();
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type": "text", "text": "{\"suggestions\":[{\"text\":\"Chunk the passage into two-note cells.\",\"source_id\":\"invented-book\"}]}"}]
+        }))]);
+        let result = suggest_with(
+            suggest_request("How do I clean up this run?"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+        )
+        .unwrap();
+        assert_eq!(result.suggestions.len(), 1);
+        assert_eq!(
+            result.suggestions[0].source_id, None,
+            "an unknown provider source id is dropped, never surfaced"
+        );
+    }
+
+    #[test]
+    fn passage_helper_rejects_malformed_provider_output() {
+        let (store, sessions, _) = fixture();
+        let chain = claude_chain();
+        // An unknown key inside a suggestion trips serde deny_unknown_fields, so
+        // the whole batch is rejected rather than patched.
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type": "text", "text": "{\"suggestions\":[{\"text\":\"ok\",\"bogus\":true}]}"}]
+        }))]);
+        let result = suggest_with(
+            suggest_request("Help me with this passage"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+        );
+        // The strict parser rejects the body (proven directly in the provider
+        // unit test as `ProviderResponse`); through the chain that unusable body
+        // exhausts the single configured provider and surfaces as an honest
+        // `ProviderUnavailable(BadResponse)` — never a fabricated card.
+        assert!(matches!(
+            result,
+            Err(BrainError::ProviderUnavailable(OfflineCause::BadResponse))
+        ));
+        // The bite happened only after reaching the provider, proving the request
+        // was well-formed and the rejection is on the untrusted output.
+        assert_eq!(transport.requests().len(), 1);
+    }
+
+    #[test]
+    fn passage_helper_is_honest_when_offline() {
+        let (store, sessions, _) = fixture();
+        let transport = FakeTransport::default();
+        let result = suggest_with(
+            suggest_request("The leap keeps missing"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &ProviderChain::default(),
+            &transport,
+        );
+        assert!(matches!(
+            result,
+            Err(BrainError::ProviderUnavailable(OfflineCause::NoProvider))
+        ));
+        // No provider configured means no request was ever attempted.
+        assert!(transport.requests().is_empty());
+    }
+
+    #[test]
+    fn passage_helper_expand_mode_returns_one_fuller_version() {
+        let (store, sessions, _) = fixture();
+        let chain = claude_chain();
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type": "text", "text": "{\"expanded\":\"Play the leap hand alone.\\nStop silently on the landing chord five times.\\nThen add the beat before at half tempo.\"}"}]
+        }))]);
+        let request = AssistantSuggestRequest {
+            piece_id: 1,
+            description: "leap".into(),
+            region_id: None,
+            expand_of: Some("Place a silent landing before the leap.".into()),
+        };
+        let result = suggest_with(
+            request,
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+        )
+        .unwrap();
+        assert_eq!(result.suggestions.len(), 1);
+        assert!(
+            result.suggestions[0]
+                .text
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .count()
+                <= 3
+        );
+    }
+
+    #[test]
+    fn passage_helper_rejects_an_empty_description_before_any_transport() {
+        let (store, sessions, _) = fixture();
+        let transport = FakeTransport::default();
+        let result = suggest_with(
+            suggest_request("   "),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &claude_chain(),
+            &transport,
         );
         assert!(matches!(result, Err(BrainError::InvalidQuestion(_))));
         assert!(transport.requests().is_empty());

@@ -1254,6 +1254,36 @@ async fn brain_ask(
     Ok(answer)
 }
 
+/// Passage-helper (spec C4): 2–4 grounded one-line practice strategies for a
+/// described passage, or — in expand mode — one fuller version of a selected
+/// strategy. Reads and suggests only: it builds the same bounded, read-only
+/// context as `brain_ask`, has no practice-mutation authority, and never enters
+/// the deterministic voice/rep loop. Offline / no key returns an honest error.
+#[tauri::command]
+async fn assistant_suggest(
+    piece_id: i64,
+    description: String,
+    region_id: Option<i64>,
+    expand_of: Option<String>,
+    store: State<'_, Arc<Store>>,
+    sessions: State<'_, Arc<SessionService>>,
+) -> Result<brain::AssistantSuggestions, String> {
+    let store = store.inner().clone();
+    let sessions = sessions.inner().clone();
+    let request = brain::AssistantSuggestRequest {
+        piece_id,
+        description,
+        region_id,
+        expand_of,
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        brain::assistant_suggest_native(request, store, sessions)
+    })
+    .await
+    .map_err(|_| "Assistant worker stopped unexpectedly".to_string())?
+    .map_err(|error| error.to_string())
+}
+
 /// Whole-score MusicXML measure landmarks for the mapping wizard's measure
 /// strip (ledger #31). Reuses the same score resolution and parser as
 /// `brain_ask`'s grounded context. Runs off the UI thread on the blocking pool
@@ -1675,6 +1705,7 @@ pub fn run() {
             anomalies_list,
             brain_plan_preview,
             brain_ask,
+            assistant_suggest,
             score_xml_measure_facts,
             brain_thread_resume,
             brain_thread_clear,

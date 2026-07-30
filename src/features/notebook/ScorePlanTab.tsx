@@ -7,6 +7,7 @@ import {
   withPlainText,
 } from "./daySheetOps";
 import { BoxCheckedIcon, BoxIcon, PlusIcon } from "./notebookIcons";
+import { PassageHelper } from "./PassageHelper";
 import "./ScorePlanTab.css";
 
 export interface ScorePlanTabProps {
@@ -104,6 +105,13 @@ export function ScorePlanTab({ pieceId }: ScorePlanTabProps) {
           Add
         </button>
       </form>
+
+      <PassageHelper
+        pieceId={pieceId}
+        onAccept={(text) =>
+          sheet.setBody((prev) => appendPlanItem(prev, pieceId, text).body)
+        }
+      />
     </section>
   );
 }
