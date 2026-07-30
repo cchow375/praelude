@@ -413,6 +413,55 @@ async fn score_pdf_bytes(
     .map_err(|e| format!("PDF read worker failed: {e}"))?
 }
 
+/// Load a cached fitted first-page snapshot for the piece-switch accelerator.
+/// Returns the raw bytes (an empty response on a miss). Display-only and never
+/// authoritative: the cache lives under the OS app-cache dir, never the vault or
+/// the DB. A miss is not an error — the switch simply falls back to a live decode.
+#[tauri::command]
+async fn score_page_cache_load(
+    piece_id: i64,
+    edition_fingerprint: String,
+    page: i64,
+    bucket: String,
+    app: AppHandle,
+) -> Result<tauri::ipc::Response, String> {
+    let root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("resolve app cache dir: {e}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        score::page_cache::validate_components(&edition_fingerprint, &bucket)?;
+        let key = score::page_cache::cache_key(piece_id, &edition_fingerprint, page, &bucket);
+        score::page_cache::load(&root, &key).map(tauri::ipc::Response::new)
+    })
+    .await
+    .map_err(|e| format!("page cache load worker failed: {e}"))?
+}
+
+/// Persist a fitted first-page snapshot (compressed WebP/JPEG bytes) for the
+/// piece-switch accelerator. Bounded, LRU-evicted, off the main thread.
+#[tauri::command]
+async fn score_page_cache_save(
+    piece_id: i64,
+    edition_fingerprint: String,
+    page: i64,
+    bucket: String,
+    bytes: Vec<u8>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("resolve app cache dir: {e}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        score::page_cache::validate_components(&edition_fingerprint, &bucket)?;
+        let key = score::page_cache::cache_key(piece_id, &edition_fingerprint, page, &bucket);
+        score::page_cache::save(&root, &key, &bytes)
+    })
+    .await
+    .map_err(|e| format!("page cache save worker failed: {e}"))?
+}
+
 /// Persist a piece's intake payload (sets `intake_done`) and return the updated
 /// detail. Also logs an `intake` session event so the session summary reflects
 /// piece setup done during the session.
@@ -1644,6 +1693,8 @@ pub fn run() {
             score_pdf_editions,
             score_pdf_select,
             score_pdf_bytes,
+            score_page_cache_load,
+            score_page_cache_save,
             piece_intake_save,
             piece_select,
             rep_open,

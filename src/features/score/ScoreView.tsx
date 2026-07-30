@@ -53,6 +53,13 @@ import {
   fitPageScale,
   fitWidthScale,
 } from "./geometry";
+import {
+  fitContextBucket,
+  firstPageCacheKey,
+  isCacheableScaleMode,
+  LruMap,
+  sniffImageMime,
+} from "./firstPageCache";
 import type {
   PdfAdapter,
   PdfAnchorKind,
@@ -105,6 +112,24 @@ const defaultApi: ScorePdfApi = {
     }),
   createTarget: (payload) =>
     invoke<Region>("score_atlas_target_save", { payload }),
+  loadFirstPage: (pieceId, fingerprint, page, bucket) =>
+    invoke<ArrayBuffer>("score_page_cache_load", {
+      pieceId,
+      editionFingerprint: fingerprint,
+      page,
+      bucket,
+    }),
+  saveFirstPage: (pieceId, fingerprint, page, bucket, bytes) =>
+    invoke<void>("score_page_cache_save", {
+      pieceId,
+      editionFingerprint: fingerprint,
+      page,
+      bucket,
+      // A plain number[] deserializes to Vec<u8> unambiguously; this runs
+      // fire-and-forget after the page is already on screen, so JSON bloat on
+      // a ~100 KB snapshot is off the interactive path.
+      bytes: Array.from(new Uint8Array(bytes)),
+    }),
 };
 
 function wrapPage(page: PDFPageProxy): PdfPageHandle {
@@ -521,6 +546,57 @@ export function ScoreView({
   // unmapped page; a manual open or dismissal counts as "offered".
   const autoOfferedRef = useRef(false);
 
+  // ── Fitted first-page bitmap cache (the piece-switch accelerator) ──────────
+  // A small in-memory LRU of decoded first-page snapshots (blobs), backed by an
+  // on-disk cache through the score_page_cache_* commands. On switch we paint a
+  // cached snapshot instantly, CSS-fit, while the real PDF re-parses/decodes and
+  // its true first page swaps in on the first real raster. Display-only: it never
+  // gates interaction (regions already require a live `document`) and a miss is
+  // never an error — the switch simply falls back to today's behavior.
+  const bitmapCacheRef = useRef(new LruMap<Blob>(6));
+  const [firstPagePreview, setFirstPagePreview] = useState<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+  // The switch that painted the current preview still wants it shown: cleared on
+  // the first real paint (or on error) so a late disk read can't repaint over a
+  // page the reader is already interacting with.
+  const previewWantedRef = useRef(false);
+  // The last fit key we persisted, so a re-raster at the same fit (e.g. a resize
+  // settle) never re-encodes or re-saves the identical snapshot.
+  const lastSavedKeyRef = useRef<string | null>(null);
+  // Current fit context mirrored into refs so the document-load effect can read
+  // it without taking these as deps — which would reload the whole PDF on every
+  // viewport resize.
+  const scaleModeRef = useRef(scaleMode);
+  const containerWidthRef = useRef(containerWidth);
+  const containerHeightRef = useRef(containerHeight);
+
+  // Point the preview at a blob (or clear it), revoking any prior object URL.
+  // jsdom lacks createObjectURL, so guard: without it we simply never show a
+  // preview and the switch behaves exactly as it does today.
+  const setPreviewFromBlob = useCallback((blob: Blob | null) => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+    if (!blob || typeof URL.createObjectURL !== "function") {
+      setFirstPagePreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    previewUrlRef.current = url;
+    setFirstPagePreview(url);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+        previewUrlRef.current = null;
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     scoreMountedRef.current = true;
     return () => {
@@ -636,6 +712,42 @@ export function ScoreView({
     setMaxPageWidth(DEFAULT_PAGE_SIZE.width);
     setMaxPageHeight(DEFAULT_PAGE_SIZE.height);
 
+    // Paint a cached fitted first page immediately, if we have one, so the
+    // switch feels instant while the real document parses/decodes below. Only
+    // true fit modes are cacheable, and the fingerprint+bucket key is fully
+    // known here (editions have resolved) before the expensive parse begins.
+    lastSavedKeyRef.current = null;
+    previewWantedRef.current = true;
+    setPreviewFromBlob(null);
+    const previewMode = scaleModeRef.current;
+    const previewFingerprint =
+      editions.find((item) => item.id === editionId)?.fingerprint ?? null;
+    if (isCacheableScaleMode(previewMode) && previewFingerprint) {
+      const bucket = fitContextBucket(
+        previewMode,
+        containerWidthRef.current,
+        containerHeightRef.current,
+      );
+      const key = firstPageCacheKey(pieceId, previewFingerprint, 1, bucket);
+      const cached = bitmapCacheRef.current.get(key);
+      if (cached) {
+        setPreviewFromBlob(cached);
+      } else {
+        void api
+          .loadFirstPage(pieceId, previewFingerprint, 1, bucket)
+          .then((buffer) => {
+            if (!alive || !previewWantedRef.current) return;
+            if (!buffer || buffer.byteLength === 0) return;
+            const blob = new Blob([buffer], {
+              type: sniffImageMime(new Uint8Array(buffer)),
+            });
+            bitmapCacheRef.current.set(key, blob);
+            if (alive && previewWantedRef.current) setPreviewFromBlob(blob);
+          })
+          .catch(() => undefined);
+      }
+    }
+
     void withTimeout(
       api.bytes(pieceId, editionId),
       loadTimeoutMs,
@@ -650,15 +762,28 @@ export function ScoreView({
       })
       .catch((caught) => {
         if (!alive) return;
+        // A failed load must surface the error, not a stale cached bitmap.
+        previewWantedRef.current = false;
+        setPreviewFromBlob(null);
         setError(messageOf(caught));
         setPhase("error");
       });
 
     return () => {
       alive = false;
+      // Stop a late disk read from this switch repainting the next piece.
+      previewWantedRef.current = false;
       if (loaded) void loaded.destroy();
     };
-  }, [adapter, api, editionId, editions, loadTimeoutMs, pieceId]);
+  }, [
+    adapter,
+    api,
+    editionId,
+    editions,
+    loadTimeoutMs,
+    pieceId,
+    setPreviewFromBlob,
+  ]);
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -713,6 +838,9 @@ export function ScoreView({
   // zoom relative to the current level without re-subscribing on every tick.
   const scaleRef = useRef(scale);
   scaleRef.current = scale;
+  scaleModeRef.current = scaleMode;
+  containerWidthRef.current = containerWidth;
+  containerHeightRef.current = containerHeight;
   const edition = editions.find((item) => item.id === editionId) ?? null;
   const selectedRegion =
     regions.find((region) => region.id === selectedRegionId) ?? null;
@@ -720,6 +848,58 @@ export function ScoreView({
     livePieceIdRef.current = pieceId;
     liveEditionRef.current = edition;
   }, [edition, pieceId]);
+
+  // Snapshot the fitted first page into the piece-switch cache. Only true fit
+  // modes are captured (a zoomed page is not "the fitted first page"), and a
+  // repeat raster at the same fit is skipped so a resize settle never re-encodes.
+  const captureFirstPage = (canvas: HTMLCanvasElement) => {
+    const mode = scaleModeRef.current;
+    if (!isCacheableScaleMode(mode) || !edition) return;
+    if (typeof canvas.toBlob !== "function") return;
+    const fingerprint = edition.fingerprint;
+    const bucket = fitContextBucket(
+      mode,
+      containerWidthRef.current,
+      containerHeightRef.current,
+    );
+    const key = firstPageCacheKey(pieceId, fingerprint, 1, bucket);
+    if (lastSavedKeyRef.current === key) return;
+    const persist = (blob: Blob | null) => {
+      if (!blob) return;
+      lastSavedKeyRef.current = key;
+      bitmapCacheRef.current.set(key, blob);
+      void blob
+        .arrayBuffer()
+        .then((buffer) =>
+          api.saveFirstPage(pieceId, fingerprint, 1, bucket, buffer),
+        )
+        .catch(() => undefined);
+    };
+    try {
+      canvas.toBlob(
+        (blob) => {
+          // WebP first (smaller); WKWebView may decline and hand back null, in
+          // which case JPEG is the guaranteed-encodable fallback.
+          if (blob) persist(blob);
+          else canvas.toBlob(persist, "image/jpeg", 0.8);
+        },
+        "image/webp",
+        0.8,
+      );
+    } catch {
+      // toBlob unsupported (e.g. a context-less jsdom canvas): best-effort only.
+    }
+  };
+
+  // A page has painted a crisp bitmap. When it is the first page, the real
+  // document is now live, so retire the instant-switch preview and snapshot the
+  // fresh fitted bitmap for next time.
+  const handleRasterized = (pageNumber: number, canvas: HTMLCanvasElement) => {
+    if (pageNumber !== 1) return;
+    previewWantedRef.current = false;
+    setPreviewFromBlob(null);
+    captureFirstPage(canvas);
+  };
 
   // Trackpad pinch and Cmd/Ctrl+wheel zoom the score like an image. WKWebView
   // (Chromium-synthesized paths and mice) delivers pinch/zoom as a wheel event
@@ -1843,359 +2023,389 @@ export function ScoreView({
         </div>
       </header>
 
-      {phase === "loading-document" || !document ? (
-        <div className="score-state" role="status">
-          Loading PDF…
-        </div>
-      ) : (
-        <div
-          className={`score-body ${sectionsVisible ? "" : "is-sections-hidden"}`}
-        >
+      <div className="score-viewport">
+        {phase === "loading-document" || !document ? (
+          <div className="score-state" role="status">
+            Loading PDF…
+          </div>
+        ) : (
           <div
-            className="score-scroll"
-            ref={scrollRef}
-            data-testid="score-scroll"
+            className={`score-body ${sectionsVisible ? "" : "is-sections-hidden"}`}
           >
             <div
-              className={`score-pages ${scaleMode === "overview" ? "is-overview" : ""}`}
+              className="score-scroll"
+              ref={scrollRef}
+              data-testid="score-scroll"
             >
-              {mountedPages.map((pageNumber) => {
-                const mappingRegion = mapping
-                  ? (regions.find((region) => region.id === mapping.regionId) ??
-                    null)
-                  : null;
-                const buffered = !visiblePageList.includes(pageNumber);
-                return (
-                  <PdfPage
-                    key={pageNumber}
-                    document={document}
-                    pageNumber={pageNumber}
-                    active
-                    buffered={buffered}
-                    scale={scale}
-                    onSize={handlePageSize}
-                  >
-                    <RegionOverlay
+              <div
+                className={`score-pages ${scaleMode === "overview" ? "is-overview" : ""}`}
+              >
+                {mountedPages.map((pageNumber) => {
+                  const mappingRegion = mapping
+                    ? (regions.find(
+                        (region) => region.id === mapping.regionId,
+                      ) ?? null)
+                    : null;
+                  const buffered = !visiblePageList.includes(pageNumber);
+                  return (
+                    <PdfPage
+                      key={pageNumber}
+                      document={document}
                       pageNumber={pageNumber}
-                      items={overlayItems}
-                      mapping={
-                        mapping && mappingRegion
-                          ? {
-                              regionId: mapping.regionId,
-                              label: mappingRegion.notes ?? mappingRegion.name,
-                              color: mappingRegion.color,
-                              draftRects: mapping.rects,
-                              tool: mapping.tool,
-                              onAddRect: (rect) =>
-                                setMapping((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        rects: [...current.rects, rect],
-                                      }
-                                    : current,
-                                ),
-                              onUpdateRect: (index, rect) =>
-                                setMapping((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        rects: current.rects.map(
-                                          (item, itemIndex) =>
-                                            itemIndex === index ? rect : item,
-                                        ),
-                                      }
-                                    : current,
-                                ),
-                            }
-                          : null
-                      }
-                      onSelect={selectRegion}
-                    />
-                    {targetMode && targetDraftId && edition && (
-                      <TargetDraftOverlay
+                      active
+                      buffered={buffered}
+                      scale={scale}
+                      onSize={handlePageSize}
+                      onRasterized={handleRasterized}
+                    >
+                      <RegionOverlay
                         pageNumber={pageNumber}
-                        edition={{
-                          edition_id: edition.id,
-                          edition_fingerprint: edition.fingerprint,
-                        }}
-                        selectedAnchor={targetAnchor}
-                        instructionsId={targetInstructionsId}
-                        disabled={targetSavePending}
-                        onSelection={acceptTargetSelection}
-                        onSelectionError={(_code, message) =>
-                          setTargetDrawError(message)
+                        items={overlayItems}
+                        mapping={
+                          mapping && mappingRegion
+                            ? {
+                                regionId: mapping.regionId,
+                                label:
+                                  mappingRegion.notes ?? mappingRegion.name,
+                                color: mappingRegion.color,
+                                draftRects: mapping.rects,
+                                tool: mapping.tool,
+                                onAddRect: (rect) =>
+                                  setMapping((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          rects: [...current.rects, rect],
+                                        }
+                                      : current,
+                                  ),
+                                onUpdateRect: (index, rect) =>
+                                  setMapping((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          rects: current.rects.map(
+                                            (item, itemIndex) =>
+                                              itemIndex === index ? rect : item,
+                                          ),
+                                        }
+                                      : current,
+                                  ),
+                              }
+                            : null
+                        }
+                        onSelect={selectRegion}
+                      />
+                      {targetMode && targetDraftId && edition && (
+                        <TargetDraftOverlay
+                          pageNumber={pageNumber}
+                          edition={{
+                            edition_id: edition.id,
+                            edition_fingerprint: edition.fingerprint,
+                          }}
+                          selectedAnchor={targetAnchor}
+                          instructionsId={targetInstructionsId}
+                          disabled={targetSavePending}
+                          onSelection={acceptTargetSelection}
+                          onSelectionError={(_code, message) =>
+                            setTargetDrawError(message)
+                          }
+                        />
+                      )}
+                    </PdfPage>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="score-sidebar-toggle"
+              aria-controls="score-region-panel"
+              aria-expanded={sectionsVisible}
+              aria-label={
+                sectionsVisible
+                  ? "Collapse tricky sections"
+                  : "Expand tricky sections"
+              }
+              onClick={() => setSectionsVisible((visible) => !visible)}
+            >
+              <span aria-hidden="true">{sectionsVisible ? "›" : "‹"}</span>
+            </button>
+
+            <aside
+              id="score-region-panel"
+              className="score-region-panel"
+              aria-label="Score Regions"
+            >
+              <div className="score-region-panel-head">
+                <div>
+                  <span className="ck-label">Score map</span>
+                  <h3>Tricky sections</h3>
+                </div>
+                <span>{regions.length}</span>
+              </div>
+              {graphError && (
+                <p className="ck-inline-error" role="alert">
+                  {graphError}
+                </p>
+              )}
+              {navigationNotice && (
+                <p className="score-map-notice" role="status">
+                  {navigationNotice}
+                </p>
+              )}
+              <div className="score-region-tools">
+                <input
+                  aria-label="Search tricky sections"
+                  type="search"
+                  value={regionQuery}
+                  placeholder="Search titles, notes, measures…"
+                  onChange={(event) => setRegionQuery(event.target.value)}
+                />
+                <button
+                  type="button"
+                  aria-expanded={addingRegion}
+                  onClick={() => setAddingRegion((value) => !value)}
+                >
+                  {addingRegion ? "Cancel" : "+ Add"}
+                </button>
+              </div>
+              {addingRegion && (
+                <form
+                  className="score-add-region-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void createRegion();
+                  }}
+                >
+                  <label>
+                    <span>Section title</span>
+                    <input
+                      autoFocus
+                      aria-label="New score tricky section title"
+                      maxLength={500}
+                      value={newRegionTitle}
+                      onChange={(event) =>
+                        setNewRegionTitle(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>Practice notes</span>
+                    <textarea
+                      aria-label="New score tricky section practice notes"
+                      maxLength={10000}
+                      value={newRegionNotes}
+                      onChange={(event) =>
+                        setNewRegionNotes(event.target.value)
+                      }
+                    />
+                  </label>
+                  <div>
+                    <label>
+                      <span>From measure</span>
+                      <input
+                        aria-label="New score tricky section start measure"
+                        type="number"
+                        min="1"
+                        value={newRegionStart}
+                        onChange={(event) =>
+                          setNewRegionStart(event.target.value)
                         }
                       />
-                    )}
-                  </PdfPage>
-                );
-              })}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            className="score-sidebar-toggle"
-            aria-controls="score-region-panel"
-            aria-expanded={sectionsVisible}
-            aria-label={
-              sectionsVisible
-                ? "Collapse tricky sections"
-                : "Expand tricky sections"
-            }
-            onClick={() => setSectionsVisible((visible) => !visible)}
-          >
-            <span aria-hidden="true">{sectionsVisible ? "›" : "‹"}</span>
-          </button>
-
-          <aside
-            id="score-region-panel"
-            className="score-region-panel"
-            aria-label="Score Regions"
-          >
-            <div className="score-region-panel-head">
-              <div>
-                <span className="ck-label">Score map</span>
-                <h3>Tricky sections</h3>
-              </div>
-              <span>{regions.length}</span>
-            </div>
-            {graphError && (
-              <p className="ck-inline-error" role="alert">
-                {graphError}
+                    </label>
+                    <label>
+                      <span>To measure</span>
+                      <input
+                        aria-label="New score tricky section end measure"
+                        type="number"
+                        min="1"
+                        value={newRegionEnd}
+                        onChange={(event) =>
+                          setNewRegionEnd(event.target.value)
+                        }
+                      />
+                    </label>
+                  </div>
+                  <button type="submit" disabled={creatingRegion}>
+                    {creatingRegion ? "Creating…" : "Create + mark score"}
+                  </button>
+                </form>
+              )}
+              <p className="score-region-order-note">
+                In score order · click a section to open its tools
               </p>
-            )}
-            {navigationNotice && (
-              <p className="score-map-notice" role="status">
-                {navigationNotice}
-              </p>
-            )}
-            <div className="score-region-tools">
-              <input
-                aria-label="Search tricky sections"
-                type="search"
-                value={regionQuery}
-                placeholder="Search titles, notes, measures…"
-                onChange={(event) => setRegionQuery(event.target.value)}
-              />
-              <button
-                type="button"
-                aria-expanded={addingRegion}
-                onClick={() => setAddingRegion((value) => !value)}
-              >
-                {addingRegion ? "Cancel" : "+ Add"}
-              </button>
-            </div>
-            {addingRegion && (
-              <form
-                className="score-add-region-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void createRegion();
-                }}
-              >
-                <label>
-                  <span>Section title</span>
-                  <input
-                    autoFocus
-                    aria-label="New score tricky section title"
-                    maxLength={500}
-                    value={newRegionTitle}
-                    onChange={(event) => setNewRegionTitle(event.target.value)}
-                  />
-                </label>
-                <label>
-                  <span>Practice notes</span>
-                  <textarea
-                    aria-label="New score tricky section practice notes"
-                    maxLength={10000}
-                    value={newRegionNotes}
-                    onChange={(event) => setNewRegionNotes(event.target.value)}
-                  />
-                </label>
-                <div>
-                  <label>
-                    <span>From measure</span>
-                    <input
-                      aria-label="New score tricky section start measure"
-                      type="number"
-                      min="1"
-                      value={newRegionStart}
-                      onChange={(event) =>
-                        setNewRegionStart(event.target.value)
-                      }
-                    />
-                  </label>
-                  <label>
-                    <span>To measure</span>
-                    <input
-                      aria-label="New score tricky section end measure"
-                      type="number"
-                      min="1"
-                      value={newRegionEnd}
-                      onChange={(event) => setNewRegionEnd(event.target.value)}
-                    />
-                  </label>
-                </div>
-                <button type="submit" disabled={creatingRegion}>
-                  {creatingRegion ? "Creating…" : "Create + mark score"}
-                </button>
-              </form>
-            )}
-            <p className="score-region-order-note">
-              In score order · click a section to open its tools
-            </p>
-            <div className="score-region-list">
-              {displayedRegions.map((region) => {
-                const mapped =
-                  edition &&
-                  anchorForEdition(
-                    region.pdf_anchor,
-                    edition.id,
-                    edition.fingerprint,
-                  );
-                const stale = edition
-                  ? editionHasStaleAnchor(region, edition)
-                  : false;
-                const expanded = expandedRegionId === region.id;
-                const noteSummary =
-                  region.notes?.trim() &&
-                  region.notes.trim() !== region.name.trim()
-                    ? region.notes.trim()
-                    : null;
-                return (
-                  <div
-                    className={`score-region-item ${expanded ? "is-expanded" : ""}`}
-                    key={region.id}
-                  >
-                    <button
-                      type="button"
-                      className={`score-region-row ${selectedRegionId === region.id ? "is-selected" : ""}`}
-                      aria-expanded={expanded}
-                      aria-label={`${region.name}, measures ${region.m_start} to ${region.m_end}`}
-                      onClick={() => {
-                        if (expanded) {
-                          if (mapping?.regionId === region.id) {
-                            setNavigationNotice(
-                              "Save or cancel the open score-mark edits before closing this section.",
-                            );
+              <div className="score-region-list">
+                {displayedRegions.map((region) => {
+                  const mapped =
+                    edition &&
+                    anchorForEdition(
+                      region.pdf_anchor,
+                      edition.id,
+                      edition.fingerprint,
+                    );
+                  const stale = edition
+                    ? editionHasStaleAnchor(region, edition)
+                    : false;
+                  const expanded = expandedRegionId === region.id;
+                  const noteSummary =
+                    region.notes?.trim() &&
+                    region.notes.trim() !== region.name.trim()
+                      ? region.notes.trim()
+                      : null;
+                  return (
+                    <div
+                      className={`score-region-item ${expanded ? "is-expanded" : ""}`}
+                      key={region.id}
+                    >
+                      <button
+                        type="button"
+                        className={`score-region-row ${selectedRegionId === region.id ? "is-selected" : ""}`}
+                        aria-expanded={expanded}
+                        aria-label={`${region.name}, measures ${region.m_start} to ${region.m_end}`}
+                        onClick={() => {
+                          if (expanded) {
+                            if (mapping?.regionId === region.id) {
+                              setNavigationNotice(
+                                "Save or cancel the open score-mark edits before closing this section.",
+                              );
+                              return;
+                            }
+                            setExpandedRegionId(null);
                             return;
                           }
-                          setExpandedRegionId(null);
-                          return;
-                        }
-                        selectRegion(region.id);
-                      }}
-                    >
-                      <span
-                        className="score-region-dot"
-                        style={{ background: region.color ?? "var(--accent)" }}
-                      />
-                      <span>
-                        <strong>{region.name}</strong>
-                        <small>
-                          mm. {region.m_start}–{region.m_end}
-                          {noteSummary ? ` · ${noteSummary}` : ""}
-                        </small>
-                      </span>
-                      <em
-                        className={
-                          stale ? "is-stale" : mapped ? "is-mapped" : ""
-                        }
+                          selectRegion(region.id);
+                        }}
                       >
-                        {stale
-                          ? "remap"
-                          : mapped
-                            ? `${mapped.rects.length} mark${mapped.rects.length === 1 ? "" : "s"}`
-                            : "unmapped"}
-                      </em>
-                      <span className="score-region-chevron" aria-hidden="true">
-                        {expanded ? "⌄" : "›"}
+                        <span
+                          className="score-region-dot"
+                          style={{
+                            background: region.color ?? "var(--accent)",
+                          }}
+                        />
+                        <span>
+                          <strong>{region.name}</strong>
+                          <small>
+                            mm. {region.m_start}–{region.m_end}
+                            {noteSummary ? ` · ${noteSummary}` : ""}
+                          </small>
+                        </span>
+                        <em
+                          className={
+                            stale ? "is-stale" : mapped ? "is-mapped" : ""
+                          }
+                        >
+                          {stale
+                            ? "remap"
+                            : mapped
+                              ? `${mapped.rects.length} mark${mapped.rects.length === 1 ? "" : "s"}`
+                              : "unmapped"}
+                        </em>
+                        <span
+                          className="score-region-chevron"
+                          aria-hidden="true"
+                        >
+                          {expanded ? "⌄" : "›"}
+                        </span>
+                      </button>
+                      {expanded && renderRegionInspector(region)}
+                    </div>
+                  );
+                })}
+                {displayedRegions.length === 0 && (
+                  <p className="tutorial-empty">
+                    No sections match that search.
+                  </p>
+                )}
+              </div>
+            </aside>
+
+            {targetMode && targetDraftId && edition && targetAnchor && (
+              <aside
+                className={`score-atlas-draft-dock is-${dockCorner} ${
+                  dockCollapsed ? "is-collapsed" : ""
+                }`}
+                aria-label="New target draft editor"
+              >
+                <div className="score-atlas-dock-bar">
+                  <span className="score-atlas-dock-title">Target draft</span>
+                  <div className="score-atlas-dock-controls">
+                    <button
+                      type="button"
+                      className="score-atlas-dock-btn"
+                      aria-label={
+                        dockCorner === "top-right"
+                          ? "Move draft to bottom-right corner"
+                          : "Move draft to top-right corner"
+                      }
+                      title="Move corner"
+                      onClick={() =>
+                        setDockCorner((corner) =>
+                          corner === "top-right" ? "bottom-right" : "top-right",
+                        )
+                      }
+                    >
+                      <span aria-hidden="true">
+                        {dockCorner === "top-right" ? "⤓" : "⤒"}
                       </span>
                     </button>
-                    {expanded && renderRegionInspector(region)}
+                    <button
+                      type="button"
+                      className="score-atlas-dock-btn"
+                      aria-expanded={!dockCollapsed}
+                      aria-label={
+                        dockCollapsed
+                          ? "Expand target draft"
+                          : "Collapse target draft"
+                      }
+                      title={dockCollapsed ? "Expand" : "Collapse"}
+                      onClick={() => setDockCollapsed((value) => !value)}
+                    >
+                      <span aria-hidden="true">
+                        {dockCollapsed ? "▸" : "▾"}
+                      </span>
+                    </button>
                   </div>
-                );
-              })}
-              {displayedRegions.length === 0 && (
-                <p className="tutorial-empty">No sections match that search.</p>
-              )}
-            </div>
-          </aside>
+                </div>
+                {!dockCollapsed && (
+                  <div className="score-atlas-dock-body">
+                    <TargetDraftEditor
+                      key={targetDraftId}
+                      draftId={targetDraftId}
+                      pieceId={pieceId}
+                      edition={{
+                        edition_id: edition.id,
+                        edition_fingerprint: edition.fingerprint,
+                      }}
+                      pageNumber={targetAnchor?.rects[0]?.page ?? currentPage}
+                      minimumCandidateConfidence={TARGET_CANDIDATE_THRESHOLD}
+                      resolveMapping={resolveTargetMapping}
+                      initialAnchor={targetAnchor}
+                      onSelectionChange={acceptTargetSelection}
+                      externalScoreSurface
+                      externalError={targetDrawError}
+                      onSave={saveTarget}
+                      onCancel={cancelTargetDraft}
+                      onRequestMapping={openWizard}
+                    />
+                  </div>
+                )}
+              </aside>
+            )}
+          </div>
+        )}
 
-          {targetMode && targetDraftId && edition && targetAnchor && (
-            <aside
-              className={`score-atlas-draft-dock is-${dockCorner} ${
-                dockCollapsed ? "is-collapsed" : ""
-              }`}
-              aria-label="New target draft editor"
-            >
-              <div className="score-atlas-dock-bar">
-                <span className="score-atlas-dock-title">Target draft</span>
-                <div className="score-atlas-dock-controls">
-                  <button
-                    type="button"
-                    className="score-atlas-dock-btn"
-                    aria-label={
-                      dockCorner === "top-right"
-                        ? "Move draft to bottom-right corner"
-                        : "Move draft to top-right corner"
-                    }
-                    title="Move corner"
-                    onClick={() =>
-                      setDockCorner((corner) =>
-                        corner === "top-right" ? "bottom-right" : "top-right",
-                      )
-                    }
-                  >
-                    <span aria-hidden="true">
-                      {dockCorner === "top-right" ? "⤓" : "⤒"}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="score-atlas-dock-btn"
-                    aria-expanded={!dockCollapsed}
-                    aria-label={
-                      dockCollapsed
-                        ? "Expand target draft"
-                        : "Collapse target draft"
-                    }
-                    title={dockCollapsed ? "Expand" : "Collapse"}
-                    onClick={() => setDockCollapsed((value) => !value)}
-                  >
-                    <span aria-hidden="true">{dockCollapsed ? "▸" : "▾"}</span>
-                  </button>
-                </div>
-              </div>
-              {!dockCollapsed && (
-                <div className="score-atlas-dock-body">
-                  <TargetDraftEditor
-                    key={targetDraftId}
-                    draftId={targetDraftId}
-                    pieceId={pieceId}
-                    edition={{
-                      edition_id: edition.id,
-                      edition_fingerprint: edition.fingerprint,
-                    }}
-                    pageNumber={targetAnchor?.rects[0]?.page ?? currentPage}
-                    minimumCandidateConfidence={TARGET_CANDIDATE_THRESHOLD}
-                    resolveMapping={resolveTargetMapping}
-                    initialAnchor={targetAnchor}
-                    onSelectionChange={acceptTargetSelection}
-                    externalScoreSurface
-                    externalError={targetDrawError}
-                    onSave={saveTarget}
-                    onCancel={cancelTargetDraft}
-                    onRequestMapping={openWizard}
-                  />
-                </div>
-              )}
-            </aside>
-          )}
-        </div>
-      )}
+        {firstPagePreview && (
+          <img
+            className="score-first-page-preview"
+            src={firstPagePreview}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+          />
+        )}
+      </div>
 
       {wizardOpen && edition && (
         <MapScoreWizard

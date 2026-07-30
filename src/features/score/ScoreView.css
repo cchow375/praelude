@@ -8,6 +8,35 @@
   overflow: hidden;
 }
 
+/* The score area below the toolbar. Positioned so the piece-switch preview can
+   overlay whatever is beneath it (the "Loading PDF…" placeholder, then the real
+   pages) until the true first page paints and the preview is retired. */
+.score-viewport {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+/* Instant fitted first-page snapshot painted on a piece switch. Display-only:
+   pointer-events none so it never intercepts interaction, and it sits above the
+   decoding page, fitted the same way (contain), until the real raster swaps in
+   and clears it. No spinner — the quiet swap is the only signal. */
+.score-first-page-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center top;
+  padding: 20px;
+  background: var(--surface-app);
+  pointer-events: none;
+  user-select: none;
+  z-index: 3;
+}
+
 .score-toolbar {
   position: relative;
   z-index: 4;

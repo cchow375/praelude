@@ -25,6 +25,7 @@ import type {
   ScorePdfApi,
 } from "./types";
 import type { AtomicTargetSavePayload } from "./atlas/savePayload";
+import { fitContextBucket } from "./firstPageCache";
 
 const EDITIONS: PdfEdition[] = [
   {
@@ -91,6 +92,8 @@ function makeApi(overrides: Partial<ScorePdfApi> = {}): ScorePdfApi {
     createTarget: vi
       .fn()
       .mockImplementation(async (payload) => synthesizeSavedRegion(payload)),
+    loadFirstPage: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+    saveFirstPage: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -784,6 +787,161 @@ describe("ScoreView", () => {
         name: "New piece section, measures 9 to 16",
       }),
     ).toBeTruthy();
+  });
+
+  describe("piece-switch first-page cache", () => {
+    // jsdom has no object-URL machinery; the preview path guards on it, so stub
+    // it locally and always restore so no other test starts painting previews.
+    function withObjectUrls<T>(body: () => Promise<T>): Promise<T> {
+      const origCreate = (URL as unknown as { createObjectURL?: unknown })
+        .createObjectURL;
+      const origRevoke = (URL as unknown as { revokeObjectURL?: unknown })
+        .revokeObjectURL;
+      const createObjectURL = vi.fn(() => "blob:preview-url");
+      const revokeObjectURL = vi.fn();
+      (URL as unknown as { createObjectURL: unknown }).createObjectURL =
+        createObjectURL;
+      (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL =
+        revokeObjectURL;
+      const restore = () => {
+        (URL as unknown as { createObjectURL: unknown }).createObjectURL =
+          origCreate;
+        (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL =
+          origRevoke;
+      };
+      return body().finally(restore);
+    }
+
+    const pngBytes = () =>
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10]).buffer;
+    const preview = () =>
+      document.querySelector<HTMLImageElement>(".score-first-page-preview");
+    // 900×700 is the jsdom fallback viewport (clientWidth/Height are 0), Fit-page
+    // is the default mode: this is the exact bucket the switch will request.
+    const expectedBucket = fitContextBucket("page", 900, 700);
+
+    it("paints a cached first-page bitmap instantly on switch, then swaps in the real page without flicker", async () =>
+      withObjectUrls(async () => {
+        let resolveBytes!: (value: ArrayBuffer) => void;
+        const bytesForEight = new Promise<ArrayBuffer>((resolve) => {
+          resolveBytes = resolve;
+        });
+        const bytes = vi.fn((pieceId: number) =>
+          pieceId === 8 ? bytesForEight : Promise.resolve(new ArrayBuffer(8)),
+        );
+        // A hit only for the target piece; the source piece stays a clean miss.
+        const loadFirstPage = vi.fn((pieceId: number) =>
+          Promise.resolve(pieceId === 8 ? pngBytes() : new ArrayBuffer(0)),
+        );
+        const api = makeApi({ bytes, loadFirstPage });
+        const pdf = makePdf(1);
+
+        const view = render(
+          <ScoreView pieceId={7} api={api} adapter={pdf.adapter} />,
+        );
+        await screen.findByLabelText("Score page 1");
+        expect(preview()).toBeNull();
+
+        // Switch to piece 8; its document bytes stay pending so we can observe
+        // the instant cached paint while the real PDF is still "decoding".
+        view.rerender(
+          <ScoreView pieceId={8} api={api} adapter={pdf.adapter} />,
+        );
+
+        const shown = await waitFor(() => {
+          const el = preview();
+          expect(el).not.toBeNull();
+          return el as HTMLImageElement;
+        });
+        expect(shown.getAttribute("src")).toBe("blob:preview-url");
+        // The cache is display-only: aria-hidden keeps it out of the a11y tree,
+        // and the real interaction guard is the doc-load gate below (no page, so
+        // no RegionOverlay, mounts until the live document arrives).
+        expect(shown.getAttribute("aria-hidden")).toBe("true");
+        // The real page is not mounted yet — only the cached snapshot is showing.
+        expect(screen.queryByLabelText("Score page 1")).toBeNull();
+        expect(loadFirstPage).toHaveBeenCalledWith(8, "a", 1, expectedBucket);
+
+        // The real document arrives; the true first page rasterizes and the
+        // preview is retired in the same pass — no blank frame between them.
+        await act(async () => {
+          resolveBytes(new ArrayBuffer(8));
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+        await screen.findByLabelText("Score page 1");
+        await waitFor(() => expect(preview()).toBeNull());
+      }));
+
+    it("shows no preview and behaves exactly as today when the cache misses", async () =>
+      withObjectUrls(async () => {
+        let resolveBytes!: (value: ArrayBuffer) => void;
+        const bytesForEight = new Promise<ArrayBuffer>((resolve) => {
+          resolveBytes = resolve;
+        });
+        const bytes = vi.fn((pieceId: number) =>
+          pieceId === 8 ? bytesForEight : Promise.resolve(new ArrayBuffer(8)),
+        );
+        // Every load is a miss (empty buffer) — the on-disk-empty / stale case.
+        const loadFirstPage = vi.fn(() => Promise.resolve(new ArrayBuffer(0)));
+        const createObjectURL = URL.createObjectURL as ReturnType<typeof vi.fn>;
+        const api = makeApi({ bytes, loadFirstPage });
+        const pdf = makePdf(1);
+
+        const view = render(
+          <ScoreView pieceId={7} api={api} adapter={pdf.adapter} />,
+        );
+        await screen.findByLabelText("Score page 1");
+
+        view.rerender(
+          <ScoreView pieceId={8} api={api} adapter={pdf.adapter} />,
+        );
+        // Wait until the switch is genuinely mid-load (bytes still pending).
+        await screen.findByText("Loading PDF…");
+        await waitFor(() =>
+          expect(loadFirstPage).toHaveBeenCalledWith(8, "a", 1, expectedBucket),
+        );
+        // A miss never paints and never mints an object URL.
+        expect(preview()).toBeNull();
+        expect(createObjectURL).not.toHaveBeenCalled();
+
+        await act(async () => {
+          resolveBytes(new ArrayBuffer(8));
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+        await screen.findByLabelText("Score page 1");
+        expect(preview()).toBeNull();
+      }));
+
+    it("keys the cached snapshot by the current fit bucket so a stale-bucket entry is a miss, not a wrong-sized paint", async () =>
+      withObjectUrls(async () => {
+        const loadFirstPage = vi.fn(
+          (
+            _pieceId: number,
+            _fingerprint: string,
+            _page: number,
+            bucket: string,
+          ) =>
+            // The persisted snapshot lives under a *different* (stale) bucket;
+            // the request for the current bucket therefore misses.
+            Promise.resolve(
+              bucket === "page-99x99" ? pngBytes() : new ArrayBuffer(0),
+            ),
+        );
+        const createObjectURL = URL.createObjectURL as ReturnType<typeof vi.fn>;
+        const api = makeApi({ loadFirstPage });
+        const pdf = makePdf(1);
+
+        render(<ScoreView pieceId={8} api={api} adapter={pdf.adapter} />);
+        await screen.findByLabelText("Score page 1");
+
+        expect(loadFirstPage).toHaveBeenCalledWith(8, "a", 1, expectedBucket);
+        expect(expectedBucket).not.toBe("page-99x99");
+        // The stale-bucket entry was never painted.
+        expect(preview()).toBeNull();
+        expect(createObjectURL).not.toHaveBeenCalled();
+      }));
   });
 
   it("shows an honest no-PDF state", async () => {

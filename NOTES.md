@@ -2,6 +2,39 @@
 
 ## Decisions
 
+- **v4 ledger #21 — piece-switch first-page bitmap cache (2026-07-30, lane
+  `lane/piece-switch-cache`):** makes switching pieces feel instant. Phase A killed the flash;
+  the first fitted page still waited on PDF.js parse + first scanned-image decode. Now, after a
+  piece's first page rasterizes at a fit scale, a compressed snapshot (`canvas.toBlob`
+  WebP→JPEG fallback, q0.8, at fit resolution) is cached and painted instantly on the next
+  switch while the real doc re-decodes and swaps in on the first real raster (reuses PdfPage's
+  offscreen-blit; new `onRasterized` callback, held in a ref so identity churn never re-runs the
+  decode effect).
+  - **Storage = Rust command pair, not IndexedDB.** `score_page_cache_load/save`
+    (`src-tauri/src/score/page_cache.rs`) persist opaque bytes under the OS **app-cache** dir
+    (`app_cache_dir()/score-first-page/`) — never the vault, never the DB. Reasons: (1) matches
+    the additive `score_*` command idiom (`score_pdf_bytes` raw `ipc::Response`,
+    `score_calibration_save`) with strong Rust test culture; (2) WKWebView custom-protocol
+    IndexedDB persistence is the same class of browser-API unreliability the adapter already
+    documents disabling (OffscreenCanvas/ImageDecoder/module-worker); (3) bounded (24 entries,
+    LRU) + path-safe (on-disk names are pure counter integers, caller text never reaches a path)
+    - inspectable + deterministic across relaunch. No new npm/cargo deps — the browser encodes,
+      the backend just stores bytes; load sniffs the MIME (`sniffImageMime`) so no dual return.
+  - **Fit bucket is derived from values known BEFORE the doc loads** (scale mode + quantized
+    viewport, `fitContextBucket`), because at switch time the page's dimensions are still
+    unparsed — that's the whole problem. A resized window / different mode = different key = a
+    natural miss, never a wrong-sized paint. Only true fit modes (`page`/`width`) are cached.
+  - **Correctness:** preview is display-only (`aria-hidden`, `pointer-events:none`), cleared on
+    the first real raster / on error / on the next switch; regions already gate on a live
+    `document` (the `phase!=="loading-document" && document` render gate), so overlays never
+    render against the stale bitmap. Misses never error the switch (all cache IO best-effort).
+  - **Measured (modeled-decode bench, jsdom, since dev:mock serves a trivial vector PDF and
+    node can't rasterize pdfjs):** warm time-to-first-paint is flat ~10–12 ms regardless of
+    decode cost; cold tracks the full decode (163/421/815 ms at 150/400/800 ms modeled) —
+    16.9×/35.6×/66× faster first paint. The real scanned-edition delta is strictly larger.
+  - Gates: frontend 1248/0 (123 files), `tsc --noEmit` clean, Rust `page_cache` 11/0, clippy
+    `--lib` clean. Pre-commit `git ls-files node_modules` empty.
+
 - **v4 Phase C2 — notebook data layer (2026-07-28, lane `lane/c-notebook`):** the frontend half
   of the day-sheet/piece-plan contract (`.workflow/scratch/day-sheet-contract.md`).
   - **Pure line model split in two:** `src/features/notebook/lines.ts` owns the 7 `NotebookLine`

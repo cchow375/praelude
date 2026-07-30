@@ -406,6 +406,58 @@ describe("PdfPage", () => {
     expect(screen.getByText("overlay content")).toBeTruthy();
   });
 
+  it("notifies onRasterized with the page number and painted canvas after a blit", async () => {
+    const { page } = makeReadyPage();
+    const document = makeDocument(() => Promise.resolve(page));
+    const onRasterized = vi.fn();
+    render(
+      <PdfPage
+        document={document}
+        pageNumber={1}
+        active
+        scale={1}
+        onRasterized={onRasterized}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onRasterized).toHaveBeenCalledTimes(1);
+    const [pageNumber, canvas] = onRasterized.mock.calls[0];
+    expect(pageNumber).toBe(1);
+    expect(canvas).toBe(screen.getByLabelText("Rendered score page 1"));
+    expect((canvas as HTMLCanvasElement).width).toBe(1000);
+  });
+
+  it("does not fire onRasterized when the render task fails", async () => {
+    const page: PdfPageHandle = {
+      width: 600,
+      height: 800,
+      cleanup: vi.fn(),
+      render: () => ({
+        promise: Promise.reject(new Error("boom")),
+        cancel: vi.fn(),
+      }),
+    };
+    const document = makeDocument(() => Promise.resolve(page));
+    const onRasterized = vi.fn();
+    render(
+      <PdfPage
+        document={document}
+        pageNumber={1}
+        active
+        scale={1}
+        onRasterized={onRasterized}
+      />,
+    );
+
+    expect(await screen.findByText("Page 1: boom")).toBeTruthy();
+    expect(onRasterized).not.toHaveBeenCalled();
+  });
+
   it("cancels any in-flight task and clears the canvas on unmount", async () => {
     const { page, cancel } = makeReadyPage();
     const document = makeDocument(() => Promise.resolve(page));
