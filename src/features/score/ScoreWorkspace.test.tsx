@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 
 const invokeMock = vi.hoisted(() => vi.fn());
@@ -25,6 +26,8 @@ vi.mock("./ScoreView", () => ({
 
 import { ScoreWorkspace } from "./ScoreWorkspace";
 import type { ScoreViewProps } from "./ScoreView";
+import { ReceiptCenterProvider } from "../receipts/ReceiptCenter";
+import { TodaySheetProvider } from "../notebook/DaySheetStore";
 
 afterEach(() => {
   cleanup();
@@ -119,11 +122,11 @@ describe("ScoreWorkspace", () => {
       return Promise.resolve(undefined);
     });
 
-    render(
-      <ScoreWorkspace requestedPieceId={3} requestRevision={1} />,
-    );
+    render(<ScoreWorkspace requestedPieceId={3} requestRevision={1} />);
 
-    expect(await screen.findByRole("heading", { name: "Unscanned Prelude" })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Unscanned Prelude" }),
+    ).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toMatch(
       /No PDF score is available for Unscanned Prelude/i,
     );
@@ -228,6 +231,50 @@ describe("ScoreWorkspace", () => {
     render(<ScoreWorkspace />);
     await waitFor(() =>
       expect(screen.getByText(/No pieces with a PDF score yet/i)).toBeTruthy(),
+    );
+  });
+
+  it("opens on the Plan tab for a deep link and lists the piece's plan items (spec C3)", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      if (command === "day_sheet_get") {
+        return Promise.resolve({
+          date: "2026-07-27",
+          body: [
+            { type: "piece", piece_id: 1 },
+            { type: "item", text: "Slow hands separately", checked: false },
+          ],
+          updated_at: "2026-07-27T00:00:00Z",
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    render(
+      <ReceiptCenterProvider>
+        <TodaySheetProvider>
+          <ScoreWorkspace
+            requestedPieceId={1}
+            requestRevision={1}
+            requestedTab="plan"
+          />
+        </TodaySheetProvider>
+      </ReceiptCenterProvider>,
+    );
+
+    // The deep link lands on the Plan tab, selected, not the Score reader.
+    const planTab = await screen.findByRole("tab", { name: "Plan" });
+    await waitFor(() =>
+      expect(planTab.getAttribute("aria-selected")).toBe("true"),
+    );
+    // That piece's today plan item is shown from the shared store.
+    const plan = await screen.findByRole("region", {
+      name: "Today's plan for this piece",
+    });
+    await waitFor(() =>
+      expect(
+        within(plan).queryByDisplayValue("Slow hands separately"),
+      ).toBeTruthy(),
     );
   });
 });

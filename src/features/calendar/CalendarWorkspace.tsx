@@ -11,6 +11,7 @@ import type {
   RecoveryPreview,
 } from "./types";
 import { RetentionQueue } from "../retention";
+import { DaySheetWindow } from "../notebook/DaySheetWindow";
 import "./CalendarWorkspace.css";
 
 export interface CalendarWorkspaceProps {
@@ -34,6 +35,7 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
   const [preview, setPreview] = useState<RecoveryPreview | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [retentionOpen, setRetentionOpen] = useState(false);
+  const [sheetDate, setSheetDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const weekEnd = addDays(weekStart, 6);
@@ -218,10 +220,15 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
                 references={references}
                 api={api}
                 onMutate={mutate}
+                onOpenSheet={() => setSheetDate(date)}
               />
             );
           })}
         </section>
+      )}
+
+      {sheetDate && (
+        <DaySheetWindow date={sheetDate} onClose={() => setSheetDate(null)} />
       )}
     </main>
   );
@@ -236,6 +243,7 @@ function CalendarDay({
   references,
   api,
   onMutate,
+  onOpenSheet,
 }: {
   date: string;
   today: string;
@@ -245,6 +253,7 @@ function CalendarDay({
   references: References;
   api: CalendarApi;
   onMutate: (operation: () => Promise<unknown>) => Promise<boolean>;
+  onOpenSheet: () => void;
 }) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
@@ -253,7 +262,7 @@ function CalendarDay({
   return (
     <section className={`calendar-day ${date === today ? "is-today" : ""}`} aria-label={`${label.weekday} ${label.date}`}>
       <header>
-        <div><span>{label.weekday}</span><strong>{label.date}</strong></div>
+        <button type="button" className="calendar-day-sheet-open" aria-label={`Open day sheet for ${label.weekday} ${label.date}`} onClick={onOpenSheet}><span>{label.weekday}</span><strong>{label.date}</strong></button>
         <span className={used > capacity ? "is-over" : ""}>{used}/{capacity} min</span>
       </header>
       {milestones.length > 0 && (

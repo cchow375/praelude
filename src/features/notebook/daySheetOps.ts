@@ -9,6 +9,7 @@
 import {
   MAX_BLOCK_MINUTES,
   MIN_BLOCK_MINUTES,
+  type BlockLine,
   type ItemLine,
   type LessonNotesLine,
   type NotebookLine,
@@ -354,4 +355,103 @@ export function nextEditableIndex(
     if (body[i].type === "text" || body[i].type === "item") return i;
   }
   return null;
+}
+
+// --- Piece-scoped plan items (spec C3: the Score "Plan" tab) ---------------
+// The day sheet is the one store; the Plan tab is a piece-scoped VIEW over it.
+// An item belongs to a piece when it either carries that piece_id explicitly or
+// inherits it from the nearest preceding piece heading. These pure helpers let
+// the Plan tab read and mutate the SAME body the sheet edits, so the two surfaces
+// live-sync with no duplicate state.
+
+/** The piece a plan item belongs to: its explicit id, else its heading context. */
+export function itemPieceId(
+  body: NotebookLine[],
+  index: number,
+): number | null {
+  const line = body[index];
+  if (line.type !== "item") return null;
+  return line.piece_id ?? pieceContextAt(body, index);
+}
+
+/** Every plan item (with its body index) belonging to `pieceId`, in sheet order. */
+export function planItemsForPiece(
+  body: NotebookLine[],
+  pieceId: number,
+): { index: number; line: ItemLine }[] {
+  const out: { index: number; line: ItemLine }[] = [];
+  body.forEach((line, index) => {
+    if (line.type === "item" && itemPieceId(body, index) === pieceId) {
+      out.push({ index, line });
+    }
+  });
+  return out;
+}
+
+/** The index just past `pieceId`'s contiguous section (before the next heading). */
+function pieceSectionEnd(body: NotebookLine[], headingIndex: number): number {
+  let end = headingIndex + 1;
+  for (let i = headingIndex + 1; i < body.length; i += 1) {
+    if (body[i].type === "piece") break;
+    end = i + 1;
+  }
+  return end;
+}
+
+/** Append a plan item for a piece, into its section if it has a heading (spec C3). */
+export function appendPlanItem(
+  body: NotebookLine[],
+  pieceId: number,
+  text: string,
+): { body: NotebookLine[]; index: number } {
+  const item: ItemLine = {
+    type: "item",
+    text,
+    checked: false,
+    piece_id: pieceId,
+  };
+  const headingIndex = body.findIndex(
+    (line) => line.type === "piece" && line.piece_id === pieceId,
+  );
+  const at =
+    headingIndex >= 0 ? pieceSectionEnd(body, headingIndex) : body.length;
+  const next = body.slice();
+  next.splice(at, 0, item);
+  return { body: next, index: at };
+}
+
+/**
+ * Insert a retention/repair suggestion as real, editable plan lines (spec C5):
+ * a piece heading (added once if absent), a checkbox plan item, and a timed block
+ * carrying the minutes so the sheet header re-totals. Everything round-trips to
+ * text the user can edit or delete — a suggestion is never a parallel surface.
+ */
+export function insertSuggestion(
+  body: NotebookLine[],
+  pieceId: number,
+  itemText: string,
+  minutes: number,
+): NotebookLine[] {
+  const next = body.slice();
+  let headingIndex = next.findIndex(
+    (line) => line.type === "piece" && line.piece_id === pieceId,
+  );
+  if (headingIndex < 0) {
+    next.push({ type: "piece", piece_id: pieceId });
+    headingIndex = next.length - 1;
+  }
+  const at = pieceSectionEnd(next, headingIndex);
+  const item: ItemLine = {
+    type: "item",
+    text: itemText,
+    checked: false,
+    piece_id: pieceId,
+  };
+  const block: BlockLine = {
+    type: "block",
+    minutes: clampMinutes(minutes),
+    piece_id: pieceId,
+  };
+  next.splice(at, 0, item, block);
+  return next;
 }

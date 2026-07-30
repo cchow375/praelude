@@ -14,6 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceStub } from "./WorkspaceStub";
 import { ASSISTANT, HISTORY } from "./terms";
 import { TodayWorkspace } from "../features/today/TodayWorkspace";
+import { TodaySheetProvider } from "../features/notebook/DaySheetStore";
 import { todayLocal } from "../features/calendar/dates";
 import {
   readTodayPlan,
@@ -373,8 +374,10 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     useState<WorkspaceId>("today");
   const [requestedScorePiece, setRequestedScorePiece] = useState({
     pieceId: null as number | null,
+    tab: null as null | "plan",
     revision: 0,
   });
+  const [todayPracticeOpen, setTodayPracticeOpen] = useState(false);
   const [ledgerSurface, setLedgerSurface] = useState<LedgerSurface>("ledger");
   const [requestedLedgerPiece, setRequestedLedgerPiece] = useState({
     pieceId: null as number | null,
@@ -895,13 +898,26 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     focusTab(WORKSPACES[next].id);
   };
 
-  const openPiece = useCallback((piece: PracticePieceContext) => {
-    setRequestedScorePiece((current) => ({
-      pieceId: piece.piece_id,
-      revision: current.revision + 1,
-    }));
-    setView("score");
-  }, []);
+  const openPiece = useCallback(
+    (piece: PracticePieceContext, opts?: { tab?: "plan" }) => {
+      setRequestedScorePiece((current) => ({
+        pieceId: piece.piece_id,
+        tab: opts?.tab ?? null,
+        revision: current.revision + 1,
+      }));
+      setView("score");
+    },
+    [],
+  );
+
+  // Deep link (spec C3): a day-sheet piece heading opens Score on that piece with
+  // the Plan tab active, reusing the same requested-piece navigation idiom.
+  const openPiecePlan = useCallback(
+    (pieceId: number) => {
+      openPiece({ piece_id: pieceId, title: "" }, { tab: "plan" });
+    },
+    [openPiece],
+  );
 
   // Universe detail-panel "Open on score" jump: null piece = open Atlas plain.
   const openFromUniverse = useCallback(
@@ -921,7 +937,32 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     setView("ledger");
   }, []);
 
-  return (
+  // The single active-set HUD element. It docks in the shell stage normally, but
+  // while the Today's-Practice window is open the window renders it instead (so
+  // an active set stays reachable over the overlay — requirement 2). Exactly one
+  // instance mounts: the stage dock is suppressed while the window owns it.
+  const activeSetHud = rep.snap ? (
+    <RepHud
+      snap={rep.snap}
+      feed={rep.feed}
+      error={rep.error}
+      collapsed={repHudCollapsed}
+      onToggleCollapsed={() => setRepHudCollapsed((collapsed) => !collapsed)}
+      onCheck={rep.check}
+      onUndo={rep.undo}
+      onCorrect={rep.correct}
+      onReverseAdjustment={rep.reverseAdjustment}
+      onRestart={rep.restart}
+      onPause={rep.pause}
+      onResume={rep.resume}
+      onReflect={rep.reflect}
+      onSafetyStop={rep.safetyStop}
+      onRecover={rep.recover}
+      onClose={rep.close}
+    />
+  ) : null;
+
+  const shellTree = (
     <div className="shell">
       <aside className="shell-rail" aria-label="CodaKiller">
         <div className="shell-wordmark">CodaKiller</div>
@@ -1002,31 +1043,12 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         role="tabpanel"
         aria-labelledby={view === "settings" ? undefined : `tab-${view}`}
       >
-        {rep.snap && (
+        {rep.snap && !todayPracticeOpen && (
           <aside
             style={repHudCollapsed ? COMPACT_DOCK_STYLE : DOCK_STYLE}
             aria-label="Active practice set"
           >
-            <RepHud
-              snap={rep.snap}
-              feed={rep.feed}
-              error={rep.error}
-              collapsed={repHudCollapsed}
-              onToggleCollapsed={() =>
-                setRepHudCollapsed((collapsed) => !collapsed)
-              }
-              onCheck={rep.check}
-              onUndo={rep.undo}
-              onCorrect={rep.correct}
-              onReverseAdjustment={rep.reverseAdjustment}
-              onRestart={rep.restart}
-              onPause={rep.pause}
-              onResume={rep.resume}
-              onReflect={rep.reflect}
-              onSafetyStop={rep.safetyStop}
-              onRecover={rep.recover}
-              onClose={rep.close}
-            />
+            {activeSetHud}
           </aside>
         )}
         <Suspense
@@ -1044,18 +1066,19 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                     onOpenAtlas={() => {
                       setRequestedScorePiece((current) => ({
                         pieceId: null,
+                        tab: null,
                         revision: current.revision + 1,
                       }));
                       setView("score");
                     }}
                     onOpenCalendar={openCalendar}
-                    onOpenPiece={openPiece}
+                    onOpenPiecePlan={openPiecePlan}
                     onOpenBrain={() => setView("brain")}
                     onOpenLedger={openLedgerHistory}
                     onOpenUniverse={() => setView("universe")}
                     onOpenSettings={openSettings}
-                    defaultCleanStreak={defaultCleanStreak}
-                    activeBlock={rep.snap}
+                    activeSetHud={activeSetHud}
+                    onPracticeOpenChange={setTodayPracticeOpen}
                   />
                 </div>
               )}
@@ -1097,6 +1120,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                 onPracticeContextChange={setScorePracticeContext}
                 requestedPieceId={requestedScorePiece.pieceId}
                 requestRevision={requestedScorePiece.revision}
+                requestedTab={requestedScorePiece.tab}
                 isActive={view === "score"}
                 activeRep={rep.snap}
               />
@@ -1182,4 +1206,5 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       )}
     </div>
   );
+  return <TodaySheetProvider>{shellTree}</TodaySheetProvider>;
 }

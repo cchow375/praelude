@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CalendarWorkspace } from "./CalendarWorkspace";
 import type { CalendarApi, DailyWork, RecoveryPreview } from "./types";
+import { installTauriDevMock, uninstallTauriDevMock } from "../../devMock/tauriDevMock";
 
 const work: DailyWork = {
   id: 11,
@@ -227,5 +228,37 @@ describe("CalendarWorkspace", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("Daily capacity exceeded");
     expect((screen.getByLabelText("Work title") as HTMLInputElement).value).toBe("Keep this draft");
+  });
+});
+
+describe("CalendarWorkspace — past-day sheet (spec C1/C3, ledger 3/11)", () => {
+  beforeEach(() => { installTauriDevMock(); });
+  afterEach(() => { cleanup(); uninstallTauriDevMock(); });
+
+  function seam() {
+    return (window as unknown as { __TAURI_INTERNALS__: { invoke: (cmd: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+  }
+
+  it("opens a past day's own sheet from a quiet Calendar entry, read and editable", async () => {
+    await seam().invoke("day_sheet_save", {
+      date: "2026-07-13",
+      bodyJson: JSON.stringify([{ type: "text", text: "Reviewed the coda landing" }]),
+    });
+
+    const api = makeApi({ list: vi.fn().mockResolvedValue([]) });
+    render(<CalendarWorkspace api={api} initialToday="2026-07-15" />);
+    await screen.findByLabelText("Week of 2026-07-13");
+
+    expect(screen.queryByTestId("day-sheet-window")).toBeNull();
+
+    // The week starts Monday 2026-07-13; its opener is first in the strip.
+    const openers = screen.getAllByRole("button", { name: /^Open day sheet for/ });
+    fireEvent.click(openers[0]);
+
+    const windowDialog = await screen.findByTestId("day-sheet-window");
+    expect(await within(windowDialog).findByDisplayValue("Reviewed the coda landing")).toBeTruthy();
+
+    fireEvent.keyDown(windowDialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("day-sheet-window")).toBeNull());
   });
 });

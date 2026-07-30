@@ -1,6 +1,4 @@
-import { useRef, useState } from "react";
-import type { PracticePieceContext } from "../universe/types";
-import type { RepSnapshot } from "../rep/useRep";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ASSISTANT, HISTORY } from "../../shell/terms";
 import { TodayPracticePanel } from "./TodayPracticePanel";
 import { ReaderWindow } from "../reader/ReaderWindow";
@@ -30,35 +28,38 @@ function openQuote(): Quote | null {
 
 interface TodayWorkspaceProps {
   /** Opens the Score workspace with no requested piece (the "Score" entry and
-   *  the panel's Atlas launchers share this). */
+   *  the panel's Atlas launcher share this). */
   onOpenAtlas: () => void;
   onOpenCalendar: () => void;
-  onOpenPiece: (piece: PracticePieceContext) => void;
+  /** Deep link (spec C3): a day-sheet piece heading opens Score on the Plan tab. */
+  onOpenPiecePlan: (pieceId: number) => void;
   onOpenBrain: () => void;
   onOpenLedger: () => void;
   onOpenUniverse: () => void;
   onOpenSettings: () => void;
-  defaultCleanStreak?: number;
-  /** The live rep set, forwarded to the practice panel's plan progression. */
-  activeBlock?: RepSnapshot | null;
+  /** The shell-owned active-set HUD, docked into the practice window so it stays
+   *  reachable while a set is live (requirement 2). */
+  activeSetHud?: ReactNode;
+  /** Lets the shell hide its own stage HUD while the window owns it (no double). */
+  onPracticeOpenChange?: (open: boolean) => void;
 }
 
 /**
  * The app's main menu. Not a landing page: a quiet app mark, the date, a single
- * practice line, and quiet launcher entries. "Today's Practice" opens the real
- * day surfaces as a window over this menu (all prior Today functionality lives
- * there, unchanged); the rest of the entries jump straight to a workspace.
+ * cycling quote, and quiet launcher entries. "Today's Practice" opens the real
+ * day surfaces as a window over this menu (day-sheet-first, spec C5); the rest of
+ * the entries jump straight to a workspace.
  */
 export function TodayWorkspace({
   onOpenAtlas,
   onOpenCalendar,
-  onOpenPiece,
+  onOpenPiecePlan,
   onOpenBrain,
   onOpenLedger,
   onOpenUniverse,
   onOpenSettings,
-  defaultCleanStreak = 5,
-  activeBlock = null,
+  activeSetHud = null,
+  onPracticeOpenChange,
 }: TodayWorkspaceProps) {
   const [practiceOpen, setPracticeOpen] = useState(false);
   const practiceTriggerRef = useRef<HTMLButtonElement>(null);
@@ -66,6 +67,12 @@ export function TodayWorkspace({
   // in the initializer advances the rotation exactly once per open.
   const [quote] = useState(openQuote);
   const [readerOpen, setReaderOpen] = useState(false);
+
+  // Keep the shell informed so it can hand HUD ownership to the window while the
+  // window is open (and reclaim its stage dock when the window closes).
+  useEffect(() => {
+    onPracticeOpenChange?.(practiceOpen);
+  }, [practiceOpen, onPracticeOpenChange]);
 
   const closePractice = () => {
     setPracticeOpen(false);
@@ -169,9 +176,8 @@ export function TodayWorkspace({
         <TodayPracticePanel
           onOpenAtlas={onOpenAtlas}
           onOpenCalendar={onOpenCalendar}
-          onOpenPiece={onOpenPiece}
-          defaultCleanStreak={defaultCleanStreak}
-          activeBlock={activeBlock}
+          onOpenPiecePlan={onOpenPiecePlan}
+          activeSetHud={activeSetHud}
           onClose={closePractice}
         />
       )}

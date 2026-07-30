@@ -17,6 +17,7 @@ import type { ReactElement } from "react";
 import { installTauriDevMock, uninstallTauriDevMock } from "./tauriDevMock";
 import { ReceiptCenterProvider } from "../features/receipts/ReceiptCenter";
 import { TodayWorkspace } from "../features/today/TodayWorkspace";
+import { TodaySheetProvider } from "../features/notebook/DaySheetStore";
 import { PiecesPanel } from "../features/pieces/PiecesPanel";
 import { LedgerWorkspace } from "../features/ledger/LedgerWorkspace";
 import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
@@ -36,24 +37,27 @@ afterEach(() => {
 });
 
 describe("dev-mock five-workspace render harness", () => {
-  it("mounts Today and shows the most-recently-practiced piece", async () => {
+  it("mounts Today and opens the day-sheet-first practice window", async () => {
     renderWorkspace(
-      <TodayWorkspace
-        onOpenAtlas={() => {}}
-        onOpenCalendar={() => {}}
-        onOpenPiece={() => {}}
-        onOpenBrain={() => {}}
-        onOpenLedger={() => {}}
-        onOpenUniverse={() => {}}
-        onOpenSettings={() => {}}
-      />,
+      <TodaySheetProvider>
+        <TodayWorkspace
+          onOpenAtlas={() => {}}
+          onOpenCalendar={() => {}}
+          onOpenPiecePlan={() => {}}
+          onOpenBrain={() => {}}
+          onOpenLedger={() => {}}
+          onOpenUniverse={() => {}}
+          onOpenSettings={() => {}}
+        />
+      </TodaySheetProvider>,
     );
-    // Today is the app menu now; the day surfaces open as a window over it.
+    // Today is the app menu now; the day surfaces open as a window over it, and
+    // the day sheet is the first surface inside (spec C5).
     fireEvent.click(screen.getByRole("button", { name: "Today's Practice" }));
-    // universe_snapshot drives the "Next honest move" card with the recent piece.
-    expect(
-      await screen.findByRole("heading", { name: "Scherzo No. 2" }),
-    ).toBeTruthy();
+    const dialog = await screen.findByRole("dialog", {
+      name: "Today's Practice",
+    });
+    expect(within(dialog).getByTestId("day-sheet")).toBeTruthy();
   });
 
   it("mounts Atlas (Score Atlas piece library) and lists pieces", async () => {

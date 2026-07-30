@@ -270,9 +270,24 @@
   justify-content: space-between;
   gap: var(--space-2);
 }
-.calendar-day > header > div {
+.calendar-day > header > div,
+.calendar-day-sheet-open {
   display: flex;
   flex-direction: column;
+}
+.calendar-day-sheet-open {
+  align-items: flex-start;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.calendar-day-sheet-open:hover strong,
+.calendar-day-sheet-open:focus-visible strong {
+  text-decoration: underline;
 }
 .calendar-day > header span {
   color: var(--ink-tertiary);

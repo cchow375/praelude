@@ -1,0 +1,70 @@
+.day-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  padding: clamp(0.75rem, 3vh, 2.5rem);
+  background: rgba(6, 6, 8, 0.62);
+}
+
+.day-sheet-window {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 56rem;
+  max-height: 100%;
+  margin: auto;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  box-shadow: var(--shadow-popover);
+}
+
+.day-sheet-window:focus {
+  outline: none;
+}
+
+.day-sheet-window-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-5) var(--s-5) var(--s-4);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.day-sheet-window-head h1 {
+  margin: var(--s-1) 0 0;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.day-sheet-window-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+
+.day-sheet-window-close:hover {
+  color: var(--ink);
+  background: var(--bg-raised);
+}
+
+.day-sheet-window-body {
+  padding: var(--s-5);
+  overflow-x: hidden;
+  overflow-y: auto;
+}

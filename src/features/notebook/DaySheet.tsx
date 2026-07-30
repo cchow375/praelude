@@ -12,7 +12,7 @@ import { useReceipts } from "../receipts/ReceiptCenter";
 import { addDays, parseLocalDate, todayLocal } from "../calendar/dates";
 import type { Goal, PieceSummary } from "../pieces/types";
 import type { DaySheet as DaySheetData, NotebookLine } from "./lines";
-import { useDaySheet } from "./useDaySheet";
+import { useDaySheet, type UseDaySheet } from "./useDaySheet";
 import {
   addBring,
   clampMinutes,
@@ -114,6 +114,24 @@ export interface DaySheetProps {
   onOpenPiece?: (pieceId: number) => void;
 }
 
+export interface DaySheetViewProps extends DaySheetProps {
+  /** The store this editor renders over — the shared today store (spec C5) or a
+   *  standalone per-date store (Calendar/past dates). Injected so the same
+   *  editor body can be two live views of one document with no duplicate state. */
+  sheet: UseDaySheet;
+}
+
+/**
+ * A standalone day sheet with its OWN store — the Calendar's past-date panels and
+ * direct/test renders. Today's sheet is instead rendered by `TodayDaySheet`,
+ * which binds this same editor to the app-wide shared store so the Score Plan tab
+ * stays in live sync (spec C3).
+ */
+export function DaySheet({ date = todayLocal(), onOpenPiece }: DaySheetProps) {
+  const sheet = useDaySheet(date);
+  return <DaySheetView date={date} sheet={sheet} onOpenPiece={onOpenPiece} />;
+}
+
 /**
  * The day sheet (spec C1): one paper-like column you type into. Every line is a
  * typed NotebookLine, and every line reads and edits as text — chips and pickers
@@ -121,8 +139,11 @@ export interface DaySheetProps {
  * delete. Persistence, debounce, reconcile and save receipts are the day-sheet
  * hook's job; this component owns the cursor-first editing surface over its body.
  */
-export function DaySheet({ date = todayLocal(), onOpenPiece }: DaySheetProps) {
-  const sheet = useDaySheet(date);
+export function DaySheetView({
+  date = todayLocal(),
+  onOpenPiece,
+  sheet,
+}: DaySheetViewProps) {
   const { body, setBody } = sheet;
   const receipts = useReceipts();
 

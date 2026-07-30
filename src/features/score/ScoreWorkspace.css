@@ -129,3 +129,45 @@
 .score-workspace-state.is-error {
   color: var(--signal-error);
 }
+
+/* Top-level workspace tabs: Score reader vs today's Plan for the piece (C3). */
+.score-workspace-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.score-workspace-tab {
+  border: none;
+  background: none;
+  color: var(--ink-dim);
+  font: inherit;
+  cursor: pointer;
+  padding: var(--s-1) var(--s-2);
+  border-bottom: 2px solid transparent;
+}
+
+.score-workspace-tab:hover {
+  color: var(--ink);
+}
+
+.score-workspace-tab.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+.score-workspace-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.score-workspace-pane[hidden] {
+  display: none;
+}
+
+.score-workspace-pane > .score-plan {
+  padding: var(--s-4) var(--s-5);
+  max-width: 640px;
+}

@@ -5,8 +5,11 @@ import type { PracticeBrainContext } from "../brain/types";
 import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
 import { ScoreView } from "./ScoreView";
 import { MetronomeQuickBar } from "../metronome/MetronomeQuickBar";
+import { ScorePlanTab } from "../notebook/ScorePlanTab";
 import type { ScoreFocusContext } from "./types";
 import "./ScoreWorkspace.css";
+
+type WorkspaceTab = "score" | "plan";
 
 function messageOf(reason: unknown): string {
   if (reason instanceof Error) return reason.message;
@@ -48,6 +51,9 @@ export interface ScoreWorkspaceProps {
   requestedPieceId?: number | null;
   /** Changes for every navigation request, including repeat requests. */
   requestRevision?: number;
+  /** Which workspace tab a navigation request wants (spec C3 deep link). Each
+   *  request revision re-asserts it, so a day-sheet piece heading lands on Plan. */
+  requestedTab?: WorkspaceTab | null;
   /** False while Shell keeps Score mounted only to preserve local work. */
   isActive?: boolean;
   /** The shell's single live set, used to disable conflicting manual starts. */
@@ -65,6 +71,7 @@ export function ScoreWorkspace({
   onPracticeContextChange,
   requestedPieceId = null,
   requestRevision = 0,
+  requestedTab = null,
   isActive = true,
   activeRep = null,
 }: ScoreWorkspaceProps = {}) {
@@ -75,6 +82,14 @@ export function ScoreWorkspace({
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
+  const [tab, setTab] = useState<WorkspaceTab>("score");
+
+  // Each navigation request sets the tab explicitly: a Plan deep link opens Plan
+  // (spec C3); any other jump lands on the Score itself. A plain picker change is
+  // not a request, so it never yanks the reader off the Plan tab.
+  useEffect(() => {
+    setTab(requestedTab === "plan" ? "plan" : "score");
+  }, [requestRevision, requestedTab]);
 
   const openBlock = useCallback(
     async (args: RepOpenArgs) => {
@@ -207,6 +222,30 @@ export function ScoreWorkspace({
             {selected ? selected.title : "Your scores"}
           </h1>
         </div>
+        <div
+          className="score-workspace-tabs"
+          role="tablist"
+          aria-label="Score workspace"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "score"}
+            className={`score-workspace-tab${tab === "score" ? " is-active" : ""}`}
+            onClick={() => setTab("score")}
+          >
+            Score
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "plan"}
+            className={`score-workspace-tab${tab === "plan" ? " is-active" : ""}`}
+            onClick={() => setTab("plan")}
+          >
+            Plan
+          </button>
+        </div>
         <div className="score-workspace-tools">
           <MetronomeQuickBar />
           {pieces.length > 0 && (
@@ -262,20 +301,31 @@ export function ScoreWorkspace({
           </p>
         )}
         {!loading && !error && selectedId != null && (
-          <ScoreView
-            key={selectedId}
-            pieceId={selectedId}
-            isActive={isActive}
-            onOpenBlock={onOpenBlock ? openBlock : undefined}
-            opening={opening}
-            defaultCleanStreak={defaultCleanStreak}
-            onContextChange={publishScoreContext}
-            activeRange={
-              activeRep
-                ? { m_start: activeRep.m_start, m_end: activeRep.m_end }
-                : null
-            }
-          />
+          <>
+            {/* The score reader stays mounted while the Plan tab is shown so its
+                PDF is not torn down and reloaded on every toggle. */}
+            <div className="score-workspace-pane" hidden={tab !== "score"}>
+              <ScoreView
+                key={selectedId}
+                pieceId={selectedId}
+                isActive={isActive && tab === "score"}
+                onOpenBlock={onOpenBlock ? openBlock : undefined}
+                opening={opening}
+                defaultCleanStreak={defaultCleanStreak}
+                onContextChange={publishScoreContext}
+                activeRange={
+                  activeRep
+                    ? { m_start: activeRep.m_start, m_end: activeRep.m_end }
+                    : null
+                }
+              />
+            </div>
+            {tab === "plan" && (
+              <div className="score-workspace-pane">
+                <ScorePlanTab pieceId={selectedId} />
+              </div>
+            )}
+          </>
         )}
       </div>
     </main>

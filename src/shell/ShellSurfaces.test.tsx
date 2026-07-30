@@ -245,7 +245,7 @@ describe("Shell app-level practice surfaces", () => {
       await screen.findByRole("button", { name: "Today's Practice" }),
     );
     fireEvent.click(
-      await screen.findByRole("button", { name: /Shape the day/i }),
+      await screen.findByRole("button", { name: "Open the Calendar" }),
     );
     await screen.findByTestId("ledger-workspace-stub");
     expect(ledgerWorkspaceProps.current).toEqual(
