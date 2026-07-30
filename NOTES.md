@@ -82,6 +82,16 @@
     16.9×/35.6×/66× faster first paint. The real scanned-edition delta is strictly larger.
   - Gates: frontend 1248/0 (123 files), `tsc --noEmit` clean, Rust `page_cache` 11/0, clippy
     `--lib` clean. Pre-commit `git ls-files node_modules` empty.
+  - **CORRECTION (2026-07-30, v4.0.1 — audit finding F2, verifier-confirmed):** as shipped in
+    v4.0.0 the in-memory LRU lived in a `useRef` INSIDE ScoreView, but production switches
+    pieces via `key={selectedId}` — a full remount — so the memory tier could never serve the
+    cross-piece switch-back it was built for; every warm paint came from the disk tier (still
+    correct, one async IPC slower). The lane's own tests missed it because they `rerender()`
+    without a key change (same instance). Fixed in v4.0.1 by module-scoping the cache
+    (`sharedFirstPageBitmaps` in `firstPageCache.ts`) + a remount bite test. The bench numbers
+    above are MODELED, not production wall-clock — real timing still pending at-piano use.
+    Lesson: any per-instance cache must be checked against how the component is actually
+    mounted (key-remount vs rerender), and switch tests must simulate the production remount.
 
 - **v4 Phase C2 — notebook data layer (2026-07-28, lane `lane/c-notebook`):** the frontend half
   of the day-sheet/piece-plan contract (`.workflow/scratch/day-sheet-contract.md`).

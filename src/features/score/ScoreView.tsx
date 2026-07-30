@@ -57,7 +57,7 @@ import {
   fitContextBucket,
   firstPageCacheKey,
   isCacheableScaleMode,
-  LruMap,
+  sharedFirstPageBitmaps,
   sniffImageMime,
 } from "./firstPageCache";
 import type {
@@ -553,7 +553,7 @@ export function ScoreView({
   // its true first page swaps in on the first real raster. Display-only: it never
   // gates interaction (regions already require a live `document`) and a miss is
   // never an error — the switch simply falls back to today's behavior.
-  const bitmapCacheRef = useRef(new LruMap<Blob>(6));
+  const bitmapCacheRef = useRef(sharedFirstPageBitmaps);
   const [firstPagePreview, setFirstPagePreview] = useState<string | null>(null);
   const previewUrlRef = useRef<string | null>(null);
   // The switch that painted the current preview still wants it shown: cleared on

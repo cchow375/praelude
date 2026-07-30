@@ -147,12 +147,14 @@ function SuggestedFromRetention({
   candidateApi?: ComposerCandidateApi;
 }) {
   const sheet = useTodaySheet();
+  const [open, setOpen] = useState(false);
+  // Fetch candidates only once the fold is opened — the collapsed summary is
+  // static text, so eager 1+2N invokes on every window open buy nothing.
   const { candidates, loading, error } = useComposerCandidates({
-    active: true,
+    active: open,
     asOfDate: todayLocal(),
     api: candidateApi,
   });
-  const [open, setOpen] = useState(false);
   const [added, setAdded] = useState<Set<string>>(new Set());
 
   const insert = (candidate: (typeof candidates)[number]) => {

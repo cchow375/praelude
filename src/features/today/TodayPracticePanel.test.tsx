@@ -103,6 +103,29 @@ describe("TodayPracticePanel — day-sheet-first window (spec C5)", () => {
     expect(screen.queryByTestId("today-practice-hud")).toBeNull();
   });
 
+  it("does not fetch composer candidates until the suggested fold is opened", async () => {
+    const spy = spyInvoke();
+    renderPanel();
+    await screen.findByRole("dialog", { name: "Today's Practice" });
+
+    // Collapsed fold = static summary text only; the 1+2N candidate fetch
+    // (pieces_list per piece: region_list + rep_blocks_for_piece) must not fire.
+    const candidateCalls = () =>
+      spy.mock.calls.filter(([cmd]) =>
+        ["region_list", "rep_blocks_for_piece"].includes(cmd as string),
+      ).length;
+    expect(candidateCalls()).toBe(0);
+
+    const details = screen
+      .getByText("Suggested from retention")
+      .closest("details") as HTMLDetailsElement;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+
+    // Opening the fold is what triggers the fetch.
+    await waitFor(() => expect(candidateCalls()).toBeGreaterThan(0));
+  });
+
   it("inserts a retention suggestion as real plan lines on the same sheet (spec C5)", async () => {
     const spy = spyInvoke();
     renderPanel();

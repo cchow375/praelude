@@ -25,7 +25,7 @@ import type {
   ScorePdfApi,
 } from "./types";
 import type { AtomicTargetSavePayload } from "./atlas/savePayload";
-import { fitContextBucket } from "./firstPageCache";
+import { fitContextBucket, sharedFirstPageBitmaps } from "./firstPageCache";
 
 const EDITIONS: PdfEdition[] = [
   {
@@ -251,6 +251,7 @@ function makeMinimalPdf(): ArrayBuffer {
 }
 
 beforeEach(() => {
+  sharedFirstPageBitmaps.clear();
   invokeMock.mockReset();
   invokeMock.mockResolvedValue(undefined);
   FakeIntersectionObserver.latest = null;
@@ -912,6 +913,44 @@ describe("ScoreView", () => {
         });
         await screen.findByLabelText("Score page 1");
         expect(preview()).toBeNull();
+      }));
+
+    it("serves a switch-back across a REMOUNT from the shared memory cache — no second disk read", async () =>
+      withObjectUrls(async () => {
+        // Production switches piece via key={selectedId}, which unmounts and
+        // remounts ScoreView. A per-instance cache can never serve that path;
+        // this test bites if the LRU ever moves back inside the component.
+        const loadFirstPage = vi.fn(() => Promise.resolve(new ArrayBuffer(4)));
+        const api = makeApi({ loadFirstPage });
+        const pdf = makePdf(1);
+
+        // Mount #1: the disk hit paints a preview and seeds the SHARED cache.
+        const first = render(
+          <ScoreView
+            key="mount-1"
+            pieceId={8}
+            api={api}
+            adapter={pdf.adapter}
+          />,
+        );
+        await waitFor(() =>
+          expect(loadFirstPage).toHaveBeenCalledWith(8, "a", 1, expectedBucket),
+        );
+        await screen.findByLabelText("Score page 1");
+        first.unmount();
+
+        // Mount #2: a FRESH instance (the real production remount). The shared
+        // memory tier must serve it; the disk tier must not be consulted again.
+        render(
+          <ScoreView
+            key="mount-2"
+            pieceId={8}
+            api={api}
+            adapter={pdf.adapter}
+          />,
+        );
+        await waitFor(() => expect(preview()).not.toBeNull());
+        expect(loadFirstPage).toHaveBeenCalledTimes(1);
       }));
 
     it("keys the cached snapshot by the current fit bucket so a stale-bucket entry is a miss, not a wrong-sized paint", async () =>

@@ -156,3 +156,10 @@ export class LruMap<V> {
     this.map.clear();
   }
 }
+
+/**
+ * The app-wide first-page bitmap cache. Module-scoped ON PURPOSE: ScoreView is
+ * remounted per piece switch (key={selectedId}), so a per-instance ref could
+ * never serve the cross-piece switch-back this cache exists for.
+ */
+export const sharedFirstPageBitmaps = new LruMap<Blob>(6);
