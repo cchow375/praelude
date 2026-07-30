@@ -142,7 +142,7 @@ export function PiecesPanel({
       <div className="pieces-header">
         <div>
           <p className="ck-kicker">Score-centered workspace</p>
-          <h2 className="pieces-heading">Score Atlas</h2>
+          <h2 className="pieces-heading">Score map</h2>
           <p className="pieces-subheading">
             Choose a score, then work from an exact visible target.
           </p>
@@ -177,7 +177,7 @@ export function PiecesPanel({
         />
       )}
 
-      <div className="atlas-instruction" aria-label="Score Atlas workflow">
+      <div className="atlas-instruction" aria-label="Score map workflow">
         <span>01 · choose score</span>
         <span aria-hidden="true">→</span>
         <span>02 · mark target</span>

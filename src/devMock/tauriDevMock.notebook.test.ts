@@ -95,4 +95,21 @@ describe("dev-mock notebook handlers", () => {
       }),
     ).rejects.toBe("piece plan exceeds 40000 characters");
   });
+
+  // Regression: a goal promoted from the day sheet must re-resolve its text after
+  // the sheet remounts (goalCache is empty then, so the text comes only from
+  // goal_list). If goal_create did not feed goal_list the goal_ref would render
+  // an empty "Goal" placeholder — the QA-reported mock bug.
+  it("goal_create feeds goal_list so a promoted goal keeps its text", async () => {
+    const created = await seamInvoke<{ id: number }>("goal_create", {
+      args: { piece_id: 2, text: "clean the coda", kind: "big" },
+    });
+    const list = await seamInvoke<Array<{ id: number; text: string }>>(
+      "goal_list",
+      { pieceId: 2 },
+    );
+    const resolved = list.find((goal) => goal.id === created.id);
+    expect(resolved).toBeTruthy();
+    expect(resolved?.text).toBe("clean the coda");
+  });
 });

@@ -1537,3 +1537,24 @@
   color: var(--danger);
   background: var(--surface-hover);
 }
+
+/* The long-term piece schedule (usePiecePlan): one quiet free-text plan. */
+.piece-schedule-text {
+  display: block;
+  width: 100%;
+  min-height: 7rem;
+  resize: vertical;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  background: var(--bg-sunken);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.piece-schedule-text:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}

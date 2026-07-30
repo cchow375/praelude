@@ -279,6 +279,28 @@ describe("DaySheet — goal promotion (spec 13)", () => {
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
+  it("keeps a promoted goal's text after the sheet remounts (re-resolves via goal_list)", async () => {
+    await seedSheet(DATE, [
+      { type: "piece", piece_id: 1 },
+      { type: "item", text: "clean the coda", checked: false, piece_id: 1 },
+    ]);
+    const first = renderSheet();
+    const item = await screen.findByDisplayValue("clean the coda");
+    fireEvent.focus(item);
+    fireEvent.click(screen.getByRole("button", { name: "goal" }));
+    const goalField = await screen.findByLabelText("Goal");
+    expect((goalField as HTMLInputElement).value).toBe("clean the coda");
+
+    // Unmount (flushes the autosave) then remount fresh: the goal cache is empty,
+    // so the goal_ref text can only come back through goal_list.
+    first.unmount();
+    renderSheet();
+    const reResolved = await screen.findByLabelText("Goal");
+    await waitFor(() =>
+      expect((reResolved as HTMLInputElement).value).toBe("clean the coda"),
+    );
+  });
+
   it("disables the goal chip on an item with no piece heading above it", async () => {
     await seedSheet(DATE, [
       { type: "item", text: "loose note", checked: false },

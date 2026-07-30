@@ -269,7 +269,7 @@ describe("UniverseWorkspace force graph", () => {
     await screen.findByRole("heading", { name: "Your earned systems" });
 
     fireEvent.click(
-      screen.getAllByRole("button", { name: "Open Score Atlas" })[0],
+      screen.getAllByRole("button", { name: "Open score map" })[0],
     );
     expect(onOpenPractice).toHaveBeenCalledWith(null);
 
@@ -312,7 +312,7 @@ describe("UniverseWorkspace force graph", () => {
       }),
     ).toBeTruthy();
     fireEvent.click(
-      screen.getAllByRole("button", { name: "Open Score Atlas" })[1],
+      screen.getAllByRole("button", { name: "Open score map" })[1],
     );
     expect(onOpenPractice).toHaveBeenCalledWith(null);
   });

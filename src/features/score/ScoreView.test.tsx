@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import type { PDFDocumentLoadingTask } from "pdfjs-dist";
 
@@ -1339,5 +1340,86 @@ describe("ScoreView", () => {
     );
     await screen.findByLabelText("Score page 1");
     expect(screen.getByRole("button", { name: "Map this score" })).toBeTruthy();
+  });
+
+  it("renders the real score page inside the wizard pane (renderPage wired)", async () => {
+    const calib = { get: vi.fn().mockResolvedValue(null), save: vi.fn() };
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi()}
+        calibrationApi={calib}
+        adapter={makePdf(2).adapter}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+    fireEvent.click(screen.getByRole("button", { name: "Map this score" }));
+
+    const pane = await screen.findByTestId("map-wizard-page-surface");
+    // The real engraving (a PdfPage canvas), not the "Page 1" placeholder.
+    expect(within(pane).getByLabelText("Rendered score page 1")).toBeTruthy();
+    expect(within(pane).queryByText("Page 1")).toBeNull();
+  });
+
+  it("maps MusicXML measure facts into the wizard strip", async () => {
+    const calib = { get: vi.fn().mockResolvedValue(null), save: vi.fn() };
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "score_xml_measure_facts"
+        ? Promise.resolve({
+            measures: [
+              { number: 1, time: "3/4" },
+              { number: 9, rehearsal: "A" },
+            ],
+            max_measure: 12,
+            has_pickup: false,
+          })
+        : Promise.resolve(undefined),
+    );
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi()}
+        calibrationApi={calib}
+        adapter={makePdf(1).adapter}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+    fireEvent.click(screen.getByRole("button", { name: "Map this score" }));
+
+    // With the XML total known the strip enumerates measures even before any
+    // anchor is placed, and the mapped landmarks label their rows.
+    expect(
+      await screen.findByRole("button", { name: "Measure 12" }),
+    ).toBeTruthy();
+    expect(await screen.findByText("A")).toBeTruthy();
+    expect(screen.getByText("3/4")).toBeTruthy();
+  });
+
+  it("works from anchors alone when the piece has no MusicXML", async () => {
+    const calib = { get: vi.fn().mockResolvedValue(null), save: vi.fn() };
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "score_xml_measure_facts"
+        ? Promise.reject("This piece has no MusicXML file.")
+        : Promise.resolve(undefined),
+    );
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi()}
+        calibrationApi={calib}
+        adapter={makePdf(1).adapter}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+    fireEvent.click(screen.getByRole("button", { name: "Map this score" }));
+
+    // The wizard still opens and shows the page; with no anchors and no XML total
+    // the strip is empty, exactly as before this wiring existed.
+    expect(
+      await screen.findByRole("heading", {
+        name: "Mark where each system starts.",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText("Mark a system to build the strip.")).toBeTruthy();
   });
 });

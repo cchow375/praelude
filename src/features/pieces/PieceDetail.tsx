@@ -21,6 +21,7 @@ import { TrickySectionsPanel } from "./RegionEditor";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
 import { ConfirmArchive } from "./ConfirmArchive";
 import { Disclosure } from "../../ui/Disclosure";
+import { usePiecePlan } from "../notebook/usePiecePlan";
 import type { PracticeBrainContext } from "../brain/types";
 import type { ScoreFocusContext } from "../score/types";
 
@@ -336,6 +337,9 @@ export function PieceDetail({
             />
             {/* Secondary sections behind the density primitive so the Details
               surface never reads as a wall of stacked panels. */}
+            <Disclosure summary="Schedule">
+              <PieceSchedule pieceId={piece.id} />
+            </Disclosure>
             <Disclosure summary="Goals">
               <GoalsPanel pieceId={piece.id} />
             </Disclosure>
@@ -434,6 +438,32 @@ function PieceSummary({
           onSave={(notes) => onUpdate({ notes: notes || null })}
         />
       </div>
+    </div>
+  );
+}
+
+// The long-term "arch" schedule for a piece: a single free-text plan (phases,
+// milestones, tempo targets) persisted through usePiecePlan — debounced saves
+// with a committed receipt, an immediate flush on blur, and honest load/save
+// errors. A blank plan shows one quiet hint line and nothing more.
+function PieceSchedule({ pieceId }: { pieceId: number }) {
+  const plan = usePiecePlan(pieceId);
+  return (
+    <div className="piece-schedule">
+      {plan.error && (
+        <p className="ck-inline-error" role="alert">
+          {plan.error}
+        </p>
+      )}
+      <textarea
+        className="piece-schedule-text"
+        aria-label="Piece schedule"
+        placeholder="The long-term plan for this piece — phases, milestones, tempo targets."
+        value={plan.bodyText}
+        disabled={plan.status === "loading"}
+        onChange={(event) => plan.setBodyText(event.target.value)}
+        onBlur={plan.flush}
+      />
     </div>
   );
 }

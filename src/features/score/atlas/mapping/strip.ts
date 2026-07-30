@@ -32,6 +32,60 @@ export interface MeasureLandmark {
 }
 
 /**
+ * One measure's raw MusicXML facts, as `score_xml_measure_facts` returns them.
+ * Every descriptive field is optional and rendered verbatim when present.
+ */
+export interface XmlMeasureFact {
+  number: number;
+  key?: string | null;
+  time?: string | null;
+  tempo?: string | null;
+  rehearsal?: string | null;
+  section?: string | null;
+}
+
+function trimmedLabel(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text.length > 0 ? text : null;
+}
+
+/**
+ * Collapse each measure's MusicXML facts into at most one strip landmark. The
+ * strip holds a single landmark per measure, so when a measure carries several
+ * facts we surface the most navigationally useful one — a rehearsal mark, then a
+ * section name, then a tempo, a time signature, and finally a key change. Labels
+ * are kept verbatim (e.g. "A", "Trio", "♩=92", "3/4", "-2 fifths"); blank or
+ * whitespace-only facts are ignored, and a measure with no facts adds no row.
+ */
+export function landmarksFromMeasureFacts(
+  measures: XmlMeasureFact[],
+): MeasureLandmark[] {
+  const out: MeasureLandmark[] = [];
+  for (const measure of measures) {
+    if (!Number.isInteger(measure.number)) continue;
+    const rehearsal = trimmedLabel(measure.rehearsal);
+    const section = trimmedLabel(measure.section);
+    const tempo = trimmedLabel(measure.tempo);
+    const time = trimmedLabel(measure.time);
+    const key = trimmedLabel(measure.key);
+    const picked: Pick<MeasureLandmark, "kind" | "label"> | null = rehearsal
+      ? { kind: "rehearsal", label: rehearsal }
+      : section
+        ? { kind: "section", label: section }
+        : tempo
+          ? { kind: "tempo", label: tempo }
+          : time
+            ? { kind: "time", label: time }
+            : key
+              ? { kind: "key", label: key }
+              : null;
+    if (picked) out.push({ measure: measure.number, ...picked });
+  }
+  return out;
+}
+
+/**
  * One anchored system in reading order, with the measure span it covers. `mEnd`
  * is inclusive; it is bounded by the next system's start only when that start is
  * monotonic (strictly greater). A non-monotonic or final system is left

@@ -5,6 +5,7 @@ import {
   measureRangeForSystem,
   placeMeasure,
   readingOrder,
+  landmarksFromMeasureFacts,
   selectSystemForMeasure,
   systemForMeasure,
   type MeasureLandmark,
@@ -244,5 +245,43 @@ describe("two-way highlight selection", () => {
     const range = measureRangeForSystem(strip, idx)!;
     expect(6).toBeGreaterThanOrEqual(range.mStart);
     expect(6).toBeLessThanOrEqual(range.mEnd);
+  });
+});
+
+describe("landmarksFromMeasureFacts", () => {
+  it("maps key/time/tempo/rehearsal facts to verbatim landmark labels", () => {
+    const landmarks = landmarksFromMeasureFacts([
+      { number: 1, key: "-2 fifths", time: "3/4" },
+      { number: 9, tempo: "quarter ≈ 92 BPM" },
+      { number: 17, rehearsal: "A" },
+      { number: 33, section: "Trio" },
+    ]);
+    expect(landmarks).toEqual([
+      { measure: 1, kind: "time", label: "3/4" },
+      { measure: 9, kind: "tempo", label: "quarter ≈ 92 BPM" },
+      { measure: 17, kind: "rehearsal", label: "A" },
+      { measure: 33, kind: "section", label: "Trio" },
+    ]);
+  });
+
+  it("keeps at most one landmark per measure, by rehearsal → section → tempo → time → key priority", () => {
+    const landmarks = landmarksFromMeasureFacts([
+      { number: 1, key: "0 fifths", time: "4/4", tempo: "♩=120", rehearsal: "A" },
+      { number: 2, key: "1 fifths", time: "6/8" },
+    ]);
+    expect(landmarks).toEqual([
+      { measure: 1, kind: "rehearsal", label: "A" },
+      { measure: 2, kind: "time", label: "6/8" },
+    ]);
+  });
+
+  it("ignores blank facts and measures with no facts at all", () => {
+    expect(
+      landmarksFromMeasureFacts([
+        { number: 1 },
+        { number: 2, time: "   ", rehearsal: "" },
+        { number: 3, key: "2 fifths" },
+      ]),
+    ).toEqual([{ measure: 3, kind: "key", label: "2 fifths" }]);
   });
 });

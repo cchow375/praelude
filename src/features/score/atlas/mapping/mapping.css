@@ -100,6 +100,21 @@
   font-family: var(--font-mono);
 }
 
+/* The real engraving (a PdfPage) fills the pane width and takes its natural
+   aspect height, so the click-to-anchor overlays — positioned against this
+   canvas box — line up with the printed systems. The page's own frame/shadow is
+   dropped inside the pane. */
+.map-wizard-page-canvas > .pdf-page {
+  width: 100% !important;
+  height: auto !important;
+  border: none;
+  box-shadow: none;
+}
+
+.map-wizard-page-canvas > .pdf-page > canvas {
+  height: auto;
+}
+
 /* Selected system band — weight/opacity only, no hue (confidence stays hue-free). */
 .map-wizard-system-band {
   position: absolute;

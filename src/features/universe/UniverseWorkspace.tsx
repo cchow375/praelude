@@ -549,7 +549,7 @@ export function UniverseWorkspace({
           className="universe-atlas-cta"
           onClick={() => onOpenPractice(null)}
         >
-          Open Score Atlas
+          Open score map
         </button>
       </header>
 
@@ -589,7 +589,7 @@ export function UniverseWorkspace({
             className="universe-atlas-cta"
             onClick={() => onOpenPractice(null)}
           >
-            Open Score Atlas
+            Open score map
           </button>
         </section>
       ) : snapshot ? (

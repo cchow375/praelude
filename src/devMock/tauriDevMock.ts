@@ -470,7 +470,11 @@ function goalListFor(pieceId: number): Goal[] {
 
 function goalCreate(args: unknown): Goal {
   const outer = argsRecord(args);
-  const spec = (outer.args ?? {}) as Record<string, unknown>;
+  // The app invokes with `{ args: { … } }`; accept a flat `{ … }` too so the
+  // created goal always captures a real piece_id + text. Without that a promoted
+  // goal_ref would re-resolve to a text-less goal after remount (an empty "Goal"
+  // placeholder), since the day sheet resolves goal_ref text through goal_list.
+  const spec = (outer.args ?? outer) as Record<string, unknown>;
   const pieceId = Number(spec.piece_id);
   const goal: Goal = {
     id: (mockGoalSeq += 1),

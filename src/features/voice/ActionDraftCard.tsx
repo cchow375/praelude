@@ -109,7 +109,12 @@ function ProposedActionSlimCard({
       )}
 
       <footer>
-        <button ref={cancelRef} type="button" onClick={onCancel} disabled={confirming}>
+        <button
+          ref={cancelRef}
+          type="button"
+          onClick={onCancel}
+          disabled={confirming}
+        >
           Cancel
         </button>
         {!unavailableReason && (
@@ -225,7 +230,7 @@ function NaturalPracticeDraftCard({
 
       <div className="voice-action-draft-context">
         <span>Piece</span>
-        <strong>{value.piece_title ?? "Choose a piece in Atlas"}</strong>
+        <strong>{value.piece_title ?? "Choose a piece"}</strong>
       </div>
 
       <div className="voice-action-draft-grid">
@@ -408,7 +413,12 @@ function NaturalPracticeDraftCard({
       )}
 
       <footer>
-        <button ref={cancelRef} type="button" onClick={onCancel} disabled={confirming}>
+        <button
+          ref={cancelRef}
+          type="button"
+          onClick={onCancel}
+          disabled={confirming}
+        >
           Cancel
         </button>
         <button

@@ -38,6 +38,11 @@ import { MapScoreWizard } from "./atlas/mapping/MapScoreWizard";
 import { candidateFromAnchors } from "./atlas/mapping/candidate";
 import type { LineAnchor } from "./atlas/mapping/anchors";
 import {
+  landmarksFromMeasureFacts,
+  type MeasureLandmark,
+  type XmlMeasureFact,
+} from "./atlas/mapping/strip";
+import {
   defaultCalibrationApi,
   pointsToAnchors,
   type CalibrationApi,
@@ -330,6 +335,9 @@ function editionHasStaleAnchor(region: Region, edition: PdfEdition): boolean {
 
 const TARGET_CANDIDATE_CONFIDENCE = 0.8;
 const TARGET_CANDIDATE_THRESHOLD = 0.75;
+// Raster width (px) for the wizard's page pane. The bitmap is baked a little
+// wider than the pane and CSS-scaled down, so the engraving stays crisp there.
+const WIZARD_PAGE_RASTER_WIDTH = 760;
 
 function rectContains(
   container: PdfAnchorRect,
@@ -495,6 +503,14 @@ export function ScoreView({
     [],
   );
   const [wizardOpen, setWizardOpen] = useState(false);
+  // MusicXML measure facts for the wizard's strip, fetched on wizard open. Null
+  // whenever the piece has no MusicXML (or the fetch fails): the wizard then works
+  // exactly as before, from line anchors alone.
+  const [xmlFacts, setXmlFacts] = useState<{
+    maxMeasure: number | null;
+    hasPickup: boolean;
+    landmarks: MeasureLandmark[];
+  } | null>(null);
   // The floating draft dock renders only once a box is drawn; it is collapsible
   // to a slim bar and can be re-cornered so it never blocks the score or nav.
   const [dockCollapsed, setDockCollapsed] = useState(false);
@@ -951,6 +967,58 @@ export function ScoreView({
       }
     },
     [document],
+  );
+
+  // Fetch MusicXML measure facts when the wizard opens, so the strip can show the
+  // score's true measure count and per-measure landmarks. A piece with no
+  // MusicXML rejects (or returns nothing) → the wizard falls back to anchors only.
+  useEffect(() => {
+    if (!wizardOpen) return;
+    let cancelled = false;
+    setXmlFacts(null);
+    void (async () => {
+      try {
+        const facts = await invoke<{
+          measures?: XmlMeasureFact[];
+          max_measure?: number;
+          has_pickup?: boolean;
+        }>("score_xml_measure_facts", { pieceId });
+        if (cancelled) return;
+        if (!facts) {
+          setXmlFacts(null);
+          return;
+        }
+        setXmlFacts({
+          maxMeasure:
+            typeof facts.max_measure === "number" ? facts.max_measure : null,
+          hasPickup: Boolean(facts.has_pickup),
+          landmarks: landmarksFromMeasureFacts(facts.measures ?? []),
+        });
+      } catch {
+        if (!cancelled) setXmlFacts(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [wizardOpen, pieceId]);
+
+  // Render the real engraving inside the wizard's page pane. Rasterized a touch
+  // wider than the pane and CSS-fit to it (see mapping.css), so the score reads
+  // crisply at a usable size while the click-to-anchor geometry stays 0–1.
+  const renderWizardPage = useCallback(
+    (pageNumber: number) =>
+      document ? (
+        <PdfPage
+          document={document}
+          pageNumber={pageNumber}
+          active
+          scale={clampZoom(
+            WIZARD_PAGE_RASTER_WIDTH / Math.max(1, maxPageWidth),
+          )}
+        />
+      ) : null,
+    [document, maxPageWidth],
   );
 
   const saveTarget = useCallback(
@@ -2137,8 +2205,12 @@ export function ScoreView({
             edition_fingerprint: edition.fingerprint,
           }}
           pageCount={pageCount}
+          renderPage={renderWizardPage}
           initialAnchors={calibrationAnchors}
           pageTextItems={pageTextItems}
+          xmlMaxMeasure={xmlFacts?.maxMeasure ?? null}
+          xmlLandmarks={xmlFacts?.landmarks}
+          hasPickup={xmlFacts?.hasPickup ?? false}
           onSaved={(_view, anchors) => {
             setCalibrationAnchors(anchors);
             setWizardOpen(false);
