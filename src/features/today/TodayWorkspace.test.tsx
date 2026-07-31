@@ -127,14 +127,14 @@ describe("TodayWorkspace main menu", () => {
 
     // The day surfaces are NOT on the menu; the window is closed.
     expect(
-      screen.queryByRole("dialog", { name: "Today's Practice" }),
+      screen.queryByRole("region", { name: "Today's Practice" }),
     ).toBeNull();
     expect(screen.queryByTestId("day-sheet")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Today's Practice" }));
 
     // The window opens and the day sheet is the surface (spec C5).
-    const dialog = await screen.findByRole("dialog", {
+    const dialog = await screen.findByRole("region", {
       name: "Today's Practice",
     });
     expect(within(dialog).getByTestId("day-sheet")).toBeTruthy();
@@ -223,14 +223,14 @@ describe("TodayWorkspace main menu", () => {
 describe("TodayWorkspace practice window", () => {
   it("closes the practice window with the × control", async () => {
     openPractice();
-    await screen.findByRole("dialog", { name: "Today's Practice" });
+    await screen.findByRole("region", { name: "Today's Practice" });
 
     fireEvent.click(
       screen.getByRole("button", { name: "Close Today's Practice" }),
     );
 
     expect(
-      screen.queryByRole("dialog", { name: "Today's Practice" }),
+      screen.queryByRole("region", { name: "Today's Practice" }),
     ).toBeNull();
     expect(
       screen.getByRole("button", { name: "Today's Practice" }),
@@ -239,14 +239,14 @@ describe("TodayWorkspace practice window", () => {
 
   it("closes the practice window on Escape", async () => {
     openPractice();
-    const dialog = await screen.findByRole("dialog", {
+    const dialog = await screen.findByRole("region", {
       name: "Today's Practice",
     });
 
     fireEvent.keyDown(dialog, { key: "Escape" });
 
     expect(
-      screen.queryByRole("dialog", { name: "Today's Practice" }),
+      screen.queryByRole("region", { name: "Today's Practice" }),
     ).toBeNull();
   });
 
@@ -257,7 +257,7 @@ describe("TodayWorkspace practice window", () => {
       onPracticeOpenChange,
     });
 
-    const dialog = await screen.findByRole("dialog", {
+    const dialog = await screen.findByRole("region", {
       name: "Today's Practice",
     });
     // The HUD is reachable inside the window (requirement 2).
@@ -277,7 +277,7 @@ describe("TodayWorkspace practice window", () => {
     const onOpenCalendar = vi.fn();
     const onOpenAtlas = vi.fn();
     openPractice({ onOpenCalendar, onOpenAtlas });
-    await screen.findByRole("dialog", { name: "Today's Practice" });
+    await screen.findByRole("region", { name: "Today's Practice" });
 
     fireEvent.click(screen.getByRole("button", { name: "Open the Calendar" }));
     expect(onOpenCalendar).toHaveBeenCalledOnce();

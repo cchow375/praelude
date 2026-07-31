@@ -141,14 +141,17 @@
    form with a notebook appended. It is now the dock, capped so a tall HUD
    scrolls inside its own strip instead of eating the page. The HUD's internal
    layout is not ours; only the dock is. */
-.today-practice-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
+/* The practice page is the Today workspace's own content, not a window floating
+   over it. It used to be `position: fixed; inset: 0` with a scrim and padding,
+   which left the nav rail and session strip visible around its edges as a dimmed
+   border — two stacked surfaces reading as a rendering fault rather than depth.
+   TodayWorkspace now renders EITHER the menu or this, so there is nothing
+   behind it and no seam to show. It fills the stage exactly so the day sheet
+   scrolls inside the desk and the active-set dock stays pinned to the foot. */
+.today-practice-surface {
   display: flex;
-  padding: clamp(0.75rem, 3vh, 2.5rem);
-  background: color-mix(in srgb, var(--surface-ink) 34%, transparent);
-  animation: today-overlay-in var(--dur-base) var(--ease-out);
+  height: 100%;
+  min-height: 0;
 }
 .today-practice-window {
   position: relative;
@@ -156,14 +159,10 @@
   grid-template-rows: auto minmax(0, 1fr) auto;
   width: 100%;
   max-width: 72rem;
-  max-height: 100%;
-  margin: auto;
+  min-height: 0;
+  margin: 0 auto;
   overflow: hidden;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-lg);
-  background: var(--bg);
-  box-shadow: var(--shadow-popover);
-  animation: today-window-in var(--dur-slow) var(--ease-out);
+  background: var(--paper);
 }
 .today-practice-window:focus {
   outline: none;
@@ -315,30 +314,9 @@
   }
 }
 
-@keyframes today-overlay-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes today-window-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .today-practice-overlay,
-  .today-practice-window {
-    animation: none;
-  }
-}
+/* The window's entrance animation went with the modal. Turning a page is not an
+   event that needs announcing, and the project rule is no ambient motion —
+   micro-transitions on interaction only. */
 
 .today-error {
   display: flex;

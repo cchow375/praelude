@@ -68,12 +68,34 @@ export function TodayWorkspace({
     onPracticeOpenChange?.(practiceOpen);
   }, [practiceOpen, onPracticeOpenChange]);
 
+  // The practice page REPLACES the menu rather than floating over it, so the
+  // trigger is unmounted while it is open and cannot be focused synchronously
+  // on close. Ask for the focus and hand it over once the menu is back.
+  const restoreMenuFocus = useRef(false);
+
   const closePractice = () => {
+    restoreMenuFocus.current = true;
     setPracticeOpen(false);
-    // Return focus to the entry that opened the window (it stays mounted under
-    // the scrim), so keyboard users are not dropped onto <body>.
-    practiceTriggerRef.current?.focus();
   };
+
+  useEffect(() => {
+    if (practiceOpen || !restoreMenuFocus.current) return;
+    restoreMenuFocus.current = false;
+    // Never drop a keyboard user onto <body>.
+    practiceTriggerRef.current?.focus();
+  }, [practiceOpen]);
+
+  if (practiceOpen) {
+    return (
+      <TodayPracticePanel
+        onOpenAtlas={onOpenAtlas}
+        onOpenCalendar={onOpenCalendar}
+        onOpenPiecePlan={onOpenPiecePlan}
+        activeSetHud={activeSetHud}
+        onClose={closePractice}
+      />
+    );
+  }
 
   return (
     <div className="today-menu" data-testid="today-menu">
@@ -175,16 +197,6 @@ export function TodayWorkspace({
             heading: quote.heading,
           }}
           onClose={() => setReaderOpen(false)}
-        />
-      )}
-
-      {practiceOpen && (
-        <TodayPracticePanel
-          onOpenAtlas={onOpenAtlas}
-          onOpenCalendar={onOpenCalendar}
-          onOpenPiecePlan={onOpenPiecePlan}
-          activeSetHud={activeSetHud}
-          onClose={closePractice}
         />
       )}
     </div>

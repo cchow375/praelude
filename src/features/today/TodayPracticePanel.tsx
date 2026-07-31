@@ -69,12 +69,19 @@ export function TodayPracticePanel({
   };
 
   return (
-    // The scrim only dims the menu; it does not dismiss, so a stray click never
-    // discards an in-progress notebook edit. Esc and the × are the closers.
-    <div className="today-practice-overlay">
+    // Not a modal. This used to be a `position: fixed; inset: 0` window floating
+    // over a dimmed copy of the app, which left the nav rail and session strip
+    // showing through around its edges — two stacked surfaces with a hairline
+    // between them, which reads as a rendering glitch rather than as depth
+    // (Christian: "you are rendering everything wrong"). It is now the Today
+    // workspace's own content: TodayWorkspace renders EITHER the menu or this,
+    // so there is nothing behind it to show through. Esc and the × close it.
+    <div className="today-practice-surface">
       <div
-        role="dialog"
-        aria-modal="true"
+        // A landmark region, NOT role="dialog"/aria-modal. This is the Today
+        // workspace's content now, so claiming the rest of the app is inert
+        // would be a lie to a screen reader — the nav rail really is reachable.
+        role="region"
         aria-label="Today's Practice"
         tabIndex={-1}
         className="today-practice-window"

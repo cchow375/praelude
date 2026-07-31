@@ -54,7 +54,7 @@ describe("dev-mock five-workspace render harness", () => {
     // Today is the app menu now; the day surfaces open as a window over it, and
     // the day sheet is the first surface inside (spec C5).
     fireEvent.click(screen.getByRole("button", { name: "Today's Practice" }));
-    const dialog = await screen.findByRole("dialog", {
+    const dialog = await screen.findByRole("region", {
       name: "Today's Practice",
     });
     expect(within(dialog).getByTestId("day-sheet")).toBeTruthy();

@@ -72,7 +72,7 @@ describe("TodayPracticePanel — day-sheet-first window (spec C5)", () => {
   it("puts the day sheet first and mounts the metronome quick bar in the header", async () => {
     renderPanel();
 
-    const dialog = await screen.findByRole("dialog", {
+    const dialog = await screen.findByRole("region", {
       name: "Today's Practice",
     });
     // The day sheet is the surface.
@@ -88,7 +88,7 @@ describe("TodayPracticePanel — day-sheet-first window (spec C5)", () => {
       activeSetHud: <div data-testid="active-hud">Active set</div>,
     });
 
-    const dialog = await screen.findByRole("dialog", {
+    const dialog = await screen.findByRole("region", {
       name: "Today's Practice",
     });
     // The shell-owned HUD renders INSIDE the window — docked along its foot, so
@@ -100,14 +100,16 @@ describe("TodayPracticePanel — day-sheet-first window (spec C5)", () => {
 
   it("has no HUD dock when no set is live", async () => {
     renderPanel({ activeSetHud: null });
-    await screen.findByRole("dialog", { name: "Today's Practice" });
+    await screen.findByRole("region", {
+      name: "Today's Practice" });
     expect(screen.queryByTestId("today-practice-hud")).toBeNull();
   });
 
   it("does not fetch composer candidates until the suggested fold is opened", async () => {
     const spy = spyInvoke();
     renderPanel();
-    await screen.findByRole("dialog", { name: "Today's Practice" });
+    await screen.findByRole("region", {
+      name: "Today's Practice" });
 
     // Collapsed fold = static summary text only; the 1+2N candidate fetch
     // (pieces_list per piece: region_list + rep_blocks_for_piece) must not fire.
@@ -131,7 +133,8 @@ describe("TodayPracticePanel — day-sheet-first window (spec C5)", () => {
     const spy = spyInvoke();
     renderPanel();
 
-    await screen.findByRole("dialog", { name: "Today's Practice" });
+    await screen.findByRole("region", {
+      name: "Today's Practice" });
 
     // Open the single quiet "suggested from retention" fold. jsdom does not run
     // the native <details> click→toggle, so open it explicitly and dispatch the
@@ -176,7 +179,7 @@ describe("TodayPracticePanel — day-sheet-first window (spec C5)", () => {
   it("closes on Escape and on the × control", async () => {
     const onClose = vi.fn();
     renderPanel({ onClose });
-    const dialog = await screen.findByRole("dialog", {
+    const dialog = await screen.findByRole("region", {
       name: "Today's Practice",
     });
 
