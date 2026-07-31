@@ -17,7 +17,17 @@ export interface Quote {
   readonly themes: readonly string[];
 }
 
-/** The shipped corpus. Frozen so a stray mutation can never disturb rotation. */
+/**
+ * The shipped corpus. Frozen so a stray mutation can never disturb rotation.
+ *
+ * CURATED, not harvested: an entry earns its place only if it states a
+ * principle a serious pianist can act on or argue with when it is read ALONE on
+ * the menu. Bland connective tissue, anecdote, definitions, and fragments whose
+ * antecedent is off-page were dropped. Some entries were shortened — always to
+ * a contiguous substring of their own text, never reworded — so the verbatim
+ * gate in quotes.honesty.test.ts still holds. Adding an invented quote, or
+ * loosening that gate, breaks the whole point of this file.
+ */
 export const QUOTES: readonly Quote[] = Object.freeze(quotesData as Quote[]);
 
 /**

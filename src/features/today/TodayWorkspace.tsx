@@ -2,8 +2,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ASSISTANT, HISTORY } from "../../shell/terms";
 import { TodayPracticePanel } from "./TodayPracticePanel";
 import { ReaderWindow } from "../reader/ReaderWindow";
-import { clampToWords, pickQuoteOnOpen } from "./quoteRotation";
-import type { Quote } from "../../content/quotes";
+import {
+  clampToWords,
+  resolveHomeQuote,
+  type QuotePick,
+  type QuoteSignals,
+} from "./quoteRotation";
+import { useQuoteSignals } from "./quoteSignals";
 import { compactDuration, todayLabel } from "./format";
 import {
   CodaMark,
@@ -16,11 +21,11 @@ import {
 } from "./menuIcons";
 import "./TodayWorkspace.css";
 
-/** Pick this app-open's quote once, advancing the deterministic rotation (D1).
- *  Guarded so a storage failure never blanks the menu. */
-function openQuote(): Quote | null {
+/** Resolve the quote for the current practice context (D1). Guarded so a
+ *  storage failure never blanks the menu. */
+function homeQuote(signals: QuoteSignals): QuotePick | null {
   try {
-    return pickQuoteOnOpen(window.localStorage);
+    return resolveHomeQuote(window.localStorage, signals);
   } catch {
     return null;
   }
@@ -63,9 +68,17 @@ export function TodayWorkspace({
 }: TodayWorkspaceProps) {
   const [practiceOpen, setPracticeOpen] = useState(false);
   const practiceTriggerRef = useRef<HTMLButtonElement>(null);
-  // One quote per app open (this component mounts once at app launch). Picking
-  // in the initializer advances the rotation exactly once per open.
-  const [quote] = useState(openQuote);
+  // The quote answers what he is actually doing, so it is resolved only once the
+  // signals are in — a pick made on half-read state would have to be swapped out
+  // a moment later. The rotation itself only advances when the context has
+  // genuinely moved on (see resolveHomeQuote), so navigating back to the menu
+  // does not burn a new quote.
+  const { signals, ready } = useQuoteSignals();
+  const [pick, setPick] = useState<QuotePick | null>(null);
+  useEffect(() => {
+    if (ready) setPick(homeQuote(signals));
+  }, [ready, signals]);
+  const quote = pick?.quote ?? null;
   const [readerOpen, setReaderOpen] = useState(false);
 
   // Keep the shell informed so it can hand HUD ownership to the window while the
@@ -90,21 +103,33 @@ export function TodayWorkspace({
         </div>
 
         <p className="today-date today-menu-date">{todayLabel()}</p>
-        {quote && (
-          <button
-            type="button"
-            className="today-menu-quote"
-            title={`${quote.text} — ${quote.author}`}
-            aria-label={`Open the reader for this quote by ${quote.author}`}
-            data-testid="today-menu-quote"
-            onClick={() => setReaderOpen(true)}
-          >
-            <span className="today-menu-quote-text">
-              “{clampToWords(quote.text)}”
-            </span>
-            <span className="today-menu-quote-author"> — {quote.author}</span>
-          </button>
-        )}
+        {/* The slot keeps its height while the signals resolve, so the menu
+            below it never jumps when the quote arrives. */}
+        <div className="today-menu-quote-slot">
+          {pick?.cue && (
+            <p
+              className="today-menu-quote-why"
+              data-testid="today-menu-quote-why"
+            >
+              {pick.cue.connector}
+            </p>
+          )}
+          {quote && (
+            <button
+              type="button"
+              className="today-menu-quote"
+              title={`${quote.text} — ${quote.author}`}
+              aria-label={`Open the reader for this quote by ${quote.author}`}
+              data-testid="today-menu-quote"
+              onClick={() => setReaderOpen(true)}
+            >
+              <span className="today-menu-quote-text">
+                “{clampToWords(quote.text)}”
+              </span>
+              <span className="today-menu-quote-author"> — {quote.author}</span>
+            </button>
+          )}
+        </div>
 
         <nav className="today-menu-nav" aria-label="Main menu">
           <button

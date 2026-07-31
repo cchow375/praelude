@@ -15,12 +15,19 @@
 //! done by opening that URL in the user's real browser (they clear the one-time
 //! CAPTCHA there, and the browser's normal download flow saves the PDF).
 //!
+//! THREADING CONTRACT: every method here BLOCKS (blocking reqwest + a sleeping
+//! rate guard). Tauri runs a non-`async` `#[tauri::command]` on the **main
+//! thread**, which on macOS is also the WKWebView's thread — so calling these
+//! from a sync command freezes the entire UI for the duration of the round trip
+//! (up to [`REQUEST_TIMEOUT`]). The `imslp_*` commands in `lib.rs` are therefore
+//! `async` + `spawn_blocking`; keep them that way.
+//!
 //! Testability: all network egress goes through the [`HttpGet`] seam, so the
 //! JSON/wikitext parsers are exercised against canned fixtures with no live
 //! network (mirroring the brain module's `Transport` trait). Exactly one
 //! `#[ignore]`d live smoke test hits the real API.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -46,7 +53,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 pub struct WorkHit {
     /// The exact page title — pass this straight back to [`ImslpClient::editions`].
     pub title: String,
-    /// MediaWiki page id.
+    /// MediaWiki page id — **0 for every IMSLP search hit.** Verified live
+    /// 2026-07-30: IMSLP's `list=search` returns only
+    /// `ns/title/snippet/size/wordcount/timestamp`, with no `pageid` at all.
+    /// The field is kept because other endpoints (and any future IMSLP change)
+    /// may supply it, but it is NOT an identity: use [`WorkHit::title`], which
+    /// is unique per wiki page and is what `editions` takes.
     pub page_id: i64,
     /// HTML snippet from the search index (may contain `<span>` highlight markup).
     pub snippet: String,
@@ -157,23 +169,36 @@ impl HttpGet for NativeHttp {
     }
 }
 
+/// The one process-wide [`NativeHttp`]. Sharing it is load-bearing twice over:
+/// the rate guard only spans requests if `last_request` outlives a single call
+/// (a fresh client per command silently disabled it), and reqwest's connection
+/// pool only keeps TLS alive across the search → editions → file_url sequence if
+/// the `Client` is reused. Building one per command cost a full TLS handshake
+/// every time.
+static SHARED_HTTP: OnceLock<Arc<NativeHttp>> = OnceLock::new();
+
 /// The IMSLP client. Holds the [`HttpGet`] seam; every method makes exactly one
 /// GET. No retries — a failure surfaces honestly to the caller.
 pub struct ImslpClient {
-    http: Box<dyn HttpGet>,
+    http: Arc<dyn HttpGet>,
 }
 
 impl ImslpClient {
-    /// Production client over the real network.
+    /// Production client over the real network, sharing the process-wide
+    /// [`SHARED_HTTP`] transport (see its docs for why sharing matters).
     pub fn new() -> Self {
         Self {
-            http: Box::new(NativeHttp::new()),
+            http: SHARED_HTTP
+                .get_or_init(|| Arc::new(NativeHttp::new()))
+                .clone(),
         }
     }
 
     /// Construct over an injected transport (tests / advanced callers).
     pub fn with_http(http: Box<dyn HttpGet>) -> Self {
-        Self { http }
+        Self {
+            http: Arc::from(http),
+        }
     }
 
     /// Full-text search by title/composer via `action=query&list=search`.
@@ -519,21 +544,39 @@ mod tests {
 
     // ---- Canned fixtures (trimmed real responses from the research notes) ----
 
+    /// The REAL shape of an IMSLP `list=search` response, captured live on
+    /// 2026-07-30 from
+    /// `api.php?action=query&list=search&srsearch=chopin%20scherzo&format=json`.
+    ///
+    /// NOTE the absence of `pageid` — IMSLP simply does not send one. This
+    /// fixture used to invent `"pageid": 12345`, which kept the suite green
+    /// while the real UI keyed its result list on an always-0 id (duplicate
+    /// React keys; selecting one work highlighted every row). Keep this fixture
+    /// byte-faithful to the live response.
     const SEARCH_JSON: &str = r##"{
       "query": {
         "search": [
           { "ns": 0, "title": "Nocturne in E minor, Op.72 No.1 (Chopin, Frédéric)",
-            "pageid": 12345, "snippet": "Nocturne ...", "size": 9637, "wordcount": 1175,
+            "snippet": "Nocturne ...", "size": 9637, "wordcount": 1175,
             "timestamp": "2025-05-28T12:16:47Z" },
           { "ns": 0, "title": "Nocturnes, Op.9 (Chopin, Frédéric)",
-            "pageid": 6789, "snippet": "Complete score ...", "size": 42942, "wordcount": 3000,
+            "snippet": "Complete score ...", "size": 42942, "wordcount": 3000,
             "timestamp": "2025-01-01T00:00:00Z" },
           { "ns": 0, "title": "Nocturne in C sharp minor op. posth (Chopin, Frederic)",
-            "pageid": 999, "snippet": "#REDIRECT [[Nocturne ...]]", "size": 40, "wordcount": 3,
+            "snippet": "#REDIRECT [[Nocturne ...]]", "size": 40, "wordcount": 3,
             "timestamp": "2025-01-01T00:00:00Z" }
         ]
       },
       "query-continue": { "search": { "sroffset": 5 } }
+    }"##;
+
+    /// A hypothetical MediaWiki search response that DOES carry `pageid` — kept
+    /// so the parser stays correct if IMSLP ever starts sending one.
+    const SEARCH_JSON_WITH_PAGEID: &str = r##"{
+      "query": { "search": [
+        { "ns": 0, "title": "Nocturnes, Op.9 (Chopin, Frédéric)", "pageid": 6789,
+          "snippet": "Complete score ...", "size": 42942, "wordcount": 3000 }
+      ] }
     }"##;
 
     const EMPTY_SEARCH_JSON: &str = r#"{"query": {"search": []}}"#;
@@ -585,11 +628,34 @@ mod tests {
             hits[0].title,
             "Nocturne in E minor, Op.72 No.1 (Chopin, Frédéric)"
         );
-        assert_eq!(hits[0].page_id, 12345);
         assert_eq!(hits[0].size, 9637);
         assert_eq!(hits[0].word_count, 1175);
         assert!(!hits[0].is_redirect);
         assert!(hits[2].is_redirect, "the #REDIRECT stub is flagged");
+    }
+
+    /// Guards the bug this fixture once hid: IMSLP sends no `pageid`, so every
+    /// hit's `page_id` is 0 and CANNOT be used to tell two results apart. The
+    /// picker must key on `title` — which this asserts is present and unique.
+    #[test]
+    fn parse_search_titles_are_the_only_usable_identity() {
+        let hits = parse_search(SEARCH_JSON).expect("search parses");
+        assert!(
+            hits.iter().all(|h| h.page_id == 0),
+            "IMSLP sends no pageid, so every page_id must be 0: {hits:?}"
+        );
+        let mut titles: Vec<&str> = hits.iter().map(|h| h.title.as_str()).collect();
+        assert!(titles.iter().all(|t| !t.is_empty()), "a hit had no title");
+        titles.sort_unstable();
+        let unique = titles.len();
+        titles.dedup();
+        assert_eq!(titles.len(), unique, "titles must be unique per hit");
+    }
+
+    #[test]
+    fn parse_search_still_reads_a_pageid_when_one_is_present() {
+        let hits = parse_search(SEARCH_JSON_WITH_PAGEID).expect("search parses");
+        assert_eq!(hits[0].page_id, 6789);
     }
 
     #[test]
@@ -752,11 +818,72 @@ mod tests {
 
     // ---- one #[ignore]d live smoke test (no network in normal runs) ----
 
+    /// NOTE: **This is the ONLY real coverage of the live IMSLP API.** Every
+    /// other test in this module runs against `FakeHttp` fixtures, so the suite
+    /// stays green even if IMSLP changes its response shape, blocks our
+    /// User-Agent, or moves the endpoint entirely. It stays `#[ignore]`d so an
+    /// offline run passes, but if you touch the request builders or the
+    /// parsers, run it:
+    ///
+    /// ```text
+    /// cargo test --lib live_search_smoke -- --ignored --nocapture
+    /// ```
+    ///
+    /// It asserts on the *contents* of the response, not merely that no error
+    /// occurred — a silently-empty or field-less result must fail here.
     #[test]
     #[ignore = "hits the live IMSLP API; run explicitly with --ignored"]
     fn live_search_smoke() {
         let client = ImslpClient::new();
-        let hits = client.search("Chopin Nocturne").expect("live search");
+        let hits = client.search("chopin scherzo").expect("live search");
         assert!(!hits.is_empty(), "expected live results for a common query");
+
+        // Every hit must carry the fields the picker actually renders. NOTE we
+        // deliberately do NOT assert on page_id: IMSLP sends no `pageid`, so it
+        // is always 0 — the title is the identity (see `WorkHit::page_id`).
+        for hit in &hits {
+            assert!(!hit.title.is_empty(), "hit has an empty title: {hit:?}");
+        }
+        let mut titles: Vec<&str> = hits.iter().map(|h| h.title.as_str()).collect();
+        titles.sort_unstable();
+        let before = titles.len();
+        titles.dedup();
+        assert_eq!(
+            titles.len(),
+            before,
+            "live hits must have unique titles — they are the picker's React key"
+        );
+
+        // The query is specific enough that a working full-text index has to
+        // return the Chopin scherzi. If this fails, IMSLP's search changed.
+        let non_redirects: Vec<_> = hits.iter().filter(|h| !h.is_redirect).collect();
+        assert!(
+            !non_redirects.is_empty(),
+            "every live hit was a #REDIRECT stub: {hits:?}"
+        );
+        assert!(
+            non_redirects
+                .iter()
+                .any(|h| h.title.to_lowercase().contains("scherzo")),
+            "no live hit mentioned 'scherzo': {:?}",
+            non_redirects.iter().map(|h| &h.title).collect::<Vec<_>>()
+        );
+
+        // A real work page must be reachable from a hit, and yield real editions
+        // with non-empty file names — this is the path the picker takes next.
+        let work = non_redirects
+            .iter()
+            .find(|h| h.title.to_lowercase().contains("scherzo"))
+            .expect("a scherzo hit");
+        let editions = client.editions(&work.title).expect("live editions");
+        assert!(
+            !editions.is_empty(),
+            "no editions parsed from the live work page {:?}",
+            work.title
+        );
+        assert!(
+            editions.iter().all(|e| !e.file_name.is_empty()),
+            "an edition came back with no file name: {editions:?}"
+        );
     }
 }

@@ -77,8 +77,14 @@ async function tick(ms: number) {
   });
 }
 
+const searchCalls = () =>
+  invokeMock.mock.calls.filter((c) => c[0] === "imslp_search");
+
 describe("AddScore", () => {
-  it("debounces the search ≥1.5s before calling imslp_search", async () => {
+  // The debounce was 1500ms, which made the panel look dead for a second and a
+  // half before it even started. IMSLP etiquette now lives in the Rust client's
+  // rate guard (off the UI thread), so the UI can respond promptly.
+  it("debounces the search by ~250ms, then calls imslp_search once", async () => {
     mock();
     render(<AddScore onImported={vi.fn()} onClose={vi.fn()} />);
 
@@ -87,20 +93,213 @@ describe("AddScore", () => {
     });
 
     // No call before the debounce elapses.
-    await tick(1400);
-    expect(invokeMock).not.toHaveBeenCalledWith(
-      "imslp_search",
-      expect.anything(),
-    );
+    await tick(200);
+    expect(searchCalls()).toHaveLength(0);
 
     // Exactly one call after it does.
-    await tick(300);
+    await tick(100);
     expect(invokeMock).toHaveBeenCalledWith("imslp_search", {
       query: "chopin",
     });
-    expect(
-      invokeMock.mock.calls.filter((c) => c[0] === "imslp_search"),
-    ).toHaveLength(1);
+    expect(searchCalls()).toHaveLength(1);
+  });
+
+  it("searches immediately on Enter, without a duplicate debounced call", async () => {
+    mock();
+    render(<AddScore onImported={vi.fn()} onClose={vi.fn()} />);
+    const box = screen.getByLabelText("Search IMSLP");
+
+    fireEvent.change(box, { target: { value: "chopin" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+
+    // Fired now — well inside the debounce window.
+    await tick(0);
+    expect(searchCalls()).toHaveLength(1);
+
+    // The pending debounce was cancelled, so no second request lands.
+    await tick(600);
+    expect(searchCalls()).toHaveLength(1);
+  });
+
+  it("shows a searching state while the call is in flight", async () => {
+    let release: (hits: unknown) => void = () => {};
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "imslp_search"
+        ? new Promise((resolve) => {
+            release = resolve;
+          })
+        : Promise.resolve(null),
+    );
+    render(<AddScore onImported={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Search IMSLP"), {
+      target: { value: "chopin" },
+    });
+
+    await tick(300);
+    expect(screen.getByText(/Searching IMSLP for/)).toBeTruthy();
+
+    await act(async () => {
+      release(HITS);
+    });
+    expect(screen.queryByText(/Searching IMSLP for/)).toBeNull();
+    expect(screen.getByText(/1 result for/)).toBeTruthy();
+  });
+
+  it("says 'no matches' rather than rendering an empty void", async () => {
+    mock({ imslp_search: [] });
+    render(<AddScore onImported={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Search IMSLP"), {
+      target: { value: "zzzzz" },
+    });
+    await tick(300);
+
+    expect(screen.getByText(/No matches for .zzzzz. on IMSLP/)).toBeTruthy();
+    expect(screen.queryByRole("list")).toBeNull();
+  });
+
+  it("surfaces the underlying cause when the search fails", async () => {
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "imslp_search"
+        ? Promise.reject(
+            new Error("Could not reach IMSLP. Check your connection."),
+          )
+        : Promise.resolve(null),
+    );
+    render(<AddScore onImported={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Search IMSLP"), {
+      target: { value: "chopin" },
+    });
+    await tick(300);
+
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("Could not reach IMSLP");
+    // An error must never masquerade as "no matches" or as a blank list.
+    expect(screen.queryByText(/No matches for/)).toBeNull();
+    expect(screen.queryByText(/Searching IMSLP for/)).toBeNull();
+  });
+
+  it("retries a failed search from the error state", async () => {
+    let attempt = 0;
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd !== "imslp_search") return Promise.resolve(null);
+      attempt += 1;
+      return attempt === 1
+        ? Promise.reject(new Error("network down"))
+        : Promise.resolve(HITS);
+    });
+    render(<AddScore onImported={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Search IMSLP"), {
+      target: { value: "chopin" },
+    });
+    await tick(300);
+    expect(screen.getByRole("alert")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await tick(0);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("Nocturnes, Op.9 (Chopin)")).toBeTruthy();
+  });
+
+  it("ignores a slow earlier response that resolves after a newer one", async () => {
+    const resolvers: ((hits: unknown) => void)[] = [];
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "imslp_search"
+        ? new Promise((resolve) => resolvers.push(resolve))
+        : Promise.resolve(null),
+    );
+    render(<AddScore onImported={vi.fn()} onClose={vi.fn()} />);
+    const box = screen.getByLabelText("Search IMSLP");
+
+    fireEvent.change(box, { target: { value: "chopin" } });
+    await tick(300);
+    fireEvent.change(box, { target: { value: "liszt" } });
+    await tick(300);
+    expect(resolvers).toHaveLength(2);
+
+    // The NEWER call answers first, then the stale one arrives late.
+    await act(async () => {
+      resolvers[1](HITS);
+    });
+    await act(async () => {
+      resolvers[0]([]);
+    });
+
+    // The stale empty response must not clobber the newer results.
+    expect(screen.getByText("Nocturnes, Op.9 (Chopin)")).toBeTruthy();
+    expect(screen.queryByText(/No matches for/)).toBeNull();
+  });
+
+  // Regression: the live IMSLP API sends no `pageid`, so every real hit arrives
+  // with page_id 0. Keying the list on it produced duplicate React keys and made
+  // `aria-pressed` true for EVERY row as soon as one was chosen.
+  it("keeps hits distinct when every page_id is 0, as live IMSLP sends them", async () => {
+    const LIVE_SHAPE = [
+      "Scherzo No.1, Op.20 (Chopin, Frédéric)",
+      "Scherzo No.2, Op.31 (Chopin, Frédéric)",
+      "Scherzo No.3, Op.39 (Chopin, Frédéric)",
+    ].map((title) => ({
+      title,
+      page_id: 0,
+      snippet: "score",
+      size: 1,
+      word_count: 1,
+      is_redirect: false,
+    }));
+    mock({ imslp_search: LIVE_SHAPE });
+    render(<AddScore onImported={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Search IMSLP"), {
+      target: { value: "chopin scherzo" },
+    });
+    await tick(300);
+
+    // All three render, none collapsed away by a duplicate key.
+    const rows = screen.getAllByRole("button", { name: /Scherzo No\./ });
+    expect(rows).toHaveLength(3);
+
+    // Choosing the second selects exactly one row.
+    fireEvent.click(rows[1]);
+    await tick(0);
+    const pressed = screen
+      .getAllByRole("button", { name: /Scherzo No\./ })
+      .filter((b) => b.getAttribute("aria-pressed") === "true");
+    expect(pressed).toHaveLength(1);
+    expect(pressed[0].textContent).toContain("Scherzo No.2");
+
+    // …and the editions request used that row's title.
+    expect(invokeMock).toHaveBeenCalledWith("imslp_editions", {
+      pageTitle: "Scherzo No.2, Op.31 (Chopin, Frédéric)",
+    });
+  });
+
+  it("drops the previous work's editions when a new query is typed", async () => {
+    mock();
+    render(<AddScore onImported={vi.fn()} onClose={vi.fn()} />);
+    const box = screen.getByLabelText("Search IMSLP");
+    fireEvent.change(box, { target: { value: "chopin" } });
+    await tick(300);
+    fireEvent.click(screen.getByText("Nocturnes, Op.9 (Chopin)"));
+    await tick(0);
+    expect(screen.getByText("Download in your browser")).toBeTruthy();
+
+    // A new search must not leave the old work's download button on screen.
+    fireEvent.change(box, { target: { value: "liszt" } });
+    await tick(300);
+    expect(screen.queryByText("Download in your browser")).toBeNull();
+  });
+
+  it("returns to idle when the query is cleared", async () => {
+    mock();
+    render(<AddScore onImported={vi.fn()} onClose={vi.fn()} />);
+    const box = screen.getByLabelText("Search IMSLP");
+    fireEvent.change(box, { target: { value: "chopin" } });
+    await tick(300);
+    expect(screen.getByText("Nocturnes, Op.9 (Chopin)")).toBeTruthy();
+
+    fireEvent.change(box, { target: { value: "  " } });
+    await tick(300);
+    expect(screen.queryByText("Nocturnes, Op.9 (Chopin)")).toBeNull();
+    expect(screen.queryByText(/No matches for/)).toBeNull();
+    expect(screen.queryByText(/result/)).toBeNull();
   });
 
   it("renders the snippet as plain text (a <script> in it is inert)", async () => {

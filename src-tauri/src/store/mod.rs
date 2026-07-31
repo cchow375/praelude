@@ -1351,12 +1351,16 @@ mod tests {
     fn rehearse_migration_on_real_database_copy() {
         let path = std::env::var("CODAKILLER_MIGRATION_COPY")
             .expect("set CODAKILLER_MIGRATION_COPY to a disposable database backup");
+        // `piece` is NOT in this list: the v12 Tanglewood split adds exactly one
+        // row, and only on the database that still carries the merged piece. It
+        // is asserted separately below. Everything else must be untouched —
+        // notably `rep`, which the split is forbidden to write.
         let preserved_tables = [
-            "piece",
             "region",
             "rep_block",
             "rep",
             "goal",
+            "session",
             "session_event",
         ];
         let before_conn = Connection::open(&path).expect("open migration rehearsal copy");
@@ -1380,6 +1384,74 @@ mod tests {
         let source_events: i64 = before_conn
             .query_row("SELECT COUNT(*) FROM session_event", [], |row| row.get(0))
             .unwrap();
+
+        // Snapshot of the v11→v12 Tanglewood split's inputs, read from the copy
+        // BEFORE it is migrated. `0` means this database never had the merged
+        // piece, in which case the split must be a complete no-op.
+        let before_pieces: i64 = before_conn
+            .query_row("SELECT COUNT(*) FROM piece", [], |row| row.get(0))
+            .unwrap();
+        let merged_id: i64 = before_conn
+            .query_row(
+                "SELECT COALESCE(MIN(id), 0) FROM piece WHERE title = 'Chamber Pieces Tanglewood'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let merged_regions: i64 = before_conn
+            .query_row(
+                "SELECT COUNT(*) FROM region WHERE piece_id = ?1",
+                [merged_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let merged_blocks: i64 = before_conn
+            .query_row(
+                "SELECT COUNT(*) FROM rep_block WHERE piece_id = ?1",
+                [merged_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let merged_reps: i64 = before_conn
+            .query_row(
+                "SELECT COUNT(*) FROM rep
+                 JOIN rep_block ON rep_block.id = rep.block_id
+                 WHERE rep_block.piece_id = ?1",
+                [merged_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let merged_calibrations: String = before_conn
+            .query_row(
+                "SELECT COALESCE(GROUP_CONCAT(id), '') FROM score_edition_calibration
+                 WHERE piece_id = ?1 ORDER BY id",
+                [merged_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        // Practice Notebook rows the copy already holds (0 on a pre-v11 copy,
+        // where the tables do not exist yet). Migration must not change these.
+        let before_notebook: Vec<i64> = ["day_sheet", "piece_plan"]
+            .iter()
+            .map(|table| {
+                let exists: i64 = before_conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                        [*table],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                if exists == 0 {
+                    return 0;
+                }
+                before_conn
+                    .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap()
+            })
+            .collect();
         drop(before_conn);
 
         let store = Store::open(&path).expect("migrate rehearsal copy");
@@ -1398,6 +1470,140 @@ mod tests {
             after, before,
             "migration must preserve all source graph row counts"
         );
+        for (table, count) in preserved_tables.iter().zip(&after) {
+            println!("rehearsal: {table} unchanged at {count}");
+        }
+
+        // ── v11→v12: the Tanglewood split ────────────────────────────────────
+        let after_pieces: i64 = conn
+            .query_row("SELECT COUNT(*) FROM piece", [], |row| row.get(0))
+            .unwrap();
+        let split_ran = i64::from(merged_id != 0);
+        assert_eq!(
+            after_pieces,
+            before_pieces + split_ran,
+            "the split adds exactly one piece, and only where the merged row existed"
+        );
+        println!("rehearsal: piece {before_pieces} -> {after_pieces}");
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM piece WHERE title = 'Chamber Pieces Tanglewood'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0,
+            "the merged pseudo-piece is gone"
+        );
+
+        if merged_id != 0 {
+            // The surviving row is the Barber: same id, no practice graph, and
+            // it still owns the calibration made against its page geometry.
+            let (barber_title, barber_composer, barber_folder): (String, String, String) = conn
+                .query_row(
+                    "SELECT title, composer, folder_path FROM piece WHERE id = ?1",
+                    [merged_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(barber_title, "Pas de Deux");
+            assert_eq!(barber_composer, "Barber");
+            assert!(
+                barber_folder.ends_with("/Barber - Pas de Deux"),
+                "unexpected Barber folder {barber_folder}"
+            );
+            for table in ["region", "rep_block"] {
+                assert_eq!(
+                    conn.query_row(
+                        &format!("SELECT COUNT(*) FROM {table} WHERE piece_id = ?1"),
+                        [merged_id],
+                        |row| row.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                    0,
+                    "the Barber must keep no {table} rows"
+                );
+            }
+            let barber_calibrations: String = conn
+                .query_row(
+                    "SELECT COALESCE(GROUP_CONCAT(id), '') FROM score_edition_calibration
+                     WHERE piece_id = ?1 ORDER BY id",
+                    [merged_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                barber_calibrations, merged_calibrations,
+                "calibration stays with the Barber it was calibrated against"
+            );
+            println!(
+                "rehearsal: Barber piece {merged_id} '{barber_composer} - {barber_title}' \
+                 regions=0 blocks=0 calibration_ids=[{barber_calibrations}]"
+            );
+
+            // The new row is the Copland and owns the entire moved graph.
+            let (copland_id, copland_composer, copland_folder): (i64, String, String) = conn
+                .query_row(
+                    "SELECT id, composer, folder_path FROM piece
+                     WHERE title = 'Cowboys with Lassos (Billy the Kid)'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .expect("the Copland piece exists after the split");
+            assert_eq!(copland_composer, "Copland");
+            assert!(
+                copland_folder.ends_with("/Copland - Cowboys with Lassos (Billy the Kid)"),
+                "unexpected Copland folder {copland_folder}"
+            );
+            let copland_regions: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM region WHERE piece_id = ?1",
+                    [copland_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let copland_blocks: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM rep_block WHERE piece_id = ?1",
+                    [copland_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let copland_reps: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM rep
+                     JOIN rep_block ON rep_block.id = rep.block_id
+                     WHERE rep_block.piece_id = ?1",
+                    [copland_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                (copland_regions, copland_blocks, copland_reps),
+                (merged_regions, merged_blocks, merged_reps),
+                "every region, block and rep of the merged row moved to the Copland intact"
+            );
+            assert!(
+                copland_regions > 0 && copland_blocks > 0 && copland_reps > 0,
+                "the split must actually move the practice graph"
+            );
+            assert_eq!(
+                conn.query_row(
+                    "SELECT COUNT(*) FROM score_edition_calibration WHERE piece_id = ?1",
+                    [copland_id],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+                0,
+                "the Barber calibration must not follow the Copland"
+            );
+            println!(
+                "rehearsal: Copland piece {copland_id} '{copland_composer} - Cowboys with Lassos \
+                 (Billy the Kid)' regions={copland_regions} blocks={copland_blocks} \
+                 reps={copland_reps}"
+            );
+        }
+
         let after_events: i64 = conn
             .query_row("SELECT COUNT(*) FROM event", [], |row| row.get(0))
             .unwrap();
@@ -1447,12 +1653,15 @@ mod tests {
             );
         }
         // The additive v11 Practice Notebook tables exist after rehearsal, and
-        // the migration invents no rows in them.
-        for table in ["day_sheet", "piece_plan"] {
+        // migration neither invents nor drops rows in them. The count is
+        // compared against the copy's own pre-migration count rather than 0:
+        // once the installed app is itself on v11 the real database legitimately
+        // carries the day sheets the user has written.
+        for (table, before_rows) in ["day_sheet", "piece_plan"].iter().zip(&before_notebook) {
             assert_eq!(
                 conn.query_row(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
-                    [table],
+                    [*table],
                     |row| row.get::<_, i64>(0),
                 )
                 .unwrap(),
@@ -1463,8 +1672,8 @@ mod tests {
                 conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row
                     .get::<_, i64>(0))
                     .unwrap(),
-                0,
-                "v11 migration must not invent {table} rows"
+                *before_rows,
+                "migration must neither invent nor drop {table} rows"
             );
         }
         drop(conn);
@@ -1484,6 +1693,12 @@ mod tests {
                 .unwrap(),
             after_events,
             "second open maps zero additional events"
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM piece", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            after_pieces,
+            "second open splits nothing again"
         );
         assert_eq!(
             conn.query_row("SELECT COUNT(*) FROM session_event_backfill", [], |row| row

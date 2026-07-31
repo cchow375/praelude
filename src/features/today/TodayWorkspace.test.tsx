@@ -109,9 +109,10 @@ describe("TodayWorkspace main menu", () => {
   it("shows a quiet menu and opens the day-sheet-first practice window", async () => {
     renderToday();
 
-    // App mark, the date, the single-line rotating quote, and quiet entries.
+    // App mark, the date, the single-line context-picked quote, and quiet
+    // entries. The quote waits for the practice signals, so it is awaited.
     expect(screen.getByText("CodaKiller")).toBeTruthy();
-    const quote = screen.getByTestId("today-menu-quote");
+    const quote = await screen.findByTestId("today-menu-quote");
     expect(quote.textContent).toMatch(/—\s+\S/);
     for (const label of [
       "Today's Practice",
@@ -143,7 +144,7 @@ describe("TodayWorkspace main menu", () => {
     renderToday();
 
     expect(screen.queryByRole("dialog", { name: "Reader" })).toBeNull();
-    fireEvent.click(screen.getByTestId("today-menu-quote"));
+    fireEvent.click(await screen.findByTestId("today-menu-quote"));
 
     const reader = await screen.findByRole("dialog", { name: "Reader" });
     expect(reader).toBeTruthy();
@@ -156,6 +157,39 @@ describe("TodayWorkspace main menu", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Reader" })).toBeNull(),
     );
+  });
+
+  it("says why the quote surfaced, using only facts it actually read", async () => {
+    // The router serves a blank sheet for today AND yesterday and no open set,
+    // so the honest connector is one of those two — never an invented one.
+    renderToday();
+
+    const why = await screen.findByTestId("today-menu-quote-why");
+    expect([
+      "before you write today's page",
+      "with yesterday's page blank",
+    ]).toContain(why.textContent);
+    // It reads as marginalia above the quote, not as a second quote.
+    expect(why.tagName).toBe("P");
+  });
+
+  it("stays silent about the reason when it could not read any signal", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "metro_state")
+        return Promise.resolve({ running: false, bpm: 84 });
+      return Promise.reject(new Error("no backend"));
+    });
+    // Mid-afternoon: outside both the early and the late hour cue, so a failed
+    // read really does leave nothing honest to say.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 6, 30, 14, 30));
+    try {
+      renderToday();
+      await screen.findByTestId("today-menu-quote");
+      expect(screen.queryByTestId("today-menu-quote-why")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("routes each quiet menu entry to its workspace", () => {

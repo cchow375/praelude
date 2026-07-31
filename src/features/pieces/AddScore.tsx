@@ -17,10 +17,27 @@ import {
 // browser and the user's browser does the download; we then import the file.
 // ---------------------------------------------------------------------------
 
-/** IMSLP etiquette: debounce search-as-you-type ≥1.5s (robots Crawl-delay). */
-const SEARCH_DEBOUNCE_MS = 1500;
+/**
+ * Debounce for search-as-you-type. Deliberately short: the panel used to wait
+ * 1.5s before it even *started*, which read as "the search is broken". IMSLP
+ * etiquette is enforced where it belongs — the Rust client's 1s rate guard
+ * between real requests (`imslp.rs`), which now runs off the UI thread.
+ */
+const SEARCH_DEBOUNCE_MS = 250;
 /** Poll cadence for a matching file arriving in ~/Downloads. */
 const DOWNLOADS_POLL_MS = 2000;
+
+/**
+ * The search box's one source of truth. Modelled as a union so the panel can
+ * never render the ambiguous state it used to: an empty result list that might
+ * equally mean "still searching", "nothing matched", or "the call failed".
+ */
+type SearchState =
+  | { kind: "idle" }
+  | { kind: "searching"; query: string }
+  | { kind: "results"; query: string; hits: WorkHit[] }
+  | { kind: "empty"; query: string }
+  | { kind: "error"; query: string; message: string };
 
 /** One regular file in ~/Downloads (mirrors Rust `DownloadEntry`). */
 interface DownloadEntry {
@@ -48,9 +65,7 @@ function defaultFolderName(title: string): string {
 
 export function AddScore({ onImported, onClose }: AddScoreProps) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<WorkHit[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
+  const [search, setSearch] = useState<SearchState>({ kind: "idle" });
 
   const [work, setWork] = useState<WorkHit | null>(null);
   const [editions, setEditions] = useState<Edition[] | null>(null);
@@ -70,39 +85,75 @@ export function AddScore({ onImported, onClose }: AddScoreProps) {
   const [imported, setImported] = useState<string | null>(null);
 
   const searchGeneration = useRef(0);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Debounced search: wait SEARCH_DEBOUNCE_MS after the last keystroke, then run
-  // exactly one search. An empty/whitespace query clears results without a call.
-  useEffect(() => {
-    const trimmed = query.trim();
+  /**
+   * Run one search now. Stale in-flight calls are discarded by generation, so a
+   * slow earlier request can never overwrite a newer one's results.
+   */
+  const runSearch = useCallback(async (raw: string) => {
+    const trimmed = raw.trim();
     if (!trimmed) {
-      setResults([]);
-      setSearching(false);
-      setSearchError(null);
+      searchGeneration.current += 1; // abandon anything in flight
+      setSearch({ kind: "idle" });
       return;
     }
-    setSearching(true);
     const generation = ++searchGeneration.current;
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const hits = await invoke<WorkHit[]>("imslp_search", {
-            query: trimmed,
-          });
-          if (generation !== searchGeneration.current) return;
-          setResults(hits ?? []);
-          setSearchError(null);
-        } catch (e) {
-          if (generation !== searchGeneration.current) return;
-          setSearchError(messageOf(e));
-          setResults([]);
-        } finally {
-          if (generation === searchGeneration.current) setSearching(false);
-        }
-      })();
+    setSearch({ kind: "searching", query: trimmed });
+    try {
+      const hits = await invoke<WorkHit[]>("imslp_search", { query: trimmed });
+      if (generation !== searchGeneration.current) return;
+      const list = hits ?? [];
+      setSearch(
+        list.length > 0
+          ? { kind: "results", query: trimmed, hits: list }
+          : { kind: "empty", query: trimmed },
+      );
+    } catch (e) {
+      if (generation !== searchGeneration.current) return;
+      setSearch({ kind: "error", query: trimmed, message: messageOf(e) });
+    }
+  }, []);
+
+  // Debounced search-as-you-type. An empty/whitespace query returns to idle
+  // without a call.
+  useEffect(() => {
+    // A new query invalidates the previously chosen work: without this, the
+    // editions of the OLD work stayed on screen underneath the NEW results,
+    // complete with a live "Download in your browser" button for a piece the
+    // user is no longer looking at. The import step (`file`) is deliberately
+    // left alone so an in-progress download is never thrown away.
+    setWork(null);
+    setEditions(null);
+    setEditionsError(null);
+
+    const trimmed = query.trim();
+    if (!trimmed) {
+      searchGeneration.current += 1;
+      setSearch({ kind: "idle" });
+      return;
+    }
+    debounceTimer.current = setTimeout(() => {
+      debounceTimer.current = null;
+      void runSearch(trimmed);
     }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [query]);
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+        debounceTimer.current = null;
+      }
+    };
+  }, [query, runSearch]);
+
+  /** Enter searches immediately, cancelling the pending debounce so the
+   *  keystroke does not also fire a second, identical request. */
+  const searchNow = useCallback(() => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
+    }
+    void runSearch(query);
+  }, [query, runSearch]);
 
   const chooseWork = useCallback(async (hit: WorkHit) => {
     setWork(hit);
@@ -267,19 +318,55 @@ export function AddScore({ onImported, onClose }: AddScoreProps) {
         aria-label="Search IMSLP"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            searchNow();
+          }
+        }}
       />
 
-      {searching && <p className="add-score-status">Searching…</p>}
-      {searchError && (
+      {/* Every search outcome is named. An empty list is never rendered as a
+          silent void — the panel always says which of the four it is. */}
+      {search.kind === "searching" && (
+        <p className="add-score-status is-searching" role="status">
+          <span className="add-score-spinner" aria-hidden="true" />
+          Searching IMSLP for “{search.query}”…
+        </p>
+      )}
+      {search.kind === "error" && (
         <p className="ck-inline-error" role="alert">
-          {searchError}
+          IMSLP search failed: {search.message}
+          <button
+            type="button"
+            className="add-score-retry"
+            onClick={() => void runSearch(search.query)}
+          >
+            Try again
+          </button>
+        </p>
+      )}
+      {search.kind === "empty" && (
+        <p className="add-score-status" role="status">
+          No matches for “{search.query}” on IMSLP.
         </p>
       )}
 
-      {results.length > 0 && (
+      {search.kind === "results" && (
+        <p className="add-score-status" role="status">
+          {search.hits.length} result{search.hits.length === 1 ? "" : "s"} for “
+          {search.query}”
+        </p>
+      )}
+      {search.kind === "results" && (
         <ul className="add-score-results">
-          {results.map((hit) => (
-            <li key={hit.page_id}>
+          {/* Identity is the TITLE, never page_id: IMSLP's `list=search` does
+              not return a `pageid`, so every real hit arrives as page_id 0.
+              Keying on it gave every row the same React key and made selecting
+              one work light up the whole list. Titles are unique per wiki page
+              and are what `imslp_editions` is called with anyway. */}
+          {search.hits.map((hit) => (
+            <li key={hit.title}>
               <button
                 type="button"
                 className={
@@ -287,7 +374,7 @@ export function AddScore({ onImported, onClose }: AddScoreProps) {
                     ? "add-score-hit is-redirect"
                     : "add-score-hit"
                 }
-                aria-pressed={work?.page_id === hit.page_id}
+                aria-pressed={work?.title === hit.title}
                 onClick={() => void chooseWork(hit)}
               >
                 <span className="add-score-hit-title ck-fit">{hit.title}</span>

@@ -1049,6 +1049,64 @@ describe("ScoreView", () => {
     expect(pdf.adapter.load).toHaveBeenCalledTimes(1);
   });
 
+  it("warms the PDF.js runtime alongside the edition lookup, not after it", async () => {
+    const pdf = makePdf(1);
+    let releaseEditions: (value: PdfEdition[]) => void = () => undefined;
+    const editions = vi.fn(
+      () => new Promise<PdfEdition[]>((resolve) => (releaseEditions = resolve)),
+    );
+    const prefetch = vi.fn();
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ editions })}
+        adapter={{ ...pdf.adapter, prefetch }}
+      />,
+    );
+
+    // The ~1.7 MB runtime import does not depend on which edition wins, so it
+    // must already be in flight while the edition scan is still outstanding.
+    await waitFor(() => expect(prefetch).toHaveBeenCalledTimes(1));
+    expect(pdf.adapter.load).not.toHaveBeenCalled();
+    releaseEditions(EDITIONS);
+    await screen.findByLabelText("Score page 1");
+  });
+
+  it("range-loads the selected edition off the score protocol instead of over IPC", async () => {
+    const pdf = makePdf(1);
+    const loadUrl = vi.fn().mockResolvedValue(pdf.document);
+    const api = makeApi();
+    render(
+      <ScoreView pieceId={7} api={api} adapter={{ ...pdf.adapter, loadUrl }} />,
+    );
+
+    await screen.findByLabelText("Score page 1");
+    expect(loadUrl).toHaveBeenCalledWith(
+      "ckscore://localhost/7/urtext",
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    );
+    expect(api.bytes).not.toHaveBeenCalled();
+    expect(pdf.adapter.load).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the IPC byte path when the score protocol is unavailable", async () => {
+    const pdf = makePdf(1);
+    const loadUrl = vi
+      .fn()
+      .mockRejectedValue(new Error("ckscore is not registered here"));
+    const api = makeApi();
+    render(
+      <ScoreView pieceId={7} api={api} adapter={{ ...pdf.adapter, loadUrl }} />,
+    );
+
+    // A browser dev session (or a webview that refuses the scheme) must still
+    // open the score rather than show an error.
+    await screen.findByLabelText("Score page 1");
+    expect(loadUrl).toHaveBeenCalledTimes(1);
+    expect(api.bytes).toHaveBeenCalledWith(7, "urtext");
+    expect(pdf.adapter.load).toHaveBeenCalledTimes(1);
+  });
+
   it("parses a real PDF through the WebKit-compatible legacy loopback worker", async () => {
     const document = await pdfJsAdapter.load(makeMinimalPdf(), {
       timeoutMs: 5_000,
@@ -1087,6 +1145,131 @@ describe("ScoreView", () => {
     });
     await document.destroy();
     expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("range-loads from the score protocol with disableAutoFetch on", async () => {
+    // Without `disableAutoFetch` PDF.js walks the whole file anyway, so the
+    // range protocol would cost a round trip and buy nothing.
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(new Uint8Array(65536), {
+          status: 206,
+          headers: { "Content-Range": "bytes 0-65535/1000000" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const getDocument = vi.fn(
+        (_options: unknown) =>
+          ({
+            promise: Promise.resolve({ numPages: 3, getPage: vi.fn() }),
+            destroy: vi.fn().mockResolvedValue(undefined),
+          }) as unknown as PDFDocumentLoadingTask,
+      );
+      class FakeTransport {
+        length: number;
+        constructor(length: number) {
+          this.length = length;
+        }
+        onDataRange() {}
+        abort() {}
+      }
+      const adapter = createPdfJsAdapter(async () => ({
+        getDocument,
+        PDFDataRangeTransport: FakeTransport as never,
+      }));
+
+      const document = await adapter.loadUrl!("ckscore://localhost/7/a.pdf", {
+        timeoutMs: 1_000,
+      });
+      expect(document.numPages).toBe(3);
+      expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+        headers: { Range: "bytes=0-65535" },
+      });
+      const options = getDocument.mock.calls[0][0] as Record<string, unknown>;
+      expect(options).toMatchObject({
+        disableAutoFetch: true,
+        disableStream: false,
+        rangeChunkSize: 65536,
+        isImageDecoderSupported: false,
+      });
+      expect(options.range).toBeInstanceOf(FakeTransport);
+      expect((options.range as FakeTransport).length).toBe(1000000);
+      expect(options.data).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("takes the plain byte path when the protocol returns the whole small edition", async () => {
+    const whole = new Uint8Array(makeMinimalPdf());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(whole, { status: 200 })),
+    );
+    try {
+      const document = await pdfJsAdapter.loadUrl!(
+        "ckscore://localhost/7/a.pdf",
+        { timeoutMs: 5_000 },
+      );
+      expect(document.numPages).toBe(1);
+      await document.destroy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects loadUrl when the protocol is unreachable, so the viewer can fall back", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    try {
+      await expect(
+        pdfJsAdapter.loadUrl!("ckscore://localhost/7/a.pdf", {
+          timeoutMs: 1_000,
+        }),
+      ).rejects.toThrow("answered 404");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("gives up on a silent score protocol quickly instead of burning the load budget", async () => {
+    // A webview that swallows the custom scheme must cost a short probe, not
+    // the full 30 s document deadline, before the byte path takes over.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => undefined)),
+    );
+    try {
+      const started = Date.now();
+      await expect(
+        pdfJsAdapter.loadUrl!("ckscore://localhost/7/a.pdf", {
+          timeoutMs: 50,
+        }),
+      ).rejects.toThrow("The score protocol did not answer in time.");
+      expect(Date.now() - started).toBeLessThan(2_000);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shares one runtime import between prefetch and load", async () => {
+    const loadRuntime = vi.fn(async () => ({
+      getDocument: vi.fn(
+        () =>
+          ({
+            promise: Promise.resolve({ numPages: 1, getPage: vi.fn() }),
+            destroy: vi.fn().mockResolvedValue(undefined),
+          }) as unknown as PDFDocumentLoadingTask,
+      ),
+    }));
+    const adapter = createPdfJsAdapter(loadRuntime);
+    adapter.prefetch!();
+    adapter.prefetch!();
+    await adapter.load(makeMinimalPdf(), { timeoutMs: 1_000 });
+    expect(loadRuntime).toHaveBeenCalledTimes(1);
   });
 
   it("rejects on deadline even when PDF.js startup and cleanup both never settle", async () => {

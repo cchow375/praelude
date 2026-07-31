@@ -16,6 +16,16 @@ body,
   height: 100%;
 }
 
+html {
+  /* Native controls, scrollbars and the webview backdrop follow paper.
+     `scrollbar-*` inherit, so declaring them once on the root is enough — a
+     universal selector would only add style-recalc work. */
+  color-scheme: light;
+  background: var(--bg);
+  scrollbar-color: var(--hairline-strong) transparent;
+  scrollbar-width: thin;
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);
@@ -23,19 +33,12 @@ body {
   line-height: var(--leading-normal);
   font-weight: var(--weight-normal);
   color: var(--ink-primary);
-  background: var(--surface-app);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
-}
-
-body::before {
-  position: fixed;
-  z-index: 9999;
-  inset: 0;
-  content: "";
-  pointer-events: none;
-  opacity: 0.42;
+  /* Paper base + a faint fibre fleck painted straight onto the body
+     background. (The v3 build used a fixed `body::before` at z-index 9999,
+     which forced a full-viewport composited layer above the entire app for a
+     texture that never rendered — `--paper-grain` was never defined. Painting
+     it as a background costs nothing per frame.) */
+  background-color: var(--surface-app);
   background-image:
     radial-gradient(
       circle at 17% 21%,
@@ -50,6 +53,48 @@ body::before {
   background-size:
     11px 13px,
     17px 19px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Headings and piece titles are set in the serif display face — the notebook's
+   handwritten-title register. Feature stylesheets may override per surface. */
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  color: var(--ink-primary);
+}
+
+/* Tempo, measure and rep numerals never jitter while they count. */
+[data-numeric],
+.ck-numeric {
+  font-family: var(--font-mono);
+  font-variant-numeric: var(--numeric-figures);
+  font-feature-settings: "tnum" 1;
+}
+
+/* Prose surfaces (reader, quotes, long notebook copy) get a real reading
+   measure and a looser leading — this is a document, not a dashboard. */
+.ck-prose {
+  max-width: var(--measure);
+  font-size: var(--text-read);
+  line-height: var(--leading-relaxed);
+  color: var(--ink-primary);
+}
+
+a {
+  color: var(--accent);
+  text-decoration-color: var(--accent-line);
+  text-underline-offset: 2px;
+}
+a:hover {
+  color: var(--accent-hover);
+  text-decoration-color: currentColor;
 }
 
 /* Disable native drag/select chrome that reads as "web page" rather than app. */
@@ -68,13 +113,39 @@ button:active:not(:disabled),
   transform: translateY(1px);
 }
 
+/* A focus ring you cannot miss: ink blue at 8.6:1 on paper. The outline
+   follows each element's own border-radius, so nothing is set here that would
+   change an element's shape when it takes focus. */
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: var(--selection-bg);
+  color: var(--selection-ink);
+}
+
+/* Scrollbars on paper terms: no track chrome, an ink thumb that darkens on
+   hover. Keeps the webview from painting a macOS dark overlay bar. */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--hairline-strong);
+  border: 3px solid transparent;
+  border-radius: var(--radius-pill);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--control-line);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {

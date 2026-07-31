@@ -1,35 +1,46 @@
 // Theme resolution + application for CodaKiller.
 //
-// v3 is DARK-ONLY. Light mode was dropped (see tokens.css). The `ThemePref`
-// union is retained so the Settings snapshot contract ("auto" | "dark" |
-// "light") still type-checks, but every path resolves to the single concrete
-// theme "dark" and writes `data-theme="dark"` onto <html>.
+// v4 is PAPER-ONLY. The app is a notebook: warm paper, ink, ruled lines (see
+// tokens.css). The `ThemePref` union is retained because the Settings snapshot
+// contract ("auto" | "dark" | "light") is persisted by the Rust side, but every
+// path resolves to the single concrete theme "paper" and writes
+// `data-theme="paper"` onto <html>.
 
 export type ThemePref = "auto" | "dark" | "light";
-export type Theme = "dark";
+export type Theme = "paper";
 
-/** Dark-only: always resolves to the single concrete theme. */
+/** The one concrete theme the app renders. */
+export const THEME: Theme = "paper";
+
+/** Paper-only: always resolves to the single concrete theme. */
 export function resolveTheme(_pref?: ThemePref, _system?: Theme): Theme {
-  return "dark";
+  return THEME;
 }
 
-/** Dark-only: the app never reads the OS scheme anymore. */
+/** Paper-only: the app never reads the OS scheme anymore. */
 export function getSystemTheme(): Theme {
-  return "dark";
-}
-
-/** Write the (only) concrete theme onto <html data-theme>. */
-export function applyTheme(_theme: Theme = "dark"): void {
-  if (typeof document === "undefined") return;
-  document.documentElement.setAttribute("data-theme", "dark");
+  return THEME;
 }
 
 /**
- * Keep <html data-theme> pinned to dark. Retained as a no-op subscription so
+ * Write the (only) concrete theme onto <html data-theme>.
+ *
+ * A stored `ThemePref` is accepted and ignored so existing callers that pass a
+ * persisted preference still compile; tokens.css defines the full paper set for
+ * every historical attribute value, so no stale attribute can un-style a
+ * surface.
+ */
+export function applyTheme(_theme: Theme | ThemePref = THEME): void {
+  if (typeof document === "undefined") return;
+  document.documentElement.setAttribute("data-theme", THEME);
+}
+
+/**
+ * Keep <html data-theme> pinned to paper. Retained as a no-op subscription so
  * existing callers (App, settings) need no signature change. Returns an
  * unsubscribe.
  */
 export function watchTheme(_pref?: ThemePref): () => void {
-  applyTheme("dark");
+  applyTheme();
   return () => {};
 }

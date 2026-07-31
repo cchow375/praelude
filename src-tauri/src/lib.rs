@@ -107,19 +107,37 @@ fn reference_open(
     references::open_reference(&store, piece_id, provider)
 }
 
+/// Run one blocking IMSLP call on the blocking pool.
+///
+/// WHY: Tauri executes a non-`async` command on the **main thread**, which on
+/// macOS is the WKWebView's thread — a blocking network call there freezes the
+/// whole UI until it returns (up to the client's 15s timeout). Every `imslp_*`
+/// command is therefore `async` and hands its blocking work to this helper, so
+/// the IPC thread is free and the panel can keep painting its "Searching…"
+/// state. Do not "simplify" these back into sync commands.
+async fn imslp_offthread<T, F>(work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|_| "The IMSLP request could not be completed.".to_string())?
+}
+
 /// Search IMSLP for a work by title/composer. Returns up to 20 hits; an empty
 /// list means "no results," not an error.
 #[tauri::command]
-fn imslp_search(query: String) -> Result<Vec<imslp::WorkHit>, String> {
-    imslp::ImslpClient::new().search(&query)
+async fn imslp_search(query: String) -> Result<Vec<imslp::WorkHit>, String> {
+    imslp_offthread(move || imslp::ImslpClient::new().search(&query)).await
 }
 
 /// List the downloadable editions of an IMSLP work page. A work with no score
 /// files returns an empty list (audio-only / misfiled), which the picker shows
 /// as "no scores found" rather than treating as an error.
 #[tauri::command]
-fn imslp_editions(page_title: String) -> Result<Vec<imslp::Edition>, String> {
-    imslp::ImslpClient::new().editions(&page_title)
+async fn imslp_editions(page_title: String) -> Result<Vec<imslp::Edition>, String> {
+    imslp_offthread(move || imslp::ImslpClient::new().editions(&page_title)).await
 }
 
 /// Resolve one edition file's direct URL (via `imageinfo`) and open it in the
@@ -127,21 +145,26 @@ fn imslp_editions(page_title: String) -> Result<Vec<imslp::Edition>, String> {
 /// browser download the PDF. The app never fetches the CAPTCHA-gated bytes
 /// itself. Returns the resolved [`imslp::FileInfo`] so the UI can show size/mime.
 #[tauri::command]
-fn imslp_open_download(file_name: String) -> Result<imslp::FileInfo, String> {
-    let info = imslp::ImslpClient::new().file_url(&file_name)?;
-    // Defense in depth: only ever hand an https URL to the system browser.
-    if !info.url.starts_with("https://") {
-        return Err("IMSLP returned a non-https download URL; refusing to open it.".into());
-    }
-    let status = std::process::Command::new("/usr/bin/open")
-        .arg(&info.url)
-        .status()
-        .map_err(|_| "macOS could not open the IMSLP download in your browser.".to_string())?;
-    if status.success() {
-        Ok(info)
-    } else {
-        Err("macOS rejected the IMSLP download handoff.".into())
-    }
+async fn imslp_open_download(file_name: String) -> Result<imslp::FileInfo, String> {
+    // Both halves block (a network round trip, then waiting on `open` to exit),
+    // so the whole body runs off the main thread — see `imslp_offthread`.
+    imslp_offthread(move || {
+        let info = imslp::ImslpClient::new().file_url(&file_name)?;
+        // Defense in depth: only ever hand an https URL to the system browser.
+        if !info.url.starts_with("https://") {
+            return Err("IMSLP returned a non-https download URL; refusing to open it.".into());
+        }
+        let status = std::process::Command::new("/usr/bin/open")
+            .arg(&info.url)
+            .status()
+            .map_err(|_| "macOS could not open the IMSLP download in your browser.".to_string())?;
+        if status.success() {
+            Ok(info)
+        } else {
+            Err("macOS rejected the IMSLP download handoff.".into())
+        }
+    })
+    .await
 }
 
 /// Open an `https` URL in the user's system browser. Shared by the paste-URL
@@ -378,22 +401,34 @@ fn piece_get(id: i64, store: State<'_, Arc<Store>>) -> Result<PieceDetail, Strin
 /// Every real PDF edition directly inside this piece's `score/` folder or
 /// piece root. Edition ids are stable piece-relative paths, never arbitrary
 /// filesystem paths supplied by the frontend.
+///
+/// `async` on purpose: a plain `fn` command runs on the main thread, so this
+/// directory scan used to stall the UI at exactly the moment the user asked to
+/// open a score.
 #[tauri::command]
-fn score_pdf_editions(
+async fn score_pdf_editions(
     piece_id: i64,
     store: State<'_, Arc<Store>>,
 ) -> Result<Vec<score::PdfEdition>, String> {
-    score::pdf_editions(&store, piece_id)
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || score::pdf_editions(&store, piece_id))
+        .await
+        .map_err(|e| format!("PDF edition scan worker failed: {e}"))?
 }
 
 /// Choose one of the securely re-discovered editions as this piece's default.
+/// Off the main thread for the same reason as `score_pdf_editions`: selecting
+/// re-runs the discovery scan before it writes the preference.
 #[tauri::command]
-fn score_pdf_select(
+async fn score_pdf_select(
     piece_id: i64,
     edition_id: String,
     store: State<'_, Arc<Store>>,
 ) -> Result<score::PdfEdition, String> {
-    score::select_pdf(&store, piece_id, &edition_id)
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || score::select_pdf(&store, piece_id, &edition_id))
+        .await
+        .map_err(|e| format!("PDF edition select worker failed: {e}"))?
 }
 
 /// Return the selected edition's bytes over Tauri's raw binary response path.
@@ -1527,9 +1562,57 @@ fn voice_speak(text: String, voice: State<'_, Arc<VoiceLoop>>) -> Result<(), Str
     voice.speak_brain_answer(&text)
 }
 
+/// Serve one piece's PDF edition over the `ckscore://` scheme with HTTP Range
+/// support, so PDF.js can pull the xref plus only the objects page 1 needs
+/// instead of receiving a whole 8.6 MB image scan across IPC.
+///
+/// Registered asynchronously and answered from `spawn_blocking`: the seek+read
+/// must never sit on an async runtime thread.
+fn register_score_protocol(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder.register_asynchronous_uri_scheme_protocol(
+        score::serve::SCHEME,
+        |context, request, responder| {
+            let Some(store) = context.app_handle().try_state::<Arc<Store>>() else {
+                responder.respond(
+                    tauri::http::Response::builder()
+                        .status(tauri::http::StatusCode::SERVICE_UNAVAILABLE)
+                        .header(tauri::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                        .body(b"score store is not ready".to_vec())
+                        .expect("static 503 response is well formed"),
+                );
+                return;
+            };
+            let store = store.inner().clone();
+            let path = request.uri().path().to_string();
+            let range = request
+                .headers()
+                .get(tauri::http::header::RANGE)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned);
+            // The webview origin differs per platform, so log the real thing
+            // once instead of assuming it (see NOTES). Only the first request
+            // per launch logs, to keep a range-heavy load quiet.
+            static LOGGED: std::sync::Once = std::sync::Once::new();
+            LOGGED.call_once(|| {
+                eprintln!(
+                    "ckscore: first request uri={} origin={:?}",
+                    request.uri(),
+                    request
+                        .headers()
+                        .get(tauri::http::header::ORIGIN)
+                        .and_then(|value| value.to_str().ok())
+                );
+            });
+            tauri::async_runtime::spawn_blocking(move || {
+                responder.respond(score::serve::respond(&store, &path, range.as_deref(), "*"));
+            });
+        },
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    register_score_protocol(tauri::Builder::default())
         .setup(|app| {
             // DB lives under Tauri's per-app data dir; parent dirs may not exist
             // on first launch, so create them before opening.

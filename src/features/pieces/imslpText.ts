@@ -6,7 +6,12 @@
 
 /** One IMSLP search hit (mirrors Rust `imslp::WorkHit`). */
 export interface WorkHit {
+  /** Unique per wiki page — this is the hit's IDENTITY (React key, selection). */
   title: string;
+  /**
+   * ALWAYS 0 for IMSLP search hits: `list=search` returns no `pageid`. Never use
+   * this to tell two results apart — key on `title`. See `imslp.rs`.
+   */
   page_id: number;
   /** HTML snippet with highlight `<span>`s — ALWAYS render via stripHighlightHtml. */
   snippet: string;

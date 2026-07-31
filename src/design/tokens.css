@@ -1,38 +1,114 @@
 /* ==========================================================================
-   CodaKiller v3 — pure-monochrome dark token system
+   CodaKiller v4 — PAPER / INK token system
    --------------------------------------------------------------------------
-   Chrome is pure monochrome: a near-black base, a white→gray ink scale, and
-   1px hairlines. NO hue lives in the chrome set. Colour appears ONLY in the
-   Universe/planets, score marks, and the two semantic signals below. No
-   old-style/book display faces and no terracotta/brown anywhere. Dark-only —
-   light mode is dropped. Components consume ONLY these variables; the visual
-   source of truth.
+   The app is a NOTEBOOK: warm off-white paper, true ink-black text, ruled
+   writing lines, a serif face for titles, a clean sans for UI, and ONE
+   restrained accent (ink blue) for links, selection and focus. This replaces
+   the v3 "pure-monochrome dark" system, which the user has reversed.
+
+   Rules of the road for consumers:
+   - Components consume ONLY these variables; this file is the visual source
+     of truth. Never hard-code a hex in a feature stylesheet.
+   - Colour beyond ink + accent belongs to Universe/planets, region colours,
+     and the three semantic signals below.
+   - Every value here is checked against WCAG on paper (see CONTRAST block).
+
+   CONTRAST (WCAG 2.1, measured — not guessed — against --bg #FAF8F3):
+     --ink       #1A1714  16.82:1   (AAA body)
+     --ink-dim   #57514A   7.38:1   (AAA body)
+     --ink-faint #716A61   5.03:1   (AA body — see note)
+     --accent    #2C4A6E   8.56:1   (AAA body / link)
+     --pencil    #3A3733  11.15:1
+     --signal-error   #A8322A  6.27:1
+     --signal-success #2F6B43  5.99:1
+     --signal-warning #8A5A12  5.57:1
+     paper on --surface-ink        16.82:1
+     paper on --accent              8.56:1
+   NOTE on --ink-faint: the mockup's #8B8378 measures 3.52:1, which fails AA
+   for the ~116 small-label sites that consume this name. It is darkened to
+   #716A61 (same warm ramp, 5.03:1 on paper / 4.57:1 on the sunken well) so
+   the tertiary text tier is legible. The original tone is preserved as
+   --ink-ghost for genuinely decorative marks only.
+
+   THEME ATTRIBUTE: the app is paper-only. Tokens are defined on bare :root
+   AND on every data-theme value the app has ever written, so no historical
+   attribute value can leave a surface unstyled.
    ========================================================================== */
 
 :root,
+:root[data-theme="paper"],
+:root[data-theme="light"],
 :root[data-theme="dark"] {
-  color-scheme: dark;
+  /* Native form controls, scrollbars and the webview backdrop follow paper. */
+  color-scheme: light;
 
-  --bg: #0e0e10;
-  --bg-raised: #161619;
-  --bg-sunken: #0a0a0b;
-  --ink: #f4f4f5;
-  --ink-dim: #a1a1aa;
-  --ink-faint: #6b6b73;
-  --hairline: rgba(255, 255, 255, 0.1);
-  --hairline-strong: rgba(255, 255, 255, 0.18);
-  --accent-invert-bg: #f4f4f5; /* primary button: white fill */
-  --accent-invert-ink: #0e0e10; /* primary button: black text */
-  --signal-error: #ff5c5c;
-  --signal-success: #4ade80;
-  /* Plan value ends in the CSS generic sans keyword, but the plan's own token
-     test forbids that substring, so it is dropped here. system-ui leads the
-     stack, keeping a valid sans fallback chain. */
-  --font-sans: system-ui, -apple-system, "SF Pro Text", "Helvetica Neue";
+  /* --- Paper (surfaces) ------------------------------------------------- */
+  --bg: #faf8f3; /* the page itself */
+  --bg-raised: #ffffff; /* a card/sheet laid on the page */
+  --bg-sunken: #f1ede4; /* a well pressed into the page */
+  --paper: var(--bg);
+  --paper-raised: var(--bg-raised);
+  --paper-sunken: var(--bg-sunken);
+  --paper-edge: #ebe6db; /* torn/deckle edge, tab strips */
+  --paper-grain: rgba(26, 23, 20, 0.045); /* fibre fleck (App.css body) */
+
+  /* --- Ink (text) ------------------------------------------------------- */
+  --ink: #1a1714;
+  --ink-dim: #57514a;
+  --ink-faint: #716a61;
+  --ink-ghost: #8b8378; /* decorative only — below AA for body text */
+  --ink-inverse: #faf8f3; /* text laid on an ink/accent fill */
+  --pencil: #3a3733; /* score marks + handwriting */
+  --pencil-dim: #6b6660;
+
+  /* --- Rules & hairlines ------------------------------------------------ */
+  --hairline: rgba(26, 23, 20, 0.13);
+  --hairline-strong: rgba(26, 23, 20, 0.22);
+  --control-line: rgba(26, 23, 20, 0.5); /* 3.3:1 — input/control borders */
+  --paper-rule: rgba(44, 74, 110, 0.14); /* the ruled writing line */
+  --paper-rule-strong: rgba(44, 74, 110, 0.26);
+  --paper-margin: rgba(168, 50, 42, 0.22); /* the red margin rule */
+  --paper-rule-gap: 28px; /* pitch of the ruled lines */
+
+  /* --- Accent (ink blue) ------------------------------------------------ */
+  --accent: #2c4a6e;
+  --accent-hover: #24405f;
+  --accent-contrast: #faf8f3; /* text on an --accent fill */
+  --accent-wash: rgba(44, 74, 110, 0.09); /* selected row / soft fill */
+  --accent-line: rgba(44, 74, 110, 0.35);
+  --accent-invert-bg: #1a1714; /* primary button: ink fill */
+  --accent-invert-ink: #faf8f3; /* primary button: paper text */
+
+  /* --- Semantic signals (muted, paper-appropriate) ---------------------- */
+  --signal-error: #a8322a;
+  --signal-success: #2f6b43;
+  --signal-warning: #8a5a12;
+  --signal-error-wash: rgba(168, 50, 42, 0.08);
+  --signal-success-wash: rgba(47, 107, 67, 0.08);
+  --signal-warning-wash: rgba(138, 90, 18, 0.08);
+
+  /* --- Focus + selection ------------------------------------------------ */
+  --focus-ring: #2c4a6e; /* 8.56:1 on paper */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --selection-bg: rgba(44, 74, 110, 0.2);
+  --selection-ink: #1a1714;
+
+  /* --- Type ------------------------------------------------------------- */
+  --font-display:
+    "New York", "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
+  --font-sans:
+    system-ui, -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
+  /* Tempo/measure numerals: tabular so digits do not jitter while counting. */
+  --numeric-figures: tabular-nums;
+  --measure: 68ch; /* comfortable prose column */
+  --measure-narrow: 46ch;
+
+  /* --- Radii (paper is trimmed, not rounded) ---------------------------- */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;
@@ -55,31 +131,37 @@
    the invisible metronome popover and the raw practice form in the Score tab.
    Defining the full set once at :root retires that bug class; the per-scope
    blocks remain as harmless duplicates.
+
+   *** NEVER DELETE A NAME FROM THIS FILE. *** Values may change; names may be
+   added. Removing one silently un-styles whatever still consumes it.
+   src/design/tokens.test.ts pins the full legacy list.
    -------------------------------------------------------------------------- */
 :root,
+:root[data-theme="paper"],
+:root[data-theme="light"],
 :root[data-theme="dark"] {
   --ink-primary: var(--ink);
   --ink-secondary: var(--ink-dim);
   --ink-tertiary: var(--ink-faint);
-  --ink-on-dark: var(--ink);
-  --accent: #2a2a30;
-  --accent-hover: #34343c;
-  --accent-contrast: var(--ink);
+  /* Historic name: text laid on the app's dark/ink fill. On paper the ink
+     fill is the dark surface, so this is the paper tone. */
+  --ink-on-dark: var(--ink-inverse);
   --danger: var(--signal-error);
   --success: var(--signal-success);
-  --warning: var(--ink-dim);
-  --info: var(--ink-dim);
+  --warning: var(--signal-warning);
+  --info: var(--accent);
   --surface-app: var(--bg);
   --surface-raised: var(--bg-raised);
-  --surface-hover: rgba(255, 255, 255, 0.05);
-  --surface-active: rgba(255, 255, 255, 0.09);
-  --surface-ink: #2a2a30;
-  --surface-popover: #1c1c20;
-  --shadow-popover: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--hairline);
-  --shadow-card: none;
-  --shadow-topbar: none;
-  --font-display: var(--font-sans);
-  --radius-xs: 4px;
+  --surface-hover: rgba(26, 23, 20, 0.045);
+  --surface-active: rgba(26, 23, 20, 0.08);
+  --surface-ink: #1a1714; /* the inverted block; pair with --ink-on-dark */
+  --surface-popover: #ffffff;
+  --shadow-popover:
+    0 12px 32px rgba(26, 23, 20, 0.14), 0 2px 6px rgba(26, 23, 20, 0.07),
+    0 0 0 1px var(--hairline);
+  --shadow-card: 0 1px 2px rgba(26, 23, 20, 0.05);
+  --shadow-topbar: 0 1px 0 var(--hairline);
+  --radius-xs: 2px;
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
   --radius-lg: var(--r-lg);
@@ -100,6 +182,8 @@
   --text-xl: 1.25rem;
   --text-2xl: 1.5rem;
   --text-hero: 2rem;
+  /* Document/prose tier — for reader, quotes and long notebook copy. */
+  --text-read: 1.0625rem;
   --weight-normal: 400;
   --weight-regular: 400;
   --weight-medium: 500;
@@ -107,6 +191,8 @@
   --weight-bold: 700;
   --leading-tight: 1.2;
   --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+  --leading-rule: var(--paper-rule-gap); /* text sitting ON the ruled lines */
   --tracking-tight: -0.01em;
   --tracking-label: 0.04em;
   --region-color: var(--ink-faint);
@@ -116,10 +202,72 @@
   --ease-standard: var(--ease-out);
   --ease-human: var(--ease-out);
   --ease-spring: var(--ease-out);
+
+  /* ------------------------------------------------------------------------
+     Orphans: names feature stylesheets consume that nothing ever defined.
+     Each was silently broken before the paper rewrite — they are defined here
+     so the fix lives in the token layer, not scattered across feature files.
+
+     --ck-line / --ck-line-strong / --ck-dim: PassageHelper.css reads these
+       with white-on-dark fallbacks (rgba(255,255,255,…)). Undefined, those
+       fallbacks won — near-invisible text once the page is paper.
+     --topbar-height: SessionBar.css pins itself with
+       `top: calc(var(--topbar-height) + var(--s-2))`. Undefined, the whole
+       calc() is invalid, `top` falls back to auto, and the fixed session bar
+       lands wherever static flow puts it. The v4 shell is a left rail with no
+       top bar, so the correct height is zero; a lane that adds a top bar
+       should redefine this rather than edit SessionBar.css.
+     ------------------------------------------------------------------------ */
+  --ck-line: var(--hairline);
+  --ck-line-strong: var(--hairline-strong);
+  --ck-dim: var(--ink-dim);
+  --topbar-height: 0px;
 }
 
 body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-sans);
+}
+
+/* --------------------------------------------------------------------------
+   Ruled-paper helper. Any surface can become notebook paper:
+
+     <div class="paper-ruled">          — writing lines every --paper-rule-gap
+     <div class="paper-ruled paper-ruled-margin">  — plus the red margin rule
+
+   Lines are painted as a repeating linear-gradient on the element's own
+   background (no extra DOM node, no compositing layer), and are aligned to
+   the bottom of each --paper-rule-gap band so text with
+   `line-height: var(--leading-rule)` sits on them.
+   -------------------------------------------------------------------------- */
+.paper-ruled {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--paper-rule-gap) - 1px),
+    var(--paper-rule) calc(var(--paper-rule-gap) - 1px),
+    var(--paper-rule) var(--paper-rule-gap)
+  );
+  background-attachment: local;
+}
+
+.paper-ruled-margin {
+  background-image:
+    linear-gradient(
+      to right,
+      transparent 0,
+      transparent var(--s-6),
+      var(--paper-margin) var(--s-6),
+      var(--paper-margin) calc(var(--s-6) + 1px),
+      transparent calc(var(--s-6) + 1px)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(var(--paper-rule-gap) - 1px),
+      var(--paper-rule) calc(var(--paper-rule-gap) - 1px),
+      var(--paper-rule) var(--paper-rule-gap)
+    );
+  background-attachment: local;
 }

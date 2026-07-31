@@ -1394,6 +1394,48 @@
 .add-score-done {
   color: var(--success);
 }
+/* "Searching IMSLP…" — a real, visible spinner so a slow network reads as
+   progress rather than as a dead panel. Drawn in currentColor so it inherits
+   whatever the surrounding theme sets. */
+.add-score-status.is-searching {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.add-score-spinner {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.75;
+  animation: add-score-spin 720ms linear infinite;
+}
+@keyframes add-score-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Reduced motion: keep the affordance, drop the rotation. */
+@media (prefers-reduced-motion: reduce) {
+  .add-score-spinner {
+    animation: none;
+    border-top-color: currentColor;
+    opacity: 0.4;
+  }
+}
+/* Retry sits inline at the end of the error sentence. */
+.add-score-retry {
+  margin-left: var(--space-2);
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
 .add-score-results,
 .add-score-edition-list,
 .add-score-matches {
@@ -1417,9 +1459,16 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
-.add-score-hit:hover,
-.add-score-hit[aria-pressed="true"] {
+.add-score-hit:hover {
   background: var(--surface-hover);
+}
+/* The CHOSEN work must be distinguishable from a merely hovered one — they used
+   to share one style, so after a click you could not tell which work you were
+   looking at editions for. */
+.add-score-hit[aria-pressed="true"] {
+  background: var(--accent-wash);
+  border-color: var(--accent-line);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .add-score-hit.is-redirect {
   opacity: 0.55;

@@ -8,7 +8,7 @@
 use rusqlite::Connection;
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 11;
+pub const SCHEMA_VERSION: i32 = 12;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -931,6 +931,167 @@ CREATE TABLE piece_plan (
 );
 ";
 
+// ── v11 → v12: split the "Chamber Pieces Tanglewood" pseudo-piece ────────────
+//
+// One vault folder was used as a chamber-music staging drawer and holds two
+// unrelated works: Barber's *Pas de Deux* (the primo part) and Copland's
+// *Cowboys with Lassos* from *Billy the Kid*. The scanner therefore created a
+// single piece row whose score points at the Barber PDF — but every region,
+// rep block and rep recorded against it is Copland (confirmed by the user and
+// by the markings themselves, e.g. "Roll wrists, ahve that jazzy jumpy feeling
+// to it"). This step is a one-time data repair: the surviving row becomes the
+// Barber (keeping its id, and with it the `score_edition_calibration` row that
+// was calibrated against the Barber page geometry), a new row takes the
+// Copland, and the practice graph moves to the Copland by `piece_id` alone.
+//
+// It is a NO-OP on every database that is not that exact one. See
+// `split_chamber_pieces_tanglewood` for the guard.
+
+/// Title of the merged pseudo-piece, and the basename of its vault folder.
+const TANGLEWOOD_TITLE: &str = "Chamber Pieces Tanglewood";
+/// The two score files that share the merged folder.
+const TANGLEWOOD_BARBER_PDF: &str = "Christian_C_Barber_Pas_de_Deux_Primo.pdf";
+const TANGLEWOOD_COPLAND_PDF: &str = "Christian_C_Copland_Cowboys_with_Lassos.pdf";
+/// The two real piece folders, in the vault's `"Composer - Title"` convention.
+/// The Copland folder carries the ballet's name too, so "billy the kid" and
+/// "cowboys with lassos" both find the piece.
+const TANGLEWOOD_BARBER_FOLDER: &str = "Barber - Pas de Deux";
+const TANGLEWOOD_COPLAND_FOLDER: &str = "Copland - Cowboys with Lassos (Billy the Kid)";
+
+/// Split a folder name the way `vault::scan_folder` does — `"Composer - Title"`
+/// → `(Some(composer), title)`. The migration writes the piece's title and
+/// composer through this so the row it creates is *exactly* what the next vault
+/// rescan derives from the same folder name; `Store::upsert_piece` refreshes
+/// title/composer on every scan, so any other value would silently flip back.
+fn scan_derived_name(folder_name: &str) -> (Option<&str>, &str) {
+    match folder_name.split_once(" - ") {
+        Some((composer, title)) => (Some(composer.trim()), title.trim()),
+        None => (None, folder_name.trim()),
+    }
+}
+
+/// Turn the merged Tanglewood row into the two real pieces. Returns whether the
+/// split ran.
+///
+/// GUARDED — every one of these must hold, or this returns `Ok(false)` having
+/// written nothing:
+///   * exactly one piece is titled `Chamber Pieces Tanglewood`,
+///   * its `folder_path` ends in a folder of that same name (so a parent
+///     pieces-dir exists to put the two new folders beside it),
+///   * its `pdf_path` is the Barber PDF directly inside that folder, and
+///   * neither target `folder_path` is already taken.
+///
+/// The last check is what makes a re-run a clean no-op and what keeps the
+/// `piece.folder_path` UNIQUE constraint satisfied. A fresh install has no such
+/// piece and so can never grow a phantom Copland.
+///
+/// The guard is deliberately database-only: migrations here never touch the
+/// filesystem, and a vault that is temporarily unreachable (external disk,
+/// fresh machine) must not decide whether a schema step fires. The Copland PDF
+/// is placed by `scripts/split-tanglewood-folders.sh`, which owns the vault
+/// side of this repair.
+///
+/// What moves and what does not:
+///   * `region` and `rep_block` move by `piece_id`. Every other column — ids,
+///     `sort_order`, `region_id` links, `status`, `created_at`, notes, colours —
+///     is untouched, so the blocks keep pointing at the same regions.
+///   * `rep` is never written: reps hang off `block_id`, so they follow their
+///     block automatically.
+///   * `score_edition_calibration` is never written: it stays on the surviving
+///     (Barber) row, whose `edition_id` is a path *relative to the piece
+///     folder*, so it keeps resolving once the PDF sits at the root of the new
+///     Barber folder.
+///
+/// KNOWN LIMIT: `event` rows carry a denormalised `piece_id` (and repeat it
+/// inside their frozen JSON payload). Those are left exactly as they are — the
+/// canonical log is append-only and rewriting history to match a later
+/// re-attribution would be a bigger, separately-reviewed change. The graph the
+/// UI reads (piece → region → block → rep) is fully correct after this step.
+pub(crate) fn split_chamber_pieces_tanglewood(conn: &Connection) -> rusqlite::Result<bool> {
+    let candidates: Vec<(i64, String, Option<String>)> = {
+        let mut statement =
+            conn.prepare("SELECT id, folder_path, pdf_path FROM piece WHERE title = ?1")?;
+        let rows = statement.query_map([TANGLEWOOD_TITLE], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    let [(piece_id, folder_path, pdf_path)] = candidates.as_slice() else {
+        return Ok(false);
+    };
+
+    // The folder must be the merged drawer itself, and must have a parent to
+    // put the two new sibling folders in.
+    let Some(parent) = folder_path.strip_suffix(&format!("/{TANGLEWOOD_TITLE}")) else {
+        return Ok(false);
+    };
+    if parent.is_empty() {
+        return Ok(false);
+    }
+    // ...and the row must be the one pointing at the Barber score inside it.
+    if pdf_path.as_deref() != Some(format!("{folder_path}/{TANGLEWOOD_BARBER_PDF}").as_str()) {
+        return Ok(false);
+    }
+
+    let barber_folder = format!("{parent}/{TANGLEWOOD_BARBER_FOLDER}");
+    let copland_folder = format!("{parent}/{TANGLEWOOD_COPLAND_FOLDER}");
+    let taken: i64 = conn.query_row(
+        "SELECT count(*) FROM piece WHERE folder_path IN (?1, ?2)",
+        rusqlite::params![&barber_folder, &copland_folder],
+        |row| row.get(0),
+    )?;
+    if taken > 0 {
+        return Ok(false);
+    }
+
+    // The Copland gets a new row that inherits the merged row's `created_at`,
+    // so the piece is as old as the practice history now hanging off it.
+    let (copland_composer, copland_title) = scan_derived_name(TANGLEWOOD_COPLAND_FOLDER);
+    let copland_pdf = format!("{copland_folder}/{TANGLEWOOD_COPLAND_PDF}");
+    let copland_id: i64 = conn.query_row(
+        "INSERT INTO piece (title, composer, folder_path, pdf_path, preferred_pdf_path, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?4, created_at FROM piece WHERE id = ?5
+         RETURNING id",
+        rusqlite::params![
+            copland_title,
+            copland_composer,
+            &copland_folder,
+            &copland_pdf,
+            piece_id
+        ],
+        |row| row.get(0),
+    )?;
+
+    // The practice graph is the Copland's. Move it by `piece_id` only.
+    conn.execute(
+        "UPDATE region SET piece_id = ?1 WHERE piece_id = ?2",
+        rusqlite::params![copland_id, piece_id],
+    )?;
+    conn.execute(
+        "UPDATE rep_block SET piece_id = ?1 WHERE piece_id = ?2",
+        rusqlite::params![copland_id, piece_id],
+    )?;
+
+    // The surviving row — and its calibration — is the Barber.
+    let (barber_composer, barber_title) = scan_derived_name(TANGLEWOOD_BARBER_FOLDER);
+    let barber_pdf = format!("{barber_folder}/{TANGLEWOOD_BARBER_PDF}");
+    conn.execute(
+        "UPDATE piece
+            SET title = ?1, composer = ?2, folder_path = ?3,
+                pdf_path = ?4, preferred_pdf_path = ?4
+          WHERE id = ?5",
+        rusqlite::params![
+            barber_title,
+            barber_composer,
+            &barber_folder,
+            &barber_pdf,
+            piece_id
+        ],
+    )?;
+
+    Ok(true)
+}
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
@@ -1137,6 +1298,23 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         }
     }
 
+    if version < 12 {
+        // Data-only step: no DDL, just the guarded one-time Tanglewood split.
+        // The version stamp lives inside the transaction with it, so an
+        // interrupted split rolls back to v11 and is retried on next open.
+        let v12 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            split_chamber_pieces_tanglewood(conn)?;
+            conn.execute_batch("PRAGMA user_version = 12;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v12 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
     Ok(())
 }
 
@@ -1253,6 +1431,433 @@ mod v3_tests {
         c.execute_batch("PRAGMA user_version = 10; COMMIT;")
             .unwrap();
         c
+    }
+
+    /// A representative v11 database — the shape every installed app had before
+    /// the Tanglewood split. Its only piece is the ordinary `Etude`, so it is
+    /// also the "fresh install" case the v12 guard must leave alone.
+    fn seed_v11() -> Connection {
+        let c = seed_v10();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        c.execute_batch(SCHEMA_V11).unwrap();
+        c.execute_batch("PRAGMA user_version = 11; COMMIT;")
+            .unwrap();
+        c
+    }
+
+    /// Reproduce the exact merged row this repair targets: one piece titled
+    /// `Chamber Pieces Tanglewood` pointing at the Barber PDF, five Copland
+    /// regions, two Copland blocks (linked to the first two regions), the reps
+    /// hanging off those blocks, and a calibration made against the Barber.
+    fn seed_v11_with_merged_tanglewood() -> Connection {
+        let c = seed_v11();
+        let folder = "/vault/Pieces/Chamber Pieces Tanglewood";
+        let barber = format!("{folder}/Christian_C_Barber_Pas_de_Deux_Primo.pdf");
+        c.execute(
+            "INSERT INTO piece (id,title,folder_path,pdf_path,preferred_pdf_path,created_at)
+             VALUES (6,'Chamber Pieces Tanglewood',?1,?2,?2,'2026-07-15 16:05:46')",
+            rusqlite::params![folder, &barber],
+        )
+        .unwrap();
+        for (id, name, s, e, order) in [
+            (43, "octaves with right hand", 1, 1, 0),
+            (44, "triplet half note length", 2, 3, 1),
+            (45, "Right hand jumps at tempo", 1, 1, 2),
+            (46, "Repeated notes, ensure not too loud", 4, 5, 3),
+            (47, "alternating fiths, watch left hand voicing", 6, 6, 4),
+        ] {
+            c.execute(
+                "INSERT INTO region (id,piece_id,name,m_start,m_end,kind,sort_order,color,notes)
+                 VALUES (?1,6,?2,?3,?4,'hard_spot',?5,'#5b5bd6',?6)",
+                rusqlite::params![
+                    id,
+                    name,
+                    s,
+                    e,
+                    order,
+                    (id == 46).then_some("Roll wrists, ahve that jazzy jumpy feeling to it")
+                ],
+            )
+            .unwrap();
+        }
+        for (id, region, s, e, label, ts) in [
+            (
+                97,
+                43,
+                1,
+                1,
+                "octaves with right hand",
+                "2026-07-27 13:04:33",
+            ),
+            (
+                98,
+                44,
+                2,
+                3,
+                "triplet half note length",
+                "2026-07-27 14:22:39",
+            ),
+        ] {
+            c.execute(
+                "INSERT INTO rep_block (id,piece_id,region_id,m_start,m_end,label,status,created_at)
+                 VALUES (?1,6,?2,?3,?4,?5,'done',?6)",
+                rusqlite::params![id, region, s, e, label, ts],
+            )
+            .unwrap();
+        }
+        for block in [97, 98] {
+            for _ in 0..7 {
+                c.execute(
+                    "INSERT INTO rep (block_id,bpm,verdict) VALUES (?1,60.0,'clean')",
+                    [block],
+                )
+                .unwrap();
+            }
+        }
+        c.execute(
+            "INSERT INTO score_edition_calibration
+               (id,piece_id,edition_id,edition_fingerprint,method,confidence,points_json,user_verified)
+             VALUES (1,6,'Christian_C_Barber_Pas_de_Deux_Primo.pdf','83cfa9-6a5674d0',
+                     'user_confirmed',0.75,'[]',1)",
+            [],
+        )
+        .unwrap();
+        c
+    }
+
+    fn piece_id_by_title(c: &Connection, title: &str) -> Option<i64> {
+        c.query_row("SELECT id FROM piece WHERE title = ?1", [title], |row| {
+            row.get(0)
+        })
+        .ok()
+    }
+
+    #[test]
+    fn migrate_v11_to_v12_is_a_no_op_on_a_database_without_the_merged_piece() {
+        let c = seed_v11();
+        let counted_tables = ["piece", "region", "rep_block", "rep", "goal", "event"];
+        let before: Vec<i64> = counted_tables
+            .iter()
+            .map(|table| {
+                c.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap()
+            })
+            .collect();
+
+        migrate(&c).unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+        let after: Vec<i64> = counted_tables
+            .iter()
+            .map(|table| {
+                c.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap()
+            })
+            .collect();
+        assert_eq!(
+            after, before,
+            "v12 must invent nothing on a normal database"
+        );
+        // Specifically: no phantom Copland on a fresh install.
+        assert_eq!(
+            piece_id_by_title(&c, "Cowboys with Lassos (Billy the Kid)"),
+            None
+        );
+        assert_eq!(piece_id_by_title(&c, "Pas de Deux"), None);
+    }
+
+    #[test]
+    fn migrate_v11_to_v12_splits_tanglewood_and_moves_only_the_copland_graph() {
+        let c = seed_v11_with_merged_tanglewood();
+        let pieces_before: i64 = c
+            .query_row("SELECT count(*) FROM piece", [], |row| row.get(0))
+            .unwrap();
+        let reps_before: i64 = c
+            .query_row("SELECT count(*) FROM rep", [], |row| row.get(0))
+            .unwrap();
+
+        migrate(&c).unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            pieces_before + 1,
+            "exactly one new piece"
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM rep", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            reps_before,
+            "the migration never writes rep"
+        );
+        assert_eq!(piece_id_by_title(&c, "Chamber Pieces Tanglewood"), None);
+
+        // The surviving row is the Barber: same id, new identity, keeps the
+        // calibration, owns no practice graph.
+        let (title, composer, folder, pdf, preferred): (String, String, String, String, String) = c
+            .query_row(
+                "SELECT title, composer, folder_path, pdf_path, preferred_pdf_path
+                 FROM piece WHERE id = 6",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(title, "Pas de Deux");
+        assert_eq!(composer, "Barber");
+        assert_eq!(folder, "/vault/Pieces/Barber - Pas de Deux");
+        assert_eq!(
+            pdf,
+            "/vault/Pieces/Barber - Pas de Deux/Christian_C_Barber_Pas_de_Deux_Primo.pdf"
+        );
+        assert_eq!(preferred, pdf, "the Barber PDF stays the selected edition");
+        for table in ["region", "rep_block"] {
+            assert_eq!(
+                c.query_row(
+                    &format!("SELECT count(*) FROM {table} WHERE piece_id = 6"),
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+                0,
+                "the Barber keeps no {table} rows"
+            );
+        }
+        assert_eq!(
+            c.query_row(
+                "SELECT piece_id FROM score_edition_calibration WHERE id = 1",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            6,
+            "calibration 1 was made against the Barber geometry and stays there"
+        );
+
+        // The new row is the Copland and owns the whole moved graph, ids intact.
+        let copland = piece_id_by_title(&c, "Cowboys with Lassos (Billy the Kid)")
+            .expect("the Copland piece exists");
+        assert_ne!(copland, 6);
+        let (copland_composer, copland_folder, copland_pdf, created): (
+            String,
+            String,
+            String,
+            String,
+        ) = c
+            .query_row(
+                "SELECT composer, folder_path, pdf_path, created_at FROM piece WHERE id = ?1",
+                [copland],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(copland_composer, "Copland");
+        assert_eq!(
+            copland_folder,
+            "/vault/Pieces/Copland - Cowboys with Lassos (Billy the Kid)"
+        );
+        assert_eq!(
+            copland_pdf,
+            "/vault/Pieces/Copland - Cowboys with Lassos (Billy the Kid)/\
+             Christian_C_Copland_Cowboys_with_Lassos.pdf"
+        );
+        assert_eq!(
+            created, "2026-07-15 16:05:46",
+            "the Copland is as old as the history now hanging off it"
+        );
+        let region_ids: Vec<i64> = {
+            let mut statement = c
+                .prepare("SELECT id FROM region WHERE piece_id = ?1 ORDER BY id")
+                .unwrap();
+            let rows = statement.query_map([copland], |row| row.get(0)).unwrap();
+            rows.collect::<rusqlite::Result<_>>().unwrap()
+        };
+        assert_eq!(region_ids, vec![43, 44, 45, 46, 47]);
+        // sort_order and notes rode along untouched.
+        let orders: Vec<i64> = {
+            let mut statement = c
+                .prepare("SELECT sort_order FROM region WHERE piece_id = ?1 ORDER BY id")
+                .unwrap();
+            let rows = statement.query_map([copland], |row| row.get(0)).unwrap();
+            rows.collect::<rusqlite::Result<_>>().unwrap()
+        };
+        assert_eq!(orders, vec![0, 1, 2, 3, 4]);
+        assert_eq!(
+            c.query_row("SELECT notes FROM region WHERE id = 46", [], |row| row
+                .get::<_, String>(
+                0
+            ))
+            .unwrap(),
+            "Roll wrists, ahve that jazzy jumpy feeling to it"
+        );
+        let blocks: Vec<(i64, i64, String, String)> = {
+            let mut statement = c
+                .prepare(
+                    "SELECT id, region_id, status, created_at FROM rep_block
+                     WHERE piece_id = ?1 ORDER BY id",
+                )
+                .unwrap();
+            let rows = statement
+                .query_map([copland], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })
+                .unwrap();
+            rows.collect::<rusqlite::Result<_>>().unwrap()
+        };
+        assert_eq!(
+            blocks,
+            vec![
+                (97, 43, "done".into(), "2026-07-27 13:04:33".into()),
+                (98, 44, "done".into(), "2026-07-27 14:22:39".into()),
+            ],
+            "blocks keep their ids, region links, status and timestamps"
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM rep JOIN rep_block ON rep_block.id = rep.block_id
+                 WHERE rep_block.piece_id = ?1",
+                [copland],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            14,
+            "every rep still resolves through its block to the Copland"
+        );
+
+        assert_eq!(
+            c.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        let mut statement = c.prepare("PRAGMA foreign_key_check").unwrap();
+        assert!(statement.query([]).unwrap().next().unwrap().is_none());
+    }
+
+    #[test]
+    fn migrate_v11_to_v12_split_never_runs_twice() {
+        let c = seed_v11_with_merged_tanglewood();
+        migrate(&c).unwrap();
+        let pieces: i64 = c
+            .query_row("SELECT count(*) FROM piece", [], |row| row.get(0))
+            .unwrap();
+
+        // Re-running the whole migration is a no-op...
+        migrate(&c).unwrap();
+        // ...and so is calling the step directly on the already-split database,
+        // which is what protects the `folder_path` UNIQUE constraint.
+        assert!(!split_chamber_pieces_tanglewood(&c).unwrap());
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            pieces
+        );
+    }
+
+    #[test]
+    fn migrate_v11_to_v12_writes_exactly_what_a_vault_rescan_derives() {
+        // `Store::upsert_piece` refreshes title/composer/xml_path/pdf_path from
+        // the scanner on every startup scan, keyed on `folder_path`. If the
+        // split wrote anything the scanner would not derive from the same
+        // folder, both repaired pieces would silently flip back on next launch.
+        // This walks the real sequence: split the row, let the vault script put
+        // the PDFs in place, then compare the scan against the stored row.
+        let vault = tempfile::TempDir::new().unwrap();
+        let pieces = vault.path();
+        let merged = pieces.join(TANGLEWOOD_TITLE);
+        std::fs::create_dir_all(&merged).unwrap();
+        std::fs::write(merged.join(TANGLEWOOD_BARBER_PDF), b"barber").unwrap();
+        std::fs::write(merged.join(TANGLEWOOD_COPLAND_PDF), b"copland").unwrap();
+
+        let c = seed_v11();
+        let folder = merged.to_string_lossy().into_owned();
+        let barber = format!("{folder}/{TANGLEWOOD_BARBER_PDF}");
+        c.execute(
+            "INSERT INTO piece (id,title,folder_path,pdf_path,preferred_pdf_path)
+             VALUES (6,?1,?2,?3,?3)",
+            rusqlite::params![TANGLEWOOD_TITLE, &folder, &barber],
+        )
+        .unwrap();
+
+        migrate(&c).unwrap();
+
+        // What `scripts/split-tanglewood-folders.sh` does: copy, never move.
+        for (folder_name, pdf) in [
+            (TANGLEWOOD_BARBER_FOLDER, TANGLEWOOD_BARBER_PDF),
+            (TANGLEWOOD_COPLAND_FOLDER, TANGLEWOOD_COPLAND_PDF),
+        ] {
+            std::fs::create_dir_all(pieces.join(folder_name)).unwrap();
+            std::fs::copy(merged.join(pdf), pieces.join(folder_name).join(pdf)).unwrap();
+        }
+
+        let scanned = crate::vault::scan_pieces(pieces);
+        for folder_name in [TANGLEWOOD_BARBER_FOLDER, TANGLEWOOD_COPLAND_FOLDER] {
+            let path = pieces.join(folder_name).to_string_lossy().into_owned();
+            let derived = scanned
+                .iter()
+                .find(|piece| piece.folder_path == path)
+                .unwrap_or_else(|| panic!("the vault scanner did not see {folder_name}"));
+            let (title, composer, pdf_path, xml_path): (String, String, String, Option<String>) = c
+                .query_row(
+                    "SELECT title, composer, pdf_path, xml_path FROM piece WHERE folder_path = ?1",
+                    [&path],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .unwrap();
+            assert_eq!(Some(title.as_str()), Some(derived.title.as_str()));
+            assert_eq!(Some(composer.as_str()), derived.composer.as_deref());
+            assert_eq!(
+                Some(pdf_path.as_str()),
+                derived.pdf_path.as_ref().map(|path| path.to_str().unwrap())
+            );
+            assert_eq!(xml_path, None);
+            assert_eq!(derived.xml_path, None);
+        }
+    }
+
+    #[test]
+    fn migrate_v11_to_v12_leaves_a_look_alike_tanglewood_piece_alone() {
+        // Same title, but the row does not point at the Barber score inside its
+        // own folder — not the situation this repair is allowed to touch.
+        let c = seed_v11();
+        c.execute(
+            "INSERT INTO piece (id,title,folder_path,pdf_path)
+             VALUES (6,'Chamber Pieces Tanglewood','/vault/Pieces/Chamber Pieces Tanglewood',
+                     '/vault/Pieces/Chamber Pieces Tanglewood/score/something-else.pdf')",
+            [],
+        )
+        .unwrap();
+
+        migrate(&c).unwrap();
+
+        assert!(!split_chamber_pieces_tanglewood(&c).unwrap());
+        assert_eq!(
+            piece_id_by_title(&c, "Chamber Pieces Tanglewood"),
+            Some(6),
+            "a look-alike row is left exactly as it was"
+        );
+        assert_eq!(
+            piece_id_by_title(&c, "Cowboys with Lassos (Billy the Kid)"),
+            None
+        );
     }
 
     #[test]
@@ -2712,7 +3317,7 @@ mod v3_tests {
         c.execute_batch(
             "CREATE TABLE sentinel(id INTEGER PRIMARY KEY,value TEXT);
              INSERT INTO sentinel(id,value) VALUES (1,'preserve me');
-             PRAGMA user_version = 12;",
+             PRAGMA user_version = 13;",
         )
         .unwrap();
 
@@ -2721,7 +3326,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            12
+            13
         );
         assert_eq!(
             c.query_row("SELECT value FROM sentinel WHERE id=1", [], |row| {

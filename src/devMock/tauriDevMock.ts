@@ -50,6 +50,14 @@ import {
   type PiecePlan,
 } from "../features/notebook/lines";
 
+// TEMP instrumentation for a coverage audit; reverted after the run.
+function __recordMockCmdHit(cmd: string): void {
+  const g = globalThis as unknown as { __mockCmdHits?: Set<string> };
+  g.__mockCmdHits ??= new Set<string>();
+  g.__mockCmdHits.add(cmd);
+  console.log("MOCKCMDHIT:" + cmd);
+}
+
 /** Local YYYY-MM-DD, matching calendar/dates.ts `todayLocal()`. */
 function todayLocal(): string {
   const date = new Date();
@@ -102,10 +110,15 @@ const PIECES: PieceSummary[] = [
 // Canned IMSLP add-a-score data for the dev harness (no network). The search
 // snippet carries a highlight `<span>` on purpose so the panel's plain-text
 // stripping is exercised; the publisher field carries raw `{{…}}` wikitext.
+// `page_id` is 0 on every hit ON PURPOSE — that is what the live IMSLP API
+// actually produces (its `list=search` sends no `pageid`). These used to carry
+// invented ids, which meant dev mode was the one place the result list had
+// unique keys, hiding the duplicate-key/select-everything bug that real data
+// triggered. Keep them 0 so the harness fails the same way production would.
 const IMSLP_HITS = [
   {
     title: "Nocturnes, Op.9 (Chopin, Frédéric)",
-    page_id: 6789,
+    page_id: 0,
     snippet: 'Complete <span class="searchmatch">Nocturnes</span> score',
     size: 42942,
     word_count: 3000,
@@ -113,7 +126,7 @@ const IMSLP_HITS = [
   },
   {
     title: "Nocturne in E minor, Op.72 No.1 (Chopin, Frédéric)",
-    page_id: 12345,
+    page_id: 0,
     snippet: "Posthumous nocturne",
     size: 9637,
     word_count: 1175,
@@ -1484,6 +1497,8 @@ function piecePlanSave(args: unknown): PiecePlan {
  * `?? []`/`?? null`, and mutations are out of scope for this static harness.
  */
 function routeCommand(cmd: string, args: unknown): unknown {
+  // TEMP instrumentation for coverage audit; reverted after the run.
+  __recordMockCmdHit(cmd);
   switch (cmd) {
     // Shell-level mounts.
     case "settings_snapshot":
@@ -1581,11 +1596,33 @@ function routeCommand(cmd: string, args: unknown): unknown {
 
     // Add-a-score (IMSLP) flow. Canned data so the panel is fully browsable in
     // the dev harness without any network.
+    // NOTE: this mock SHADOWS the real backend whenever VITE_DEV_MOCK is set —
+    // results seen under `npm run dev:mock` prove the panel's rendering, never
+    // that live IMSLP works. Use the native app (or the `live_search_smoke`
+    // Rust test) for that.
     case "imslp_search": {
       const q = String(
         ((args ?? {}) as { query?: unknown }).query ?? "",
       ).trim();
-      return q ? IMSLP_HITS : [];
+      if (!q) return [];
+      // Dev affordance: a query containing "fail" rejects, so the panel's error
+      // state is drivable without unplugging the network. Native failures
+      // arrive as rejected promises; mirror that rather than throwing.
+      if (/fail/i.test(q)) {
+        return Promise.reject(
+          new Error(
+            "Could not reach IMSLP. Check your connection and try again.",
+          ),
+        );
+      }
+      // Filter like a real full-text search would. Returning the same canned
+      // hits for literally any query made the "no matches" state unreachable in
+      // dev, which is exactly how a broken search hides.
+      const terms = q.toLowerCase().split(/\s+/);
+      return IMSLP_HITS.filter((hit) => {
+        const haystack = `${hit.title} ${hit.snippet}`.toLowerCase();
+        return terms.every((term) => haystack.includes(term));
+      });
     }
     case "imslp_editions":
       return IMSLP_EDITIONS;

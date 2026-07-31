@@ -38,9 +38,26 @@
 .today-menu-date {
   margin-top: var(--s-5);
 }
+/* Holds the connector line + the quote. The reserved height keeps the menu
+   below from jumping while the practice signals are still being read. */
+.today-menu-quote-slot {
+  min-height: 3.25rem;
+  margin-top: var(--s-2);
+}
+/* Why this quote is on screen. Quiet marginalia: same mono as the date kicker,
+   but lower-case, because it is a phrase and not a label. Rendered only when
+   the pick genuinely answered a signal — never invented. */
+.today-menu-quote-why {
+  margin: 0;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
 .today-menu-quote {
   display: block;
-  margin: var(--s-2) 0 0;
+  margin: 0;
   max-width: 100%;
   padding: 0;
   border: 0;

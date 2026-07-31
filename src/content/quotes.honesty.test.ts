@@ -12,8 +12,18 @@ import { normalizeQuote, normalizeSource } from "./quoteMatch";
  *
  * The corpus lives in Christian's Obsidian vault, outside the repo. On a machine
  * without it the gate SKIPS loudly rather than failing — the check stays
- * portable — but on any machine that has the vault it runs and must pass 182/182.
+ * portable — but on any machine that has the vault it runs and must pass
+ * CURATED_SIZE/CURATED_SIZE.
  */
+
+/**
+ * The curated corpus size. The original 182-entry harvest was culled to the
+ * entries that state a principle a pianist can act on or argue with when read
+ * alone on the menu; 48 bland/context-dependent fragments were dropped and 13
+ * were shortened to a contiguous substring of their own verbatim text. Pinned
+ * as a literal so an accidental mass deletion still fails this gate.
+ */
+const CURATED_SIZE = 134;
 const KNOWLEDGE_DIR = join(
   homedir(),
   "Desktop",
@@ -46,8 +56,8 @@ function normalizedSourceText(sourceId: string): string {
 }
 
 describe("quotes.json corpus shape", () => {
-  it("ships exactly 182 well-formed, uniquely-identified quotes", () => {
-    expect(QUOTES).toHaveLength(182);
+  it("ships exactly the curated set of well-formed, uniquely-identified quotes", () => {
+    expect(QUOTES).toHaveLength(CURATED_SIZE);
     const ids = new Set(QUOTES.map((q) => q.id));
     expect(ids.size).toBe(QUOTES.length);
     for (const q of QUOTES) {
@@ -65,7 +75,7 @@ describe("quotes.json corpus shape", () => {
 describe.skipIf(!corpusPresent)(
   "quotes.json honesty gate (real corpus)",
   () => {
-    it("every quote appears verbatim in its source markdown (182/182)", () => {
+    it("every quote appears verbatim in its source markdown (all of them)", () => {
       const failures: string[] = [];
       for (const q of QUOTES) {
         const needle = normalizeQuote(q.text);
@@ -84,7 +94,7 @@ describe.skipIf(!corpusPresent)(
       expect(failures, `Non-verbatim quotes:\n${failures.join("\n")}`).toEqual(
         [],
       );
-      expect(verified).toBe(182);
+      expect(verified).toBe(CURATED_SIZE);
     }, 20000);
   },
 );

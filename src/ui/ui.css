@@ -1,7 +1,7 @@
 /* ==========================================================================
-   CodaKiller v3 — minimal component kit
-   Consumes ONLY tokens from src/design/tokens.css. No hue except the two
-   semantic signals on Receipt. No outlined buttons, no decorative frames.
+   CodaKiller v4 — minimal component kit, PAPER edition
+   Consumes ONLY tokens from src/design/tokens.css. Ink on paper, hairline
+   rules, one restrained accent. No decorative frames, no gradients.
    ========================================================================== */
 
 /* --- Button ------------------------------------------------------------- */
@@ -29,13 +29,14 @@
   cursor: default;
 }
 
-/* Primary = solid white-on-black inversion (the only filled button). */
+/* Primary = the ink stamp: solid ink fill, paper text (the only filled
+   button). 16.8:1. */
 .ck-btn-primary {
   background: var(--accent-invert-bg);
   color: var(--accent-invert-ink);
 }
 .ck-btn-primary:hover:not(:disabled) {
-  background: #ffffff;
+  background: var(--pencil);
 }
 .ck-btn-primary:active:not(:disabled) {
   transform: translateY(1px);
@@ -55,11 +56,13 @@
 }
 
 /* --- Panel -------------------------------------------------------------- */
+/* A sheet laid on the page: white, hairline-trimmed, the faintest lift. */
 .ck-panel {
   background: var(--bg-raised);
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
   padding: var(--s-4);
+  box-shadow: var(--shadow-card);
 }
 .ck-panel-head {
   display: flex;
@@ -70,8 +73,10 @@
 }
 .ck-panel-title {
   margin: 0;
-  font-size: 0.9375rem;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
   font-weight: 600;
+  line-height: var(--leading-tight);
   color: var(--ink);
 }
 .ck-panel-actions {
@@ -126,7 +131,8 @@
   align-items: center;
   justify-content: center;
   padding: var(--s-5);
-  background: rgba(0, 0, 0, 0.55);
+  /* A warm ink wash, not a black-out — the page stays readable underneath. */
+  background: rgba(26, 23, 20, 0.32);
   z-index: 100;
 }
 .ck-dialog {
@@ -135,12 +141,15 @@
   border: 1px solid var(--hairline-strong);
   border-radius: var(--r-lg);
   padding: var(--s-5);
+  box-shadow: var(--shadow-popover);
   animation: ck-dialog-in var(--dur-slow) var(--ease-out);
 }
 .ck-dialog-head {
   margin-bottom: var(--s-3);
-  font-size: 1rem;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
   font-weight: 600;
+  line-height: var(--leading-tight);
   color: var(--ink);
 }
 .ck-dialog-body {
@@ -157,7 +166,7 @@
   }
 }
 
-/* --- Receipt (the ONLY chrome colour: the two semantic signals) --------- */
+/* --- Receipt (the two semantic signals, muted for paper) ---------------- */
 .ck-receipt {
   display: inline-flex;
   align-items: center;
@@ -175,12 +184,14 @@
 }
 .ck-receipt-success {
   color: var(--signal-success);
+  background: var(--signal-success-wash);
 }
 .ck-receipt-success .ck-receipt-dot {
   background: var(--signal-success);
 }
 .ck-receipt-error {
   color: var(--signal-error);
+  background: var(--signal-error-wash);
 }
 .ck-receipt-error .ck-receipt-dot {
   background: var(--signal-error);

@@ -1,6 +1,7 @@
 //! Secure, read-only access to the real PDF editions inside one vault piece.
 
 pub mod page_cache;
+pub mod serve;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
