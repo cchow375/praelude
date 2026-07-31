@@ -2054,3 +2054,117 @@ defaultCleanStreak={defaultCleanStreak} />`. `ScoreWorkspace` wraps the call in 
 - **Gates:** npm 935/0, tsc clean, fresh-context verifier CONFIRMED (all legacy names resolve
   at :root; flip math; no orphaned ck-* styles; all 10 HUD callbacks reachable; deferral
   semantics). Shipped `780b2d0` + release bump, tag `v3.0.4`, installed (Info.plist 3.0.4).
+
+## v5.0.0 — the real engineering fact: the lag was never bytes, it was PIXELS (2026-07-31)
+
+- **The v4 "fast path" theory was wrong.** v4 hypothesized that file size / megapixel count
+  predicted score-open lag and built a fast path around that — and Christian reported the app got
+  **even laggier**. The corrected model, arrived at by actually measuring real vault files instead
+  of synthetic PDFs: **the lag is driven by pixel COLOUR DEPTH, not file size or megapixel count.**
+  An embedded ICC color profile is roughly a **~15× multiplier** on raster/decode time at
+  near-identical pixel counts.
+- **The measurement table (real vault files, not synthetic PDFs):**
+
+  Every edition in the vault, page 1, `pdftoppm -r 110`. Sorted by cost. Read the last three
+  columns together — that is the whole finding:
+
+  | Score                            | File    | MPix     | comp×bpc | Encoding   | **Raster**  |
+  | -------------------------------- | ------- | -------- | -------- | ---------- | ----------- |
+  | Chopin Etudes Op.10 Mikuli       | 1.1 MB  | —        | —        | vector     | 0.08 s      |
+  | Chopin Scherzo No.2 Ekier        | 1.3 MB  | —        | —        | vector     | 0.11 s      |
+  | Chopin Etudes Op.10 Cortot study | 5.6 MB  | 8.9      | 1×1      | ccitt      | 0.16 s      |
+  | Chopin Etude Op.10 No.4 Cortot   | 0.5 MB  | 8.9      | 1×1      | ccitt      | 0.29 s      |
+  | Beethoven Op.90 Schnabel (Curci) | 1.9 MB  | 13.9     | 1×1      | ccitt      | 0.43 s      |
+  | Prokofiev Op.1 Muzgiz            | 1.1 MB  | 32.8     | 1×1      | jbig2      | 0.45 s      |
+  | Beethoven Op.90 Henle Urtext     | 1.0 MB  | **38.1** | 1×1      | jbig2      | 0.47 s      |
+  | Griffes Three Tone Pictures      | 0.6 MB  | 23.3     | 1×1      | ccitt      | 0.69 s      |
+  | Prokofiev Op.1 Jurgenson         | 10.5 MB | 11.9     | **3×8**  | jpeg       | 2.84 s      |
+  | **Copland Cowboys with Lassos**  | 4.1 MB  | 6.2      | **3×8**  | jpeg       | **14.74 s** |
+  | **Barber Pas de Deux**           | 8.2 MB  | 11.3     | **3×8**  | jpeg + ICC | **43.13 s** |
+
+  Supporting measurements, Barber page 1: `cat` the whole 8.6 MB file **0.003 s**; extract the
+  embedded JPEG **0.06 s**; decode + downsample it to 1200 px (Apple ImageIO) **0.15 s**. So
+  extracting and decoding the embedded image is **~270× faster** than rasterizing the page that
+  contains it, and identical at screen resolution. `pdftoppm -r 300` on that page did not finish
+  inside a 120 s cap.
+
+  Only **3 of 11** editions are affected, and the two catastrophic ones are the Tanglewood chamber
+  scores — the exact piece Christian was looking at when he reported the lag. Eight of eleven
+  needed no change at all, which is why the fix could be a targeted fast path rather than a
+  rewrite of the render pipeline.
+
+- **TWO wrong turns, told honestly — they were different mistakes, a day apart.**
+  1. **v4's model was BYTES.** It optimised file reads, the IPC transfer and a first-page bitmap
+     cache. Measured: reading the whole 8.6 MB Barber off disk costs **0.003 s**. v4 spent its
+     effort on a term four orders of magnitude smaller than the real one, and shipped it as
+     B42-resolved on _modeled_ numbers. Christian's verdict the next morning: "Now it is even
+     laggier."
+  2. **This session's FIRST model was MEGAPIXELS**, and on that theory the 38.1 MP Henle was
+     called out to Christian as "your worst score". Measuring it refuted that within the hour:
+     the Henle rasters in **0.47 s**. It is 1-bit bilevel, so despite having by far the most
+     pixels in the library it is among the fastest pages to decode.
+
+  Both wrong models share a shape: a plausible proxy that was never checked against the artifact.
+  The corrected, measured model is **colour depth is the discriminator — not file size, not
+  megapixel count — and an embedded ICC profile is the single biggest multiplier** (Barber
+  43.13 s vs Prokofiev 2.84 s at near-identical pixel counts). Note the library's _smallest_
+  file (1.0 MB Henle) is fast and its 8.2 MB file is 43 s: **size mis-ranks the library
+  completely.**
+
+- **Decoded RGBA memory math matters on an 8GB machine.** A decoded page is `width × height × 4`
+  bytes in RGBA. `ScoreView` mounts the current page **±1** (three canvases resident at once), which
+  can reach **up to ~457MB** on Christian's 8GB M2 Air for the library's largest pages — a real
+  memory-pressure risk on this hardware, not just a CPU-time one.
+- **The rule going forward: benchmark REAL vault files, never synthetic PDFs.** Synthetic
+  test PDFs do not reproduce scanner ICC profiles, JBIG2/CCITT encodings, or the actual pixel
+  colour-depth distribution of Christian's real scanned library — the v4 fast path was built and
+  validated against the wrong proxy, which is exactly how it shipped backwards.
+
+## v5.0.0 — Rust image fast path architecture (2026-07-31)
+
+- **New modules:** `src-tauri/src/score/scanned_page.rs` and `src-tauri/src/score/page_image.rs`
+  recognize the case "this page is one scanned image stretched over the page box" and decode
+  straight to screen resolution — skipping PDF.js's generic page-render pipeline for that case —
+  cached in the existing bounded LRU disk cache (no new cache layer).
+- **Frontend wiring:** `src/features/score/pageImage.ts`, `src/features/score/PdfPage.tsx`, and
+  `src/features/score/ScoreView.tsx` use the new fast path as the **primary** display path, with
+  PDF.js as the fallback. Every decoder capability check in the Rust path is a **REFUSAL check**:
+  an unfamiliar page shape, encoding, or color space falls back rather than guessing — the fast
+  path only ever activates on cases it can prove it handles correctly.
+- **New pure-Rust dependencies, deliberately chosen to avoid a C dependency:** `lopdf` (PDF
+  structure), `jpeg-decoder` (DCT-scaled decode — decode-time downscale, not decode-then-resize),
+  `hayro-jbig2`, `hayro-ccitt` (scanned-page encodings), `jpeg-encoder`. No dependency on
+  poppler, qpdf, or ghostscript — keeps the build pure-Rust and avoids the C-toolchain fragility
+  those bring.
+
+## v5.0.0 — aspect-tolerance defect caught before shipping (2026-07-31)
+
+- **The near-miss:** a 2% aspect-ratio tolerance for "is this page one image stretched over the
+  page box" would have **misplaced marks on 19 of 207 single-image pages** in the library. The
+  concrete failure case: the Prokofiev Jurgenson edition places a 3300×3900px scan on a 756×909pt
+  page — PDF.js clips it — and a 2% tolerance was loose enough to misjudge that page's true
+  placement.
+- **The fix:** swept all 207 single-image pages in the real library end-to-end and tightened
+  `PAGE_IMAGE_ASPECT_TOLERANCE` from 2% down to **0.001** (0.1%). Result: **zero misplacements**
+  across the full 207-page sweep, with two pages that render slowly given up on (fall back to
+  PDF.js) rather than risk a wrong placement. This is the kind of defect that is invisible until
+  someone actually places marks against a real scanned page at the wrong aspect ratio — caught
+  here before it shipped and produced a stale/misplaced pencil mark for Christian.
+
+## v5.0.0 — gates and operating order (2026-07-31)
+
+- **Release gates:** `tsc` clean; vitest **1643 passed / 1 skipped** (was 1,270 at v4.0.0); cargo
+  **668 passed / 14 ignored** (was 580 at v4.0.0); `cargo clippy --all-targets -- -D warnings`
+  clean.
+- **Chamber split operating order — a durable gotcha, document this every time it comes up:** run
+  `scripts/split-tanglewood-folders.sh --apply --hide-original` **BEFORE** installing/launching the
+  v5 build. The script's own header comment recommends the opposite order — do not follow it. Doing
+  it in the script's suggested order leaves a phantom history-less piece that then needs manual
+  archiving after the fact. Why hiding first is safe: the migration guard that decides whether the
+  split has already happened reads only **DB fields**, never the disk — so hiding the folder ahead
+  of the DB migration cannot desync app state from disk state. Get the order right and this is a
+  clean, one-shot operation.
+- **Pre-session backup taken before this session's live-DB work:** `(C)
+pre-v5.0.0-session-2026-07-30-204238.db`, SHA-256
+  `271c2fdae7b2245ed328c5d75050068bbcf1160a36a3cb7d11575f3bc95a29a1`, integrity `ok`, **6 pieces /
+  98 blocks / 803 reps / 21 sessions**.
