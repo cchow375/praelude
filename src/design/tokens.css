@@ -69,6 +69,13 @@
   --paper-rule-strong: rgba(44, 74, 110, 0.26);
   --paper-margin: rgba(168, 50, 42, 0.22); /* the red margin rule */
   --paper-rule-gap: 28px; /* pitch of the ruled lines */
+  /* Where the writing line is painted inside each band, measured from the top.
+     In a fixed --paper-rule-gap line box the baseline lands at
+     gap/2 + font-size * (ascent - descent) / 2, so this tracks font-size via
+     `em` and puts the stroke ON the baseline. See the .paper-ruled block for
+     the measured error. Override it if a consumer rules a container whose own
+     font-size differs from the text inside. */
+  --paper-rule-baseline: calc(var(--paper-rule-gap) / 2 + 0.36em);
 
   /* --- Accent (ink blue) ------------------------------------------------ */
   --accent: #2c4a6e;
@@ -105,7 +112,17 @@
   --measure: 68ch; /* comfortable prose column */
   --measure-narrow: 46ch;
 
-  /* --- Radii (paper is trimmed, not rounded) ---------------------------- */
+  /* --- Radii ------------------------------------------------------------
+     TIGHTENED, NOT SOFTENED. Paper is trimmed, not moulded: a sheet has a cut
+     edge, so every radius came down from the v3 dark system —
+       --r-sm 6px -> 4px, --r-md 10px -> 6px, --r-lg 14px -> 10px,
+       --radius-xs 4px -> 2px (see the legacy block below).
+     BLAST RADIUS: app-wide, not local. --radius-sm/md/lg alias these three
+     names, and 209 of the 236 `border-radius` declarations under src/ resolve
+     through them (counted 2026-07-30) — cards, popovers, inputs, buttons, tabs,
+     the metronome panel, the score chrome. The 27 that do not are hard-coded
+     50% circles, 999px pills and 0. --radius-pill (999px) is unchanged.
+     A lane that wants a softer corner must change it here, with a reason. */
   --r-sm: 4px;
   --r-md: 6px;
   --r-lg: 10px;
@@ -161,7 +178,7 @@
     0 0 0 1px var(--hairline);
   --shadow-card: 0 1px 2px rgba(26, 23, 20, 0.05);
   --shadow-topbar: 0 1px 0 var(--hairline);
-  --radius-xs: 2px;
+  --radius-xs: 2px; /* was 4px in v3 — see the radii note above */
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
   --radius-lg: var(--r-lg);
@@ -237,17 +254,33 @@ body {
      <div class="paper-ruled paper-ruled-margin">  — plus the red margin rule
 
    Lines are painted as a repeating linear-gradient on the element's own
-   background (no extra DOM node, no compositing layer), and are aligned to
-   the bottom of each --paper-rule-gap band so text with
-   `line-height: var(--leading-rule)` sits on them.
+   background (no extra DOM node, no compositing layer).
+
+   CONTRACT — the consumer must set `line-height: var(--leading-rule)` on the
+   ruled element, and the ruled element's own font-size must be the size of the
+   text it rules (--paper-rule-baseline is derived with `em`). Padding must be a
+   whole number of bands (or zero): the gradient is registered to the padding
+   box, the text to the content box.
+
+   GEOMETRY — the stroke is painted at --paper-rule-baseline inside each band,
+   which is where the baseline of a --paper-rule-gap line box falls, so the text
+   SITS ON the rule. Measured in Chromium at 1440x960 over --font-sans,
+   --font-display and --font-mono at 13/15/17/19px, |rule - baseline| <= 0.4px
+   (sub-pixel) in all twelve combinations.
+   This is a fix, not a description: until now the rules were pinned to the
+   BOTTOM of each band (`gap - 1px`), which put every line of text 6.5px ABOVE
+   its rule at --text-read — the old comment claiming text "sits on them" was
+   false. No consumer had applied the class yet, so nothing shipped broken.
    -------------------------------------------------------------------------- */
 .paper-ruled {
   background-image: repeating-linear-gradient(
     to bottom,
     transparent 0,
-    transparent calc(var(--paper-rule-gap) - 1px),
-    var(--paper-rule) calc(var(--paper-rule-gap) - 1px),
-    var(--paper-rule) var(--paper-rule-gap)
+    transparent var(--paper-rule-baseline),
+    var(--paper-rule) var(--paper-rule-baseline),
+    var(--paper-rule) calc(var(--paper-rule-baseline) + 1px),
+    transparent calc(var(--paper-rule-baseline) + 1px),
+    transparent var(--paper-rule-gap)
   );
   background-attachment: local;
 }
@@ -265,9 +298,11 @@ body {
     repeating-linear-gradient(
       to bottom,
       transparent 0,
-      transparent calc(var(--paper-rule-gap) - 1px),
-      var(--paper-rule) calc(var(--paper-rule-gap) - 1px),
-      var(--paper-rule) var(--paper-rule-gap)
+      transparent var(--paper-rule-baseline),
+      var(--paper-rule) var(--paper-rule-baseline),
+      var(--paper-rule) calc(var(--paper-rule-baseline) + 1px),
+      transparent calc(var(--paper-rule-baseline) + 1px),
+      transparent var(--paper-rule-gap)
     );
   background-attachment: local;
 }

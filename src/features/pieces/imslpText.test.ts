@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  dedupeHits,
   downloadBasename,
+  isSupersededError,
   matchesDownloadName,
+  SEARCH_SUPERSEDED,
   stripHighlightHtml,
   stripWikiTemplates,
+  type WorkHit,
 } from "./imslpText";
 
 describe("stripHighlightHtml", () => {
@@ -91,5 +95,72 @@ describe("matchesDownloadName", () => {
       matchesDownloadName("PMLP02312-Chopin_Nocturnes-1.pdf", expected),
     ).toBe(false);
     expect(matchesDownloadName("x.pdf", "")).toBe(false);
+  });
+});
+
+describe("dedupeHits", () => {
+  const hit = (title: string, snippet: string): WorkHit => ({
+    title,
+    // Exactly what live IMSLP sends: `list=search` carries no `pageid`, so this
+    // is 0 on every real hit and cannot tell two rows apart.
+    page_id: 0,
+    snippet,
+    size: 1,
+    word_count: 1,
+    is_redirect: false,
+  });
+
+  it("collapses repeated titles, keeping the first (best-ranked) row", () => {
+    const deduped = dedupeHits([
+      hit("Nocturnes, Op.9 (Chopin, Frédéric)", "first"),
+      hit("Nocturnes, Op.9 (Chopin, Frédéric)", "duplicate"),
+      hit("Nocturnes, Op.15 (Chopin, Frédéric)", "other"),
+    ]);
+    expect(deduped.map((h) => h.title)).toEqual([
+      "Nocturnes, Op.9 (Chopin, Frédéric)",
+      "Nocturnes, Op.15 (Chopin, Frédéric)",
+    ]);
+    expect(deduped[0].snippet).toBe("first");
+  });
+
+  it("guarantees the invariant the picker's React key depends on", () => {
+    const titles = dedupeHits([
+      hit("A", "x"),
+      hit("B", "x"),
+      hit("A", "x"),
+      hit("B", "x"),
+      hit("C", "x"),
+    ]).map((h) => h.title);
+    expect(new Set(titles).size).toBe(titles.length);
+    expect(titles).toEqual(["A", "B", "C"]);
+  });
+
+  it("leaves an already-unique list untouched", () => {
+    const hits = [hit("A", "x"), hit("B", "y")];
+    expect(dedupeHits(hits)).toEqual(hits);
+    expect(dedupeHits([])).toEqual([]);
+  });
+});
+
+describe("isSupersededError", () => {
+  // Byte-identical to `SEARCH_SUPERSEDED` in src-tauri/src/imslp.rs, which
+  // asserts the same literal. If one side is edited, both tests must be.
+  it("pins the exact string the Rust client sends", () => {
+    expect(SEARCH_SUPERSEDED).toBe("IMSLP search superseded by a newer query.");
+  });
+
+  it("recognises the signal, however Tauri wraps it", () => {
+    expect(isSupersededError(SEARCH_SUPERSEDED)).toBe(true);
+    expect(isSupersededError(`Error: ${SEARCH_SUPERSEDED}`)).toBe(true);
+  });
+
+  it("does not swallow a real failure", () => {
+    expect(
+      isSupersededError("Could not reach IMSLP. Check your connection."),
+    ).toBe(false);
+    expect(isSupersededError("IMSLP returned an unexpected status (503).")).toBe(
+      false,
+    );
+    expect(isSupersededError("")).toBe(false);
   });
 });

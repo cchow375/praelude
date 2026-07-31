@@ -25,6 +25,17 @@
 #     exact commands; it does not run them.
 #   * DRY RUN BY DEFAULT. Nothing is written unless you pass --apply.
 #
+# EXIT CODES
+#   0  the vault is in the target state (or, without --apply, the dry run
+#      finished having written nothing).
+#   1  a precondition failed; nothing was written.
+#   2  bad usage.
+#   3  REFUSED. At least one destination already exists with DIFFERENT content,
+#      or both the original and hidden drawer exist, so the script declined to
+#      overwrite and left that destination as it found it. The vault is NOT in
+#      the target state — read the `KEEP` lines above and resolve them by hand.
+#      A refusal never looks like success to a caller checking `$?`.
+#
 # WHY `cp -p` AND WHY THE PDFs SIT AT THE FOLDER ROOT (not in `score/`):
 #   `score::pdf_editions` identifies an edition by its path RELATIVE to the piece
 #   folder, and fingerprints it as "<size>-<mtime>" in hex. The existing
@@ -40,6 +51,22 @@
 #   third, historyless piece. Pass --hide-original to rename it to
 #   "_Chamber Pieces Tanglewood", which the scanner skips (same rule as
 #   `_piece-template`). That is a rename, not a delete; --undo prints the mv.
+#
+# OPERATING ORDER — RUN THIS SCRIPT *AFTER* THE NEW BUILD IS INSTALLED
+#   1. Install the build carrying schema v12, replacing the previous app, and
+#      launch it once. The migration splits the database.
+#   2. Run this script with --apply --hide-original.
+#   3. Relaunch. The vault scan matches both new folders to the two split rows
+#      by folder_path and refreshes them in place; the hidden drawer is skipped.
+#
+#   WHY THAT ORDER. The old app's startup folder scan turns any new folder into
+#   a fresh, history-less piece. Running this script while the previous build is
+#   still the installed app therefore leaves the database half-repaired if it is
+#   launched even once before the upgrade. The v12 migration now RECOVERS from
+#   that state — it merges into the auto-discovered rows instead of declining —
+#   so the script-first order is no longer destructive. Installing first is
+#   still the order to follow, because it removes the old build from the machine
+#   and so removes the chance of interleaving entirely.
 #
 # USAGE
 #   scripts/split-tanglewood-folders.sh                    # dry run (default)
@@ -116,6 +143,10 @@ for pdf in "$BARBER_PDF" "$COPLAND_PDF"; do
 done
 
 changed=0
+# Every `KEEP` decision above increments this. It is what separates "the vault
+# is in the target state" (exit 0) from "a destination was left as it was and
+# still needs a human" (exit 3).
+refused=0
 # Folders already announced this run, so a dry run (which creates nothing)
 # does not report the same mkdir twice for a folder taking two files.
 announced_dirs=""
@@ -153,6 +184,7 @@ copy_in() {
       echo "  ok     $dest_dir/$file (already identical — nothing to do)"
     else
       echo "  KEEP   $dest_dir/$file (already exists and DIFFERS — refusing to overwrite)"
+      refused=$((refused + 1))
     fi
     return 0
   fi
@@ -194,6 +226,7 @@ if [ "$HIDE_ORIGINAL" -eq 1 ]; then
     echo "  skip   $SOURCE_FOLDER not present"
   elif [ -d "$hidden" ]; then
     echo "  KEEP   both $SOURCE_FOLDER and _$SOURCE_FOLDER exist — refusing to merge them"
+    refused=$((refused + 1))
   else
     echo "  rename $SOURCE_FOLDER -> _$SOURCE_FOLDER (hidden from the vault scan, nothing deleted)"
     changed=1
@@ -215,6 +248,16 @@ if [ "$APPLY" -eq 1 ]; then
   ls -la "$src" | tail -n +2 | sed 's/^/    /'
 elif [ "$changed" -eq 1 ]; then
   echo "Dry run only. Re-run with --apply to perform the copies above."
-else
+elif [ "$refused" -eq 0 ]; then
   echo "Nothing to do — the vault is already in the target state."
+fi
+
+# A refusal is not success. Say so, and say so in the exit code too, so a caller
+# (or a release script) cannot mistake "left a destination alone" for "done".
+if [ "$refused" -gt 0 ]; then
+  echo
+  echo "== REFUSED: $refused destination(s) left untouched (see the KEEP lines above) =="
+  echo "The vault is NOT in the target state. Nothing was overwritten and nothing"
+  echo "was deleted; resolve each KEEP by hand, then re-run."
+  exit 3
 fi

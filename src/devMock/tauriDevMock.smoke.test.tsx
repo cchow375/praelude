@@ -88,14 +88,15 @@ describe("dev-mock five-workspace render harness", () => {
     ).toBeTruthy();
   });
 
-  it("mounts Universe and draws a sun + planet for an earned system", async () => {
+  it("mounts Universe and lays out a card + region marks for an earned piece", async () => {
     const { container } = renderWorkspace(
       <UniverseWorkspace onOpenPractice={() => {}} />,
     );
-    // universe_snapshot with earned signal renders the live force-graph galaxy:
-    // a sun for the piece and a planet for each earned region.
-    await screen.findByRole("heading", { name: "Your earned systems" });
-    expect(container.querySelector('[data-node-id="piece-1"]')).toBeTruthy();
-    expect(container.querySelector(".universe-node-planet")).toBeTruthy();
+    // universe_snapshot with earned signal renders the still repertoire map:
+    // a card per piece, one mark per earned region. (The force-graph galaxy
+    // this used to assert was removed in the paper rewrite.)
+    await screen.findByRole("heading", { name: "Your repertoire" });
+    expect(screen.getByTestId("universe-piece-1")).toBeTruthy();
+    expect(container.querySelector(".universe-block")).toBeTruthy();
   });
 });

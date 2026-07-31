@@ -170,6 +170,21 @@ fn fail(origin: &str, status: StatusCode, message: &str) -> Response<Vec<u8>> {
 /// whole contract — status codes, `Content-Range`, traversal refusal — is unit
 /// testable without a running webview.
 pub fn respond(store: &Store, path: &str, range: Option<&str>, origin: &str) -> Response<Vec<u8>> {
+    respond_with(store, path, range, origin, &read_span)
+}
+
+/// How [`respond_with`] gets bytes off disk. Injectable so the truncated-file
+/// path — where a satisfiable range reads back nothing — is testable without
+/// having to win a race against the filesystem.
+type SpanReader<'a> = &'a dyn Fn(&Path, u64, u64) -> std::io::Result<Vec<u8>>;
+
+pub(crate) fn respond_with(
+    store: &Store,
+    path: &str,
+    range: Option<&str>,
+    origin: &str,
+    read: SpanReader<'_>,
+) -> Response<Vec<u8>> {
     let Some((piece_id, edition_id)) = parse_target(path) else {
         return fail(origin, StatusCode::BAD_REQUEST, "malformed score request");
     };
@@ -198,7 +213,7 @@ pub fn respond(store: &Store, path: &str, range: Option<&str>, origin: &str) -> 
             .header(header::CONTENT_RANGE, format!("bytes */{len}"))
             .body(Vec::new())
             .expect("static 416 response is well formed"),
-        Span::Full => match read_span(&edition.path, 0, len) {
+        Span::Full => match read(&edition.path, 0, len) {
             Ok(body) => base(origin)
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "application/pdf")
@@ -213,7 +228,20 @@ pub fn respond(store: &Store, path: &str, range: Option<&str>, origin: &str) -> 
         },
         Span::Partial { start, end } => {
             let count = end - start + 1;
-            match read_span(&edition.path, start, count) {
+            match read(&edition.path, start, count) {
+                // A satisfiable range whose read comes back EMPTY means the file
+                // was truncated (or replaced) between the `metadata()` above and
+                // the read — `start` is now past EOF. There is no byte range to
+                // name, so this is a 416 with the length we can still see, not a
+                // 206. Computing `start + len - 1` here would underflow.
+                Ok(body) if body.is_empty() => {
+                    let now = std::fs::metadata(&edition.path).map_or(0, |m| m.len());
+                    base(origin)
+                        .status(StatusCode::RANGE_NOT_SATISFIABLE)
+                        .header(header::CONTENT_RANGE, format!("bytes */{now}"))
+                        .body(Vec::new())
+                        .expect("static 416 response is well formed")
+                }
                 Ok(body) => {
                     // Report what we actually read: a file truncated between the
                     // stat and the read must not claim bytes it did not send.
@@ -505,6 +533,77 @@ mod tests {
         assert_eq!(encoded.status(), StatusCode::OK);
         assert_eq!(decoded.status(), StatusCode::OK);
         assert_eq!(encoded.body(), decoded.body());
+    }
+
+    /// Regression: an edition truncated between `metadata()` and the read makes
+    /// a *satisfiable* range read back nothing. `start + body.len() - 1` on that
+    /// empty body underflowed `u64`, producing a `Content-Range` claiming the
+    /// last 18 exabytes of the file (release) or a panic inside the protocol
+    /// handler (debug).
+    #[test]
+    fn an_empty_read_of_a_satisfiable_range_does_not_underflow() {
+        let (_td, store, id) = fixture();
+        let target = url(id, "score/(C) Ekier_Draft.pdf");
+        let empty: SpanReader<'_> = &|_, _, _| Ok(Vec::new());
+        for value in ["bytes=4-9", "bytes=0-65535", "bytes=15-", "bytes=-4"] {
+            let response = respond_with(&store, &target, Some(value), ORIGIN, empty);
+            assert_eq!(
+                response.status(),
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                "range {value}"
+            );
+            assert!(response.body().is_empty(), "range {value}");
+            let content_range = header_of(&response, header::CONTENT_RANGE).unwrap();
+            assert_eq!(content_range, "bytes */16", "range {value}");
+            assert!(
+                !content_range.contains("1844674407"),
+                "underflowed: {content_range}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_416_after_a_vanished_read_reports_the_length_that_is_left() {
+        let (td, store, id) = fixture();
+        let edition = td.path().join("Chopin - Scherzo/score/(C) Ekier_Draft.pdf");
+        // Truncate for real, then let the read come back empty exactly as it
+        // would for a request already in flight.
+        fs::write(&edition, b"0123").unwrap();
+        let empty: SpanReader<'_> = &|_, _, _| Ok(Vec::new());
+        let response = respond_with(
+            &store,
+            &url(id, "score/(C) Ekier_Draft.pdf"),
+            Some("bytes=0-3"),
+            ORIGIN,
+            empty,
+        );
+        assert_eq!(response.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(
+            header_of(&response, header::CONTENT_RANGE).as_deref(),
+            Some("bytes */4")
+        );
+    }
+
+    #[test]
+    fn a_short_but_non_empty_read_still_reports_only_what_it_sent() {
+        let (_td, store, id) = fixture();
+        let short: SpanReader<'_> = &|_, _, _| Ok(b"45".to_vec());
+        let response = respond_with(
+            &store,
+            &url(id, "score/(C) Ekier_Draft.pdf"),
+            Some("bytes=4-9"),
+            ORIGIN,
+            short,
+        );
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            header_of(&response, header::CONTENT_RANGE).as_deref(),
+            Some("bytes 4-5/16")
+        );
+        assert_eq!(
+            header_of(&response, header::CONTENT_LENGTH).as_deref(),
+            Some("2")
+        );
     }
 
     #[test]

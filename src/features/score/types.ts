@@ -118,6 +118,30 @@ export interface ScorePdfApi {
     page: number,
     bucket: string,
   ) => Promise<ArrayBuffer>;
+  /**
+   * A screen-resolution JPEG of one page, decoded in Rust straight from the
+   * page's single image XObject. Resolves to an EMPTY buffer — never rejects —
+   * when the page is not a single-image scan the fast path can serve, which is
+   * the routine answer for a vector edition; the caller then renders it with
+   * PDF.js as before. Optional: test adapters and the browser dev mock omit it
+   * and get the PDF.js-only behaviour.
+   */
+  pageImage?: (
+    pieceId: number,
+    editionId: string,
+    page: number,
+    targetLongEdge: number,
+  ) => Promise<ArrayBuffer>;
+  /**
+   * Generate and cache a page image without shipping it across IPC — the
+   * background warm for pages the reader is about to turn to. Fire-and-forget.
+   */
+  warmPageImage?: (
+    pieceId: number,
+    editionId: string,
+    page: number,
+    targetLongEdge: number,
+  ) => Promise<void>;
   /** Persist a fitted first-page snapshot (compressed WebP/JPEG bytes). */
   saveFirstPage: (
     pieceId: number,

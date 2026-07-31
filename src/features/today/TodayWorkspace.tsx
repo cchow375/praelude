@@ -2,13 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ASSISTANT, HISTORY } from "../../shell/terms";
 import { TodayPracticePanel } from "./TodayPracticePanel";
 import { ReaderWindow } from "../reader/ReaderWindow";
-import {
-  clampToWords,
-  resolveHomeQuote,
-  type QuotePick,
-  type QuoteSignals,
-} from "./quoteRotation";
-import { useQuoteSignals } from "./quoteSignals";
+import { clampToWords } from "./quoteRotation";
+import { useHomeQuote, useQuoteSignals } from "./quoteSignals";
 import { compactDuration, todayLabel } from "./format";
 import {
   CodaMark,
@@ -20,16 +15,6 @@ import {
   SparkIcon,
 } from "./menuIcons";
 import "./TodayWorkspace.css";
-
-/** Resolve the quote for the current practice context (D1). Guarded so a
- *  storage failure never blanks the menu. */
-function homeQuote(signals: QuoteSignals): QuotePick | null {
-  try {
-    return resolveHomeQuote(window.localStorage, signals);
-  } catch {
-    return null;
-  }
-}
 
 interface TodayWorkspaceProps {
   /** Opens the Score workspace with no requested piece (the "Score" entry and
@@ -70,15 +55,11 @@ export function TodayWorkspace({
   const practiceTriggerRef = useRef<HTMLButtonElement>(null);
   // The quote answers what he is actually doing, so it is resolved only once the
   // signals are in — a pick made on half-read state would have to be swapped out
-  // a moment later. The rotation itself only advances when the context has
-  // genuinely moved on (see resolveHomeQuote), so navigating back to the menu
-  // does not burn a new quote.
-  const { signals, ready } = useQuoteSignals();
-  const [pick, setPick] = useState<QuotePick | null>(null);
-  useEffect(() => {
-    if (ready) setPick(homeQuote(signals));
-  }, [ready, signals]);
-  const quote = pick?.quote ?? null;
+  // a moment later. The rotation only advances when the context has genuinely
+  // moved on, so navigating back to the menu does not burn a new quote; the
+  // CONNECTOR, though, is re-derived from live signals on every render and is
+  // never carried over from the state the pick was made in (see useHomeQuote).
+  const { quote, connector } = useHomeQuote(useQuoteSignals());
   const [readerOpen, setReaderOpen] = useState(false);
 
   // Keep the shell informed so it can hand HUD ownership to the window while the
@@ -106,12 +87,12 @@ export function TodayWorkspace({
         {/* The slot keeps its height while the signals resolve, so the menu
             below it never jumps when the quote arrives. */}
         <div className="today-menu-quote-slot">
-          {pick?.cue && (
+          {connector && (
             <p
               className="today-menu-quote-why"
               data-testid="today-menu-quote-why"
             >
-              {pick.cue.connector}
+              {connector.connector}
             </p>
           )}
           {quote && (

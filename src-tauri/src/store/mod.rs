@@ -1343,6 +1343,234 @@ mod tests {
         assert_eq!(store.schema_version().unwrap(), migrations::SCHEMA_VERSION);
     }
 
+    /// Events owned by `piece_id`, optionally narrowed to the kinds that count
+    /// as practice time (`universe::PRACTICE_EVENT_KINDS`).
+    fn count_events(conn: &Connection, piece_id: i64, practice_only: bool) -> i64 {
+        let sql = if practice_only {
+            "SELECT COUNT(*) FROM event WHERE piece_id = ?1
+               AND kind IN ('rep_open','rep','verdict','tempo_change')"
+        } else {
+            "SELECT COUNT(*) FROM event WHERE piece_id = ?1"
+        };
+        conn.query_row(sql, [piece_id], |row| row.get(0)).unwrap()
+    }
+
+    /// The piece the Tanglewood split created (or merged into), or 0 if this
+    /// database never had the merged row.
+    fn tanglewood_copland_id(conn: &Connection) -> i64 {
+        conn.query_row(
+            "SELECT COALESCE(MIN(id), 0) FROM piece
+             WHERE title = 'Cowboys with Lassos (Billy the Kid)'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    /// D2 rehearsal: the ordering hazard, replayed on the real data.
+    ///
+    /// If the vault script runs and the PREVIOUS build is launched even once
+    /// before the upgrade, its startup folder scan upserts `Barber - Pas de Deux`
+    /// and `Copland - …` as fresh, history-less pieces. The v12 step used to see
+    /// those folders taken, decline, and stamp `user_version = 12` anyway —
+    /// abandoning the repair permanently with the Copland's whole practice graph
+    /// stranded on the merged row. It must now finish the job by merging into the
+    /// rows the scanner made.
+    ///
+    /// `stranded_path` is a byte copy of the supplied disposable database, taken
+    /// before the main rehearsal migrated it.
+    #[allow(clippy::too_many_arguments)]
+    fn rehearse_stranded_tanglewood_repair(
+        stranded_path: &str,
+        merged_id: i64,
+        merged_folder: &str,
+        before_pieces: i64,
+        merged_regions: i64,
+        merged_blocks: i64,
+        merged_reps: i64,
+        merged_events: i64,
+    ) {
+        let parent = merged_folder
+            .strip_suffix("/Chamber Pieces Tanglewood")
+            .expect("merged folder is the Tanglewood drawer");
+        let barber_folder = format!("{parent}/Barber - Pas de Deux");
+        let copland_folder = format!("{parent}/Copland - Cowboys with Lassos (Billy the Kid)");
+
+        // Exactly what `Store::upsert_piece` writes for a newly seen folder:
+        // scanner-derived title/composer/pdf_path, no `preferred_pdf_path`, and
+        // no history of any kind.
+        let seeded = Connection::open(stranded_path).expect("open the stranded rehearsal copy");
+        seeded.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        for (folder, title, composer, pdf) in [
+            (
+                &barber_folder,
+                "Pas de Deux",
+                "Barber",
+                "Christian_C_Barber_Pas_de_Deux_Primo.pdf",
+            ),
+            (
+                &copland_folder,
+                "Cowboys with Lassos (Billy the Kid)",
+                "Copland",
+                "Christian_C_Copland_Cowboys_with_Lassos.pdf",
+            ),
+        ] {
+            seeded
+                .execute(
+                    "INSERT INTO piece (title, composer, folder_path, pdf_path)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![title, composer, folder, format!("{folder}/{pdf}")],
+                )
+                .unwrap();
+        }
+        let scanned_barber: i64 = seeded
+            .query_row(
+                "SELECT id FROM piece WHERE folder_path = ?1",
+                [&barber_folder],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let scanned_copland: i64 = seeded
+            .query_row(
+                "SELECT id FROM piece WHERE folder_path = ?1",
+                [&copland_folder],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let stranded_version: i32 = seeded
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        println!(
+            "rehearsal(stranded): before v12 — version={stranded_version} pieces={} \
+             merged row {merged_id} still holds regions={} blocks={}",
+            before_pieces + 2,
+            merged_regions,
+            merged_blocks
+        );
+        drop(seeded);
+
+        let store = Store::open(stranded_path).expect("migrate the stranded rehearsal copy");
+        assert_eq!(store.schema_version().unwrap(), migrations::SCHEMA_VERSION);
+        let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
+
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM piece WHERE title = 'Chamber Pieces Tanglewood'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0,
+            "the merged pseudo-piece must be gone, not left stranded"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM piece WHERE id = ?1",
+                [merged_id],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0,
+            "the emptied merged row is deleted once its history lives elsewhere"
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM piece", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            before_pieces + 1,
+            "the two auto-discovered rows are reused, not duplicated"
+        );
+
+        // The stranded practice graph landed on the scanner's Copland row.
+        for (table, expected) in [("region", merged_regions), ("rep_block", merged_blocks)] {
+            assert_eq!(
+                conn.query_row(
+                    &format!("SELECT COUNT(*) FROM {table} WHERE piece_id = ?1"),
+                    [scanned_copland],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+                expected,
+                "{table} must reach the auto-discovered Copland row"
+            );
+        }
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM rep JOIN rep_block ON rep_block.id = rep.block_id
+                 WHERE rep_block.piece_id = ?1",
+                [scanned_copland],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            merged_reps
+        );
+        assert_eq!(count_events(&conn, scanned_copland, false), merged_events);
+        assert_eq!(count_events(&conn, scanned_barber, false), 0);
+        // ...and the Barber-bound calibration landed on the scanner's Barber row.
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM score_edition_calibration WHERE piece_id = ?1",
+                [scanned_barber],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1,
+            "the Barber calibration follows the Barber, not the Copland"
+        );
+
+        assert_eq!(
+            conn.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        {
+            let mut statement = conn.prepare("PRAGMA foreign_key_check").unwrap();
+            assert!(
+                statement.query([]).unwrap().next().unwrap().is_none(),
+                "the stranded repair must leave no FK violations"
+            );
+        }
+        // `progress_summary` takes the store's own connection lock, so the
+        // guard has to be released before calling it.
+        drop(conn);
+        let barber_progress = crate::metrics::progress_summary(&store, scanned_barber).unwrap();
+        let copland_progress = crate::metrics::progress_summary(&store, scanned_copland).unwrap();
+        assert_eq!(
+            (barber_progress.focused_seconds, barber_progress.streak),
+            (0, 0),
+            "the Barber must show no practice time and no streak"
+        );
+        assert!(
+            copland_progress.focused_seconds > 0 && copland_progress.streak > 0,
+            "the Copland must show the practice time and streak it earned, got {:?}",
+            (copland_progress.focused_seconds, copland_progress.streak)
+        );
+        println!(
+            "rehearsal(stranded): after v12 — pieces={} tanglewood rows=0, \
+             Copland {scanned_copland} regions={merged_regions} blocks={merged_blocks} \
+             reps={merged_reps} events={merged_events} focused={}s streak={} | \
+             Barber {scanned_barber} focused={}s streak={}",
+            before_pieces + 1,
+            copland_progress.focused_seconds,
+            copland_progress.streak,
+            barber_progress.focused_seconds,
+            barber_progress.streak
+        );
+        drop(store);
+
+        // Five more launches change nothing.
+        for _ in 0..5 {
+            let reopened = Store::open(stranded_path).expect("stranded repair is idempotent");
+            let conn = reopened.conn.lock().unwrap_or_else(|p| p.into_inner());
+            assert_eq!(
+                conn.query_row("SELECT COUNT(*) FROM piece", [], |row| row.get::<_, i64>(0))
+                    .unwrap(),
+                before_pieces + 1
+            );
+            assert_eq!(count_events(&conn, scanned_copland, false), merged_events);
+        }
+        println!("rehearsal(stranded): 5 further launches — pieces and events unchanged");
+    }
+
     /// Release-gate rehearsal against an operator-created backup of the real DB.
     /// The ignored test never chooses or copies a database itself; it only opens
     /// the explicit `CODAKILLER_MIGRATION_COPY` path supplied by the release run.
@@ -1429,6 +1657,38 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
+        // The canonical log the merged row carries. `event.piece_id` is what
+        // `Store::events_for_piece` filters on, and that feeds History's
+        // progress summary and the Universe view — so these rows decide which
+        // piece shows practice time and a streak.
+        let merged_events: i64 = before_conn
+            .query_row(
+                "SELECT COUNT(*) FROM event WHERE piece_id = ?1",
+                [merged_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let merged_practice_events: i64 = before_conn
+            .query_row(
+                "SELECT COUNT(*) FROM event WHERE piece_id = ?1
+                   AND kind IN ('rep_open','rep','verdict','tempo_change')",
+                [merged_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        // How many of those are legacy rows mirrored into the canonical log by
+        // the v6 backfill. Their frozen payloads still name the merged piece;
+        // the split re-points the `piece_id` column and deliberately leaves the
+        // payload bytes alone, and the ledger check below pins exactly that.
+        let merged_ledgered_events: i64 = before_conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_event_backfill ledger
+                 JOIN event canonical ON canonical.id = ledger.canonical_event_id
+                 WHERE canonical.piece_id = ?1",
+                [merged_id],
+                |row| row.get(0),
+            )
+            .unwrap();
 
         // Practice Notebook rows the copy already holds (0 on a pre-v11 copy,
         // where the tables do not exist yet). Migration must not change these.
@@ -1452,7 +1712,28 @@ mod tests {
                     .unwrap()
             })
             .collect();
+        let merged_folder: String = if merged_id == 0 {
+            String::new()
+        } else {
+            before_conn
+                .query_row(
+                    "SELECT folder_path FROM piece WHERE id = ?1",
+                    [merged_id],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
         drop(before_conn);
+
+        // Input for the D2 sub-rehearsal below: a byte copy of the supplied
+        // disposable database taken BEFORE this test migrates it. The app runs
+        // `journal_mode = delete`, so with every connection closed the file is
+        // the whole database.
+        let stranded_path = format!("{path}.stranded-rehearsal");
+        let _ = std::fs::remove_file(&stranded_path);
+        if merged_id != 0 {
+            std::fs::copy(&path, &stranded_path).expect("copy the rehearsal database");
+        }
 
         let store = Store::open(&path).expect("migrate rehearsal copy");
         assert_eq!(store.schema_version().unwrap(), migrations::SCHEMA_VERSION);
@@ -1602,6 +1883,56 @@ mod tests {
                  (Billy the Kid)' regions={copland_regions} blocks={copland_blocks} \
                  reps={copland_reps}"
             );
+
+            // ── the canonical log follows the work, not the score file ───────
+            // `event.piece_id` is what `Store::events_for_piece` filters on, and
+            // that is the sole input to the practice time / streak the UI shows.
+            // Leaving it on the surviving row is what made the never-practised
+            // Barber report focused time and a streak while the Copland — the
+            // piece actually practised — reported none.
+            let barber_events = count_events(&conn, merged_id, false);
+            let copland_events = count_events(&conn, copland_id, false);
+            assert_eq!(
+                barber_events, 0,
+                "the Barber has never been practised and must own no events"
+            );
+            assert_eq!(
+                copland_events, merged_events,
+                "every event of the merged row was attributable and moved"
+            );
+            let barber_practice = count_events(&conn, merged_id, true);
+            let copland_practice = count_events(&conn, copland_id, true);
+            assert_eq!(barber_practice, 0);
+            assert_eq!(
+                copland_practice, merged_practice_events,
+                "the practice-time kinds land on the piece that was practised"
+            );
+            println!(
+                "rehearsal: events merged->Copland {copland_events} \
+                 (practice kinds {copland_practice}), Barber keeps {barber_events}"
+            );
+
+            // Every other `piece_id`-bearing table went where the migration says
+            // it goes. Only the calibration stays with the Barber; it names the
+            // Barber PDF and holds Barber page geometry.
+            for table in [
+                "brain_thread",
+                "goal",
+                "piece_plan",
+                "spot_review",
+                "action_draft",
+                "score_section",
+                "tutorial_video",
+            ] {
+                let left: i64 = conn
+                    .query_row(
+                        &format!("SELECT COUNT(*) FROM {table} WHERE piece_id = ?1"),
+                        [merged_id],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(left, 0, "{table} records practice work and must not stay");
+            }
         }
 
         let after_events: i64 = conn
@@ -1629,16 +1960,46 @@ mod tests {
                  WHERE canonical.ts != source.ts
                     OR canonical.session_id != source.session_id
                     OR canonical.kind != source.kind
-                    OR canonical.payload != source.payload
-                    OR canonical.piece_id != CAST(json_extract(source.payload,'$.piece_id') AS INTEGER)",
+                    OR canonical.payload != source.payload",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
         assert_eq!(
             mismatched_mappings, 0,
-            "mapped rows preserve their exact source tuple"
+            "mapped rows preserve their exact source bytes"
         );
+        // `piece_id` is the one column the v12 split is allowed to move, and it
+        // may move ONLY from the merged row to the Copland. Everything else must
+        // still equal the piece the legacy payload named — and the exception set
+        // must be exactly the merged row's ledgered events, no more, no fewer.
+        let (reattributed, wrongly_attributed): (i64, i64) = conn
+            .query_row(
+                "SELECT
+                   count(*) FILTER (
+                     WHERE canonical.piece_id = ?2
+                       AND CAST(json_extract(source.payload,'$.piece_id') AS INTEGER) = ?1),
+                   count(*) FILTER (
+                     WHERE canonical.piece_id
+                           != CAST(json_extract(source.payload,'$.piece_id') AS INTEGER)
+                       AND NOT (canonical.piece_id = ?2
+                                AND CAST(json_extract(source.payload,'$.piece_id') AS INTEGER) = ?1))
+                 FROM session_event_backfill ledger
+                 JOIN session_event source ON source.id=ledger.legacy_session_event_id
+                 JOIN event canonical ON canonical.id=ledger.canonical_event_id",
+                rusqlite::params![merged_id, tanglewood_copland_id(&conn)],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            wrongly_attributed, 0,
+            "no mapped row moved anywhere except merged -> Copland"
+        );
+        assert_eq!(
+            reattributed, merged_ledgered_events,
+            "every ledgered event of the merged row was re-attributed to the Copland"
+        );
+        println!("rehearsal: {reattributed} ledgered events re-attributed merged -> Copland");
         assert_eq!(
             conn.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
                 .unwrap(),
@@ -1676,7 +2037,32 @@ mod tests {
                 "migration must neither invent nor drop {table} rows"
             );
         }
+        let copland_piece_id = tanglewood_copland_id(&conn);
+        // `progress_summary` takes the store's own connection lock, so the guard
+        // has to be released before calling it.
         drop(conn);
+
+        // End to end, through the exact command History invokes: the piece that
+        // was practised is the one that reports practice time and a streak.
+        if merged_id != 0 {
+            let barber = crate::metrics::progress_summary(&store, merged_id).unwrap();
+            let copland = crate::metrics::progress_summary(&store, copland_piece_id).unwrap();
+            assert_eq!(
+                (barber.focused_seconds, barber.streak),
+                (0, 0),
+                "the never-practised Barber must show no practice time and no streak"
+            );
+            assert!(
+                copland.focused_seconds > 0 && copland.streak > 0,
+                "the Copland must show the practice time and streak it earned, got {:?}",
+                (copland.focused_seconds, copland.streak)
+            );
+            println!(
+                "rehearsal: progress_summary Barber {merged_id} focused={}s streak={} | \
+                 Copland {copland_piece_id} focused={}s streak={}",
+                barber.focused_seconds, barber.streak, copland.focused_seconds, copland.streak
+            );
+        }
         drop(store);
 
         let reopened = Store::open(&path).expect("migration is idempotent on second open");
@@ -1707,6 +2093,23 @@ mod tests {
             ledger_rows,
             "second open adds zero ledger rows"
         );
+        drop(conn);
+        drop(reopened);
+
+        // ── D2: the same real data, but with the ordering hazard triggered ───
+        if merged_id != 0 {
+            rehearse_stranded_tanglewood_repair(
+                &stranded_path,
+                merged_id,
+                &merged_folder,
+                before_pieces,
+                merged_regions,
+                merged_blocks,
+                merged_reps,
+                merged_events,
+            );
+            let _ = std::fs::remove_file(&stranded_path);
+        }
     }
 
     /// Release-gate rehearsal / injection tool: push the 288 pre-mapped line

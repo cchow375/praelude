@@ -1,24 +1,40 @@
-//! Bounded on-disk cache of fitted first-page score bitmaps.
+//! Bounded on-disk cache of screen-resolution score page bitmaps.
 //!
-//! Purely an accelerator for piece switching: a compressed snapshot of a
-//! piece/edition's fitted first page, painted instantly on switch while the real
-//! PDF re-parses and re-decodes. It is never authoritative, never touches the
-//! vault, and never touches the database. It lives under the OS app-cache dir and
-//! is bounded to `MAX_ENTRIES` by least-recently-used eviction.
+//! Two things live here, keyed the same way:
 //!
-//! Key components (edition fingerprint, fit bucket) arrive from the frontend but
-//! are *never* used to build a filesystem path — on-disk file names are pure
-//! integers allocated from a persisted counter, so a malicious key cannot escape
-//! the cache directory. Components only ever appear inside the JSON index value.
+//! * the fitted **first page** of a piece/edition, painted instantly on a piece
+//!   switch while the real PDF parses; and
+//! * every **page image** produced by [`super::page_image`], which is what keeps
+//!   a 38 MP scan from ever being decoded twice.
+//!
+//! It is never authoritative, never touches the vault, and never touches the
+//! database. It lives under the OS app-cache dir and is bounded by BOTH an entry
+//! count and a total-byte budget, evicting least-recently-used entries.
+//!
+//! Key components (edition fingerprint, bucket) arrive from the frontend but are
+//! *never* used to build a filesystem path — on-disk file names are pure integers
+//! allocated from a persisted counter, so a malicious key cannot escape the cache
+//! directory. Components only ever appear inside the JSON index value.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-const CACHE_SUBDIR: &str = "score-first-page";
+const CACHE_SUBDIR: &str = "score-pages";
+/// The pre-v5 first-page-only directory. Removed once, on first use of the new
+/// one, so upgrading does not strand a few MB of orphaned snapshots forever.
+const LEGACY_CACHE_SUBDIR: &str = "score-first-page";
 const INDEX_FILE: &str = "index.json";
-/// Bound on total cached snapshots across every piece/edition/bucket.
-const MAX_ENTRIES: usize = 24;
+/// Bound on total cached snapshots across every piece/edition/page/bucket.
+///
+/// Now that whole scores are cached page by page, 24 could not even hold one
+/// 15-page edition at one zoom bucket. 320 covers Christian's whole library at
+/// the fit bucket with room for a second bucket on the pieces he zooms into.
+const MAX_ENTRIES: usize = 320;
+/// Bound on the bytes this cache occupies. A screen-resolution page is
+/// 150–500 KB, so this is roughly 150 pages before the byte budget bites — it is
+/// the backstop that keeps a library of colour scans from filling the disk.
+const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
 /// A fitted, compressed page is well under this; anything larger is rejected so a
 /// caller cannot fill the disk through this path.
 const MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -109,7 +125,13 @@ pub fn save(root: &Path, key: &str, bytes: &[u8]) -> Result<(), String> {
     }
 
     let dir = cache_dir(root);
+    let fresh = !dir.exists();
     std::fs::create_dir_all(&dir).map_err(|e| format!("create page cache dir: {e}"))?;
+    if fresh {
+        // Best-effort: the path is derived entirely from the app cache root, and
+        // failing to clear it must never fail a save.
+        let _ = std::fs::remove_dir_all(root.join(LEGACY_CACHE_SUBDIR));
+    }
 
     let mut index = read_index(&dir);
     index.clock += 1;
@@ -167,10 +189,19 @@ pub fn load(root: &Path, key: &str) -> Result<Vec<u8>, String> {
     }
 }
 
-/// Evict least-recently-used entries (and delete their files) until at most
-/// `MAX_ENTRIES` remain. Archived/removed pieces age out here lazily.
+/// Evict least-recently-used entries (and delete their files) until both the
+/// entry count and the total-byte budget are satisfied. Archived/removed pieces
+/// age out here lazily.
+///
+/// The byte budget always keeps at least one entry: a single oversized page must
+/// still be cacheable, or a big score would thrash forever.
 fn evict(dir: &Path, index: &mut Index) {
-    while index.entries.len() > MAX_ENTRIES {
+    let over_budget = |index: &Index| {
+        index.entries.len() > MAX_ENTRIES
+            || (index.entries.len() > 1
+                && index.entries.iter().map(|entry| entry.size).sum::<u64>() > MAX_TOTAL_BYTES)
+    };
+    while over_budget(index) {
         let Some(victim) = index
             .entries
             .iter()
@@ -264,6 +295,76 @@ mod tests {
             })
             .count();
         assert_eq!(files, MAX_ENTRIES);
+    }
+
+    #[test]
+    fn a_whole_multi_page_score_fits_without_evicting_itself() {
+        // The regression this bound exists for: at MAX_ENTRIES = 24 a single
+        // 15-page edition at two zoom buckets evicted its own first pages.
+        let dir = root();
+        for page in 1..=15i64 {
+            for bucket in ["img-1536", "img-2048"] {
+                let key = cache_key(1, "fp", page, bucket);
+                save(dir.path(), &key, format!("page-{page}-{bucket}").as_bytes()).unwrap();
+            }
+        }
+        assert_eq!(
+            load(dir.path(), &cache_key(1, "fp", 1, "img-1536")).unwrap(),
+            b"page-1-img-1536"
+        );
+        assert_eq!(read_index(&cache_dir(dir.path())).entries.len(), 30);
+    }
+
+    #[test]
+    fn the_byte_budget_evicts_before_the_entry_count_does() {
+        let dir = root();
+        // Each entry is 1 MB, so 65 of them exceed the 64 MB budget long before
+        // MAX_ENTRIES.
+        let payload = vec![7u8; 1024 * 1024];
+        for index in 0..70i64 {
+            save(dir.path(), &cache_key(index, "fp", 1, "b"), &payload).unwrap();
+        }
+        let index = read_index(&cache_dir(dir.path()));
+        assert!(index.entries.len() < 70, "byte budget never bit");
+        let total: u64 = index.entries.iter().map(|entry| entry.size).sum();
+        assert!(total <= MAX_TOTAL_BYTES, "{total} bytes cached");
+        // The most recent write survived; the oldest did not.
+        assert!(!load(dir.path(), &cache_key(69, "fp", 1, "b"))
+            .unwrap()
+            .is_empty());
+        assert!(load(dir.path(), &cache_key(0, "fp", 1, "b"))
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn a_single_oversized_entry_is_still_cacheable() {
+        let dir = root();
+        // One entry larger than the whole budget would thrash forever if the
+        // byte check could evict down to zero.
+        let payload = vec![3u8; MAX_BYTES];
+        save(dir.path(), &cache_key(1, "fp", 1, "b"), &payload).unwrap();
+        assert_eq!(
+            load(dir.path(), &cache_key(1, "fp", 1, "b")).unwrap().len(),
+            MAX_BYTES
+        );
+    }
+
+    #[test]
+    fn the_pre_v5_first_page_directory_is_cleared_once() {
+        let dir = root();
+        let legacy = dir.path().join(LEGACY_CACHE_SUBDIR);
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("e1.img"), b"stale").unwrap();
+
+        save(dir.path(), &cache_key(1, "fp", 1, "b"), b"fresh").unwrap();
+        assert!(!legacy.exists(), "legacy first-page cache was left behind");
+
+        // A later save must not keep trying to remove a directory the user may
+        // have recreated for some other reason.
+        std::fs::create_dir_all(&legacy).unwrap();
+        save(dir.path(), &cache_key(2, "fp", 1, "b"), b"fresh").unwrap();
+        assert!(legacy.exists());
     }
 
     #[test]

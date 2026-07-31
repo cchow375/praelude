@@ -11,8 +11,25 @@ import { QUOTES, type Quote } from "../../content/quotes";
  * chosen entry is swapped into the cursor slot, so the permutation — and the
  * once-per-lap guarantee — survives untouched.
  *
- * With no signals at all every candidate scores 0, the earliest window entry
- * wins, and the behaviour collapses exactly onto the old shuffle.
+ * THE CONNECTOR IS A CLAIM. The line above the quote asserts why this quote is
+ * on this screen right now, so a cue may only exist when (a) the fact behind it
+ * is one the app actually read, and (b) the corpus carries a tag whose members
+ * genuinely answer it. Cues that failed (b) were deleted rather than kept with a
+ * vague theme: "while a set is open" and "now that today's page is written"
+ * named a fact but justified nothing, and `discipline` (51 of 134 quotes) could
+ * "answer" more than half the corpus, which is another way of answering
+ * nothing. The surviving cues point at narrow, hand-audited tags — see
+ * CUE_THEMES below and the tag census in quoteRotation.test.ts.
+ *
+ * WHAT THE NO-SIGNAL PATH ACTUALLY DOES (it is NOT the old shuffle, and the
+ * earlier claim that it was could not be tested because the test compared the
+ * wrapper with itself): with zero cues every candidate scores 0, ties keep the
+ * earliest entry, and the pick is the head of the remaining order — the legacy
+ * algorithm — EXCEPT that the previously shown quote is skipped. That can only
+ * bite at a lap boundary, where the legacy code would show the same quote twice
+ * in a row and this one steps past it. quoteRotation.test.ts runs the legacy
+ * algorithm verbatim as a reference implementation and pins both halves: the
+ * sequences agree everywhere else, and the one divergence is exhibited.
  *
  * Everything here is pure except for the small `QuoteStore` reads/writes;
  * gathering the signals lives in `quoteSignals.ts`.
@@ -64,10 +81,10 @@ export interface QuoteSignals {
   readonly hour: number | null;
   /** Does today's day sheet have any content yet? */
   readonly daySheetWritten: boolean | null;
+  /** Does today's page carry a filled-in lesson-prep line? */
+  readonly lessonPrep: boolean | null;
   /** Did yesterday's day sheet have any content? */
   readonly yesterdaySheetWritten: boolean | null;
-  /** Is a practice set open right now? */
-  readonly setOpen: boolean | null;
   /** Effective verdicts of the open set's attempts, newest first. */
   readonly recentVerdicts: readonly RepVerdict[];
 }
@@ -77,20 +94,43 @@ export const NO_SIGNALS: QuoteSignals = Object.freeze({
   date: null,
   hour: null,
   daySheetWritten: null,
+  lessonPrep: null,
   yesterdaySheetWritten: null,
-  setOpen: null,
   recentVerdicts: Object.freeze([]) as readonly RepVerdict[],
 });
 
 export type QuoteCueId =
   | "rough-run"
   | "clean-run"
-  | "set-open"
+  | "lesson-prep"
   | "blank-page"
-  | "written-page"
   | "blank-yesterday"
   | "late-hour"
   | "early-hour";
+
+/**
+ * cue → the corpus tags whose members genuinely answer it. Each list is
+ * hand-audited against quotes.json; `quoteRotation.test.ts` re-checks that every
+ * tag here still exists in the shipped corpus and is narrow enough to mean
+ * something (a cue that can "answer" a third of the corpus is not a reason).
+ */
+export const CUE_THEMES: Readonly<Record<QuoteCueId, readonly string[]>> =
+  Object.freeze({
+    // The reps just went badly: what repetition does to you, and slowing down.
+    "rough-run": ["repetition-quality", "slow-work"],
+    // It is going right: what to do next instead of grinding the same rep.
+    "clean-run": ["next-step"],
+    // A lesson is on today's page: playing it for someone else.
+    "lesson-prep": ["performance"],
+    // Nothing written yet: deciding what this session is for.
+    "blank-page": ["session-plan"],
+    // A skipped day: showing up at all.
+    "blank-yesterday": ["consistency"],
+    // Late: fatigue, breaks, sleep — not "discipline" in general.
+    "late-hour": ["rest"],
+    // First thing: same decision as a blank page.
+    "early-hour": ["session-plan"],
+  });
 
 /** One inferred reason to steer the pick, and the honest line that admits it. */
 export interface QuoteCue {
@@ -117,81 +157,48 @@ function numberWord(n: number): string {
  */
 export function deriveCues(signals: QuoteSignals): QuoteCue[] {
   const cues: QuoteCue[] = [];
+  const cue = (id: QuoteCueId, weight: number, connector: string): void => {
+    cues.push({ id, themes: CUE_THEMES[id], weight, connector });
+  };
 
   const recent = signals.recentVerdicts.slice(0, RUN_WINDOW);
   if (recent.length >= 2) {
     const rough = recent.filter((v) => v !== "clean").length;
     if (rough >= 2) {
-      cues.push({
-        id: "rough-run",
-        themes: ["repetition-quality", "slow-work"],
-        weight: 3,
-        connector: `on your last ${numberWord(recent.length)} reps`,
-      });
+      cue("rough-run", 3, `on your last ${numberWord(recent.length)} reps`);
     } else if (rough === 0 && recent.length === RUN_WINDOW) {
-      cues.push({
-        id: "clean-run",
-        themes: ["listening", "memory"],
-        weight: 1.5,
-        connector: `after ${numberWord(recent.length)} clean reps`,
-      });
+      cue("clean-run", 1.5, `after ${numberWord(recent.length)} clean reps`);
     }
   }
 
-  if (signals.setOpen === true) {
-    cues.push({
-      id: "set-open",
-      themes: ["focus", "repetition-quality"],
-      weight: 2,
-      connector: "while a set is open",
-    });
+  // A lesson on the page outranks the day's shape: it is the nearest deadline
+  // and the only cue whose quotes are about playing for someone else.
+  if (signals.lessonPrep === true) {
+    cue("lesson-prep", 2.5, "with lesson prep on today's page");
   }
 
-  if (signals.daySheetWritten === false) {
-    // Deliberately just "planning": "practice-structure" is the corpus's
-    // broadest tag and would let almost anything answer a blank page.
-    cues.push({
-      id: "blank-page",
-      themes: ["planning"],
-      weight: 2,
-      connector: "before you write today's page",
-    });
-  } else if (signals.daySheetWritten === true) {
-    // The plan exists, so the remaining variable is attention.
-    cues.push({
-      id: "written-page",
-      themes: ["focus"],
-      weight: 1,
-      connector: "now that today's page is written",
-    });
-  }
-
+  // A skipped day beats an unwritten one: "you did not show up yesterday" is a
+  // sharper thing to answer than "you have not written the page yet".
   if (signals.yesterdaySheetWritten === false) {
-    cues.push({
-      id: "blank-yesterday",
-      themes: ["consistency"],
-      weight: 1.5,
-      connector: "with yesterday's page blank",
-    });
+    cue("blank-yesterday", 2.25, "with yesterday's page blank");
+  }
+
+  // Nothing here for a WRITTEN page. The plan existing is not a reason for any
+  // particular quote, and the honest line above one would be no line at all.
+  if (signals.daySheetWritten === false) {
+    cue("blank-page", 2, "before you write today's page");
   }
 
   if (signals.hour != null && signals.hour >= 21) {
-    cues.push({
-      id: "late-hour",
-      themes: ["discipline", "focus"],
-      weight: 1,
-      connector: "this late in the day",
-    });
+    cue("late-hour", 1.25, "this late in the day");
   } else if (signals.hour != null && signals.hour < 9) {
-    cues.push({
-      id: "early-hour",
-      themes: ["planning", "slow-work"],
-      weight: 1,
-      connector: "first thing",
-    });
+    cue("early-hour", 1, "first thing");
   }
 
-  return cues;
+  // Strongest first, so the connector names the real driver. Sort rather than
+  // rely on push order: the verdict cues are derived first but are not always
+  // the heaviest (a clean run is a whisper next to a lesson tomorrow).
+  return cues.sort((a, b) => b.weight - a.weight);
 }
 
 /**
@@ -241,10 +248,31 @@ export function scoreQuote(
 }
 
 /**
+ * THE render-time derivation of the connector: given the quote on screen and
+ * what the app knows AT THIS MOMENT, the reason to print above it — or null.
+ *
+ * Nothing anywhere stores a cue. A connector is recomputed from live signals
+ * every time it is displayed, because a line that explains the quote with a
+ * reason that has since stopped being true is worse than no line: it is the app
+ * asserting something false. Callers that hold a quote across a context change
+ * (the strip holds one for at least `MIN_DWELL_MS`) MUST call this rather than
+ * reuse the cue the pick was made under.
+ */
+export function connectorFor(
+  quote: Quote | null | undefined,
+  signals: QuoteSignals,
+): QuoteCue | null {
+  if (quote == null) return null;
+  const { score, cue } = scoreQuote(quote, deriveCues(signals));
+  return score > 0 ? cue : null;
+}
+
+/**
  * Choose within the next `window` entries of the remaining order and return the
  * winner's offset from the cursor. Ties keep the earlier entry, so a zero-cue
- * run reproduces the plain shuffle exactly. `lastId` is skipped so the same
- * quote never lands twice in a row across a lap boundary.
+ * run takes the head of the order exactly as the legacy shuffle did. `lastId` is
+ * skipped so the same quote never lands twice in a row across a lap boundary —
+ * the one place this deliberately departs from the legacy sequence.
  */
 export function chooseFromWindow(
   quotes: readonly Quote[],
@@ -466,16 +494,24 @@ export function resolveHomeQuote(
     if (held != null && fresh && (sameContext || age < MIN_DWELL_MS)) {
       // Re-derive the connector from the CURRENT cues so the line can never
       // outlive the fact it describes.
-      const { score, cue } = scoreQuote(held, cues);
-      return { quote: held, cue: score > 0 ? cue : null };
+      return { quote: held, cue: connectorFor(held, signals) };
     }
   }
   return pickContextQuote(store, signals, now, quotes, randomSeed);
 }
 
 /**
- * Advance the rotation with no context at all. Retained as the explicit
- * degraded path (and as the thing the context-aware selector must reduce to).
+ * Advance the rotation with no context at all — the degraded path, taken
+ * whenever every signal read failed. No production caller passes through here
+ * today (`resolveHomeQuote` reaches the same behaviour with `NO_SIGNALS`); it is
+ * kept as the named, separately-testable no-evidence entry point.
+ *
+ * It is NOT the legacy shuffle, and it does not claim to be: it takes the head
+ * of the remaining order exactly as the legacy code did, except that it steps
+ * past the previously shown quote at a lap boundary rather than repeating it,
+ * and it records the pick so `resolveHomeQuote` can hold it. See the reference
+ * -implementation tests in quoteRotation.test.ts, which pin both the agreement
+ * and the single divergence against a verbatim copy of the old algorithm.
  */
 export function pickQuoteOnOpen(
   store: QuoteStore,

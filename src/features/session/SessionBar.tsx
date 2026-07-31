@@ -79,7 +79,9 @@ export function SessionBar({
           type="button"
           className="session-bar-toggle"
           aria-expanded={expanded}
-          aria-label={expanded ? "Collapse session timeline" : "Expand session timeline"}
+          aria-label={
+            expanded ? "Collapse session timeline" : "Expand session timeline"
+          }
           onClick={() => setExpanded((v) => !v)}
         >
           <span className="session-dot" aria-hidden="true" />
@@ -91,19 +93,26 @@ export function SessionBar({
             {expanded ? "▾" : "▸"}
           </span>
         </button>
-        <span className="session-end-control">
-          <button
-            type="button"
-            className="session-end"
-            onClick={onEnd}
-            disabled={ending || Boolean(blockedReason)}
-            title={blockedReason ?? undefined}
-          >
-            {ending ? "Ending…" : "End session"}
-          </button>
-          {blockedReason && <small role="status">{blockedReason}</small>}
-        </span>
+        <button
+          type="button"
+          className="session-end"
+          onClick={onEnd}
+          disabled={ending || Boolean(blockedReason)}
+          title={blockedReason ?? undefined}
+        >
+          {ending ? "Ending…" : "End session"}
+        </button>
       </div>
+
+      {/* The helper sentence is a SIBLING of the control row, not a child of a
+          width-capped column beside the button. It used to be squeezed into a
+          12rem flex column, where it ran underneath the End-session button and
+          off the panel edge; on its own full-width line it wraps instead. */}
+      {blockedReason && (
+        <p className="session-blocked" role="status">
+          {blockedReason}
+        </p>
+      )}
 
       {expanded && (
         <ul className="session-timeline" aria-label="Session timeline">

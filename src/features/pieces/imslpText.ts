@@ -39,6 +39,43 @@ export interface FileInfo {
 }
 
 /**
+ * The exact error `imslp_search` returns when a NEWER search replaced it while
+ * it was still queued behind IMSLP's rate guard. It is a control signal, not a
+ * failure — the newer search already owns the panel — so the UI must swallow it
+ * rather than show "IMSLP search failed".
+ *
+ * Byte-identical to `SEARCH_SUPERSEDED` in `src-tauri/src/imslp.rs`; both sides
+ * assert the literal so the two cannot drift apart silently.
+ */
+export const SEARCH_SUPERSEDED = "IMSLP search superseded by a newer query.";
+
+/** Whether a search rejection is the superseded signal rather than a real failure. */
+export function isSupersededError(message: string): boolean {
+  return message.includes(SEARCH_SUPERSEDED);
+}
+
+/**
+ * Collapse a hit list onto unique titles, first occurrence (best-ranked) winning.
+ *
+ * A hit's identity IS its title: IMSLP's `list=search` sends no `pageid`, so
+ * `page_id` is always 0. The picker keys its React list on the title AND marks
+ * the selected row by comparing titles, so two rows sharing one would mean a
+ * duplicate React key *and* a single click pressing both rows. The Rust client
+ * already enforces this (`usable_hits`); doing it again at the point of use
+ * makes the component's own invariant hold whatever reaches it.
+ */
+export function dedupeHits(hits: WorkHit[]): WorkHit[] {
+  const seen = new Set<string>();
+  const unique: WorkHit[] = [];
+  for (const hit of hits) {
+    if (seen.has(hit.title)) continue;
+    seen.add(hit.title);
+    unique.push(hit);
+  }
+  return unique;
+}
+
+/**
  * Render an IMSLP search snippet as PLAIN TEXT. IMSLP returns HTML with
  * `<span class="searchmatch">` highlight markup; we STRIP every tag and decode
  * a few named entities so it can be placed as a text node.

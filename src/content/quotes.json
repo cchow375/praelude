@@ -8,7 +8,9 @@
     "heading": "Section 1: Fundamentals of piano playing > Practising: healthy, effective and inspired",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "session-plan",
+      "rest"
     ]
   },
   {
@@ -56,7 +58,8 @@
     "heading": "Practising: healthy, effective and inspired > Good mental preparation",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -68,7 +71,8 @@
     "heading": "Practising: healthy, effective and inspired > Good mental preparation",
     "themes": [
       "focus",
-      "discipline"
+      "discipline",
+      "rest"
     ]
   },
   {
@@ -80,7 +84,8 @@
     "heading": "Practising: healthy, effective and inspired > Good mental preparation",
     "themes": [
       "focus",
-      "discipline"
+      "discipline",
+      "rest"
     ]
   },
   {
@@ -92,7 +97,8 @@
     "heading": "Practising: healthy, effective and inspired > Good mental preparation",
     "themes": [
       "planning",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -104,7 +110,8 @@
     "heading": "Practising: healthy, effective and inspired > Effective practice",
     "themes": [
       "repetition-quality",
-      "discipline"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -115,8 +122,8 @@
     "book": "The Complete Pianist",
     "heading": "Practising: healthy, effective and inspired > Effective practice",
     "themes": [
-      "repetition-quality",
-      "discipline"
+      "discipline",
+      "next-step"
     ]
   },
   {
@@ -151,7 +158,8 @@
     "heading": "Practising: healthy, effective and inspired > Effective practice",
     "themes": [
       "planning",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -175,7 +183,7 @@
     "heading": "Practising: healthy, effective and inspired > Inspired practice",
     "themes": [
       "planning",
-      "slow-work"
+      "session-plan"
     ]
   },
   {
@@ -210,7 +218,8 @@
     "heading": "Practising scales and arpeggios > Preparing scale practice",
     "themes": [
       "planning",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -222,7 +231,8 @@
     "heading": "Practising scales and arpeggios > Conclusion",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -234,7 +244,8 @@
     "heading": "Practising scales and arpeggios > Preparing scale practice",
     "themes": [
       "planning",
-      "focus"
+      "focus",
+      "session-plan"
     ]
   },
   {
@@ -246,7 +257,8 @@
     "heading": "Practising scales and arpeggios > Preparing scale practice",
     "themes": [
       "planning",
-      "consistency"
+      "consistency",
+      "session-plan"
     ]
   },
   {
@@ -270,7 +282,8 @@
     "heading": "Practising scales and arpeggios > Increasing the tempo",
     "themes": [
       "slow-work",
-      "practice-structure"
+      "practice-structure",
+      "next-step"
     ]
   },
   {
@@ -294,7 +307,8 @@
     "heading": "Playing at speed > Virtuosity and playfulness > Mental preparation",
     "themes": [
       "planning",
-      "memory"
+      "memory",
+      "session-plan"
     ]
   },
   {
@@ -306,7 +320,8 @@
     "heading": "Playing at speed > Virtuosity and playfulness > When you just can't play any faster",
     "themes": [
       "discipline",
-      "planning"
+      "planning",
+      "session-plan"
     ]
   },
   {
@@ -330,7 +345,8 @@
     "heading": "Playing at speed > Trills and turns > Summary",
     "themes": [
       "discipline",
-      "practice-structure"
+      "practice-structure",
+      "performance"
     ]
   },
   {
@@ -401,7 +417,8 @@
     "book": "The Complete Pianist",
     "heading": "Section 11: Advanced chords > Practising advanced chords safely",
     "themes": [
-      "planning"
+      "planning",
+      "session-plan"
     ]
   },
   {
@@ -413,7 +430,8 @@
     "heading": "Section 11: Advanced chords > Practising advanced chords safely",
     "themes": [
       "slow-work",
-      "practice-structure"
+      "practice-structure",
+      "next-step"
     ]
   },
   {
@@ -425,7 +443,8 @@
     "heading": "Section 13: Lateral movements > Leaps and lateral movements > Accuracy last!",
     "themes": [
       "discipline",
-      "planning"
+      "planning",
+      "performance"
     ]
   },
   {
@@ -495,7 +514,8 @@
     "heading": "Section 20: Learning, memorizing and sight-reading > Preparing a piece > Solving one problem at a time, in the right order",
     "themes": [
       "focus",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -508,7 +528,8 @@
     "themes": [
       "practice-structure",
       "planning",
-      "discipline"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -532,7 +553,8 @@
     "heading": "Section 17: Rhythm > Rhythm and pulse > Working on rhythm away from the keyboard",
     "themes": [
       "planning",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -543,8 +565,7 @@
     "book": "The Complete Pianist",
     "heading": "Section 20: Learning, memorizing and sight-reading > Preparing a piece > Preparing the technique > Fingering",
     "themes": [
-      "discipline",
-      "consistency"
+      "discipline"
     ]
   },
   {
@@ -603,7 +624,8 @@
     "book": "The Complete Pianist",
     "heading": "Section 22: The inspired pianist > The power of listening",
     "themes": [
-      "listening"
+      "listening",
+      "performance"
     ]
   },
   {
@@ -614,7 +636,8 @@
     "book": "The Complete Pianist",
     "heading": "Section 22: The inspired pianist > The power of listening > Listening to the sounds produced > The ear as guide and teacher",
     "themes": [
-      "listening"
+      "listening",
+      "performance"
     ]
   },
   {
@@ -627,7 +650,8 @@
     "themes": [
       "listening",
       "discipline",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -688,7 +712,8 @@
     "heading": "Section I: Brain Basics > Good Practicing and How It Changes the Brain > Good practice habits",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -722,7 +747,6 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Section II: Using Your Time Well > Be More Consistent in Performance > Interleaved versus blocked practice",
     "themes": [
-      "consistency",
       "practice-structure"
     ]
   },
@@ -734,7 +758,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Section II: Using Your Time Well > The Fastest Way to Learn Music: Take More Breaks > The power of breaks",
     "themes": [
-      "practice-structure"
+      "practice-structure",
+      "rest"
     ]
   },
   {
@@ -746,7 +771,8 @@
     "heading": "Section II: Using Your Time Well > Can You Learn Music in Your Sleep? > Sleep deprivation",
     "themes": [
       "discipline",
-      "practice-structure"
+      "practice-structure",
+      "rest"
     ]
   },
   {
@@ -758,7 +784,8 @@
     "heading": "Section II: Using Your Time Well > What's the Perfect Schedule of Breaks? > The forgetting curve",
     "themes": [
       "practice-structure",
-      "memory"
+      "memory",
+      "next-step"
     ]
   },
   {
@@ -770,7 +797,8 @@
     "heading": "Section II: Using Your Time Well > What's the Perfect Schedule of Breaks? > The forgetting curve",
     "themes": [
       "planning",
-      "memory"
+      "memory",
+      "session-plan"
     ]
   },
   {
@@ -782,7 +810,8 @@
     "heading": "Section II: Using Your Time Well > Why Exact Repetitions May Not Be the Best Goal > Skill level matters",
     "themes": [
       "practice-structure",
-      "focus"
+      "focus",
+      "session-plan"
     ]
   },
   {
@@ -817,7 +846,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Section III: The Power of the Mind > How to Focus to Play Your Best > External focus in musicians",
     "themes": [
-      "focus"
+      "focus",
+      "performance"
     ]
   },
   {
@@ -841,7 +871,8 @@
     "heading": "Section I: Brain Basics > Practice Like a Pro > The role of mistakes",
     "themes": [
       "planning",
-      "discipline"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -864,7 +895,8 @@
     "heading": "Section I: Brain Basics > Practice Like a Pro > Can effective practice skills be learned?",
     "themes": [
       "listening",
-      "discipline"
+      "discipline",
+      "performance"
     ]
   },
   {
@@ -887,7 +919,7 @@
     "heading": "Ch. 13: Boost Confidence in Memorized Performance > Retrieval",
     "themes": [
       "memory",
-      "repetition-quality"
+      "next-step"
     ]
   },
   {
@@ -899,7 +931,9 @@
     "heading": "Ch. 13: Boost Confidence in Memorized Performance > Retrieval",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "next-step",
+      "performance"
     ]
   },
   {
@@ -910,7 +944,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Ch. 13: Boost Confidence in Memorized Performance > Retrieval",
     "themes": [
-      "memory"
+      "memory",
+      "next-step"
     ]
   },
   {
@@ -933,7 +968,8 @@
     "heading": "Ch. 13: Boost Confidence in Memorized Performance > Choking",
     "themes": [
       "discipline",
-      "focus"
+      "focus",
+      "performance"
     ]
   },
   {
@@ -944,7 +980,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Ch. 13: Boost Confidence in Memorized Performance > Choking",
     "themes": [
-      "focus"
+      "focus",
+      "performance"
     ]
   },
   {
@@ -966,7 +1003,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Ch. 16: How to Play Faster",
     "themes": [
-      "slow-work"
+      "slow-work",
+      "next-step"
     ]
   },
   {
@@ -978,7 +1016,8 @@
     "heading": "Ch. 16: How to Play Faster > Basic methods > Metronome clicking up",
     "themes": [
       "slow-work",
-      "repetition-quality"
+      "repetition-quality",
+      "next-step"
     ]
   },
   {
@@ -1000,7 +1039,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Conclusion: Bringing It All Together > The power of a practice journal",
     "themes": [
-      "planning"
+      "planning",
+      "session-plan"
     ]
   },
   {
@@ -1012,7 +1052,8 @@
     "heading": "Conclusion: Bringing It All Together > Scheduling",
     "themes": [
       "focus",
-      "practice-structure"
+      "practice-structure",
+      "rest"
     ]
   },
   {
@@ -1023,7 +1064,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Conclusion: Bringing It All Together > Motivation",
     "themes": [
-      "discipline"
+      "discipline",
+      "consistency"
     ]
   },
   {
@@ -1035,7 +1077,9 @@
     "heading": "Conclusion: Bringing It All Together > Motivation",
     "themes": [
       "discipline",
-      "planning"
+      "planning",
+      "session-plan",
+      "consistency"
     ]
   },
   {
@@ -1069,7 +1113,9 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Conclusion: Bringing It All Together > Motivation > Use the Red-Yellow-Green method to combat overwhelm",
     "themes": [
-      "planning"
+      "planning",
+      "session-plan",
+      "consistency"
     ]
   },
   {
@@ -1080,7 +1126,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Conclusion: Bringing It All Together > Motivation",
     "themes": [
-      "discipline"
+      "discipline",
+      "consistency"
     ]
   },
   {
@@ -1091,7 +1138,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Conclusion: Bringing It All Together > Motivation",
     "themes": [
-      "discipline"
+      "discipline",
+      "consistency"
     ]
   },
   {
@@ -1126,7 +1174,8 @@
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Foreword (Walter Gieseking)",
     "themes": [
       "focus",
-      "practice-structure"
+      "practice-structure",
+      "rest"
     ]
   },
   {
@@ -1172,7 +1221,8 @@
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter II: The Student Begins Work > (B) Bach's Two-Part Invention in C Major",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -1184,7 +1234,8 @@
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter IV: Making Study Count",
     "themes": [
       "listening",
-      "practice-structure"
+      "practice-structure",
+      "next-step"
     ]
   },
   {
@@ -1208,7 +1259,8 @@
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter IV: Making Study Count",
     "themes": [
       "focus",
-      "practice-structure"
+      "practice-structure",
+      "rest"
     ]
   },
   {
@@ -1219,7 +1271,8 @@
     "book": "Piano Technique",
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter IV: Making Study Count",
     "themes": [
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -1231,7 +1284,8 @@
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter IV: Making Study Count",
     "themes": [
       "practice-structure",
-      "focus"
+      "focus",
+      "rest"
     ]
   },
   {
@@ -1242,8 +1296,7 @@
     "book": "Piano Technique",
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter V: Special Technical Problems > (A) Etudes",
     "themes": [
-      "practice-structure",
-      "repetition-quality"
+      "practice-structure"
     ]
   },
   {
@@ -1255,7 +1308,8 @@
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter V: Special Technical Problems > (B) Playing of Scales",
     "themes": [
       "practice-structure",
-      "repetition-quality"
+      "repetition-quality",
+      "session-plan"
     ]
   },
   {
@@ -1267,7 +1321,8 @@
     "heading": "Book 2: Rhythmics, Dynamics, Pedal and Other Problems of Piano Playing > V. Variety of Touch > The Free Fall",
     "themes": [
       "discipline",
-      "practice-structure"
+      "practice-structure",
+      "rest"
     ]
   },
   {
@@ -1280,7 +1335,8 @@
     "themes": [
       "focus",
       "practice-structure",
-      "planning"
+      "planning",
+      "session-plan"
     ]
   },
   {
@@ -1376,7 +1432,8 @@
     "heading": "The Piano Student's Guide to Effective Practicing > The Pact > Tunnel vision",
     "themes": [
       "focus",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -1387,7 +1444,8 @@
     "book": "The Piano Student's Guide to Effective Practicing",
     "heading": "The Piano Student's Guide to Effective Practicing > Tools > Pencil or highlighter",
     "themes": [
-      "planning"
+      "planning",
+      "session-plan"
     ]
   },
   {
@@ -1398,7 +1456,6 @@
     "book": "The Piano Student's Guide to Effective Practicing",
     "heading": "The Piano Student's Guide to Effective Practicing > Tools > Metronome",
     "themes": [
-      "consistency",
       "discipline"
     ]
   },
@@ -1422,7 +1479,8 @@
     "heading": "The Piano Student's Guide to Effective Practicing > X-Raying a New Piece",
     "themes": [
       "planning",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -1458,7 +1516,8 @@
     "heading": "Practice Tips > Backpedal",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "next-step"
     ]
   },
   {
@@ -1494,7 +1553,8 @@
     "heading": "Practice Tips > Spot Check",
     "themes": [
       "memory",
-      "focus"
+      "focus",
+      "next-step"
     ]
   },
   {
@@ -1517,7 +1577,8 @@
     "heading": "Practice Tips > When All Else Fails",
     "themes": [
       "discipline",
-      "practice-structure"
+      "practice-structure",
+      "performance"
     ]
   },
   {
@@ -1530,7 +1591,8 @@
     "themes": [
       "slow-work",
       "repetition-quality",
-      "planning"
+      "planning",
+      "next-step"
     ]
   },
   {
@@ -1553,8 +1615,7 @@
     "book": "The Piano Student's Guide to Effective Practicing",
     "heading": "Practice Tips > Mental Metronome",
     "themes": [
-      "focus",
-      "slow-work"
+      "focus"
     ]
   },
   {

@@ -91,8 +91,9 @@ describe("TodayPracticePanel — day-sheet-first window (spec C5)", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "Today's Practice",
     });
-    // The shell-owned HUD renders INSIDE the window, above the sheet, so a live
-    // set is never hidden behind the overlay.
+    // The shell-owned HUD renders INSIDE the window — docked along its foot, so
+    // a live set is never hidden behind the overlay and never pushes the day
+    // sheet off the top of the surface.
     expect(within(dialog).getByTestId("today-practice-hud")).toBeTruthy();
     expect(within(dialog).getByTestId("active-hud")).toBeTruthy();
   });

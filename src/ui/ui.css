@@ -28,6 +28,15 @@
   opacity: 0.45;
   cursor: default;
 }
+/* D7: every interactive element needs a visible ring. --focus-ring is 8.6:1
+   ink blue on paper; the kit previously shipped no focus state at all, so
+   keyboard focus was invisible on every button in the app. */
+.ck-btn:focus-visible,
+.ck-disclosure-summary:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--r-sm);
+}
 
 /* Primary = the ink stamp: solid ink fill, paper text (the only filled
    button). 16.8:1. */

@@ -90,6 +90,10 @@ const GOAL_UPDATE = defineCommand<
 
 const DEFAULT_BLOCK_MINUTES = 25;
 
+/** Empty writing rules drawn under the first line of a blank page, so the sheet
+ *  reads as paper waiting to be written on rather than as one lonely field. */
+const BLANK_RULES = ["r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"];
+
 /** The focused item's text shortcuts — chips that INSERT editable text (spec C1). */
 const ITEM_CHIPS: { label: string; snippet: string; hint: string }[] = [
   { label: "mm.", snippet: "mm. ", hint: "Add a section / measures" },
@@ -153,7 +157,12 @@ export function DaySheetView({
   const [goalCache, setGoalCache] = useState<Map<number, Goal>>(new Map());
   const [yesterday, setYesterday] = useState<NotebookLine[] | null>(null);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
+  // Hover only reveals a line's chips when nothing is focused, so at most ONE
+  // chip group is ever mounted: the caret's line owns them whenever there is a
+  // caret, and a resting page still lets the pointer discover them.
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [collapsedNotes, setCollapsedNotes] = useState<Set<number>>(new Set());
+  const blankRef = useRef<HTMLInputElement>(null);
   const [picker, setPicker] = useState<{
     mode: "insert" | "convert" | "bring";
     index: number;
@@ -352,14 +361,22 @@ export function DaySheetView({
   const insertChip = useCallback(
     (index: number, snippet: string) => {
       const el = textRefs.current.get(index);
-      const offset = el ? (el.selectionStart ?? el.value.length) : Infinity;
+      // With a caret on this line the chip lands AT the caret; when the chips
+      // were merely revealed by hover there is no caret to respect, so the
+      // snippet goes to the end of the line rather than silently to offset 0.
+      const offset =
+        el == null
+          ? Infinity
+          : focusedIndex === index
+            ? (el.selectionStart ?? el.value.length)
+            : el.value.length;
       const { line, caret } = insertIntoText(body[index], offset, snippet);
       const next = body.slice();
       next[index] = line;
       pendingFocus.current = { index, offset: caret };
       setBody(next);
     },
-    [body, setBody],
+    [body, focusedIndex, setBody],
   );
 
   const addBlock = useCallback(
@@ -453,12 +470,27 @@ export function DaySheetView({
 
   // --- Rows ----------------------------------------------------------------
 
+  /** A line's chips are marginalia: they belong to the line the caret is on, and
+   *  — only on a page with no caret at all — to the line under the pointer. */
+  const revealed = (index: number) =>
+    focusedIndex === index || (focusedIndex == null && hoveredIndex === index);
+
+  const hoverProps = (index: number) => ({
+    onMouseEnter: () => setHoveredIndex(index),
+    onMouseLeave: () =>
+      setHoveredIndex((prev) => (prev === index ? null : prev)),
+  });
+
   const renderText = (line: NotebookLine, index: number, isItem: boolean) => {
     const text = plainText(line) ?? "";
-    const focused = focusedIndex === index;
+    const focused = revealed(index);
     return (
-      <div className="ck-ns-line" data-type={isItem ? "item" : "text"}>
-        <div className="ck-ns-line-main">
+      <div
+        className="ck-ns-line"
+        data-type={isItem ? "item" : "text"}
+        {...hoverProps(index)}
+      >
+        <div className="ck-ns-line-main paper-ruled">
           {isItem && line.type === "item" && (
             <button
               type="button"
@@ -469,7 +501,11 @@ export function DaySheetView({
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => setBody(toggleChecked(body, index))}
             >
-              {line.checked ? <BoxCheckedIcon /> : <BoxIcon />}
+              {line.checked ? (
+                <BoxCheckedIcon size={19} />
+              ) : (
+                <BoxIcon size={19} />
+              )}
             </button>
           )}
           <AutoText
@@ -484,56 +520,59 @@ export function DaySheetView({
             onKeyDown={(event) => onTextKeyDown(event, index)}
             onFocus={() => setFocusedIndex(index)}
           />
-        </div>
-        {focused && isItem && (
-          <div
-            className="ck-ns-tools"
-            onMouseDown={(event) => event.preventDefault()}
-          >
-            {ITEM_CHIPS.map((chip) => (
+          {/* Marginalia, not a toolbar: the chips ride at the right-hand end of
+              the line they act on, on the same writing rule, and only while that
+              line is live. */}
+          {focused && isItem && (
+            <div
+              className="ck-ns-tools"
+              onMouseDown={(event) => event.preventDefault()}
+            >
+              {ITEM_CHIPS.map((chip) => (
+                <button
+                  key={chip.label}
+                  type="button"
+                  className="ck-ns-chip"
+                  title={chip.hint}
+                  onClick={() => insertChip(index, chip.snippet)}
+                >
+                  {chip.label}
+                </button>
+              ))}
               <button
-                key={chip.label}
                 type="button"
                 className="ck-ns-chip"
-                title={chip.hint}
-                onClick={() => insertChip(index, chip.snippet)}
+                onClick={() => addBlock(index)}
               >
-                {chip.label}
+                <ClockIcon size={13} /> {DEFAULT_BLOCK_MINUTES} min
               </button>
-            ))}
-            <button
-              type="button"
-              className="ck-ns-chip"
-              onClick={() => addBlock(index)}
-            >
-              <ClockIcon size={13} /> {DEFAULT_BLOCK_MINUTES} min
-            </button>
-            <button
-              type="button"
-              className="ck-ns-chip"
-              disabled={pieceContextAt(body, index) == null}
-              title={
-                pieceContextAt(body, index) == null
-                  ? "Add this under a piece to make it a goal"
-                  : "Promote to a goal with a deadline"
-              }
-              onClick={() => void promoteGoal(index)}
-            >
-              <FlagIcon size={13} /> goal
-            </button>
-          </div>
-        )}
+              <button
+                type="button"
+                className="ck-ns-chip"
+                disabled={pieceContextAt(body, index) == null}
+                title={
+                  pieceContextAt(body, index) == null
+                    ? "Add this under a piece to make it a goal"
+                    : "Promote to a goal with a deadline"
+                }
+                onClick={() => void promoteGoal(index)}
+              >
+                <FlagIcon size={13} /> goal
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     );
   };
 
   const renderPiece = (line: NotebookLine, index: number) => {
     if (line.type !== "piece") return null;
-    const focused = focusedIndex === index;
+    const focused = revealed(index);
     const composer = pieceComposer(line.piece_id);
     return (
-      <div className="ck-ns-line" data-type="piece">
-        <div className="ck-ns-piece">
+      <div className="ck-ns-line" data-type="piece" {...hoverProps(index)}>
+        <div className="ck-ns-piece paper-ruled">
           <span className="ck-ns-piece-mark" aria-hidden="true">
             <PieceIcon size={18} />
           </span>
@@ -547,6 +586,20 @@ export function DaySheetView({
           </button>
           {composer && <span className="ck-ns-piece-by">{composer}</span>}
           <span className="ck-ns-line-spacer" />
+          {focused && (
+            <div
+              className="ck-ns-tools"
+              onMouseDown={(event) => event.preventDefault()}
+            >
+              <button
+                type="button"
+                className="ck-ns-chip"
+                onClick={() => addBlock(index)}
+              >
+                <ClockIcon size={13} /> {DEFAULT_BLOCK_MINUTES} min
+              </button>
+            </div>
+          )}
           <button
             type="button"
             className="ck-ns-icon-btn"
@@ -556,21 +609,7 @@ export function DaySheetView({
             <CloseIcon size={14} />
           </button>
         </div>
-        {focused && (
-          <div
-            className="ck-ns-tools"
-            onMouseDown={(event) => event.preventDefault()}
-          >
-            <button
-              type="button"
-              className="ck-ns-chip"
-              onClick={() => addBlock(index)}
-            >
-              <ClockIcon size={13} /> {DEFAULT_BLOCK_MINUTES} min
-            </button>
-          </div>
-        )}
-        {focused && (
+        {focusedIndex === index && (
           <PassageHelper
             pieceId={line.piece_id}
             onAccept={(text) =>
@@ -586,7 +625,7 @@ export function DaySheetView({
     if (line.type !== "block") return null;
     return (
       <div className="ck-ns-line" data-type="block">
-        <div className="ck-ns-block">
+        <div className="ck-ns-block paper-ruled">
           <ClockIcon size={14} />
           <MinutesChip
             minutes={line.minutes}
@@ -708,7 +747,7 @@ export function DaySheetView({
     const goal = goalCache.get(line.goal_id);
     return (
       <div className="ck-ns-line" data-type="goal_ref">
-        <div className="ck-ns-goal">
+        <div className="ck-ns-goal paper-ruled">
           <span className="ck-ns-goal-mark" aria-hidden="true">
             <FlagIcon size={15} />
           </span>
@@ -802,15 +841,32 @@ export function DaySheetView({
       )}
 
       {sheet.status !== "ready" ? null : body.length === 0 ? (
-        <div className="ck-ns-blank" data-testid="day-sheet-blank">
-          <input
-            type="text"
-            className="ck-ns-ghost"
-            aria-label="Start the day sheet"
-            placeholder="Write your practice for the day…"
-            value=""
-            onChange={(event) => seedFirstLine(event.target.value)}
-          />
+        // A blank page is a PAGE, not an empty box: the date is already written
+        // at the top, the rules run down the sheet, and clicking anywhere on the
+        // paper puts the cursor on the first line.
+        <div
+          className="ck-ns-blank"
+          data-testid="day-sheet-blank"
+          onClick={() => blankRef.current?.focus()}
+        >
+          <div className="ck-ns-line-main paper-ruled">
+            <input
+              ref={blankRef}
+              type="text"
+              className="ck-ns-ghost"
+              aria-label="Start the day sheet"
+              placeholder="Write your practice for the day…"
+              value=""
+              onChange={(event) => seedFirstLine(event.target.value)}
+            />
+          </div>
+          {BLANK_RULES.map((key) => (
+            <div
+              key={key}
+              className="ck-ns-line-main paper-ruled ck-ns-blank-rule"
+              aria-hidden="true"
+            />
+          ))}
           {yesterday && (
             <button
               type="button"

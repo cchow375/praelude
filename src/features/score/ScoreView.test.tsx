@@ -1803,3 +1803,91 @@ describe("ScoreView", () => {
     expect(screen.getByText("Mark a system to build the strip.")).toBeTruthy();
   });
 });
+
+// The screen-resolution page-image fast path, wired end to end through the
+// viewer. The measured problem it exists for: page 1 of the Barber Pas de Deux
+// (a 24-bit colour scan with an ICC profile) takes 43 s through PDF.js and
+// ~0.08 s through Rust. The viewer therefore asks Rust first and keeps PDF.js as
+// the fallback for everything Rust declines.
+describe("ScoreView — page-image fast path", () => {
+  function pageImageApi(
+    answer: (page: number) => ArrayBuffer = () =>
+      new Uint8Array([0xff, 0xd8, 0xff]).buffer,
+  ) {
+    const pageImage = vi.fn(
+      async (_piece: number, _edition: string, page: number) => answer(page),
+    );
+    const warmPageImage = vi.fn().mockResolvedValue(undefined);
+    return { pageImage, warmPageImage };
+  }
+
+  it("shows the Rust page image for the visible page instead of rasterizing it", async () => {
+    vi.stubGlobal("createImageBitmap", async () => ({
+      width: 1536,
+      height: 2048,
+      close: vi.fn(),
+    }));
+    const { pageImage, warmPageImage } = pageImageApi();
+    const api = makeApi({ pageImage, warmPageImage });
+    const pdf = makePdf(6);
+
+    render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+    await screen.findByLabelText("Score page 1");
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText("Score page 1").getAttribute("data-source"),
+      ).toBe("image"),
+    );
+    // Bound to the piece and the edition actually open.
+    expect(pageImage).toHaveBeenCalledWith(7, "urtext", 1, expect.any(Number));
+  });
+
+  it("falls back to the real renderer, with a real page, when Rust refuses", async () => {
+    const { pageImage, warmPageImage } = pageImageApi(() => new ArrayBuffer(0));
+    const api = makeApi({ pageImage, warmPageImage });
+    const pdf = makePdf(6);
+
+    render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+    const page = await screen.findByLabelText("Score page 1");
+    await waitFor(() => expect(pageImage).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(page.getAttribute("data-source")).toBe("pdf"),
+    );
+    const canvas = screen.getByLabelText(
+      "Rendered score page 1",
+    ) as HTMLCanvasElement;
+    expect(canvas.width).toBe(1200);
+    expect(page.className).toContain("is-ready");
+  });
+
+  it("warms the page after next in the background, and never the visible one", async () => {
+    vi.stubGlobal("createImageBitmap", async () => ({
+      width: 1536,
+      height: 2048,
+      close: vi.fn(),
+    }));
+    const { pageImage, warmPageImage } = pageImageApi();
+    const api = makeApi({ pageImage, warmPageImage });
+    const pdf = makePdf(6);
+
+    render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+    await screen.findByLabelText("Score page 1");
+    await waitFor(() => expect(warmPageImage).toHaveBeenCalled());
+    const warmed = warmPageImage.mock.calls.map((call) => call[2]);
+    // Page 3 is the first page NOT already mounted (the viewer mounts 1 ±1),
+    // so warming is genuinely extra reach rather than duplicated work.
+    expect(warmed).toContain(3);
+    expect(warmed).not.toContain(1);
+    expect(warmed).not.toContain(2);
+  });
+
+  it("works unchanged against a host with no page-image commands", async () => {
+    const api = makeApi();
+    const pdf = makePdf(3);
+    render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+    const page = await screen.findByLabelText("Score page 1");
+    await waitFor(() =>
+      expect(page.getAttribute("data-source")).toBe("pdf"),
+    );
+  });
+});

@@ -50,14 +50,6 @@ import {
   type PiecePlan,
 } from "../features/notebook/lines";
 
-// TEMP instrumentation for a coverage audit; reverted after the run.
-function __recordMockCmdHit(cmd: string): void {
-  const g = globalThis as unknown as { __mockCmdHits?: Set<string> };
-  g.__mockCmdHits ??= new Set<string>();
-  g.__mockCmdHits.add(cmd);
-  console.log("MOCKCMDHIT:" + cmd);
-}
-
 /** Local YYYY-MM-DD, matching calendar/dates.ts `todayLocal()`. */
 function todayLocal(): string {
   const date = new Date();
@@ -1497,8 +1489,6 @@ function piecePlanSave(args: unknown): PiecePlan {
  * `?? []`/`?? null`, and mutations are out of scope for this static harness.
  */
 function routeCommand(cmd: string, args: unknown): unknown {
-  // TEMP instrumentation for coverage audit; reverted after the run.
-  __recordMockCmdHit(cmd);
   switch (cmd) {
     // Shell-level mounts.
     case "settings_snapshot":
@@ -1654,6 +1644,14 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return mockEdition(pieceIdOf(args));
     case "score_pdf_bytes":
       return minimalPdfBytes();
+    // The screen-resolution page-image fast path. An EMPTY answer is the real
+    // command's way of saying "this page is not a single-image scan", and the
+    // mock's one-page vector PDF is exactly that case — so the browser dev run
+    // exercises the PDF.js fallback, which is the behaviour it should have.
+    case "score_page_image":
+      return new Uint8Array(0);
+    case "score_page_image_warm":
+      return null;
     case "score_calibration_get":
       return mockCalibration(pieceIdOf(args));
     case "score_calibration_save": {

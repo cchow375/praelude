@@ -448,6 +448,76 @@ async fn score_pdf_bytes(
     .map_err(|e| format!("PDF read worker failed: {e}"))?
 }
 
+/// A screen-resolution JPEG of one page of one edition.
+///
+/// This is the fast path for scanned scores: instead of rasterizing a page whose
+/// single image is 38 megapixels, the Rust side decodes that image straight to
+/// the size the screen can show and caches the result. An EMPTY response means
+/// "this page is not a single-image scan" and the webview renders it with PDF.js
+/// as before — not an error.
+///
+/// Off the async runtime because a cold generation is tens to hundreds of
+/// milliseconds of pure CPU.
+#[tauri::command]
+async fn score_page_image(
+    piece_id: i64,
+    edition_id: String,
+    page: i64,
+    target_long_edge: u32,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<tauri::ipc::Response, String> {
+    let store = store.inner().clone();
+    let root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("resolve app cache dir: {e}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        score::page_image_bytes(
+            &store,
+            &root,
+            piece_id,
+            &edition_id,
+            page,
+            target_long_edge,
+        )
+        .map(tauri::ipc::Response::new)
+    })
+    .await
+    .map_err(|e| format!("page image worker failed: {e}"))?
+}
+
+/// Generate and cache a page image without shipping it across IPC — the
+/// background warm used for pages the reader is about to turn to.
+#[tauri::command]
+async fn score_page_image_warm(
+    piece_id: i64,
+    edition_id: String,
+    page: i64,
+    target_long_edge: u32,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    let root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("resolve app cache dir: {e}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        score::page_image_bytes(
+            &store,
+            &root,
+            piece_id,
+            &edition_id,
+            page,
+            target_long_edge,
+        )
+        .map(|_| ())
+    })
+    .await
+    .map_err(|e| format!("page image warm worker failed: {e}"))?
+}
+
 /// Load a cached fitted first-page snapshot for the piece-switch accelerator.
 /// Returns the raw bytes (an empty response on a miss). Display-only and never
 /// authoritative: the cache lives under the OS app-cache dir, never the vault or
@@ -1776,6 +1846,8 @@ pub fn run() {
             score_pdf_editions,
             score_pdf_select,
             score_pdf_bytes,
+            score_page_image,
+            score_page_image_warm,
             score_page_cache_load,
             score_page_cache_save,
             piece_intake_save,

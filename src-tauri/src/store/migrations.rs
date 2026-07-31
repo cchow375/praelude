@@ -5,7 +5,7 @@
 //! columns are stored as `TEXT` (SQLite has no native JSON type; values are
 //! serialized JSON strings).
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 /// Current schema version. `Store::open` migrates any older database up to this.
 pub const SCHEMA_VERSION: i32 = 12;
@@ -942,10 +942,24 @@ CREATE TABLE piece_plan (
 // to it"). This step is a one-time data repair: the surviving row becomes the
 // Barber (keeping its id, and with it the `score_edition_calibration` row that
 // was calibrated against the Barber page geometry), a new row takes the
-// Copland, and the practice graph moves to the Copland by `piece_id` alone.
+// Copland, and every table carrying a `piece_id` is routed explicitly to one of
+// the two — see `TANGLEWOOD_PIECE_TABLES` for the table-by-table decision and
+// `move_tanglewood_events` for the per-row rule the canonical log uses.
 //
 // It is a NO-OP on every database that is not that exact one. See
 // `split_chamber_pieces_tanglewood` for the guard.
+//
+// OPERATING ORDER (the vault side is a separate script, and the two must not be
+// interleaved with a launch of the previous build):
+//   1. Install the build that carries this migration, replacing the previous
+//      app, and launch it once. The migration splits the database.
+//   2. Run `scripts/split-tanglewood-folders.sh --apply --hide-original` to
+//      create the two real vault folders and hide the emptied drawer.
+//   3. Relaunch. The vault scan matches both new folders to the two split rows
+//      by `folder_path` and refreshes them in place.
+// Doing step 2 before step 1 also works — the split now merges into folders the
+// scanner already ingested — but only step 1 first *guarantees* the previous
+// build can no longer be launched into the half-repaired state.
 
 /// Title of the merged pseudo-piece, and the basename of its vault folder.
 const TANGLEWOOD_TITLE: &str = "Chamber Pieces Tanglewood";
@@ -970,6 +984,210 @@ fn scan_derived_name(folder_name: &str) -> (Option<&str>, &str) {
     }
 }
 
+/// Where one `piece_id`-bearing table's rows go when the merged row is split.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TanglewoodRouting {
+    /// The whole table follows the practice work to the Copland.
+    Copland,
+    /// The whole table stays with the score the surviving Barber row keeps.
+    Barber,
+    /// `event` only: row by row, by the entity each payload names. See
+    /// [`move_tanglewood_events`].
+    PerRowEvidence,
+}
+
+/// EVERY table carrying a `piece_id` column, where its rows go, and the
+/// piece-scoped uniqueness that could collide when the merged row's rows are
+/// merged into a destination row that already exists.
+///
+/// Order matters: `region` and `rep_block` are moved first, because
+/// `brain_thread_same_piece_update` and `action_draft_context_update` abort an
+/// update whose new `piece_id` disagrees with the region/set the row points at.
+/// Moving the graph first makes those checks true by the time they run.
+///
+/// WHY EACH ROUTING (the split's whole premise: the merged row's *identity* is
+/// the Barber score it points at; every scrap of *work recorded under it* is
+/// Copland — user-confirmed, and the markings themselves say so, e.g. "Roll
+/// wrists, ahve that jazzy jumpy feeling to it"):
+///   * `region`, `rep_block` — the marked-up bars and the sets drilled on them.
+///     Every other column (ids, `sort_order`, `region_id` links, `status`,
+///     `created_at`, notes, colours) is untouched, so blocks keep pointing at
+///     the same regions. `rep` has no `piece_id` and is never written: reps hang
+///     off `block_id` and follow their block.
+///   * `event` — the denormalised `piece_id` these carry is what
+///     `Store::events_for_piece` filters on, and that feeds `metrics::
+///     progress_summary` (History) and `universe::snapshot` (the Universe view).
+///     Leaving it behind is what made the never-practised Barber show focused
+///     time and a streak while the Copland showed none. Moved per row, on
+///     evidence only.
+///   * `brain_thread` — an Assistant thread is about the work being practised;
+///     its `brain_turn` rows follow by `thread_id`, and the same-piece trigger
+///     requires the thread to sit with the region it cites.
+///   * `goal`, `piece_plan`, `spot_review`, `action_draft` — the user's stated
+///     intent, plan, spaced-repetition state and pending drafts, all about the
+///     music actually practised. `action_draft` also carries `region_id`/
+///     `set_id`, which move.
+///   * `score_section` — `target_meta_same_piece_update` requires
+///     `score_section.piece_id` to equal the `piece_id` of the region a target
+///     is anchored to. The regions move, so leaving sections behind would
+///     manufacture a state that trigger exists to forbid.
+///   * `tutorial_video` — likewise `tutorial_clip_same_piece_update` requires a
+///     clip's video and region to share a piece. Its `file_path` is absolute, so
+///     it keeps resolving either way; only ownership changes.
+///   * `score_edition_calibration` — the ONE table that stays. Its `edition_id`
+///     literally names `Christian_C_Barber_Pas_de_Deux_Primo.pdf` and its
+///     `points_json` is Barber page geometry. The surviving row keeps that PDF,
+///     so the calibration keeps resolving.
+///
+/// On the real database only `region`, `rep_block`, `event`, `brain_thread` and
+/// `score_edition_calibration` hold rows for the merged piece; the other six
+/// routings are policy, applied by the same code so the step is general.
+///
+/// `unique_key_tail` — what could collide when merging into an existing row:
+///   * `None` — a plain rowid primary key, so rows from two pieces always
+///     coexist and merging can never collide.
+///   * `Some(&[])` — `piece_id` alone is the key (at most one row per piece).
+///   * `Some(cols)` — `piece_id` plus `cols` is unique.
+///
+/// `migration_covers_every_piece_id_table` pins this list against the live
+/// schema, so a future table that grows a `piece_id` cannot be forgotten here.
+const TANGLEWOOD_PIECE_TABLES: &[(&str, TanglewoodRouting, Option<&[&str]>)] = &[
+    ("region", TanglewoodRouting::Copland, None),
+    ("rep_block", TanglewoodRouting::Copland, None),
+    ("event", TanglewoodRouting::PerRowEvidence, None),
+    ("brain_thread", TanglewoodRouting::Copland, None),
+    ("goal", TanglewoodRouting::Copland, None),
+    ("piece_plan", TanglewoodRouting::Copland, Some(&[])),
+    ("spot_review", TanglewoodRouting::Copland, Some(&["spot"])),
+    ("action_draft", TanglewoodRouting::Copland, None),
+    ("score_section", TanglewoodRouting::Copland, None),
+    ("tutorial_video", TanglewoodRouting::Copland, None),
+    (
+        "score_edition_calibration",
+        TanglewoodRouting::Barber,
+        Some(&["edition_id", "edition_fingerprint"]),
+    ),
+];
+
+/// The piece a vault folder currently belongs to. `piece.folder_path` is UNIQUE
+/// and is the app's natural key for a piece (`Store::upsert_piece` keys on it),
+/// so a row at a folder *is* that piece.
+fn piece_at_folder(conn: &Connection, folder_path: &str) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT id FROM piece WHERE folder_path = ?1",
+        [folder_path],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+/// Would moving `from`'s rows in `table` into `to` violate the table's
+/// piece-scoped unique key? `key_tail` is the key's columns *besides*
+/// `piece_id`; an empty tail means `piece_id` alone is the key, and the join
+/// then degenerates to "both pieces have a row".
+///
+/// `table`/`key_tail` come from [`TANGLEWOOD_PIECE_TABLES`] — crate-internal
+/// constants, never user input — so interpolating them into the SQL is safe.
+fn tanglewood_key_collision(
+    conn: &Connection,
+    table: &str,
+    key_tail: &[&str],
+    from: i64,
+    to: i64,
+) -> rusqlite::Result<bool> {
+    let matched: String = key_tail
+        .iter()
+        .map(|column| format!(" AND destination.\"{column}\" = source.\"{column}\""))
+        .collect();
+    conn.query_row(
+        &format!(
+            "SELECT EXISTS (
+               SELECT 1 FROM \"{table}\" AS source
+               JOIN \"{table}\" AS destination
+                 ON destination.piece_id = ?2{matched}
+               WHERE source.piece_id = ?1)"
+        ),
+        rusqlite::params![from, to],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|found| found != 0)
+}
+
+/// Re-attribute the merged row's canonical `event` log, row by row, on evidence.
+///
+/// THE RULE, in order:
+///   1. payload has a `block_id` → the event goes wherever that block now is.
+///      It moves iff the block moved. This is the authority whenever it is
+///      present: on the real database 118 of 135 rows carry block 97 or 98,
+///      both unambiguously Copland.
+///   2. no `block_id`, but a `region_id` → same test against `region`. That is
+///      the remaining 17 rows, all `region_change` naming regions 43-47 — the
+///      five regions that move.
+///   3. neither (or an unparseable payload) → the row STAYS with the surviving
+///      Barber row. There is no evidence tying it to the Copland, and this step
+///      refuses to re-attribute canonical history on inference alone.
+///
+/// On the real database rule 3 fires for zero rows; the rehearsal test asserts
+/// that (the Barber ends with no events at all).
+///
+/// The frozen JSON payloads are NOT rewritten — they repeat the piece id the app
+/// wrote at the time, and that is the historical record of the command as
+/// issued. Nothing reads it: production code only ever reads `payload.block_id`
+/// (`metrics::time_by_focus`) and the `piece_id` *column*. Must run after
+/// `region`/`rep_block` have moved.
+fn move_tanglewood_events(
+    conn: &Connection,
+    merged_id: i64,
+    copland_id: i64,
+    barber_id: i64,
+) -> rusqlite::Result<usize> {
+    // `json_valid` is tested first inside the CASE (which short-circuits) so a
+    // non-JSON payload can never make `json_extract` raise and fail migration.
+    let moved = conn.execute(
+        "UPDATE event SET piece_id = ?2
+          WHERE piece_id = ?1
+            AND CASE
+                  WHEN json_valid(payload) = 0 THEN 0
+                  WHEN json_extract(payload, '$.block_id') IS NOT NULL
+                    THEN json_extract(payload, '$.block_id')
+                         IN (SELECT id FROM rep_block WHERE piece_id = ?2)
+                  WHEN json_extract(payload, '$.region_id') IS NOT NULL
+                    THEN json_extract(payload, '$.region_id')
+                         IN (SELECT id FROM region WHERE piece_id = ?2)
+                  ELSE 0
+                END",
+        rusqlite::params![merged_id, copland_id],
+    )?;
+    // Rule 3. A no-op on the clean path, where the merged row IS the Barber.
+    if barber_id != merged_id {
+        conn.execute(
+            "UPDATE event SET piece_id = ?2 WHERE piece_id = ?1",
+            rusqlite::params![merged_id, barber_id],
+        )?;
+    }
+    Ok(moved)
+}
+
+/// Tables that still hold rows for `piece_id`, as `"table=count"` strings.
+/// Used as a last check before the stranded path deletes the emptied merged
+/// row: five of the eleven referencing tables use `ON DELETE CASCADE`, so a
+/// table missing from [`TANGLEWOOD_PIECE_TABLES`] would be silently destroyed
+/// rather than loudly rejected by the foreign key.
+fn tanglewood_residue(conn: &Connection, piece_id: i64) -> rusqlite::Result<Vec<String>> {
+    let mut residue = Vec::new();
+    for &(table, _, _) in TANGLEWOOD_PIECE_TABLES {
+        let count: i64 = conn.query_row(
+            &format!("SELECT count(*) FROM \"{table}\" WHERE piece_id = ?1"),
+            [piece_id],
+            |row| row.get(0),
+        )?;
+        if count > 0 {
+            residue.push(format!("{table}={count}"));
+        }
+    }
+    Ok(residue)
+}
+
 /// Turn the merged Tanglewood row into the two real pieces. Returns whether the
 /// split ran.
 ///
@@ -979,11 +1197,11 @@ fn scan_derived_name(folder_name: &str) -> (Option<&str>, &str) {
 ///   * its `folder_path` ends in a folder of that same name (so a parent
 ///     pieces-dir exists to put the two new folders beside it),
 ///   * its `pdf_path` is the Barber PDF directly inside that folder, and
-///   * neither target `folder_path` is already taken.
+///   * no destination row already holding this piece would suffer a unique-key
+///     collision from the merge (see [`TANGLEWOOD_PIECE_TABLES`]).
 ///
-/// The last check is what makes a re-run a clean no-op and what keeps the
-/// `piece.folder_path` UNIQUE constraint satisfied. A fresh install has no such
-/// piece and so can never grow a phantom Copland.
+/// A fresh install has no such piece and so can never grow a phantom Copland.
+/// A re-run finds no merged row and is a clean no-op.
 ///
 /// The guard is deliberately database-only: migrations here never touch the
 /// filesystem, and a vault that is temporarily unreachable (external disk,
@@ -991,34 +1209,37 @@ fn scan_derived_name(folder_name: &str) -> (Option<&str>, &str) {
 /// is placed by `scripts/split-tanglewood-folders.sh`, which owns the vault
 /// side of this repair.
 ///
-/// What moves and what does not:
-///   * `region` and `rep_block` move by `piece_id`. Every other column — ids,
-///     `sort_order`, `region_id` links, `status`, `created_at`, notes, colours —
-///     is untouched, so the blocks keep pointing at the same regions.
-///   * `rep` is never written: reps hang off `block_id`, so they follow their
-///     block automatically.
-///   * `score_edition_calibration` is never written: it stays on the surviving
-///     (Barber) row, whose `edition_id` is a path *relative to the piece
-///     folder*, so it keeps resolving once the PDF sits at the root of the new
-///     Barber folder.
+/// ROBUST TO THE TARGET FOLDERS ALREADY EXISTING. If the vault script runs and
+/// the *previous* build is then launched even once, its startup folder scan
+/// upserts `Barber - Pas de Deux` and `Copland - …` as fresh, history-less
+/// pieces. An earlier version of this step declined outright in that state and
+/// stamped `user_version = 12` anyway, permanently abandoning the repair with
+/// the whole practice graph stranded on the merged row. It no longer declines:
+/// a destination folder that is already taken is *merged into* instead.
+///   * Barber destination = the existing row at the Barber folder, else the
+///     merged row itself (re-pointed, keeping its id and calibration in place).
+///   * Copland destination = the existing row at the Copland folder, else a new
+///     row inheriting the merged row's `created_at`.
+///   * When the Barber destination is a different row, the merged row is emptied
+///     into the two destinations and then deleted, so no
+///     `Chamber Pieces Tanglewood` row survives either way.
 ///
-/// KNOWN LIMIT: `event` rows carry a denormalised `piece_id` (and repeat it
-/// inside their frozen JSON payload). Those are left exactly as they are — the
-/// canonical log is append-only and rewriting history to match a later
-/// re-attribution would be a bigger, separately-reviewed change. The graph the
-/// UI reads (piece → region → block → rep) is fully correct after this step.
+/// An auto-discovered destination row's `title`/`composer`/`pdf_path` are left
+/// alone: `vault::scan_folder` derived them from the same folder name this step
+/// would write, and re-derives them on every launch.
 pub(crate) fn split_chamber_pieces_tanglewood(conn: &Connection) -> rusqlite::Result<bool> {
-    let candidates: Vec<(i64, String, Option<String>)> = {
-        let mut statement =
-            conn.prepare("SELECT id, folder_path, pdf_path FROM piece WHERE title = ?1")?;
+    let candidates: Vec<(i64, String, Option<String>, String)> = {
+        let mut statement = conn
+            .prepare("SELECT id, folder_path, pdf_path, created_at FROM piece WHERE title = ?1")?;
         let rows = statement.query_map([TANGLEWOOD_TITLE], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         })?;
         rows.collect::<rusqlite::Result<_>>()?
     };
-    let [(piece_id, folder_path, pdf_path)] = candidates.as_slice() else {
+    let [(merged_id, folder_path, pdf_path, merged_created_at)] = candidates.as_slice() else {
         return Ok(false);
     };
+    let merged_id = *merged_id;
 
     // The folder must be the merged drawer itself, and must have a parent to
     // put the two new sibling folders in.
@@ -1029,65 +1250,127 @@ pub(crate) fn split_chamber_pieces_tanglewood(conn: &Connection) -> rusqlite::Re
         return Ok(false);
     }
     // ...and the row must be the one pointing at the Barber score inside it.
-    if pdf_path.as_deref() != Some(format!("{folder_path}/{TANGLEWOOD_BARBER_PDF}").as_str()) {
+    let merged_pdf_path = format!("{folder_path}/{TANGLEWOOD_BARBER_PDF}");
+    if pdf_path.as_deref() != Some(merged_pdf_path.as_str()) {
         return Ok(false);
     }
 
     let barber_folder = format!("{parent}/{TANGLEWOOD_BARBER_FOLDER}");
     let copland_folder = format!("{parent}/{TANGLEWOOD_COPLAND_FOLDER}");
-    let taken: i64 = conn.query_row(
-        "SELECT count(*) FROM piece WHERE folder_path IN (?1, ?2)",
-        rusqlite::params![&barber_folder, &copland_folder],
-        |row| row.get(0),
-    )?;
-    if taken > 0 {
-        return Ok(false);
+    let existing_barber = piece_at_folder(conn, &barber_folder)?;
+    let existing_copland = piece_at_folder(conn, &copland_folder)?;
+    let barber_id = existing_barber.unwrap_or(merged_id);
+
+    // Nothing has been written yet: refuse before touching anything if merging
+    // into an already-existing destination would break a unique key. That can
+    // only happen if the user did real work on an auto-discovered row (wrote a
+    // plan, calibrated its score), which a human has to reconcile. Declining
+    // leaves every row exactly where it is, so nothing is lost.
+    for &(table, routing, unique_key_tail) in TANGLEWOOD_PIECE_TABLES {
+        let Some(key_tail) = unique_key_tail else {
+            continue;
+        };
+        let destination = match routing {
+            TanglewoodRouting::Barber => existing_barber,
+            TanglewoodRouting::Copland | TanglewoodRouting::PerRowEvidence => existing_copland,
+        };
+        let Some(destination) = destination else {
+            continue; // a brand-new row has nothing to collide with
+        };
+        if tanglewood_key_collision(conn, table, key_tail, merged_id, destination)? {
+            return Ok(false);
+        }
     }
 
-    // The Copland gets a new row that inherits the merged row's `created_at`,
-    // so the piece is as old as the practice history now hanging off it.
     let (copland_composer, copland_title) = scan_derived_name(TANGLEWOOD_COPLAND_FOLDER);
     let copland_pdf = format!("{copland_folder}/{TANGLEWOOD_COPLAND_PDF}");
-    let copland_id: i64 = conn.query_row(
-        "INSERT INTO piece (title, composer, folder_path, pdf_path, preferred_pdf_path, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?4, created_at FROM piece WHERE id = ?5
-         RETURNING id",
-        rusqlite::params![
-            copland_title,
-            copland_composer,
-            &copland_folder,
-            &copland_pdf,
-            piece_id
-        ],
-        |row| row.get(0),
-    )?;
+    let copland_id: i64 = match existing_copland {
+        // The Copland is as old as the practice history about to hang off it —
+        // the same outcome the clean path produces.
+        Some(id) => {
+            conn.execute(
+                "UPDATE piece SET created_at = ?2 WHERE id = ?1 AND created_at > ?2",
+                rusqlite::params![id, merged_created_at],
+            )?;
+            id
+        }
+        None => conn.query_row(
+            "INSERT INTO piece
+               (title, composer, folder_path, pdf_path, preferred_pdf_path, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?4, ?5)
+             RETURNING id",
+            rusqlite::params![
+                copland_title,
+                copland_composer,
+                &copland_folder,
+                &copland_pdf,
+                merged_created_at
+            ],
+            |row| row.get(0),
+        )?,
+    };
 
-    // The practice graph is the Copland's. Move it by `piece_id` only.
-    conn.execute(
-        "UPDATE region SET piece_id = ?1 WHERE piece_id = ?2",
-        rusqlite::params![copland_id, piece_id],
-    )?;
-    conn.execute(
-        "UPDATE rep_block SET piece_id = ?1 WHERE piece_id = ?2",
-        rusqlite::params![copland_id, piece_id],
-    )?;
+    for &(table, routing, _) in TANGLEWOOD_PIECE_TABLES {
+        match routing {
+            TanglewoodRouting::Copland => {
+                conn.execute(
+                    &format!("UPDATE \"{table}\" SET piece_id = ?2 WHERE piece_id = ?1"),
+                    rusqlite::params![merged_id, copland_id],
+                )?;
+            }
+            TanglewoodRouting::Barber => {
+                if barber_id != merged_id {
+                    conn.execute(
+                        &format!("UPDATE \"{table}\" SET piece_id = ?2 WHERE piece_id = ?1"),
+                        rusqlite::params![merged_id, barber_id],
+                    )?;
+                }
+            }
+            TanglewoodRouting::PerRowEvidence => {
+                move_tanglewood_events(conn, merged_id, copland_id, barber_id)?;
+            }
+        }
+    }
 
-    // The surviving row — and its calibration — is the Barber.
     let (barber_composer, barber_title) = scan_derived_name(TANGLEWOOD_BARBER_FOLDER);
     let barber_pdf = format!("{barber_folder}/{TANGLEWOOD_BARBER_PDF}");
-    conn.execute(
-        "UPDATE piece
-            SET title = ?1, composer = ?2, folder_path = ?3,
-                pdf_path = ?4, preferred_pdf_path = ?4
-          WHERE id = ?5",
-        rusqlite::params![
-            barber_title,
-            barber_composer,
-            &barber_folder,
-            &barber_pdf,
-            piece_id
-        ],
-    )?;
+    if barber_id == merged_id {
+        // Clean path: the merged row becomes the Barber, keeping its id and,
+        // with it, the calibration made against the Barber's page geometry.
+        conn.execute(
+            "UPDATE piece
+                SET title = ?1, composer = ?2, folder_path = ?3, pdf_path = ?4
+              WHERE id = ?5",
+            rusqlite::params![
+                barber_title,
+                barber_composer,
+                &barber_folder,
+                &barber_pdf,
+                merged_id
+            ],
+        )?;
+        // `preferred_pdf_path` is the user's chosen edition, and the guard only
+        // ever verified `pdf_path`. Re-point it only when it names the very PDF
+        // the guard checked: a NULL stays NULL, and any other edition the user
+        // picked is left alone rather than silently overwritten.
+        conn.execute(
+            "UPDATE piece SET preferred_pdf_path = ?2
+              WHERE id = ?1 AND preferred_pdf_path = ?3",
+            rusqlite::params![merged_id, &barber_pdf, &merged_pdf_path],
+        )?;
+    } else {
+        // Stranded path: everything has been moved onto rows that already carry
+        // the two real folders, so the emptied drawer row goes.
+        let residue = tanglewood_residue(conn, merged_id)?;
+        if !residue.is_empty() {
+            return Err(rusqlite::Error::InvalidParameterName(format!(
+                "Tanglewood split left rows on the merged piece {merged_id}: {}; \
+                 refusing to delete it",
+                residue.join(", ")
+            )));
+        }
+        conn.execute("DELETE FROM piece WHERE id = ?1", [merged_id])?;
+    }
 
     Ok(true)
 }
@@ -1445,10 +1728,14 @@ mod v3_tests {
         c
     }
 
+    /// The parent pieces dir the merged row's folder sits in.
+    const TANGLEWOOD_PARENT: &str = "/vault/Pieces";
+
     /// Reproduce the exact merged row this repair targets: one piece titled
     /// `Chamber Pieces Tanglewood` pointing at the Barber PDF, five Copland
     /// regions, two Copland blocks (linked to the first two regions), the reps
-    /// hanging off those blocks, and a calibration made against the Barber.
+    /// hanging off those blocks, the canonical `event` log those blocks and
+    /// regions produced, and a calibration made against the Barber.
     fn seed_v11_with_merged_tanglewood() -> Connection {
         let c = seed_v11();
         let folder = "/vault/Pieces/Chamber Pieces Tanglewood";
@@ -1522,7 +1809,137 @@ mod v3_tests {
             [],
         )
         .unwrap();
+
+        // The canonical log the real database carries for this row, in the same
+        // proportions: most rows name a `block_id`, the `region_change` rows name
+        // only a `region_id`. Both name entities that move to the Copland.
+        for (kind, block, count, ts) in [
+            ("rep_open", 97, 1, "2026-07-27 13:04:33"),
+            ("rep", 97, 5, "2026-07-27 13:06:02"),
+            ("rep_checkpoint", 97, 4, "2026-07-27 13:07:11"),
+            ("rep_close", 97, 1, "2026-07-27 13:20:44"),
+            ("rep_open", 98, 1, "2026-07-27 14:22:39"),
+            ("rep", 98, 9, "2026-07-27 14:31:05"),
+            ("rep_close", 98, 1, "2026-07-27 14:59:01"),
+        ] {
+            for _ in 0..count {
+                c.execute(
+                    "INSERT INTO event (ts,piece_id,kind,payload)
+                     VALUES (?1,6,?2,json_object('block_id',?3,'piece_id',6))",
+                    rusqlite::params![ts, kind, block],
+                )
+                .unwrap();
+            }
+        }
+        for region in [43, 44, 45, 46, 47] {
+            c.execute(
+                "INSERT INTO event (ts,piece_id,kind,payload)
+                 VALUES ('2026-07-30 20:37:40',6,'region_change',
+                         json_object('action','create','region_id',?1))",
+                [region],
+            )
+            .unwrap();
+        }
         c
+    }
+
+    /// One row in every *other* table that carries a `piece_id`, hung off the
+    /// merged piece, so the routing decision for each can be asserted. The two
+    /// context-bearing rows deliberately point at region 43 / block 97 — the
+    /// `brain_thread_same_piece_*` and `action_draft_context_*` triggers abort
+    /// any update that leaves them straddling two pieces, so these also prove
+    /// the migration moves the graph before the rows that reference it.
+    fn seed_tanglewood_side_tables(c: &Connection) {
+        c.execute(
+            "INSERT INTO brain_thread (id,piece_id,region_id,title)
+             VALUES (7,6,43,'jazzy jumpy feeling')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO brain_turn (thread_id,role,content) VALUES (7,'user','Do you learn that')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO goal (id,piece_id,text) VALUES (9,6,'up to tempo by Tanglewood')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO piece_plan (piece_id,body_text,updated_at)
+             VALUES (6,'octaves slowly','2026-07-27 13:00:00')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO spot_review (piece_id,spot,interval_days,ease) VALUES (6,'m1 octaves',1.0,2.5)",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO action_draft
+               (id,piece_id,region_id,set_id,source,original_text,operations_json,
+                risk,revision_hash,status)
+             VALUES (3,6,43,97,'voice_draft','make a set','[]','low','h1','draft')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO score_section (id,piece_id,name,m_start,m_end,source)
+             VALUES (5,6,'A','1','8','user')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO tutorial_video (id,piece_id,title,file_path)
+             VALUES (4,6,'Cowboys walkthrough','/vault/Pieces/x/tutorials/cowboys.mp4')",
+            [],
+        )
+        .unwrap();
+    }
+
+    /// The two rows a launch of the *previous* build creates once the vault
+    /// script has made the folders: an ordinary folder-scan upsert, so
+    /// title/composer come from the folder name, `pdf_path` from the file found
+    /// inside, and `preferred_pdf_path` is left unset.
+    fn seed_scanner_discovered_split_folders(c: &Connection) -> (i64, i64) {
+        let barber_folder = format!("{TANGLEWOOD_PARENT}/{TANGLEWOOD_BARBER_FOLDER}");
+        let copland_folder = format!("{TANGLEWOOD_PARENT}/{TANGLEWOOD_COPLAND_FOLDER}");
+        for (folder, title, composer, pdf) in [
+            (
+                &barber_folder,
+                "Pas de Deux",
+                "Barber",
+                TANGLEWOOD_BARBER_PDF,
+            ),
+            (
+                &copland_folder,
+                "Cowboys with Lassos (Billy the Kid)",
+                "Copland",
+                TANGLEWOOD_COPLAND_PDF,
+            ),
+        ] {
+            c.execute(
+                "INSERT INTO piece (title,composer,folder_path,pdf_path,created_at)
+                 VALUES (?1,?2,?3,?4,'2026-07-30 21:00:00')",
+                rusqlite::params![title, composer, folder, format!("{folder}/{pdf}")],
+            )
+            .unwrap();
+        }
+        (
+            piece_at_folder(c, &barber_folder).unwrap().unwrap(),
+            piece_at_folder(c, &copland_folder).unwrap().unwrap(),
+        )
+    }
+
+    fn count_where(c: &Connection, table: &str, piece_id: i64) -> i64 {
+        c.query_row(
+            &format!("SELECT count(*) FROM \"{table}\" WHERE piece_id = ?1"),
+            [piece_id],
+            |row| row.get(0),
+        )
+        .unwrap()
     }
 
     fn piece_id_by_title(c: &Connection, title: &str) -> Option<i64> {
@@ -1743,6 +2160,32 @@ mod v3_tests {
             "every rep still resolves through its block to the Copland"
         );
 
+        // The canonical log is what `Store::events_for_piece` filters on, and
+        // that feeds History's progress summary and the Universe view. Leaving
+        // it behind is what gave the never-practised Barber a streak.
+        assert_eq!(
+            count_where(&c, "event", 6),
+            0,
+            "the Barber, never practised, must own no events at all"
+        );
+        assert_eq!(
+            count_where(&c, "event", copland),
+            27,
+            "every event of the merged row followed the block or region it names"
+        );
+        let practice_events: i64 = c
+            .query_row(
+                "SELECT count(*) FROM event
+                 WHERE piece_id = ?1 AND kind IN ('rep_open','rep','verdict','tempo_change')",
+                [copland],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            practice_events, 16,
+            "the practice-time kinds land on the piece that was actually practised"
+        );
+
         assert_eq!(
             c.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
                 .unwrap(),
@@ -1750,6 +2193,357 @@ mod v3_tests {
         );
         let mut statement = c.prepare("PRAGMA foreign_key_check").unwrap();
         assert!(statement.query([]).unwrap().next().unwrap().is_none());
+    }
+
+    #[test]
+    fn migrate_v11_to_v12_leaves_an_unattributable_event_with_the_barber() {
+        // Rule 3 of `move_tanglewood_events`: a row naming neither a block nor a
+        // region that moves carries no evidence, so it is not re-attributed.
+        // On the real database this fires for zero rows — it is the deliberate
+        // fallback, not a guess.
+        let c = seed_v11_with_merged_tanglewood();
+        c.execute(
+            "INSERT INTO event (id,ts,piece_id,kind,payload)
+             VALUES (9001,'2026-07-27 09:00:00',6,'note',json_object('text','hello'))",
+            [],
+        )
+        .unwrap();
+        // ...and neither is a row whose payload is not JSON at all: it must be
+        // treated as unattributable, never allowed to make `json_extract` raise.
+        c.execute(
+            "INSERT INTO event (id,ts,piece_id,kind,payload)
+             VALUES (9002,'2026-07-27 09:01:00',6,'note','not json at all')",
+            [],
+        )
+        .unwrap();
+
+        migrate(&c).unwrap();
+
+        let copland = piece_id_by_title(&c, "Cowboys with Lassos (Billy the Kid)").unwrap();
+        let stayed: Vec<i64> = {
+            let mut statement = c
+                .prepare("SELECT id FROM event WHERE piece_id = 6 ORDER BY id")
+                .unwrap();
+            let rows = statement.query_map([], |row| row.get(0)).unwrap();
+            rows.collect::<rusqlite::Result<_>>().unwrap()
+        };
+        assert_eq!(stayed, vec![9001, 9002]);
+        assert_eq!(count_where(&c, "event", copland), 27);
+    }
+
+    #[test]
+    fn migrate_v11_to_v12_routes_every_piece_id_table_to_its_documented_owner() {
+        let c = seed_v11_with_merged_tanglewood();
+        seed_tanglewood_side_tables(&c);
+
+        migrate(&c).unwrap();
+
+        let copland = piece_id_by_title(&c, "Cowboys with Lassos (Billy the Kid)").unwrap();
+        for &(table, routing, _) in TANGLEWOOD_PIECE_TABLES {
+            let (barber_rows, copland_rows) =
+                (count_where(&c, table, 6), count_where(&c, table, copland));
+            match routing {
+                TanglewoodRouting::Barber => assert_eq!(
+                    (barber_rows, copland_rows),
+                    (1, 0),
+                    "{table} is calibrated to the Barber and stays with it"
+                ),
+                TanglewoodRouting::Copland | TanglewoodRouting::PerRowEvidence => {
+                    assert_eq!(
+                        barber_rows, 0,
+                        "{table} records practice work and must leave the Barber"
+                    );
+                    assert!(
+                        copland_rows > 0,
+                        "{table} records practice work and must land on the Copland"
+                    );
+                }
+            }
+        }
+        // The rows that carry both a piece and a region/set moved consistently —
+        // the same-piece triggers would have aborted the migration otherwise.
+        assert_eq!(
+            c.query_row("SELECT region_id FROM brain_thread WHERE id = 7", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            43
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM brain_turn WHERE thread_id = 7",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1,
+            "brain turns follow their thread by thread_id"
+        );
+        let mut statement = c.prepare("PRAGMA foreign_key_check").unwrap();
+        assert!(statement.query([]).unwrap().next().unwrap().is_none());
+    }
+
+    #[test]
+    fn migration_covers_every_piece_id_table() {
+        // `TANGLEWOOD_PIECE_TABLES` is the split's whole notion of "everything
+        // that belongs to a piece", and the stranded path deletes the merged row
+        // once it believes that list is empty — five of these tables cascade on
+        // delete, so a forgotten table would be destroyed rather than rejected.
+        // Pin the list against the real schema.
+        let c = Connection::open_in_memory().unwrap();
+        migrate(&c).unwrap();
+        let tables: Vec<String> = {
+            let mut statement = c
+                .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+                .unwrap();
+            let rows = statement.query_map([], |row| row.get(0)).unwrap();
+            rows.collect::<rusqlite::Result<_>>().unwrap()
+        };
+        let mut carrying_piece_id: Vec<&str> = Vec::new();
+        for table in &tables {
+            let mut statement = c
+                .prepare(&format!("PRAGMA table_info(\"{table}\")"))
+                .unwrap();
+            let mut columns = statement.query([]).unwrap();
+            while let Some(column) = columns.next().unwrap() {
+                if column.get::<_, String>(1).unwrap() == "piece_id" {
+                    carrying_piece_id.push(table.as_str());
+                    break;
+                }
+            }
+        }
+        let mut routed: Vec<&str> = TANGLEWOOD_PIECE_TABLES
+            .iter()
+            .map(|&(table, _, _)| table)
+            .collect();
+        routed.sort_unstable();
+        assert_eq!(
+            carrying_piece_id, routed,
+            "every table with a piece_id must have a documented Tanglewood routing"
+        );
+        assert_eq!(routed.len(), 11);
+    }
+
+    #[test]
+    fn migrate_v11_to_v12_completes_the_repair_when_the_folders_were_already_scanned() {
+        // THE ORDERING HAZARD. If the vault script runs and the previous build is
+        // then launched even once, its folder scan upserts both target folders as
+        // fresh, history-less pieces. The step used to decline outright and stamp
+        // v12 anyway, stranding the Copland's whole practice graph on the merged
+        // row forever. It must now finish the job by merging into those rows.
+        let c = seed_v11_with_merged_tanglewood();
+        seed_tanglewood_side_tables(&c);
+        let (barber, copland) = seed_scanner_discovered_split_folders(&c);
+        assert_ne!(barber, 6);
+        assert_ne!(copland, 6);
+
+        migrate(&c).unwrap();
+
+        assert_eq!(
+            piece_id_by_title(&c, "Chamber Pieces Tanglewood"),
+            None,
+            "the emptied drawer row is gone, not left behind"
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM piece WHERE id = 6", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        // Exactly one Barber and one Copland — the rows the scanner already made.
+        assert_eq!(piece_id_by_title(&c, "Pas de Deux"), Some(barber));
+        assert_eq!(
+            piece_id_by_title(&c, "Cowboys with Lassos (Billy the Kid)"),
+            Some(copland)
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            3,
+            "the Etude plus the two repaired pieces"
+        );
+
+        // The whole stranded graph landed on the auto-discovered Copland row.
+        assert_eq!(count_where(&c, "region", copland), 5);
+        assert_eq!(count_where(&c, "rep_block", copland), 2);
+        assert_eq!(count_where(&c, "event", copland), 27);
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM rep JOIN rep_block ON rep_block.id = rep.block_id
+                 WHERE rep_block.piece_id = ?1",
+                [copland],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            14
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT created_at FROM piece WHERE id = ?1",
+                [copland],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "2026-07-15 16:05:46",
+            "back-dated to the merged row, exactly as the clean path does"
+        );
+        // ...and the Barber-bound calibration landed on the Barber row.
+        assert_eq!(
+            c.query_row(
+                "SELECT piece_id FROM score_edition_calibration WHERE id = 1",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            barber
+        );
+        assert_eq!(count_where(&c, "event", barber), 0);
+        assert_eq!(count_where(&c, "region", barber), 0);
+        assert_eq!(count_where(&c, "rep_block", barber), 0);
+
+        assert_eq!(
+            c.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        {
+            let mut statement = c.prepare("PRAGMA foreign_key_check").unwrap();
+            assert!(statement.query([]).unwrap().next().unwrap().is_none());
+        }
+
+        // Five more launches change nothing.
+        for _ in 0..5 {
+            migrate(&c).unwrap();
+            assert!(!split_chamber_pieces_tanglewood(&c).unwrap());
+        }
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+        assert_eq!(count_where(&c, "event", copland), 27);
+    }
+
+    #[test]
+    fn migrate_v11_to_v12_completes_the_repair_when_only_one_folder_was_scanned() {
+        // Half-stranded: the scan saw the Copland folder but not the Barber one.
+        let c = seed_v11_with_merged_tanglewood();
+        let copland_folder = format!("{TANGLEWOOD_PARENT}/{TANGLEWOOD_COPLAND_FOLDER}");
+        c.execute(
+            "INSERT INTO piece (title,composer,folder_path,pdf_path,created_at)
+             VALUES ('Cowboys with Lassos (Billy the Kid)','Copland',?1,?2,'2026-07-30 21:00:00')",
+            rusqlite::params![
+                &copland_folder,
+                format!("{copland_folder}/{TANGLEWOOD_COPLAND_PDF}")
+            ],
+        )
+        .unwrap();
+        let copland = piece_at_folder(&c, &copland_folder).unwrap().unwrap();
+
+        migrate(&c).unwrap();
+
+        // The merged row survives as the Barber (its folder was free), keeping
+        // its id and its calibration; the practice graph joins the scanned row.
+        assert_eq!(piece_id_by_title(&c, "Pas de Deux"), Some(6));
+        assert_eq!(
+            c.query_row("SELECT folder_path FROM piece WHERE id = 6", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+            format!("{TANGLEWOOD_PARENT}/{TANGLEWOOD_BARBER_FOLDER}")
+        );
+        assert_eq!(count_where(&c, "score_edition_calibration", 6), 1);
+        assert_eq!(count_where(&c, "region", copland), 5);
+        assert_eq!(count_where(&c, "rep_block", copland), 2);
+        assert_eq!(count_where(&c, "event", copland), 27);
+        assert_eq!(count_where(&c, "event", 6), 0);
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+    }
+
+    #[test]
+    fn migrate_v11_to_v12_declines_rather_than_clobbering_a_conflicting_destination() {
+        // The one case still worth declining: the user did real work on an
+        // auto-discovered row that collides on a piece-scoped unique key. Nothing
+        // is written, so nothing is lost and a human can reconcile it.
+        let c = seed_v11_with_merged_tanglewood();
+        seed_tanglewood_side_tables(&c);
+        let (_, copland) = seed_scanner_discovered_split_folders(&c);
+        c.execute(
+            "INSERT INTO piece_plan (piece_id,body_text,updated_at)
+             VALUES (?1,'my own plan','2026-07-30 21:05:00')",
+            [copland],
+        )
+        .unwrap();
+
+        assert!(!split_chamber_pieces_tanglewood(&c).unwrap());
+
+        assert_eq!(
+            piece_id_by_title(&c, "Chamber Pieces Tanglewood"),
+            Some(6),
+            "a decline leaves every row exactly where it was"
+        );
+        assert_eq!(count_where(&c, "region", 6), 5);
+        assert_eq!(count_where(&c, "event", 6), 27);
+        assert_eq!(
+            c.query_row(
+                "SELECT body_text FROM piece_plan WHERE piece_id = ?1",
+                [copland],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "my own plan"
+        );
+    }
+
+    #[test]
+    fn migrate_v11_to_v12_never_overwrites_a_preferred_edition_the_guard_did_not_check() {
+        // The guard only ever verifies `pdf_path`. `preferred_pdf_path` is the
+        // user's own edition choice, so it is re-pointed only when it names the
+        // very PDF the guard checked.
+        for (preferred, expected) in [
+            (None, None),
+            (
+                Some("/vault/Pieces/Chamber Pieces Tanglewood/some-other-edition.pdf"),
+                Some("/vault/Pieces/Chamber Pieces Tanglewood/some-other-edition.pdf"),
+            ),
+        ] {
+            let c = seed_v11();
+            let folder = format!("{TANGLEWOOD_PARENT}/{TANGLEWOOD_TITLE}");
+            let barber = format!("{folder}/{TANGLEWOOD_BARBER_PDF}");
+            c.execute(
+                "INSERT INTO piece (id,title,folder_path,pdf_path,preferred_pdf_path)
+                 VALUES (6,?1,?2,?3,?4)",
+                rusqlite::params![TANGLEWOOD_TITLE, &folder, &barber, preferred],
+            )
+            .unwrap();
+
+            migrate(&c).unwrap();
+
+            assert_eq!(piece_id_by_title(&c, "Pas de Deux"), Some(6));
+            assert_eq!(
+                c.query_row(
+                    "SELECT preferred_pdf_path FROM piece WHERE id = 6",
+                    [],
+                    |row| row.get::<_, Option<String>>(0)
+                )
+                .unwrap()
+                .as_deref(),
+                expected,
+                "the split must not invent or overwrite an edition choice"
+            );
+            assert_eq!(
+                c.query_row("SELECT pdf_path FROM piece WHERE id = 6", [], |row| row
+                    .get::<_, String>(
+                    0
+                ))
+                .unwrap(),
+                format!("{TANGLEWOOD_PARENT}/{TANGLEWOOD_BARBER_FOLDER}/{TANGLEWOOD_BARBER_PDF}"),
+                "the scanner-derived pdf_path is still re-pointed"
+            );
+        }
     }
 
     #[test]

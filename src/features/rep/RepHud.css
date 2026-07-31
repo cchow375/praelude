@@ -7,14 +7,22 @@
    tokens from src/design/tokens.css + the kit.
    ========================================================================== */
 
+/* v5 DENSITY LAW (defect D3): this is a STRIP, not a page. A three-button
+   decision plus a rep count used to occupy ~700px with a 3rem numeral, so the
+   loudest thing on screen was a rep count and the workspace beneath it was
+   pushed off the fold. Everything secondary now lives in .rep-hud-drawer.
+   What must NOT shrink: the three verdict buttons. They are pressed mid-playing,
+   at arm's length, so they stay 52px tall and full width while the chrome
+   around them contracts. */
 .rep-hud {
   display: flex;
   flex-direction: column;
-  gap: var(--s-4);
-  padding: var(--s-5);
+  gap: var(--s-3);
+  padding: var(--s-4);
   background: var(--bg-raised);
   border: 1px solid var(--hairline);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
   color: var(--ink);
   animation: rep-hud-in var(--dur-slow) var(--ease-out);
 }
@@ -65,29 +73,48 @@
   color: var(--ink-dim);
 }
 .rep-hud-time {
-  margin-left: auto;
   font-family: var(--font-mono);
   font-size: 0.8125rem;
   color: var(--ink-dim);
 }
-.rep-hud-collapse {
+/* Always-reachable controls, pushed to the end of the context line. */
+.rep-hud-context-tools {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+.rep-hud-chip {
   min-height: 28px;
   padding: 0 var(--s-2);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--control-line);
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--ink-dim);
   font: inherit;
-  font-size: 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
   cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out);
 }
-.rep-hud-collapse:hover {
-  border-color: var(--hairline-strong);
+.rep-hud-chip:hover:not(:disabled) {
   color: var(--ink);
+  background: var(--surface-hover);
 }
-.rep-hud-collapse:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
+.rep-hud-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.rep-hud-chip:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+/* A paused set: Resume is the one chip that reads as an action, not a label. */
+.rep-hud-chip.rep-hud-resume {
+  color: var(--ink);
+  font-weight: 600;
+  border-color: var(--ink);
 }
 
 /* A practice set must not become a modal wall on a short laptop window. */
@@ -106,25 +133,61 @@
   font-size: 1rem;
 }
 
-/* Compact-by-default: contract + metrics + rare controls fold away. */
-.rep-hud-more > summary {
-  font-size: 0.75rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
+/* The single secondary affordance (D3). Everything that is not "read the state
+   and give a verdict" lives in here: Undo, the focus contract, the metrics, the
+   corrections, and the nested "Change the condition" desk. */
+.rep-hud-drawer > summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding: var(--s-1) 0;
+  list-style: none;
   cursor: pointer;
-}
-.rep-hud-more[open] > summary {
   color: var(--ink-dim);
+}
+.rep-hud-drawer > summary::-webkit-details-marker {
+  display: none;
+}
+.rep-hud-drawer > summary::before {
+  content: "";
+  align-self: center;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.rep-hud-drawer[open] > summary::before {
+  transform: rotate(45deg);
+}
+.rep-hud-drawer > summary:hover {
+  color: var(--ink);
+}
+.rep-hud-drawer > summary:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--r-sm);
+}
+.rep-hud-drawer-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.rep-hud-drawer-hint {
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}
+.rep-hud-drawer[open] > summary {
+  color: var(--ink);
   margin-bottom: var(--s-3);
 }
-.rep-hud-more > * + * {
+.rep-hud-drawer > * + * {
   margin-top: var(--s-3);
 }
 
 .rep-hud-tempo {
   font-family: var(--font-mono);
-  font-size: 1.0625rem;
+  font-size: 1.125rem;
   color: var(--ink-dim);
 }
 
@@ -186,14 +249,17 @@
   gap: var(--s-2);
   line-height: 1;
 }
+/* D3: the numeral was 3rem (~72px rendered) — a rep count as the single
+   loudest element on the screen. It reads as "3/3" at a size that is still
+   legible across a piano, without dominating the verdicts below it. */
 .rep-hud-streak-value strong {
-  font-size: 3rem;
+  font-size: 1.75rem;
   font-weight: 600;
   color: var(--ink);
 }
 .rep-hud-streak-value span {
-  font-size: 1.5rem;
-  color: var(--ink-faint);
+  font-size: 1.125rem;
+  color: var(--ink-dim);
 }
 .rep-hud-mastery {
   font-size: 0.8125rem;
@@ -229,8 +295,9 @@
 /* While climbing the ladder the big number is the current rung, not the target
    proof — this caption tells the pianist the number they're watching moves per
    clean and what the target proof will ask once they reach the target tempo. */
+/* Reads inline after the tempo when it fits, wrapping only when it must — it
+   used to force its own line via flex-basis: 100%. */
 .rep-hud-climb {
-  flex-basis: 100%;
   font-size: 0.8125rem;
   color: var(--ink-dim);
 }
@@ -277,17 +344,36 @@
   display: flex;
   gap: var(--s-2);
 }
+/* The one thing that must NOT shrink. Pressed mid-playing, read at arm's
+   length: three equal, unmissable targets. */
 .rep-hud-actions .ck-btn {
   flex: 1;
-  min-height: 44px;
-  font-size: 0.9375rem;
+  min-height: 52px;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+/* D7: "Sloppy" and "Again" were borderless --ink-dim text on white — two of the
+   three verdicts read as disabled next to the ink-filled "Clean". They keep the
+   quieter treatment (Clean is still the affirmative stamp) but are now
+   unmistakably buttons: a 3.3:1 control boundary and full-ink labels. */
+.rep-hud-actions .ck-btn-text {
+  border: 1px solid var(--control-line);
+  color: var(--ink);
+  background: var(--bg);
+}
+.rep-hud-actions .ck-btn-text:hover:not(:disabled) {
+  background: var(--bg-sunken);
+}
+.rep-hud-actions .ck-btn:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 .rep-hud-note {
   width: 100%;
-  min-height: 34px;
+  min-height: 38px;
   padding: 0 var(--s-3);
-  background: var(--bg-sunken);
-  border: 1px solid var(--hairline);
+  background: var(--bg);
+  border: 1px solid var(--control-line);
   border-radius: var(--r-sm);
   color: var(--ink);
   font: inherit;
@@ -297,8 +383,9 @@
   color: var(--ink-faint);
 }
 .rep-hud-note:focus-visible {
-  outline: none;
-  border-color: var(--hairline-strong);
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  border-color: var(--accent);
 }
 .rep-hud-note:disabled {
   opacity: 0.5;
@@ -311,10 +398,12 @@
   gap: var(--s-2);
   align-items: center;
 }
+/* D7: these were borderless --ink-dim labels — inside the drawer they read as
+   captions, not controls. A 3.3:1 boundary (WCAG 1.4.11) makes them buttons. */
 .rep-hud-tools button {
-  min-height: 30px;
+  min-height: 32px;
   padding: 0 var(--s-3);
-  border: none;
+  border: 1px solid var(--control-line);
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--ink-dim);
@@ -336,8 +425,9 @@
   opacity: 0.45;
   cursor: default;
 }
-.rep-hud-close {
-  margin-left: auto;
+.rep-hud-tools button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* Native controls inside recovery/correction/reflection forms. */
@@ -346,8 +436,8 @@
 .rep-hud textarea,
 .rep-hud select {
   padding: var(--s-1) var(--s-2);
-  background: var(--bg-sunken);
-  border: 1px solid var(--hairline);
+  background: var(--bg);
+  border: 1px solid var(--control-line);
   border-radius: var(--r-sm);
   color: var(--ink);
   font: inherit;
@@ -364,8 +454,9 @@
 .rep-hud input:focus-visible,
 .rep-hud textarea:focus-visible,
 .rep-hud select:focus-visible {
-  outline: none;
-  border-color: var(--hairline-strong);
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  border-color: var(--accent);
 }
 
 /* --- Safety stop (semantic error signal, deliberately unmissable) ------ */
@@ -389,6 +480,10 @@
   background: transparent;
   color: var(--ink-faint);
   cursor: default;
+}
+.rep-safety-stop:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* --- Disclosure-style desks (recovery / reflection / correction) ------- */
@@ -483,9 +578,9 @@
 .rep-reflection button,
 .rep-hud-correction button,
 .rep-hud-confirm button {
-  min-height: 30px;
+  min-height: 32px;
   padding: 0 var(--s-3);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--control-line);
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--ink-dim);
@@ -512,6 +607,16 @@
 .rep-hud-confirm button:disabled {
   opacity: 0.45;
   cursor: default;
+}
+.rep-recovery-quick button:focus-visible,
+.rep-recovery-editors button:focus-visible,
+.rep-reflection button:focus-visible,
+.rep-hud-correction button:focus-visible,
+.rep-hud-confirm button:focus-visible,
+.rep-recovery-desk > summary:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--r-sm);
 }
 
 /* --- Recent attempts feed (mono symbols, monochrome) ------------------- */

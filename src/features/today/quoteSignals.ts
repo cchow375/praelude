@@ -1,12 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { defineCommand, executeCommand } from "../../services/command";
 import { addDays } from "../calendar/dates";
 import { useTodaySheet } from "../notebook/DaySheetStore";
 import type { DaySheet, NotebookLine } from "../notebook/lines";
 import type { RepSnapshot } from "../rep/useRep";
+import { QUOTES, type Quote } from "../../content/quotes";
 import {
+  connectorFor,
+  contextKey,
+  deriveCues,
   NO_SIGNALS,
+  resolveHomeQuote,
+  type QuoteCue,
   type QuoteSignals,
+  type QuoteStore,
   type RepVerdict,
 } from "./quoteRotation";
 
@@ -19,6 +26,16 @@ import {
  * in-memory read on the Rust side; the attempt rows are fetched only while a
  * set is actually open. Any of them may fail — a signal we could not read stays
  * `null`, which the scorer treats as "no evidence" rather than "no".
+ *
+ * FRESHNESS IS THE WHOLE POINT (D1). The strip prints a line claiming why the
+ * quote is on screen, so every fact behind it has to be a fact NOW:
+ *   · today's page is read straight out of the shared in-memory store on every
+ *     render, so the moment Christian types a line "before you write today's
+ *     page" stops being derivable — no round-trip, no remount needed;
+ *   · everything that lives behind IPC (yesterday's page, the open set's
+ *     verdicts, and the clock itself) is re-read on a timer, so a run of reps
+ *     logged in the practice window cannot leave a claim about "your last three
+ *     reps" standing after those reps stopped being the last three.
  */
 
 const DAY_SHEET_GET = defineCommand<{ date: string }, DaySheet | null>(
@@ -62,6 +79,19 @@ export function sheetHasContent(body: readonly NotebookLine[]): boolean {
         return true;
     }
   });
+}
+
+/**
+ * True when today's page carries a lesson-prep line with something in it. An
+ * empty prep line is a heading he has not filled in yet, and treating that as
+ * "a lesson is coming" would put a claim on screen the page does not support.
+ */
+export function sheetHasLessonPrep(body: readonly NotebookLine[]): boolean {
+  return body.some(
+    (line) =>
+      line.type === "lesson_prep" &&
+      (line.bring.length > 0 || line.want.trim().length > 0),
+  );
 }
 
 /**
@@ -127,49 +157,151 @@ export async function gatherQuoteSignals({
     date,
     hour: now.getHours(),
     daySheetWritten: todaySheet == null ? null : sheetHasContent(todaySheet),
+    lessonPrep: todaySheet == null ? null : sheetHasLessonPrep(todaySheet),
     yesterdaySheetWritten:
       yesterday === undefined ? null : sheetHasContent(yesterday?.body ?? []),
-    setOpen: snap === undefined ? null : snap != null,
     recentVerdicts: verdicts,
   };
 }
 
 /**
- * Gather once per mount of the menu. `ready` gates the pick: choosing on
- * half-read signals and then re-choosing when the rest land would swap the
- * quote out from under the reader, so the strip waits for the whole bag.
+ * How often the IPC-backed half of the signals is re-read. Two indexed reads a
+ * minute is nothing next to a claim that has gone stale on screen.
  */
-export function useQuoteSignals(api: QuoteSignalApi = nativeApi): {
-  signals: QuoteSignals;
-  ready: boolean;
-} {
+export const SIGNAL_REFRESH_MS = 60_000;
+
+/** What `useQuoteSignals` hands to `useHomeQuote`. */
+export interface LiveQuoteSignals {
+  readonly signals: QuoteSignals;
+  /** False until the first full read lands — the strip waits rather than guess. */
+  readonly ready: boolean;
+  /** ms stamp of the last backend read. A change is the "re-evaluate" pulse. */
+  readonly readAt: number;
+}
+
+/**
+ * The live signal bag. `ready` gates the pick: choosing on half-read signals and
+ * then re-choosing when the rest land would swap the quote out from under the
+ * reader, so the strip waits for the whole bag.
+ *
+ * Today's-page facts are NOT taken from the last gather — they are recomputed
+ * from the shared store on every render, because they are already in memory and
+ * they are the ones that change while the menu is on screen.
+ *
+ * `api` must be a stable reference (the default module-level `nativeApi` is);
+ * a fresh object per render would re-run the IPC reads on every render.
+ */
+export function useQuoteSignals(
+  api: QuoteSignalApi = nativeApi,
+  refreshMs = SIGNAL_REFRESH_MS,
+): LiveQuoteSignals {
   const sheet = useTodaySheet();
   // "loading" means wait; "error" means the body we hold is the empty default,
   // NOT an empty page — reporting that as a blank sheet would be a lie.
   const sheetStatus = sheet.status;
-  const [state, setState] = useState<{
+  const [read, setRead] = useState<{
     signals: QuoteSignals;
     ready: boolean;
-  }>({ signals: NO_SIGNALS, ready: false });
+    readAt: number;
+  }>({ signals: NO_SIGNALS, ready: false, readAt: 0 });
 
-  // The sheet body changes on every keystroke; only its loaded-ness may retrigger.
+  // The sheet body changes on every keystroke; only its loaded-ness may
+  // retrigger the IPC reads (the page's own facts are derived below instead).
   const bodyRef = useRef(sheet.body);
   bodyRef.current = sheet.body;
 
   useEffect(() => {
     if (sheetStatus === "loading") return;
     let alive = true;
-    void gatherQuoteSignals({
-      todaySheet: sheetStatus === "ready" ? bodyRef.current : null,
-      now: new Date(),
-      api,
-    }).then((signals) => {
-      if (alive) setState({ signals, ready: true });
-    });
+    const readAll = () => {
+      void gatherQuoteSignals({
+        todaySheet: sheetStatus === "ready" ? bodyRef.current : null,
+        now: new Date(),
+        api,
+      }).then((signals) => {
+        if (alive) setRead({ signals, ready: true, readAt: Date.now() });
+      });
+    };
+    readAll();
+    const timer = setInterval(readAll, refreshMs);
     return () => {
       alive = false;
+      clearInterval(timer);
     };
-  }, [api, sheetStatus]);
+  }, [api, sheetStatus, refreshMs]);
 
-  return state;
+  const body = sheet.body;
+  const written = sheetStatus === "ready" ? sheetHasContent(body) : null;
+  const lessonPrep = sheetStatus === "ready" ? sheetHasLessonPrep(body) : null;
+
+  const signals = useMemo(
+    () => ({ ...read.signals, daySheetWritten: written, lessonPrep }),
+    [read.signals, written, lessonPrep],
+  );
+
+  return { signals, ready: read.ready, readAt: read.readAt };
+}
+
+// ---------------------------------------------------------------------------
+// The strip's own state
+// ---------------------------------------------------------------------------
+
+/** localStorage, or null where it is unavailable (private mode, a test env). */
+function browserQuoteStore(): QuoteStore | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export interface HomeQuoteOptions {
+  readonly store?: QuoteStore | null;
+  readonly quotes?: readonly Quote[];
+  readonly now?: () => number;
+}
+
+/**
+ * Everything the quote strip renders. The QUOTE is held in state — it must not
+ * change under the reader on every keystroke, and `resolveHomeQuote` keeps it
+ * for at least `MIN_DWELL_MS` — but the CONNECTOR is never held: it is derived
+ * from the current signals on every render.
+ *
+ * That split is the D1 fix. Storing the pick whole (quote AND the cue it was
+ * chosen under) is what let "before you write today's page" stay on screen after
+ * the page was written: the quote was correctly held, and the reason was held
+ * with it. A held quote is fine. A held reason is a false claim.
+ */
+export function useHomeQuote(
+  live: LiveQuoteSignals,
+  options: HomeQuoteOptions = {},
+): { quote: Quote | null; connector: QuoteCue | null } {
+  const { signals, ready, readAt } = live;
+  const {
+    store = browserQuoteStore(),
+    quotes = QUOTES,
+    now = Date.now,
+  } = options;
+  const [quote, setQuote] = useState<Quote | null>(null);
+
+  // A string key, not the signals object: the rotation must advance when the
+  // FACTS move, never because a render allocated a new bag.
+  const key = ready ? contextKey(signals, deriveCues(signals)) : null;
+  const latest = useRef({ signals, quotes, now });
+  latest.current = { signals, quotes, now };
+
+  useEffect(() => {
+    if (key == null || store == null) return;
+    const { signals: s, quotes: qs, now: clock } = latest.current;
+    try {
+      setQuote(resolveHomeQuote(store, s, clock(), qs).quote);
+    } catch {
+      // A storage failure must never blank the menu; the slot just stays empty.
+    }
+    // `readAt` is the pulse that lets the dwell bounds actually expire: without
+    // it a menu left open all day would never re-evaluate and MAX_DWELL_MS would
+    // be a promise nothing kept.
+  }, [key, readAt, store]);
+
+  return { quote, connector: connectorFor(quote, signals) };
 }

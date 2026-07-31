@@ -21,6 +21,12 @@ import {
   validAnchorMap,
 } from "./anchors";
 import { PdfPage } from "./PdfPage";
+import {
+  createPageImageSource,
+  exceedsPageImageCeiling,
+  neededLongEdge,
+  pageImageBucket,
+} from "./pageImage";
 import { RegionOverlay, type RegionOverlayItem } from "./RegionOverlay";
 import { REGION_COLORS, RegionEditor } from "../pieces/RegionEditor";
 import { useCrud } from "../rep/useCrud";
@@ -131,6 +137,20 @@ const defaultApi: ScorePdfApi = {
     }),
   createTarget: (payload) =>
     invoke<Region>("score_atlas_target_save", { payload }),
+  pageImage: (pieceId, editionId, page, targetLongEdge) =>
+    invoke<ArrayBuffer>("score_page_image", {
+      pieceId,
+      editionId,
+      page,
+      targetLongEdge,
+    }),
+  warmPageImage: (pieceId, editionId, page, targetLongEdge) =>
+    invoke<void>("score_page_image_warm", {
+      pieceId,
+      editionId,
+      page,
+      targetLongEdge,
+    }),
   loadFirstPage: (pieceId, fingerprint, page, bucket) =>
     invoke<ArrayBuffer>("score_page_cache_load", {
       pieceId,
@@ -980,6 +1000,80 @@ export function ScoreView({
   containerWidthRef.current = containerWidth;
   containerHeightRef.current = containerHeight;
   const edition = editions.find((item) => item.id === editionId) ?? null;
+  // The screen-resolution fast path, bound to the edition currently open. Null
+  // whenever the host cannot serve page images (the browser dev mock, the test
+  // adapters), in which case every page renders through PDF.js exactly as before.
+  const pageImageSource = useMemo(
+    () => createPageImageSource(api, pieceId, editionId),
+    [api, editionId, pieceId],
+  );
+  // Warm the pages just OUTSIDE the mounted window, on idle.
+  //
+  // The ±1 neighbours are already mounted and fetch their own image (deferred
+  // to idle inside PdfPage), so warming those would only duplicate the decode.
+  // What is not covered is the page after next, which is where a reader turning
+  // pages steadily is about to be — generating it in Rust without shipping any
+  // bytes across IPC makes that turn a cache hit. Never awaited, never on the
+  // path of the page being looked at, and each page/bucket pair is asked for
+  // once so a zoom that walks through buckets cannot start a decode storm.
+  const warmedRef = useRef(new Set<string>());
+  // Switching edition invalidates every "already warmed" note: the keys are
+  // page+bucket, and the same page of a different edition is a different image.
+  useEffect(() => {
+    warmedRef.current = new Set<string>();
+  }, [pageImageSource]);
+  useEffect(() => {
+    if (!pageImageSource || pageCount < 1) return;
+    const size = pageSizesRef.current.get(currentPage) ?? {
+      width: maxPageWidth,
+      height: maxPageHeight,
+    };
+    const needed = neededLongEdge(size, scale, window.devicePixelRatio || 1);
+    if (exceedsPageImageCeiling(needed)) return;
+    const bucket = pageImageBucket(needed);
+    const mounted = new Set(mountedPages);
+    const wanted = [currentPage + 2, currentPage - 2].filter(
+      (page) =>
+        page >= 1 &&
+        page <= pageCount &&
+        !mounted.has(page) &&
+        !warmedRef.current.has(`${page}:${bucket}`),
+    );
+    if (wanted.length === 0) return;
+    let cancelled = false;
+    const fire = () => {
+      if (cancelled) return;
+      for (const page of wanted) {
+        warmedRef.current.add(`${page}:${bucket}`);
+        pageImageSource.warm(page, bucket);
+      }
+    };
+    const win = window as Window & {
+      requestIdleCallback?: (cb: () => void) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (win.requestIdleCallback && win.cancelIdleCallback) {
+      const handle = win.requestIdleCallback(fire);
+      return () => {
+        cancelled = true;
+        win.cancelIdleCallback?.(handle);
+      };
+    }
+    const timer = window.setTimeout(fire, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    currentPage,
+    maxPageHeight,
+    maxPageWidth,
+    mountedPages,
+    pageCount,
+    pageImageSource,
+    scale,
+  ]);
+
   const selectedRegion =
     regions.find((region) => region.id === selectedRegionId) ?? null;
   useLayoutEffect(() => {
@@ -2193,6 +2287,7 @@ export function ScoreView({
                       active
                       buffered={buffered}
                       scale={scale}
+                      pageImage={pageImageSource}
                       onSize={handlePageSize}
                       onRasterized={handleRasterized}
                     >

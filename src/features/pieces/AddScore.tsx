@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
+  dedupeHits,
   downloadBasename,
+  isSupersededError,
   matchesDownloadName,
   stripHighlightHtml,
   stripWikiTemplates,
@@ -18,12 +20,22 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Debounce for search-as-you-type. Deliberately short: the panel used to wait
- * 1.5s before it even *started*, which read as "the search is broken". IMSLP
- * etiquette is enforced where it belongs — the Rust client's 1s rate guard
- * between real requests (`imslp.rs`), which now runs off the UI thread.
+ * Debounce for search-as-you-type — long enough to sit ABOVE a normal typing
+ * gap, short enough that the panel never feels dead.
+ *
+ * Both previous values were wrong in opposite directions. 1500ms made the panel
+ * look broken for a second and a half before it even started. 250ms was worse:
+ * it sat *below* ordinary typing speed, so it was a cliff, not a debounce —
+ * 240ms/char coalesced into 1 request but 260ms/char fired one request PER
+ * CHARACTER (measured: "chopin scherzo" at 300ms/char = 14 requests), each
+ * queueing a second deep behind IMSLP's rate guard.
+ *
+ * 450ms clears the slowest gap in real typing traces, including the ~400ms
+ * pauses people take at word boundaries. It is not load-bearing on its own: the
+ * one-at-a-time cap below is what makes a burst of keystrokes cost a bounded
+ * number of requests no matter how the gaps fall.
  */
-const SEARCH_DEBOUNCE_MS = 250;
+const SEARCH_DEBOUNCE_MS = 450;
 /** Poll cadence for a matching file arriving in ~/Downloads. */
 const DOWNLOADS_POLL_MS = 2000;
 
@@ -86,32 +98,78 @@ export function AddScore({ onImported, onClose }: AddScoreProps) {
 
   const searchGeneration = useRef(0);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** True while a request is on the wire and the drain loop owns it. */
+  const searching = useRef(false);
+  /** The newest query asked for while a request was already on the wire. */
+  const queuedQuery = useRef<string | null>(null);
 
   /**
-   * Run one search now. Stale in-flight calls are discarded by generation, so a
-   * slow earlier request can never overwrite a newer one's results.
+   * Ask for one search. AT MOST ONE `imslp_search` is ever on the wire.
+   *
+   * WHY the cap: `imslp_search` blocks on the Rust client's ≥1s rate guard, so
+   * K simultaneous requests do not overlap — they drain one per second, with the
+   * query the user actually wants last in line. Firing one per debounce expiry
+   * therefore turned fast typing into a 13-second wait behind 13 dead requests
+   * ("unusably laggy", the second time round). Here a request that arrives while
+   * one is in flight does not start a second call: it replaces `queuedQuery`, so
+   * only the LATEST query survives the wait, and the drain loop picks it up the
+   * moment the current response lands.
+   *
+   * Staleness is separate and still guarded by `searchGeneration`: whatever
+   * order responses arrive in, only the newest query's outcome is rendered.
    */
   const runSearch = useCallback(async (raw: string) => {
     const trimmed = raw.trim();
     if (!trimmed) {
       searchGeneration.current += 1; // abandon anything in flight
+      queuedQuery.current = null;
       setSearch({ kind: "idle" });
       return;
     }
-    const generation = ++searchGeneration.current;
+    searchGeneration.current += 1;
     setSearch({ kind: "searching", query: trimmed });
+    if (searching.current) {
+      queuedQuery.current = trimmed; // supersede whatever was waiting
+      return;
+    }
+
+    searching.current = true;
     try {
-      const hits = await invoke<WorkHit[]>("imslp_search", { query: trimmed });
-      if (generation !== searchGeneration.current) return;
-      const list = hits ?? [];
-      setSearch(
-        list.length > 0
-          ? { kind: "results", query: trimmed, hits: list }
-          : { kind: "empty", query: trimmed },
-      );
-    } catch (e) {
-      if (generation !== searchGeneration.current) return;
-      setSearch({ kind: "error", query: trimmed, message: messageOf(e) });
+      let next: string | null = trimmed;
+      while (next !== null) {
+        const query: string = next;
+        const generation = searchGeneration.current;
+        // `null` = an outcome the panel must NOT show (superseded, or already
+        // overtaken by a newer query).
+        let outcome: SearchState | null;
+        try {
+          const hits = await invoke<WorkHit[]>("imslp_search", { query });
+          const list = dedupeHits(hits ?? []);
+          outcome =
+            list.length > 0
+              ? { kind: "results", query, hits: list }
+              : { kind: "empty", query };
+        } catch (e) {
+          const message = messageOf(e);
+          // The backend drops a search the instant a newer one starts. That is
+          // not a failure to report — the newer one owns the panel now.
+          outcome = isSupersededError(message)
+            ? null
+            : { kind: "error", query, message };
+        }
+        next = queuedQuery.current;
+        queuedQuery.current = null;
+        if (outcome && generation === searchGeneration.current) {
+          setSearch(outcome);
+        }
+        // A keystroke landed while that request was on the wire and its own
+        // debounce has not fired yet, so the queued query is ALREADY out of
+        // date. Hand the turn back to the pending timer instead of spending a
+        // request whose results would be discarded on arrival.
+        if (debounceTimer.current !== null) next = null;
+      }
+    } finally {
+      searching.current = false;
     }
   }, []);
 
@@ -364,7 +422,12 @@ export function AddScore({ onImported, onClose }: AddScoreProps) {
               not return a `pageid`, so every real hit arrives as page_id 0.
               Keying on it gave every row the same React key and made selecting
               one work light up the whole list. Titles are unique per wiki page
-              and are what `imslp_editions` is called with anyway. */}
+              and are what `imslp_editions` is called with anyway.
+
+              Uniqueness is ENFORCED, not assumed: `hits` came through
+              `dedupeHits`, so a response that repeated a title cannot produce a
+              duplicate key here or an `aria-pressed` row that isn't the one
+              clicked. */}
           {search.hits.map((hit) => (
             <li key={hit.title}>
               <button

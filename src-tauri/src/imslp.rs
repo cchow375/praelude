@@ -22,11 +22,21 @@
 //! (up to [`REQUEST_TIMEOUT`]). The `imslp_*` commands in `lib.rs` are therefore
 //! `async` + `spawn_blocking`; keep them that way.
 //!
+//! QUEUEING CONTRACT (see [`RequestQueue`]): the ≥1s spacing between live
+//! requests is enforced by *reserving* a start time under a briefly-held mutex
+//! and then sleeping outside it — never by sleeping while holding the lock. A
+//! sleeping lock turned every queued search into a serialized one-per-second
+//! drain that the newest query had to wait out; with reservations a waiter
+//! learns its own deadline immediately, and a search superseded by a later one
+//! abandons its slot instead of spending a round trip nobody is waiting for.
+//!
 //! Testability: all network egress goes through the [`HttpGet`] seam, so the
 //! JSON/wikitext parsers are exercised against canned fixtures with no live
 //! network (mirroring the brain module's `Transport` trait). Exactly one
 //! `#[ignore]`d live smoke test hits the real API.
 
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -46,6 +56,12 @@ const MIN_REQUEST_SPACING: Duration = Duration::from_secs(1);
 
 /// Per-request network timeout. Honest failure over an indefinite hang.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// The exact error a search returns when a NEWER search replaced it while it was
+/// still waiting for its rate-guard slot. It is a control signal, not a failure:
+/// the frontend swallows it (the newer search owns the panel), so it must stay
+/// byte-identical to `SEARCH_SUPERSEDED` in `src/features/pieces/imslpText.ts`.
+pub const SEARCH_SUPERSEDED: &str = "IMSLP search superseded by a newer query.";
 
 /// One search result — a work/page on IMSLP. Field names are `snake_case` and
 /// cross the Tauri IPC boundary verbatim (repo convention, see `store::model`).
@@ -110,14 +126,80 @@ pub trait HttpGet: Send + Sync {
     /// GET `url`, returning the response body as a UTF-8 string, or an honest
     /// error string on any transport/status failure.
     fn get(&self, url: &str) -> Result<String, String>;
+
+    /// GET a *search* URL, which the transport may abandon with
+    /// [`SEARCH_SUPERSEDED`] if a later search starts while this one is still
+    /// queued behind the rate guard. Search-as-you-type is the one caller whose
+    /// older requests are worthless the instant a newer one exists, so it is the
+    /// one caller allowed to be dropped.
+    ///
+    /// Default: no supersession at all — a transport with no request queue (every
+    /// test fake) behaves exactly like [`HttpGet::get`], which keeps fixture-driven
+    /// tests deterministic even when they run in parallel.
+    fn get_search(&self, url: &str) -> Result<String, String> {
+        self.get(url)
+    }
+}
+
+/// The live-request queue: IMSLP etiquette (≥ [`MIN_REQUEST_SPACING`] between
+/// requests) plus the notion of a search being superseded.
+///
+/// The mutex protects one value — the earliest [`Instant`] the *next* request may
+/// start — and is held only long enough to read-and-bump it. Callers then sleep
+/// on their own reserved deadline with no lock held. The previous design slept
+/// *inside* the lock, so a second caller blocked in `lock()` and a third blocked
+/// behind that: an invisible, un-cancellable queue that grew one second per
+/// waiter and put the newest search dead last.
+#[derive(Debug, Default)]
+struct RequestQueue {
+    /// Earliest start time for the next request; `None` before the first one.
+    next_slot: Mutex<Option<Instant>>,
+    /// Monotonic counter — the highest value ever handed out is the newest search.
+    search_epoch: AtomicU64,
+}
+
+impl RequestQueue {
+    /// Take the next start time out of the queue, bumping it by
+    /// [`MIN_REQUEST_SPACING`] for whoever asks next. Returns immediately; the
+    /// caller does the waiting.
+    fn reserve_slot(&self) -> Instant {
+        let now = Instant::now();
+        let mut next = self.next_slot.lock().expect("imslp rate-guard lock");
+        let start_at = match *next {
+            Some(at) if at > now => at,
+            _ => now,
+        };
+        *next = Some(start_at + MIN_REQUEST_SPACING);
+        start_at
+    }
+
+    /// Reserve a slot and sleep until it arrives — never holding the lock while
+    /// asleep (see the struct docs).
+    fn await_slot(&self) {
+        let start_at = self.reserve_slot();
+        let wait = start_at.saturating_duration_since(Instant::now());
+        if !wait.is_zero() {
+            std::thread::sleep(wait);
+        }
+    }
+
+    /// Claim this search's epoch. Every later claim supersedes it.
+    fn claim_search(&self) -> u64 {
+        self.search_epoch.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Whether `epoch` is still the newest search claimed on this queue.
+    fn is_newest_search(&self, epoch: u64) -> bool {
+        self.search_epoch.load(Ordering::SeqCst) == epoch
+    }
 }
 
 /// Production [`HttpGet`]: a blocking reqwest client with a descriptive
-/// User-Agent, a bounded timeout, and a simple last-request-time rate guard that
-/// sleeps to keep every live request ≥ [`MIN_REQUEST_SPACING`] apart.
+/// User-Agent, a bounded timeout, and the shared [`RequestQueue`] that keeps every
+/// live request ≥ [`MIN_REQUEST_SPACING`] apart.
 pub struct NativeHttp {
     client: reqwest::blocking::Client,
-    last_request: Mutex<Option<Instant>>,
+    queue: RequestQueue,
 }
 
 impl NativeHttp {
@@ -129,21 +211,22 @@ impl NativeHttp {
             .expect("imslp HTTP client build");
         Self {
             client,
-            last_request: Mutex::new(None),
+            queue: RequestQueue::default(),
         }
     }
 
-    /// Block until at least [`MIN_REQUEST_SPACING`] has passed since the previous
-    /// request, then record now as the new last-request time.
-    fn rate_guard(&self) {
-        let mut last = self.last_request.lock().expect("imslp rate-guard lock");
-        if let Some(prev) = *last {
-            let elapsed = prev.elapsed();
-            if elapsed < MIN_REQUEST_SPACING {
-                std::thread::sleep(MIN_REQUEST_SPACING - elapsed);
-            }
+    /// The actual round trip, with no queueing — callers wait for their slot first.
+    fn send(&self, url: &str) -> Result<String, String> {
+        let response = self.client.get(url).send().map_err(|_| {
+            "Could not reach IMSLP. Check your connection and try again.".to_string()
+        })?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("IMSLP returned an unexpected status ({status})."));
         }
-        *last = Some(Instant::now());
+        response
+            .text()
+            .map_err(|_| "IMSLP sent a response CodaKiller could not read.".to_string())
     }
 }
 
@@ -155,17 +238,20 @@ impl Default for NativeHttp {
 
 impl HttpGet for NativeHttp {
     fn get(&self, url: &str) -> Result<String, String> {
-        self.rate_guard();
-        let response = self.client.get(url).send().map_err(|_| {
-            "Could not reach IMSLP. Check your connection and try again.".to_string()
-        })?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(format!("IMSLP returned an unexpected status ({status})."));
+        self.queue.await_slot();
+        self.send(url)
+    }
+
+    fn get_search(&self, url: &str) -> Result<String, String> {
+        let epoch = self.queue.claim_search();
+        self.queue.await_slot();
+        // Re-check on the way out of the queue: if the user has typed on, this
+        // request's results are already stale, so spend neither the round trip
+        // nor the caller's attention on them.
+        if !self.queue.is_newest_search(epoch) {
+            return Err(SEARCH_SUPERSEDED.to_string());
         }
-        response
-            .text()
-            .map_err(|_| "IMSLP sent a response CodaKiller could not read.".to_string())
+        self.send(url)
     }
 }
 
@@ -202,7 +288,10 @@ impl ImslpClient {
     }
 
     /// Full-text search by title/composer via `action=query&list=search`.
-    /// Empty results are `Ok(vec![])`, not an error.
+    /// Empty results are `Ok(vec![])`, not an error; a search that a newer search
+    /// superseded while it was queued is `Err(`[`SEARCH_SUPERSEDED`]`)`.
+    ///
+    /// The returned list is what the picker should *show*: see [`usable_hits`].
     pub fn search(&self, query: &str) -> Result<Vec<WorkHit>, String> {
         let trimmed = query.trim();
         if trimmed.is_empty() {
@@ -212,8 +301,8 @@ impl ImslpClient {
             "{API_ENDPOINT}?action=query&list=search&srsearch={}&format=json&srlimit=20",
             percent_encode(trimmed)
         );
-        let body = self.http.get(&url)?;
-        parse_search(&body)
+        let body = self.http.get_search(&url)?;
+        Ok(usable_hits(parse_search(&body)?))
     }
 
     /// Enumerate the downloadable editions of a work via
@@ -308,6 +397,38 @@ fn parse_search(body: &str) -> Result<Vec<WorkHit>, String> {
         })
         .collect();
     Ok(hits)
+}
+
+/// Reduce a raw hit list to the rows the picker should show.
+///
+/// Two things happen, both of which the UI depends on and neither of which the
+/// API guarantees:
+///
+/// 1. **Unique titles.** A hit's identity IS its title (IMSLP sends no `pageid`,
+///    so `page_id` is always 0 — see [`WorkHit::page_id`]). The picker keys its
+///    React list on the title and marks the selected row by comparing titles, so
+///    two rows sharing a title would mean a duplicate key *and* one click
+///    pressing both rows. Titles are unique per wiki page and no duplicate has
+///    ever been observed live, so this enforces the invariant rather than
+///    trusting the response to hold it. First occurrence wins (best-ranked).
+/// 2. **No `#REDIRECT` stubs.** Live `chopin scherzo` returns 12 hits, 8 of them
+///    54-byte redirect stubs (`Scherzo No.1 (Chopin, Frederic)` →
+///    `Scherzo No.1, Op.20 (Chopin, Frédéric)`) whose targets are already in the
+///    list — two thirds of the panel was junk. They are dropped ONLY when a real
+///    hit survives: if every hit is a redirect, showing them beats showing
+///    nothing, since `action=parse` resolves a redirect title transparently.
+fn usable_hits(hits: Vec<WorkHit>) -> Vec<WorkHit> {
+    let mut seen: HashSet<String> = HashSet::with_capacity(hits.len());
+    let mut unique: Vec<WorkHit> = Vec::with_capacity(hits.len());
+    for hit in hits {
+        if seen.insert(hit.title.clone()) {
+            unique.push(hit);
+        }
+    }
+    if unique.iter().any(|hit| !hit.is_redirect) {
+        unique.retain(|hit| !hit.is_redirect);
+    }
+    unique
 }
 
 /// Parse an `action=parse&prop=wikitext` JSON response into [`Edition`]s.
@@ -544,15 +665,18 @@ mod tests {
 
     // ---- Canned fixtures (trimmed real responses from the research notes) ----
 
-    /// The REAL shape of an IMSLP `list=search` response, captured live on
-    /// 2026-07-30 from
-    /// `api.php?action=query&list=search&srsearch=chopin%20scherzo&format=json`.
+    /// A hand-written 3-item sample in the SHAPE of an IMSLP `list=search`
+    /// response. It is not a capture: the items are Nocturne pages with
+    /// shortened snippets and reformatted whitespace, not the live
+    /// `chopin scherzo` hits (for those, see [`LIVE_SEARCH_JSON`]).
     ///
-    /// NOTE the absence of `pageid` — IMSLP simply does not send one. This
+    /// What IS faithful — and the only thing the tests below rest on — is the
+    /// per-item field set observed live on 2026-07-30:
+    /// `ns/title/snippet/size/wordcount/timestamp` and **no `pageid`**. This
     /// fixture used to invent `"pageid": 12345`, which kept the suite green
     /// while the real UI keyed its result list on an always-0 id (duplicate
-    /// React keys; selecting one work highlighted every row). Keep this fixture
-    /// byte-faithful to the live response.
+    /// React keys; selecting one work highlighted every row). Keep the absent
+    /// `pageid`.
     const SEARCH_JSON: &str = r##"{
       "query": {
         "search": [
@@ -568,6 +692,48 @@ mod tests {
         ]
       },
       "query-continue": { "search": { "sroffset": 5 } }
+    }"##;
+
+    /// A verbatim slice of the live response, captured 2026-07-30 from
+    /// `api.php?action=query&list=search&srsearch=chopin%20scherzo&srlimit=20&format=json`
+    /// (HTTP 200 in 0.23s). Items 1, 5 and 9 of the 12 that came back, copied
+    /// byte for byte — including the single-quoted `class='searchmatch'`
+    /// highlight markup, the trailing `\n` in each snippet, and the absent
+    /// `pageid`.
+    ///
+    /// It is here for one reason: 8 of those 12 live hits were 54-byte
+    /// `#REDIRECT` stubs pointing at other hits in the same list. This is the
+    /// junk [`usable_hits`] filters, in the exact form IMSLP sends it.
+    const LIVE_SEARCH_JSON: &str = r##"{
+      "batchcomplete": "",
+      "query": {
+        "search": [
+          {
+            "ns": 0,
+            "title": "Scherzo No.1, Op.20 (Chopin, Frédéric)",
+            "snippet": "|File Name 1=PMLP02354-<span class='searchmatch'>Chopin</span>-Scherzo_No.1_in_B_minor.mp3\n|File Name 2=PMLP02354-<span class='searchmatch'>Scherzo</span>,_op._20_-_Chopin.pdf\n",
+            "size": 13016,
+            "wordcount": 1528,
+            "timestamp": "2026-06-09T22:37:04Z"
+          },
+          {
+            "ns": 0,
+            "title": "Scherzo No.1 (Chopin, Frederic)",
+            "snippet": "#REDIRECT [[<span class='searchmatch'>Scherzo</span> No.1, Op.20 (<span class='searchmatch'>Chopin</span>, Frédéric)]]\n",
+            "size": 54,
+            "wordcount": 8,
+            "timestamp": "2011-08-14T14:39:05Z"
+          },
+          {
+            "ns": 0,
+            "title": "Scherzo No.1, Op.20 (Chopin, Frederic)",
+            "snippet": "#REDIRECT [[<span class='searchmatch'>Scherzo</span> No.1, Op.20 (<span class='searchmatch'>Chopin</span>, Frédéric)]]\n",
+            "size": 54,
+            "wordcount": 8,
+            "timestamp": "2010-08-21T02:40:40Z"
+          }
+        ]
+      }
     }"##;
 
     /// A hypothetical MediaWiki search response that DOES carry `pageid` — kept
@@ -650,6 +816,84 @@ mod tests {
         let unique = titles.len();
         titles.dedup();
         assert_eq!(titles.len(), unique, "titles must be unique per hit");
+    }
+
+    /// The picker's identity invariant, enforced in code rather than assumed:
+    /// whatever the API sends, [`ImslpClient::search`] hands back rows whose
+    /// titles are unique. A duplicate would be a duplicate React key AND a click
+    /// that presses two rows at once.
+    #[test]
+    fn search_collapses_duplicate_titles_to_one_row() {
+        const DUPLICATE_TITLES_JSON: &str = r##"{
+          "query": { "search": [
+            { "ns": 0, "title": "Nocturnes, Op.9 (Chopin, Frédéric)",
+              "snippet": "first", "size": 42942, "wordcount": 3000 },
+            { "ns": 0, "title": "Nocturnes, Op.9 (Chopin, Frédéric)",
+              "snippet": "a second row with the same title", "size": 42942, "wordcount": 3000 },
+            { "ns": 0, "title": "Nocturnes, Op.15 (Chopin, Frédéric)",
+              "snippet": "other", "size": 100, "wordcount": 10 }
+          ] }
+        }"##;
+        // The parser stays faithful — it reports what the API actually sent…
+        assert_eq!(parse_search(DUPLICATE_TITLES_JSON).unwrap().len(), 3);
+
+        // …and `search` is where the UI's invariant is enforced.
+        let (http, _urls) = FakeHttp::recording(DUPLICATE_TITLES_JSON);
+        let hits = ImslpClient::with_http(Box::new(http))
+            .search("chopin")
+            .unwrap();
+        assert_eq!(hits.len(), 2, "the duplicate title collapsed: {hits:?}");
+        assert_eq!(hits[0].snippet, "first", "first occurrence wins");
+        let mut titles: Vec<&str> = hits.iter().map(|h| h.title.as_str()).collect();
+        titles.sort_unstable();
+        let before = titles.len();
+        titles.dedup();
+        assert_eq!(titles.len(), before, "search returned a duplicate title");
+    }
+
+    /// Two thirds of the live `chopin scherzo` list is `#REDIRECT` junk whose
+    /// targets are already in the list. The parser still reports it; `search`
+    /// drops it.
+    #[test]
+    fn search_drops_redirect_stubs_from_the_live_response() {
+        assert_eq!(
+            parse_search(LIVE_SEARCH_JSON).unwrap().len(),
+            3,
+            "the parser reports every hit IMSLP sent"
+        );
+
+        let (http, _urls) = FakeHttp::recording(LIVE_SEARCH_JSON);
+        let hits = ImslpClient::with_http(Box::new(http))
+            .search("chopin scherzo")
+            .unwrap();
+        assert_eq!(hits.len(), 1, "only the real work survives: {hits:?}");
+        assert_eq!(hits[0].title, "Scherzo No.1, Op.20 (Chopin, Frédéric)");
+        assert!(hits.iter().all(|h| !h.is_redirect));
+    }
+
+    /// …but never filter the list down to nothing: a redirect title still
+    /// resolves through `action=parse`, so showing it beats showing "no matches".
+    #[test]
+    fn usable_hits_keeps_redirects_when_they_are_all_there_is() {
+        let all_redirects = vec![
+            WorkHit {
+                title: "Scherzo No.1 (Chopin, Frederic)".into(),
+                page_id: 0,
+                snippet: "#REDIRECT [[Scherzo No.1, Op.20]]".into(),
+                size: 54,
+                word_count: 8,
+                is_redirect: true,
+            },
+            WorkHit {
+                title: "Scherzo No.2 (Chopin, Frederic)".into(),
+                page_id: 0,
+                snippet: "#REDIRECT [[Scherzo No.2, Op.31]]".into(),
+                size: 54,
+                word_count: 8,
+                is_redirect: true,
+            },
+        ];
+        assert_eq!(usable_hits(all_redirects.clone()), all_redirects);
     }
 
     #[test]
@@ -816,6 +1060,106 @@ mod tests {
         assert_eq!(cr.1, "Public Domain");
     }
 
+    // ---- request queue: rate guard + search supersession ----
+
+    /// THE lag regression. The old rate guard slept while HOLDING its mutex, so
+    /// the Nth concurrent request could not even find out when it was allowed to
+    /// run until N-1 seconds had passed — a hidden serial queue that put the
+    /// query the user actually typed last in line (14 queued searches ⇒ ≥13s
+    /// before the newest one started).
+    ///
+    /// With reservations, every waiter learns its own deadline immediately. Four
+    /// threads must all be told their start time in well under one spacing
+    /// interval, and those start times must still honour the ≥1s etiquette.
+    #[test]
+    fn slots_are_reserved_without_ever_holding_the_lock_while_waiting() {
+        let queue = Arc::new(RequestQueue::default());
+        let started = Instant::now();
+
+        let mut handles = Vec::new();
+        for _ in 0..4 {
+            let queue = Arc::clone(&queue);
+            handles.push(std::thread::spawn(move || queue.reserve_slot()));
+        }
+        let mut slots: Vec<Instant> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < MIN_REQUEST_SPACING / 2,
+            "reserving 4 slots took {elapsed:?}; the old sleep-under-lock guard took ~3s"
+        );
+        slots.sort_unstable();
+        for pair in slots.windows(2) {
+            assert!(
+                pair[1].duration_since(pair[0]) >= MIN_REQUEST_SPACING,
+                "IMSLP etiquette broken: two slots only {:?} apart",
+                pair[1].duration_since(pair[0])
+            );
+        }
+    }
+
+    #[test]
+    fn a_later_search_supersedes_an_earlier_one() {
+        let queue = RequestQueue::default();
+        let first = queue.claim_search();
+        assert!(queue.is_newest_search(first), "nothing has replaced it yet");
+
+        let second = queue.claim_search();
+        assert!(!queue.is_newest_search(first), "the newer search wins");
+        assert!(queue.is_newest_search(second));
+    }
+
+    /// The whole point, end to end: a search still WAITING for its rate-guard
+    /// slot when the user types on must abandon itself rather than spend the
+    /// round trip. Deterministic — the waiter is provably still asleep when the
+    /// newer search is claimed.
+    #[test]
+    fn a_search_queued_behind_the_rate_guard_abandons_itself_when_superseded() {
+        let queue = Arc::new(RequestQueue::default());
+        queue.await_slot(); // consume the free slot; the next one is ≥1s out
+
+        let waiter = {
+            let queue = Arc::clone(&queue);
+            std::thread::spawn(move || {
+                let epoch = queue.claim_search();
+                queue.await_slot(); // parks for ~1s
+                queue.is_newest_search(epoch)
+            })
+        };
+
+        // Well inside the waiter's parked second: the user typed another letter.
+        std::thread::sleep(Duration::from_millis(100));
+        let newest = queue.claim_search();
+
+        assert!(
+            !waiter.join().unwrap(),
+            "the queued search should have found itself superseded"
+        );
+        assert!(queue.is_newest_search(newest));
+    }
+
+    /// The superseded signal crosses the IPC boundary as a plain error string and
+    /// the frontend matches it exactly, so it is a contract, not a message.
+    /// Keep in lockstep with `SEARCH_SUPERSEDED` in
+    /// `src/features/pieces/imslpText.ts`.
+    #[test]
+    fn superseded_error_string_is_the_frontend_contract() {
+        assert_eq!(
+            SEARCH_SUPERSEDED,
+            "IMSLP search superseded by a newer query."
+        );
+    }
+
+    /// A transport with no queue (every test fake) never supersedes, so fixture
+    /// tests stay deterministic however the harness schedules them.
+    #[test]
+    fn fake_transports_never_supersede_a_search() {
+        let (http, urls) = FakeHttp::recording(EMPTY_SEARCH_JSON);
+        assert!(http.get_search("https://example.invalid/x").is_ok());
+        assert!(http.get_search("https://example.invalid/y").is_ok());
+        assert_eq!(urls.lock().unwrap().len(), 2);
+    }
+
     // ---- one #[ignore]d live smoke test (no network in normal runs) ----
 
     /// NOTE: **This is the ONLY real coverage of the live IMSLP API.** Every
@@ -854,24 +1198,32 @@ mod tests {
             "live hits must have unique titles — they are the picker's React key"
         );
 
+        // `usable_hits` must have stripped the redirect stubs. Live
+        // `chopin scherzo` returns 12 hits of which 8 are 54-byte `#REDIRECT`
+        // pages; every one of them has to be gone by the time the picker sees
+        // the list (with the all-redirects fallback the only exception, which a
+        // query this ordinary can never hit).
+        assert!(
+            hits.iter().all(|h| !h.is_redirect),
+            "a #REDIRECT stub reached the picker: {:?}",
+            hits.iter()
+                .filter(|h| h.is_redirect)
+                .map(|h| &h.title)
+                .collect::<Vec<_>>()
+        );
+
         // The query is specific enough that a working full-text index has to
         // return the Chopin scherzi. If this fails, IMSLP's search changed.
-        let non_redirects: Vec<_> = hits.iter().filter(|h| !h.is_redirect).collect();
         assert!(
-            !non_redirects.is_empty(),
-            "every live hit was a #REDIRECT stub: {hits:?}"
-        );
-        assert!(
-            non_redirects
-                .iter()
+            hits.iter()
                 .any(|h| h.title.to_lowercase().contains("scherzo")),
             "no live hit mentioned 'scherzo': {:?}",
-            non_redirects.iter().map(|h| &h.title).collect::<Vec<_>>()
+            hits.iter().map(|h| &h.title).collect::<Vec<_>>()
         );
 
         // A real work page must be reachable from a hit, and yield real editions
         // with non-empty file names — this is the path the picker takes next.
-        let work = non_redirects
+        let work = hits
             .iter()
             .find(|h| h.title.to_lowercase().contains("scherzo"))
             .expect("a scherzo hit");
