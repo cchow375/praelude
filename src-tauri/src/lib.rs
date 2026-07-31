@@ -962,6 +962,79 @@ fn score_calibration_get(
         .map_err(|e| e.to_string())
 }
 
+// ── Pencil marks drawn on the score ────────────────────────────────────────
+
+/// Every pencil stroke on one page of one edition, plus a count of strokes held
+/// under a different fingerprint of the same edition file (drawn before it was
+/// re-scanned; kept on disk, not shown over geometry they may no longer fit).
+#[tauri::command]
+fn score_marks_page(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    page: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::ScorePageMarks, String> {
+    store
+        .score_marks_page(piece_id, &edition_id, &edition_fingerprint, page)
+        .map_err(|e| e.to_string())
+}
+
+/// Append one freehand stroke to a page. `points_json` is normalized 0–1
+/// page-relative geometry; it is validated and canonically re-serialized before
+/// storage. Returns the saved stroke with its id, which is also its undo order.
+#[tauri::command]
+fn score_mark_add(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    page: i64,
+    width: f64,
+    points_json: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::ScoreMark, String> {
+    store
+        .score_mark_add(
+            piece_id,
+            &edition_id,
+            &edition_fingerprint,
+            page,
+            width,
+            &points_json,
+        )
+        .map_err(|e| e.to_string())
+}
+
+/// Remove the newest stroke on one page. Returns its id, or `null` when there
+/// was nothing left to undo.
+#[tauri::command]
+fn score_mark_undo(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    page: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<Option<i64>, String> {
+    store
+        .score_mark_undo(piece_id, &edition_id, &edition_fingerprint, page)
+        .map_err(|e| e.to_string())
+}
+
+/// Remove every stroke on one page (destructive; the UI confirms first).
+/// Returns how many were removed. Other pages and editions are untouched.
+#[tauri::command]
+fn score_marks_clear_page(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    page: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<i64, String> {
+    store
+        .score_marks_clear_page(piece_id, &edition_id, &edition_fingerprint, page)
+        .map_err(|e| e.to_string())
+}
+
 // ── Practice Notebook: day sheets + per-piece long-term plans (spec §C2) ────
 
 /// Read the Practice Notebook day sheet for `date`, or `null` when none has been
@@ -1881,6 +1954,10 @@ pub fn run() {
             score_atlas_target_save,
             score_calibration_save,
             score_calibration_get,
+            score_marks_page,
+            score_mark_add,
+            score_mark_undo,
+            score_marks_clear_page,
             day_sheet_get,
             day_sheet_save,
             piece_plan_get,

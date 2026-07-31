@@ -8,7 +8,7 @@
 use rusqlite::{Connection, OptionalExtension};
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 12;
+pub const SCHEMA_VERSION: i32 = 13;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -931,6 +931,34 @@ CREATE TABLE piece_plan (
 );
 ";
 
+/// Schema v13 — pencil marks drawn on a score page. One additive sidecar table:
+/// one row is one freehand stroke, stored ONLY as normalized page-relative
+/// points (0–1 of the page box), so a mark is anchored to the engraving rather
+/// than to the screen and survives zoom, pan, resize, fit-mode changes, and the
+/// switch between the page-image fast path and the PDF.js fallback.
+///
+/// The key is (piece, edition_id, edition_fingerprint, page): editions of one
+/// piece have different page geometry, so marks must never bleed between them,
+/// and a re-scanned file (new fingerprint) keeps its old strokes on disk rather
+/// than showing them over a page they may no longer fit — see `store::score_marks`.
+/// Rebuilds nothing and touches no existing row.
+pub(crate) const SCHEMA_V13: &str = "\
+CREATE TABLE score_page_mark (
+  id INTEGER PRIMARY KEY,
+  piece_id INTEGER NOT NULL REFERENCES piece(id) ON DELETE CASCADE,
+  edition_id TEXT NOT NULL CHECK(length(trim(edition_id)) BETWEEN 1 AND 4096),
+  edition_fingerprint TEXT NOT NULL
+    CHECK(length(trim(edition_fingerprint)) BETWEEN 1 AND 500),
+  page INTEGER NOT NULL CHECK(page >= 1),
+  tool TEXT NOT NULL CHECK(tool IN ('pencil')),
+  width REAL NOT NULL CHECK(width > 0.0 AND width <= 0.05),
+  points_json TEXT NOT NULL,
+  created_ts TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX score_page_mark_page_idx
+  ON score_page_mark(piece_id,edition_id,edition_fingerprint,page,id);
+";
+
 // ── v11 → v12: split the "Chamber Pieces Tanglewood" pseudo-piece ────────────
 //
 // One vault folder was used as a chamber-music staging drawer and holds two
@@ -1593,6 +1621,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             Ok(())
         })();
         if let Err(error) = v12 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
+    if version < 13 {
+        let v13 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            conn.execute_batch(SCHEMA_V13)?;
+            conn.execute_batch("PRAGMA user_version = 13;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v13 {
             let _ = conn.execute_batch("ROLLBACK;");
             return Err(error);
         }
@@ -2288,9 +2330,13 @@ mod v3_tests {
         // that belongs to a piece", and the stranded path deletes the merged row
         // once it believes that list is empty — five of these tables cascade on
         // delete, so a forgotten table would be destroyed rather than rejected.
-        // Pin the list against the real schema.
-        let c = Connection::open_in_memory().unwrap();
-        migrate(&c).unwrap();
+        // Pin the list against the real schema — specifically the schema the
+        // split actually runs over, which is v11. The step only ever executes on
+        // the v11 → v12 upgrade, so a table introduced by a LATER migration
+        // (v13's `score_page_mark`) cannot exist while it runs and must not be
+        // routed; enumerating at v11 is what keeps this guard honest as the
+        // schema grows past v12.
+        let c = seed_v11();
         let tables: Vec<String> = {
             let mut statement = c
                 .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -4105,13 +4151,75 @@ mod v3_tests {
         );
     }
 
+    /// v12 → v13 adds the pencil-mark sidecar and nothing else: every prior row
+    /// survives, and the new table starts empty and enforces its geometry CHECKs.
+    #[test]
+    fn migrate_v12_to_v13_adds_only_the_pencil_mark_sidecar() {
+        let c = seed_v11();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        split_chamber_pieces_tanglewood(&c).unwrap();
+        c.execute_batch("PRAGMA user_version = 12; COMMIT;")
+            .unwrap();
+        let pieces_before = c
+            .query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
+            .unwrap();
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name='score_page_mark'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0,
+            "the table does not exist before the step"
+        );
+
+        migrate(&c).unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            pieces_before,
+            "purely additive"
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM score_page_mark", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        // A blot-sized width and a page 0 are rejected by the schema itself, not
+        // only by the Rust validation above it.
+        assert!(c
+            .execute(
+                "INSERT INTO score_page_mark
+                   (piece_id,edition_id,edition_fingerprint,page,tool,width,points_json)
+                 VALUES (1,'score/e.pdf','fp',1,'pencil',0.9,'[]')",
+                [],
+            )
+            .is_err());
+        assert!(c
+            .execute(
+                "INSERT INTO score_page_mark
+                   (piece_id,edition_id,edition_fingerprint,page,tool,width,points_json)
+                 VALUES (1,'score/e.pdf','fp',0,'pencil',0.004,'[]')",
+                [],
+            )
+            .is_err());
+    }
+
     #[test]
     fn newer_schema_fails_before_reconciliation_or_writes() {
         let c = Connection::open_in_memory().unwrap();
         c.execute_batch(
             "CREATE TABLE sentinel(id INTEGER PRIMARY KEY,value TEXT);
              INSERT INTO sentinel(id,value) VALUES (1,'preserve me');
-             PRAGMA user_version = 13;",
+             PRAGMA user_version = 14;",
         )
         .unwrap();
 
@@ -4120,7 +4228,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            13
+            14
         );
         assert_eq!(
             c.query_row("SELECT value FROM sentinel WHERE id=1", [], |row| {

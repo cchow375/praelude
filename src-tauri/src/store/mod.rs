@@ -16,6 +16,7 @@ pub mod model;
 mod practice_loop;
 mod practice_v2;
 mod score_atlas;
+mod score_marks;
 mod session_plan;
 mod tutorials;
 mod v8_backfill;
@@ -24,6 +25,7 @@ pub use day_sheet::{DaySheet, PiecePlan};
 pub use events::EventKind;
 pub(crate) use practice_v2::{command_id as v2_command_id, validate_open as v2_validate_open};
 pub use score_atlas::{AtomicTargetSavePayload, CalibrationView};
+pub use score_marks::{ScoreMark, ScorePageMarks};
 pub use session_plan::{SessionPlanStartOutcome, SessionPlanStartPayload};
 
 use std::path::Path;

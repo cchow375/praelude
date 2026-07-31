@@ -1414,6 +1414,57 @@ function mockCalibration(pieceId: number): unknown {
   };
 }
 
+// --- Pencil marks on the score -------------------------------------------
+//
+// STATEFUL, like the notebook maps below, so the browser harness exercises the
+// real draw → persist → reopen round-trip. Keyed exactly as the Rust store keys
+// it — piece + edition id + edition fingerprint + page — so the dev run proves
+// the same isolation guarantees (marks never bleed between editions) rather
+// than a looser mock version of them. Ids ascend, which is also undo order.
+
+interface MockMark {
+  id: number;
+  page: number;
+  width: number;
+  points: Array<{ x: number; y: number }>;
+}
+
+const SCORE_MARKS = new Map<string, MockMark[]>();
+let nextMarkId = 1;
+
+function markKey(args: Record<string, unknown>, withPage: boolean): string {
+  const piece = Number(args.pieceId ?? args.piece_id ?? 0);
+  const edition = String(args.editionId ?? args.edition_id ?? "");
+  const fingerprint = String(
+    args.editionFingerprint ?? args.edition_fingerprint ?? "",
+  );
+  const page = Number(args.page ?? 0);
+  return withPage
+    ? `${piece} ${edition} ${fingerprint} ${page}`
+    : `${piece} ${edition} ${fingerprint} `;
+}
+
+/** Strokes stored for this piece+edition under any OTHER fingerprint. */
+function staleMarkCount(args: Record<string, unknown>): number {
+  const piece = Number(args.pieceId ?? args.piece_id ?? 0);
+  const edition = String(args.editionId ?? args.edition_id ?? "");
+  const fingerprint = String(
+    args.editionFingerprint ?? args.edition_fingerprint ?? "",
+  );
+  let count = 0;
+  for (const [key, marks] of SCORE_MARKS) {
+    const [keyPiece, keyEdition, keyFingerprint] = key.split(" ");
+    if (
+      Number(keyPiece) === piece &&
+      keyEdition === edition &&
+      keyFingerprint !== fingerprint
+    ) {
+      count += marks.length;
+    }
+  }
+  return count;
+}
+
 // --- Practice notebook (day sheet + piece plan) ---------------------------
 //
 // Unlike the read-only samples above these are STATEFUL and date/piece-keyed, so
@@ -1673,6 +1724,46 @@ function routeCommand(cmd: string, args: unknown): unknown {
         user_verified: Boolean(record.userVerified),
         updated_ts: new Date().toISOString(),
       };
+    }
+    case "score_marks_page": {
+      const record = argsRecord(args);
+      return {
+        marks: SCORE_MARKS.get(markKey(record, true)) ?? [],
+        stale_marks: staleMarkCount(record),
+      };
+    }
+    case "score_mark_add": {
+      const record = argsRecord(args);
+      const points = JSON.parse(String(record.pointsJson ?? "[]")) as Array<{
+        x: number;
+        y: number;
+      }>;
+      if (!Array.isArray(points) || points.length < 2) {
+        throw new Error("a score mark needs at least 2 points");
+      }
+      const mark: MockMark = {
+        id: nextMarkId++,
+        page: Number(record.page ?? 1),
+        width: Number(record.width ?? 0.0022),
+        points,
+      };
+      const key = markKey(record, true);
+      SCORE_MARKS.set(key, [...(SCORE_MARKS.get(key) ?? []), mark]);
+      return mark;
+    }
+    case "score_mark_undo": {
+      const key = markKey(argsRecord(args), true);
+      const marks = SCORE_MARKS.get(key) ?? [];
+      const last = marks[marks.length - 1];
+      if (!last) return null;
+      SCORE_MARKS.set(key, marks.slice(0, -1));
+      return last.id;
+    }
+    case "score_marks_clear_page": {
+      const key = markKey(argsRecord(args), true);
+      const removed = (SCORE_MARKS.get(key) ?? []).length;
+      SCORE_MARKS.set(key, []);
+      return removed;
     }
     case "rep_blocks_for_piece":
       return BLOCKS[pieceIdOf(args)] ?? [];
