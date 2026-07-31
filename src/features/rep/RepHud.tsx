@@ -423,20 +423,48 @@ export function RepHud({
         {snap.variant && (
           <span className="rep-hud-variant">{snap.variant}</span>
         )}
-        <span className="rep-hud-time">
-          {formatFocusedTime(snap.active_seconds ?? 0)}
-          {paused ? " · paused" : ""}
-        </span>
-        {onToggleCollapsed && (
+        {/* The always-reachable set controls. Pause/Resume and Close ride in
+            the context row rather than a card-sized row of their own, so they
+            survive the collapsed state and cost no vertical space. */}
+        <span className="rep-hud-context-tools">
+          <span className="rep-hud-time">
+            {formatFocusedTime(snap.active_seconds ?? 0)}
+            {paused ? " · paused" : ""}
+          </span>
           <button
             type="button"
-            className="rep-hud-collapse"
-            aria-expanded={!collapsed}
-            onClick={onToggleCollapsed}
+            className={`rep-hud-chip ${paused ? "rep-hud-resume" : ""}`}
+            disabled={busy != null}
+            onClick={() => void runTimer()}
           >
-            {collapsed ? "Expand set" : "Collapse set"}
+            {busy === "pause"
+              ? "Pausing…"
+              : busy === "resume"
+                ? "Resuming…"
+                : paused
+                  ? "Resume"
+                  : "Pause"}
           </button>
-        )}
+          {onToggleCollapsed && (
+            <button
+              type="button"
+              className="rep-hud-chip rep-hud-collapse"
+              aria-expanded={!collapsed}
+              onClick={onToggleCollapsed}
+            >
+              {collapsed ? "Expand set" : "Collapse set"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="rep-hud-chip rep-hud-close"
+            aria-label="Close practice set"
+            disabled={busy != null}
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </span>
       </div>
 
       <div className="rep-hud-main">
@@ -533,41 +561,82 @@ export function RepHud({
         />
       </div>
 
-      <div className="rep-hud-tools" aria-label="Set controls">
+      {/* The safety stop is never folded away — it stays at top level, above
+          the drawer, and is the only element allowed to shout. */}
+      {!paused && snap.set_state === "active" && (
         <button
           type="button"
-          className={paused ? "rep-hud-resume" : ""}
-          disabled={busy != null}
-          onClick={() => void runTimer()}
+          className="rep-safety-stop"
+          data-compact-visible="true"
+          disabled={safetyBusy}
+          onClick={() => void runSafetyStop()}
         >
-          {busy === "pause"
-            ? "Pausing…"
-            : busy === "resume"
-              ? "Resuming…"
-              : paused
-                ? "Resume"
-                : "Pause"}
+          {safetyBusy ? "Stopping now…" : "Pain, numbness, or weakness — stop"}
         </button>
-        <button
-          type="button"
-          disabled={busy != null || tries === 0}
-          onClick={() => void runUndo()}
-        >
-          {busy === "undo" ? "Undoing…" : "Undo"}
-        </button>
-        <button
-          type="button"
-          className="rep-hud-close"
-          aria-label="Close practice set"
-          disabled={busy != null}
-          onClick={onClose}
-        >
-          Close
-        </button>
-      </div>
+      )}
 
-      <details className="rep-hud-more">
-        <summary>Details</summary>
+      {snap.review_boundary_reached && !mastered && (
+        <p className="rep-hud-boundary" role="status">
+          Review boundary reached — continue, change strategy, restart, or
+          close.
+        </p>
+      )}
+
+      {reflectionOpen && (
+        <form
+          className="rep-reflection"
+          aria-label="Set reflection"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void runReflection();
+          }}
+        >
+          <label htmlFor="rep-reflection-input">
+            What changed? Keep it short and observable.
+          </label>
+          <textarea
+            id="rep-reflection-input"
+            value={reflection}
+            rows={2}
+            maxLength={2000}
+            onChange={(event) => setReflection(event.target.value)}
+          />
+          <div>
+            <button type="submit" disabled={busy != null || !reflection.trim()}>
+              {busy === "reflect" ? "Saving…" : "Save reflection"}
+            </button>
+            <button
+              type="button"
+              disabled={busy != null}
+              onClick={() => setReflectionOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* ONE affordance for everything secondary (defect D3). Undo, the focus
+          contract, the metrics, the rare corrections and "Change the condition"
+          all used to stack below the verdicts at card spacing, which is most of
+          why a three-button decision occupied ~700px. Nothing was removed —
+          every control below is still here, one click away. */}
+      <details className="rep-hud-drawer">
+        <summary>
+          <span className="rep-hud-drawer-label">More</span>
+          <span className="rep-hud-drawer-hint">
+            undo · details · condition
+          </span>
+        </summary>
+        <div className="rep-hud-tools" aria-label="Set controls">
+          <button
+            type="button"
+            disabled={busy != null || tries === 0}
+            onClick={() => void runUndo()}
+          >
+            {busy === "undo" ? "Undoing…" : "Undo"}
+          </button>
+        </div>
         <section className="rep-focus-strip" aria-label="Focus contract">
           <div>
             <span>Intention</span>
@@ -651,222 +720,172 @@ export function RepHud({
             Reflect
           </button>
         </div>
-      </details>
 
-      {!paused && snap.set_state === "active" && (
-        <button
-          type="button"
-          className="rep-safety-stop"
-          data-compact-visible="true"
-          disabled={safetyBusy}
-          onClick={() => void runSafetyStop()}
+        <details
+          className="rep-recovery-desk"
+          open={recoveryOpen}
+          onToggle={(event) => setRecoveryOpen(event.currentTarget.open)}
         >
-          {safetyBusy ? "Stopping now…" : "Pain, numbness, or weakness — stop"}
-        </button>
-      )}
-
-      {snap.review_boundary_reached && !mastered && (
-        <p className="rep-hud-boundary" role="status">
-          Review boundary reached — continue, change strategy, restart, or
-          close.
-        </p>
-      )}
-
-      {reflectionOpen && (
-        <form
-          className="rep-reflection"
-          aria-label="Set reflection"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void runReflection();
-          }}
-        >
-          <label htmlFor="rep-reflection-input">
-            What changed? Keep it short and observable.
-          </label>
-          <textarea
-            id="rep-reflection-input"
-            value={reflection}
-            rows={2}
-            maxLength={2000}
-            onChange={(event) => setReflection(event.target.value)}
-          />
-          <div>
-            <button type="submit" disabled={busy != null || !reflection.trim()}>
-              {busy === "reflect" ? "Saving…" : "Save reflection"}
-            </button>
+          <summary>Change the condition</summary>
+          <div className="rep-recovery-quick">
             <button
               type="button"
-              disabled={busy != null}
-              onClick={() => setReflectionOpen(false)}
+              disabled={busy != null || snap.last_attempt_id == null}
+              onClick={() =>
+                void runRecovery({
+                  kind: "reset_streak",
+                  rationale:
+                    "Pianist chose to restart the clean proof after an error.",
+                })
+              }
             >
-              Cancel
+              Reset clean proof
             </button>
-          </div>
-        </form>
-      )}
-
-      <details
-        className="rep-recovery-desk"
-        open={recoveryOpen}
-        onToggle={(event) => setRecoveryOpen(event.currentTarget.open)}
-      >
-        <summary>Change the condition</summary>
-        <div className="rep-recovery-quick">
-          <button
-            type="button"
-            disabled={busy != null || snap.last_attempt_id == null}
-            onClick={() =>
-              void runRecovery({
-                kind: "reset_streak",
-                rationale:
-                  "Pianist chose to restart the clean proof after an error.",
-              })
-            }
-          >
-            Reset clean proof
-          </button>
-          <button
-            type="button"
-            disabled={busy != null}
-            onClick={() =>
-              void runRecovery({
-                kind: "clean_debt",
-                clean_count: 2,
-                rationale: "Pianist chose two additional recovery cleans.",
-              })
-            }
-          >
-            Add 2 recovery cleans
-          </button>
-          {snap.focus === "tempo" && snap.bpm != null && snap.bpm > 20 && (
             <button
               type="button"
               disabled={busy != null}
               onClick={() =>
                 void runRecovery({
-                  kind: "tempo_backoff",
-                  bpm: Math.max(
-                    20,
-                    snap.bpm! - Math.max(2, snap.rule.bpm_step),
-                  ),
-                  rationale:
-                    "Pianist chose to rebuild below the failed working tempo.",
+                  kind: "clean_debt",
+                  clean_count: 2,
+                  rationale: "Pianist chose two additional recovery cleans.",
                 })
               }
             >
-              Back off tempo
+              Add 2 recovery cleans
             </button>
-          )}
-          <button
-            type="button"
-            disabled={busy != null}
-            onClick={() =>
-              void runRecovery({
-                kind: "break",
-                planned_seconds: 60,
-                rationale: "Pianist chose a short reset before continuing.",
-              })
-            }
-          >
-            Take a 60-second break
-          </button>
-        </div>
-        <div className="rep-recovery-editors">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (validNarrowRange)
+            {snap.focus === "tempo" && snap.bpm != null && snap.bpm > 20 && (
+              <button
+                type="button"
+                disabled={busy != null}
+                onClick={() =>
+                  void runRecovery({
+                    kind: "tempo_backoff",
+                    bpm: Math.max(
+                      20,
+                      snap.bpm! - Math.max(2, snap.rule.bpm_step),
+                    ),
+                    rationale:
+                      "Pianist chose to rebuild below the failed working tempo.",
+                  })
+                }
+              >
+                Back off tempo
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={busy != null}
+              onClick={() =>
                 void runRecovery({
-                  kind: "narrow_target",
-                  m_start: recoveryRangeStart,
-                  m_end: recoveryRangeEnd,
+                  kind: "break",
+                  planned_seconds: 60,
+                  rationale: "Pianist chose a short reset before continuing.",
+                })
+              }
+            >
+              Take a 60-second break
+            </button>
+          </div>
+          <div className="rep-recovery-editors">
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (validNarrowRange)
+                  void runRecovery({
+                    kind: "narrow_target",
+                    m_start: recoveryRangeStart,
+                    m_end: recoveryRangeEnd,
+                    rationale:
+                      "Pianist narrowed the working target to isolate the failure.",
+                  });
+              }}
+            >
+              <span>
+                Narrow {workingStart}–{workingEnd}
+              </span>
+              <input
+                aria-label="Recovery start measure"
+                type="number"
+                min={workingStart}
+                max={workingEnd}
+                value={recoveryStart}
+                onChange={(event) => setRecoveryStart(event.target.value)}
+              />
+              <input
+                aria-label="Recovery end measure"
+                type="number"
+                min={workingStart}
+                max={workingEnd}
+                value={recoveryEnd}
+                onChange={(event) => setRecoveryEnd(event.target.value)}
+              />
+              <button
+                type="submit"
+                disabled={busy != null || !validNarrowRange}
+              >
+                Apply range
+              </button>
+            </form>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void runRecovery({
+                  kind: "change_hands",
+                  hands: recoveryHands,
                   rationale:
-                    "Pianist narrowed the working target to isolate the failure.",
+                    "Pianist changed the hand condition to rebuild control.",
                 });
-            }}
-          >
-            <span>
-              Narrow {workingStart}–{workingEnd}
-            </span>
-            <input
-              aria-label="Recovery start measure"
-              type="number"
-              min={workingStart}
-              max={workingEnd}
-              value={recoveryStart}
-              onChange={(event) => setRecoveryStart(event.target.value)}
-            />
-            <input
-              aria-label="Recovery end measure"
-              type="number"
-              min={workingStart}
-              max={workingEnd}
-              value={recoveryEnd}
-              onChange={(event) => setRecoveryEnd(event.target.value)}
-            />
-            <button type="submit" disabled={busy != null || !validNarrowRange}>
-              Apply range
-            </button>
-          </form>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void runRecovery({
-                kind: "change_hands",
-                hands: recoveryHands,
-                rationale:
-                  "Pianist changed the hand condition to rebuild control.",
-              });
-            }}
-          >
-            <select
-              aria-label="Recovery hands"
-              value={recoveryHands}
-              onChange={(event) => setRecoveryHands(event.target.value)}
+              }}
             >
-              <option value="left hand">Left hand</option>
-              <option value="right hand">Right hand</option>
-              <option value="hands separate">Hands separate</option>
-              <option value="hands together">Hands together</option>
-            </select>
-            <button type="submit" disabled={busy != null}>
-              Change hands
-            </button>
-          </form>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void runRecovery({
-                kind: "change_method",
-                method: recoveryMethod,
-                rationale:
-                  "Pianist changed method instead of repeating the same failure.",
-              });
-            }}
-          >
-            <select
-              aria-label="Recovery method"
-              value={recoveryMethod}
-              onChange={(event) => setRecoveryMethod(event.target.value)}
+              <select
+                aria-label="Recovery hands"
+                value={recoveryHands}
+                onChange={(event) => setRecoveryHands(event.target.value)}
+              >
+                <option value="left hand">Left hand</option>
+                <option value="right hand">Right hand</option>
+                <option value="hands separate">Hands separate</option>
+                <option value="hands together">Hands together</option>
+              </select>
+              <button type="submit" disabled={busy != null}>
+                Change hands
+              </button>
+            </form>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void runRecovery({
+                  kind: "change_method",
+                  method: recoveryMethod,
+                  rationale:
+                    "Pianist changed method instead of repeating the same failure.",
+                });
+              }}
             >
-              <option value="rhythmic variants">Rhythmic variants</option>
-              <option value="blocked practice">Blocked practice</option>
-              <option value="silent fingering">Silent fingering</option>
-              <option value="backward chaining">Backward chaining</option>
-            </select>
-            <button type="submit" disabled={busy != null}>
-              Change method
-            </button>
-          </form>
-        </div>
-        {(snap.recovery_actions?.length ?? 0) > 0 && (
-          <small>
-            {snap.recovery_actions!.length} accepted recovery{" "}
-            {snap.recovery_actions!.length === 1 ? "choice" : "choices"} in this
-            set.
-          </small>
-        )}
+              <select
+                aria-label="Recovery method"
+                value={recoveryMethod}
+                onChange={(event) => setRecoveryMethod(event.target.value)}
+              >
+                <option value="rhythmic variants">Rhythmic variants</option>
+                <option value="blocked practice">Blocked practice</option>
+                <option value="silent fingering">Silent fingering</option>
+                <option value="backward chaining">Backward chaining</option>
+              </select>
+              <button type="submit" disabled={busy != null}>
+                Change method
+              </button>
+            </form>
+          </div>
+          {(snap.recovery_actions?.length ?? 0) > 0 && (
+            <small>
+              {snap.recovery_actions!.length} accepted recovery{" "}
+              {snap.recovery_actions!.length === 1 ? "choice" : "choices"} in
+              this set.
+            </small>
+          )}
+        </details>
       </details>
 
       {correcting && (

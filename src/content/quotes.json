@@ -8,7 +8,9 @@
     "heading": "Section 1: Fundamentals of piano playing > Practising: healthy, effective and inspired",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "session-plan",
+      "rest"
     ]
   },
   {
@@ -24,30 +26,6 @@
     ]
   },
   {
-    "id": "q-roskell-3",
-    "text": "Poor practice gives a poor result; good practice ensures fast progress, strong motivation, musical satisfaction and a healthy, sustainable technique which will stand you in good stead for years to come.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Section 1: Fundamentals of piano playing > Practising: healthy, effective and inspired",
-    "themes": [
-      "practice-structure",
-      "discipline"
-    ]
-  },
-  {
-    "id": "q-roskell-4",
-    "text": "Be imaginative and vary your practice as much as possible.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Practising: healthy, effective and inspired > Healthy practice",
-    "themes": [
-      "consistency",
-      "practice-structure"
-    ]
-  },
-  {
     "id": "q-roskell-5",
     "text": "Setting aside a regular amount of practice time each day helps to maintain steady progress and consolidate and build on work already done.",
     "source_id": "roskell-complete-pianist",
@@ -56,18 +34,6 @@
     "heading": "Practising: healthy, effective and inspired > Good mental preparation",
     "themes": [
       "consistency",
-      "practice-structure"
-    ]
-  },
-  {
-    "id": "q-roskell-6",
-    "text": "Work it out, and work it in.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Practising: healthy, effective and inspired > Good mental preparation",
-    "themes": [
-      "planning",
       "practice-structure"
     ]
   },
@@ -92,7 +58,8 @@
     "heading": "Practising: healthy, effective and inspired > Good mental preparation",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -104,7 +71,8 @@
     "heading": "Practising: healthy, effective and inspired > Good mental preparation",
     "themes": [
       "focus",
-      "discipline"
+      "discipline",
+      "rest"
     ]
   },
   {
@@ -116,7 +84,8 @@
     "heading": "Practising: healthy, effective and inspired > Good mental preparation",
     "themes": [
       "focus",
-      "discipline"
+      "discipline",
+      "rest"
     ]
   },
   {
@@ -128,7 +97,8 @@
     "heading": "Practising: healthy, effective and inspired > Good mental preparation",
     "themes": [
       "planning",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -140,7 +110,8 @@
     "heading": "Practising: healthy, effective and inspired > Effective practice",
     "themes": [
       "repetition-quality",
-      "discipline"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -151,8 +122,8 @@
     "book": "The Complete Pianist",
     "heading": "Practising: healthy, effective and inspired > Effective practice",
     "themes": [
-      "repetition-quality",
-      "discipline"
+      "discipline",
+      "next-step"
     ]
   },
   {
@@ -187,7 +158,8 @@
     "heading": "Practising: healthy, effective and inspired > Effective practice",
     "themes": [
       "planning",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -211,7 +183,7 @@
     "heading": "Practising: healthy, effective and inspired > Inspired practice",
     "themes": [
       "planning",
-      "slow-work"
+      "session-plan"
     ]
   },
   {
@@ -238,17 +210,6 @@
     ]
   },
   {
-    "id": "q-roskell-21",
-    "text": "If your mind starts to wander, gently bring it back to the work in hand.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Practising scales and arpeggios > Mindful practice and attentive listening",
-    "themes": [
-      "focus"
-    ]
-  },
-  {
     "id": "q-roskell-22",
     "text": "Working on a few scales at a time can produce more long-term improvement than trying to cover many different scales in one practice session.",
     "source_id": "roskell-complete-pianist",
@@ -257,7 +218,8 @@
     "heading": "Practising scales and arpeggios > Preparing scale practice",
     "themes": [
       "planning",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -269,18 +231,8 @@
     "heading": "Practising scales and arpeggios > Conclusion",
     "themes": [
       "practice-structure",
-      "discipline"
-    ]
-  },
-  {
-    "id": "q-roskell-24",
-    "text": "Your ear is always the best judge of how much overlapping is appropriate: if in doubt, do less",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Playing cantabile > Playing legato > When to overhold",
-    "themes": [
-      "listening"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -292,7 +244,8 @@
     "heading": "Practising scales and arpeggios > Preparing scale practice",
     "themes": [
       "planning",
-      "focus"
+      "focus",
+      "session-plan"
     ]
   },
   {
@@ -304,7 +257,8 @@
     "heading": "Practising scales and arpeggios > Preparing scale practice",
     "themes": [
       "planning",
-      "consistency"
+      "consistency",
+      "session-plan"
     ]
   },
   {
@@ -328,30 +282,8 @@
     "heading": "Practising scales and arpeggios > Increasing the tempo",
     "themes": [
       "slow-work",
-      "practice-structure"
-    ]
-  },
-  {
-    "id": "q-roskell-29",
-    "text": "Most passages, particularly ‘finger passages’, benefit from some initial slow practice.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Playing at speed > Virtuosity and playfulness > The benefits of slow or fast practice",
-    "themes": [
-      "slow-work"
-    ]
-  },
-  {
-    "id": "q-roskell-30",
-    "text": "As the tempo increases, the passage starts to flow in waves under the fingers, the piece seems to play itself and the mind is left free to focus on artistic concerns.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Playing at speed > Virtuosity and playfulness > The benefits of slow or fast practice",
-    "themes": [
-      "slow-work",
-      "practice-structure"
+      "practice-structure",
+      "next-step"
     ]
   },
   {
@@ -375,19 +307,8 @@
     "heading": "Playing at speed > Virtuosity and playfulness > Mental preparation",
     "themes": [
       "planning",
-      "memory"
-    ]
-  },
-  {
-    "id": "q-roskell-33",
-    "text": "When you have learnt to read the passage at speed you will find that it is only a short step away from having memorized the passage.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Playing at speed > Virtuosity and playfulness > Mental preparation",
-    "themes": [
       "memory",
-      "practice-structure"
+      "session-plan"
     ]
   },
   {
@@ -399,7 +320,8 @@
     "heading": "Playing at speed > Virtuosity and playfulness > When you just can't play any faster",
     "themes": [
       "discipline",
-      "planning"
+      "planning",
+      "session-plan"
     ]
   },
   {
@@ -423,18 +345,8 @@
     "heading": "Playing at speed > Trills and turns > Summary",
     "themes": [
       "discipline",
-      "practice-structure"
-    ]
-  },
-  {
-    "id": "q-roskell-37",
-    "text": "The brain knows the passage so well and gives such clear instructions to the fingers that they go straight to each chord without any fuss.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Fundamentals of chord playing > Preparing and practising chords > Practising chordal passages",
-    "themes": [
-      "memory"
+      "practice-structure",
+      "performance"
     ]
   },
   {
@@ -474,18 +386,6 @@
     ]
   },
   {
-    "id": "q-roskell-41",
-    "text": "The more you practise it, the more instinctive it becomes.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Section 13: Lateral movements > Leaps and lateral movements > The guiding thumb in context",
-    "themes": [
-      "repetition-quality",
-      "consistency"
-    ]
-  },
-  {
     "id": "q-roskell-42",
     "text": "The irony is that the more we struggle to play the right notes, the more tension sets in, and the greater the likelihood of playing wrong notes.",
     "source_id": "roskell-complete-pianist",
@@ -510,17 +410,6 @@
     ]
   },
   {
-    "id": "q-roskell-44",
-    "text": "Build up gradually, step by step.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Section 11: Advanced chords > Practising advanced chords safely",
-    "themes": [
-      "practice-structure"
-    ]
-  },
-  {
     "id": "q-roskell-45",
     "text": "Prepare mentally: study each section away from the piano first.",
     "source_id": "roskell-complete-pianist",
@@ -528,7 +417,8 @@
     "book": "The Complete Pianist",
     "heading": "Section 11: Advanced chords > Practising advanced chords safely",
     "themes": [
-      "planning"
+      "planning",
+      "session-plan"
     ]
   },
   {
@@ -540,19 +430,8 @@
     "heading": "Section 11: Advanced chords > Practising advanced chords safely",
     "themes": [
       "slow-work",
-      "practice-structure"
-    ]
-  },
-  {
-    "id": "q-roskell-47",
-    "text": "Be quick off the starting block.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Section 11: Advanced chords > Powerful chords and octaves for advanced pianists > Points to remember",
-    "themes": [
-      "discipline",
-      "focus"
+      "practice-structure",
+      "next-step"
     ]
   },
   {
@@ -564,18 +443,8 @@
     "heading": "Section 13: Lateral movements > Leaps and lateral movements > Accuracy last!",
     "themes": [
       "discipline",
-      "planning"
-    ]
-  },
-  {
-    "id": "q-roskell-49",
-    "text": "A dancer initially learns individual steps – often quite slowly.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Section 15: Melody, harmony and structure > The expressive gesture > Choreographing the phrase",
-    "themes": [
-      "slow-work"
+      "planning",
+      "performance"
     ]
   },
   {
@@ -588,17 +457,6 @@
     "themes": [
       "planning",
       "focus"
-    ]
-  },
-  {
-    "id": "q-roskell-51",
-    "text": "Many professional pianists play Bach daily as part of their practice routine.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Section 15: Melody, harmony and structure > Contrapuntal playing > Studying Bach",
-    "themes": [
-      "consistency"
     ]
   },
   {
@@ -636,20 +494,8 @@
     ]
   },
   {
-    "id": "q-roskell-55",
-    "text": "At any stage of study, any work done on concentrated listening stores up riches for the future.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Section 15: Melody, harmony and structure > Contrapuntal playing > Training the ear",
-    "themes": [
-      "listening",
-      "practice-structure"
-    ]
-  },
-  {
     "id": "q-roskell-56",
-    "text": "And yet it is shockingly easy for a pianist to listen only to the top line (or even not listen at all, and think about something completely different...).",
+    "text": "it is shockingly easy for a pianist to listen only to the top line",
     "source_id": "roskell-complete-pianist",
     "author": "Penelope Roskell",
     "book": "The Complete Pianist",
@@ -668,7 +514,8 @@
     "heading": "Section 20: Learning, memorizing and sight-reading > Preparing a piece > Solving one problem at a time, in the right order",
     "themes": [
       "focus",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -681,7 +528,8 @@
     "themes": [
       "practice-structure",
       "planning",
-      "discipline"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -705,7 +553,8 @@
     "heading": "Section 17: Rhythm > Rhythm and pulse > Working on rhythm away from the keyboard",
     "themes": [
       "planning",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -716,20 +565,7 @@
     "book": "The Complete Pianist",
     "heading": "Section 20: Learning, memorizing and sight-reading > Preparing a piece > Preparing the technique > Fingering",
     "themes": [
-      "discipline",
-      "consistency"
-    ]
-  },
-  {
-    "id": "q-roskell-62",
-    "text": "A change of fingering is not advisable just before a performance",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Section 20: Learning, memorizing and sight-reading > Preparing a piece > Preparing the technique > Fingering",
-    "themes": [
-      "discipline",
-      "planning"
+      "discipline"
     ]
   },
   {
@@ -746,7 +582,7 @@
   },
   {
     "id": "q-roskell-64",
-    "text": "This procedural memory depends on repetition: each time we repeat a passage, the neural pathways in the brain become more and more strongly reinforced.",
+    "text": "each time we repeat a passage, the neural pathways in the brain become more and more strongly reinforced.",
     "source_id": "roskell-complete-pianist",
     "author": "Penelope Roskell",
     "book": "The Complete Pianist",
@@ -769,28 +605,6 @@
     ]
   },
   {
-    "id": "q-roskell-66",
-    "text": "Memorization is a natural process. We constantly memorize information in our daily lives, whether intentionally or not.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Section 20: Learning, memorizing and sight-reading > Memorizing",
-    "themes": [
-      "memory"
-    ]
-  },
-  {
-    "id": "q-roskell-67",
-    "text": "Once a piece has been memorized effectively, it really does feel as though you know the piece inside-out.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Section 20: Learning, memorizing and sight-reading > Memorizing > The advantages of memorizing",
-    "themes": [
-      "memory"
-    ]
-  },
-  {
     "id": "q-roskell-68",
     "text": "Even if your finger memory deserts you once in a while, the sounds in your head will continue to guide you forwards through the phrase.",
     "source_id": "roskell-complete-pianist",
@@ -803,18 +617,6 @@
     ]
   },
   {
-    "id": "q-roskell-69",
-    "text": "The knowledge of the score became so ingrained that I can still play those works from memory, despite not having practised them for a long time.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Section 20: Learning, memorizing and sight-reading > Preparing a piece > Mental preparation – from personal experience",
-    "themes": [
-      "memory",
-      "repetition-quality"
-    ]
-  },
-  {
     "id": "q-roskell-70",
     "text": "The audience can only hear what the performer can hear.",
     "source_id": "roskell-complete-pianist",
@@ -822,19 +624,8 @@
     "book": "The Complete Pianist",
     "heading": "Section 22: The inspired pianist > The power of listening",
     "themes": [
-      "listening"
-    ]
-  },
-  {
-    "id": "q-roskell-71",
-    "text": "Attentive listening leads to musical maturity and independence.",
-    "source_id": "roskell-complete-pianist",
-    "author": "Penelope Roskell",
-    "book": "The Complete Pianist",
-    "heading": "Section 22: The inspired pianist > The power of listening > Listening to the sounds produced > The ear as guide and teacher",
-    "themes": [
       "listening",
-      "discipline"
+      "performance"
     ]
   },
   {
@@ -845,7 +636,8 @@
     "book": "The Complete Pianist",
     "heading": "Section 22: The inspired pianist > The power of listening > Listening to the sounds produced > The ear as guide and teacher",
     "themes": [
-      "listening"
+      "listening",
+      "performance"
     ]
   },
   {
@@ -858,7 +650,8 @@
     "themes": [
       "listening",
       "discipline",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -919,7 +712,8 @@
     "heading": "Section I: Brain Basics > Good Practicing and How It Changes the Brain > Good practice habits",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -946,41 +740,6 @@
     ]
   },
   {
-    "id": "q-gebrian-4",
-    "text": "Clumsiness and mistakes are inevitable and a normal part of the learning process.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Section I: Brain Basics > Practice Like a Pro",
-    "themes": [
-      "discipline"
-    ]
-  },
-  {
-    "id": "q-gebrian-5",
-    "text": "So when you feel frustrated, don’t stop. Keep going. It’s how you learn.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Section I: Brain Basics > Practice Like a Pro",
-    "themes": [
-      "discipline",
-      "focus"
-    ]
-  },
-  {
-    "id": "q-gebrian-6",
-    "text": "This is a key point: focusing on the *process* will allow you to achieve a better outcome than only focusing on the outcome itself.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Section I: Brain Basics > Practice Like a Pro > Can effective practice skills be learned?",
-    "themes": [
-      "planning",
-      "practice-structure"
-    ]
-  },
-  {
     "id": "q-gebrian-7",
     "text": "Here is an uncomfortable truth: the measure of how well you practiced isn’t how it sounds at the end of your practice session.",
     "source_id": "gebrian-learn-faster",
@@ -988,7 +747,6 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Section II: Using Your Time Well > Be More Consistent in Performance > Interleaved versus blocked practice",
     "themes": [
-      "consistency",
       "practice-structure"
     ]
   },
@@ -1000,41 +758,21 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Section II: Using Your Time Well > The Fastest Way to Learn Music: Take More Breaks > The power of breaks",
     "themes": [
-      "practice-structure"
-    ]
-  },
-  {
-    "id": "q-gebrian-9",
-    "text": "Breaks aren’t wasted time: they are the *most important time* for skill improvement.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Section II: Using Your Time Well > The Fastest Way to Learn Music: Take More Breaks > What happens in the brain during breaks?",
-    "themes": [
-      "practice-structure"
+      "practice-structure",
+      "rest"
     ]
   },
   {
     "id": "q-gebrian-10",
-    "text": "If you take nothing else away from this book, take this: sleep is absolutely essential for learning and if you want to maximize the results of your practicing, you have to prioritize sleep.",
+    "text": "sleep is absolutely essential for learning and if you want to maximize the results of your practicing, you have to prioritize sleep.",
     "source_id": "gebrian-learn-faster",
     "author": "Molly Gebrian",
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Section II: Using Your Time Well > Can You Learn Music in Your Sleep? > Sleep deprivation",
     "themes": [
       "discipline",
-      "practice-structure"
-    ]
-  },
-  {
-    "id": "q-gebrian-11",
-    "text": "However, sleep is critical for learning, and the influence of sleep—and sleep deprivation—on learning is astounding.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Section II: Using Your Time Well > Can You Learn Music in Your Sleep?",
-    "themes": [
-      "discipline"
+      "practice-structure",
+      "rest"
     ]
   },
   {
@@ -1046,7 +784,8 @@
     "heading": "Section II: Using Your Time Well > What's the Perfect Schedule of Breaks? > The forgetting curve",
     "themes": [
       "practice-structure",
-      "memory"
+      "memory",
+      "next-step"
     ]
   },
   {
@@ -1058,7 +797,8 @@
     "heading": "Section II: Using Your Time Well > What's the Perfect Schedule of Breaks? > The forgetting curve",
     "themes": [
       "planning",
-      "memory"
+      "memory",
+      "session-plan"
     ]
   },
   {
@@ -1070,24 +810,13 @@
     "heading": "Section II: Using Your Time Well > Why Exact Repetitions May Not Be the Best Goal > Skill level matters",
     "themes": [
       "practice-structure",
-      "focus"
-    ]
-  },
-  {
-    "id": "q-gebrian-15",
-    "text": "But you can change the actual physical structure of your brain with your own brain. That is absolutely amazing.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Section III: The Power of the Mind > The Power of Mental Practice > Mental practice changes the brain",
-    "themes": [
-      "practice-structure",
-      "memory"
+      "focus",
+      "session-plan"
     ]
   },
   {
     "id": "q-gebrian-16",
-    "text": "And invariably, the things that are the hardest for us to imagine are also the hardest for us to play as well.",
+    "text": "the things that are the hardest for us to imagine are also the hardest for us to play as well.",
     "source_id": "gebrian-learn-faster",
     "author": "Molly Gebrian",
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
@@ -1117,19 +846,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Section III: The Power of the Mind > How to Focus to Play Your Best > External focus in musicians",
     "themes": [
-      "focus"
-    ]
-  },
-  {
-    "id": "q-gebrian-19",
-    "text": "We also learn more quickly when we are surprised by something than when our predictions are correct.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Section I: Brain Basics > Use Errors to Your Advantage > Why bad habits are so persistent",
-    "themes": [
       "focus",
-      "memory"
+      "performance"
     ]
   },
   {
@@ -1146,38 +864,15 @@
   },
   {
     "id": "q-gebrian-21",
-    "text": "Researchers emphasize over and over that you cannot achieve a high level of performance by practicing mindlessly without specific goals and specific solutions.",
+    "text": "you cannot achieve a high level of performance by practicing mindlessly without specific goals and specific solutions.",
     "source_id": "gebrian-learn-faster",
     "author": "Molly Gebrian",
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Section I: Brain Basics > Practice Like a Pro > The role of mistakes",
     "themes": [
       "planning",
-      "discipline"
-    ]
-  },
-  {
-    "id": "q-gebrian-22",
-    "text": "When faced with the consequence of having to start all over again, you will focus much more, and you will focus on exactly what you need to do to get it right.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Section I: Brain Basics > Good Practicing and How It Changes the Brain > Pathways and practicing",
-    "themes": [
       "discipline",
-      "focus",
-      "repetition-quality"
-    ]
-  },
-  {
-    "id": "q-gebrian-23",
-    "text": "Chunking is taking individual pieces of information and grouping them together into a meaningful whole.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Section III: The Power of the Mind > The Most Effective Ways to Memorize Music > Encoding",
-    "themes": [
-      "memory"
+      "session-plan"
     ]
   },
   {
@@ -1192,17 +887,6 @@
     ]
   },
   {
-    "id": "q-gebrian-25",
-    "text": "Listen to recordings, the more the better.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Section I: Brain Basics > Practice Like a Pro > Common practice mistakes and what to do instead",
-    "themes": [
-      "listening"
-    ]
-  },
-  {
     "id": "q-gebrian-26",
     "text": "Recording yourself and listening or watching back may be painful, but it’s one of the most effective ways to improve.",
     "source_id": "gebrian-learn-faster",
@@ -1211,34 +895,13 @@
     "heading": "Section I: Brain Basics > Practice Like a Pro > Can effective practice skills be learned?",
     "themes": [
       "listening",
-      "discipline"
-    ]
-  },
-  {
-    "id": "q-gebrian-27",
-    "text": "Going slowly helps you problem-solve more easily.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Section I: Brain Basics > Practice Like a Pro > Common practice mistakes and what to do instead",
-    "themes": [
-      "slow-work"
-    ]
-  },
-  {
-    "id": "q-gebrian-28",
-    "text": "How easily we can play from memory in a performance situation is also related to how *big* our chunks are.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Ch. 12: The Most Effective Ways to Memorize Music > Encoding strategies for musicians",
-    "themes": [
-      "memory"
+      "discipline",
+      "performance"
     ]
   },
   {
     "id": "q-gebrian-29",
-    "text": "The most important information to remember about encoding is this: the more you can elaborate and connect new material to information you already know, the more easily you’ll remember it.",
+    "text": "the more you can elaborate and connect new material to information you already know, the more easily you’ll remember it.",
     "source_id": "gebrian-learn-faster",
     "author": "Molly Gebrian",
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
@@ -1256,7 +919,7 @@
     "heading": "Ch. 13: Boost Confidence in Memorized Performance > Retrieval",
     "themes": [
       "memory",
-      "repetition-quality"
+      "next-step"
     ]
   },
   {
@@ -1268,7 +931,9 @@
     "heading": "Ch. 13: Boost Confidence in Memorized Performance > Retrieval",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "next-step",
+      "performance"
     ]
   },
   {
@@ -1279,7 +944,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Ch. 13: Boost Confidence in Memorized Performance > Retrieval",
     "themes": [
-      "memory"
+      "memory",
+      "next-step"
     ]
   },
   {
@@ -1294,18 +960,6 @@
     ]
   },
   {
-    "id": "q-gebrian-34",
-    "text": "Instead, test your memory multiple times a day *without* looking at the music first.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Ch. 13: Boost Confidence in Memorized Performance > Other strategies for practicing retrieval",
-    "themes": [
-      "memory",
-      "practice-structure"
-    ]
-  },
-  {
     "id": "q-gebrian-35",
     "text": "By the time we get to a performance, all our movements should be automatic.",
     "source_id": "gebrian-learn-faster",
@@ -1314,7 +968,8 @@
     "heading": "Ch. 13: Boost Confidence in Memorized Performance > Choking",
     "themes": [
       "discipline",
-      "focus"
+      "focus",
+      "performance"
     ]
   },
   {
@@ -1325,23 +980,13 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Ch. 13: Boost Confidence in Memorized Performance > Choking",
     "themes": [
-      "focus"
+      "focus",
+      "performance"
     ]
   },
   {
     "id": "q-gebrian-37",
     "text": "Rhythm is the framework on which everything else sits.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Section IV > Ch. 14: Improving Rhythm and Tempo > The metronome and brain activation",
-    "themes": [
-      "practice-structure"
-    ]
-  },
-  {
-    "id": "q-gebrian-38",
-    "text": "The brain needs a chance to practice the skills it will need in a performance situation.",
     "source_id": "gebrian-learn-faster",
     "author": "Molly Gebrian",
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
@@ -1358,7 +1003,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Ch. 16: How to Play Faster",
     "themes": [
-      "slow-work"
+      "slow-work",
+      "next-step"
     ]
   },
   {
@@ -1370,7 +1016,8 @@
     "heading": "Ch. 16: How to Play Faster > Basic methods > Metronome clicking up",
     "themes": [
       "slow-work",
-      "repetition-quality"
+      "repetition-quality",
+      "next-step"
     ]
   },
   {
@@ -1392,7 +1039,8 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Conclusion: Bringing It All Together > The power of a practice journal",
     "themes": [
-      "planning"
+      "planning",
+      "session-plan"
     ]
   },
   {
@@ -1404,29 +1052,20 @@
     "heading": "Conclusion: Bringing It All Together > Scheduling",
     "themes": [
       "focus",
-      "practice-structure"
-    ]
-  },
-  {
-    "id": "q-gebrian-44",
-    "text": "Learning to focus is a skill and something you can work to improve.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Conclusion: Bringing It All Together > Focus",
-    "themes": [
-      "focus"
+      "practice-structure",
+      "rest"
     ]
   },
   {
     "id": "q-gebrian-45",
-    "text": "Here’s my answer: motivation is irrelevant.",
+    "text": "motivation is irrelevant.",
     "source_id": "gebrian-learn-faster",
     "author": "Molly Gebrian",
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Conclusion: Bringing It All Together > Motivation",
     "themes": [
-      "discipline"
+      "discipline",
+      "consistency"
     ]
   },
   {
@@ -1438,19 +1077,9 @@
     "heading": "Conclusion: Bringing It All Together > Motivation",
     "themes": [
       "discipline",
-      "planning"
-    ]
-  },
-  {
-    "id": "q-gebrian-47",
-    "text": "If, however, you’ve decided ahead of time how to use that time, you’ll be more efficient and get more done.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Conclusion: Bringing It All Together > Motivation",
-    "themes": [
       "planning",
-      "discipline"
+      "session-plan",
+      "consistency"
     ]
   },
   {
@@ -1484,29 +1113,21 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Conclusion: Bringing It All Together > Motivation > Use the Red-Yellow-Green method to combat overwhelm",
     "themes": [
-      "planning"
-    ]
-  },
-  {
-    "id": "q-gebrian-51",
-    "text": "Treating yourself with kindness and compassion is always a better option than beating yourself up.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Conclusion: Bringing It All Together > Motivation > Prioritize rest",
-    "themes": [
-      "discipline"
+      "planning",
+      "session-plan",
+      "consistency"
     ]
   },
   {
     "id": "q-gebrian-52",
-    "text": "But the idea that we should always feel motivated to practice and be able to practice hours and hours every day effortlessly is a fantasy.",
+    "text": "the idea that we should always feel motivated to practice and be able to practice hours and hours every day effortlessly is a fantasy.",
     "source_id": "gebrian-learn-faster",
     "author": "Molly Gebrian",
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Conclusion: Bringing It All Together > Motivation",
     "themes": [
-      "discipline"
+      "discipline",
+      "consistency"
     ]
   },
   {
@@ -1517,34 +1138,13 @@
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
     "heading": "Conclusion: Bringing It All Together > Motivation",
     "themes": [
-      "discipline"
-    ]
-  },
-  {
-    "id": "q-gebrian-54",
-    "text": "Let’s go practice.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Conclusion: Bringing It All Together",
-    "themes": [
-      "discipline"
-    ]
-  },
-  {
-    "id": "q-gebrian-55",
-    "text": "When it comes to intonation, all you will be able to rely on in a performance are your ears, so you should be practicing in a way that uses your ears, not your eyes.",
-    "source_id": "gebrian-learn-faster",
-    "author": "Molly Gebrian",
-    "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
-    "heading": "Ch. 15: Improving Pitch and Intonation > Tuners versus drones",
-    "themes": [
-      "listening"
+      "discipline",
+      "consistency"
     ]
   },
   {
     "id": "q-gebrian-56",
-    "text": "And at all times when you are playing or singing, you should hear what you are about to play in your head before you play it.",
+    "text": "at all times when you are playing or singing, you should hear what you are about to play in your head before you play it.",
     "source_id": "gebrian-learn-faster",
     "author": "Molly Gebrian",
     "book": "Learn Faster, Perform Better: A Musician's Guide to the Neuroscience of Practicing",
@@ -1555,7 +1155,7 @@
   },
   {
     "id": "q-gieseking-1",
-    "text": "This critical self-hearing is, in my opinion, by far the most important factor in all of music study!",
+    "text": "critical self-hearing is, in my opinion, by far the most important factor in all of music study!",
     "source_id": "gieseking-leimer-technique",
     "author": "Walter Gieseking & Karl Leimer",
     "book": "Piano Technique",
@@ -1574,7 +1174,8 @@
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Foreword (Walter Gieseking)",
     "themes": [
       "focus",
-      "practice-structure"
+      "practice-structure",
+      "rest"
     ]
   },
   {
@@ -1600,18 +1201,6 @@
     ]
   },
   {
-    "id": "q-gieseking-5",
-    "text": "It is curious that the method of visualization is not fully and universally utilized.",
-    "source_id": "gieseking-leimer-technique",
-    "author": "Walter Gieseking & Karl Leimer",
-    "book": "Piano Technique",
-    "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter I: Foundations of My Method > Training of the Musical Ear",
-    "themes": [
-      "planning",
-      "memory"
-    ]
-  },
-  {
     "id": "q-gieseking-6",
     "text": "The fingers are the servitors of the brain, they perform the action the brain commands.",
     "source_id": "gieseking-leimer-technique",
@@ -1632,7 +1221,8 @@
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter II: The Student Begins Work > (B) Bach's Two-Part Invention in C Major",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "session-plan"
     ]
   },
   {
@@ -1644,7 +1234,8 @@
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter IV: Making Study Count",
     "themes": [
       "listening",
-      "practice-structure"
+      "practice-structure",
+      "next-step"
     ]
   },
   {
@@ -1668,7 +1259,8 @@
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter IV: Making Study Count",
     "themes": [
       "focus",
-      "practice-structure"
+      "practice-structure",
+      "rest"
     ]
   },
   {
@@ -1679,7 +1271,8 @@
     "book": "Piano Technique",
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter IV: Making Study Count",
     "themes": [
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -1691,19 +1284,8 @@
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter IV: Making Study Count",
     "themes": [
       "practice-structure",
-      "focus"
-    ]
-  },
-  {
-    "id": "q-gieseking-13",
-    "text": "To acquire good technique is also mental work.",
-    "source_id": "gieseking-leimer-technique",
-    "author": "Walter Gieseking & Karl Leimer",
-    "book": "Piano Technique",
-    "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter V: Special Technical Problems > (A) Etudes",
-    "themes": [
       "focus",
-      "planning"
+      "rest"
     ]
   },
   {
@@ -1714,8 +1296,7 @@
     "book": "Piano Technique",
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter V: Special Technical Problems > (A) Etudes",
     "themes": [
-      "practice-structure",
-      "repetition-quality"
+      "practice-structure"
     ]
   },
   {
@@ -1727,19 +1308,8 @@
     "heading": "Book 1: The Shortest Way to Pianistic Perfection > Chapter V: Special Technical Problems > (B) Playing of Scales",
     "themes": [
       "practice-structure",
-      "repetition-quality"
-    ]
-  },
-  {
-    "id": "q-gieseking-16",
-    "text": "Patience and concentration are the most important things.",
-    "source_id": "gieseking-leimer-technique",
-    "author": "Walter Gieseking & Karl Leimer",
-    "book": "Piano Technique",
-    "heading": "Book 2: Rhythmics, Dynamics, Pedal and Other Problems of Piano Playing > II. Technique Through Mental Work",
-    "themes": [
-      "focus",
-      "discipline"
+      "repetition-quality",
+      "session-plan"
     ]
   },
   {
@@ -1751,7 +1321,8 @@
     "heading": "Book 2: Rhythmics, Dynamics, Pedal and Other Problems of Piano Playing > V. Variety of Touch > The Free Fall",
     "themes": [
       "discipline",
-      "practice-structure"
+      "practice-structure",
+      "rest"
     ]
   },
   {
@@ -1764,30 +1335,8 @@
     "themes": [
       "focus",
       "practice-structure",
-      "planning"
-    ]
-  },
-  {
-    "id": "q-gieseking-19",
-    "text": "The student should begin very slowly, as in the first exercise, accelerating the tempo little by little, but not too quickly, until the exercise can be played faultlessly.",
-    "source_id": "gieseking-leimer-technique",
-    "author": "Walter Gieseking & Karl Leimer",
-    "book": "Piano Technique",
-    "heading": "Book 2: Rhythmics, Dynamics, Pedal and Other Problems of Piano Playing > II. Technique Through Mental Work",
-    "themes": [
-      "slow-work",
-      "practice-structure"
-    ]
-  },
-  {
-    "id": "q-gieseking-20",
-    "text": "Attempting more extended phrases is not advisable, as it leads to superficialities.",
-    "source_id": "gieseking-leimer-technique",
-    "author": "Walter Gieseking & Karl Leimer",
-    "book": "Piano Technique",
-    "heading": "Book 2: Rhythmics, Dynamics, Pedal and Other Problems of Piano Playing > II. Technique Through Mental Work",
-    "themes": [
-      "practice-structure"
+      "planning",
+      "session-plan"
     ]
   },
   {
@@ -1802,20 +1351,8 @@
     ]
   },
   {
-    "id": "q-gieseking-22",
-    "text": "Technique, when playing an instrument, means controlling the fingers.",
-    "source_id": "gieseking-leimer-technique",
-    "author": "Walter Gieseking & Karl Leimer",
-    "book": "Piano Technique",
-    "heading": "Book 2: Rhythmics, Dynamics, Pedal and Other Problems of Piano Playing > II. Technique Through Mental Work",
-    "themes": [
-      "focus",
-      "discipline"
-    ]
-  },
-  {
     "id": "q-gieseking-23",
-    "text": "My earnest advice is: Do not proceed from measure to measure until you have entirely memorized the first measure",
+    "text": "Do not proceed from measure to measure until you have entirely memorized the first measure",
     "source_id": "gieseking-leimer-technique",
     "author": "Walter Gieseking & Karl Leimer",
     "book": "Piano Technique",
@@ -1828,7 +1365,7 @@
   },
   {
     "id": "q-breth-1",
-    "text": "But when you practice like this you only cement in the mistakes. And the more you repeat mistakes, the harder it is to undo them.",
+    "text": "the more you repeat mistakes, the harder it is to undo them.",
     "source_id": "breth-effective-practicing",
     "author": "Nancy O'Neill Breth",
     "book": "The Piano Student's Guide to Effective Practicing",
@@ -1836,18 +1373,6 @@
     "themes": [
       "repetition-quality",
       "discipline"
-    ]
-  },
-  {
-    "id": "q-breth-2",
-    "text": "The practice tips work best if you make a pact with yourself to apply them with patience, awareness, curiosity, and tunnel vision.",
-    "source_id": "breth-effective-practicing",
-    "author": "Nancy O'Neill Breth",
-    "book": "The Piano Student's Guide to Effective Practicing",
-    "heading": "The Piano Student's Guide to Effective Practicing > The Pact",
-    "themes": [
-      "discipline",
-      "planning"
     ]
   },
   {
@@ -1907,7 +1432,8 @@
     "heading": "The Piano Student's Guide to Effective Practicing > The Pact > Tunnel vision",
     "themes": [
       "focus",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
@@ -1918,7 +1444,8 @@
     "book": "The Piano Student's Guide to Effective Practicing",
     "heading": "The Piano Student's Guide to Effective Practicing > Tools > Pencil or highlighter",
     "themes": [
-      "planning"
+      "planning",
+      "session-plan"
     ]
   },
   {
@@ -1929,7 +1456,6 @@
     "book": "The Piano Student's Guide to Effective Practicing",
     "heading": "The Piano Student's Guide to Effective Practicing > Tools > Metronome",
     "themes": [
-      "consistency",
       "discipline"
     ]
   },
@@ -1953,24 +1479,13 @@
     "heading": "The Piano Student's Guide to Effective Practicing > X-Raying a New Piece",
     "themes": [
       "planning",
-      "practice-structure"
-    ]
-  },
-  {
-    "id": "q-breth-12",
-    "text": "The time this takes will save you hours of practicing. You’ll learn faster and with far fewer mistakes.",
-    "source_id": "breth-effective-practicing",
-    "author": "Nancy O'Neill Breth",
-    "book": "The Piano Student's Guide to Effective Practicing",
-    "heading": "The Piano Student's Guide to Effective Practicing > X-Raying a New Piece",
-    "themes": [
-      "planning",
-      "practice-structure"
+      "practice-structure",
+      "session-plan"
     ]
   },
   {
     "id": "q-breth-13",
-    "text": "even with careful preparation, problems may still arise in the practice session. If something goes wrong, stop and think about it.",
+    "text": "If something goes wrong, stop and think about it.",
     "source_id": "breth-effective-practicing",
     "author": "Nancy O'Neill Breth",
     "book": "The Piano Student's Guide to Effective Practicing",
@@ -2001,7 +1516,8 @@
     "heading": "Practice Tips > Backpedal",
     "themes": [
       "practice-structure",
-      "discipline"
+      "discipline",
+      "next-step"
     ]
   },
   {
@@ -2037,7 +1553,8 @@
     "heading": "Practice Tips > Spot Check",
     "themes": [
       "memory",
-      "focus"
+      "focus",
+      "next-step"
     ]
   },
   {
@@ -2060,7 +1577,8 @@
     "heading": "Practice Tips > When All Else Fails",
     "themes": [
       "discipline",
-      "practice-structure"
+      "practice-structure",
+      "performance"
     ]
   },
   {
@@ -2073,20 +1591,8 @@
     "themes": [
       "slow-work",
       "repetition-quality",
-      "planning"
-    ]
-  },
-  {
-    "id": "q-breth-22",
-    "text": "When a section no longer seems difficult, erase its number. Continue until all numbers are gone, which may take days or even weeks.",
-    "source_id": "breth-effective-practicing",
-    "author": "Nancy O'Neill Breth",
-    "book": "The Piano Student's Guide to Effective Practicing",
-    "heading": "Practice Tips > Troubleshooting",
-    "themes": [
-      "consistency",
-      "discipline",
-      "repetition-quality"
+      "planning",
+      "next-step"
     ]
   },
   {
@@ -2109,8 +1615,7 @@
     "book": "The Piano Student's Guide to Effective Practicing",
     "heading": "Practice Tips > Mental Metronome",
     "themes": [
-      "focus",
-      "slow-work"
+      "focus"
     ]
   },
   {

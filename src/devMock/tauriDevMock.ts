@@ -102,10 +102,15 @@ const PIECES: PieceSummary[] = [
 // Canned IMSLP add-a-score data for the dev harness (no network). The search
 // snippet carries a highlight `<span>` on purpose so the panel's plain-text
 // stripping is exercised; the publisher field carries raw `{{…}}` wikitext.
+// `page_id` is 0 on every hit ON PURPOSE — that is what the live IMSLP API
+// actually produces (its `list=search` sends no `pageid`). These used to carry
+// invented ids, which meant dev mode was the one place the result list had
+// unique keys, hiding the duplicate-key/select-everything bug that real data
+// triggered. Keep them 0 so the harness fails the same way production would.
 const IMSLP_HITS = [
   {
     title: "Nocturnes, Op.9 (Chopin, Frédéric)",
-    page_id: 6789,
+    page_id: 0,
     snippet: 'Complete <span class="searchmatch">Nocturnes</span> score',
     size: 42942,
     word_count: 3000,
@@ -113,7 +118,7 @@ const IMSLP_HITS = [
   },
   {
     title: "Nocturne in E minor, Op.72 No.1 (Chopin, Frédéric)",
-    page_id: 12345,
+    page_id: 0,
     snippet: "Posthumous nocturne",
     size: 9637,
     word_count: 1175,
@@ -1409,6 +1414,57 @@ function mockCalibration(pieceId: number): unknown {
   };
 }
 
+// --- Pencil marks on the score -------------------------------------------
+//
+// STATEFUL, like the notebook maps below, so the browser harness exercises the
+// real draw → persist → reopen round-trip. Keyed exactly as the Rust store keys
+// it — piece + edition id + edition fingerprint + page — so the dev run proves
+// the same isolation guarantees (marks never bleed between editions) rather
+// than a looser mock version of them. Ids ascend, which is also undo order.
+
+interface MockMark {
+  id: number;
+  page: number;
+  width: number;
+  points: Array<{ x: number; y: number }>;
+}
+
+const SCORE_MARKS = new Map<string, MockMark[]>();
+let nextMarkId = 1;
+
+function markKey(args: Record<string, unknown>, withPage: boolean): string {
+  const piece = Number(args.pieceId ?? args.piece_id ?? 0);
+  const edition = String(args.editionId ?? args.edition_id ?? "");
+  const fingerprint = String(
+    args.editionFingerprint ?? args.edition_fingerprint ?? "",
+  );
+  const page = Number(args.page ?? 0);
+  return withPage
+    ? `${piece} ${edition} ${fingerprint} ${page}`
+    : `${piece} ${edition} ${fingerprint} `;
+}
+
+/** Strokes stored for this piece+edition under any OTHER fingerprint. */
+function staleMarkCount(args: Record<string, unknown>): number {
+  const piece = Number(args.pieceId ?? args.piece_id ?? 0);
+  const edition = String(args.editionId ?? args.edition_id ?? "");
+  const fingerprint = String(
+    args.editionFingerprint ?? args.edition_fingerprint ?? "",
+  );
+  let count = 0;
+  for (const [key, marks] of SCORE_MARKS) {
+    const [keyPiece, keyEdition, keyFingerprint] = key.split(" ");
+    if (
+      Number(keyPiece) === piece &&
+      keyEdition === edition &&
+      keyFingerprint !== fingerprint
+    ) {
+      count += marks.length;
+    }
+  }
+  return count;
+}
+
 // --- Practice notebook (day sheet + piece plan) ---------------------------
 //
 // Unlike the read-only samples above these are STATEFUL and date/piece-keyed, so
@@ -1581,11 +1637,33 @@ function routeCommand(cmd: string, args: unknown): unknown {
 
     // Add-a-score (IMSLP) flow. Canned data so the panel is fully browsable in
     // the dev harness without any network.
+    // NOTE: this mock SHADOWS the real backend whenever VITE_DEV_MOCK is set —
+    // results seen under `npm run dev:mock` prove the panel's rendering, never
+    // that live IMSLP works. Use the native app (or the `live_search_smoke`
+    // Rust test) for that.
     case "imslp_search": {
       const q = String(
         ((args ?? {}) as { query?: unknown }).query ?? "",
       ).trim();
-      return q ? IMSLP_HITS : [];
+      if (!q) return [];
+      // Dev affordance: a query containing "fail" rejects, so the panel's error
+      // state is drivable without unplugging the network. Native failures
+      // arrive as rejected promises; mirror that rather than throwing.
+      if (/fail/i.test(q)) {
+        return Promise.reject(
+          new Error(
+            "Could not reach IMSLP. Check your connection and try again.",
+          ),
+        );
+      }
+      // Filter like a real full-text search would. Returning the same canned
+      // hits for literally any query made the "no matches" state unreachable in
+      // dev, which is exactly how a broken search hides.
+      const terms = q.toLowerCase().split(/\s+/);
+      return IMSLP_HITS.filter((hit) => {
+        const haystack = `${hit.title} ${hit.snippet}`.toLowerCase();
+        return terms.every((term) => haystack.includes(term));
+      });
     }
     case "imslp_editions":
       return IMSLP_EDITIONS;
@@ -1617,6 +1695,14 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return mockEdition(pieceIdOf(args));
     case "score_pdf_bytes":
       return minimalPdfBytes();
+    // The screen-resolution page-image fast path. An EMPTY answer is the real
+    // command's way of saying "this page is not a single-image scan", and the
+    // mock's one-page vector PDF is exactly that case — so the browser dev run
+    // exercises the PDF.js fallback, which is the behaviour it should have.
+    case "score_page_image":
+      return new Uint8Array(0);
+    case "score_page_image_warm":
+      return null;
     case "score_calibration_get":
       return mockCalibration(pieceIdOf(args));
     case "score_calibration_save": {
@@ -1638,6 +1724,46 @@ function routeCommand(cmd: string, args: unknown): unknown {
         user_verified: Boolean(record.userVerified),
         updated_ts: new Date().toISOString(),
       };
+    }
+    case "score_marks_page": {
+      const record = argsRecord(args);
+      return {
+        marks: SCORE_MARKS.get(markKey(record, true)) ?? [],
+        stale_marks: staleMarkCount(record),
+      };
+    }
+    case "score_mark_add": {
+      const record = argsRecord(args);
+      const points = JSON.parse(String(record.pointsJson ?? "[]")) as Array<{
+        x: number;
+        y: number;
+      }>;
+      if (!Array.isArray(points) || points.length < 2) {
+        throw new Error("a score mark needs at least 2 points");
+      }
+      const mark: MockMark = {
+        id: nextMarkId++,
+        page: Number(record.page ?? 1),
+        width: Number(record.width ?? 0.0022),
+        points,
+      };
+      const key = markKey(record, true);
+      SCORE_MARKS.set(key, [...(SCORE_MARKS.get(key) ?? []), mark]);
+      return mark;
+    }
+    case "score_mark_undo": {
+      const key = markKey(argsRecord(args), true);
+      const marks = SCORE_MARKS.get(key) ?? [];
+      const last = marks[marks.length - 1];
+      if (!last) return null;
+      SCORE_MARKS.set(key, marks.slice(0, -1));
+      return last.id;
+    }
+    case "score_marks_clear_page": {
+      const key = markKey(argsRecord(args), true);
+      const removed = (SCORE_MARKS.get(key) ?? []).length;
+      SCORE_MARKS.set(key, []);
+      return removed;
     }
     case "rep_blocks_for_piece":
       return BLOCKS[pieceIdOf(args)] ?? [];

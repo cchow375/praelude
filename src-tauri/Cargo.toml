@@ -1,6 +1,6 @@
 [package]
 name = "codakiller"
-version = "4.0.1"
+version = "5.0.0"
 description = "Voice-first practice and rep tracker for pianists"
 authors = ["Christian Chow"]
 edition = "2021"
@@ -47,6 +47,32 @@ base64 = "0.22"
 # external DTD declarations present in the real KernScores files, so score
 # context cannot cause a network fetch or entity expansion.
 quick-xml = "0.41"
+
+# ── Screen-resolution page images (score::page_image) ──────────────────────────
+# Nine of Christian's eleven editions are scans whose page is ONE giant image:
+# the Henle Op.90 is 5223x7291 = 38.1 MP inside a 1.0 MB file. Rasterizing that
+# page through PDF.js decodes every one of those pixels; extracting the embedded
+# image and decoding it straight to screen resolution does not. These five crates
+# are the minimum needed to do that without a C dependency — CodaKiller must not
+# grow a runtime requirement on poppler/qpdf/ghostscript, none of which exist on
+# the target machine. All are pure Rust and MIT/Apache-2.0.
+#
+#   lopdf         reads the page's content stream + image XObject dictionary.
+#                 Default features pull chrono/jiff/rayon/time for authoring
+#                 metadata we never write, so they are off.
+#   jpeg-decoder  DCT *scaled* decoding (1/2, 1/4, 1/8 straight out of the
+#                 coefficients). `rayon` is off: this already runs on a blocking
+#                 pool thread, and an 8 GB M2 Air does not want a second pool.
+#   hayro-jbig2   the format the two worst files use. `simd` is deliberately OFF:
+#                 measured on the real Henle page, std-only decodes in ~210 ms and
+#                 the fearless_simd path in ~350 ms.
+#   hayro-ccitt   Group 3/4 fax, the other bilevel scan format in the vault.
+#   jpeg-encoder  writes the cached screen-resolution page back out.
+lopdf = { version = "0.44", default-features = false }
+jpeg-decoder = { version = "0.3", default-features = false }
+hayro-jbig2 = { version = "0.3", default-features = false, features = ["std"] }
+hayro-ccitt = "0.3"
+jpeg-encoder = "0.7"
 
 [dev-dependencies]
 # Tempdir fixtures for the vault scan tests (real vault is never touched by tests).

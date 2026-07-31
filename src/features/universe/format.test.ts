@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, formatDuration } from "./format";
+import { formatDate, formatDuration, formatSince } from "./format";
 
 describe("formatDuration", () => {
   it("formats zero seconds as 0m", () => {
@@ -103,5 +103,48 @@ describe("formatDate", () => {
     expect(() => formatDate("")).not.toThrow();
     expect(() => formatDate(" ")).not.toThrow();
     expect(() => formatDate(null)).not.toThrow();
+  });
+});
+
+describe("formatSince", () => {
+  const NOW = "2026-07-31T12:00:00Z";
+  const ago = (days: number) =>
+    new Date(Date.parse(NOW) - days * 86_400_000).toISOString();
+
+  it("says so plainly when a piece has never been practised", () => {
+    expect(formatSince(null, NOW)).toBe("Never practiced");
+    expect(formatSince("", NOW)).toBe("Never practiced");
+  });
+
+  it("uses today / yesterday before switching to a day count", () => {
+    expect(formatSince(ago(0), NOW)).toBe("Practiced today");
+    expect(formatSince(ago(1), NOW)).toBe("Practiced yesterday");
+    expect(formatSince(ago(2), NOW)).toBe("Practiced 2 days ago");
+    expect(formatSince(ago(365), NOW)).toBe("Practiced 365 days ago");
+  });
+
+  it("measures against the given reference, not the wall clock", () => {
+    // The same stamp reads differently against two snapshots — which is the
+    // point: a stored snapshot always renders the way it was generated.
+    expect(formatSince("2026-07-01T12:00:00Z", "2026-07-02T12:00:00Z")).toBe(
+      "Practiced yesterday",
+    );
+    expect(formatSince("2026-07-01T12:00:00Z", "2026-07-11T12:00:00Z")).toBe(
+      "Practiced 10 days ago",
+    );
+  });
+
+  it("falls back to the absolute date rather than inventing a duration", () => {
+    expect(formatSince("2026-07-15T12:00:00Z", null)).toBe(
+      "Practiced Jul 15, 2026",
+    );
+    expect(formatSince("2026-07-15T12:00:00Z", "not-a-date")).toBe(
+      "Practiced Jul 15, 2026",
+    );
+    expect(formatSince("not-a-date", NOW)).toBe("Practiced not-a-date");
+  });
+
+  it("does not report a negative age for a stamp ahead of the reference", () => {
+    expect(formatSince("2026-08-05T12:00:00Z", NOW)).toBe("Practiced today");
   });
 });

@@ -1140,3 +1140,133 @@
     right: var(--space-2);
   }
 }
+
+/* ── Pencil marks ─────────────────────────────────────────────────────────
+   Graphite on paper. Every colour here is a design token: --pencil is the
+   token that exists for exactly this. The ink layer sits ABOVE the region
+   overlays but never takes the pointer unless the pencil is actually down,
+   so region anchors, target rectangles and page turns behave as before. */
+
+.score-pencil-layer {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  pointer-events: none;
+}
+
+.score-pencil-layer.is-drawing {
+  /* The unmistakable "pencil is down" signal, together with the toolbar
+     toggle's pressed state and the hint next to it. */
+  cursor: crosshair;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.score-pencil-ink,
+.score-pencil-live {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.score-pencil-ink path {
+  stroke: var(--pencil);
+  /* Just short of opaque: real graphite lets a little of the staff through,
+     and it keeps a mark from reading as printed engraving. */
+  opacity: 0.86;
+}
+
+.score-pencil-live {
+  /* The live canvas paints with this colour (read back through getComputedStyle),
+     so the in-progress line and the settled stroke are the same graphite. */
+  color: var(--pencil);
+  opacity: 0.86;
+}
+
+.score-pencil-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.score-pencil-hint {
+  color: var(--ink-secondary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.score-pencil-toggle.is-active {
+  border-color: var(--pencil);
+  background: color-mix(in srgb, var(--pencil) 12%, transparent);
+  color: var(--pencil);
+}
+
+.score-pencil-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--ink-primary);
+  font-size: var(--text-xs);
+}
+
+.score-pencil-confirm-yes {
+  color: var(--danger);
+}
+
+.score-pencil-error {
+  color: var(--danger);
+  font-size: var(--text-xs);
+}
+
+.score-pencil-stale {
+  color: var(--ink-secondary);
+  font-size: var(--text-xs);
+}
+
+/* The pencil's own strip, under the toolbar. Its controls are page-scoped and
+   destructive, so they get their own row rather than squeezing the edition and
+   page controls — and its presence is itself part of the "pencil is down"
+   signal, alongside the pressed toggle and the crosshair over the page. */
+.score-pencil-bar {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface-raised);
+}
+
+.score-pencil-bar button {
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--ink-primary);
+  background: var(--surface-raised);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.score-pencil-bar button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.score-pencil-bar button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.score-toolbar .score-pencil-toggle {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  white-space: nowrap;
+}

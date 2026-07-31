@@ -1,6 +1,5 @@
 import {
   cleanup,
-  createEvent,
   fireEvent,
   render,
   screen,
@@ -15,6 +14,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { UniverseWorkspace, formatDuration } from "./UniverseWorkspace";
+
+const GENERATED_AT = "2026-07-12T17:00:00Z";
+
+function isoDaysBefore(days: number): string {
+  return new Date(Date.parse(GENERATED_AT) - days * 86_400_000).toISOString();
+}
 
 const PIECE: UniversePiece = {
   piece_id: 7,
@@ -31,7 +36,7 @@ const PIECE: UniversePiece = {
   practice_sessions: 8,
   earned_maturity: 0.64,
   quality_brightness: 0.97,
-  last_practiced: "2026-07-11T20:00:00Z",
+  last_practiced: isoDaysBefore(1),
   region_signals: [
     {
       region_id: 1,
@@ -42,7 +47,7 @@ const PIECE: UniversePiece = {
       practiced: true,
       revisited: true,
       quality_brightness: 0.98,
-      last_practiced: "2026-07-11T20:00:00Z",
+      last_practiced: isoDaysBefore(1),
       practice_events: 12,
       rated_rep_events: 6,
       clean_rep_events: 5,
@@ -62,7 +67,7 @@ const PIECE: UniversePiece = {
       practiced: true,
       revisited: false,
       quality_brightness: 0.95,
-      last_practiced: "2026-07-10T20:00:00Z",
+      last_practiced: isoDaysBefore(2),
       practice_events: 4,
       rated_rep_events: 2,
       clean_rep_events: 1,
@@ -88,9 +93,48 @@ const PIECE: UniversePiece = {
   ],
 };
 
+/** Cold: untouched for well past the stale threshold. */
+const STALE_PIECE: UniversePiece = {
+  piece_id: 9,
+  title: "The White Peacock",
+  composer: "Griffes",
+  focused_seconds: 600,
+  active_days_28: 0,
+  regions_total: 1,
+  regions_practiced: 1,
+  regions_revisited: 0,
+  mastered_targets: 0,
+  practice_sessions: 1,
+  quality_brightness: 0.5,
+  last_practiced: isoDaysBefore(40),
+  region_signals: [
+    {
+      region_id: 21,
+      name: "Whole piece",
+      kind: "section",
+      focused_seconds: 600,
+      active_days_28: 0,
+      practiced: true,
+      revisited: false,
+      quality_brightness: 0.5,
+      last_practiced: isoDaysBefore(40),
+      practice_events: 2,
+      rated_rep_events: 1,
+      clean_rep_events: 0,
+      distinct_practice_dates: 1,
+    },
+  ],
+};
+
 const SNAPSHOT: UniverseSnapshot = {
-  generated_at: "2026-07-12T17:00:00Z",
-  definitions: [],
+  generated_at: GENERATED_AT,
+  definitions: [
+    {
+      signal: "focused_time",
+      label: "Focused time",
+      definition: "Practice time after idle time is removed.",
+    },
+  ],
   traces: {
     source: "canonical practice events",
     practice_event_kinds: ["rep_open", "rep", "verdict", "tempo_change"],
@@ -108,7 +152,7 @@ const SNAPSHOT: UniverseSnapshot = {
     recovered_targets: 1,
     practice_sessions: 8,
   },
-  pieces: [PIECE],
+  pieces: [PIECE, STALE_PIECE],
 };
 
 beforeEach(() => {
@@ -122,121 +166,175 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-function node(container: HTMLElement, id: string): SVGGElement {
-  const element = container.querySelector(`[data-node-id="${id}"]`);
-  if (!element) throw new Error(`node ${id} not found`);
-  return element as unknown as SVGGElement;
+async function renderMap(
+  props: Partial<{
+    onOpenPractice: (piece: unknown) => void;
+    onOpenLedger: (piece: unknown) => void;
+  }> = {},
+) {
+  const result = render(
+    <UniverseWorkspace
+      onOpenPractice={props.onOpenPractice ?? vi.fn()}
+      onOpenLedger={props.onOpenLedger as ((piece: never) => void) | undefined}
+    />,
+  );
+  await screen.findByRole("heading", { name: "Your repertoire" });
+  return result;
 }
 
-describe("UniverseWorkspace force graph", () => {
-  it("renders a live galaxy of suns, planets and satellites from the snapshot", async () => {
-    const { container } = render(
-      <UniverseWorkspace onOpenPractice={vi.fn()} />,
-    );
-    expect(screen.getByRole("status").textContent).toContain(
-      "Mapping your recorded practice",
-    );
-    expect(
-      await screen.findByRole("heading", { name: "Your earned systems" }),
-    ).toBeTruthy();
+describe("UniverseWorkspace repertoire map", () => {
+  it("lays the repertoire out as a still index grouped by composer", async () => {
+    const { container } = await renderMap();
 
-    // sun for the piece, one planet per region, satellites from session counts.
-    expect(container.querySelector('[data-node-id="piece-7"]')).toBeTruthy();
-    expect(container.querySelectorAll(".universe-node-planet")).toHaveLength(3);
-    // region 1 has 2 sessions, region 2 has 1, region 3 has 0 -> 3 satellites.
-    expect(container.querySelectorAll(".universe-node-satellite")).toHaveLength(
-      3,
+    // Composer headings, alphabetical and deterministic.
+    const groups = [...container.querySelectorAll(".universe-group-name")].map(
+      (node) => node.textContent,
     );
+    expect(groups).toEqual(["Chopin", "Griffes"]);
+
+    const card = screen.getByTestId("universe-piece-7");
+    expect(card.textContent).toContain("Nocturne Op. 9 No. 2");
+    expect(card.textContent).toContain("2 / 3 regions practiced");
+    expect(card.textContent).toContain("1 verified");
+    expect(card.textContent).toContain("1h 30m focused");
+    expect(card.textContent).toContain("8 sessions");
+    expect(card.textContent).toContain("Practiced yesterday");
   });
 
-  it("drags a node: position updates and nothing throws", async () => {
-    const { container } = render(
-      <UniverseWorkspace onOpenPractice={vi.fn()} />,
-    );
-    await screen.findByRole("heading", { name: "Your earned systems" });
+  it("runs no simulation, no animation frame loop and no keyframes", async () => {
+    const raf = vi.spyOn(window, "requestAnimationFrame");
+    const { container } = await renderMap();
 
-    const planet = node(container, "region-1");
-    const before = planet.getAttribute("transform");
-
-    expect(() => {
-      fireEvent.pointerDown(planet, {
-        pointerId: 1,
-        button: 0,
-        clientX: 200,
-        clientY: 200,
-      });
-      fireEvent.pointerMove(planet, {
-        pointerId: 1,
-        clientX: 320,
-        clientY: 300,
-      });
-      fireEvent.pointerUp(planet, { pointerId: 1, clientX: 320, clientY: 300 });
-    }).not.toThrow();
-
-    expect(node(container, "region-1").getAttribute("transform")).not.toBe(
-      before,
-    );
+    expect(raf).not.toHaveBeenCalled();
+    // The old galaxy drew itself into an <svg> canvas; nothing does now.
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector(".universe-canvas")).toBeNull();
+    raf.mockRestore();
   });
 
-  it("clicking a planet opens the DetailPanel with that region's data", async () => {
-    const { container } = render(
-      <UniverseWorkspace onOpenPractice={vi.fn()} />,
-    );
-    await screen.findByRole("heading", { name: "Your earned systems" });
+  it("draws one mark per region, in snapshot order, with its earned state", async () => {
+    await renderMap();
+    const marks = [
+      ...screen
+        .getByTestId("universe-piece-7")
+        .querySelectorAll(".universe-block"),
+    ].map((node) => node.getAttribute("data-state"));
+    // Opening = mastery verified, Coda = practiced, Middle = untouched.
+    expect(marks).toEqual(["mastered", "practiced", "untouched"]);
+  });
 
-    const planet = node(container, "region-1");
-    fireEvent.pointerDown(planet, {
-      pointerId: 2,
-      button: 0,
-      clientX: 150,
-      clientY: 150,
+  it("places a piece in the same spot however the snapshot is ordered", async () => {
+    const order = async () => {
+      const { container } = await renderMap();
+      const ids = [...container.querySelectorAll("[data-piece-id]")].map(
+        (node) => node.getAttribute("data-piece-id"),
+      );
+      cleanup();
+      return ids;
+    };
+    const forward = await order();
+    invokeMock.mockResolvedValue({
+      ...SNAPSHOT,
+      pieces: [STALE_PIECE, PIECE],
     });
-    fireEvent.pointerUp(planet, { pointerId: 2, clientX: 150, clientY: 150 });
-
-    const panel = await screen.findByRole("complementary", { name: "Opening" });
-    expect(within(panel).getByText("Region")).toBeTruthy();
-    // reps = rated_rep_events (6), clean reps = clean_rep_events (5)
-    expect(within(panel).getByText("Reps").nextSibling?.textContent).toBe("6");
-    expect(
-      within(panel).getByRole("button", { name: "Open on score" }),
-    ).toBeTruthy();
+    expect(await order()).toEqual(forward);
   });
 
-  it("suppresses mouse-press focus on a node so a click can't scroll-teleport it", async () => {
-    const { container } = render(
-      <UniverseWorkspace onOpenPractice={vi.fn()} />,
-    );
-    await screen.findByRole("heading", { name: "Your earned systems" });
-
-    const planet = node(container, "region-1");
-    // The node stays keyboard-focusable for a11y (Tab + Enter still work).
-    expect(planet.getAttribute("tabindex")).toBe("0");
-
-    // A primary-button press must call preventDefault. Because the <g> is
-    // focusable, the browser's focus-on-press would otherwise scroll it to the
-    // centre of the nearest scroll container — the reported "clicked ball
-    // teleports to the middle of the view" regression. preventDefault on the
-    // (delegated) pointerdown cancels the compat mousedown whose default action
-    // is focus, while leaving keyboard Tab focus untouched.
-    const down = createEvent.pointerDown(planet, { button: 0, pointerId: 5 });
-    fireEvent(planet, down);
-    expect(down.defaultPrevented).toBe(true);
+  it("names what wants work, most pressing first, without inventing a due date", async () => {
+    await renderMap();
+    const band = screen.getByTestId("universe-wants-work");
+    const chips = within(band).getAllByRole("button");
+    // A piece practised yesterday is not nagged about; only the cold one is.
+    expect(chips).toHaveLength(1);
+    expect(chips[0].textContent).toContain("The White Peacock");
+    expect(chips[0].textContent).toContain("Rested 40 days");
   });
 
-  it("opens graph detail with the keyboard and from the text equivalent", async () => {
-    render(<UniverseWorkspace onOpenPractice={vi.fn()} />);
-    await screen.findByRole("heading", { name: "Your earned systems" });
+  it("marks recovery debt ahead of staleness", async () => {
+    invokeMock.mockResolvedValue({
+      ...SNAPSHOT,
+      pieces: [{ ...PIECE, open_recovery_debt: 2 }, STALE_PIECE],
+    });
+    await renderMap();
+    const band = screen.getByTestId("universe-wants-work");
+    const chips = within(band).getAllByRole("button");
+    expect(chips.map((chip) => chip.getAttribute("data-attention"))).toEqual([
+      "recovering",
+      "stale",
+    ]);
+    expect(chips[0].textContent).toContain("2 regions in recovery");
+  });
 
-    const region = screen.getByRole("button", { name: /planet · Opening/i });
-    region.focus();
-    fireEvent.keyDown(region, { key: "Enter" });
+  it("caps the wants-work band and summarises the rest instead of listing 22 names", async () => {
+    invokeMock.mockResolvedValue({
+      ...SNAPSHOT,
+      pieces: Array.from({ length: 10 }, (_, index) => ({
+        ...STALE_PIECE,
+        piece_id: 200 + index,
+        title: `Cold piece ${index}`,
+        last_practiced: isoDaysBefore(20 + index),
+      })),
+    });
+    await renderMap();
+    const band = screen.getByTestId("universe-wants-work");
+    expect(within(band).getAllByRole("button")).toHaveLength(6);
+    expect(band.textContent).toContain("and 4 more, marked in the index below");
+    // Nothing is actually hidden: all ten still carry their own card + mark.
+    expect(document.querySelectorAll(".universe-card")).toHaveLength(10);
     expect(
-      await screen.findByRole("complementary", { name: "Opening" }),
-    ).toBeTruthy();
+      document.querySelectorAll('.universe-card[data-attention="stale"]'),
+    ).toHaveLength(10);
+  });
 
-    fireEvent.click(screen.getByText("Evidence history — text equivalent"));
+  it("selects a piece from its card and opens the record beside it", async () => {
+    await renderMap();
+    const card = screen.getByTestId("universe-piece-7");
+    expect(card.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(card);
+    expect(
+      screen.getByTestId("universe-piece-7").getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    const panel = await screen.findByRole("complementary", {
+      name: "Nocturne Op. 9 No. 2",
+    });
+    expect(within(panel).getByText("Piece")).toBeTruthy();
+    expect(within(panel).getByText("Regions (3)")).toBeTruthy();
+  });
+
+  it("selects a piece from the wants-work band", async () => {
+    await renderMap();
+    const band = screen.getByTestId("universe-wants-work");
     fireEvent.click(
-      screen.getByRole("button", { name: "Nocturne Op. 9 No. 2" }),
+      within(band).getByRole("button", { name: /The White Peacock/ }),
+    );
+    expect(
+      await screen.findByRole("complementary", { name: "The White Peacock" }),
+    ).toBeTruthy();
+  });
+
+  it("drills from a piece into one region and back again", async () => {
+    await renderMap();
+    fireEvent.click(screen.getByTestId("universe-piece-7"));
+
+    const panel = await screen.findByRole("complementary", {
+      name: "Nocturne Op. 9 No. 2",
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: /Opening/ }));
+
+    const regionPanel = await screen.findByRole("complementary", {
+      name: "Opening",
+    });
+    // reps = rated_rep_events (6), clean reps = clean_rep_events (5)
+    expect(within(regionPanel).getByText("Reps").nextSibling?.textContent).toBe(
+      "6",
+    );
+
+    fireEvent.click(
+      within(regionPanel).getByRole("button", {
+        name: /← Nocturne Op. 9 No. 2/,
+      }),
     );
     expect(
       await screen.findByRole("complementary", {
@@ -245,42 +343,69 @@ describe("UniverseWorkspace force graph", () => {
     ).toBeTruthy();
   });
 
-  it("hover focuses a system: the canvas takes the hovering class", async () => {
-    const { container } = render(
-      <UniverseWorkspace onOpenPractice={vi.fn()} />,
-    );
-    await screen.findByRole("heading", { name: "Your earned systems" });
-    const canvas = container.querySelector(".universe-canvas") as SVGSVGElement;
-    expect(canvas.classList.contains("is-hovering")).toBe(false);
+  it("keeps every card reachable and activatable from the keyboard", async () => {
+    await renderMap();
+    const card = screen.getByTestId("universe-piece-7");
+    // A real <button>, so Tab reaches it and Enter/Space activate it natively —
+    // no tabIndex on a non-interactive node, and no focus-scroll workaround.
+    expect(card.tagName).toBe("BUTTON");
+    expect(card.getAttribute("tabindex")).toBeNull();
 
-    fireEvent.pointerOver(node(container, "piece-7"));
-    expect(canvas.classList.contains("is-hovering")).toBe(true);
-    expect(canvas.getAttribute("data-hovered")).toBe("piece-7");
-
-    // Neighborhood highlight: the hovered sun stays lit, an unrelated planet dims.
-    expect(node(container, "piece-7").classList.contains("is-lit")).toBe(true);
+    card.focus();
+    expect(document.activeElement).toBe(card);
+    fireEvent.click(card);
+    // Selecting must not move focus away from the card the user pressed.
+    expect(document.activeElement).toBe(screen.getByTestId("universe-piece-7"));
+    expect(
+      await screen.findByRole("complementary", {
+        name: "Nocturne Op. 9 No. 2",
+      }),
+    ).toBeTruthy();
   });
 
-  it("opens Score Atlas from the header and detail jump action", async () => {
-    const onOpenPractice = vi.fn();
-    const { container } = render(
-      <UniverseWorkspace onOpenPractice={onOpenPractice} />,
+  it("closes the record back to its resting prompt", async () => {
+    await renderMap();
+    fireEvent.click(screen.getByTestId("universe-piece-7"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Close detail panel" }),
     );
-    await screen.findByRole("heading", { name: "Your earned systems" });
+    expect(
+      screen.getByTestId("universe-detail").classList.contains("is-resting"),
+    ).toBe(true);
+    expect(
+      screen.getByTestId("universe-piece-7").getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+
+  it("shows the totals band", async () => {
+    const { container } = await renderMap();
+    const totals = container.querySelector(".universe-totals") as HTMLElement;
+    expect(totals.textContent).toContain("1h 30m");
+    expect(within(totals).getByText("Mastery verified")).toBeTruthy();
+    expect(within(totals).getByText("Practice sessions")).toBeTruthy();
+  });
+
+  it("discloses how the numbers are earned", async () => {
+    await renderMap();
+    fireEvent.click(screen.getByText("How these numbers are earned"));
+    expect(
+      screen.getByText("Practice time after idle time is removed."),
+    ).toBeTruthy();
+    expect(screen.getByText(/canonical practice events/).textContent).toContain(
+      "300 seconds",
+    );
+  });
+
+  it("opens Score Atlas from the header and from the record", async () => {
+    const onOpenPractice = vi.fn();
+    await renderMap({ onOpenPractice });
 
     fireEvent.click(
       screen.getAllByRole("button", { name: "Open score map" })[0],
     );
     expect(onOpenPractice).toHaveBeenCalledWith(null);
 
-    const sun = node(container, "piece-7");
-    fireEvent.pointerDown(sun, {
-      pointerId: 3,
-      button: 0,
-      clientX: 100,
-      clientY: 100,
-    });
-    fireEvent.pointerUp(sun, { pointerId: 3, clientX: 100, clientY: 100 });
+    fireEvent.click(screen.getByTestId("universe-piece-7"));
     const panel = await screen.findByRole("complementary", {
       name: "Nocturne Op. 9 No. 2",
     });
@@ -317,19 +442,25 @@ describe("UniverseWorkspace force graph", () => {
     expect(onOpenPractice).toHaveBeenCalledWith(null);
   });
 
+  it("announces loading without an animated placeholder", async () => {
+    render(<UniverseWorkspace onOpenPractice={vi.fn()} />);
+    const status = screen.getByRole("status");
+    expect(status.textContent).toContain("Reading your practice record");
+    expect(status.querySelector("i")).toBeNull();
+    await screen.findByRole("heading", { name: "Your repertoire" });
+  });
+
   it("surfaces load failure and retries", async () => {
     invokeMock
       .mockRejectedValueOnce(new Error("Database unavailable"))
       .mockResolvedValueOnce(SNAPSHOT);
-    const { container } = render(
-      <UniverseWorkspace onOpenPractice={vi.fn()} />,
-    );
+    render(<UniverseWorkspace onOpenPractice={vi.fn()} />);
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Database unavailable",
     );
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    await screen.findByRole("heading", { name: "Your earned systems" });
-    expect(container.querySelector('[data-node-id="piece-7"]')).toBeTruthy();
+    await screen.findByRole("heading", { name: "Your repertoire" });
+    expect(screen.getByTestId("universe-piece-7")).toBeTruthy();
   });
 
   it("formats durations safely", () => {

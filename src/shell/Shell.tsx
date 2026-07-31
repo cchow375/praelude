@@ -333,29 +333,12 @@ export interface ShellProps {
   defaultCleanStreak?: number;
 }
 
-const DOCK_STYLE: CSSProperties = {
-  position: "relative",
-  width: "100%",
-  maxHeight: "min(680px, 70vh)",
-  overflowY: "auto",
-  marginTop: "calc(var(--s-6) + var(--s-5))",
-  marginBottom: "var(--s-5)",
-  zIndex: 1,
-};
-
-const COMPACT_DOCK_STYLE: CSSProperties = {
-  width: "100%",
-  marginTop: "calc(var(--s-6) + var(--s-5))",
-  marginBottom: "var(--s-5)",
-};
-
-const SESSION_DOCK_STYLE: CSSProperties = {
-  position: "fixed",
-  top: "var(--s-4)",
-  right: "var(--s-4)",
-  zIndex: 80,
-};
-
+// D1/D4: the dock is plain in-flow layout. It used to carry a
+// `calc(var(--s-6) + var(--s-5))` top margin whose only job was to duck under
+// the fixed session overlay, and a 680px max-height that reserved a wall of
+// space above the workspace. The session strip now lives in the header band, so
+// the set card simply starts at the top of the stage. Geometry lives in
+// .shell-set-dock (shell.css) so the reading measure is applied in one place.
 const VOICE_DRAFT_STYLE: CSSProperties = {
   position: "fixed",
   left: "50%",
@@ -999,21 +982,6 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
           })}
         </nav>
 
-        {session.session && (
-          <div style={SESSION_DOCK_STYLE}>
-            <SessionBar
-              session={session.session}
-              onEnd={endSession}
-              ending={ending}
-              blockedReason={
-                rep.snap
-                  ? "Close the active set before ending the session."
-                  : null
-              }
-            />
-          </div>
-        )}
-
         <button
           ref={metroButtonRef}
           type="button"
@@ -1037,6 +1005,23 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         </button>
       </aside>
 
+      {/* The header band. It is a real grid row: it reserves its own height and
+          can never sit on top of the workspace beneath it (defect D1). */}
+      {session.session && (
+        <header className="shell-topbar">
+          <SessionBar
+            session={session.session}
+            onEnd={endSession}
+            ending={ending}
+            blockedReason={
+              rep.snap
+                ? "Close the active set before ending the session."
+                : null
+            }
+          />
+        </header>
+      )}
+
       <main
         id="shell-stage"
         className="shell-stage"
@@ -1044,10 +1029,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         aria-labelledby={view === "settings" ? undefined : `tab-${view}`}
       >
         {rep.snap && !todayPracticeOpen && (
-          <aside
-            style={repHudCollapsed ? COMPACT_DOCK_STYLE : DOCK_STYLE}
-            aria-label="Active practice set"
-          >
+          <aside className="shell-set-dock" aria-label="Active practice set">
             {activeSetHud}
           </aside>
         )}

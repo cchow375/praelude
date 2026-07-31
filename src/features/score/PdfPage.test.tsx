@@ -479,3 +479,310 @@ describe("PdfPage", () => {
     expect(page.cleanup).toHaveBeenCalledTimes(1);
   });
 });
+
+// The screen-resolution page-image fast path. On a 24-bit colour scan Rust
+// answers in ~0.05–0.2 s where PDF.js needs 14–43 s, so it is tried FIRST and
+// PDF.js is the fallback. Every test here is about the handover being safe: a
+// refusal must land on a real rendered page, never a blank one, and the page box
+// every overlay is positioned against must not move.
+describe("PdfPage — page-image fast path", () => {
+  /** A source that answers with an image of the given pixel size. */
+  function makeSource(
+    size: { width: number; height: number } | null,
+    onBitmap?: (bitmap: { width: number; height: number }) => void,
+  ) {
+    if (size) {
+      vi.stubGlobal("createImageBitmap", async () => {
+        const bitmap = { ...size, close: vi.fn() };
+        onBitmap?.(bitmap);
+        return bitmap;
+      });
+    }
+    const load = vi.fn(async () =>
+      size ? new Blob([new Uint8Array([0xff, 0xd8, 0xff])]) : null,
+    );
+    return { load, warm: vi.fn() };
+  }
+
+  async function settle() {
+    await act(async () => {
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    });
+  }
+
+  it("displays the fast-path image and never touches the PDF renderer", async () => {
+    vi.stubGlobal("devicePixelRatio", 2);
+    const { page, render: renderPage, cleanup: cleanupPage } = makeReadyPage();
+    const document = makeDocument(() => Promise.resolve(page));
+    const source = makeSource({ width: 1536, height: 2048 });
+    const onRasterized = vi.fn();
+    render(
+      <PdfPage
+        document={document}
+        pageNumber={1}
+        active
+        scale={1}
+        pageImage={source}
+        onRasterized={onRasterized}
+      />,
+    );
+    await settle();
+
+    expect(renderPage).not.toHaveBeenCalled();
+    const section = screen.getByLabelText("Score page 1");
+    expect(section.getAttribute("data-source")).toBe("image");
+    expect(section.className).toContain("is-ready");
+    const canvas = screen.getByLabelText(
+      "Rendered score page 1",
+    ) as HTMLCanvasElement;
+    expect(canvas.width).toBe(1536);
+    expect(canvas.height).toBe(2048);
+    // The first-page snapshot cache is fed by the fast path too.
+    expect(onRasterized).toHaveBeenCalledWith(1, canvas);
+    // Nothing of this page stays resident in PDF.js beside the painted bitmap.
+    expect(cleanupPage).toHaveBeenCalled();
+  });
+
+  it("asks for the bucket the real viewport needs, not a fixed size", async () => {
+    vi.stubGlobal("devicePixelRatio", 2);
+    // 600x800 page at scale 1, DPR 2 → 1600 device px on the long edge → 2048.
+    const { page } = makeReadyPage();
+    const document = makeDocument(() => Promise.resolve(page));
+    const source = makeSource({ width: 1536, height: 2048 });
+    render(
+      <PdfPage
+        document={document}
+        pageNumber={4}
+        active
+        scale={1}
+        pageImage={source}
+      />,
+    );
+    await settle();
+    expect(source.load).toHaveBeenCalledWith(4, 2048);
+  });
+
+  it("falls back to the PDF renderer when Rust refuses the page", async () => {
+    const { page, render: renderPage } = makeReadyPage();
+    const document = makeDocument(() => Promise.resolve(page));
+    const source = makeSource(null);
+    render(
+      <PdfPage
+        document={document}
+        pageNumber={2}
+        active
+        scale={1}
+        pageImage={source}
+      />,
+    );
+    await settle();
+
+    expect(source.load).toHaveBeenCalled();
+    expect(renderPage).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Score page 2").getAttribute("data-source")).toBe(
+      "pdf",
+    );
+  });
+
+  it("never leaves a blank or errored page behind a refusal", async () => {
+    const { page } = makeReadyPage();
+    const document = makeDocument(() => Promise.resolve(page));
+    const source = makeSource(null);
+    render(
+      <PdfPage
+        document={document}
+        pageNumber={2}
+        active
+        scale={1}
+        pageImage={source}
+      />,
+    );
+    await settle();
+
+    const canvas = screen.getByLabelText(
+      "Rendered score page 2",
+    ) as HTMLCanvasElement;
+    // makeReadyPage's render() stamps 1000x1400 — real pixels, not a 0x0 canvas.
+    expect(canvas.width).toBe(1000);
+    expect(canvas.height).toBe(1400);
+    expect(screen.getByLabelText("Score page 2").className).toContain("is-ready");
+    expect(screen.queryByText(/Rendering page 2/)).toBeNull();
+    expect(screen.queryByText(/Page 2:/)).toBeNull();
+  });
+
+  it("falls back rather than paint an image that is not the shape of the page", async () => {
+    vi.stubGlobal("devicePixelRatio", 2);
+    const { page, render: renderPage } = makeReadyPage();
+    const document = makeDocument(() => Promise.resolve(page));
+    // Page box is 600x800 (0.75); this image is 2.0 — a rotated or partial
+    // placement. Stretching it to fill the box would slide every overlay off
+    // the staff, so it is refused.
+    const source = makeSource({ width: 2000, height: 1000 });
+    render(
+      <PdfPage
+        document={document}
+        pageNumber={1}
+        active
+        scale={1}
+        pageImage={source}
+      />,
+    );
+    await settle();
+
+    expect(renderPage).toHaveBeenCalledTimes(1);
+    const canvas = screen.getByLabelText(
+      "Rendered score page 1",
+    ) as HTMLCanvasElement;
+    expect(canvas.width).toBe(1000);
+  });
+
+  it("stops asking for a cached image once zoom passes what it can carry", async () => {
+    vi.stubGlobal("devicePixelRatio", 2);
+    // 600x800 page: the long edge crosses 3200 device px just above scale 2.
+    const { page, render: renderPage } = makeReadyPage();
+    const document = makeDocument(() => Promise.resolve(page));
+    const source = makeSource({ width: 1536, height: 2048 });
+    render(
+      <PdfPage
+        document={document}
+        pageNumber={1}
+        active
+        scale={2.5}
+        pageImage={source}
+      />,
+    );
+    await settle();
+
+    expect(source.load).not.toHaveBeenCalled();
+    expect(renderPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-requests a larger bucket as the reader zooms in", async () => {
+    vi.stubGlobal("devicePixelRatio", 2);
+    const { page } = makeReadyPage();
+    const document = makeDocument(() => Promise.resolve(page));
+    const source = makeSource({ width: 1536, height: 2048 });
+    const view = render(
+      <PdfPage
+        document={document}
+        pageNumber={1}
+        active
+        scale={0.5}
+        pageImage={source}
+      />,
+    );
+    await settle();
+    expect(source.load).toHaveBeenLastCalledWith(1, 1024);
+
+    view.rerender(
+      <PdfPage
+        document={document}
+        pageNumber={1}
+        active
+        scale={1.5}
+        pageImage={source}
+      />,
+    );
+    // The crisp re-request is debounced exactly like the PDF.js re-raster is.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    await settle();
+    expect(source.load).toHaveBeenLastCalledWith(1, 2560);
+  });
+
+  it("releases the decoded image as soon as it has been blitted", async () => {
+    vi.stubGlobal("devicePixelRatio", 2);
+    const { page } = makeReadyPage();
+    const document = makeDocument(() => Promise.resolve(page));
+    const closes: Array<ReturnType<typeof vi.fn>> = [];
+    const source = makeSource({ width: 1536, height: 2048 }, (bitmap) => {
+      closes.push((bitmap as unknown as { close: ReturnType<typeof vi.fn> }).close);
+    });
+    render(
+      <PdfPage
+        document={document}
+        pageNumber={1}
+        active
+        scale={1}
+        pageImage={source}
+      />,
+    );
+    await settle();
+    expect(closes).toHaveLength(1);
+    expect(closes[0]).toHaveBeenCalledTimes(1);
+  });
+
+  it("lays the page box out identically whichever pipeline painted it", async () => {
+    vi.stubGlobal("devicePixelRatio", 2);
+    // The overlay contract: region rectangles, target rectangles and the mapping
+    // calibration are all positioned as percentages of this box. If the box
+    // differed between the fast path and the fallback, every mark would drift.
+    const overlay = (
+      <div
+        data-testid="overlay-probe"
+        style={{
+          position: "absolute",
+          left: "25%",
+          top: "40%",
+          width: "10%",
+          height: "5%",
+        }}
+      />
+    );
+
+    const fastDoc = makeDocument(() =>
+      Promise.resolve(makeReadyPage({ width: 613, height: 792 }).page),
+    );
+    render(
+      <PdfPage
+        document={fastDoc}
+        pageNumber={1}
+        active
+        scale={1.25}
+        pageImage={makeSource({ width: 1585, height: 2048 })}
+      >
+        {overlay}
+      </PdfPage>,
+    );
+    await settle();
+    const fastSection = screen.getByLabelText("Score page 1");
+    const fastBox = fastSection.getAttribute("style");
+    const fastProbe = screen.getByTestId("overlay-probe").getAttribute("style");
+    expect(fastSection.getAttribute("data-source")).toBe("image");
+    cleanup();
+
+    const slowDoc = makeDocument(() =>
+      Promise.resolve(makeReadyPage({ width: 613, height: 792 }).page),
+    );
+    render(
+      <PdfPage
+        document={slowDoc}
+        pageNumber={1}
+        active
+        scale={1.25}
+        pageImage={makeSource(null)}
+      >
+        {overlay}
+      </PdfPage>,
+    );
+    await settle();
+    const slowSection = screen.getByLabelText("Score page 1");
+    expect(slowSection.getAttribute("data-source")).toBe("pdf");
+    expect(slowSection.getAttribute("style")).toBe(fastBox);
+    expect(screen.getByTestId("overlay-probe").getAttribute("style")).toBe(
+      fastProbe,
+    );
+    // And the box really is the PDF page box at the live scale, not the image's.
+    expect(fastBox).toContain("width: 766px");
+    expect(fastBox).toContain("height: 990px");
+  });
+
+  it("behaves exactly as before when the host offers no fast path", async () => {
+    const { page, render: renderPage } = makeReadyPage();
+    const document = makeDocument(() => Promise.resolve(page));
+    render(<PdfPage document={document} pageNumber={1} active scale={1} />);
+    await settle();
+    expect(renderPage).toHaveBeenCalledTimes(1);
+  });
+});

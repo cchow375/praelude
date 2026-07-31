@@ -21,7 +21,16 @@ import {
   validAnchorMap,
 } from "./anchors";
 import { PdfPage } from "./PdfPage";
+import {
+  createPageImageSource,
+  exceedsPageImageCeiling,
+  neededLongEdge,
+  pageImageBucket,
+} from "./pageImage";
 import { RegionOverlay, type RegionOverlayItem } from "./RegionOverlay";
+import { PencilOverlay } from "./marks/PencilOverlay";
+import { defaultMarksApi, type ScoreMarksApi } from "./marks/api";
+import type { Stroke } from "./marks/strokes";
 import { REGION_COLORS, RegionEditor } from "../pieces/RegionEditor";
 import { useCrud } from "../rep/useCrud";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
@@ -60,6 +69,14 @@ import {
   sharedFirstPageBitmaps,
   sniffImageMime,
 } from "./firstPageCache";
+import {
+  createRangeTransport,
+  probeScoreSource,
+  scoreEditionUrl,
+  SCORE_RANGE_CHUNK_SIZE,
+  type PdfRangeTransport,
+  type PdfRangeTransportCtor,
+} from "./pdfSource";
 import type {
   PdfAdapter,
   PdfAnchorKind,
@@ -75,22 +92,33 @@ import type {
 import "./ScoreView.css";
 
 const PDF_LOAD_TIMEOUT_MS = 30_000;
+/** How long the `ckscore://` probe may take before we give up and use IPC. */
+const SCORE_PROBE_TIMEOUT_MS = 2_000;
 const PDF_RENDER_TIMEOUT_MESSAGE =
   "PDF rendering did not start in time. Try again or choose another edition.";
 
+/** Decoder + asset wiring every load shares; see the comments in `load` below. */
+interface PdfJsDocumentOptions {
+  cMapUrl: string;
+  cMapPacked: boolean;
+  iccUrl: string;
+  standardFontDataUrl: string;
+  wasmUrl: string;
+  useWorkerFetch: boolean;
+  useWasm: boolean;
+  isOffscreenCanvasSupported: boolean;
+  isImageDecoderSupported: boolean;
+}
+
 interface PdfJsRuntime {
-  getDocument: (options: {
-    data: Uint8Array;
-    cMapUrl: string;
-    cMapPacked: boolean;
-    iccUrl: string;
-    standardFontDataUrl: string;
-    wasmUrl: string;
-    useWorkerFetch: boolean;
-    useWasm: boolean;
-    isOffscreenCanvasSupported: boolean;
-    isImageDecoderSupported: boolean;
-  }) => PDFDocumentLoadingTask;
+  getDocument: (
+    options: PdfJsDocumentOptions & Record<string, unknown>,
+  ) => PDFDocumentLoadingTask;
+  /**
+   * Absent from the minimal fakes the viewer tests inject, so `loadUrl`
+   * checks for it and lets the caller fall back to the byte path.
+   */
+  PDFDataRangeTransport?: PdfRangeTransportCtor;
 }
 
 type PdfJsRuntimeLoader = () => Promise<PdfJsRuntime>;
@@ -112,6 +140,20 @@ const defaultApi: ScorePdfApi = {
     }),
   createTarget: (payload) =>
     invoke<Region>("score_atlas_target_save", { payload }),
+  pageImage: (pieceId, editionId, page, targetLongEdge) =>
+    invoke<ArrayBuffer>("score_page_image", {
+      pieceId,
+      editionId,
+      page,
+      targetLongEdge,
+    }),
+  warmPageImage: (pieceId, editionId, page, targetLongEdge) =>
+    invoke<void>("score_page_image_warm", {
+      pieceId,
+      editionId,
+      page,
+      targetLongEdge,
+    }),
   loadFirstPage: (pieceId, fingerprint, page, bucket) =>
     invoke<ArrayBuffer>("score_page_cache_load", {
       pieceId,
@@ -211,88 +253,180 @@ export function createPdfJsAdapter(
     return import("pdfjs-dist/legacy/build/pdf.mjs");
   },
 ): PdfAdapter {
-  return {
-    async load(bytes, options) {
-      if (
-        !bytes ||
-        typeof bytes.byteLength !== "number" ||
-        bytes.byteLength === 0
-      ) {
-        throw new Error(
-          "The selected PDF is empty or did not arrive as binary data.",
-        );
-      }
+  // One shared import promise: `prefetch()` and every load await the same
+  // ~1.7 MB of chunks. Without this the first open pays the import serially,
+  // after both IPC round-trips have already finished.
+  let runtime: Promise<PdfJsRuntime> | null = null;
+  const runtimeOnce = () => (runtime ??= loadRuntime());
 
-      const timeoutMs = options?.timeoutMs ?? PDF_LOAD_TIMEOUT_MS;
-      const taskRef: { current: PDFDocumentLoadingTask | null } = {
-        current: null,
+  /** Everything except the data source; shared by `load` and `loadUrl`. */
+  const decoderOptions = (): PdfJsDocumentOptions => {
+    const pdfAssetRoot = new URL("./pdfjs/", document.baseURI);
+    return {
+      // Most of Christian's editions are scanned CCITT/JBIG2/JPEG pages.
+      // PDF.js otherwise resolves page metadata but silently paints white
+      // when its external decoders are absent. These assets are vendored
+      // under public/pdfjs and copied verbatim into every app build.
+      cMapUrl: new URL("cmaps/", pdfAssetRoot).href,
+      cMapPacked: true,
+      iccUrl: new URL("iccs/", pdfAssetRoot).href,
+      standardFontDataUrl: new URL("standard_fonts/", pdfAssetRoot).href,
+      wasmUrl: new URL("wasm/", pdfAssetRoot).href,
+      useWorkerFetch: true,
+      useWasm: true,
+      // WKWebView exposes some newer canvas/image APIs before their worker
+      // implementations are reliable enough for PDF.js. The DOM + bundled
+      // decoder path is slower but deterministic for a local piano score.
+      isOffscreenCanvasSupported: false,
+      isImageDecoderSupported: false,
+    };
+  };
+
+  /**
+   * Drive one loading task to a document handle under a deadline, destroying
+   * the task on every failure path — including one created after the deadline
+   * already elapsed, because dynamic imports cannot be cancelled.
+   */
+  const openDocument = async (
+    start: (runtime: PdfJsRuntime) => PDFDocumentLoadingTask,
+    timeoutMs: number,
+    abort?: () => void,
+  ): Promise<PdfDocumentHandle> => {
+    const taskRef: { current: PDFDocumentLoadingTask | null } = {
+      current: null,
+    };
+    let timedOut = false;
+    try {
+      const pdfDocument = await withTimeout(
+        (async () => {
+          // CodaKiller runs inside WKWebView. PDF.js's modern build targets only
+          // the newest browser engines, and WebKit does not reliably start an ES
+          // module Worker from Tauri's custom app protocol. Loading the matching
+          // legacy worker module on the main thread registers WorkerMessageHandler;
+          // PDF.js then uses its supported loopback worker instead of waiting on a
+          // custom-protocol Worker handshake that may never answer.
+          const task = start(await runtimeOnce());
+          taskRef.current = task;
+          if (timedOut) {
+            void task.destroy().catch(() => undefined);
+            throw new Error(PDF_RENDER_TIMEOUT_MESSAGE);
+          }
+          return task.promise;
+        })(),
+        timeoutMs,
+        PDF_RENDER_TIMEOUT_MESSAGE,
+      );
+
+      return {
+        numPages: pdfDocument.numPages,
+        getPage: async (pageNumber) =>
+          wrapPage(await pdfDocument.getPage(pageNumber)),
+        destroy: async () => {
+          abort?.();
+          await taskRef.current?.destroy();
+        },
       };
-      let timedOut = false;
-      try {
-        const pdfDocument = await withTimeout(
-          (async () => {
-            // CodaKiller runs inside WKWebView. PDF.js's modern build targets only
-            // the newest browser engines, and WebKit does not reliably start an ES
-            // module Worker from Tauri's custom app protocol. Loading the matching
-            // legacy worker module on the main thread registers WorkerMessageHandler;
-            // PDF.js then uses its supported loopback worker instead of waiting on a
-            // custom-protocol Worker handshake that may never answer.
-            const { getDocument } = await loadRuntime();
-            const pdfAssetRoot = new URL("./pdfjs/", document.baseURI);
-            const task = getDocument({
-              // Uint8Array accepts ArrayBuffers from a different JS realm too; an
-              // `instanceof ArrayBuffer` check does not (WKWebView's IPC response is
-              // created by Tauri's injected realm).
-              data: new Uint8Array(bytes).slice(),
-              // Most of Christian's editions are scanned CCITT/JBIG2/JPEG pages.
-              // PDF.js otherwise resolves page metadata but silently paints white
-              // when its external decoders are absent. These assets are vendored
-              // under public/pdfjs and copied verbatim into every app build.
-              cMapUrl: new URL("cmaps/", pdfAssetRoot).href,
-              cMapPacked: true,
-              iccUrl: new URL("iccs/", pdfAssetRoot).href,
-              standardFontDataUrl: new URL("standard_fonts/", pdfAssetRoot)
-                .href,
-              wasmUrl: new URL("wasm/", pdfAssetRoot).href,
-              useWorkerFetch: true,
-              useWasm: true,
-              // WKWebView exposes some newer canvas/image APIs before their worker
-              // implementations are reliable enough for PDF.js. The DOM + bundled
-              // decoder path is slower but deterministic for a local piano score.
-              isOffscreenCanvasSupported: false,
-              isImageDecoderSupported: false,
-            });
-            taskRef.current = task;
-            // Dynamic imports cannot be cancelled. If the outer deadline elapsed
-            // while WebKit was loading the chunks, destroy a task created later
-            // instead of leaving a hidden parser alive after the UI shows an error.
-            if (timedOut) {
-              void task.destroy().catch(() => undefined);
-              throw new Error(PDF_RENDER_TIMEOUT_MESSAGE);
-            }
-            return task.promise;
-          })(),
-          timeoutMs,
-          PDF_RENDER_TIMEOUT_MESSAGE,
-        );
+    } catch (error) {
+      timedOut = true;
+      abort?.();
+      // Cleanup is best-effort and deliberately not awaited. PDF.js destroy()
+      // can wait on the same worker startup that triggered this deadline; the
+      // visible retryable error must never be gated by an unbounded teardown.
+      if (taskRef.current)
+        void taskRef.current.destroy().catch(() => undefined);
+      throw error;
+    }
+  };
 
-        return {
-          numPages: pdfDocument.numPages,
-          getPage: async (pageNumber) =>
-            wrapPage(await pdfDocument.getPage(pageNumber)),
-          destroy: async () => {
-            await taskRef.current?.destroy();
-          },
-        };
-      } catch (error) {
-        timedOut = true;
-        // Cleanup is best-effort and deliberately not awaited. PDF.js destroy()
-        // can wait on the same worker startup that triggered this deadline; the
-        // visible retryable error must never be gated by an unbounded teardown.
-        if (taskRef.current)
-          void taskRef.current.destroy().catch(() => undefined);
-        throw error;
+  const loadBytes = (bytes: ArrayBuffer, timeoutMs: number) => {
+    if (
+      !bytes ||
+      typeof bytes.byteLength !== "number" ||
+      bytes.byteLength === 0
+    ) {
+      throw new Error(
+        "The selected PDF is empty or did not arrive as binary data.",
+      );
+    }
+    return openDocument(
+      ({ getDocument }) =>
+        getDocument({
+          // Uint8Array accepts ArrayBuffers from a different JS realm too; an
+          // `instanceof ArrayBuffer` check does not (WKWebView's IPC response is
+          // created by Tauri's injected realm).
+          data: new Uint8Array(bytes).slice(),
+          ...decoderOptions(),
+        }),
+      timeoutMs,
+    );
+  };
+
+  return {
+    prefetch() {
+      void runtimeOnce().catch(() => undefined);
+    },
+
+    async load(bytes, options) {
+      return loadBytes(bytes, options?.timeoutMs ?? PDF_LOAD_TIMEOUT_MS);
+    },
+
+    async loadUrl(url, options) {
+      const timeoutMs = options?.timeoutMs ?? PDF_LOAD_TIMEOUT_MS;
+      // One probe request proves the `ckscore://` scheme is reachable AND
+      // primes the opening chunk. Anything wrong with the protocol surfaces
+      // here as a rejection the caller can fall back from, rather than as a
+      // range request stalled inside PDF.js with no error channel.
+      //
+      // Its own short deadline, deliberately far below the document deadline:
+      // the handler reads a local file, so a healthy answer takes single-digit
+      // milliseconds. If a webview instead swallows the scheme silently, this
+      // bounds the wasted time before the byte fallback to a couple of seconds
+      // rather than the full 30-second load budget.
+      const source = await withTimeout(
+        probeScoreSource(url),
+        Math.min(timeoutMs, SCORE_PROBE_TIMEOUT_MS),
+        "The score protocol did not answer in time.",
+      );
+      if (source.kind === "whole") {
+        return loadBytes(source.bytes, timeoutMs);
       }
+
+      // A failed range mid-parse has nowhere to go inside PDF.js, so race the
+      // document promise against it and let the viewer show a retryable error.
+      let rejectOnRangeError: (error: unknown) => void = () => undefined;
+      const rangeFailure = new Promise<never>((_, reject) => {
+        rejectOnRangeError = reject;
+      });
+      let transport: PdfRangeTransport | null = null;
+      const document = openDocument(
+        (pdfjs) => {
+          if (!pdfjs.PDFDataRangeTransport) {
+            throw new Error("This PDF.js build cannot range-load a score.");
+          }
+          transport = createRangeTransport(
+            pdfjs.PDFDataRangeTransport,
+            source,
+            {
+              onError: rejectOnRangeError,
+            },
+          );
+          return pdfjs.getDocument({
+            range: transport,
+            rangeChunkSize: SCORE_RANGE_CHUNK_SIZE,
+            // The flag that makes this worth doing: without it PDF.js walks the
+            // whole file anyway and range loading buys nothing.
+            disableAutoFetch: true,
+            disableStream: false,
+            ...decoderOptions(),
+          });
+        },
+        timeoutMs,
+        () => transport?.abort(),
+      );
+      return Promise.race([document, rangeFailure]).catch((error) => {
+        void document.then((handle) => handle.destroy()).catch(() => undefined);
+        throw error;
+      });
     },
   };
 }
@@ -315,6 +449,7 @@ export interface ScoreViewProps {
   onContextChange?: (context: ScoreFocusContext) => void;
   api?: ScorePdfApi;
   calibrationApi?: CalibrationApi;
+  marksApi?: ScoreMarksApi;
   adapter?: PdfAdapter;
   loadTimeoutMs?: number;
 }
@@ -462,6 +597,7 @@ export function ScoreView({
   onContextChange,
   api = defaultApi,
   calibrationApi = defaultCalibrationApi,
+  marksApi = defaultMarksApi,
   adapter = pdfJsAdapter,
   loadTimeoutMs = PDF_LOAD_TIMEOUT_MS,
 }: ScoreViewProps) {
@@ -527,6 +663,24 @@ export function ScoreView({
   const [calibrationAnchors, setCalibrationAnchors] = useState<LineAnchor[]>(
     [],
   );
+  // ── Pencil marks ──────────────────────────────────────────────────────────
+  // Freehand graphite on the page. `pencilMode` is mutually exclusive with the
+  // target-rectangle mode (they both want the pointer), Escape always leaves it,
+  // and every stroke is normalized page geometry, so nothing here depends on
+  // zoom, fit mode, or which render path painted the page.
+  const [pencilMode, setPencilMode] = useState(false);
+  const [marksByPage, setMarksByPage] = useState<Record<number, Stroke[]>>({});
+  const [staleMarks, setStaleMarks] = useState(0);
+  const [pencilBusy, setPencilBusy] = useState(false);
+  const [confirmClearPage, setConfirmClearPage] = useState<number | null>(null);
+  const [pencilError, setPencilError] = useState<string | null>(null);
+  // Pages already fetched for the current piece+edition, so the mount effect
+  // never re-fetches a page it has (and never loops on its own setState).
+  const loadedMarkPagesRef = useRef(new Set<number>());
+  // Which page undo/clear act on: the page most recently drawn on, so a stroke
+  // on the right-hand page of the 2-page view is what undo takes back. Reset to
+  // the anchor page on every page turn.
+  const [markPage, setMarkPage] = useState(1);
   const [wizardOpen, setWizardOpen] = useState(false);
   // MusicXML measure facts for the wizard's strip, fetched on wizard open. Null
   // whenever the piece has no MusicXML (or the fetch fails): the wizard then works
@@ -675,6 +829,11 @@ export function ScoreView({
     setMaxPageWidth(DEFAULT_PAGE_SIZE.width);
     setMaxPageHeight(DEFAULT_PAGE_SIZE.height);
 
+    // The ~1.7 MB PDF.js runtime does not depend on WHICH edition wins, so
+    // start importing it now, next to the edition lookup, instead of paying
+    // for it serially once the edition id finally arrives.
+    adapter.prefetch?.();
+
     void api
       .editions(pieceId)
       .then((found) => {
@@ -695,7 +854,7 @@ export function ScoreView({
     return () => {
       alive = false;
     };
-  }, [api, pieceId, reloadToken]);
+  }, [adapter, api, pieceId, reloadToken]);
 
   useEffect(() => {
     if (!editionId || !editions.some((edition) => edition.id === editionId))
@@ -748,12 +907,34 @@ export function ScoreView({
       }
     }
 
-    void withTimeout(
-      api.bytes(pieceId, editionId),
-      loadTimeoutMs,
-      "The PDF file took too long to read. Try again or choose another edition.",
-    )
-      .then((bytes) => adapter.load(bytes, { timeoutMs: loadTimeoutMs }))
+    // Range-load straight off the native protocol when the adapter can: PDF.js
+    // then pulls the xref plus the objects page 1 needs instead of taking a
+    // whole image scan across IPC. The byte path stays as the fallback — the
+    // `ckscore://` scheme does not exist in the browser dev mock, and a webview
+    // that refuses it must still open the score.
+    const openDocument = async (): Promise<PdfDocumentHandle> => {
+      if (adapter.loadUrl) {
+        try {
+          return await adapter.loadUrl(scoreEditionUrl(pieceId, editionId), {
+            timeoutMs: loadTimeoutMs,
+          });
+        } catch (caught) {
+          if (!alive) throw caught;
+          console.warn(
+            "score: range load failed, falling back to IPC bytes",
+            caught,
+          );
+        }
+      }
+      const bytes = await withTimeout(
+        api.bytes(pieceId, editionId),
+        loadTimeoutMs,
+        "The PDF file took too long to read. Try again or choose another edition.",
+      );
+      return adapter.load(bytes, { timeoutMs: loadTimeoutMs });
+    };
+
+    void openDocument()
       .then((nextDocument) => {
         loaded = nextDocument;
         if (!alive) return nextDocument.destroy();
@@ -842,6 +1023,80 @@ export function ScoreView({
   containerWidthRef.current = containerWidth;
   containerHeightRef.current = containerHeight;
   const edition = editions.find((item) => item.id === editionId) ?? null;
+  // The screen-resolution fast path, bound to the edition currently open. Null
+  // whenever the host cannot serve page images (the browser dev mock, the test
+  // adapters), in which case every page renders through PDF.js exactly as before.
+  const pageImageSource = useMemo(
+    () => createPageImageSource(api, pieceId, editionId),
+    [api, editionId, pieceId],
+  );
+  // Warm the pages just OUTSIDE the mounted window, on idle.
+  //
+  // The ±1 neighbours are already mounted and fetch their own image (deferred
+  // to idle inside PdfPage), so warming those would only duplicate the decode.
+  // What is not covered is the page after next, which is where a reader turning
+  // pages steadily is about to be — generating it in Rust without shipping any
+  // bytes across IPC makes that turn a cache hit. Never awaited, never on the
+  // path of the page being looked at, and each page/bucket pair is asked for
+  // once so a zoom that walks through buckets cannot start a decode storm.
+  const warmedRef = useRef(new Set<string>());
+  // Switching edition invalidates every "already warmed" note: the keys are
+  // page+bucket, and the same page of a different edition is a different image.
+  useEffect(() => {
+    warmedRef.current = new Set<string>();
+  }, [pageImageSource]);
+  useEffect(() => {
+    if (!pageImageSource || pageCount < 1) return;
+    const size = pageSizesRef.current.get(currentPage) ?? {
+      width: maxPageWidth,
+      height: maxPageHeight,
+    };
+    const needed = neededLongEdge(size, scale, window.devicePixelRatio || 1);
+    if (exceedsPageImageCeiling(needed)) return;
+    const bucket = pageImageBucket(needed);
+    const mounted = new Set(mountedPages);
+    const wanted = [currentPage + 2, currentPage - 2].filter(
+      (page) =>
+        page >= 1 &&
+        page <= pageCount &&
+        !mounted.has(page) &&
+        !warmedRef.current.has(`${page}:${bucket}`),
+    );
+    if (wanted.length === 0) return;
+    let cancelled = false;
+    const fire = () => {
+      if (cancelled) return;
+      for (const page of wanted) {
+        warmedRef.current.add(`${page}:${bucket}`);
+        pageImageSource.warm(page, bucket);
+      }
+    };
+    const win = window as Window & {
+      requestIdleCallback?: (cb: () => void) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (win.requestIdleCallback && win.cancelIdleCallback) {
+      const handle = win.requestIdleCallback(fire);
+      return () => {
+        cancelled = true;
+        win.cancelIdleCallback?.(handle);
+      };
+    }
+    const timer = window.setTimeout(fire, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    currentPage,
+    maxPageHeight,
+    maxPageWidth,
+    mountedPages,
+    pageCount,
+    pageImageSource,
+    scale,
+  ]);
+
   const selectedRegion =
     regions.find((region) => region.id === selectedRegionId) ?? null;
   useLayoutEffect(() => {
@@ -978,6 +1233,185 @@ export function ScoreView({
     // editionKey captures the identity we key on; pieceId + api complete it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calibrationApi, editionKey, pieceId]);
+
+  // ── Pencil marks: load, draw, undo, clear ─────────────────────────────────
+
+  // Marks belong to one piece+edition+fingerprint. A switch of any of the three
+  // drops everything cached: the Henle's marks must never be shown over the
+  // Schnabel, whose pages are engraved differently.
+  useEffect(() => {
+    loadedMarkPagesRef.current = new Set();
+    setMarksByPage({});
+    setStaleMarks(0);
+    setPencilError(null);
+    setConfirmClearPage(null);
+  }, [editionKey, pieceId]);
+
+  // Fetch every mounted page's marks once. Buffered neighbors are included so a
+  // page turn shows its marks in the same frame it shows the engraving.
+  const mountedPagesKey = mountedPages.join(",");
+  useEffect(() => {
+    if (!edition) return;
+    const wanted = mountedPages.filter(
+      (page) => !loadedMarkPagesRef.current.has(page),
+    );
+    if (wanted.length === 0) return;
+    for (const page of wanted) loadedMarkPagesRef.current.add(page);
+    let alive = true;
+    const identity = { id: edition.id, fingerprint: edition.fingerprint };
+    void Promise.all(
+      wanted.map(async (page) => ({
+        page,
+        result: await marksApi.page(pieceId, identity, page),
+      })),
+    )
+      .then((loaded) => {
+        if (!alive) return;
+        setMarksByPage((current) => {
+          const next = { ...current };
+          for (const { page, result } of loaded) next[page] = result.marks;
+          return next;
+        });
+        setStaleMarks(loaded[0]?.result.staleMarks ?? 0);
+      })
+      .catch(() => {
+        // A read failure must not pin those pages as "loaded" forever.
+        if (!alive) return;
+        for (const page of wanted) loadedMarkPagesRef.current.delete(page);
+      });
+    return () => {
+      alive = false;
+    };
+    // mountedPagesKey stands in for the page list; editionKey for the identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editionKey, marksApi, mountedPagesKey, pieceId]);
+
+  const markEdition = edition
+    ? { id: edition.id, fingerprint: edition.fingerprint }
+    : null;
+
+  // A finished stroke lands on screen immediately and is persisted behind it.
+  // If the write fails the optimistic stroke is rolled back, because a mark the
+  // reader can see but the app has not stored is a lie about their work.
+  const handleStroke = useCallback(
+    (stroke: Stroke) => {
+      const identity = liveEditionRef.current;
+      if (!identity) return;
+      const page = stroke.page;
+      setMarkPage(page);
+      setPencilError(null);
+      setMarksByPage((current) => ({
+        ...current,
+        [page]: [...(current[page] ?? []), stroke],
+      }));
+      void marksApi
+        .add(
+          pieceId,
+          { id: identity.id, fingerprint: identity.fingerprint },
+          stroke,
+        )
+        .then((saved) => {
+          if (!scoreMountedRef.current) return;
+          setMarksByPage((current) => {
+            const list = current[page] ?? [];
+            const index = list.indexOf(stroke);
+            if (index < 0) return current;
+            const next = list.slice();
+            next[index] = saved;
+            return { ...current, [page]: next };
+          });
+        })
+        .catch((caught) => {
+          if (!scoreMountedRef.current) return;
+          setMarksByPage((current) => ({
+            ...current,
+            [page]: (current[page] ?? []).filter((item) => item !== stroke),
+          }));
+          setPencilError(
+            caught instanceof Error
+              ? `That mark could not be saved: ${caught.message}`
+              : "That mark could not be saved.",
+          );
+        });
+    },
+    [marksApi, pieceId],
+  );
+
+  const undoMark = useCallback(() => {
+    const identity = liveEditionRef.current;
+    if (!identity || pencilBusy) return;
+    const page = markPage;
+    if ((marksByPage[page] ?? []).length === 0) return;
+    setPencilBusy(true);
+    setPencilError(null);
+    void marksApi
+      .undo(
+        pieceId,
+        { id: identity.id, fingerprint: identity.fingerprint },
+        page,
+      )
+      .then((removedId) => {
+        if (!scoreMountedRef.current) return;
+        setMarksByPage((current) => {
+          const list = current[page] ?? [];
+          if (list.length === 0) return current;
+          // Drop by id when the store named one, else the last stroke.
+          const index =
+            removedId == null
+              ? list.length - 1
+              : list.findIndex((item) => item.id === removedId);
+          if (index < 0) return current;
+          return {
+            ...current,
+            [page]: list.filter((_, position) => position !== index),
+          };
+        });
+      })
+      .catch((caught) => {
+        if (!scoreMountedRef.current) return;
+        setPencilError(
+          caught instanceof Error
+            ? `Undo failed: ${caught.message}`
+            : "Undo failed.",
+        );
+      })
+      .finally(() => {
+        if (scoreMountedRef.current) setPencilBusy(false);
+      });
+  }, [markPage, marksApi, marksByPage, pencilBusy, pieceId]);
+
+  const clearMarkPage = useCallback(
+    (page: number) => {
+      const identity = liveEditionRef.current;
+      if (!identity || pencilBusy) return;
+      setPencilBusy(true);
+      setPencilError(null);
+      setConfirmClearPage(null);
+      void marksApi
+        .clearPage(
+          pieceId,
+          { id: identity.id, fingerprint: identity.fingerprint },
+          page,
+        )
+        .then(() => {
+          if (!scoreMountedRef.current) return;
+          setMarksByPage((current) => ({ ...current, [page]: [] }));
+        })
+        .catch((caught) => {
+          if (!scoreMountedRef.current) return;
+          setPencilError(
+            caught instanceof Error
+              ? `Clearing page ${page} failed: ${caught.message}`
+              : `Clearing page ${page} failed.`,
+          );
+        })
+        .finally(() => {
+          if (scoreMountedRef.current) setPencilBusy(false);
+        });
+    },
+    [marksApi, pencilBusy, pieceId],
+  );
+
   useEffect(() => {
     onContextChange?.({
       region: selectedRegion
@@ -1079,6 +1513,18 @@ export function ScoreView({
     setNavigationNotice(null);
   }, []);
 
+  const togglePencilMode = useCallback(() => {
+    setConfirmClearPage(null);
+    setPencilError(null);
+    setPencilMode((on) => {
+      if (on) return false;
+      // Entering the pencil leaves the rectangle tool, exactly as entering the
+      // rectangle tool leaves the pencil.
+      if (targetMode) cancelTargetDraft();
+      return true;
+    });
+  }, [cancelTargetDraft, targetMode]);
+
   const toggleTargetMode = useCallback(() => {
     if (targetMode) {
       cancelTargetDraft();
@@ -1090,6 +1536,9 @@ export function ScoreView({
       );
       return;
     }
+    // The two drawing modes both own the pointer; entering one leaves the other.
+    setPencilMode(false);
+    setConfirmClearPage(null);
     sectionsBeforeTargetRef.current = sectionsVisible;
     sectionsStashedRef.current = true;
     setSectionsVisible(false);
@@ -1293,6 +1742,9 @@ export function ScoreView({
       );
       setCurrentPage(page);
       setPageDraft(String(page));
+      // Undo/clear follow the reader to the new page until they draw again.
+      setMarkPage(page);
+      setConfirmClearPage(null);
       // Paging swaps which page is mounted, so reset any within-page scroll
       // (a zoomed page can overflow) back to the top of the new page.
       scrollRef.current?.scrollTo?.({ top: 0, left: 0 });
@@ -1332,6 +1784,46 @@ export function ScoreView({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [currentPage, document, isActive, jumpTo, phase, wizardOpen]);
+
+  // The mapping wizard takes the whole score over; the pencil must not be armed
+  // underneath it.
+  useEffect(() => {
+    if (wizardOpen) setPencilMode(false);
+  }, [wizardOpen]);
+
+  // Escape ALWAYS leaves pencil mode — the escape hatch a modal drawing tool
+  // owes the user — and Cmd/Ctrl+Z undoes the last mark while it is on. Both are
+  // ignored while typing, so neither can fire from a text field.
+  useEffect(() => {
+    if (!isActive || !pencilMode) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const active = window.document.activeElement as HTMLElement | null;
+      const typing =
+        active != null &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.tagName === "SELECT" ||
+          active.isContentEditable);
+      if (typing) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setPencilMode(false);
+        setConfirmClearPage(null);
+        return;
+      }
+      if (
+        (event.key === "z" || event.key === "Z") &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey
+      ) {
+        event.preventDefault();
+        undoMark();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isActive, pencilMode, undoMark]);
 
   const selectRegion = useCallback(
     (regionId: number) => {
@@ -1879,7 +2371,11 @@ export function ScoreView({
   }
 
   return (
-    <section className="score-view" aria-label="PDF score viewer">
+    <section
+      className={`score-view ${pencilMode ? "is-pencil" : ""}`}
+      data-pencil={pencilMode ? "on" : "off"}
+      aria-label="PDF score viewer"
+    >
       <header className="score-toolbar">
         <div className="score-edition-group">
           <label className="score-edition">
@@ -1907,6 +2403,15 @@ export function ScoreView({
             onClick={toggleTargetMode}
           >
             {targetMode ? "Cancel drawing" : "Draw target"}
+          </button>
+          <button
+            type="button"
+            className={`score-pencil-toggle ${pencilMode ? "is-active" : ""}`}
+            aria-pressed={pencilMode}
+            disabled={phase !== "ready" || !edition || targetSavePending}
+            onClick={togglePencilMode}
+          >
+            {pencilMode ? "Put pencil down" : "Pencil"}
           </button>
           <button
             type="button"
@@ -2023,6 +2528,82 @@ export function ScoreView({
         </div>
       </header>
 
+      {(pencilMode || pencilError) && (
+        <div className="score-pencil-bar" aria-label="Pencil controls">
+          {pencilMode && (
+            <span
+              className="score-pencil-controls"
+              role="group"
+              aria-label="Pencil"
+            >
+              <span className="score-pencil-hint" role="status">
+                Pencil on — draw on the page. Escape puts it down.
+              </span>
+              <button
+                type="button"
+                className="score-pencil-undo"
+                disabled={
+                  pencilBusy || (marksByPage[markPage] ?? []).length === 0
+                }
+                onClick={undoMark}
+              >
+                Undo mark
+              </button>
+              {confirmClearPage === markPage ? (
+                <span
+                  className="score-pencil-confirm"
+                  role="alertdialog"
+                  aria-label="Confirm clearing this page"
+                >
+                  <span>
+                    {(marksByPage[markPage] ?? []).length === 1
+                      ? `Erase the one mark on page ${markPage}?`
+                      : `Erase all ${(marksByPage[markPage] ?? []).length} marks on page ${markPage}?`}
+                  </span>
+                  <button
+                    type="button"
+                    className="score-pencil-confirm-yes"
+                    disabled={pencilBusy}
+                    onClick={() => clearMarkPage(markPage)}
+                  >
+                    Erase page {markPage}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmClearPage(null)}
+                  >
+                    Keep them
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="score-pencil-clear"
+                  disabled={
+                    pencilBusy || (marksByPage[markPage] ?? []).length === 0
+                  }
+                  onClick={() => setConfirmClearPage(markPage)}
+                >
+                  Clear page {markPage}
+                </button>
+              )}
+            </span>
+          )}
+          {pencilError && (
+            <span className="score-pencil-error" role="alert">
+              {pencilError}
+            </span>
+          )}
+          {pencilMode && staleMarks > 0 && (
+            <span className="score-pencil-stale" role="status">
+              {staleMarks} earlier {staleMarks === 1 ? "mark is" : "marks are"}{" "}
+              kept from a previous version of this file and are not shown — its
+              pages may no longer line up.
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="score-viewport">
         {phase === "loading-document" || !document ? (
           <div className="score-state" role="status">
@@ -2055,6 +2636,7 @@ export function ScoreView({
                       active
                       buffered={buffered}
                       scale={scale}
+                      pageImage={pageImageSource}
                       onSize={handlePageSize}
                       onRasterized={handleRasterized}
                     >
@@ -2096,6 +2678,22 @@ export function ScoreView({
                         }
                         onSelect={selectRegion}
                       />
+                      {markEdition && (
+                        <PencilOverlay
+                          pageNumber={pageNumber}
+                          strokes={marksByPage[pageNumber] ?? []}
+                          // Armed only in pencil mode, never while the target
+                          // tool or the wizard owns the pointer, and never on a
+                          // buffered off-screen neighbor.
+                          active={
+                            pencilMode &&
+                            !targetMode &&
+                            !wizardOpen &&
+                            !buffered
+                          }
+                          onStroke={handleStroke}
+                        />
+                      )}
                       {targetMode && targetDraftId && edition && (
                         <TargetDraftOverlay
                           pageNumber={pageNumber}

@@ -107,19 +107,37 @@ fn reference_open(
     references::open_reference(&store, piece_id, provider)
 }
 
+/// Run one blocking IMSLP call on the blocking pool.
+///
+/// WHY: Tauri executes a non-`async` command on the **main thread**, which on
+/// macOS is the WKWebView's thread — a blocking network call there freezes the
+/// whole UI until it returns (up to the client's 15s timeout). Every `imslp_*`
+/// command is therefore `async` and hands its blocking work to this helper, so
+/// the IPC thread is free and the panel can keep painting its "Searching…"
+/// state. Do not "simplify" these back into sync commands.
+async fn imslp_offthread<T, F>(work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|_| "The IMSLP request could not be completed.".to_string())?
+}
+
 /// Search IMSLP for a work by title/composer. Returns up to 20 hits; an empty
 /// list means "no results," not an error.
 #[tauri::command]
-fn imslp_search(query: String) -> Result<Vec<imslp::WorkHit>, String> {
-    imslp::ImslpClient::new().search(&query)
+async fn imslp_search(query: String) -> Result<Vec<imslp::WorkHit>, String> {
+    imslp_offthread(move || imslp::ImslpClient::new().search(&query)).await
 }
 
 /// List the downloadable editions of an IMSLP work page. A work with no score
 /// files returns an empty list (audio-only / misfiled), which the picker shows
 /// as "no scores found" rather than treating as an error.
 #[tauri::command]
-fn imslp_editions(page_title: String) -> Result<Vec<imslp::Edition>, String> {
-    imslp::ImslpClient::new().editions(&page_title)
+async fn imslp_editions(page_title: String) -> Result<Vec<imslp::Edition>, String> {
+    imslp_offthread(move || imslp::ImslpClient::new().editions(&page_title)).await
 }
 
 /// Resolve one edition file's direct URL (via `imageinfo`) and open it in the
@@ -127,21 +145,26 @@ fn imslp_editions(page_title: String) -> Result<Vec<imslp::Edition>, String> {
 /// browser download the PDF. The app never fetches the CAPTCHA-gated bytes
 /// itself. Returns the resolved [`imslp::FileInfo`] so the UI can show size/mime.
 #[tauri::command]
-fn imslp_open_download(file_name: String) -> Result<imslp::FileInfo, String> {
-    let info = imslp::ImslpClient::new().file_url(&file_name)?;
-    // Defense in depth: only ever hand an https URL to the system browser.
-    if !info.url.starts_with("https://") {
-        return Err("IMSLP returned a non-https download URL; refusing to open it.".into());
-    }
-    let status = std::process::Command::new("/usr/bin/open")
-        .arg(&info.url)
-        .status()
-        .map_err(|_| "macOS could not open the IMSLP download in your browser.".to_string())?;
-    if status.success() {
-        Ok(info)
-    } else {
-        Err("macOS rejected the IMSLP download handoff.".into())
-    }
+async fn imslp_open_download(file_name: String) -> Result<imslp::FileInfo, String> {
+    // Both halves block (a network round trip, then waiting on `open` to exit),
+    // so the whole body runs off the main thread — see `imslp_offthread`.
+    imslp_offthread(move || {
+        let info = imslp::ImslpClient::new().file_url(&file_name)?;
+        // Defense in depth: only ever hand an https URL to the system browser.
+        if !info.url.starts_with("https://") {
+            return Err("IMSLP returned a non-https download URL; refusing to open it.".into());
+        }
+        let status = std::process::Command::new("/usr/bin/open")
+            .arg(&info.url)
+            .status()
+            .map_err(|_| "macOS could not open the IMSLP download in your browser.".to_string())?;
+        if status.success() {
+            Ok(info)
+        } else {
+            Err("macOS rejected the IMSLP download handoff.".into())
+        }
+    })
+    .await
 }
 
 /// Open an `https` URL in the user's system browser. Shared by the paste-URL
@@ -378,22 +401,34 @@ fn piece_get(id: i64, store: State<'_, Arc<Store>>) -> Result<PieceDetail, Strin
 /// Every real PDF edition directly inside this piece's `score/` folder or
 /// piece root. Edition ids are stable piece-relative paths, never arbitrary
 /// filesystem paths supplied by the frontend.
+///
+/// `async` on purpose: a plain `fn` command runs on the main thread, so this
+/// directory scan used to stall the UI at exactly the moment the user asked to
+/// open a score.
 #[tauri::command]
-fn score_pdf_editions(
+async fn score_pdf_editions(
     piece_id: i64,
     store: State<'_, Arc<Store>>,
 ) -> Result<Vec<score::PdfEdition>, String> {
-    score::pdf_editions(&store, piece_id)
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || score::pdf_editions(&store, piece_id))
+        .await
+        .map_err(|e| format!("PDF edition scan worker failed: {e}"))?
 }
 
 /// Choose one of the securely re-discovered editions as this piece's default.
+/// Off the main thread for the same reason as `score_pdf_editions`: selecting
+/// re-runs the discovery scan before it writes the preference.
 #[tauri::command]
-fn score_pdf_select(
+async fn score_pdf_select(
     piece_id: i64,
     edition_id: String,
     store: State<'_, Arc<Store>>,
 ) -> Result<score::PdfEdition, String> {
-    score::select_pdf(&store, piece_id, &edition_id)
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || score::select_pdf(&store, piece_id, &edition_id))
+        .await
+        .map_err(|e| format!("PDF edition select worker failed: {e}"))?
 }
 
 /// Return the selected edition's bytes over Tauri's raw binary response path.
@@ -411,6 +446,76 @@ async fn score_pdf_bytes(
     })
     .await
     .map_err(|e| format!("PDF read worker failed: {e}"))?
+}
+
+/// A screen-resolution JPEG of one page of one edition.
+///
+/// This is the fast path for scanned scores: instead of rasterizing a page whose
+/// single image is 38 megapixels, the Rust side decodes that image straight to
+/// the size the screen can show and caches the result. An EMPTY response means
+/// "this page is not a single-image scan" and the webview renders it with PDF.js
+/// as before — not an error.
+///
+/// Off the async runtime because a cold generation is tens to hundreds of
+/// milliseconds of pure CPU.
+#[tauri::command]
+async fn score_page_image(
+    piece_id: i64,
+    edition_id: String,
+    page: i64,
+    target_long_edge: u32,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<tauri::ipc::Response, String> {
+    let store = store.inner().clone();
+    let root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("resolve app cache dir: {e}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        score::page_image_bytes(
+            &store,
+            &root,
+            piece_id,
+            &edition_id,
+            page,
+            target_long_edge,
+        )
+        .map(tauri::ipc::Response::new)
+    })
+    .await
+    .map_err(|e| format!("page image worker failed: {e}"))?
+}
+
+/// Generate and cache a page image without shipping it across IPC — the
+/// background warm used for pages the reader is about to turn to.
+#[tauri::command]
+async fn score_page_image_warm(
+    piece_id: i64,
+    edition_id: String,
+    page: i64,
+    target_long_edge: u32,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    let root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("resolve app cache dir: {e}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        score::page_image_bytes(
+            &store,
+            &root,
+            piece_id,
+            &edition_id,
+            page,
+            target_long_edge,
+        )
+        .map(|_| ())
+    })
+    .await
+    .map_err(|e| format!("page image warm worker failed: {e}"))?
 }
 
 /// Load a cached fitted first-page snapshot for the piece-switch accelerator.
@@ -854,6 +959,79 @@ fn score_calibration_get(
 ) -> Result<Option<store::CalibrationView>, String> {
     store
         .score_calibration_get(piece_id, &edition_id, &edition_fingerprint)
+        .map_err(|e| e.to_string())
+}
+
+// ── Pencil marks drawn on the score ────────────────────────────────────────
+
+/// Every pencil stroke on one page of one edition, plus a count of strokes held
+/// under a different fingerprint of the same edition file (drawn before it was
+/// re-scanned; kept on disk, not shown over geometry they may no longer fit).
+#[tauri::command]
+fn score_marks_page(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    page: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::ScorePageMarks, String> {
+    store
+        .score_marks_page(piece_id, &edition_id, &edition_fingerprint, page)
+        .map_err(|e| e.to_string())
+}
+
+/// Append one freehand stroke to a page. `points_json` is normalized 0–1
+/// page-relative geometry; it is validated and canonically re-serialized before
+/// storage. Returns the saved stroke with its id, which is also its undo order.
+#[tauri::command]
+fn score_mark_add(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    page: i64,
+    width: f64,
+    points_json: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::ScoreMark, String> {
+    store
+        .score_mark_add(
+            piece_id,
+            &edition_id,
+            &edition_fingerprint,
+            page,
+            width,
+            &points_json,
+        )
+        .map_err(|e| e.to_string())
+}
+
+/// Remove the newest stroke on one page. Returns its id, or `null` when there
+/// was nothing left to undo.
+#[tauri::command]
+fn score_mark_undo(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    page: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<Option<i64>, String> {
+    store
+        .score_mark_undo(piece_id, &edition_id, &edition_fingerprint, page)
+        .map_err(|e| e.to_string())
+}
+
+/// Remove every stroke on one page (destructive; the UI confirms first).
+/// Returns how many were removed. Other pages and editions are untouched.
+#[tauri::command]
+fn score_marks_clear_page(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    page: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<i64, String> {
+    store
+        .score_marks_clear_page(piece_id, &edition_id, &edition_fingerprint, page)
         .map_err(|e| e.to_string())
 }
 
@@ -1527,9 +1705,57 @@ fn voice_speak(text: String, voice: State<'_, Arc<VoiceLoop>>) -> Result<(), Str
     voice.speak_brain_answer(&text)
 }
 
+/// Serve one piece's PDF edition over the `ckscore://` scheme with HTTP Range
+/// support, so PDF.js can pull the xref plus only the objects page 1 needs
+/// instead of receiving a whole 8.6 MB image scan across IPC.
+///
+/// Registered asynchronously and answered from `spawn_blocking`: the seek+read
+/// must never sit on an async runtime thread.
+fn register_score_protocol(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder.register_asynchronous_uri_scheme_protocol(
+        score::serve::SCHEME,
+        |context, request, responder| {
+            let Some(store) = context.app_handle().try_state::<Arc<Store>>() else {
+                responder.respond(
+                    tauri::http::Response::builder()
+                        .status(tauri::http::StatusCode::SERVICE_UNAVAILABLE)
+                        .header(tauri::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                        .body(b"score store is not ready".to_vec())
+                        .expect("static 503 response is well formed"),
+                );
+                return;
+            };
+            let store = store.inner().clone();
+            let path = request.uri().path().to_string();
+            let range = request
+                .headers()
+                .get(tauri::http::header::RANGE)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned);
+            // The webview origin differs per platform, so log the real thing
+            // once instead of assuming it (see NOTES). Only the first request
+            // per launch logs, to keep a range-heavy load quiet.
+            static LOGGED: std::sync::Once = std::sync::Once::new();
+            LOGGED.call_once(|| {
+                eprintln!(
+                    "ckscore: first request uri={} origin={:?}",
+                    request.uri(),
+                    request
+                        .headers()
+                        .get(tauri::http::header::ORIGIN)
+                        .and_then(|value| value.to_str().ok())
+                );
+            });
+            tauri::async_runtime::spawn_blocking(move || {
+                responder.respond(score::serve::respond(&store, &path, range.as_deref(), "*"));
+            });
+        },
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    register_score_protocol(tauri::Builder::default())
         .setup(|app| {
             // DB lives under Tauri's per-app data dir; parent dirs may not exist
             // on first launch, so create them before opening.
@@ -1693,6 +1919,8 @@ pub fn run() {
             score_pdf_editions,
             score_pdf_select,
             score_pdf_bytes,
+            score_page_image,
+            score_page_image_warm,
             score_page_cache_load,
             score_page_cache_save,
             piece_intake_save,
@@ -1726,6 +1954,10 @@ pub fn run() {
             score_atlas_target_save,
             score_calibration_save,
             score_calibration_get,
+            score_marks_page,
+            score_mark_add,
+            score_mark_undo,
+            score_marks_clear_page,
             day_sheet_get,
             day_sheet_save,
             piece_plan_get,

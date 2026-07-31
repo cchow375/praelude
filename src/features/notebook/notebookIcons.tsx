@@ -33,21 +33,31 @@ function Glyph({
   );
 }
 
-/** An empty plan-item checkbox. */
+/* The two checkbox glyphs are deliberately NOT geometric: on paper a checkbox is
+   a box someone drew, so the square is a slightly uneven closed curve and the tick
+   is one pen sweep that overshoots the top-right corner the way a real one does.
+   The tick carries its own class so the stylesheet can ink it in --accent (the
+   pen) while the box stays in the row's ink. */
+
+/** An empty plan-item checkbox — a hand-drawn square. */
 export function BoxIcon(props: IconProps) {
   return (
     <Glyph {...props}>
-      <rect x="4" y="4" width="16" height="16" rx="3" />
+      <path d="M5.3 5.9c2.9-.8 10.6-1 13.6-.4.7 3 .6 10.4 0 13.2-3.2.7-10.7.6-13.5-.1-.7-3.1-.6-9.9-.1-12.7z" />
     </Glyph>
   );
 }
 
-/** A checked plan-item checkbox. */
+/** A checked plan-item checkbox — the same square, ticked in one stroke. */
 export function BoxCheckedIcon(props: IconProps) {
   return (
     <Glyph {...props}>
-      <rect x="4" y="4" width="16" height="16" rx="3" />
-      <path d="M8 12.5l2.5 2.5L16 9" />
+      <path d="M5.3 5.9c2.9-.8 10.6-1 13.6-.4.7 3 .6 10.4 0 13.2-3.2.7-10.7.6-13.5-.1-.7-3.1-.6-9.9-.1-12.7z" />
+      <path
+        className="ck-ns-tick"
+        strokeWidth="2"
+        d="M6.6 12.2c1.7 1.2 3 3.2 4.2 5.6C13.1 12.4 16.9 7.2 21.4 3.4"
+      />
     </Glyph>
   );
 }

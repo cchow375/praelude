@@ -75,6 +75,24 @@ export interface PdfAdapter {
     bytes: ArrayBuffer,
     options?: { timeoutMs?: number },
   ) => Promise<PdfDocumentHandle>;
+  /**
+   * Range-load an edition straight from the native `ckscore://` protocol, so
+   * PDF.js pulls the xref plus only the objects page 1 needs instead of taking
+   * a whole image scan across IPC. Optional: the dev mock and every test
+   * adapter implement only `load`, and callers must fall back to it when this
+   * rejects (the custom scheme does not exist in a plain browser).
+   */
+  loadUrl?: (
+    url: string,
+    options?: { timeoutMs?: number },
+  ) => Promise<PdfDocumentHandle>;
+  /**
+   * Start loading the PDF.js runtime chunks without needing a document yet.
+   * The legacy build is ~1.7 MB across two chunks and costs ~200 ms to import;
+   * warming it in parallel with the edition lookup keeps that off the serial
+   * open path. Fire-and-forget — failures are the loader's problem later.
+   */
+  prefetch?: () => void;
 }
 
 export interface ScorePdfApi {
@@ -100,6 +118,30 @@ export interface ScorePdfApi {
     page: number,
     bucket: string,
   ) => Promise<ArrayBuffer>;
+  /**
+   * A screen-resolution JPEG of one page, decoded in Rust straight from the
+   * page's single image XObject. Resolves to an EMPTY buffer — never rejects —
+   * when the page is not a single-image scan the fast path can serve, which is
+   * the routine answer for a vector edition; the caller then renders it with
+   * PDF.js as before. Optional: test adapters and the browser dev mock omit it
+   * and get the PDF.js-only behaviour.
+   */
+  pageImage?: (
+    pieceId: number,
+    editionId: string,
+    page: number,
+    targetLongEdge: number,
+  ) => Promise<ArrayBuffer>;
+  /**
+   * Generate and cache a page image without shipping it across IPC — the
+   * background warm for pages the reader is about to turn to. Fire-and-forget.
+   */
+  warmPageImage?: (
+    pieceId: number,
+    editionId: string,
+    page: number,
+    targetLongEdge: number,
+  ) => Promise<void>;
   /** Persist a fitted first-page snapshot (compressed WebP/JPEG bytes). */
   saveFirstPage: (
     pieceId: number,

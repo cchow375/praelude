@@ -4,6 +4,13 @@ import {
   DEFAULT_PAGE_SIZE,
   displaySize,
 } from "./geometry";
+import {
+  coversPageBox,
+  exceedsPageImageCeiling,
+  neededLongEdge,
+  pageImageBucket,
+  type PageImageSource,
+} from "./pageImage";
 import type { PdfDocumentHandle, PdfPageSize, PdfRenderTask } from "./types";
 
 interface PdfPageProps {
@@ -25,7 +32,70 @@ interface PdfPageProps {
    * render never re-runs the raster effect.
    */
   onRasterized?: (pageNumber: number, canvas: HTMLCanvasElement) => void;
+  /**
+   * The screen-resolution page-image fast path, when the host offers one. It is
+   * tried FIRST and PDF.js is the fallback, because on a 24-bit colour scan the
+   * two differ by two orders of magnitude (0.2 s against 43 s measured on the
+   * Barber). Absent, or refusing, and this component behaves exactly as before.
+   */
+  pageImage?: PageImageSource | null;
   children?: ReactNode;
+}
+
+/** A decoded page image plus how to let go of it again. */
+interface DecodedPageImage {
+  width: number;
+  height: number;
+  source: CanvasImageSource;
+  release: () => void;
+}
+
+/**
+ * Decode JPEG bytes to something drawable, preferring `createImageBitmap` (off
+ * the main thread, and `close()`able the instant it has been blitted). The
+ * `<img>` fallback covers runtimes without it; a decode failure is `null`, which
+ * the caller treats exactly like a refusal.
+ */
+async function decodePageImage(blob: Blob): Promise<DecodedPageImage | null> {
+  const create = (
+    window as Window & {
+      createImageBitmap?: (input: Blob) => Promise<ImageBitmap>;
+    }
+  ).createImageBitmap;
+  if (typeof create === "function") {
+    try {
+      const bitmap = await create.call(window, blob);
+      return {
+        width: bitmap.width,
+        height: bitmap.height,
+        source: bitmap,
+        release: () => bitmap.close?.(),
+      };
+    } catch {
+      return null;
+    }
+  }
+  if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
+    return null;
+  }
+  const url = URL.createObjectURL(blob);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new window.Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("page image failed to decode"));
+      element.src = url;
+    });
+    return {
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+      source: image,
+      release: () => URL.revokeObjectURL(url),
+    };
+  } catch {
+    URL.revokeObjectURL(url);
+    return null;
+  }
 }
 
 // Zoom is a two-phase pipeline. Phase one is the live `scale`: the page box is
@@ -58,6 +128,7 @@ export function PdfPage({
   buffered = false,
   onSize,
   onRasterized,
+  pageImage = null,
   children,
 }: PdfPageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -82,6 +153,9 @@ export function PdfPage({
   // new scale keeps the old sharp image on screen instead of flashing the
   // "Rendering…" placeholder over a page the reader is already looking at.
   const hasPaintedRef = useRef(false);
+  // Which pipeline painted what is currently on screen. Reported as a data
+  // attribute so a refusal is observable rather than merely invisible.
+  const [source, setSource] = useState<"pdf" | "image">("pdf");
 
   // A page that MOUNTS as a buffered neighbor waits for idle before decoding:
   // rendering current ±1 simultaneously made heavy scanned editions (multi-MB
@@ -147,9 +221,60 @@ export function PdfPage({
       setError(null);
     }
 
+    /**
+     * Try the screen-resolution image before touching the renderer.
+     *
+     * The page box is still measured from the real PDF page (above), so the
+     * layout — and therefore every overlay percentage drawn on top of it — is
+     * bit-for-bit what it was before this path existed. The image is blitted
+     * into the same canvas at its own pixel size and the existing
+     * `width:100%;height:100%` CSS stretches it to fill that box, which is what
+     * PDF.js does with the page's single image XObject anyway.
+     *
+     * Returns false for every reason to fall back: no host support, zoomed past
+     * what a cached image can carry, Rust declined the page, the bytes would not
+     * decode, or the decoded image does not actually cover the page box.
+     */
+    const paintPageImage = async (nextSize: PdfPageSize): Promise<boolean> => {
+      if (!pageImage) return false;
+      const needed = neededLongEdge(
+        nextSize,
+        renderScale,
+        window.devicePixelRatio || 1,
+      );
+      // Deep zoom: past the ceiling this page goes through PDF.js so the reader
+      // never sees a soft staff when they zoom in to read an ornament.
+      if (exceedsPageImageCeiling(needed)) return false;
+      const blob = await pageImage.load(pageNumber, pageImageBucket(needed));
+      if (disposed || !blob) return false;
+      const decoded = await decodePageImage(blob);
+      if (!decoded) return false;
+      try {
+        if (disposed) return false;
+        if (!coversPageBox(decoded, nextSize)) return false;
+        const target = canvasRef.current;
+        if (!target) return false;
+        target.width = decoded.width;
+        target.height = decoded.height;
+        try {
+          const ctx = target.getContext("2d");
+          if (ctx && decoded.width > 0 && decoded.height > 0) {
+            ctx.drawImage(decoded.source, 0, 0);
+          }
+        } catch {
+          // A context-less canvas (jsdom) still carries the right dimensions.
+        }
+        hasPaintedRef.current = true;
+        onRasterizedRef.current?.(pageNumber, target);
+        return true;
+      } finally {
+        decoded.release();
+      }
+    };
+
     void document
       .getPage(pageNumber)
-      .then((page) => {
+      .then(async (page) => {
         if (disposed) {
           page.cleanup();
           return;
@@ -158,6 +283,19 @@ export function PdfPage({
         setSize(nextSize);
         onSize?.(pageNumber, nextSize);
         pageCleanup = page.cleanup;
+
+        if (await paintPageImage(nextSize)) {
+          if (disposed) return;
+          setSource("image");
+          // Nothing in PDF.js decoded this page, and nothing needs to stay
+          // resident for it: release the page object now rather than holding it
+          // alongside the bitmap we just painted.
+          pageCleanup?.();
+          pageCleanup = null;
+          return;
+        }
+        if (disposed) return;
+        setSource("pdf");
 
         // Rasterize off-screen, then blit onto the visible canvas in a single
         // synchronous step on completion. Rendering straight to the on-screen
@@ -205,7 +343,7 @@ export function PdfPage({
       taskRef.current = null;
       pageCleanup?.();
     };
-  }, [shouldRender, document, onSize, pageNumber, renderScale]);
+  }, [shouldRender, document, onSize, pageNumber, pageImage, renderScale]);
 
   // The box is always laid out at the live scale — this is what makes a zoom
   // press or pinch resize the page within the frame, independent of when the
@@ -217,6 +355,7 @@ export function PdfPage({
       className={`pdf-page is-${status} ${buffered ? "is-buffered" : ""}`}
       data-page-number={pageNumber}
       data-buffered={buffered ? "true" : undefined}
+      data-source={source}
       aria-hidden={buffered ? "true" : undefined}
       aria-label={`Score page ${pageNumber}`}
       style={{ width: displayed.width, height: displayed.height }}

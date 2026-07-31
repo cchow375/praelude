@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
+  dedupeHits,
   downloadBasename,
+  isSupersededError,
   matchesDownloadName,
   stripHighlightHtml,
   stripWikiTemplates,
@@ -17,10 +19,37 @@ import {
 // browser and the user's browser does the download; we then import the file.
 // ---------------------------------------------------------------------------
 
-/** IMSLP etiquette: debounce search-as-you-type ≥1.5s (robots Crawl-delay). */
-const SEARCH_DEBOUNCE_MS = 1500;
+/**
+ * Debounce for search-as-you-type — long enough to sit ABOVE a normal typing
+ * gap, short enough that the panel never feels dead.
+ *
+ * Both previous values were wrong in opposite directions. 1500ms made the panel
+ * look broken for a second and a half before it even started. 250ms was worse:
+ * it sat *below* ordinary typing speed, so it was a cliff, not a debounce —
+ * 240ms/char coalesced into 1 request but 260ms/char fired one request PER
+ * CHARACTER (measured: "chopin scherzo" at 300ms/char = 14 requests), each
+ * queueing a second deep behind IMSLP's rate guard.
+ *
+ * 450ms clears the slowest gap in real typing traces, including the ~400ms
+ * pauses people take at word boundaries. It is not load-bearing on its own: the
+ * one-at-a-time cap below is what makes a burst of keystrokes cost a bounded
+ * number of requests no matter how the gaps fall.
+ */
+const SEARCH_DEBOUNCE_MS = 450;
 /** Poll cadence for a matching file arriving in ~/Downloads. */
 const DOWNLOADS_POLL_MS = 2000;
+
+/**
+ * The search box's one source of truth. Modelled as a union so the panel can
+ * never render the ambiguous state it used to: an empty result list that might
+ * equally mean "still searching", "nothing matched", or "the call failed".
+ */
+type SearchState =
+  | { kind: "idle" }
+  | { kind: "searching"; query: string }
+  | { kind: "results"; query: string; hits: WorkHit[] }
+  | { kind: "empty"; query: string }
+  | { kind: "error"; query: string; message: string };
 
 /** One regular file in ~/Downloads (mirrors Rust `DownloadEntry`). */
 interface DownloadEntry {
@@ -48,9 +77,7 @@ function defaultFolderName(title: string): string {
 
 export function AddScore({ onImported, onClose }: AddScoreProps) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<WorkHit[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
+  const [search, setSearch] = useState<SearchState>({ kind: "idle" });
 
   const [work, setWork] = useState<WorkHit | null>(null);
   const [editions, setEditions] = useState<Edition[] | null>(null);
@@ -70,39 +97,121 @@ export function AddScore({ onImported, onClose }: AddScoreProps) {
   const [imported, setImported] = useState<string | null>(null);
 
   const searchGeneration = useRef(0);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** True while a request is on the wire and the drain loop owns it. */
+  const searching = useRef(false);
+  /** The newest query asked for while a request was already on the wire. */
+  const queuedQuery = useRef<string | null>(null);
 
-  // Debounced search: wait SEARCH_DEBOUNCE_MS after the last keystroke, then run
-  // exactly one search. An empty/whitespace query clears results without a call.
-  useEffect(() => {
-    const trimmed = query.trim();
+  /**
+   * Ask for one search. AT MOST ONE `imslp_search` is ever on the wire.
+   *
+   * WHY the cap: `imslp_search` blocks on the Rust client's ≥1s rate guard, so
+   * K simultaneous requests do not overlap — they drain one per second, with the
+   * query the user actually wants last in line. Firing one per debounce expiry
+   * therefore turned fast typing into a 13-second wait behind 13 dead requests
+   * ("unusably laggy", the second time round). Here a request that arrives while
+   * one is in flight does not start a second call: it replaces `queuedQuery`, so
+   * only the LATEST query survives the wait, and the drain loop picks it up the
+   * moment the current response lands.
+   *
+   * Staleness is separate and still guarded by `searchGeneration`: whatever
+   * order responses arrive in, only the newest query's outcome is rendered.
+   */
+  const runSearch = useCallback(async (raw: string) => {
+    const trimmed = raw.trim();
     if (!trimmed) {
-      setResults([]);
-      setSearching(false);
-      setSearchError(null);
+      searchGeneration.current += 1; // abandon anything in flight
+      queuedQuery.current = null;
+      setSearch({ kind: "idle" });
       return;
     }
-    setSearching(true);
-    const generation = ++searchGeneration.current;
-    const timer = setTimeout(() => {
-      void (async () => {
+    searchGeneration.current += 1;
+    setSearch({ kind: "searching", query: trimmed });
+    if (searching.current) {
+      queuedQuery.current = trimmed; // supersede whatever was waiting
+      return;
+    }
+
+    searching.current = true;
+    try {
+      let next: string | null = trimmed;
+      while (next !== null) {
+        const query: string = next;
+        const generation = searchGeneration.current;
+        // `null` = an outcome the panel must NOT show (superseded, or already
+        // overtaken by a newer query).
+        let outcome: SearchState | null;
         try {
-          const hits = await invoke<WorkHit[]>("imslp_search", {
-            query: trimmed,
-          });
-          if (generation !== searchGeneration.current) return;
-          setResults(hits ?? []);
-          setSearchError(null);
+          const hits = await invoke<WorkHit[]>("imslp_search", { query });
+          const list = dedupeHits(hits ?? []);
+          outcome =
+            list.length > 0
+              ? { kind: "results", query, hits: list }
+              : { kind: "empty", query };
         } catch (e) {
-          if (generation !== searchGeneration.current) return;
-          setSearchError(messageOf(e));
-          setResults([]);
-        } finally {
-          if (generation === searchGeneration.current) setSearching(false);
+          const message = messageOf(e);
+          // The backend drops a search the instant a newer one starts. That is
+          // not a failure to report — the newer one owns the panel now.
+          outcome = isSupersededError(message)
+            ? null
+            : { kind: "error", query, message };
         }
-      })();
+        next = queuedQuery.current;
+        queuedQuery.current = null;
+        if (outcome && generation === searchGeneration.current) {
+          setSearch(outcome);
+        }
+        // A keystroke landed while that request was on the wire and its own
+        // debounce has not fired yet, so the queued query is ALREADY out of
+        // date. Hand the turn back to the pending timer instead of spending a
+        // request whose results would be discarded on arrival.
+        if (debounceTimer.current !== null) next = null;
+      }
+    } finally {
+      searching.current = false;
+    }
+  }, []);
+
+  // Debounced search-as-you-type. An empty/whitespace query returns to idle
+  // without a call.
+  useEffect(() => {
+    // A new query invalidates the previously chosen work: without this, the
+    // editions of the OLD work stayed on screen underneath the NEW results,
+    // complete with a live "Download in your browser" button for a piece the
+    // user is no longer looking at. The import step (`file`) is deliberately
+    // left alone so an in-progress download is never thrown away.
+    setWork(null);
+    setEditions(null);
+    setEditionsError(null);
+
+    const trimmed = query.trim();
+    if (!trimmed) {
+      searchGeneration.current += 1;
+      setSearch({ kind: "idle" });
+      return;
+    }
+    debounceTimer.current = setTimeout(() => {
+      debounceTimer.current = null;
+      void runSearch(trimmed);
     }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [query]);
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+        debounceTimer.current = null;
+      }
+    };
+  }, [query, runSearch]);
+
+  /** Enter searches immediately, cancelling the pending debounce so the
+   *  keystroke does not also fire a second, identical request. */
+  const searchNow = useCallback(() => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
+    }
+    void runSearch(query);
+  }, [query, runSearch]);
 
   const chooseWork = useCallback(async (hit: WorkHit) => {
     setWork(hit);
@@ -267,19 +376,60 @@ export function AddScore({ onImported, onClose }: AddScoreProps) {
         aria-label="Search IMSLP"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            searchNow();
+          }
+        }}
       />
 
-      {searching && <p className="add-score-status">Searching…</p>}
-      {searchError && (
+      {/* Every search outcome is named. An empty list is never rendered as a
+          silent void — the panel always says which of the four it is. */}
+      {search.kind === "searching" && (
+        <p className="add-score-status is-searching" role="status">
+          <span className="add-score-spinner" aria-hidden="true" />
+          Searching IMSLP for “{search.query}”…
+        </p>
+      )}
+      {search.kind === "error" && (
         <p className="ck-inline-error" role="alert">
-          {searchError}
+          IMSLP search failed: {search.message}
+          <button
+            type="button"
+            className="add-score-retry"
+            onClick={() => void runSearch(search.query)}
+          >
+            Try again
+          </button>
+        </p>
+      )}
+      {search.kind === "empty" && (
+        <p className="add-score-status" role="status">
+          No matches for “{search.query}” on IMSLP.
         </p>
       )}
 
-      {results.length > 0 && (
+      {search.kind === "results" && (
+        <p className="add-score-status" role="status">
+          {search.hits.length} result{search.hits.length === 1 ? "" : "s"} for “
+          {search.query}”
+        </p>
+      )}
+      {search.kind === "results" && (
         <ul className="add-score-results">
-          {results.map((hit) => (
-            <li key={hit.page_id}>
+          {/* Identity is the TITLE, never page_id: IMSLP's `list=search` does
+              not return a `pageid`, so every real hit arrives as page_id 0.
+              Keying on it gave every row the same React key and made selecting
+              one work light up the whole list. Titles are unique per wiki page
+              and are what `imslp_editions` is called with anyway.
+
+              Uniqueness is ENFORCED, not assumed: `hits` came through
+              `dedupeHits`, so a response that repeated a title cannot produce a
+              duplicate key here or an `aria-pressed` row that isn't the one
+              clicked. */}
+          {search.hits.map((hit) => (
+            <li key={hit.title}>
               <button
                 type="button"
                 className={
@@ -287,7 +437,7 @@ export function AddScore({ onImported, onClose }: AddScoreProps) {
                     ? "add-score-hit is-redirect"
                     : "add-score-hit"
                 }
-                aria-pressed={work?.page_id === hit.page_id}
+                aria-pressed={work?.title === hit.title}
                 onClick={() => void chooseWork(hit)}
               >
                 <span className="add-score-hit-title ck-fit">{hit.title}</span>

@@ -10,7 +10,6 @@ import { todayLocal } from "../calendar/dates";
 import { TodayDaySheet, useTodaySheet } from "../notebook/DaySheetStore";
 import { insertSuggestion } from "../notebook/daySheetOps";
 import { MetronomeQuickBar } from "../metronome/MetronomeQuickBar";
-import { todayLabel } from "./format";
 import { CloseIcon } from "./menuIcons";
 import "./TodayWorkspace.css";
 
@@ -37,9 +36,11 @@ export interface TodayPracticePanelProps {
  * type your practice. The old plain-language plan box, the launch board, and the
  * parallel session composer are gone; retention/repair evidence now appears as one
  * quiet "suggested" fold that INSERTS real plan lines (a checkbox item + a timed
- * block) into the same sheet, never a second surface. The active-set HUD docks in
- * here so it stays reachable while a set is live; receipts and recovery live
- * underneath as before. Esc, the ×, or the trigger returns to the menu.
+ * block) into the same sheet, never a second surface. The active-set HUD docks as
+ * a strip along the FOOT of the window — it used to sit above the sheet, where it
+ * pushed the writing surface below the fold and made the whole screen read as a
+ * form; receipts and recovery live underneath as before. Esc, the ×, or the
+ * trigger returns to the menu.
  */
 export function TodayPracticePanel({
   onOpenAtlas,
@@ -68,23 +69,30 @@ export function TodayPracticePanel({
   };
 
   return (
-    // The scrim only dims the menu; it does not dismiss, so a stray click never
-    // discards an in-progress notebook edit. Esc and the × are the closers.
-    <div className="today-practice-overlay">
+    // Not a modal. This used to be a `position: fixed; inset: 0` window floating
+    // over a dimmed copy of the app, which left the nav rail and session strip
+    // showing through around its edges — two stacked surfaces with a hairline
+    // between them, which reads as a rendering glitch rather than as depth
+    // (Christian: "you are rendering everything wrong"). It is now the Today
+    // workspace's own content: TodayWorkspace renders EITHER the menu or this,
+    // so there is nothing behind it to show through. Esc and the × close it.
+    <div className="today-practice-surface">
       <div
-        role="dialog"
-        aria-modal="true"
+        // A landmark region, NOT role="dialog"/aria-modal. This is the Today
+        // workspace's content now, so claiming the rest of the app is inert
+        // would be a lie to a screen reader — the nav rail really is reachable.
+        role="region"
         aria-label="Today's Practice"
         tabIndex={-1}
         className="today-practice-window"
         data-testid="today-practice-panel"
         onKeyDown={onKeyDown}
       >
+        {/* Chrome, not a hero. The window's own title bar is one thin strip so
+            the page below it starts at the top of the surface; the full date is
+            written on the sheet itself, where a date belongs. */}
         <header className="today-practice-head">
-          <div>
-            <p className="today-date">{todayLabel()}</p>
-            <h1 id="today-practice-title">Today's Practice</h1>
-          </div>
+          <h1 id="today-practice-title">Today's Practice</h1>
           <div className="today-practice-head-tools">
             <MetronomeQuickBar />
             <button
@@ -100,36 +108,39 @@ export function TodayPracticePanel({
         </header>
 
         <div className="today-practice-body">
-          {activeSetHud && (
-            <div
-              className="today-practice-hud"
-              data-testid="today-practice-hud"
-            >
-              {activeSetHud}
-            </div>
-          )}
-
           <TodayDaySheet onOpenPiece={onOpenPiecePlan} />
 
-          <SuggestedFromRetention candidateApi={candidateApi} />
+          <div className="today-practice-margin">
+            <SuggestedFromRetention candidateApi={candidateApi} />
 
-          <div className="today-practice-foot">
-            <button
-              type="button"
-              className="ck-text-action"
-              onClick={onOpenCalendar}
-            >
-              Open the Calendar
-            </button>
-            <button
-              type="button"
-              className="ck-text-action"
-              onClick={onOpenAtlas}
-            >
-              Open Score
-            </button>
+            <div className="today-practice-foot">
+              <button
+                type="button"
+                className="ck-text-action"
+                onClick={onOpenCalendar}
+              >
+                Open the Calendar
+              </button>
+              <button
+                type="button"
+                className="ck-text-action"
+                onClick={onOpenAtlas}
+              >
+                Open Score
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* The live set docks as a strip along the foot of the window rather than
+            as a card stacked on top of the page: it stays reachable the whole
+            time a set is open without ever displacing the writing surface. The
+            HUD's own layout is owned elsewhere; this is only the dock. */}
+        {activeSetHud && (
+          <div className="today-practice-hud" data-testid="today-practice-hud">
+            {activeSetHud}
+          </div>
+        )}
       </div>
     </div>
   );

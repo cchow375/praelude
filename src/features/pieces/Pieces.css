@@ -1,70 +1,21 @@
 /* ---------------------------------------------------------------------------
-   Monochrome remap (Phase 8.1 mount). This stylesheet predates the Phase 2
-   pure-monochrome token rewrite (src/design/tokens.css) and referenced a hued
-   vocabulary that no longer exists — which is why the Pieces subtree could not
-   be mounted without broken styling. Rather than rewrite every selector, the
-   dead token names are kept as scoped aliases resolving to the new monochrome
-   tokens (the same scoped-token-alias technique the Phase 6 Ledger/Calendar
-   retheme used). Every former hue collapses to ink; the accent becomes a dark
-   selection-fill so light ink stays readable on it; only the two semantic
-   signals keep colour. The region palette (--region-color default here) is
-   overridden per-region by explicitly-allowed user-data score colour.
-   -------------------------------------------------------------------------- */
-.pieces-view {
-  --ink-primary: var(--ink);
-  --ink-secondary: var(--ink-dim);
-  --ink-tertiary: var(--ink-faint);
-  --ink-on-dark: var(--ink);
-  --accent: #2a2a30;
-  --accent-hover: #34343c;
-  --accent-contrast: var(--ink);
-  --danger: var(--signal-error);
-  --success: var(--signal-success);
-  --warning: var(--ink-dim);
-  --info: var(--ink-dim);
-  --surface-app: var(--bg);
-  --surface-raised: var(--bg-raised);
-  --surface-hover: rgba(255, 255, 255, 0.05);
-  --surface-ink: #2a2a30;
-  --region-color: var(--ink-faint);
-  --font-display: var(--font-sans);
-  --shadow-card: none;
-  --shadow-topbar: none;
-  --radius-xs: 4px;
-  --radius-sm: var(--r-sm);
-  --radius-md: var(--r-md);
-  --radius-lg: var(--r-lg);
-  --radius-pill: 999px;
-  --space-1: var(--s-1);
-  --space-2: var(--s-2);
-  --space-3: var(--s-3);
-  --space-4: var(--s-4);
-  --space-5: var(--s-5);
-  --space-6: 32px;
-  --space-7: var(--s-6);
-  --space-8: 56px;
-  --text-2xs: 0.6875rem;
-  --text-xs: 0.75rem;
-  --text-sm: 0.8125rem;
-  --text-base: 0.9375rem;
-  --text-lg: 1.0625rem;
-  --text-xl: 1.25rem;
-  --text-2xl: 1.5rem;
-  --text-hero: 2rem;
-  --weight-normal: 400;
-  --weight-regular: 400;
-  --weight-medium: 500;
-  --weight-semibold: 600;
-  --weight-bold: 700;
-  --leading-normal: 1.5;
-  --tracking-tight: -0.01em;
-  --tracking-label: 0.04em;
-  --duration-fast: var(--dur-fast);
-  --ease-standard: var(--ease-out);
-  --ease-human: var(--ease-out);
-  --ease-spring: var(--ease-out);
-}
+   RETIRED (paper lane): .pieces-view used to open with a local alias block that
+   re-declared the whole legacy vocabulary for this subtree. It was written for
+   the v3 pure-monochrome DARK system and pinned dark-era values —
+   --ink-on-dark: var(--ink), --surface-ink/--accent: #2a2a30,
+   --accent-contrast: var(--ink), --font-display: var(--font-sans),
+   --warning/--info: var(--ink-dim), --surface-hover: rgba(255,255,255,.05).
+   After :root flipped --ink to #1A1714 those aliases painted ink on ink, and
+   they silently deleted the accent and the serif everywhere under .pieces-view.
 
+   src/design/tokens.css now defines the full legacy vocabulary at :root, so the
+   block was pure duplication apart from the damage. --surface-ink is the paper
+   system's inverted fill (#1A1714) and stays the ground for the primary buttons
+   below, paired with --ink-on-dark (= --ink-inverse, 16.82:1). The region
+   palette still comes from --region-color, overridden per-region by
+   explicitly-allowed user-data score colour.
+   DO NOT reintroduce a local alias block; change the token.
+   -------------------------------------------------------------------------- */
 .pieces-view {
   width: 100%;
   max-width: 74rem;
@@ -1394,6 +1345,48 @@
 .add-score-done {
   color: var(--success);
 }
+/* "Searching IMSLP…" — a real, visible spinner so a slow network reads as
+   progress rather than as a dead panel. Drawn in currentColor so it inherits
+   whatever the surrounding theme sets. */
+.add-score-status.is-searching {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.add-score-spinner {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.75;
+  animation: add-score-spin 720ms linear infinite;
+}
+@keyframes add-score-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Reduced motion: keep the affordance, drop the rotation. */
+@media (prefers-reduced-motion: reduce) {
+  .add-score-spinner {
+    animation: none;
+    border-top-color: currentColor;
+    opacity: 0.4;
+  }
+}
+/* Retry sits inline at the end of the error sentence. */
+.add-score-retry {
+  margin-left: var(--space-2);
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
 .add-score-results,
 .add-score-edition-list,
 .add-score-matches {
@@ -1417,9 +1410,16 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
-.add-score-hit:hover,
-.add-score-hit[aria-pressed="true"] {
+.add-score-hit:hover {
   background: var(--surface-hover);
+}
+/* The CHOSEN work must be distinguishable from a merely hovered one — they used
+   to share one style, so after a click you could not tell which work you were
+   looking at editions for. */
+.add-score-hit[aria-pressed="true"] {
+  background: var(--accent-wash);
+  border-color: var(--accent-line);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .add-score-hit.is-redirect {
   opacity: 0.55;

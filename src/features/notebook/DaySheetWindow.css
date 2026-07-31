@@ -4,7 +4,7 @@
   z-index: 60;
   display: flex;
   padding: clamp(0.75rem, 3vh, 2.5rem);
-  background: rgba(6, 6, 8, 0.62);
+  background: color-mix(in srgb, var(--surface-ink) 34%, transparent);
 }
 
 .day-sheet-window {
@@ -26,22 +26,26 @@
   outline: none;
 }
 
+/* Same idea as the Today window: a thin name badge, so the sheet's own dated
+   head is the title of what you are looking at. */
 .day-sheet-window-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--s-4);
-  padding: var(--s-5) var(--s-5) var(--s-4);
+  padding: var(--s-2) var(--s-3) var(--s-2) var(--s-4);
   border-bottom: 1px solid var(--hairline);
+  background: var(--bg-sunken);
 }
 
 .day-sheet-window-head h1 {
-  margin: var(--s-1) 0 0;
-  color: var(--ink);
+  margin: 0;
+  color: var(--ink-dim);
   font-family: var(--font-sans);
-  font-size: 1.5rem;
+  font-size: var(--text-sm);
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
 }
 
 .day-sheet-window-close {

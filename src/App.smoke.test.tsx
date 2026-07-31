@@ -42,10 +42,10 @@ describe("App shell smoke (v3)", () => {
     expect(await screen.findByTestId("workspace-brain")).toBeTruthy();
   });
 
-  it("pins a concrete dark data-theme to <html>", async () => {
+  it("pins a concrete paper data-theme to <html>", async () => {
     render(<App />);
     await waitFor(() =>
-      expect(document.documentElement.getAttribute("data-theme")).toBe("dark"),
+      expect(document.documentElement.getAttribute("data-theme")).toBe("paper"),
     );
   });
 

@@ -1049,6 +1049,64 @@ describe("ScoreView", () => {
     expect(pdf.adapter.load).toHaveBeenCalledTimes(1);
   });
 
+  it("warms the PDF.js runtime alongside the edition lookup, not after it", async () => {
+    const pdf = makePdf(1);
+    let releaseEditions: (value: PdfEdition[]) => void = () => undefined;
+    const editions = vi.fn(
+      () => new Promise<PdfEdition[]>((resolve) => (releaseEditions = resolve)),
+    );
+    const prefetch = vi.fn();
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ editions })}
+        adapter={{ ...pdf.adapter, prefetch }}
+      />,
+    );
+
+    // The ~1.7 MB runtime import does not depend on which edition wins, so it
+    // must already be in flight while the edition scan is still outstanding.
+    await waitFor(() => expect(prefetch).toHaveBeenCalledTimes(1));
+    expect(pdf.adapter.load).not.toHaveBeenCalled();
+    releaseEditions(EDITIONS);
+    await screen.findByLabelText("Score page 1");
+  });
+
+  it("range-loads the selected edition off the score protocol instead of over IPC", async () => {
+    const pdf = makePdf(1);
+    const loadUrl = vi.fn().mockResolvedValue(pdf.document);
+    const api = makeApi();
+    render(
+      <ScoreView pieceId={7} api={api} adapter={{ ...pdf.adapter, loadUrl }} />,
+    );
+
+    await screen.findByLabelText("Score page 1");
+    expect(loadUrl).toHaveBeenCalledWith(
+      "ckscore://localhost/7/urtext",
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    );
+    expect(api.bytes).not.toHaveBeenCalled();
+    expect(pdf.adapter.load).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the IPC byte path when the score protocol is unavailable", async () => {
+    const pdf = makePdf(1);
+    const loadUrl = vi
+      .fn()
+      .mockRejectedValue(new Error("ckscore is not registered here"));
+    const api = makeApi();
+    render(
+      <ScoreView pieceId={7} api={api} adapter={{ ...pdf.adapter, loadUrl }} />,
+    );
+
+    // A browser dev session (or a webview that refuses the scheme) must still
+    // open the score rather than show an error.
+    await screen.findByLabelText("Score page 1");
+    expect(loadUrl).toHaveBeenCalledTimes(1);
+    expect(api.bytes).toHaveBeenCalledWith(7, "urtext");
+    expect(pdf.adapter.load).toHaveBeenCalledTimes(1);
+  });
+
   it("parses a real PDF through the WebKit-compatible legacy loopback worker", async () => {
     const document = await pdfJsAdapter.load(makeMinimalPdf(), {
       timeoutMs: 5_000,
@@ -1087,6 +1145,131 @@ describe("ScoreView", () => {
     });
     await document.destroy();
     expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("range-loads from the score protocol with disableAutoFetch on", async () => {
+    // Without `disableAutoFetch` PDF.js walks the whole file anyway, so the
+    // range protocol would cost a round trip and buy nothing.
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(new Uint8Array(65536), {
+          status: 206,
+          headers: { "Content-Range": "bytes 0-65535/1000000" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const getDocument = vi.fn(
+        (_options: unknown) =>
+          ({
+            promise: Promise.resolve({ numPages: 3, getPage: vi.fn() }),
+            destroy: vi.fn().mockResolvedValue(undefined),
+          }) as unknown as PDFDocumentLoadingTask,
+      );
+      class FakeTransport {
+        length: number;
+        constructor(length: number) {
+          this.length = length;
+        }
+        onDataRange() {}
+        abort() {}
+      }
+      const adapter = createPdfJsAdapter(async () => ({
+        getDocument,
+        PDFDataRangeTransport: FakeTransport as never,
+      }));
+
+      const document = await adapter.loadUrl!("ckscore://localhost/7/a.pdf", {
+        timeoutMs: 1_000,
+      });
+      expect(document.numPages).toBe(3);
+      expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+        headers: { Range: "bytes=0-65535" },
+      });
+      const options = getDocument.mock.calls[0][0] as Record<string, unknown>;
+      expect(options).toMatchObject({
+        disableAutoFetch: true,
+        disableStream: false,
+        rangeChunkSize: 65536,
+        isImageDecoderSupported: false,
+      });
+      expect(options.range).toBeInstanceOf(FakeTransport);
+      expect((options.range as FakeTransport).length).toBe(1000000);
+      expect(options.data).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("takes the plain byte path when the protocol returns the whole small edition", async () => {
+    const whole = new Uint8Array(makeMinimalPdf());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(whole, { status: 200 })),
+    );
+    try {
+      const document = await pdfJsAdapter.loadUrl!(
+        "ckscore://localhost/7/a.pdf",
+        { timeoutMs: 5_000 },
+      );
+      expect(document.numPages).toBe(1);
+      await document.destroy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects loadUrl when the protocol is unreachable, so the viewer can fall back", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    try {
+      await expect(
+        pdfJsAdapter.loadUrl!("ckscore://localhost/7/a.pdf", {
+          timeoutMs: 1_000,
+        }),
+      ).rejects.toThrow("answered 404");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("gives up on a silent score protocol quickly instead of burning the load budget", async () => {
+    // A webview that swallows the custom scheme must cost a short probe, not
+    // the full 30 s document deadline, before the byte path takes over.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => undefined)),
+    );
+    try {
+      const started = Date.now();
+      await expect(
+        pdfJsAdapter.loadUrl!("ckscore://localhost/7/a.pdf", {
+          timeoutMs: 50,
+        }),
+      ).rejects.toThrow("The score protocol did not answer in time.");
+      expect(Date.now() - started).toBeLessThan(2_000);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shares one runtime import between prefetch and load", async () => {
+    const loadRuntime = vi.fn(async () => ({
+      getDocument: vi.fn(
+        () =>
+          ({
+            promise: Promise.resolve({ numPages: 1, getPage: vi.fn() }),
+            destroy: vi.fn().mockResolvedValue(undefined),
+          }) as unknown as PDFDocumentLoadingTask,
+      ),
+    }));
+    const adapter = createPdfJsAdapter(loadRuntime);
+    adapter.prefetch!();
+    adapter.prefetch!();
+    await adapter.load(makeMinimalPdf(), { timeoutMs: 1_000 });
+    expect(loadRuntime).toHaveBeenCalledTimes(1);
   });
 
   it("rejects on deadline even when PDF.js startup and cleanup both never settle", async () => {
@@ -1618,5 +1801,93 @@ describe("ScoreView", () => {
       }),
     ).toBeTruthy();
     expect(screen.getByText("Mark a system to build the strip.")).toBeTruthy();
+  });
+});
+
+// The screen-resolution page-image fast path, wired end to end through the
+// viewer. The measured problem it exists for: page 1 of the Barber Pas de Deux
+// (a 24-bit colour scan with an ICC profile) takes 43 s through PDF.js and
+// ~0.08 s through Rust. The viewer therefore asks Rust first and keeps PDF.js as
+// the fallback for everything Rust declines.
+describe("ScoreView — page-image fast path", () => {
+  function pageImageApi(
+    answer: (page: number) => ArrayBuffer = () =>
+      new Uint8Array([0xff, 0xd8, 0xff]).buffer,
+  ) {
+    const pageImage = vi.fn(
+      async (_piece: number, _edition: string, page: number) => answer(page),
+    );
+    const warmPageImage = vi.fn().mockResolvedValue(undefined);
+    return { pageImage, warmPageImage };
+  }
+
+  it("shows the Rust page image for the visible page instead of rasterizing it", async () => {
+    vi.stubGlobal("createImageBitmap", async () => ({
+      width: 1536,
+      height: 2048,
+      close: vi.fn(),
+    }));
+    const { pageImage, warmPageImage } = pageImageApi();
+    const api = makeApi({ pageImage, warmPageImage });
+    const pdf = makePdf(6);
+
+    render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+    await screen.findByLabelText("Score page 1");
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText("Score page 1").getAttribute("data-source"),
+      ).toBe("image"),
+    );
+    // Bound to the piece and the edition actually open.
+    expect(pageImage).toHaveBeenCalledWith(7, "urtext", 1, expect.any(Number));
+  });
+
+  it("falls back to the real renderer, with a real page, when Rust refuses", async () => {
+    const { pageImage, warmPageImage } = pageImageApi(() => new ArrayBuffer(0));
+    const api = makeApi({ pageImage, warmPageImage });
+    const pdf = makePdf(6);
+
+    render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+    const page = await screen.findByLabelText("Score page 1");
+    await waitFor(() => expect(pageImage).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(page.getAttribute("data-source")).toBe("pdf"),
+    );
+    const canvas = screen.getByLabelText(
+      "Rendered score page 1",
+    ) as HTMLCanvasElement;
+    expect(canvas.width).toBe(1200);
+    expect(page.className).toContain("is-ready");
+  });
+
+  it("warms the page after next in the background, and never the visible one", async () => {
+    vi.stubGlobal("createImageBitmap", async () => ({
+      width: 1536,
+      height: 2048,
+      close: vi.fn(),
+    }));
+    const { pageImage, warmPageImage } = pageImageApi();
+    const api = makeApi({ pageImage, warmPageImage });
+    const pdf = makePdf(6);
+
+    render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+    await screen.findByLabelText("Score page 1");
+    await waitFor(() => expect(warmPageImage).toHaveBeenCalled());
+    const warmed = warmPageImage.mock.calls.map((call) => call[2]);
+    // Page 3 is the first page NOT already mounted (the viewer mounts 1 ±1),
+    // so warming is genuinely extra reach rather than duplicated work.
+    expect(warmed).toContain(3);
+    expect(warmed).not.toContain(1);
+    expect(warmed).not.toContain(2);
+  });
+
+  it("works unchanged against a host with no page-image commands", async () => {
+    const api = makeApi();
+    const pdf = makePdf(3);
+    render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
+    const page = await screen.findByLabelText("Score page 1");
+    await waitFor(() =>
+      expect(page.getAttribute("data-source")).toBe("pdf"),
+    );
   });
 });
