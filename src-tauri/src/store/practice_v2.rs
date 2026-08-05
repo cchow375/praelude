@@ -1274,7 +1274,6 @@ impl Store {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     fn v2_adjust(
         &self,
         session_id: Option<i64>,

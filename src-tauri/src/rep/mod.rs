@@ -191,9 +191,15 @@ impl RepEngine {
         if let Some(error) = &self.restore_error {
             return Err(error.clone());
         }
-        let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        if active.is_some() {
-            return Err("close the current block first".to_string());
+        // Quick peek, no side effects: reject immediately if a block is
+        // already active (mirrors the original early-out). Re-checked below
+        // after the guard is retaken, since it must be dropped before
+        // resolving the session — see the comment there.
+        {
+            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+            if active.is_some() {
+                return Err("close the current block first".to_string());
+            }
         }
 
         self.store
@@ -249,7 +255,19 @@ impl RepEngine {
         let mut contract = PracticeContract::consecutive_clean(required_clean_streak);
         contract.attempt_ceiling = args.planned_reps;
         v2_validate_open(&args, &rule, planned, &contract).map_err(|error| error.to_string())?;
-        let session_hint = self.sessions.cached_practice_session();
+
+        // Only after validation passes do we touch the session — preserves
+        // "an invalid open touches zero rows" — and only while `self.active`
+        // is NOT held: the day-rollover boundary may need to pause whatever
+        // set is active, which locks `self.active` itself (see
+        // `pause_for_rollover`); holding it here first would deadlock (task
+        // A5 fix round 1, CRITICAL 2).
+        let session_hint = Some(self.sessions.ensure_session()?);
+        let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+        if active.is_some() {
+            return Err("close the current block first".to_string());
+        }
+
         let command_id = v2_command_id(source, "open");
         let now = self.now()?;
         let opened = self
@@ -310,6 +328,9 @@ impl RepEngine {
         source: MutationSource,
         command_id_override: Option<&str>,
     ) -> Result<CheckOutcome, String> {
+        // Resolved BEFORE the active-set guard — see `open_from` (same
+        // deadlock hazard: the day-rollover pause locks `self.active` too).
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let snap = active
             .as_ref()
@@ -317,7 +338,6 @@ impl RepEngine {
         let cur_lane = ladder::variant_index_for_rep(&snap.variants, snap.tries + 1);
         let rep_variant = cur_lane.map(|i| snap.variants[i].name.clone());
         let block_id = snap.block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let generated_command_id;
         let command_id = if let Some(command_id) = command_id_override {
             command_id
@@ -403,11 +423,12 @@ impl RepEngine {
     }
 
     fn close_from(&self, source: MutationSource) -> Result<Option<RepSnapshot>, String> {
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let sid = self.sessions.ensure_session()?;
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let Some(current) = active.as_ref() else {
             return Ok(None);
         };
-        let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(source, "close");
         let now = self.now()?;
         let mutation = self
@@ -425,12 +446,13 @@ impl RepEngine {
     }
 
     pub fn undo(&self) -> Result<CheckOutcome, String> {
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let sid = self.sessions.ensure_session()?;
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let block_id = active
             .as_ref()
             .ok_or_else(|| "no active rep block".to_string())?
             .block_id;
-        let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(MutationSource::UserClick, "undo");
         let now = self.now()?;
         let mutation = self
@@ -466,12 +488,13 @@ impl RepEngine {
         note: Option<String>,
         replace_note: bool,
     ) -> Result<CheckOutcome, String> {
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let sid = self.sessions.ensure_session()?;
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let block_id = active
             .as_ref()
             .ok_or_else(|| "no active rep block".to_string())?
             .block_id;
-        let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(MutationSource::UserClick, "correct");
         let now = self.now()?;
         let mutation = self
@@ -506,12 +529,13 @@ impl RepEngine {
     }
 
     pub fn reverse_adjustment(&self, adjustment_id: i64) -> Result<CheckOutcome, String> {
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let sid = self.sessions.ensure_session()?;
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let block_id = active
             .as_ref()
             .ok_or_else(|| "no active rep block".to_string())?
             .block_id;
-        let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(MutationSource::UserClick, "reverse_adjustment");
         let now = self.now()?;
         let mutation = self
@@ -542,12 +566,13 @@ impl RepEngine {
     }
 
     pub fn restart(&self, required_clean_streak: Option<u32>) -> Result<RepSnapshot, String> {
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let sid = self.sessions.ensure_session()?;
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let block_id = active
             .as_ref()
             .ok_or_else(|| "no active rep block".to_string())?
             .block_id;
-        let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(MutationSource::UserClick, "restart");
         let now = self.now()?;
         let opened = self
@@ -582,8 +607,9 @@ impl RepEngine {
         if let Some(error) = &self.restore_error {
             return Err(error.clone());
         }
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let receipt = self
             .store
@@ -631,6 +657,8 @@ impl RepEngine {
     }
 
     pub fn pause(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self
             .active
             .lock()
@@ -639,7 +667,6 @@ impl RepEngine {
             .as_ref()
             .ok_or_else(|| "no live practice set".to_string())?
             .block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let mut receipt = self
             .store
@@ -659,6 +686,8 @@ impl RepEngine {
     }
 
     pub fn resume(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self
             .active
             .lock()
@@ -667,7 +696,6 @@ impl RepEngine {
             .as_ref()
             .ok_or_else(|| "no live practice set".to_string())?
             .block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let mut receipt = self
             .store
@@ -689,10 +717,17 @@ impl RepEngine {
     /// Task A5 rollover hook: pause whatever set is active, at an explicit
     /// already-committed boundary timestamp, through the exact same store path
     /// [`Self::pause`] uses — but attributed to `session_id` (the closing
-    /// session, not whatever `sessions.cached_practice_session()` currently
-    /// holds) and without touching the session cache at all, so it cannot
-    /// deadlock with `SessionService::resolve_session` calling this while
-    /// already holding its own session-id lock. A no-op when nothing is active.
+    /// session) and without touching the session cache at all (never calls
+    /// `adopt_committed_practice_session`; `SessionService` owns updating its
+    /// own cache around the rollover it is already mid-way through).
+    ///
+    /// Called from `SessionService::resolve_session()` — every mutation entry
+    /// point above resolves its session (`ensure_session()`/`self.now()`
+    /// wiring) *before* taking the `self.active` lock precisely so this can
+    /// safely acquire it here: if a caller held `self.active` across its own
+    /// `ensure_session()` call, a rollover on that same thread would recurse
+    /// into this function and self-deadlock on the same non-reentrant mutex
+    /// (fix round 1, CRITICAL 2). A no-op when nothing is active.
     fn pause_for_rollover(&self, session_id: i64, at: &str) -> Result<(), String> {
         let mut active = self
             .active
@@ -719,6 +754,8 @@ impl RepEngine {
     }
 
     pub fn checkpoint(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self
             .active
             .lock()
@@ -727,7 +764,6 @@ impl RepEngine {
             .as_ref()
             .ok_or_else(|| "no live practice set".to_string())?
             .block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let mut receipt = self
             .store
@@ -751,6 +787,8 @@ impl RepEngine {
         command_id: &str,
         reflection: &str,
     ) -> Result<MutationReceipt<RepSnapshot>, String> {
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self
             .active
             .lock()
@@ -759,7 +797,6 @@ impl RepEngine {
             .as_ref()
             .ok_or_else(|| "no live practice set".to_string())?
             .block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let mut receipt = self
             .store
@@ -792,6 +829,8 @@ impl RepEngine {
     where
         F: FnOnce() -> R,
     {
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self
             .active
             .lock()
@@ -800,7 +839,6 @@ impl RepEngine {
             .as_ref()
             .ok_or_else(|| "no live practice set".to_string())?
             .block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let mut receipt = self
             .store
@@ -855,6 +893,8 @@ impl RepEngine {
         command_id: &str,
         action: &RecoveryActionRequest,
     ) -> Result<MutationReceipt<RepSnapshot>, String> {
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self
             .active
             .lock()
@@ -863,7 +903,6 @@ impl RepEngine {
             .as_ref()
             .ok_or_else(|| "no live practice set".to_string())?
             .block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let mut receipt = self
             .store
@@ -896,10 +935,11 @@ impl RepEngine {
         due_date: &str,
     ) -> Result<MutationReceipt<RetentionCheckView>, String> {
         let now = self.now()?;
+        let session_hint = Some(self.sessions.ensure_session()?);
         let receipt = self
             .store
             .retention_snooze(
-                self.sessions.cached_practice_session(),
+                session_hint,
                 check_id,
                 due_date,
                 MutationSource::UserClick,
@@ -919,7 +959,7 @@ impl RepEngine {
         transition: &str,
     ) -> Result<MutationReceipt<RetentionCheckView>, String> {
         let now = self.now()?;
-        let session_hint = self.sessions.cached_practice_session();
+        let session_hint = Some(self.sessions.ensure_session()?);
         let outcome = match transition {
             "confirm" => self.store.retention_confirm(
                 session_hint,
@@ -1654,6 +1694,92 @@ mod tests {
         assert_eq!(resumed.safety_state, "cleared");
     }
 
+    /// Fix round 1, CRITICAL 2 regression: `close_from` (like `undo`,
+    /// `correct`, `reverse_adjustment`, and `restart`) locks `self.active`
+    /// and then resolves the session. The day-rollover pause hook
+    /// (`pause_for_rollover`) re-locks `self.active` on whatever thread
+    /// triggers the rollover — before the fix, a `close()` that was the
+    /// first call to observe a day boundary with a set still active would
+    /// self-deadlock on that non-reentrant `std::sync::Mutex`, hard-hanging
+    /// (reachable in production from `finalize_practice_on_exit`, i.e.
+    /// quitting the app with a set active across midnight). Runs on a
+    /// background thread with a bounded wait so a regression fails this
+    /// test instead of hanging the whole suite.
+    #[test]
+    fn day_rollover_pause_does_not_deadlock_a_practice_mutation_holding_active() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollover-deadlock.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T12:00:00Z"));
+        let (engine, piece_id, _store) = engine_with_fixed_clock(&path, clock.clone());
+        let engine = Arc::new(engine);
+        engine.sessions.set_rollover_pause_hook(engine.clone());
+
+        engine.open(strict_notes_args(piece_id, 5)).unwrap();
+
+        // Three days later — a TZ-safe crossing (see the `sessions` module
+        // tests' comments on why a wide gap is used instead of "just after
+        // midnight").
+        clock.set("2026-07-18T12:05:00Z");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let close_engine = engine.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(close_engine.close());
+        });
+
+        let result = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("close() across a day boundary must not deadlock");
+        let closed = result
+            .unwrap()
+            .expect("the live set closes despite the same-call rollover");
+        assert_eq!(closed.set_state, "closed_unresolved");
+    }
+
+    /// Fix round 1, CRITICAL 1 regression: `rep_open` (via `RepEngine::open`,
+    /// the UI/voice entry point) resolves its session through
+    /// `ensure_session()` BEFORE its durable transaction starts, so the
+    /// day-rollover boundary applies to practice writes, not only to
+    /// `sessions.log()`/`ensure_session()` callers outside the practice loop.
+    /// Before the fix, `v2_open_set`'s own `resolve_practice_session` adopted
+    /// ANY still-open session with no day check — a rep opened after
+    /// midnight would have silently landed in yesterday's session.
+    #[test]
+    fn rep_open_after_a_day_boundary_lands_in_a_new_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("open-day-boundary.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T12:00:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+
+        engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        let old_sid = engine.sessions.current_id().unwrap();
+        engine.close().unwrap();
+
+        // Three days later — a TZ-safe crossing (see the `sessions` module
+        // tests' comments).
+        clock.set("2026-07-18T12:05:00Z");
+        let opened = engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        let new_sid = engine.sessions.current_id().unwrap();
+
+        assert_ne!(
+            old_sid, new_sid,
+            "the second rep_open crossed the day boundary into a fresh session"
+        );
+        let rep_open_session: i64 = store
+            .test_scalar_i64(&format!(
+                "SELECT session_id FROM event
+                 WHERE kind='rep_open' AND entity_id={}
+                 ORDER BY id DESC LIMIT 1",
+                opened.block_id
+            ))
+            .unwrap();
+        assert_eq!(
+            rep_open_session, new_sid,
+            "the post-boundary rep_open is canonically attributed to the new session, \
+             not adopted into the prior day's session"
+        );
+    }
+
     #[test]
     fn propagated_attempt_command_is_idempotent_concurrently_and_after_relaunch() {
         let dir = tempfile::tempdir().unwrap();
@@ -1811,22 +1937,29 @@ mod tests {
             .unwrap();
         assert!(retry.receipt.unwrap().replayed);
 
+        let sessions_after = store
+            .test_scalar_i64("SELECT count(*) FROM session")
+            .unwrap();
         assert_eq!(
-            store
-                .test_scalar_i64("SELECT count(*) FROM session")
-                .unwrap(),
+            sessions_after,
             sessions_before + 1,
             "the replayed retry must not open a second session"
         );
+        // Task A5 fix round 1 (CRITICAL 1): `check_from` now resolves/opens
+        // the session through `SessionService::ensure_session()` BEFORE the
+        // durable `check` transaction even starts (so the day-rollover
+        // boundary applies to practice writes too), not inside it — so the
+        // new session's `session_start` event no longer carries a
+        // command-id-derived tag. What still must hold: exactly one
+        // `session_start` per session that ever existed (one per row in
+        // `session`, matching `sessions_after`) — proving the replayed retry
+        // never mints a second one for the session it (re)opened.
         assert_eq!(
             store
-                .test_scalar_i64(
-                    "SELECT count(*) FROM event
-                     WHERE kind='session_start' AND command_id='cmd-session-x:session_start'"
-                )
+                .test_scalar_i64("SELECT count(*) FROM event WHERE kind='session_start'")
                 .unwrap(),
-            1,
-            "exactly one session_start event carries the derived command id"
+            sessions_after,
+            "exactly one session_start per session, even after the replayed retry"
         );
     }
 
