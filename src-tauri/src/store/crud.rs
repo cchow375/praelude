@@ -1275,6 +1275,7 @@ impl Store {
             MutationSource::UserClick,
             &command_id,
             keep_open,
+            None,
         )?;
         Ok(block_id)
     }

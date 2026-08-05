@@ -1274,6 +1274,7 @@ impl Store {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn v2_adjust(
         &self,
         session_id: Option<i64>,
@@ -1285,6 +1286,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         keep_open: bool,
+        now: Option<&str>,
     ) -> rusqlite::Result<V2Mutation> {
         let mut conn = self
             .conn
@@ -1376,7 +1378,7 @@ impl Store {
                 entity_id: attempt_id,
                 source,
                 command_id,
-                timestamp: None,
+                timestamp: now,
             },
         )?;
         let new_bpm = projected_retune(before.bpm, snapshot.bpm);
@@ -1402,7 +1404,7 @@ impl Store {
                     entity_id: block_id,
                     source,
                     command_id: &tempo_command,
-                    timestamp: None,
+                    timestamp: now,
                 },
             )?;
         }
@@ -1415,12 +1417,19 @@ impl Store {
         })
     }
 
+    /// `now`: `Some` stamps the compensating `rep_edit`/`tempo_change` events at
+    /// that already-committed timestamp (RepEngine callers thread its own clock
+    /// through here so a history repair under a test/fixed clock never reads
+    /// back as "on a different day" from the surrounding practice — task A5);
+    /// `None` preserves the original behavior (SQLite's own `datetime('now')`)
+    /// for callers with no clock of their own (data-repair/import paths).
     pub(crate) fn v2_undo(
         &self,
         session_id: i64,
         block_id: i64,
         source: MutationSource,
         command_id: &str,
+        now: Option<&str>,
     ) -> rusqlite::Result<V2Mutation> {
         self.v2_adjust(
             Some(session_id),
@@ -1432,6 +1441,7 @@ impl Store {
             source,
             command_id,
             true,
+            now,
         )
     }
 
@@ -1447,6 +1457,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         keep_open: bool,
+        now: Option<&str>,
     ) -> rusqlite::Result<V2Mutation> {
         let (kind, after) = if replace_note {
             (
@@ -1461,6 +1472,7 @@ impl Store {
         };
         self.v2_adjust(
             session_id, block_id, attempt_id, kind, &after, None, source, command_id, keep_open,
+            now,
         )
     }
 
@@ -1482,6 +1494,7 @@ impl Store {
             source,
             command_id,
             keep_open,
+            None,
         )
     }
 
@@ -1513,6 +1526,7 @@ impl Store {
         adjustment_id: i64,
         source: MutationSource,
         command_id: &str,
+        now: Option<&str>,
     ) -> rusqlite::Result<V2Mutation> {
         let conn = self
             .conn
@@ -1535,6 +1549,7 @@ impl Store {
             source,
             command_id,
             true,
+            now,
         )
     }
 

@@ -1814,6 +1814,10 @@ pub fn run() {
             let app_emitter: Arc<dyn StateEmitter> = Arc::new(AppEmitter(app.handle().clone()));
             sessions.set_emitter(app_emitter.clone());
             rep.set_emitter(app_emitter);
+            // Task A5: day-rollover auto-pause goes through the rep engine's own
+            // pause path (never a raw store write) so its in-memory active-block
+            // cache stays in sync.
+            sessions.set_rollover_pause_hook(rep.clone());
 
             app.manage(metro.clone());
             app.manage(store.clone());

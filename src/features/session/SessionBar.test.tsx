@@ -228,16 +228,44 @@ describe("SessionBar component", () => {
     expect(onEnd).toHaveBeenCalledTimes(1);
   });
 
-  it("disables the end button and shows 'Ending…' while ending=true, and ignores clicks", () => {
-    const onEnd = vi.fn();
-    render(<SessionBar session={makeSession()} onEnd={onEnd} ending />);
-    const button = screen.getByRole("button", {
-      name: "Ending…",
-    }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+  it("shows an 'End my day' button beside 'End session'", () => {
+    render(<SessionBar session={makeSession()} onEnd={() => {}} />);
+    expect(screen.getByText("End my day")).toBeTruthy();
+    expect(screen.getByText("End session")).toBeTruthy();
+  });
 
-    fireEvent.click(button);
+  it("'End my day' asks for confirmation and calls onEnd only when confirmed", () => {
+    const onEnd = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<SessionBar session={makeSession()} onEnd={onEnd} />);
+
+    fireEvent.click(screen.getByText("End my day"));
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(onEnd).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByText("End my day"));
+    expect(onEnd).toHaveBeenCalledTimes(1);
+
+    confirmSpy.mockRestore();
+  });
+
+  it("disables both end buttons and shows 'Ending…' on each while ending=true, and ignores clicks", () => {
+    const onEnd = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { container } = render(
+      <SessionBar session={makeSession()} onEnd={onEnd} ending />,
+    );
+    const buttons = screen.getAllByRole("button", { name: "Ending…" });
+    expect(buttons).toHaveLength(2);
+    expect(container.querySelector(".session-end")).not.toBeNull();
+    expect(container.querySelector(".session-end-day")).not.toBeNull();
+    for (const button of buttons) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(button);
+    }
+    expect(onEnd).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 
   it("ticks the elapsed clock once a second while the session is live", () => {

@@ -19,7 +19,7 @@ use serde_json::Value;
 
 use crate::ledger::MutationSource;
 use crate::protocol::PracticeContract;
-use crate::sessions::{SessionService, StateEmitter};
+use crate::sessions::{RolloverPauseHook, SessionService, StateEmitter};
 use crate::store::model::{
     CheckOutcome, ExportResult, MutationReceipt, PausedSetRow, RecoveryActionRequest, RepOpenArgs,
     RepSnapshot, RetentionCheckView, RetentionResult, SetFocusContextInput,
@@ -432,9 +432,16 @@ impl RepEngine {
             .block_id;
         let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(MutationSource::UserClick, "undo");
+        let now = self.now()?;
         let mutation = self
             .store
-            .v2_undo(sid, block_id, MutationSource::UserClick, &command_id)
+            .v2_undo(
+                sid,
+                block_id,
+                MutationSource::UserClick,
+                &command_id,
+                Some(&now),
+            )
             .map_err(|error| error.to_string())?;
         let snap = mutation.snapshot;
         *active = Some(snap.clone());
@@ -466,6 +473,7 @@ impl RepEngine {
             .block_id;
         let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(MutationSource::UserClick, "correct");
+        let now = self.now()?;
         let mutation = self
             .store
             .v2_correct(
@@ -478,6 +486,7 @@ impl RepEngine {
                 MutationSource::UserClick,
                 &command_id,
                 true,
+                Some(&now),
             )
             .map_err(|error| error.to_string())?;
         let snap = mutation.snapshot;
@@ -504,6 +513,7 @@ impl RepEngine {
             .block_id;
         let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(MutationSource::UserClick, "reverse_adjustment");
+        let now = self.now()?;
         let mutation = self
             .store
             .v2_reverse_adjustment(
@@ -512,6 +522,7 @@ impl RepEngine {
                 adjustment_id,
                 MutationSource::UserClick,
                 &command_id,
+                Some(&now),
             )
             .map_err(|error| error.to_string())?;
         let snap = mutation.snapshot;
@@ -673,6 +684,38 @@ impl RepEngine {
         drop(active);
         self.emit_state(Some(&snapshot));
         Ok(receipt)
+    }
+
+    /// Task A5 rollover hook: pause whatever set is active, at an explicit
+    /// already-committed boundary timestamp, through the exact same store path
+    /// [`Self::pause`] uses — but attributed to `session_id` (the closing
+    /// session, not whatever `sessions.cached_practice_session()` currently
+    /// holds) and without touching the session cache at all, so it cannot
+    /// deadlock with `SessionService::resolve_session` calling this while
+    /// already holding its own session-id lock. A no-op when nothing is active.
+    fn pause_for_rollover(&self, session_id: i64, at: &str) -> Result<(), String> {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let Some(block_id) = active.as_ref().map(|snapshot| snapshot.block_id) else {
+            return Ok(());
+        };
+        let command_id = v2_command_id(MutationSource::SystemSchedule, "day_rollover_pause");
+        let mut receipt = self
+            .store
+            .v2_pause(
+                Some(session_id),
+                block_id,
+                MutationSource::SystemSchedule,
+                &command_id,
+                at,
+            )
+            .map_err(|error| error.to_string())?;
+        let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        drop(active);
+        self.emit_state(Some(&snapshot));
+        Ok(())
     }
 
     pub fn checkpoint(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
@@ -977,6 +1020,12 @@ impl RepEngine {
     }
 }
 
+impl RolloverPauseHook for RepEngine {
+    fn pause_active_at_rollover(&self, session_id: i64, at: &str) -> Result<(), String> {
+        self.pause_for_rollover(session_id, at)
+    }
+}
+
 /// Format a BPM for a spoken/UI line: a whole number prints without a decimal
 /// (ladders step by whole amounts, so this is the common case).
 fn fmt_bpm(bpm: f64) -> String {
@@ -1070,6 +1119,17 @@ mod tests {
         }
     }
 
+    // Task A5: `resolve_session()` now reads its own clock to enforce the
+    // same-local-day adoption boundary, so a simulated-relaunch test that
+    // rebuilds the session service must feed it the SAME fixed clock the rep
+    // engine uses — otherwise the service falls back to real wall time and
+    // sees an unrelated calendar day, forking the session lineage.
+    impl crate::sessions::SessionClock for FixedClock {
+        fn now(&self, _store: &Store) -> Result<String, String> {
+            Ok(self.value.lock().unwrap().clone())
+        }
+    }
+
     fn timestamp_after(seconds: u32) -> String {
         let hour = 12 + seconds / 3_600;
         let minute = (seconds % 3_600) / 60;
@@ -1091,7 +1151,7 @@ mod tests {
                 pdf_path: None,
             })
             .unwrap();
-        let sessions = Arc::new(SessionService::new(store.clone()));
+        let sessions = Arc::new(SessionService::new_with_clock(store.clone(), clock.clone()));
         let engine = RepEngine::new_with_clock(store.clone(), sessions, clock);
         (engine, piece_id, store)
     }
@@ -1181,6 +1241,7 @@ mod tests {
                 correction_id,
                 MutationSource::UserClick,
                 &v2_command_id(MutationSource::UserClick, "terminal_correct_reverse"),
+                None,
             )
             .unwrap();
         assert_set_lifecycle(store, block_id, state, "abandoned");
@@ -1199,6 +1260,7 @@ mod tests {
                 void_id,
                 MutationSource::UserClick,
                 &v2_command_id(MutationSource::UserClick, "terminal_void_reverse"),
+                None,
             )
             .unwrap();
         assert_set_lifecycle(store, block_id, state, "abandoned");
@@ -1957,7 +2019,7 @@ mod tests {
                 clock.set(&timestamp_after(elapsed));
                 engine = RepEngine::new_with_clock(
                     store.clone(),
-                    Arc::new(SessionService::new(store.clone())),
+                    Arc::new(SessionService::new_with_clock(store.clone(), clock.clone())),
                     clock.clone(),
                 );
                 let restored = engine.snapshot().expect("set restored after relaunch");

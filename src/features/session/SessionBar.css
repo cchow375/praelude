@@ -126,6 +126,33 @@
   outline-offset: var(--focus-ring-offset);
 }
 
+/* "End my day" (task A5): a secondary/outline twin of .session-end — same
+   size, less visual weight, since the confirm dialog is the primary guard
+   against an accidental click. */
+.session-end-day {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 var(--s-3);
+  font-size: 0.875rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.session-end-day:active {
+  transform: translateY(1px);
+}
+.session-end-day:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.session-end-day:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
 .session-timeline {
   list-style: none;
   margin: 0;
