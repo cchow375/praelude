@@ -117,3 +117,40 @@
   outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: var(--focus-ring-offset);
 }
+
+/* Task A4: the paused-sets tray's row list. */
+.paused-sets-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.paused-sets-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+
+.paused-sets-row-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.paused-sets-row-piece {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink);
+}
+
+.paused-sets-row-range {
+  font-size: var(--text-xs);
+  color: var(--ink-dim);
+}

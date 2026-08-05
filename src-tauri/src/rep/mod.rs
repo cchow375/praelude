@@ -21,8 +21,8 @@ use crate::ledger::MutationSource;
 use crate::protocol::PracticeContract;
 use crate::sessions::{SessionService, StateEmitter};
 use crate::store::model::{
-    CheckOutcome, ExportResult, MutationReceipt, RecoveryActionRequest, RepOpenArgs, RepSnapshot,
-    RetentionCheckView, RetentionResult, SetFocusContextInput,
+    CheckOutcome, ExportResult, MutationReceipt, PausedSetRow, RecoveryActionRequest, RepOpenArgs,
+    RepSnapshot, RetentionCheckView, RetentionResult, SetFocusContextInput,
 };
 use crate::store::{
     v2_command_id, v2_validate_open, EventKind, SessionPlanStartOutcome, SessionPlanStartPayload,
@@ -152,6 +152,14 @@ impl RepEngine {
             return Err(error.clone());
         }
         Ok(self.snapshot())
+    }
+
+    /// Task A4: every currently-paused set, independent of which one (if any)
+    /// this engine instance holds as its own live block.
+    pub fn paused_sets_list(&self) -> Result<Vec<PausedSetRow>, String> {
+        self.store
+            .paused_sets_list()
+            .map_err(|error| error.to_string())
     }
 
     /// Open a rep block. Rejects opening while one is already active (the caller
@@ -333,8 +341,7 @@ impl RepEngine {
             .map_err(|error| error.to_string())?;
         let mut receipt = mutation.receipt.clone();
         if let Some(session_id) = receipt.as_ref().and_then(|value| value.session_id) {
-            self.sessions
-                .adopt_committed_practice_session(session_id);
+            self.sessions.adopt_committed_practice_session(session_id);
         }
         let replayed = receipt.as_ref().is_some_and(|receipt| receipt.replayed);
         let out_snap = if replayed {
@@ -608,8 +615,7 @@ impl RepEngine {
 
     fn adopt_receipt_session<T>(&self, receipt: &MutationReceipt<T>) {
         if let Some(session_id) = receipt.session_id {
-            self.sessions
-                .adopt_committed_practice_session(session_id);
+            self.sessions.adopt_committed_practice_session(session_id);
         }
     }
 
@@ -1463,9 +1469,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .test_scalar_i64(
-                    "SELECT count(*) FROM practice_interval WHERE ended_ts IS NULL"
-                )
+                .test_scalar_i64("SELECT count(*) FROM practice_interval WHERE ended_ts IS NULL")
                 .unwrap(),
             1,
             "a fresh interval resumed live capture"
@@ -1505,7 +1509,10 @@ mod tests {
             })
             .unwrap();
         assert!(!first.replayed);
-        assert!(physical.is_some(), "first delivery performs the physical stop");
+        assert!(
+            physical.is_some(),
+            "first delivery performs the physical stop"
+        );
         assert_eq!(stops.load(Ordering::SeqCst), 1);
 
         let (replay, physical_replay) = engine
@@ -2690,12 +2697,20 @@ mod tests {
         // (iii) malformed checked_as_of.
         reject(
             "confirm-bad-date",
-            retention_result(RetentionDecision::ConfirmRetained, "2026-13-40", "clean pass"),
+            retention_result(
+                RetentionDecision::ConfirmRetained,
+                "2026-13-40",
+                "clean pass",
+            ),
         );
         // (iv) checked_as_of earlier than the due date.
         reject(
             "confirm-precedes-due",
-            retention_result(RetentionDecision::ConfirmRetained, "2026-07-10", "too early"),
+            retention_result(
+                RetentionDecision::ConfirmRetained,
+                "2026-07-10",
+                "too early",
+            ),
         );
         // (v) invalid conditions: out-of-range bpm, inverted measures, and the
         // empty default that carries no condition at all.
@@ -4190,6 +4205,114 @@ mod tests {
             0
         );
         assert_eq!(engine.snapshot().unwrap().tries, 0);
+    }
+
+    fn tempo_args(piece_id: i64, target_bpm: f64) -> RepOpenArgs {
+        RepOpenArgs {
+            piece_id,
+            region_id: None,
+            m_start: 1,
+            m_end: 8,
+            label: None,
+            start_bpm: 60.0,
+            target_bpm: Some(target_bpm),
+            planned_reps: None,
+            required_clean_streak: Some(3),
+            increment: None,
+            variants: vec![],
+            focus: "tempo".into(),
+            use_metronome: true,
+        }
+    }
+
+    // Task A4 note (see task report for the full write-up): the brief's
+    // acceptance test calls for seeding TWO pieces each with a paused set
+    // plus one active set elsewhere and asserting all three rows/order. That
+    // fixture cannot be built under the current, frozen (v14) schema: a
+    // partial unique index predating this task —
+    // `set_contract_one_live_v2_idx` (SCHEMA_V9, migrations.rs) —
+    // enforces AT MOST ONE `set_contract` row in the whole database with
+    // `set_state IN ('active','paused')` at any time, application write path
+    // or raw SQL alike (confirmed empirically: both `open_set_in_tx` and a
+    // direct `INSERT ... set_state='paused'` reject a second live row with a
+    // UNIQUE constraint failure on that index). So today the paused-sets
+    // tray can only ever hold 0 or 1 row; two *concurrently* paused sets are
+    // schema-impossible without a migration, which is out of scope here.
+    // The two tests below verify everything that IS reachable under the
+    // real invariant: the query's join/field-mapping/timestamp-derivation
+    // against a genuinely paused set, and that it excludes rows in any
+    // other state (including a second, non-live row seeded alongside it).
+    #[test]
+    fn sets_paused_list_returns_the_paused_set_with_correct_join_fields_and_streak() {
+        let (engine, pid, store, _rec) = engine_with_piece();
+        assert!(
+            store.paused_sets_list().unwrap().is_empty(),
+            "nothing paused yet"
+        );
+
+        let opened = engine.open(tempo_args(pid, 90.0)).unwrap();
+        // One clean rep before pausing, so `current_clean_streak` proves it
+        // is reusing the live projection rather than always reporting 0.
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.pause("test-pause-1").unwrap();
+
+        let rows = store.paused_sets_list().unwrap();
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.set_id, opened.block_id);
+        assert_eq!(row.block_id, opened.block_id);
+        assert_eq!(row.piece_id, pid);
+        assert_eq!(row.piece_title, "Scherzo");
+        assert_eq!(row.m_start, 1);
+        assert_eq!(row.m_end, 8);
+        assert_eq!(row.bpm, 60);
+        assert_eq!(row.target_bpm, 90);
+        assert_eq!(row.current_clean_streak, 1);
+        assert!(!row.paused_since_ts.is_empty());
+
+        // Resuming takes it out of the tray.
+        engine.resume("test-resume-1").unwrap();
+        assert!(store.paused_sets_list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn sets_paused_list_excludes_sets_in_any_other_state() {
+        let (engine, pid, store, _rec) = engine_with_piece();
+        let pid2 = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/Debussy - Clair de Lune".into(),
+                title: "Clair de Lune".into(),
+                composer: Some("Debussy".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        let opened = engine.open(tempo_args(pid, 90.0)).unwrap();
+        engine.pause("test-pause-1").unwrap();
+
+        // A second, unrelated set that never went through 'active'/'paused'
+        // (so it never touches the single-live-set unique index) — proves
+        // the WHERE clause, not just an accidental single-row table.
+        store
+            .test_execute_batch(&format!(
+                "INSERT INTO rep_block
+                     (id,piece_id,m_start,m_end,focus,use_metronome,status,
+                      start_bpm,target_bpm,planned_reps,variants)
+                 VALUES (9002,{pid2},1,8,'tempo',1,'done',60.0,100.0,0,'[]');
+                 INSERT INTO set_contract
+                     (set_id,contract_version,name,rationale,mastery_basis,required_success,
+                      reset_on_flawed,reset_on_failed,recovery_policy,set_state,
+                      mastery_verification,source)
+                 VALUES (9002,1,'Seed mastered set','A non-paused control row.',
+                         'consecutive_clean',3,1,0,'none','mastered','verified','user_click');"
+            ))
+            .unwrap();
+
+        let rows = store.paused_sets_list().unwrap();
+        assert_eq!(rows.len(), 1, "only the genuinely paused set");
+        assert_eq!(rows[0].set_id, opened.block_id);
+        assert_eq!(rows[0].piece_id, pid);
     }
 
     #[test]

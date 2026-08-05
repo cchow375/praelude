@@ -504,6 +504,27 @@ pub struct BrainThreadResume {
     pub turns: Vec<BrainTurnRow>,
 }
 
+/// Task A4: one row of the paused-sets tray — a set currently sitting in
+/// `set_contract.set_state='paused'`, joined out to its piece and working
+/// range. `paused_since_ts` is the timestamp of that set's most recent
+/// `rep_pause` event (the same durable ledger `rep_pause`/`rep_resume`
+/// already write); falls back to the contract's `created_ts` for a paused
+/// row with no recorded pause event (legacy/migrated data only — every
+/// pause taken through `rep_pause` always has one).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PausedSetRow {
+    pub set_id: i64,
+    pub block_id: i64,
+    pub piece_id: i64,
+    pub piece_title: String,
+    pub m_start: i64,
+    pub m_end: i64,
+    pub bpm: i64,
+    pub target_bpm: i64,
+    pub paused_since_ts: String,
+    pub current_clean_streak: i64,
+}
+
 /// Read-only summary of one recent recovery action, for Brain grounding only.
 /// Carries no internal set/attempt ids; `m_start`/`m_end` locate the set and
 /// `region_id` is resolved to a name by the context builder, never serialized.

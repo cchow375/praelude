@@ -153,4 +153,23 @@ describe("RepPanel — rep HUD's shell-level dock host (Task A3)", () => {
     // note field, exactly as RepHud.test.tsx spies on it directly.
     expect(handlers.onCheck).toHaveBeenCalledWith("clean", null);
   });
+
+  // Task A4: the paused-sets tray relies on the SAME pause/resume write path
+  // as the rep panel's own toggle (RepHud.tsx's Pause/Resume chip, which
+  // calls onPause -> the existing `rep_pause` command). This proves that
+  // control is reachable from an active set in its NEW dock host, exactly as
+  // the brief requires ("a Pause button rendered in the rep panel, active
+  // state only, calls rep_pause") — no new button was added for this, since
+  // one already existed and just moved hosts under Task A3.
+  it("renders a reachable Pause control in the active state that calls onPause", async () => {
+    const handlers = callbacks();
+    render(
+      <Harness snap={makeSnap({ set_state: "active" })} handlers={handlers} />,
+    );
+    const panel = await screen.findByRole("dialog", { name: "Rep Counter" });
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Pause" }));
+
+    expect(handlers.onPause).toHaveBeenCalledTimes(1);
+  });
 });

@@ -34,11 +34,11 @@ use rep::{RepEngine, RepVerdict};
 use sessions::{SessionService, StateEmitter};
 use store::model::{
     BlockHistory, BlockPatch, CheckOutcome, DailyWorkCreate, DailyWorkPatch, ExportResult, Goal,
-    GoalCreate, GoalPatch, Intake, MutationReceipt, PanelLayout, PieceDetail, PieceFieldPatch,
-    PieceSummary, ProgressSummary, RecoveryActionRequest, Region, RegionCreate, RegionPatch, Rep,
-    RepOpenArgs, RepPatch, RepSnapshot, RetentionCheckView, RetentionResult, SessionView,
-    SetFocusContextInput, TutorialClip, TutorialClipCreate, TutorialClipPatch, TutorialVideo,
-    TutorialVideoPatch, TutorialVideoUpsert,
+    GoalCreate, GoalPatch, Intake, MutationReceipt, PanelLayout, PausedSetRow, PieceDetail,
+    PieceFieldPatch, PieceSummary, ProgressSummary, RecoveryActionRequest, Region, RegionCreate,
+    RegionPatch, Rep, RepOpenArgs, RepPatch, RepSnapshot, RetentionCheckView, RetentionResult,
+    SessionView, SetFocusContextInput, TutorialClip, TutorialClipCreate, TutorialClipPatch,
+    TutorialVideo, TutorialVideoPatch, TutorialVideoUpsert,
 };
 use store::Store;
 use stt::SttConfig;
@@ -664,6 +664,14 @@ fn rep_close(rep: State<'_, Arc<RepEngine>>) -> Result<Option<RepSnapshot>, Stri
 #[tauri::command]
 fn rep_state(rep: State<'_, Arc<RepEngine>>) -> Result<Option<RepSnapshot>, String> {
     rep.state()
+}
+
+/// Task A4: every currently-paused set (the paused-sets tray), newest-paused
+/// first. Read-only — resuming/pausing a row still goes through the existing
+/// `rep_resume`/`rep_pause` commands.
+#[tauri::command]
+fn sets_paused_list(rep: State<'_, Arc<RepEngine>>) -> Result<Vec<PausedSetRow>, String> {
+    rep.paused_sets_list()
 }
 
 fn rejected_snapshot(command_id: &str, error: String) -> MutationReceipt<RepSnapshot> {
@@ -1933,6 +1941,7 @@ pub fn run() {
             rep_restart,
             rep_close,
             rep_state,
+            sets_paused_list,
             rep_pause,
             rep_resume,
             rep_checkpoint,

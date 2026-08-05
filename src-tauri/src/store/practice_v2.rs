@@ -10,7 +10,8 @@ use serde_json::{json, Value};
 
 use super::model::{
     json_from_sql, json_to_sql, BlockHistory, IncrementRule, LastRep, MutationEntityRef,
-    MutationReceipt, RepOpenArgs, RepSnapshot, SetFocusContextInput, VariantSpec, VerdictCounts,
+    MutationReceipt, PausedSetRow, RepOpenArgs, RepSnapshot, SetFocusContextInput, VariantSpec,
+    VerdictCounts,
 };
 use super::Store;
 use crate::ledger::{
@@ -464,6 +465,69 @@ fn trailing_clean_at_or_above(
         streak = streak.saturating_add(1);
     }
     streak
+}
+
+/// Task A4: every set currently sitting in `set_contract.set_state='paused'`,
+/// newest-paused first. Reuses [`project`] for `current_clean_streak` rather
+/// than re-deriving streak math here — the ledger projection is the single
+/// source of truth for that number everywhere else it's shown.
+pub(super) fn paused_sets_list(conn: &Connection) -> rusqlite::Result<Vec<PausedSetRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT sc.set_id, rb.piece_id, p.title, rb.m_start, rb.m_end,
+                (SELECT e.ts FROM event e
+                  WHERE e.entity_type='set' AND e.entity_id=sc.set_id AND e.kind='rep_pause'
+                  ORDER BY e.id DESC LIMIT 1) AS paused_since_ts,
+                (SELECT e.id FROM event e
+                  WHERE e.entity_type='set' AND e.entity_id=sc.set_id AND e.kind='rep_pause'
+                  ORDER BY e.id DESC LIMIT 1) AS paused_event_id
+         FROM set_contract sc
+         JOIN rep_block rb ON rb.id = sc.set_id
+         JOIN piece p ON p.id = rb.piece_id
+         WHERE sc.set_state = 'paused'
+         ORDER BY paused_event_id IS NULL, paused_event_id DESC, sc.set_id DESC",
+    )?;
+    let raw = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(stmt);
+
+    let mut out = Vec::with_capacity(raw.len());
+    for (set_id, piece_id, piece_title, m_start, m_end, paused_since_ts) in raw {
+        let snapshot = project(conn, set_id)?;
+        // Legacy/migrated paused rows with no recorded `rep_pause` event (see
+        // the ambiguity note on `PausedSetRow`) fall back to the contract's
+        // own creation timestamp rather than a fabricated pause time.
+        let paused_since_ts = match paused_since_ts {
+            Some(ts) => ts,
+            None => conn.query_row(
+                "SELECT created_ts FROM set_contract WHERE set_id=?1",
+                [set_id],
+                |row| row.get(0),
+            )?,
+        };
+        out.push(PausedSetRow {
+            set_id,
+            block_id: set_id,
+            piece_id,
+            piece_title,
+            m_start,
+            m_end,
+            bpm: snapshot.bpm.unwrap_or(0.0).round() as i64,
+            target_bpm: snapshot.target_bpm.unwrap_or(0.0).round() as i64,
+            paused_since_ts,
+            current_clean_streak: i64::from(snapshot.current_clean_streak),
+        });
+    }
+    Ok(out)
 }
 
 pub(super) fn project(conn: &Connection, block_id: i64) -> rusqlite::Result<RepSnapshot> {
@@ -922,6 +986,16 @@ pub(super) fn open_set_in_tx(
 }
 
 impl Store {
+    /// IPC-facing read for the paused-sets tray (Task A4). See
+    /// [`paused_sets_list`] for the query and streak-reuse rationale.
+    pub fn paused_sets_list(&self) -> rusqlite::Result<Vec<PausedSetRow>> {
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        paused_sets_list(&conn)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_open_set(
         &self,

@@ -40,6 +40,7 @@ import type {
   Verdict,
 } from "../features/rep/useRep";
 import type { MutationReceipt } from "../features/receipts/ReceiptCenter";
+import type { PausedSetRow } from "../features/rep/pausedSets";
 import type { SessionView } from "../features/session/useSession";
 import type { UniverseSnapshot } from "../features/universe/types";
 import {
@@ -901,6 +902,76 @@ const MOCK_REP_STATE: RepSnapshot = {
   method: "tempo ladder",
 };
 
+// Task A4: the paused-sets tray's backing state. `rep_pause`/`rep_resume`
+// toggle `mockSetState` and keep `mockPausedSets` in sync so `sets_paused_list`
+// reflects it — the same real/mock relationship as `rep_state` vs. the ledger
+// counters below. Reset in `installTauriDevMock()` so tests don't bleed state.
+let mockSetState: "active" | "paused" = "active";
+let mockPausedSets: PausedSetRow[] = [];
+
+function mockPausedRow(): PausedSetRow {
+  return {
+    set_id: MOCK_REP_STATE.block_id,
+    block_id: MOCK_REP_STATE.block_id,
+    piece_id: MOCK_REP_STATE.piece_id,
+    piece_title: MOCK_REP_STATE.piece_title,
+    m_start: MOCK_REP_STATE.m_start,
+    m_end: MOCK_REP_STATE.m_end,
+    bpm: MOCK_REP_STATE.bpm ?? 0,
+    target_bpm: MOCK_REP_STATE.target_bpm ?? 0,
+    paused_since_ts: new Date().toISOString(),
+    current_clean_streak: mockCleanStreak,
+  };
+}
+
+function repPauseReceipt(commandId: string): MutationReceipt<RepSnapshot> {
+  mockSetState = "paused";
+  mockPausedSets = [mockPausedRow()];
+  const snap: RepSnapshot = {
+    ...MOCK_REP_STATE,
+    set_state: "paused",
+    timer_state: "paused",
+  };
+  return {
+    receipt_id: `mock-receipt-pause-${Date.now()}`,
+    command_id: commandId,
+    status: "committed",
+    summary: "Practice paused; paused time will not count.",
+    value: snap,
+    entity_refs: [{ entity_type: "set", entity_id: snap.block_id }],
+    event_ids: [],
+    undo_action: null,
+    error_code: null,
+    error_detail: null,
+    replayed: false,
+    committed_ts: new Date().toISOString(),
+  };
+}
+
+function repResumeReceipt(commandId: string): MutationReceipt<RepSnapshot> {
+  mockSetState = "active";
+  mockPausedSets = [];
+  const snap: RepSnapshot = {
+    ...MOCK_REP_STATE,
+    set_state: "active",
+    timer_state: "active",
+  };
+  return {
+    receipt_id: `mock-receipt-resume-${Date.now()}`,
+    command_id: commandId,
+    status: "committed",
+    summary: "Practice resumed.",
+    value: snap,
+    entity_refs: [{ entity_type: "set", entity_id: snap.block_id }],
+    event_ids: [],
+    undo_action: null,
+    error_code: null,
+    error_detail: null,
+    replayed: false,
+    committed_ts: new Date().toISOString(),
+  };
+}
+
 // Sample attempt rows so a Ledger block drill-in (`reps_for_block`) shows real
 // evidence instead of an empty "No attempts logged." list in the static harness.
 const REPS_BY_BLOCK: Record<number, Rep[]> = {
@@ -1618,11 +1689,32 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "book_excerpt":
       return mockBookExcerpt(args);
     case "rep_state":
-      return MOCK_REP_STATE;
+      return {
+        ...MOCK_REP_STATE,
+        set_state: mockSetState,
+        timer_state: mockSetState,
+      };
     // Clean/Sloppy/Again in the HUD: return a committed CheckOutcome so the
     // receipt lands GREEN (previously unmapped → null → red error receipt).
     case "rep_check":
       return repCheckOutcome(args);
+    // Task A4: the rep HUD's existing Pause/Resume toggle and the paused-sets
+    // tray's Resume button both call these two commands — no separate mock
+    // write path, matching the real backend.
+    case "rep_pause": {
+      const commandId = String(
+        ((args ?? {}) as { commandId?: unknown }).commandId ?? "mock-pause",
+      );
+      return repPauseReceipt(commandId);
+    }
+    case "rep_resume": {
+      const commandId = String(
+        ((args ?? {}) as { commandId?: unknown }).commandId ?? "mock-resume",
+      );
+      return repResumeReceipt(commandId);
+    }
+    case "sets_paused_list":
+      return mockPausedSets;
     case "metro_state":
       return METRO_STATE;
     case "session_current":
@@ -1826,6 +1918,9 @@ export function installTauriDevMock(): void {
   // Reset runtime-created goals so promotion tests start from the seeded set.
   CREATED_GOALS.clear();
   mockGoalSeq = 900;
+  // Task A4: fresh paused-sets tray state per install.
+  mockSetState = "active";
+  mockPausedSets = [];
 
   let callbackId = 0;
   let subscriptionId = 0;
