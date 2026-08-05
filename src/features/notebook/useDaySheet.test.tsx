@@ -162,6 +162,109 @@ describe("useDaySheet — load / reconcile / migration", () => {
   });
 });
 
+describe("useDaySheet — readOnly (spec A7)", () => {
+  function seamInvoke(): {
+    invoke: (cmd: string, args?: unknown) => Promise<unknown>;
+  } {
+    return (
+      window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke: (cmd: string, args?: unknown) => Promise<unknown>;
+        };
+      }
+    ).__TAURI_INTERNALS__;
+  }
+
+  function spyInvoke() {
+    const internals = seamInvoke();
+    const original = internals.invoke.bind(internals);
+    const spy = vi.fn((cmd: string, args?: unknown) => original(cmd, args));
+    internals.invoke = spy;
+    return spy;
+  }
+
+  it("renders an existing sheet read-only, with no autosave mounted", async () => {
+    // Seed the backend directly (bypassing the hook) so this proves the
+    // read-only path only READS — it must never itself have written this.
+    await seamInvoke().invoke("day_sheet_save", {
+      date: OTHER_DAY,
+      bodyJson: JSON.stringify([
+        { type: "text", text: "yesterday's practice" },
+      ]),
+    });
+
+    const spy = spyInvoke();
+    const { result } = renderHook(
+      () => useDaySheet(OTHER_DAY, { readOnly: true }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.body).toEqual([
+      { type: "text", text: "yesterday's practice" },
+    ]);
+
+    // An attempted edit is a no-op — read-only never writes.
+    act(() => {
+      result.current.setBody([{ type: "text", text: "tampered" }]);
+    });
+    result.current.flush();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(spy.mock.calls.some(([cmd]) => cmd === "day_sheet_save")).toBe(
+      false,
+    );
+  });
+
+  it("renders an empty read-only sheet for a date with no row — never seeds one", async () => {
+    const spy = spyInvoke();
+    const { result } = renderHook(
+      () => useDaySheet("2026-02-02", { readOnly: true }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.body).toEqual([]);
+    expect(result.current.updatedAt).toBeNull();
+
+    expect(spy.mock.calls.some(([cmd]) => cmd === "day_sheet_save")).toBe(
+      false,
+    );
+  });
+
+  it("never runs the legacy todayPlan migration in read-only mode, even for today's date", async () => {
+    const today = todayLocal();
+    writeTodayPlan(today, "should never be seeded read-only");
+
+    const spy = spyInvoke();
+    const { result } = renderHook(
+      () => useDaySheet(today, { readOnly: true }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    // A blank read-only page, NOT a seeded migration — and the legacy value
+    // is left untouched (retiring it is a live-path-only side effect).
+    expect(result.current.body).toEqual([]);
+    expect(readTodayPlan(today)).toBe("should never be seeded read-only");
+    expect(spy.mock.calls.some(([cmd]) => cmd === "day_sheet_save")).toBe(
+      false,
+    );
+  });
+
+  it("does not migrate a legacy value stored under a non-today date, even in live mode", async () => {
+    // Regression (spec A7): migration must fire ONLY when viewing today —
+    // a legacy value that happens to be keyed under a past date must never
+    // seed that past date's sheet, live or read-only.
+    writeTodayPlan(OTHER_DAY, "stray legacy value for a past date");
+
+    const { result } = renderHook(() => useDaySheet(OTHER_DAY), { wrapper });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.body).toEqual([]);
+    expect(result.current.updatedAt).toBeNull();
+    // The legacy value is left alone — only a TODAY migration retires it.
+    expect(readTodayPlan(OTHER_DAY)).toBe("stray legacy value for a past date");
+  });
+});
+
 describe("useDaySheet — debounce + flush timing", () => {
   it("waits ~600ms to save, and flush() persists immediately", async () => {
     vi.useFakeTimers();

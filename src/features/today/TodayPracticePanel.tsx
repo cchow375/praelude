@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useComposerCandidates, type ComposerCandidateApi } from "../composer";
 import { todayLocal } from "../calendar/dates";
-import { TodayDaySheet, useTodaySheet } from "../notebook/DaySheetStore";
+import { useTodaySheet } from "../notebook/DaySheetStore";
 import { insertSuggestion } from "../notebook/daySheetOps";
 import { MetronomeQuickBar } from "../metronome/MetronomeQuickBar";
+import { DaySheetNav } from "./DaySheetNav";
 import { CloseIcon } from "./menuIcons";
 import "./TodayWorkspace.css";
 
@@ -99,7 +100,7 @@ export function TodayPracticePanel({
         </header>
 
         <div className="today-practice-body">
-          <TodayDaySheet onOpenPiece={onOpenPiecePlan} />
+          <DaySheetNav onOpenPiece={onOpenPiecePlan} />
 
           <div className="today-practice-margin">
             <SuggestedFromRetention candidateApi={candidateApi} />
