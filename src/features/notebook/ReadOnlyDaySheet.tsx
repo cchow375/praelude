@@ -9,6 +9,7 @@ import {
   PieceIcon,
 } from "./notebookIcons";
 import type { BlockLine, ItemLine, NotebookLine } from "./lines";
+import { formatPlanTotals, planTotals } from "./planTotals";
 import { useDaySheet } from "./useDaySheet";
 import "./ReadOnlyDaySheet.css";
 
@@ -44,6 +45,7 @@ export function ReadOnlyDaySheet({
 }: ReadOnlyDaySheetProps) {
   const sheet = useDaySheet(date, { readOnly: true });
   const label = dayLabel(date);
+  const planSummary = formatPlanTotals(planTotals(sheet.body));
 
   return (
     <section
@@ -54,6 +56,11 @@ export function ReadOnlyDaySheet({
       <p className="ck-ro-caption" data-testid="read-only-caption">
         read-only — {label.weekday} · {label.date}
       </p>
+      {planSummary && (
+        <p className="ck-ro-total" aria-label={planSummary}>
+          {planSummary}
+        </p>
+      )}
 
       {sheet.error && (
         <div className="ck-ro-alert" role="alert">

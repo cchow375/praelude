@@ -24,10 +24,18 @@
 }
 
 .ck-ro-caption {
-  margin: 0 0 var(--s-4);
+  margin: 0 0 var(--s-2);
   color: var(--ink-dim);
   font-size: 0.85em;
   font-style: italic;
+}
+
+.ck-ro-total {
+  margin: 0 0 var(--s-4);
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: var(--numeric-figures);
 }
 
 .ck-ro-alert {

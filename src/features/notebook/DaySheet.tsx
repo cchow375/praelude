@@ -12,6 +12,7 @@ import { useReceipts } from "../receipts/ReceiptCenter";
 import { addDays, parseLocalDate, todayLocal } from "../calendar/dates";
 import type { Goal, PieceSummary } from "../pieces/types";
 import type { DaySheet as DaySheetData, NotebookLine } from "./lines";
+import { formatPlanTotals, planTotals } from "./planTotals";
 import { useDaySheet, type UseDaySheet } from "./useDaySheet";
 import {
   addBring,
@@ -36,7 +37,6 @@ import {
   splitLine,
   toGoalRef,
   toggleChecked,
-  totalMinutes,
   unchecked,
   withPlainText,
   type Caret,
@@ -278,7 +278,7 @@ export function DaySheetView({
     [pieces],
   );
 
-  const total = useMemo(() => totalMinutes(body), [body]);
+  const planSummary = useMemo(() => formatPlanTotals(planTotals(body)), [body]);
 
   // --- Editing primitives --------------------------------------------------
 
@@ -827,9 +827,9 @@ export function DaySheetView({
     >
       <header className="ck-ns-head">
         <p className="ck-ns-date">{fullDateLabel(date)}</p>
-        {total > 0 && (
-          <p className="ck-ns-total" aria-label={`${total} minutes planned`}>
-            {total} min planned
+        {planSummary && (
+          <p className="ck-ns-total" aria-label={planSummary}>
+            {planSummary}
           </p>
         )}
       </header>

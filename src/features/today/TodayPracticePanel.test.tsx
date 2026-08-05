@@ -147,7 +147,9 @@ describe("TodayPracticePanel — day-sheet-first window (spec C5)", () => {
     // The suggestion becomes an editable checkbox item + a timed block whose
     // minutes re-total the sheet header (the dev-mock due check is 4 minutes).
     await waitFor(() =>
-      expect(screen.getByLabelText("4 minutes planned")).toBeTruthy(),
+      expect(
+        screen.getByLabelText("Σ 4 min planned · 1 lines unestimated"),
+      ).toBeTruthy(),
     );
     expect(screen.getByDisplayValue("Opening theme")).toBeTruthy();
 

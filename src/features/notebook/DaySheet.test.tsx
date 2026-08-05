@@ -225,13 +225,13 @@ describe("DaySheet — timed blocks + header total (spec 1/2)", () => {
     ]);
     renderSheet();
     await waitFor(() =>
-      expect(screen.getByText("35 min planned")).toBeTruthy(),
+      expect(screen.getByText("Σ 35 min planned")).toBeTruthy(),
     );
     const minutes = screen.getAllByLabelText("Block minutes");
     fireEvent.change(minutes[1], { target: { value: "20" } });
     fireEvent.blur(minutes[1]);
     await waitFor(() =>
-      expect(screen.getByText("45 min planned")).toBeTruthy(),
+      expect(screen.getByText("Σ 45 min planned")).toBeTruthy(),
     );
   });
 
@@ -245,7 +245,9 @@ describe("DaySheet — timed blocks + header total (spec 1/2)", () => {
     fireEvent.focus(item);
     fireEvent.click(screen.getByRole("button", { name: "25 min" }));
     await waitFor(() =>
-      expect(screen.getByText("25 min planned")).toBeTruthy(),
+      expect(
+        screen.getByText("Σ 25 min planned · 1 lines unestimated"),
+      ).toBeTruthy(),
     );
   });
 });
