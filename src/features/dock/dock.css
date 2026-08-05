@@ -1,0 +1,110 @@
+/* Practice Dock — persistent floating panels. Positioned with `transform:
+   translate(x, y)` on a `position: fixed` box pinned at (0, 0); dragging and
+   arrow-key nudges only ever change the translate, never top/left, so moves
+   stay off the layout thread. */
+
+.dock-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 2 * var(--s-3)));
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow:
+    0 12px 32px rgba(26, 23, 20, 0.14),
+    0 2px 6px rgba(26, 23, 20, 0.07),
+    0 0 0 1px var(--hairline);
+  overflow: hidden;
+}
+
+.dock-panel:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.dock-panel-titlebar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-2);
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--hairline);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.dock-panel-titlebar:active {
+  cursor: grabbing;
+}
+
+.dock-panel-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-dim);
+  letter-spacing: var(--tracking-label);
+}
+
+.dock-panel-minimize,
+.dock-panel-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  border-radius: var(--r-sm);
+  color: var(--ink-dim);
+  font-size: var(--text-base);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dock-panel-minimize:hover,
+.dock-panel-close:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.dock-panel-body {
+  padding: var(--s-3);
+}
+
+/* Minimized form: a small pinned pill with just the title + restore
+   affordance. Pills stack near the bottom edge; the shell task (A3) can add
+   layout for multiple simultaneous pills. */
+.dock-pill {
+  position: fixed;
+  right: var(--s-3);
+  bottom: var(--s-3);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-3);
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-card);
+  color: var(--ink-dim);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.dock-pill:hover {
+  color: var(--ink);
+  border-color: var(--hairline-strong);
+}
+
+.dock-pill:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}

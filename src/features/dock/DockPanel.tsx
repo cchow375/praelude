@@ -1,0 +1,186 @@
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import { clampPosition, type Size } from "./dockState";
+import { useDock, useDockContext } from "./DockProvider";
+import "./dock.css";
+
+interface DockPanelProps {
+  /** Open union — "rep" | "paused" | "clock" are the known ids so far. */
+  id: string;
+  title: string;
+  defaultPosition: { x: number; y: number };
+  children: ReactNode;
+}
+
+// Arrow-key nudge for keyboard users, per the brief.
+const KEYBOARD_STEP = 8;
+
+// Fallback panel footprint used for clamp math before the panel has ever
+// been laid out (first paint) or in jsdom, which reports a zero-size rect.
+const FALLBACK_SIZE: Size = { width: 260, height: 200 };
+
+type Drag = {
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+};
+
+/**
+ * Chrome for a persistent, draggable, non-modal dock surface: a title bar
+ * (drag handle + minimize + close), a body, and a collapsed "pill" form when
+ * minimized. Position and open/minimized state live in DockProvider and
+ * persist to localStorage across launches.
+ */
+export function DockPanel({
+  id,
+  title,
+  defaultPosition,
+  children,
+}: DockPanelProps) {
+  const ctx = useDockContext();
+  const dock = useDock(id);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<Drag | null>(null);
+
+  useEffect(() => {
+    ctx.ensurePanel(id, defaultPosition);
+    // Only register once per (id, defaultPosition) pair — re-registering on
+    // every render would fight a user's drag/keyboard moves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const panel = ctx.getPanel(id, defaultPosition);
+
+  const panelSize = useCallback((): Size => {
+    const rect = panelRef.current?.getBoundingClientRect();
+    if (rect && rect.width > 0 && rect.height > 0) {
+      return { width: rect.width, height: rect.height };
+    }
+    return FALLBACK_SIZE;
+  }, []);
+
+  const moveClamped = useCallback(
+    (x: number, y: number) => {
+      const clamped = clampPosition(x, y, panelSize(), {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+      ctx.move(id, clamped.x, clamped.y);
+    },
+    [ctx, id, panelSize],
+  );
+
+  // Window-level pointermove/pointerup while a drag is in progress — the
+  // same pattern as components/FloatingPanel.tsx, which survives the pointer
+  // leaving the title bar mid-drag.
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      const active = drag.current;
+      if (!active) return;
+      moveClamped(
+        active.originX + (e.clientX - active.startX),
+        active.originY + (e.clientY - active.startY),
+      );
+    }
+    function onUp() {
+      drag.current = null;
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [moveClamped]);
+
+  if (!panel.open) return null;
+
+  function beginDrag(e: ReactPointerEvent) {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+    ctx.focus(id);
+    drag.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: panel.x,
+      originY: panel.y,
+    };
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      dock.minimize();
+      return;
+    }
+    let dx = 0;
+    let dy = 0;
+    if (e.key === "ArrowLeft") dx = -KEYBOARD_STEP;
+    else if (e.key === "ArrowRight") dx = KEYBOARD_STEP;
+    else if (e.key === "ArrowUp") dy = -KEYBOARD_STEP;
+    else if (e.key === "ArrowDown") dy = KEYBOARD_STEP;
+    else return;
+    e.preventDefault();
+    moveClamped(panel.x + dx, panel.y + dy);
+  }
+
+  if (panel.minimized) {
+    return (
+      <button
+        type="button"
+        className="dock-pill"
+        style={{ zIndex: panel.z }}
+        onClick={dock.open}
+        aria-label={`Restore ${title}`}
+      >
+        {title}
+      </button>
+    );
+  }
+
+  return (
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="false"
+      aria-label={title}
+      tabIndex={0}
+      className="dock-panel"
+      style={{
+        transform: `translate(${panel.x}px, ${panel.y}px)`,
+        zIndex: panel.z,
+      }}
+      onPointerDown={() => ctx.focus(id)}
+      onKeyDown={onKeyDown}
+    >
+      <div className="dock-panel-titlebar" onPointerDown={beginDrag}>
+        <span className="dock-panel-title">{title}</span>
+        <button
+          type="button"
+          className="dock-panel-minimize"
+          aria-label={`Minimize ${title}`}
+          onClick={dock.minimize}
+        >
+          &minus;
+        </button>
+        <button
+          type="button"
+          className="dock-panel-close"
+          aria-label={`Close ${title}`}
+          onClick={dock.close}
+        >
+          &times;
+        </button>
+      </div>
+      <div className="dock-panel-body">{children}</div>
+    </div>
+  );
+}
