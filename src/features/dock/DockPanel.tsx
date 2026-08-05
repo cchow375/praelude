@@ -5,7 +5,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { clampPosition, type Size } from "./dockState";
+import { clampPanelWidth, clampPosition, type Size } from "./dockState";
 import { useDock, useDockContext } from "./DockProvider";
 import "./dock.css";
 
@@ -14,11 +14,20 @@ interface DockPanelProps {
   id: string;
   title: string;
   defaultPosition: { x: number; y: number };
+  /** Target width in px. Panels with denser content (e.g. the rep HUD's
+   * verdict buttons + streak + drawer) can ask for more room than the
+   * default; it is still clamped to the viewport (never edge-to-edge, never
+   * below MIN_PANEL_WIDTH) so the 720x520 dense-layout floor always holds. */
+  width?: number;
   children: ReactNode;
 }
 
 // Arrow-key nudge for keyboard users, per the brief.
 const KEYBOARD_STEP = 8;
+
+// Historical default — the framework's original single-size panel (A2). New
+// panels that need more room (Task A3's rep panel) pass their own `width`.
+const DEFAULT_PANEL_WIDTH = 320;
 
 // Fallback panel footprint used for clamp math before the panel has ever
 // been laid out (first paint) or in jsdom, which reports a zero-size rect.
@@ -41,6 +50,7 @@ export function DockPanel({
   id,
   title,
   defaultPosition,
+  width = DEFAULT_PANEL_WIDTH,
   children,
 }: DockPanelProps) {
   const ctx = useDockContext();
@@ -146,6 +156,11 @@ export function DockPanel({
     );
   }
 
+  // Clamped against the CURRENT viewport on every render (not just at open
+  // time), so a panel already open when the window shrinks to the 720x520
+  // floor re-clamps rather than clipping/overflowing.
+  const effectiveWidth = clampPanelWidth(width, window.innerWidth);
+
   return (
     <div
       ref={panelRef}
@@ -157,6 +172,7 @@ export function DockPanel({
       style={{
         transform: `translate(${panel.x}px, ${panel.y}px)`,
         zIndex: panel.z,
+        width: `${effectiveWidth}px`,
       }}
       onPointerDown={() => ctx.focus(id)}
       onKeyDown={onKeyDown}

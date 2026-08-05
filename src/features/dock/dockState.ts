@@ -25,6 +25,32 @@ export const DOCK_STORAGE_KEY = "ck.dock.v1";
 // minimize buttons) must always stay reachable.
 export const MIN_VISIBLE_PX = 48;
 
+// A panel's requested width may exceed a short/narrow viewport (the 720x520
+// dense-layout floor). Each side keeps at least this much clear so the panel
+// can never claim the FULL viewport width edge-to-edge — some of the
+// underlying workspace/nav rail must always stay visible around it.
+export const PANEL_WIDTH_EDGE_MARGIN = 24;
+
+/** The floor a clamped panel width never drops below, regardless of how
+ * narrow the viewport is — below this a panel's own controls (verdict
+ * buttons, title bar) stop being usable. */
+export const MIN_PANEL_WIDTH = 200;
+
+/** Clamp a panel's requested width to what the viewport can actually give it
+ * (see PANEL_WIDTH_EDGE_MARGIN), without ever going below MIN_PANEL_WIDTH.
+ * Pure — like clampPosition, the caller supplies viewportWidth so this never
+ * touches `window` and stays trivially testable outside the DOM. */
+export function clampPanelWidth(
+  requestedWidth: number,
+  viewportWidth: number,
+): number {
+  const available = viewportWidth - PANEL_WIDTH_EDGE_MARGIN * 2;
+  return Math.max(
+    MIN_PANEL_WIDTH,
+    Math.min(requestedWidth, Math.max(MIN_PANEL_WIDTH, available)),
+  );
+}
+
 export function defaultPanelState(
   overrides: Partial<DockPanelState> = {},
 ): DockPanelState {

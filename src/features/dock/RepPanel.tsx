@@ -8,6 +8,13 @@ import { RepHud, type RepHudProps } from "../rep/RepHud";
  * (persisted via DockProvider once localStorage is available). */
 const DEFAULT_POSITION = { x: 24, y: 88 };
 
+/** RepHud is denser than the framework's 320px default (three full-width
+ * verdict buttons, a streak line, a metrics grid, a drawer of secondary
+ * controls) — it needs real room, not the generic panel width. Still
+ * clamped to the viewport by DockPanel/clampPanelWidth, so this holds at the
+ * 720x520 dense-layout floor: 720 - 2*24 = 672px available, well above 440. */
+const PANEL_WIDTH = 440;
+
 /**
  * Task A3: the rep HUD's shell-level dock host. RepHud's own render/logic is
  * untouched (verdict buttons, streak, rung-celebration hold, IPC calls) — this
@@ -36,7 +43,12 @@ export function RepPanel(props: RepHudProps) {
   }, [props.snap?.set_state]);
 
   return (
-    <DockPanel id="rep" title="Rep Counter" defaultPosition={DEFAULT_POSITION}>
+    <DockPanel
+      id="rep"
+      title="Rep Counter"
+      defaultPosition={DEFAULT_POSITION}
+      width={PANEL_WIDTH}
+    >
       {props.snap ? (
         <RepHud {...props} />
       ) : (

@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   DOCK_STORAGE_KEY,
+  MIN_PANEL_WIDTH,
+  PANEL_WIDTH_EDGE_MARGIN,
+  clampPanelWidth,
   clampPosition,
   defaultPanelState,
   loadDockState,
@@ -53,6 +56,26 @@ describe("clampPosition", () => {
     const size = { width: 260, height: 200 };
     const viewport = { width: 720, height: 520 };
     expect(clampPosition(100, 80, size, viewport)).toEqual({ x: 100, y: 80 });
+  });
+});
+
+describe("clampPanelWidth", () => {
+  it("leaves a requested width alone when the viewport has room for it", () => {
+    // 720 - 2*24 = 672px available; 440 (the rep panel's requested width)
+    // fits with margin to spare at the 720x520 dense-layout floor.
+    expect(clampPanelWidth(440, 720)).toBe(440);
+  });
+
+  it("clamps to the viewport minus the edge margin on a narrower window", () => {
+    expect(clampPanelWidth(440, 300)).toBe(300 - PANEL_WIDTH_EDGE_MARGIN * 2);
+  });
+
+  it("never clamps below MIN_PANEL_WIDTH even on a very narrow viewport", () => {
+    expect(clampPanelWidth(440, 100)).toBe(MIN_PANEL_WIDTH);
+  });
+
+  it("never grows a small requested width beyond what was asked for", () => {
+    expect(clampPanelWidth(200, 1200)).toBe(200);
   });
 });
 

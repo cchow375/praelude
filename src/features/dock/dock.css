@@ -8,7 +8,10 @@
   top: 0;
   left: 0;
   min-width: 200px;
-  max-width: min(320px, calc(100vw - 2 * var(--s-3)));
+  /* Width itself is set inline per-panel (DockPanel.tsx clamps it against the
+   * live viewport via clampPanelWidth — see dockState.ts). This is a pure
+   * belt-and-suspenders backstop, not the primary clamp. */
+  max-width: calc(100vw - 2 * var(--s-3));
   background: var(--bg-raised);
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
