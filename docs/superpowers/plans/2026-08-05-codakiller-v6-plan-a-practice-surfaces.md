@@ -165,6 +165,41 @@ target_bpm: i64, paused_since_ts: String, current_clean_streak: i64 }` (join
       tests, not jsdom).
 - [ ] Commit `feat(sets): paused-sets tray + pause surface over existing pause/resume engine`.
 
+### Task A4b: Relax one-live-set to one-ACTIVE-set (multi-paused support) — added mid-execution
+
+**Why (discovered in A4):** `SCHEMA_V9`'s `set_contract_one_live_v2_idx` is a unique index on a
+constant over `set_state IN ('active','paused')` — at most ONE live set database-wide. The
+approved spec's S4 (paused sets tray, pause-across-days, plural) is impossible under it. The
+spec governs; the invariant becomes one-ACTIVE-set, paused becomes plural.
+
+**Files:**
+
+- Modify: `src-tauri/src/store/migrations.rs` (amend `SCHEMA_V14` — it is UNSHIPPED: exists
+  only on this branch, live DB is v13, so amending v14's batch is correct; v9's historical DDL
+  stays untouched), the rep engine/store sites that read `set_state IN ('active','paused')` as
+  the singular live set, the resume path, devMock if it enforces one-live.
+- Test: migrations tests, engine invariant tests, A4's `sets_paused_list` tests.
+
+**Interfaces:**
+
+- Consumes: A1's v14 step, A4's `sets_paused_list`.
+- Produces: v14 additionally does `DROP INDEX set_contract_one_live_v2_idx` + `CREATE UNIQUE
+INDEX set_contract_one_active_v2_idx ON set_contract((1)) WHERE set_state='active'`.
+  `rep_resume` with a different set active auto-pauses it and resumes the target in ONE
+  transaction; the returned snapshot/receipt reflects both transitions.
+
+- [ ] Grep-audit every `('active','paused')`-as-singular read in src-tauri; list each site and
+      its disposition in the report. The singular concept is active-only; paused is plural.
+- [ ] Failing tests: two paused rows coexist; a second ACTIVE row is still rejected;
+      resume-with-another-active auto-pauses old + activates target atomically (failure rolls back
+      both); A4's original two-pieces/two-paused/one-active fixture now asserts exact rows
+      newest-first.
+- [ ] Implement; update the v9-invariant regression test to the new invariant.
+- [ ] Re-rehearse v13→v14 on a FRESH live-DB copy (row counts identical, integrity ok, index
+      predicate verified changed on the copy).
+- [ ] Full `cargo test` + `cargo clippy -- -D warnings` → commit
+      `feat(sets): one-ACTIVE-set invariant — plural paused sets (spec S4)`.
+
 ### Task A5: Day-scoped sessions (same-calendar-day adoption + retroactive close + auto-pause)
 
 **Files:**
