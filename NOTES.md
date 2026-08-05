@@ -2,6 +2,30 @@
 
 ## Decisions
 
+- **v6.0.0 Practice Core — design round only (2026-08-05, spec commit `ea388cc`, no code):**
+  spec at `docs/superpowers/specs/2026-08-05-codakiller-v6-practice-core.md`, from Christian's
+  July 31 goal dump. Engineering-relevant facts fixed during design:
+  - **`target_meta.parent_region_id` has been dormant since schema v8** — defined with a
+    same-piece trigger, self-reference CHECK, and partial index, but zero readers/writers
+    outside the migration DDL (grep-verified). v6 sub-sections ride it; no new column. Same
+    plumbed-but-unused class as B46's `region_id`.
+  - **Measure mapping is cloud-vision by decision, not preference:** D1 (8 GB, no local ML
+    runtimes, ever) leaves no local OMR path. Deterministic Rust reconciliation (continuity +
+    `score_xml_measure_facts` totals + printed-number anchors, pickup-aware) sits between the
+    model and anything stored; user review + Apply gates truth. Acceptance = Scherzo printed
+    numbers.
+  - **The "5-second metronome delay" decomposes as** settle (600 ms) + dedup window semantics +
+    synth-then-speak ack; the v6 fix is a partial-match fast path for an exact-command
+    allowlist + chime acks, NOT loosening the settle globally. Any router change re-passes the
+    1,309-segment narrated corpus with zero false mutations — binding gate.
+  - **The "robot voice" is the silent `say` fallback:** two consecutive Gemini TTS failures set
+    a session-lifetime `primary_disabled` AtomicBool with no recovery and no UI state. v6
+    replaces lockout with cooldown retry + a visible degraded state.
+  - **Both CLAUDE.md Status sections (vault + repo) had silently gone stale at v3.1.0** across
+    the v3.2→v5 rounds — the update protocol names them, but no gate checks them. Fixed
+    2026-08-05; a release-gate grep for the installed version string in both files would
+    prevent a recurrence.
+
 - **v4 Phases B–D — Practice Notebook OS, UI overhaul, quotes/books/IMSLP/mapping (2026-07-28…30,
   merged to `main`, all lanes fresh-verifier CONFIRMED):**
   - **Chips are shortcuts that INSERT editable text — never structure.** Every day-sheet chip

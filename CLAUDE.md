@@ -11,6 +11,7 @@ version history live in the Obsidian vault**, not here:
 ## 🔒 Binding rule (from the vault AGENTS.md — the most important one)
 
 **After EVERY change or session, before reporting done, run the UPDATE PROTOCOL:**
+
 1. Log it in the vault `(C) Changelog.md` (date · what · why · files).
 2. Refresh the vault `CodaKiller.md` (portable summary + its `Last updated:` line).
 3. Update the affected vault living docs — `(C) Roadmap.md`, `(C) Flaws.md` (never delete
@@ -60,28 +61,24 @@ npm run tauri build -- --bundles app    # build ONLY the .app (the dmg step dele
 cd src-tauri && cargo test               # Rust suite
 npm test                                 # frontend (vitest)
 ```
+
 Quit + relaunch the installed `.app` to run new code. First launch needs mic + Speech
 Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**Installed is v3.1.0 (tag `v3.1.0`, 2026-07-20; implementation commit `36f21fd`).** It ships
-routine 1.5-second nonblocking receipts, state-aware serialized metronome transitions, a compact
-normal-flow HUD with visible safety stop, Today's date-scoped plan, the current in-app guide, and
-restored Brain context for the visible Score piece/Region/page/edition/active set/Today plan.
-Clearly assistant-directed questions work without a wake phrase. With a Region selected, a natural
-set request becomes an editable spoken draft requiring exact-once `confirm` or `cancel`; the model
-never enters the deterministic verdict/metronome hot loop or clicks arbitrary DOM.
+**Installed is v5.0.0 (tag `v5.0.0`, 2026-07-31; merge `3de140c`) — paper redesign + the
+colour-depth perf fix + freehand pencil (schema 13).** Live DB: 7 pieces / 98 blocks /
+803 reps / 21 sessions, integrity ok. v5 gates: vitest 1643, cargo 668, tsc + clippy clean.
+Open from v5: Christian's at-piano + design acceptance (TCC re-grants first) and Flaws
+B47–B55.
 
-Release gates: frontend 985 passed / 0 failed / 2 todo; Rust 490 passed / 0 failed / 11 ignored
-plus every integration suite; strict clippy and production build; sealed app; valid DMG checksum;
-filesystem and Spotlight each resolve exactly one active `/Applications/CodaKiller.app`. The
-pre-install backup is `(C) pre-v3.1.0-install-2026-07-20-000233.db`, SHA-256
-`91e8c3fe5295d4d652a18b4486c336c96688148bf95ed2f892fd750e239ddb25`; live before/after truth is
-schema 10, integrity `ok`, FK 0, exactly 6 pieces / 63 blocks / 559 reps / 14 sessions.
-
-**Next:** real Steinway acceptance using exact verdicts, `metronome stop`, one no-wake question,
-and one selected-Region natural set request. Then build the complete typed capability registry for
-Today/Goals/Calendar/session planning with preview → spoken readback → explicit confirm → durable
-receipt → undo. Page-only targeting, durable unfinished drafts, history-at-scale, and the off-disk
-private remote remain open.
+**Active: v6.0.0 "Practice Core"** — spec approved 2026-08-05 from Christian's July 31
+feedback: `docs/superpowers/specs/2026-08-05-codakiller-v6-practice-core.md` (commit
+`ea388cc`). Measure mapping, sub-sections, floating Practice Dock, pause-across-days,
+day-scoped sessions, dated day sheets + time estimates, History timeline, Calendar
+planned-vs-done, score goals banner, voice/metronome overhaul (narrated-corpus gate
+binding), Brain quick fixes. Schema v13→v14 (rehearse on a copy first — never the live DB).
+v7.0 "Motivation Layer" (galaxy, streaks/photos, animations, dynamics checker, Brain
+usefulness) is scoped + deferred. **Next:** Christian reviews the spec → implementation
+plan → build in verified slices.
