@@ -11,6 +11,7 @@ import { DockProvider } from "./DockProvider";
 import { PausedSetsTray } from "./PausedSetsTray";
 import {
   installTauriDevMock,
+  setMockResumeRejects,
   uninstallTauriDevMock,
 } from "../../devMock/tauriDevMock";
 
@@ -107,5 +108,44 @@ describe("PausedSetsTray (Task A4)", () => {
     // because the resume receipt committed, not merely a stale local filter.
     const rows = await seamInvoke<unknown[]>("sets_paused_list");
     expect(rows).toEqual([]);
+  });
+
+  // Fix round 1: `rep_resume` resolves business rejections as a REJECTED
+  // MutationReceipt rather than throwing (lib.rs's `rejected_snapshot`). The
+  // tray must gate row removal on `receipt.status === "committed"`, matching
+  // useRetention.ts/useRep.ts's own receipt-status checks, instead of
+  // treating any resolved promise as success.
+  it("keeps the row and surfaces the receipt's message when rep_resume rejects", async () => {
+    const { rerender } = render(<Harness repSetState="active" />);
+    await seamInvoke("rep_pause", { commandId: "test-pause" });
+    rerender(<Harness repSetState="paused" />);
+
+    const panel = await screen.findByRole("dialog", { name: "Paused Sets" });
+    await screen.findByText("Scherzo No. 2");
+
+    setMockResumeRejects(true);
+    fireEvent.click(within(panel).getByRole("button", { name: "Resume" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Mock-forced rejection for testing.");
+
+    // The row stays — a rejected receipt must not remove it.
+    expect(within(panel).getByText("Scherzo No. 2")).toBeTruthy();
+    expect(within(panel).getByRole("button", { name: "Resume" })).toBeTruthy();
+
+    // The backend agrees the set is still paused — proves this isn't just a
+    // stale local view but the true rejected state.
+    const rows =
+      await seamInvoke<Array<{ piece_title: string }>>("sets_paused_list");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].piece_title).toBe("Scherzo No. 2");
+
+    // Sanity: the committed path still works once the mock stops rejecting
+    // (proves the gate checks status, not just "did the promise resolve").
+    setMockResumeRejects(false);
+    fireEvent.click(within(panel).getByRole("button", { name: "Resume" }));
+    await waitFor(() =>
+      expect(within(panel).getByText("No paused sets")).toBeTruthy(),
+    );
   });
 });

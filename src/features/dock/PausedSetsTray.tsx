@@ -7,8 +7,19 @@ import {
   type PausedSetRow,
 } from "../rep/pausedSets";
 import { commandErrorMessage } from "../../services/command";
+import type { MutationReceipt } from "../receipts/ReceiptCenter";
 import { Button } from "../../ui";
 import "./dock.css";
+
+/** Mirrors `useRetention.ts`'s `receiptError` — a rejected receipt carries its
+ * own message; never fall back to a generic string while one is available. */
+function receiptError(receipt: MutationReceipt): string {
+  return (
+    receipt.error_detail?.trim() ||
+    receipt.summary?.trim() ||
+    "The set could not be resumed."
+  );
+}
 
 /** Below the rep counter's default spot so both can be open at once without
  * overlapping on first launch. */
@@ -72,7 +83,15 @@ export function PausedSetsTray({ repSetState }: PausedSetsTrayProps) {
     if (busySetId != null) return;
     setBusySetId(row.set_id);
     try {
-      await resumePausedSet();
+      const receipt = await resumePausedSet();
+      // `rep_resume` resolves business rejections as a receipt rather than
+      // throwing — only a COMMITTED receipt means the set actually resumed.
+      // A rejected/confirmation-required receipt leaves the row in place and
+      // surfaces the receipt's own message, matching useRetention.ts.
+      if (receipt.status !== "committed") {
+        setError(receiptError(receipt));
+        return;
+      }
       setRows((current) => current.filter((r) => r.set_id !== row.set_id));
       setError(null);
     } catch (cause) {

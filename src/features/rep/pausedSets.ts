@@ -4,6 +4,7 @@ import {
   type CommandInvoker,
 } from "../../services/command";
 import { createCommandId } from "../../services/commandId";
+import type { MutationReceipt } from "../receipts/ReceiptCenter";
 
 /**
  * Task A4: one row of the paused-sets tray. Field names and types mirror the
@@ -39,12 +40,22 @@ export function listPausedSets(
 // command. The backend's single-live-set invariant means at most one set can
 // ever be paused at a time, and it is always the engine's own tracked block,
 // so "resume" (with no target id) is unambiguous.
-const REP_RESUME = defineCommand<{ commandId: string }, unknown>(
+//
+// `rep_resume` resolves business rejections as a `MutationReceipt` with
+// `status: "rejected"` rather than throwing (lib.rs's `rejected_snapshot`) —
+// the caller MUST check `receipt.status` before treating the mutation as a
+// success, exactly like `useRetention.ts`/`useRep.ts`'s
+// `runSnapshotReceiptMutation` already do. A thrown/rejected PROMISE (network
+// failure, command not found, etc.) is a separate, orthogonal failure mode
+// and still surfaces as a rejected promise here.
+const REP_RESUME = defineCommand<{ commandId: string }, MutationReceipt>(
   "rep_resume",
   "The practice timer could not be resumed.",
 );
 
-export function resumePausedSet(invoker?: CommandInvoker): Promise<unknown> {
+export function resumePausedSet(
+  invoker?: CommandInvoker,
+): Promise<MutationReceipt> {
   const commandId = createCommandId("paused-tray-resume");
   return executeCommand(REP_RESUME, { commandId }, invoker);
 }

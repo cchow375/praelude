@@ -948,7 +948,40 @@ function repPauseReceipt(commandId: string): MutationReceipt<RepSnapshot> {
   };
 }
 
+// Task A4 fix round 1: a deterministic, test-controlled hook to force the
+// next `rep_resume` mock call to resolve a REJECTED receipt (a business
+// rejection, not a thrown error — real rejections like "only a paused
+// practice set can resume" arrive exactly this way, per lib.rs's
+// `rejected_snapshot`). Distinct from the mock's plain-string-throw
+// convention (e.g. `book_add`'s validation failures): this is a rejected
+// PROMISE RESOLUTION carrying a receipt, not a thrown/rejected promise.
+let mockResumeRejects = false;
+
+/** Test-only: flip whether the next `rep_resume` mock call rejects the
+ * receipt. Not reachable through any UI affordance — imported directly by
+ * tests, same spirit as `imslp_search`'s query-driven failure trigger below
+ * but for a receipt-shaped (not thrown) rejection. */
+export function setMockResumeRejects(reject: boolean): void {
+  mockResumeRejects = reject;
+}
+
 function repResumeReceipt(commandId: string): MutationReceipt<RepSnapshot> {
+  if (mockResumeRejects) {
+    return {
+      receipt_id: `mock-receipt-resume-rejected-${Date.now()}`,
+      command_id: commandId,
+      status: "rejected",
+      summary: "Practice could not be resumed.",
+      value: null,
+      entity_refs: [],
+      event_ids: [],
+      undo_action: null,
+      error_code: "practice_rejected",
+      error_detail: "Mock-forced rejection for testing.",
+      replayed: false,
+      committed_ts: null,
+    };
+  }
   mockSetState = "active";
   mockPausedSets = [];
   const snap: RepSnapshot = {
@@ -1921,6 +1954,7 @@ export function installTauriDevMock(): void {
   // Task A4: fresh paused-sets tray state per install.
   mockSetState = "active";
   mockPausedSets = [];
+  mockResumeRejects = false;
 
   let callbackId = 0;
   let subscriptionId = 0;
