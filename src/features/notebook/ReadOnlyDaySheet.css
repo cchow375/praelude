@@ -66,7 +66,31 @@
 
 .ck-ro-line-actions {
   flex: 0 0 auto;
-  /* Empty for now — a per-line carry-forward control (Task A8) mounts here. */
+}
+
+.ck-ro-carry {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background-color: transparent;
+  padding: 0.15em 0.6em;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 0.8em;
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.ck-ro-carry:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ck-ro-carry:disabled {
+  border-color: transparent;
+  color: var(--signal-success);
+  cursor: default;
 }
 
 .ck-ro-check {

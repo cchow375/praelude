@@ -162,7 +162,18 @@ export function useAutosavedDocument<E>(
       clearTimeout(timerRef.current);
       timerRef.current = undefined;
     }
-    if (dirtyRef.current && !savingRef.current) void runSave();
+    if (!dirtyRef.current) return;
+    if (savingRef.current) {
+      // A save is already in flight: cancelling the debounce timer above is
+      // not enough on its own — without this flag, the edit sitting in
+      // `valueRef` right now would never get persisted (nothing else is
+      // scheduled to look at it again). Mark it for the in-flight save's
+      // finally-block rerun, the same mechanism `scheduleSave` relies on, so
+      // it's picked up the instant the current save settles.
+      rerunRef.current = true;
+      return;
+    }
+    void runSave();
   }, [runSave]);
 
   const key = config.key;
