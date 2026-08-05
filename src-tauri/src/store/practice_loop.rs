@@ -1872,3 +1872,229 @@ impl Store {
         Ok(Some(snapshot))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::model::RetentionCondition;
+
+    fn mem_conn() -> Connection {
+        Connection::open_in_memory().unwrap()
+    }
+
+    // ── validate_timestamp ──────────────────────────────────────────────
+
+    #[test]
+    fn validate_timestamp_rejects_non_timestamp_strings() {
+        let conn = mem_conn();
+        let error = validate_timestamp(&conn, "not-a-timestamp").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("valid absolute SQLite timestamp"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_timestamp_rejects_empty_string() {
+        let conn = mem_conn();
+        assert!(validate_timestamp(&conn, "").is_err());
+    }
+
+    #[test]
+    fn validate_timestamp_accepts_a_valid_absolute_timestamp() {
+        let conn = mem_conn();
+        assert!(validate_timestamp(&conn, "2026-08-05T12:00:00Z").is_ok());
+    }
+
+    // ── validate_date ────────────────────────────────────────────────────
+
+    #[test]
+    fn validate_date_rejects_a_calendar_impossible_date() {
+        let conn = mem_conn();
+        let error = validate_date(&conn, "2026-02-30").unwrap_err();
+        assert!(
+            error.to_string().contains("valid YYYY-MM-DD form"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_date_accepts_a_wellformed_date() {
+        let conn = mem_conn();
+        assert!(validate_date(&conn, "2026-08-05").is_ok());
+    }
+
+    // ── validate_retention_condition ────────────────────────────────────
+
+    #[test]
+    fn validate_retention_condition_rejects_bpm_out_of_range() {
+        let condition = RetentionCondition {
+            bpm: Some(401.0),
+            ..Default::default()
+        };
+        let error = validate_retention_condition(&condition, "test").unwrap_err();
+        assert!(
+            error.to_string().contains("BPM must be between 1 and 400"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_retention_condition_rejects_an_incomplete_measure_range() {
+        let condition = RetentionCondition {
+            m_start: Some(5),
+            m_end: None,
+            ..Default::default()
+        };
+        let error = validate_retention_condition(&condition, "test").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("measure range must be complete and ordered"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_retention_condition_rejects_an_inverted_measure_range() {
+        let condition = RetentionCondition {
+            m_start: Some(10),
+            m_end: Some(5),
+            ..Default::default()
+        };
+        assert!(validate_retention_condition(&condition, "test").is_err());
+    }
+
+    #[test]
+    fn validate_retention_condition_rejects_clean_streak_out_of_range() {
+        let condition = RetentionCondition {
+            required_clean_streak: Some(101),
+            ..Default::default()
+        };
+        let error = validate_retention_condition(&condition, "test").unwrap_err();
+        assert!(
+            error.to_string().contains("clean streak must be 1 to 100"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_retention_condition_rejects_a_completely_empty_condition() {
+        let condition = RetentionCondition::default();
+        let error = validate_retention_condition(&condition, "test").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("must contain at least one condition"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_retention_condition_accepts_a_single_populated_field() {
+        let condition = RetentionCondition {
+            bpm: Some(120.0),
+            ..Default::default()
+        };
+        assert!(validate_retention_condition(&condition, "test").is_ok());
+    }
+
+    // ── required_text / optional_text ───────────────────────────────────
+
+    #[test]
+    fn required_text_rejects_whitespace_only_input() {
+        let error = required_text("   ", "label", 10).unwrap_err();
+        assert!(
+            error.to_string().contains("must be 1 to 10 characters"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn required_text_rejects_input_over_the_max_length() {
+        let long = "a".repeat(11);
+        assert!(required_text(&long, "label", 10).is_err());
+    }
+
+    #[test]
+    fn required_text_trims_surrounding_whitespace() {
+        assert_eq!(required_text("  hi  ", "label", 10).unwrap(), "hi");
+    }
+
+    #[test]
+    fn optional_text_passes_through_none() {
+        assert_eq!(optional_text(None, "label", 10).unwrap(), None);
+    }
+
+    #[test]
+    fn optional_text_rejects_a_present_but_empty_value() {
+        assert!(optional_text(Some(""), "label", 10).is_err());
+    }
+
+    // ── request_fingerprint ──────────────────────────────────────────────
+
+    #[test]
+    fn request_fingerprint_rejects_oversized_payloads() {
+        let huge = json!({"note": "x".repeat(25_000)});
+        let error = request_fingerprint(&huge).unwrap_err();
+        assert!(error.to_string().contains("too large"), "{error}");
+    }
+
+    #[test]
+    fn request_fingerprint_accepts_a_small_payload() {
+        let value = json!({"block_id": 1});
+        assert!(request_fingerprint(&value).is_ok());
+    }
+
+    // ── begin_operation idempotency mismatch ────────────────────────────
+
+    /// The v1 evidence path relies on this guard: a replayed command_id whose
+    /// payload changed must be rejected outright rather than silently
+    /// returning the first commit's receipt for a different request.
+    #[test]
+    fn begin_operation_rejects_replay_with_a_different_payload() {
+        let store = Store::open(":memory:").expect("open in-memory store");
+        let mut conn = store.conn.lock().unwrap();
+        let tx = conn.transaction().unwrap();
+        let fingerprint_a = request_fingerprint(&json!({"block_id": 1})).unwrap();
+        match begin_operation::<Value>(
+            &tx,
+            "cmd-1",
+            "pause",
+            &fingerprint_a,
+            Some(1),
+            MutationSource::UserClick,
+            "2026-08-05T12:00:00Z",
+        )
+        .unwrap()
+        {
+            OperationStart::New(pending) => {
+                finish_operation(&tx, pending, "ok", &json!({}), vec![], vec![], None).unwrap();
+            }
+            OperationStart::Replay(_) => panic!("expected a fresh operation"),
+        }
+
+        let fingerprint_b = request_fingerprint(&json!({"block_id": 2})).unwrap();
+        let result: rusqlite::Result<OperationStart<Value>> = begin_operation(
+            &tx,
+            "cmd-1",
+            "pause",
+            &fingerprint_b,
+            Some(1),
+            MutationSource::UserClick,
+            "2026-08-05T12:00:01Z",
+        );
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("expected a replay/payload mismatch error"),
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("already committed with a different operation payload"),
+            "{error}"
+        );
+    }
+}
