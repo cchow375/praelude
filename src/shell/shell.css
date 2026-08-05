@@ -183,19 +183,6 @@
   min-height: 40px;
 }
 
-/* The active-set dock. Bounded to the reading measure so the set card is a
-   strip the eye can take in at arm's length, not a full-bleed wall. */
-.shell-set-dock {
-  display: block;
-  width: 100%;
-  /* Bounded so the set card is a strip, not a full-bleed wall on a wide
-     window. Wider than --measure (which is a PROSE column): the HUD is a
-     control strip whose context line has to fit a title, a range, condition
-     chips and the always-reachable controls without stacking. */
-  max-width: 56rem;
-  margin: 0 0 var(--s-5);
-}
-
 /* --- One staggered entrance on load (runs once; no ambient loop) -------- */
 @media (prefers-reduced-motion: no-preference) {
   .shell-enter .shell-nav-item {

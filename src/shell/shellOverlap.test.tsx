@@ -79,12 +79,14 @@ describe("D1 — the session strip reserves its own space (no overlay)", () => {
     expect(shellTsx).not.toMatch(/position:\s*"fixed"[^}]*zIndex:\s*80/);
   });
 
-  it("gives the set dock no overlay geometry either", () => {
-    const dock = ruleBody(shellCss, ".shell-set-dock");
-    expect(dock).not.toMatch(/position\s*:\s*(fixed|absolute)/);
-    expect(dock).not.toMatch(/z-index/);
-    // Bounded so the set card cannot become a full-bleed wall (defect D4).
-    expect(dock).toMatch(/max-width/);
+  // `.shell-set-dock` (the in-flow strip this suite guarded) was removed in
+  // Task A3: the active-set card moved into a floating Practice Dock panel
+  // (src/features/dock/), which is a deliberately positioned, draggable
+  // surface — the D1 "accidental overlay" failure mode this suite exists to
+  // catch does not apply to a panel whose whole job is to float.
+  it("no longer renders the set as an in-flow shell strip", () => {
+    expect(shellCss).not.toMatch(/\.shell-set-dock\b/);
+    expect(shellTsx).not.toMatch(/shell-set-dock/);
   });
 });
 

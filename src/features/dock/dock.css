@@ -78,6 +78,15 @@
   padding: var(--s-3);
 }
 
+/* Subdued placeholder body when a panel has nothing live to show (e.g. no
+ * active practice set). Kept minimal — it is a resting state, not content. */
+.dock-empty-state {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
 /* Minimized form: a small pinned pill with just the title + restore
    affordance. Pills stack near the bottom edge; the shell task (A3) can add
    layout for multiple simultaneous pills. */
