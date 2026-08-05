@@ -146,7 +146,7 @@ export function DockPanel({
     return (
       <button
         type="button"
-        className="dock-pill"
+        className={panel.flashing ? "dock-pill dock-pill-flash" : "dock-pill"}
         style={{ zIndex: panel.z }}
         onClick={dock.open}
         aria-label={`Restore ${title}`}

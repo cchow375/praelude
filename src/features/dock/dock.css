@@ -121,6 +121,27 @@
   outline-offset: var(--focus-ring-offset);
 }
 
+/* Task A6: a transient pulse when a minimized panel has something new to
+ * report (e.g. a countdown completing). Uses the existing --signal-* token
+ * family rather than introducing new color, per the global constraint
+ * against inventing outside the paper token set. */
+.dock-pill-flash {
+  border-color: var(--signal-warning);
+  color: var(--ink);
+  animation: dock-pill-flash-pulse var(--dur-fast) var(--ease-out) 2 alternate;
+}
+
+@keyframes dock-pill-flash-pulse {
+  from {
+    box-shadow: var(--shadow-card);
+  }
+  to {
+    box-shadow:
+      0 0 0 3px var(--signal-warning),
+      var(--shadow-card);
+  }
+}
+
 /* Task A4: the paused-sets tray's row list. */
 .paused-sets-list {
   display: flex;
@@ -156,4 +177,68 @@
 .paused-sets-row-range {
   font-size: var(--text-xs);
   color: var(--ink-dim);
+}
+
+/* Task A6: the clock/stopwatch/countdown panel. */
+.clock-panel-time {
+  margin-bottom: var(--s-3);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  color: var(--ink);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-panel-section + .clock-panel-section {
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--hairline);
+}
+
+.clock-panel-heading {
+  margin: 0 0 var(--s-1);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--ink-dim);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.clock-panel-readout {
+  margin-bottom: var(--s-2);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-medium);
+  color: var(--ink);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-panel-readout-done {
+  color: var(--signal-warning);
+}
+
+.clock-panel-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  margin-bottom: var(--s-2);
+}
+
+.clock-panel-custom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+  font-size: var(--text-sm);
+  color: var(--ink-dim);
+}
+
+.clock-panel-custom .ck-input {
+  width: 72px;
+}
+
+.clock-panel-controls {
+  display: flex;
+  gap: var(--s-1);
 }

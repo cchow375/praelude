@@ -33,7 +33,15 @@ interface DockContextValue {
   minimize: (id: string) => void;
   focus: (id: string) => void;
   move: (id: string, x: number, y: number) => void;
+  /** Task A6: pulses `flashing` true on panel `id`'s pill/chrome, then clears
+   * it after FLASH_DURATION_MS. Fires even while the panel is minimized (a
+   * countdown completing in the background is the whole point) and is a
+   * pure visual pulse — it never opens/focuses the panel itself. */
+  flash: (id: string) => void;
 }
+
+/** How long a pill stays in its "flashing" visual state after `flash(id)`. */
+export const FLASH_DURATION_MS = 1500;
 
 const DockContext = createContext<DockContextValue | null>(null);
 
@@ -93,6 +101,13 @@ export function DockProvider({ children }: { children: ReactNode }) {
     setState((prev) => withPanel(prev, id, { x, y }));
   }, []);
 
+  const flash = useCallback((id: string) => {
+    setState((prev) => withPanel(prev, id, { flashing: true }));
+    window.setTimeout(() => {
+      setState((prev) => withPanel(prev, id, { flashing: false }));
+    }, FLASH_DURATION_MS);
+  }, []);
+
   const value = useMemo<DockContextValue>(
     () => ({
       state,
@@ -103,8 +118,9 @@ export function DockProvider({ children }: { children: ReactNode }) {
       minimize,
       focus,
       move,
+      flash,
     }),
-    [state, ensurePanel, getPanel, open, close, minimize, focus, move],
+    [state, ensurePanel, getPanel, open, close, minimize, focus, move, flash],
   );
 
   return <DockContext.Provider value={value}>{children}</DockContext.Provider>;
@@ -128,6 +144,7 @@ export function useDock(id: string): {
   open: () => void;
   close: () => void;
   minimize: () => void;
+  flash: () => void;
   isOpen: boolean;
   isMinimized: boolean;
 } {
@@ -137,6 +154,7 @@ export function useDock(id: string): {
     open: () => ctx.open(id),
     close: () => ctx.close(id),
     minimize: () => ctx.minimize(id),
+    flash: () => ctx.flash(id),
     isOpen: panel?.open ?? false,
     isMinimized: panel?.minimized ?? false,
   };

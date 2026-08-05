@@ -1,7 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act } from "react";
 import { DockProvider } from "./DockProvider";
 import { DockPanel } from "./DockPanel";
+import { useDock } from "./DockProvider";
 import { DOCK_STORAGE_KEY } from "./dockState";
 
 // jsdom has NO window.localStorage — install the Map-backed shim (pattern
@@ -146,6 +148,53 @@ describe("DockPanel — minimize / restore", () => {
     expect(
       screen.queryByRole("button", { name: "Restore Rep Counter" }),
     ).toBeNull();
+  });
+});
+
+describe("DockPanel — flash (Task A6)", () => {
+  function FlashHarness() {
+    const dock = useDock("rep");
+    return (
+      <>
+        <button type="button" onClick={dock.flash}>
+          trigger flash
+        </button>
+        <DockPanel
+          id="rep"
+          title="Rep Counter"
+          defaultPosition={{ x: 20, y: 20 }}
+        >
+          <div>body</div>
+        </DockPanel>
+      </>
+    );
+  }
+
+  it("flashes the minimized pill, then clears the class on its own after the pulse window", () => {
+    vi.useFakeTimers();
+    seedOpenPanel("rep", { minimized: true });
+    render(
+      <DockProvider>
+        <FlashHarness />
+      </DockProvider>,
+    );
+
+    const pill = screen.getByRole("button", { name: "Restore Rep Counter" });
+    expect(pill.className).not.toMatch(/dock-pill-flash/);
+
+    act(() => {
+      fireEvent.click(screen.getByText("trigger flash"));
+    });
+    expect(pill.className).toMatch(/dock-pill-flash/);
+
+    act(() => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(
+      screen.getByRole("button", { name: "Restore Rep Counter" }).className,
+    ).not.toMatch(/dock-pill-flash/);
+
+    vi.useRealTimers();
   });
 });
 

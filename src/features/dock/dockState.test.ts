@@ -134,6 +134,12 @@ describe("persistence round-trip", () => {
   });
 });
 
+describe("defaultPanelState", () => {
+  it("starts with flashing false", () => {
+    expect(defaultPanelState().flashing).toBe(false);
+  });
+});
+
 describe("corrupt state", () => {
   it("falls back to an empty state when the stored value is not valid JSON", () => {
     window.localStorage.setItem(DOCK_STORAGE_KEY, "{not json");

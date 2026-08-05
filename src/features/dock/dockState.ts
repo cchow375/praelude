@@ -9,6 +9,12 @@ export interface DockPanelState {
   minimized: boolean;
   open: boolean;
   z: number;
+  /** Task A6: a transient "just happened" signal (e.g. a countdown
+   * completing while minimized) so the pill can flash. Not persisted
+   * meaningfully across launches — it is cleared moments after being set,
+   * same as any other one-shot UI pulse; surviving in localStorage between
+   * sessions would be harmless but is never relied upon. */
+  flashing: boolean;
 }
 
 export type DockState = Record<string, DockPanelState>;
@@ -54,7 +60,15 @@ export function clampPanelWidth(
 export function defaultPanelState(
   overrides: Partial<DockPanelState> = {},
 ): DockPanelState {
-  return { x: 0, y: 0, minimized: false, open: false, z: 0, ...overrides };
+  return {
+    x: 0,
+    y: 0,
+    minimized: false,
+    open: false,
+    z: 0,
+    flashing: false,
+    ...overrides,
+  };
 }
 
 /** Clamp a candidate (x, y) so at least MIN_VISIBLE_PX of the panel stays

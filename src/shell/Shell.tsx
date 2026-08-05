@@ -34,6 +34,7 @@ import {
 import { DockProvider } from "../features/dock/DockProvider";
 import { RepPanel } from "../features/dock/RepPanel";
 import { PausedSetsTray } from "../features/dock/PausedSetsTray";
+import { ClockPanel } from "../features/dock/ClockPanel";
 import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
 import { useVoice } from "../features/voice/useVoice";
@@ -1159,8 +1160,8 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   // Shell-level dock, same promotion pattern the session event bar used in v3
   // Phase 5: mounted once here so its panels persist across every workspace
   // tab rather than being re-created per view. Task A4 added PausedSetsTray
-  // ("paused") as one more line alongside RepPanel; later tasks add "clock"
-  // the same way.
+  // ("paused") and Task A6 added ClockPanel ("clock") as one more line
+  // alongside RepPanel each.
   return (
     <DockProvider>
       <TodaySheetProvider>{shellTree}</TodaySheetProvider>
@@ -1183,6 +1184,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         onClose={rep.close}
       />
       <PausedSetsTray repSetState={rep.snap?.set_state} />
+      <ClockPanel />
     </DockProvider>
   );
 }
