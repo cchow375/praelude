@@ -396,7 +396,10 @@ pub fn reconcile(
             anchor_ptr += 1;
         }
         let anchor = &anchors_sorted[anchor_ptr];
-        *number = anchor.number + (i - anchor.index) as u32;
+        // `anchor.number` is untrusted, model-reported input (a printed
+        // number is never range-checked beyond being a `u32`) — a
+        // pathological reply near `u32::MAX` must saturate, not panic.
+        *number = anchor.number.saturating_add((i - anchor.index) as u32);
     }
 
     // Confidence carried on the exact bar a printed number pinned; every
@@ -790,6 +793,30 @@ mod tests {
         // Not used as an anchor: numbering fell back to the implicit start (1).
         assert_eq!(result.pages[0].map.systems[0].bars[0].number, 1);
         assert_eq!(result.pages[0].map.systems[0].bars[0].confidence, None);
+    }
+
+    /// A printed number's `number` is untrusted model input with no upper
+    /// bound (only coordinates/confidence are range-checked) — a
+    /// pathological reply near `u32::MAX` must saturate the forward-fill,
+    /// never panic on overflow.
+    #[test]
+    fn a_pathologically_large_printed_number_saturates_instead_of_overflowing() {
+        let page = page_output(vec![system(
+            0.10,
+            0.25,
+            0.10,
+            0.90,
+            vec![0.30, 0.50, 0.70, 0.90],
+            vec![printed(u32::MAX, 0.10, 0.09, 0.95)],
+        )]);
+        let result = reconcile(vec![(1, page)], None, vec![]);
+        let numbers: Vec<u32> = result.pages[0]
+            .map
+            .systems
+            .iter()
+            .flat_map(|s| s.bars.iter().map(|b| b.number))
+            .collect();
+        assert_eq!(numbers, vec![u32::MAX, u32::MAX, u32::MAX, u32::MAX]);
     }
 
     // ── hallucinated extra system (y-band overlap) ──────────────────
