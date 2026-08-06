@@ -190,6 +190,21 @@ fn validate_page_systems(
     Ok(last_number)
 }
 
+/// Enforce the `measure_map.systems_json` column's
+/// `CHECK(length(systems_json) <= 262144)` before a page ever reaches SQLite.
+/// A precise byte-length boundary, factored out so it can be tested directly
+/// against the exact cap rather than only indirectly through a crafted
+/// oversized payload.
+fn check_systems_json_size(page: u32, systems_json: &str) -> rusqlite::Result<()> {
+    if systems_json.len() > MAX_SYSTEMS_JSON_BYTES {
+        return Err(invalid(format!(
+            "page {page}: measure map is too large ({} bytes, max {MAX_SYSTEMS_JSON_BYTES})",
+            systems_json.len()
+        )));
+    }
+    Ok(())
+}
+
 /// Validate one page end-to-end (version, geometry, bar-number continuity,
 /// serialized size) and return its canonical `systems_json` plus the last bar
 /// number seen (for the next page's continuity check).
@@ -206,12 +221,7 @@ fn validate_page(
     }
     let last_number = validate_page_systems(page, &map.systems, carry_in)?;
     let systems_json = json_to_sql(&map.systems)?;
-    if systems_json.len() > MAX_SYSTEMS_JSON_BYTES {
-        return Err(invalid(format!(
-            "page {page}: measure map is too large ({} bytes, max {MAX_SYSTEMS_JSON_BYTES})",
-            systems_json.len()
-        )));
-    }
+    check_systems_json_size(page, &systems_json)?;
     Ok((systems_json, last_number))
 }
 
@@ -300,6 +310,14 @@ impl Store {
             return Err(invalid(
                 "measure map apply needs a non-empty edition fingerprint",
             ));
+        }
+        for row in &pages {
+            if row.page < 1 {
+                return Err(invalid(format!(
+                    "measure map apply payload has an invalid page number {} (pages start at 1)",
+                    row.page
+                )));
+            }
         }
 
         let mut sorted = pages;
@@ -632,6 +650,28 @@ mod tests {
         assert_eq!(store.measure_map_row_count_for_test(1, "fp-a"), 0);
     }
 
+    /// A true byte-length boundary test against the column's
+    /// `CHECK(length(systems_json) <= 262144)`, exercised directly on the
+    /// extracted size guard (crafting a real `MeasureMapPage` whose serialized
+    /// length lands on an exact byte is not reliably controllable through
+    /// float formatting, since serde_json prints floats via their shortest
+    /// round-tripping representation).
+    #[test]
+    fn systems_json_size_cap_is_a_true_byte_boundary() {
+        let at_cap = "x".repeat(MAX_SYSTEMS_JSON_BYTES);
+        assert_eq!(at_cap.len(), MAX_SYSTEMS_JSON_BYTES);
+        assert!(
+            check_systems_json_size(1, &at_cap).is_ok(),
+            "exactly the cap must pass"
+        );
+
+        let over_cap = "x".repeat(MAX_SYSTEMS_JSON_BYTES + 1);
+        assert!(
+            check_systems_json_size(1, &over_cap).is_err(),
+            "one byte over the cap must fail"
+        );
+    }
+
     #[test]
     fn stale_fingerprint_rows_coexist_until_explicitly_cleared() {
         let store = store();
@@ -741,5 +781,100 @@ mod tests {
         let raw = r#"{"page":1,"map":{"version":1,"systems":[{"y_top":0.1,"y_bottom":0.3,"x_left":0.1,"x_right":0.9,"bars":[{"x_right":0.5,"number":1,"source":"model","haunted":true}]}]}}"#;
         let parsed: Result<MeasureMapPageRow, _> = serde_json::from_str(raw);
         assert!(parsed.is_err(), "an unknown bar field must be rejected");
+    }
+
+    /// Two systems on one page whose `y_top` does not strictly increase
+    /// top-to-bottom (the second system is at or above the first) — the
+    /// system-to-system ordering branch, distinct from a single system's own
+    /// `y_top < y_bottom` check.
+    #[test]
+    fn two_systems_with_non_increasing_y_top_are_rejected() {
+        let store = store();
+        let mut two_systems = page(1);
+        // The first system's y_top is 0.1; setting the second system's y_top
+        // to the same value (rather than strictly greater) means the pair is
+        // not ordered top-to-bottom.
+        two_systems.systems[1].y_top = 0.1;
+        two_systems.systems[1].y_bottom = 0.35;
+        assert!(store
+            .measure_map_apply(
+                1,
+                "score/Henle.pdf",
+                "fp-a",
+                vec![MeasureMapPageRow {
+                    page: 1,
+                    map: two_systems
+                }],
+            )
+            .is_err());
+        assert_eq!(store.measure_map_row_count_for_test(1, "fp-a"), 0);
+    }
+
+    /// A system whose `x_left` is not less than its `x_right` — the sibling
+    /// branch to the `y_top`/`y_bottom` inversion check, covered separately.
+    #[test]
+    fn system_x_left_not_less_than_x_right_is_rejected() {
+        let store = store();
+        let mut inverted_x = page(1);
+        inverted_x.systems[0].x_left = 0.9;
+        inverted_x.systems[0].x_right = 0.1;
+        assert!(store
+            .measure_map_apply(
+                1,
+                "score/Henle.pdf",
+                "fp-a",
+                vec![MeasureMapPageRow {
+                    page: 1,
+                    map: inverted_x
+                }],
+            )
+            .is_err());
+        assert_eq!(store.measure_map_row_count_for_test(1, "fp-a"), 0);
+    }
+
+    /// A payload naming the same page number twice must be rejected before
+    /// any row is written, rather than silently keeping only one copy.
+    #[test]
+    fn duplicate_page_in_apply_payload_is_rejected() {
+        let store = store();
+        let pages = vec![
+            MeasureMapPageRow {
+                page: 1,
+                map: page(1),
+            },
+            MeasureMapPageRow {
+                page: 1,
+                map: page(1),
+            },
+        ];
+        assert!(store
+            .measure_map_apply(1, "score/Henle.pdf", "fp-a", pages)
+            .is_err());
+        assert_eq!(store.measure_map_row_count_for_test(1, "fp-a"), 0);
+    }
+
+    /// Page numbers start at 1 (the column's `CHECK(page >= 1)`). This must
+    /// surface as an honest `invalid(...)` message from the pre-transaction
+    /// guard, not a raw SQLite CHECK-constraint error.
+    #[test]
+    fn page_number_zero_is_a_friendly_rejection_not_a_raw_sqlite_error() {
+        let store = store();
+        let error = store
+            .measure_map_apply(
+                1,
+                "score/Henle.pdf",
+                "fp-a",
+                vec![MeasureMapPageRow {
+                    page: 0,
+                    map: page(1),
+                }],
+            )
+            .expect_err("page 0 must be rejected");
+        let message = error.to_string();
+        assert!(
+            message.contains("page") && !message.to_lowercase().contains("check constraint"),
+            "expected a friendly invalid() message, got: {message}"
+        );
+        assert_eq!(store.measure_map_row_count_for_test(1, "fp-a"), 0);
     }
 }
