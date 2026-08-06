@@ -425,22 +425,36 @@ function CalendarDay({
       {progress &&
         (progress.plannedMinutes > 0 || progress.doneMinutes > 0) && (
           <div className="calendar-day-progress">
-            <div className="calendar-day-progress-bar" aria-hidden="true">
+            {/* Fix round 1: two STACKED single-metric tracks (planned above
+                done), not one flex row with two segments. A flex row's
+                default flex-shrink:1 renormalizes inline widths that sum
+                past 100% (any day where planned+done exceeds the week's
+                single-metric max), silently destroying the cross-day
+                comparability the bar exists for — see CalendarWorkspace.css.
+                Stacking sidesteps the sum problem entirely: each track's
+                width is that one metric over weekMaxMinutes, which is by
+                definition >= any single day's planned OR done value, so it
+                can never exceed 100% on its own. */}
+            <div className="calendar-day-progress-bars" aria-hidden="true">
               {progress.plannedMinutes > 0 && (
-                <span
-                  className="calendar-day-progress-planned"
-                  style={{
-                    width: `${(progress.plannedMinutes / weekMaxMinutes) * 100}%`,
-                  }}
-                />
+                <div className="calendar-day-progress-track">
+                  <span
+                    className="calendar-day-progress-planned"
+                    style={{
+                      width: `${plannedVsDonePercent(progress.plannedMinutes, weekMaxMinutes)}%`,
+                    }}
+                  />
+                </div>
               )}
               {progress.doneMinutes > 0 && (
-                <span
-                  className="calendar-day-progress-done"
-                  style={{
-                    width: `${(progress.doneMinutes / weekMaxMinutes) * 100}%`,
-                  }}
-                />
+                <div className="calendar-day-progress-track">
+                  <span
+                    className="calendar-day-progress-done"
+                    style={{
+                      width: `${plannedVsDonePercent(progress.doneMinutes, weekMaxMinutes)}%`,
+                    }}
+                  />
+                </div>
               )}
             </div>
             <p className="calendar-day-progress-text">
@@ -743,4 +757,21 @@ function errorMessage(cause: unknown): string {
   if (typeof cause === "string") return cause;
   if (cause instanceof Error) return cause.message;
   return "Calendar data could not be loaded. Try again.";
+}
+
+/**
+ * Fix round 1: a single day-cell progress track's fill width — one metric
+ * (planned OR done minutes) over the week's single-metric max. `weekMaxMinutes`
+ * is `Math.max(1, ...allPlannedAndDoneValuesInTheWeek)`, so `value` can never
+ * exceed it; `Math.min(100, ...)` is a defensive clamp only (e.g. against a
+ * caller passing a stale/mismatched max), not load-bearing under normal use.
+ * Exported so the exact math that broke as a two-segment flex row (planned +
+ * done summing past 100%) can be pinned directly.
+ */
+export function plannedVsDonePercent(
+  value: number,
+  weekMaxMinutes: number,
+): number {
+  if (weekMaxMinutes <= 0) return 0;
+  return Math.min(100, (value / weekMaxMinutes) * 100);
 }

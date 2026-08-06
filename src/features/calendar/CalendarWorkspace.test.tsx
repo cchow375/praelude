@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CalendarWorkspace } from "./CalendarWorkspace";
+import { CalendarWorkspace, plannedVsDonePercent } from "./CalendarWorkspace";
 import { dayLabel } from "./dates";
 import type { CalendarApi, DailyWork, RecoveryPreview } from "./types";
 import type { HistoryDaySummary } from "../ledger/historyDays";
@@ -387,6 +387,21 @@ describe("CalendarWorkspace", () => {
   });
 });
 
+describe("plannedVsDonePercent (fix round 1)", () => {
+  it("pins the exact broken shape: 20 planned / 20 weekMax -> 100, 14 done / 20 weekMax -> 70", () => {
+    expect(plannedVsDonePercent(20, 20)).toBe(100);
+    expect(plannedVsDonePercent(14, 20)).toBe(70);
+  });
+
+  it("never exceeds 100 even if a value somehow exceeds weekMaxMinutes (defensive clamp)", () => {
+    expect(plannedVsDonePercent(45, 20)).toBe(100);
+  });
+
+  it("returns 0 for a non-positive weekMaxMinutes instead of dividing by zero", () => {
+    expect(plannedVsDonePercent(10, 0)).toBe(0);
+  });
+});
+
 describe("CalendarWorkspace — planned-vs-done day cells (Task B3)", () => {
   function daySheet(date: string, minutes: number): DaySheet {
     return {
@@ -458,7 +473,47 @@ describe("CalendarWorkspace — planned-vs-done day cells (Task B3)", () => {
     const { weekday, date: monthDay } = dayLabel("2026-07-16");
     const cell = screen.getByLabelText(`${weekday} ${monthDay}`);
     expect(within(cell).queryByText(/planned ·/)).toBeNull();
-    expect(cell.querySelector(".calendar-day-progress-bar")).toBeNull();
+    expect(cell.querySelector(".calendar-day-progress-bars")).toBeNull();
+  });
+
+  it("fix round 1: a day whose planned+done exceeds weekMaxMinutes still renders each track's own fill ≤100%, unshrunk (the exact fixture that broke as a single flex row: 20 planned + 14 done, week max 20)", async () => {
+    const api = makeApi({
+      // Only 2026-07-15 has data, so weekMaxMinutes = max(20, 14) = 20 — the
+      // single-metric max, not the 34-minute sum. Under the old two-segment
+      // flex row this made planned+done = 170% of the bar, which the browser
+      // (not jsdom) proportionally shrank back to 100%, destroying the
+      // cross-day scale. The stacked-track fix computes each metric against
+      // weekMaxMinutes independently, so neither can exceed 100% by
+      // construction — asserted directly on the rendered inline widths here.
+      historyDays: vi
+        .fn()
+        .mockResolvedValue([daySummary("2026-07-15", 14 * 60, 3)]),
+      daySheetsRange: vi.fn().mockResolvedValue([daySheet("2026-07-15", 20)]),
+    });
+    render(<CalendarWorkspace api={api} initialToday="2026-07-15" />);
+
+    const cell = (await screen.findByText("20 planned · 14 done")).closest(
+      "section",
+    )!;
+    const plannedFill = cell.querySelector<HTMLElement>(
+      ".calendar-day-progress-planned",
+    )!;
+    const doneFill = cell.querySelector<HTMLElement>(
+      ".calendar-day-progress-done",
+    )!;
+    // Each track is its OWN bar (not two segments sharing one bar), so the
+    // right assertion is per-bar <=100%, not sum<=100%.
+    expect(plannedFill.style.width).toBe("100%"); // 20 / weekMax(20) * 100
+    expect(doneFill.style.width).toBe("70%"); // 14 / weekMax(20) * 100
+    const plannedPct = Number.parseFloat(plannedFill.style.width);
+    const donePct = Number.parseFloat(doneFill.style.width);
+    expect(plannedPct).toBeLessThanOrEqual(100);
+    expect(donePct).toBeLessThanOrEqual(100);
+    // The two tracks are separate elements, not siblings inside one flex row
+    // that would renormalize their widths.
+    expect(plannedFill.closest(".calendar-day-progress-track")).not.toBe(
+      doneFill.closest(".calendar-day-progress-track"),
+    );
   });
 
   it("renders a sheet-but-no-practice day and a practice-but-no-sheet day with exact numbers", async () => {

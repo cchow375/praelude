@@ -261,19 +261,39 @@
   flex-direction: column;
   gap: 3px;
 }
-.calendar-day-progress-bar {
+/* Fix round 1: TWO STACKED single-metric tracks (planned above done), not one
+   flex row with two width-styled segments. The prior flex-row shape left
+   `.calendar-day-progress-planned`/`-done` at the default `flex-shrink: 1`
+   inside a `display: flex` bar — any day where planned+done minutes exceeded
+   `weekMaxMinutes` (routine: the fixtures alone hit 170%/184%) got both
+   segments proportionally shrunk by the browser to sum to 100%, silently
+   destroying the cross-day comparability the bar exists for. jsdom's layout
+   engine cannot see flex-shrink math, so no test caught it.
+   Stacking sidesteps the sum problem entirely: each track renders ONE metric
+   against `weekMaxMinutes` (see `plannedVsDonePercent` in
+   CalendarWorkspace.tsx), which by definition is >= any single day's planned
+   OR done value alone, so a track's own fill can never need to shrink. */
+.calendar-day-progress-bars {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.calendar-day-progress-track {
   overflow: hidden;
-  height: 5px;
+  height: 3px;
   border-radius: var(--radius-pill);
   background: var(--surface-hover);
 }
-.calendar-day-progress-planned {
+.calendar-day-progress-planned,
+.calendar-day-progress-done {
+  display: block;
   height: 100%;
+  border-radius: inherit;
+}
+.calendar-day-progress-planned {
   background: var(--ink-faint);
 }
 .calendar-day-progress-done {
-  height: 100%;
   background: var(--success);
 }
 .calendar-day-progress-text {
