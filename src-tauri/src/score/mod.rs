@@ -1,5 +1,6 @@
 //! Secure, read-only access to the real PDF editions inside one vault piece.
 
+pub mod measure_reconcile;
 pub mod measure_scan;
 pub mod page_cache;
 pub mod page_image;

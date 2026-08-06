@@ -1237,6 +1237,70 @@ async fn measure_scan_page(
     .map_err(|e| format!("measure scan worker failed: {e}"))?
 }
 
+/// One page's input to [`measure_reconcile`]: the page number paired with its
+/// raw vision scan. The wire shape of `pages_json`'s array elements.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReconcilePageInput {
+    page: u32,
+    scan: score::measure_scan::ScanPageOutput,
+}
+
+/// Deterministically reconcile a set of page scans into a typed measure map
+/// (Plan C, task C3). Pure reconciliation is `score::measure_reconcile::reconcile`;
+/// this command only resolves its two optional inputs around that pure
+/// function — the piece's MusicXML totals (absent MusicXML -> `None`, the
+/// reconciliation still runs, just without the total-vs-XML check) and the
+/// edition's saved calibration anchors (absent calibration -> no anchors) —
+/// and returns the result straight back to the frontend. Nothing is written
+/// to storage here; `measure_map` is only ever changed by an explicit user
+/// Apply (`measure_map_apply`).
+#[tauri::command]
+async fn measure_reconcile(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    pages_json: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<score::measure_reconcile::ReconcileResult, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let inputs: Vec<ReconcilePageInput> = serde_json::from_str(&pages_json)
+            .map_err(|e| format!("measure reconcile pages are not valid JSON: {e}"))?;
+        let pages = inputs.into_iter().map(|p| (p.page, p.scan)).collect();
+
+        let xml = brain::score_xml_measure_facts(&store, piece_id)
+            .ok()
+            .and_then(|facts| {
+                facts
+                    .max_measure
+                    .map(|max_measure| score::measure_reconcile::XmlTotals {
+                        max_measure,
+                        has_pickup: facts.has_pickup,
+                    })
+            });
+
+        let anchors = store
+            .score_calibration_get(piece_id, &edition_id, &edition_fingerprint)
+            .map_err(|e| e.to_string())?
+            .map(|calibration| {
+                calibration
+                    .points
+                    .into_iter()
+                    .map(|point| score::measure_reconcile::CalibrationAnchor {
+                        page: point.page as u32,
+                        measure: point.measure as u32,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(score::measure_reconcile::reconcile(pages, xml, anchors))
+    })
+    .await
+    .map_err(|e| format!("measure reconcile worker failed: {e}"))?
+}
+
 // ── Practice Notebook: day sheets + per-piece long-term plans (spec §C2) ────
 
 /// Read the Practice Notebook day sheet for `date`, or `null` when none has been
@@ -2209,6 +2273,7 @@ pub fn run() {
             measure_map_apply,
             measure_map_clear,
             measure_scan_page,
+            measure_reconcile,
             day_sheet_get,
             day_sheet_save,
             piece_plan_get,

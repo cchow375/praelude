@@ -50,7 +50,7 @@ pub const SCAN_PAGE_JPEG_MAX_BYTES: usize = 8 * 1024 * 1024;
 /// is parsed verbatim into [`ScanPageOutput`] (`#[serde(deny_unknown_fields)]`)
 /// — a future v2 prompt must be its own constant rather than silently
 /// drifting this one out of sync with the type it feeds.
-const SCAN_PAGE_PROMPT_V1: &str = r#"You are a precise sheet-music page scanner. You are given one page image of a piano score. Your ONLY job is to report the geometry of the printed systems and bar lines — never to interpret, perform, or grade the music.
+pub(crate) const SCAN_PAGE_PROMPT_V1: &str = r#"You are a precise sheet-music page scanner. You are given one page image of a piano score. Your ONLY job is to report the geometry of the printed systems and bar lines — never to interpret, perform, or grade the music.
 
 Coordinate system: every coordinate is a fraction of the page image, 0.0 to 1.0, with the origin (0,0) at the TOP-LEFT corner and (1,1) at the bottom-right corner. x increases rightward, y increases downward.
 
