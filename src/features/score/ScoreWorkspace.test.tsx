@@ -319,4 +319,33 @@ describe("ScoreWorkspace — goals banner (A11)", () => {
     ).toBeTruthy();
     expect(screen.queryByTestId("score-banner")).toBeNull();
   });
+
+  // Fix wave item 11 (live-QA finding): ScoreBanner and ScoreView used to
+  // BOTH carry `key={selectedId}` as siblings under the same pane — React
+  // warns "two children with the same key" on every mount/piece-switch
+  // regardless of the two components being different types. ScoreView keeps
+  // its key deliberately (a fresh mount per piece resets PDF/tool state);
+  // ScoreBanner does not need one (it resets its own state via a
+  // `[pieceId]` effect), so this pins that only ScoreView's key survives.
+  it("does not warn about a duplicate React key between the banner and the score view", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    invokeMock.mockImplementation((command: string, args?: unknown) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      if (command === "piece_get") {
+        const id = ((args ?? {}) as { id?: number }).id;
+        return Promise.resolve({ id, banner_text: "One goal" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    render(<ScoreWorkspace />);
+    await screen.findByTestId("score-view-stub");
+    await screen.findByTestId("score-banner");
+
+    const keyWarning = errorSpy.mock.calls.some((args) =>
+      String(args[0]).includes("same key"),
+    );
+    expect(keyWarning).toBe(false);
+    errorSpy.mockRestore();
+  });
 });
