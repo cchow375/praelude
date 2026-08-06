@@ -1,7 +1,11 @@
 import { useEffect, useRef } from "react";
 import { DockPanel } from "./DockPanel";
 import { useDock } from "./DockProvider";
-import { NAV_RAIL_WIDTH } from "./dockState";
+import {
+  DENSE_LAYOUT_FLOOR,
+  dockPanelMaxHeight,
+  NAV_RAIL_WIDTH,
+} from "./dockState";
 import { RepHud, type RepHudProps } from "../rep/RepHud";
 
 /** Fix wave item 9: the previous `x: 24` sat INSIDE the 148px-wide nav rail
@@ -19,13 +23,16 @@ export const DEFAULT_POSITION = { x: NAV_RAIL_WIDTH + 12, y: 16 };
  * 720x520 dense-layout floor: 720 - 2*24 = 672px available, well above 440. */
 export const PANEL_WIDTH = 440;
 
-/** Fix wave item 9: a documented, conservative CEILING on RepHud's real
- * rendered height (verdict buttons + streak line + metrics grid + drawer) —
- * not a measurement (jsdom always reports zero layout), just enough for the
- * OTHER dock panels' own default `y` to be picked clear of it so an
- * auto-opened rep panel and a manually-opened paused-sets tray don't start
- * stacked on top of one another at the 720x520 floor. */
-export const ASSUMED_MAX_HEIGHT = 260;
+/** Residuals fix wave (defect 2, "rep panel overlaps tray"): this used to be
+ * a documented GUESS at RepHud's real rendered height (260px) — live QA
+ * showed the real expanded drawer (verdict buttons + streak line + metrics
+ * grid + drawer) is ~450-500px, well past that guess, which is what let an
+ * auto-opened rep panel run into the paused-sets tray's default position.
+ * It is no longer a guess: `.dock-panel`'s CSS `max-height` (dock.css)
+ * ENFORCES this ceiling — content past it scrolls internally
+ * (`.dock-panel-body { overflow-y: auto }`) instead of growing outward — so
+ * this constant and the real rendered height can never disagree. */
+export const ASSUMED_MAX_HEIGHT = dockPanelMaxHeight(DENSE_LAYOUT_FLOOR.height);
 
 /**
  * Task A3: the rep HUD's shell-level dock host. RepHud's own render/logic is

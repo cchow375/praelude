@@ -477,6 +477,25 @@ export function useRep(): UseRep {
   const [error, setError] = useState<string | null>(null);
   const receipts = useReceipts();
 
+  // Residuals fix wave (defect 3, "rep elapsed-time stale ~10s around
+  // pause/resume"): `active_seconds` only ever changed when a fresh snapshot
+  // landed (a mutation's receipt, or the 15s checkpoint interval below) — the
+  // HUD showed a flat number between those, so right after a pause/resume the
+  // readout looked "stuck" for up to ~10-15s until the next snapshot bumped
+  // it. This anchors a locally-ticking display value to the LAST authoritative
+  // `active_seconds` + the wall-clock moment it landed, so it advances
+  // smoothly every second instead of only on receipt. The anchor is reset
+  // inside `applySnapshot` below — the ONE seam both this hook's own
+  // mutations AND `applyExternalReceipt` (the paused-sets tray's resume) flow
+  // through — so a resume's fresh snapshot re-anchors immediately instead of
+  // the display continuing to extrapolate from a now-stale base.
+  const activeSecondsAnchor = useRef<{
+    base: number;
+    at: number;
+    ticking: boolean;
+  }>({ base: 0, at: Date.now(), ticking: false });
+  const [elapsedTick, setElapsedTick] = useState(0);
+
   const snapRef = useRef<RepSnapshot | null>(null);
   const errorTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const announcedAttempts = useRef(new Set<string>());
@@ -544,9 +563,32 @@ export function useRep(): UseRep {
       }
       snapRef.current = next;
       setSnap(next);
+      // Residuals fix wave (defect 3): re-anchor the ticking elapsed display
+      // to THIS authoritative snapshot the instant it lands — same seam every
+      // snapshot (own mutations, the event stream, and applyExternalReceipt)
+      // already funnels through, no parallel state.
+      activeSecondsAnchor.current = {
+        base: next?.active_seconds ?? 0,
+        at: Date.now(),
+        ticking:
+          next != null &&
+          (next.timer_state ??
+            (next.set_state === "active" ? "active" : "")) === "active",
+      };
     },
     [publishAttemptReceipt],
   );
+
+  // Ticks the elapsed-time display once a second while the anchor above is
+  // "live" (an active timing interval) — purely cosmetic re-render, same
+  // pattern as ClockPanel/SessionBar's own `now` tick; the anchor's `base` +
+  // `at` stay the source of truth so this never drifts from what the backend
+  // last durably confirmed.
+  useEffect(() => {
+    if (!activeSecondsAnchor.current.ticking) return undefined;
+    const id = window.setInterval(() => setElapsedTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [snap?.block_id, snap?.timer_state, snap?.set_state]);
 
   const showError = useCallback((msg: string) => {
     setError(msg);
@@ -1323,8 +1365,27 @@ export function useRep(): UseRep {
     [applySnapshot],
   );
 
+  // Residuals fix wave (defect 3): overlay the ticking `active_seconds` onto
+  // the returned snapshot — `elapsedTick` (bumped once a second while the
+  // anchor is live) is this render's only reason to recompute it. Everything
+  // BUT `active_seconds` still comes straight from the authoritative `snap`;
+  // this is a display-only derivation, never written back to `snapRef`/state,
+  // so it can never itself become the "prev" a future `applySnapshot` diffs
+  // against.
+  void elapsedTick;
+  const anchor = activeSecondsAnchor.current;
+  const displaySnap: RepSnapshot | null = snap
+    ? {
+        ...snap,
+        active_seconds: anchor.ticking
+          ? anchor.base +
+            Math.max(0, Math.floor((Date.now() - anchor.at) / 1000))
+          : (snap.active_seconds ?? anchor.base),
+      }
+    : null;
+
   return {
-    snap,
+    snap: displaySnap,
     feed,
     error,
     clearError,

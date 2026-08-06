@@ -39,7 +39,11 @@ export const DEFAULT_POSITION = {
 
 /** Fix wave item 9: same spirit as RepPanel's `ASSUMED_MAX_HEIGHT` — a
  * documented ceiling (not a measurement) for the tray's own rendered height,
- * so the clock panel's default can in turn clear IT. */
+ * so the clock panel's default can in turn clear IT. The tray's real content
+ * (a short list of paused-set rows) stays well under this regardless; it is
+ * ALSO bounded above by the same enforced `.dock-panel` CSS max-height every
+ * panel gets (dockState.ts's `dockPanelMaxHeight`) — residuals fix wave,
+ * defect 2 — so this stacking budget can never be exceeded by either. */
 export const ASSUMED_MAX_HEIGHT = 140;
 
 export interface PausedSetsTrayProps {

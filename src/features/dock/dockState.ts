@@ -71,20 +71,28 @@ export function defaultPanelState(
   };
 }
 
-/** Clamp a candidate (x, y) so at least MIN_VISIBLE_PX of the panel stays
+/** Clamp a candidate (x, y) so at least `minVisible` px of the panel stays
  * on screen in every direction, given the panel's own size and the current
  * viewport. Pure — the caller supplies both sizes so this never touches
- * `window` (jsdom has no real layout, so tests inject fixed numbers). */
+ * `window` (jsdom has no real layout, so tests inject fixed numbers).
+ *
+ * `minVisible` defaults to MIN_VISIBLE_PX (the drag/keyboard-nudge floor —
+ * a user actively dragging only needs enough of the panel left reachable to
+ * grab it back). Residuals fix wave: the become-visible path (mount-open,
+ * pill-restore, open()) uses the larger MIN_VISIBLE_ON_OPEN_PX floor instead
+ * — see DockPanel.tsx — because a panel a user did not just finish dragging
+ * must show its title bar AND a first row of content, not just a sliver. */
 export function clampPosition(
   x: number,
   y: number,
   size: Size,
   viewport: Size,
+  minVisible: number = MIN_VISIBLE_PX,
 ): { x: number; y: number } {
-  const minX = MIN_VISIBLE_PX - size.width;
-  const maxX = viewport.width - MIN_VISIBLE_PX;
-  const minY = MIN_VISIBLE_PX - size.height;
-  const maxY = viewport.height - MIN_VISIBLE_PX;
+  const minX = minVisible - size.width;
+  const maxX = viewport.width - minVisible;
+  const minY = minVisible - size.height;
+  const maxY = viewport.height - minVisible;
   return {
     // When the panel is larger than the viewport allows for a valid range
     // (max < min), prefer keeping the panel fully anchored at min.
@@ -92,6 +100,79 @@ export function clampPosition(
     y: Math.min(Math.max(y, minY), Math.max(minY, maxY)),
   };
 }
+
+/** Residuals fix wave (defect 1, "clock opens off-screen"): the floor used
+ * the FIRST time a panel becomes visible (mount already-open, pill-restore
+ * click, or a programmatic `open()`) — deliberately larger than the drag
+ * floor (MIN_VISIBLE_PX) so the panel's title bar AND at least one row of
+ * body content land on screen, not just enough of it to grab with a mouse. */
+export const MIN_VISIBLE_ON_OPEN_PX = 132;
+
+/** Residuals fix wave (defect 2, "rep panel overlaps tray"): the vertical
+ * budget any SINGLE dock panel's body is allowed at the 720x520 dense-layout
+ * floor, mirrored by `.dock-panel`'s CSS `max-height` (dock.css) — past this
+ * the body scrolls internally (`.dock-panel-body { overflow-y: auto }`)
+ * instead of the panel growing past its clamp box. This is what makes
+ * default-position stacking math "honest": earlier code guessed at a real
+ * rendered height (RepPanel's old `ASSUMED_MAX_HEIGHT = 260`, which live QA
+ * showed undershot the real ~450-500px drawer); now the number IS the
+ * ceiling, enforced by CSS, not a guess about content that can grow past it. */
+export const DOCK_PANEL_HEIGHT_MARGIN_PX = 220;
+
+/** The `.dock-panel` max-height at a given viewport height, mirroring the
+ * CSS `calc(100vh - ${DOCK_PANEL_HEIGHT_MARGIN_PX}px)` rule in dock.css.
+ * Exported so default-position math (RepPanel/PausedSetsTray/ClockPanel) and
+ * tests derive from the SAME number the CSS actually enforces. */
+export function dockPanelMaxHeight(viewportHeight: number): number {
+  return Math.max(120, viewportHeight - DOCK_PANEL_HEIGHT_MARGIN_PX);
+}
+
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Pure axis-aligned-rectangle intersection test. */
+export function rectsIntersect(a: Rect, b: Rect): boolean {
+  return (
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y
+  );
+}
+
+/** Residuals fix wave (defect 2): when a panel becomes visible, its
+ * viewport-clamped candidate rect can still land on top of another panel
+ * that is ALREADY visible (e.g. the rep panel's real drawer height eating
+ * most of the 720x520 floor before the paused-sets tray opens below it).
+ * Pushes the candidate below the bottom-most rect it collides with, then
+ * re-clamps to the viewport with a smaller (but still non-zero) visibility
+ * floor — no rect intersection wins over the "nice to have" open-visibility
+ * floor when the two conflict, because a silently-overlapped panel is worse
+ * than a clamped one that only shows a sliver until dragged. Pure. */
+export function resolveCollision(
+  candidate: Rect,
+  others: Rect[],
+  viewport: Size,
+  minVisible: number = MIN_VISIBLE_PX,
+): { x: number; y: number } {
+  let y = candidate.y;
+  for (const other of others) {
+    if (rectsIntersect({ ...candidate, y }, other)) {
+      y = Math.max(y, other.y + other.height + PANEL_STACK_GAP_PX);
+    }
+  }
+  const maxY = viewport.height - minVisible;
+  const minY = minVisible - candidate.height;
+  y = Math.min(Math.max(y, minY), Math.max(minY, maxY));
+  return { x: candidate.x, y };
+}
+
+/** Gap kept between two panels stacked by `resolveCollision`. */
+export const PANEL_STACK_GAP_PX = 8;
 
 /** Immutably merge `updates` into panel `id`, creating it from `fallback`
  * defaults first if it does not exist yet. */
@@ -111,6 +192,12 @@ export function withPanel(
  * dock's pure layer stays framework-agnostic; DockPanel-hosting components
  * cross-check against it in their own default-position tests. */
 export const NAV_RAIL_WIDTH = 148;
+
+/** The minimum window size every dock surface must stay usable at (repeated
+ * throughout this feature's tests/comments as "the 720x520 dense-layout
+ * floor"). Exported so default-position math has one canonical source for
+ * the number instead of several modules hardcoding `720`/`520` separately. */
+export const DENSE_LAYOUT_FLOOR: Size = { width: 720, height: 520 };
 
 /** Fix wave item 6: minimized/closed panels used to all pin to the exact
  * same fixed bottom-right coordinates (dock.css) — with more than one pill

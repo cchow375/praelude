@@ -16,6 +16,7 @@ import {
   withPanel,
   type DockPanelState,
   type DockState,
+  type Rect,
 } from "./dockState";
 
 interface DockContextValue {
@@ -38,6 +39,23 @@ interface DockContextValue {
    * countdown completing in the background is the whole point) and is a
    * pure visual pulse — it never opens/focuses the panel itself. */
   flash: (id: string) => void;
+  /** Residuals fix wave (defect 2): each visible DockPanel reports its own
+   * measured screen rect here after every paint (a ref, not `state` — purely
+   * ephemeral, never persisted, and mutating it must never itself trigger a
+   * re-render). `null` clears a panel's rect when it stops being visible. */
+  reportRect: (id: string, rect: Rect | null) => void;
+  /** Every OTHER currently-visible panel's last-reported rect, for the
+   * become-visible collision check (see dockState.ts's `resolveCollision`). */
+  getOtherRects: (id: string) => Rect[];
+  /** Residuals fix wave (defect 4, "pill occludes page content"): the real
+   * `#dock-pill-bar` shell layout element (DockPillBar.tsx) a pill portals
+   * into once it exists, so pills live as normal flow content in a reserved
+   * bottom row instead of a `position: fixed` overlay that can sit on top of
+   * whatever real content happens to render underneath it. `null` when no
+   * bar is mounted (any DockPanel rendered standalone, e.g. in a test) — the
+   * pill then falls back to its old fixed-position rendering. */
+  pillBarNode: HTMLElement | null;
+  setPillBarNode: (node: HTMLElement | null) => void;
 }
 
 /** How long a pill stays in its "flashing" visual state after `flash(id)`. */
@@ -108,6 +126,21 @@ export function DockProvider({ children }: { children: ReactNode }) {
     }, FLASH_DURATION_MS);
   }, []);
 
+  // Ephemeral, non-persisted, non-reactive: a plain ref, not `state` —
+  // updating it must never itself cause a re-render (every DockPanel reports
+  // its own rect on every paint while visible).
+  const rectsRef = useRef<Record<string, Rect | null>>({});
+  const reportRect = useCallback((id: string, rect: Rect | null) => {
+    rectsRef.current[id] = rect;
+  }, []);
+  const getOtherRects = useCallback((id: string): Rect[] => {
+    return Object.entries(rectsRef.current)
+      .filter(([key, rect]) => key !== id && rect != null)
+      .map(([, rect]) => rect as Rect);
+  }, []);
+
+  const [pillBarNode, setPillBarNode] = useState<HTMLElement | null>(null);
+
   const value = useMemo<DockContextValue>(
     () => ({
       state,
@@ -119,8 +152,25 @@ export function DockProvider({ children }: { children: ReactNode }) {
       focus,
       move,
       flash,
+      reportRect,
+      getOtherRects,
+      pillBarNode,
+      setPillBarNode,
     }),
-    [state, ensurePanel, getPanel, open, close, minimize, focus, move, flash],
+    [
+      state,
+      ensurePanel,
+      getPanel,
+      open,
+      close,
+      minimize,
+      focus,
+      move,
+      flash,
+      reportRect,
+      getOtherRects,
+      pillBarNode,
+    ],
   );
 
   return <DockContext.Provider value={value}>{children}</DockContext.Provider>;

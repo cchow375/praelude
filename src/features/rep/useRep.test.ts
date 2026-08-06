@@ -1888,4 +1888,58 @@ describe("useRep — IPC wiring", () => {
 
     expect(result.current.snap).toBeNull();
   });
+
+  it("resets the ticking elapsed-time anchor when an external receipt lands (residuals fix wave, defect 3)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useRep(), {
+        wrapper: receiptWrapper,
+      });
+      // Flush the mount effect's `listen`/`rep_state` microtasks without
+      // testing-library's `waitFor` polling loop, which relies on a real
+      // `setTimeout` that fake timers here intentionally never fire on their
+      // own (only `vi.advanceTimersByTime` below does).
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(listenMock).toHaveBeenCalled();
+
+      const resumed = makeSnap({
+        block_id: 42,
+        timer_state: "active",
+        set_state: "active",
+        active_seconds: 500,
+      });
+      act(() => {
+        result.current.applyExternalReceipt({
+          receipt_id: "receipt:external-resume:anchor",
+          command_id: "native:resume:anchor",
+          status: "committed",
+          summary: "Practice resumed.",
+          value: resumed,
+          entity_refs: [{ entity_type: "set", entity_id: 42 }],
+          event_ids: [],
+          undo_action: null,
+          error_code: null,
+          error_detail: null,
+          replayed: false,
+          committed_ts: "2026-08-05T12:00:00Z",
+        });
+      });
+
+      // The very next render already reflects the fresh receipt's
+      // active_seconds — no stale value carried over from before.
+      expect(result.current.snap?.active_seconds).toBe(500);
+
+      // On the next tick, the display advances from the FRESH anchor (500),
+      // not from whatever a stale prior anchor would have extrapolated.
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(result.current.snap?.active_seconds).toBe(501);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

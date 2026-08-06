@@ -2,12 +2,16 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   DOCK_STORAGE_KEY,
   MIN_PANEL_WIDTH,
+  MIN_VISIBLE_ON_OPEN_PX,
   PANEL_WIDTH_EDGE_MARGIN,
   clampPanelWidth,
   clampPosition,
   defaultPanelState,
+  dockPanelMaxHeight,
   loadDockState,
   raiseZ,
+  rectsIntersect,
+  resolveCollision,
   saveDockState,
   withPanel,
   type DockState,
@@ -56,6 +60,91 @@ describe("clampPosition", () => {
     const size = { width: 260, height: 200 };
     const viewport = { width: 720, height: 520 };
     expect(clampPosition(100, 80, size, viewport)).toEqual({ x: 100, y: 80 });
+  });
+});
+
+describe("clampPosition with a custom minVisible (residuals fix wave, defect 1)", () => {
+  it("keeps a much larger portion of the panel on screen than the drag floor", () => {
+    const size = { width: 260, height: 200 };
+    const viewport = { width: 720, height: 520 };
+    // The clock's real off-screen-open bug: y near the bottom of a 520-tall
+    // viewport, well past what the OLD 48px drag floor would have caught.
+    const { y } = clampPosition(0, 464, size, viewport, MIN_VISIBLE_ON_OPEN_PX);
+    expect(y).toBe(520 - MIN_VISIBLE_ON_OPEN_PX);
+    expect(y).toBeLessThan(464);
+  });
+
+  it("defaults to MIN_VISIBLE_PX (48) when no minVisible is passed, unchanged from before", () => {
+    const size = { width: 260, height: 200 };
+    const viewport = { width: 720, height: 520 };
+    expect(clampPosition(5000, 5000, size, viewport)).toEqual({
+      x: 672,
+      y: 472,
+    });
+  });
+});
+
+describe("dockPanelMaxHeight (residuals fix wave, defect 2)", () => {
+  it("caps a panel's height well under the 720x520 dense-layout floor, leaving room to stack another panel below it", () => {
+    const cap = dockPanelMaxHeight(520);
+    expect(cap).toBeLessThan(520);
+    expect(cap).toBeGreaterThan(0);
+  });
+
+  it("never drops below a usable floor even on a very short viewport", () => {
+    expect(dockPanelMaxHeight(100)).toBeGreaterThanOrEqual(120);
+  });
+});
+
+describe("rectsIntersect", () => {
+  it("detects overlap between two rects", () => {
+    expect(
+      rectsIntersect(
+        { x: 0, y: 0, width: 100, height: 100 },
+        { x: 50, y: 50, width: 100, height: 100 },
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for rects that only touch at an edge", () => {
+    expect(
+      rectsIntersect(
+        { x: 0, y: 0, width: 100, height: 100 },
+        { x: 100, y: 0, width: 100, height: 100 },
+      ),
+    ).toBe(false);
+  });
+
+  it("returns false for rects with no overlap at all", () => {
+    expect(
+      rectsIntersect(
+        { x: 0, y: 0, width: 10, height: 10 },
+        { x: 500, y: 500, width: 10, height: 10 },
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("resolveCollision (residuals fix wave, defect 2)", () => {
+  it("pushes a candidate below a colliding rect", () => {
+    const rep = { x: 160, y: 16, width: 440, height: 300 };
+    const trayCandidate = { x: 160, y: 340, width: 260, height: 40 };
+    const resolved = resolveCollision(trayCandidate, [rep], {
+      width: 720,
+      height: 520,
+    });
+    expect(rectsIntersect({ ...trayCandidate, ...resolved }, rep)).toBe(false);
+    expect(resolved.y).toBeGreaterThanOrEqual(rep.y + rep.height);
+  });
+
+  it("leaves a non-colliding candidate untouched", () => {
+    const rep = { x: 160, y: 16, width: 440, height: 300 };
+    const clockCandidate = { x: 160, y: 400, width: 260, height: 40 };
+    const resolved = resolveCollision(clockCandidate, [rep], {
+      width: 720,
+      height: 520,
+    });
+    expect(resolved).toEqual({ x: clockCandidate.x, y: clockCandidate.y });
   });
 });
 

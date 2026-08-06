@@ -12,6 +12,16 @@
    * live viewport via clampPanelWidth — see dockState.ts). This is a pure
    * belt-and-suspenders backstop, not the primary clamp. */
   max-width: calc(100vw - 2 * var(--s-3));
+  /* Residuals fix wave (defect 2, "rep panel overlaps tray"): the primary
+   * height clamp is the inline style DockPanel.tsx sets from
+   * `dockPanelMaxHeight()` (dockState.ts) — this is the same rule as a CSS
+   * backstop, so ANY panel's body scrolls internally past this ceiling
+   * instead of growing outward and overlapping whatever is stacked below it.
+   * `display: flex` + the body's `flex: 1 1 auto; overflow-y: auto` below is
+   * what actually makes the scrolling happen — the title bar stays fixed. */
+  max-height: calc(100vh - 220px);
+  display: flex;
+  flex-direction: column;
   background: var(--bg-raised);
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
@@ -37,6 +47,9 @@
   cursor: grab;
   touch-action: none;
   user-select: none;
+  /* Stays put while the body below scrolls (see `.dock-panel-body`) — the
+   * title bar (drag handle, minimize, close) must always stay reachable. */
+  flex-shrink: 0;
 }
 
 .dock-panel-titlebar:active {
@@ -79,6 +92,14 @@
 
 .dock-panel-body {
   padding: var(--s-3);
+  /* Residuals fix wave (defect 2): the panel's real content can exceed
+   * `.dock-panel`'s max-height (e.g. RepHud's verdict buttons + streak line +
+   * metrics grid + drawer at the 720x520 dense-layout floor) — it scrolls
+   * internally here instead of the panel growing past its clamp and
+   * overlapping another panel stacked below it. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* Subdued placeholder body when a panel has nothing live to show (e.g. no
@@ -90,13 +111,16 @@
   text-align: center;
 }
 
-/* Minimized form: a small pinned pill with just the title + restore
-   affordance. Pills stack near the bottom edge; the shell task (A3) can add
-   layout for multiple simultaneous pills. */
+/* Minimized form: a small restore affordance. Residuals fix wave (defect 4,
+ * "pill occludes page content"): pills now live as normal flow content
+ * inside `.dock-pill-bar` (a real shell layout row, portaled into from
+ * DockPanel.tsx) rather than a `position: fixed` overlay — a fixed pill
+ * could sit on top of real page content (a day sheet's carry-forward button
+ * at the 720x520 dense-layout floor, in live QA) with no scrolling involved,
+ * which no amount of scroll-container padding can fix; a real layout row
+ * shrinks the scroll container's own available height instead, so nothing
+ * can ever render underneath it. */
 .dock-pill {
-  position: fixed;
-  right: var(--s-3);
-  bottom: var(--s-3);
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
@@ -109,6 +133,39 @@
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   cursor: pointer;
+}
+
+/* Fallback ONLY for a DockPanel rendered without a `<DockPillBar />`
+ * mounted anywhere in the tree (e.g. a standalone test) — keeps that usable
+ * on its own, same fixed-position/stacked-by-index behavior as before this
+ * fix wave. Never used when the shell's real bar is present. */
+.dock-pill--fixed-fallback {
+  position: fixed;
+  right: var(--s-3);
+}
+
+/* The real shell layout row pills portal into (DockPillBar.tsx) — a grid
+ * row at the bottom of `.shell` (shell.css), always mounted so there is
+ * always a portal target, but visually collapses to nothing when it has no
+ * pills so it never reserves dead space of its own. */
+.dock-pill-bar {
+  /* Matches shell.css's `.shell` grid explicitly (column 2, row 3) — same
+   * pattern as `.shell-topbar`/`.shell-stage`, which also place themselves
+   * rather than relying on CSS grid auto-placement. */
+  grid-column: 2;
+  grid-row: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-top: 1px solid var(--hairline);
+  background: var(--bg);
+}
+
+.dock-pill-bar:empty {
+  border-top: none;
+  padding: 0;
 }
 
 .dock-pill:hover {

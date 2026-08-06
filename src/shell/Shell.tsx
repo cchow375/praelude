@@ -35,6 +35,7 @@ import { DockProvider } from "../features/dock/DockProvider";
 import { RepPanel } from "../features/dock/RepPanel";
 import { PausedSetsTray } from "../features/dock/PausedSetsTray";
 import { ClockPanel } from "../features/dock/ClockPanel";
+import { DockPillBar } from "../features/dock/DockPillBar";
 import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
 import { useVoice } from "../features/voice/useVoice";
@@ -1079,6 +1080,8 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
           )}
         </Suspense>
       </main>
+
+      <DockPillBar />
 
       {(pendingBrainAction || pendingVoiceDraft) && (
         <div style={VOICE_DRAFT_STYLE} className="voice-command-surface">

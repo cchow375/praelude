@@ -1,14 +1,19 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   clampPanelWidth,
   clampPosition,
+  dockPanelMaxHeight,
   pillStackIndex,
+  resolveCollision,
+  MIN_VISIBLE_ON_OPEN_PX,
   PILL_STACK_STEP_PX,
   type Size,
 } from "./dockState";
@@ -92,6 +97,71 @@ export function DockPanel({
     [ctx, id, panelSize],
   );
 
+  const isVisible = panel.open && !panel.minimized;
+
+  // Residuals fix wave (defect 1, "clock opens off-screen" / defect 2, "rep
+  // panel overlaps tray"): the CLASS fix — whenever this panel transitions
+  // to visible (mount already-open from localStorage, a pill-restore click,
+  // or a programmatic `open()`), re-clamp its position against the CURRENT
+  // viewport using its REAL rendered size once painted, then resolve any
+  // overlap against every other panel that is already visible. Runs once per
+  // visibility transition (not on every render — a user's own drag/keyboard
+  // move must never be fought by this effect), via `requestAnimationFrame` so
+  // the ref has a post-paint rect to measure (jsdom always reports zero size,
+  // so it transparently falls back to FALLBACK_SIZE there — same fallback
+  // `moveClamped` already relies on).
+  const wasVisible = useRef(isVisible);
+  useEffect(() => {
+    const becameVisible = isVisible && !wasVisible.current;
+    wasVisible.current = isVisible;
+    if (!becameVisible) return undefined;
+    const raf = window.requestAnimationFrame(() => {
+      const size = panelSize();
+      const viewport: Size = {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
+      const viewportClamped = clampPosition(
+        panel.x,
+        panel.y,
+        size,
+        viewport,
+        MIN_VISIBLE_ON_OPEN_PX,
+      );
+      const resolved = resolveCollision(
+        { ...viewportClamped, width: size.width, height: size.height },
+        ctx.getOtherRects(id),
+        viewport,
+      );
+      ctx.move(id, resolved.x, resolved.y);
+    });
+    return () => window.cancelAnimationFrame(raf);
+    // Intentionally only `isVisible` — this must fire exactly once per
+    // false->true transition, using whatever position/size are current AT
+    // that moment, not re-run because the position itself just changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible]);
+
+  // Report this panel's real rect to the shared (non-reactive) rect map so
+  // ANOTHER panel becoming visible later can check against it — see the
+  // effect above and dockState.ts's `resolveCollision`. Runs after every
+  // paint the panel is visible for (position/width can change from a drag or
+  // a viewport resize), via useLayoutEffect so it is always settled before
+  // any component's own become-visible passive effect reads it.
+  useLayoutEffect(() => {
+    if (!isVisible) {
+      ctx.reportRect(id, null);
+      return;
+    }
+    const size = panelSize();
+    ctx.reportRect(id, {
+      x: panel.x,
+      y: panel.y,
+      width: size.width,
+      height: size.height,
+    });
+  });
+
   // Window-level pointermove/pointerup while a drag is in progress — the
   // same pattern as components/FloatingPanel.tsx, which survives the pointer
   // leaving the title bar mid-drag.
@@ -155,11 +225,35 @@ export function DockPanel({
   // their persisted `open` flag differs, and that distinction still matters
   // for `close()` vs `minimize()`'s own semantics (see DockProvider).
   if (!panel.open || panel.minimized) {
+    const className = panel.flashing
+      ? "dock-pill dock-pill-flash"
+      : "dock-pill";
+    if (ctx.pillBarNode) {
+      // Residuals fix wave (defect 4): a real `#dock-pill-bar` shell layout
+      // element exists — portal into it as normal flow content (a flex
+      // item), not a fixed overlay. No index-based `bottom` offset needed;
+      // the bar's own `gap` lays out however many pills are present.
+      return createPortal(
+        <button
+          type="button"
+          className={className}
+          style={{ zIndex: panel.z }}
+          onClick={dock.open}
+          aria-label={`Restore ${title}`}
+        >
+          {title}
+        </button>,
+        ctx.pillBarNode,
+      );
+    }
+    // Fallback (no bar mounted — e.g. a DockPanel rendered standalone in a
+    // test, without the shell's <DockPillBar />): the old fixed-position,
+    // index-stacked pill, so this remains usable on its own.
     const stackIndex = pillStackIndex(ctx.state, id);
     return (
       <button
         type="button"
-        className={panel.flashing ? "dock-pill dock-pill-flash" : "dock-pill"}
+        className={`${className} dock-pill--fixed-fallback`}
         style={{
           zIndex: panel.z,
           bottom: `calc(var(--s-3) + ${stackIndex * PILL_STACK_STEP_PX}px)`,
@@ -189,6 +283,7 @@ export function DockPanel({
         transform: `translate(${panel.x}px, ${panel.y}px)`,
         zIndex: panel.z,
         width: `${effectiveWidth}px`,
+        maxHeight: `${dockPanelMaxHeight(window.innerHeight)}px`,
       }}
       onPointerDown={() => ctx.focus(id)}
       onKeyDown={onKeyDown}

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installTauriDevMock, uninstallTauriDevMock } from "./tauriDevMock";
 import { todayLocal, addDays } from "../features/calendar/dates";
-import type { DaySheet } from "../features/notebook/lines";
+import type { DaySheet, GoalRefLine } from "../features/notebook/lines";
+import type { Goal } from "../features/pieces/types";
 
 // Fix wave item 12: `DAY_SHEETS` starts genuinely empty by default (every
 // other suite in this repo relies on that), so the QA fixtures are opt-in via
@@ -57,5 +58,29 @@ describe("dev-mock QA fixtures — seedQaFixtures: true (interactive dev:mock)",
     expect(blocks).toHaveLength(1);
     const goalRefs = sheet!.body.filter((line) => line.type === "goal_ref");
     expect(goalRefs).toHaveLength(1);
+  });
+
+  // Micro-fix (a) of the residuals fix wave: the "pin this goal to the
+  // score" affordance (DaySheet.tsx's `renderGoal`) only renders when the
+  // referenced goal's own text is non-empty (`pinText !== ""`) — an
+  // interactive dev:mock session with an empty-text goal fixture left the
+  // pin icon permanently absent, nothing to click to exercise it against.
+  it("seeds today's goal reference pointing at a goal with real, non-empty text — the pin-to-score affordance is exercisable out of the box", async () => {
+    const sheet = await seamInvoke<DaySheet | null>("day_sheet_get", {
+      date: todayLocal(),
+    });
+    const goalRef = sheet!.body.find(
+      (line): line is GoalRefLine => line.type === "goal_ref",
+    );
+    expect(goalRef).toBeDefined();
+
+    const pieceLine = sheet!.body.find((line) => line.type === "piece");
+    expect(pieceLine).toBeDefined();
+    const pieceId = (pieceLine as { piece_id: number }).piece_id;
+
+    const goals = await seamInvoke<Goal[]>("goal_list", { pieceId });
+    const goal = goals.find((g) => g.id === goalRef!.goal_id);
+    expect(goal).toBeDefined();
+    expect(goal!.text.trim()).not.toBe("");
   });
 });
