@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // B4 text-fitting contract. The shared .ck-fit utility must be applied to every
@@ -21,6 +27,29 @@ import type { ComposerCandidate } from "../features/composer/domain";
 const LONG_TITLE =
   "Rhapsody on a Theme of Paganini (Variations XVIII–XXIV) — complete concert edition";
 const LONG_COMPOSER = "Sergei Vasilievich Rachmaninoff, arr. for solo piano";
+
+// jsdom has NO window.localStorage — install the Map-backed shim (pattern
+// copied from src/features/dock/dockState.test.ts). LedgerWorkspace reads/
+// writes `ck.history.view` on every render (task B2); without an isolated
+// shim per test, its default-Days-view decision can be polluted by whatever
+// another suite left behind in a shared jsdom localStorage across a
+// full-suite run.
+beforeEach(() => {
+  const memory = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => memory.set(key, value),
+      removeItem: (key: string) => memory.delete(key),
+      clear: () => memory.clear(),
+      key: (index: number) => [...memory.keys()][index] ?? null,
+      get length() {
+        return memory.size;
+      },
+    },
+  });
+});
 
 beforeEach(() => {
   invokeMock.mockReset();
@@ -49,6 +78,11 @@ afterEach(cleanup);
 describe("Ledger rows fit long titles (.ck-fit)", () => {
   it("clamps the piece title + composer and reveals the full row on hover/focus", async () => {
     const { container } = render(<LedgerWorkspace />);
+    // Task B2: Days is LedgerWorkspace's default view; this contract is about
+    // the Pieces view's piece-index rows, so switch to it explicitly — do not
+    // rely on stored `ck.history.view` state (each test gets a fresh shim
+    // above, so this click is required, not just defensive).
+    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
     await waitFor(() =>
       expect(
         container.querySelector(".ledger-piece-index button strong"),
