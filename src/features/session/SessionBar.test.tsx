@@ -234,25 +234,26 @@ describe("SessionBar component", () => {
     expect(screen.getByText("End session")).toBeTruthy();
   });
 
-  it("'End my day' asks for confirmation and calls onEnd only when confirmed", () => {
+  it("'End my day' asks for inline confirmation and calls onEnd only when confirmed (fix wave item 5: no window.confirm)", () => {
     const onEnd = vi.fn();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<SessionBar session={makeSession()} onEnd={onEnd} />);
 
     fireEvent.click(screen.getByText("End my day"));
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("End your practice day?")).toBeTruthy();
     expect(onEnd).not.toHaveBeenCalled();
 
-    confirmSpy.mockReturnValue(true);
-    fireEvent.click(screen.getByText("End my day"));
-    expect(onEnd).toHaveBeenCalledTimes(1);
+    // Declining leaves the session open and restores the plain button.
+    fireEvent.click(screen.getByText("Keep going"));
+    expect(onEnd).not.toHaveBeenCalled();
+    expect(screen.getByText("End my day")).toBeTruthy();
 
-    confirmSpy.mockRestore();
+    fireEvent.click(screen.getByText("End my day"));
+    fireEvent.click(screen.getByText("End day"));
+    expect(onEnd).toHaveBeenCalledTimes(1);
   });
 
   it("disables both end buttons and shows 'Ending…' on each while ending=true, and ignores clicks", () => {
     const onEnd = vi.fn();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const { container } = render(
       <SessionBar session={makeSession()} onEnd={onEnd} ending />,
     );
@@ -265,7 +266,6 @@ describe("SessionBar component", () => {
       fireEvent.click(button);
     }
     expect(onEnd).not.toHaveBeenCalled();
-    confirmSpy.mockRestore();
   });
 
   it("ticks the elapsed clock once a second while the session is live", () => {
