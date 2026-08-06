@@ -14,6 +14,26 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import { LedgerWorkspace } from "./LedgerWorkspace";
 
+// jsdom has NO window.localStorage — install the Map-backed shim (pattern
+// copied from src/features/dock/dockState.test.ts). LedgerWorkspace reads/
+// writes `ck.history.view` on every render.
+beforeEach(() => {
+  const memory = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => memory.set(key, value),
+      removeItem: (key: string) => memory.delete(key),
+      clear: () => memory.clear(),
+      key: (index: number) => [...memory.keys()][index] ?? null,
+      get length() {
+        return memory.size;
+      },
+    },
+  });
+});
+
 beforeEach(() => {
   invokeMock.mockReset();
   invokeMock.mockImplementation((command: string) => {
@@ -40,6 +60,7 @@ beforeEach(() => {
       return Promise.resolve([]);
     if (command === "progress_summary")
       return Promise.resolve({ per_region_mastery: [] });
+    if (command === "history_days") return Promise.resolve([]);
     return Promise.resolve(null);
   });
 });
@@ -47,8 +68,26 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("LedgerWorkspace", () => {
+  it("defaults to the Days view, with Pieces reachable behind the switch", async () => {
+    render(<LedgerWorkspace />);
+
+    const daysTab = await screen.findByRole("tab", { name: "Days" });
+    expect(daysTab.getAttribute("aria-selected")).toBe("true");
+    expect(
+      screen.getByRole("tab", { name: "Pieces" }).getAttribute("aria-selected"),
+    ).toBe("false");
+    // Days is showing, so the Pieces content (piece index) is not mounted yet.
+    expect(screen.queryByRole("heading", { name: "Scherzo" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
+    expect(
+      await screen.findByRole("heading", { name: "Scherzo" }),
+    ).toBeTruthy();
+  });
+
   it("selects repertoire without duplicating the piece ledger projection", async () => {
     render(<LedgerWorkspace />);
+    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
 
     expect(
       await screen.findByRole("heading", { name: "Scherzo" }),
@@ -69,14 +108,29 @@ describe("LedgerWorkspace", () => {
 
   it("opens the exact requested record and keeps native piece context synchronized", async () => {
     render(<LedgerWorkspace requestedPieceId={2} />);
-
+    // NO manual tab click: a deep link must land ON the requested record.
+    // Clicking "Pieces" here previously masked the regression where the
+    // workspace stayed on the Days default while piece_select fired for a
+    // piece nobody could see.
     expect(await screen.findByRole("heading", { name: "Poem" })).toBeTruthy();
+    expect(
+      screen.getByRole("tab", { name: "Pieces" }).getAttribute("aria-selected"),
+    ).toBe("true");
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith("piece_select", { id: 2 }),
     );
     expect(invokeMock).toHaveBeenCalledWith("rep_blocks_for_piece", {
       pieceId: 2,
     });
+  });
+
+  it("does not persist the deep link's Pieces view as the stored default", async () => {
+    window.localStorage.setItem("ck.history.view", "days");
+    render(<LedgerWorkspace requestedPieceId={2} requestRevision={1} />);
+
+    expect(await screen.findByRole("heading", { name: "Poem" })).toBeTruthy();
+    // Transient jump: the view moved, the remembered default did not.
+    expect(window.localStorage.getItem("ck.history.view")).toBe("days");
   });
 
   it("drills piece → block summary row → reps via reps_for_block on expand", async () => {
@@ -135,6 +189,7 @@ describe("LedgerWorkspace", () => {
     });
 
     render(<LedgerWorkspace />);
+    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
     // The block appears as a compact SUMMARY row (its title), not a wall of reps.
     expect(await screen.findByText("Opening drill")).toBeTruthy();
     expect(screen.queryByText("steady")).toBeNull();
@@ -152,6 +207,10 @@ describe("LedgerWorkspace", () => {
   it("surfaces a failed piece index instead of inventing empty evidence", async () => {
     invokeMock.mockRejectedValue(new Error("Database unavailable"));
     render(<LedgerWorkspace />);
+    // Switch to Pieces immediately: with every command rejecting, staying on
+    // Days would surface DayTimeline's OWN alert too, and findByRole("alert")
+    // requires exactly one match.
+    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Database unavailable",
     );

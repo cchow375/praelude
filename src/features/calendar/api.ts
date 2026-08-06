@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Goal, PieceSummary } from "../pieces/types";
+import { daySheetsRange, historyDays } from "../ledger/historyDays";
 import type {
   CalendarApi,
   DailyWork,
@@ -27,4 +28,6 @@ export const calendarApi: CalendarApi = {
     invoke<void>("calendar_capacity_set", { minutes }),
   listPieces: () => invoke<PieceSummary[]>("pieces_list"),
   listGoals: (pieceId: number) => invoke<Goal[]>("goal_list", { pieceId }),
+  historyDays: (from, to) => historyDays(from, to),
+  daySheetsRange: (from, to) => daySheetsRange(from, to),
 };

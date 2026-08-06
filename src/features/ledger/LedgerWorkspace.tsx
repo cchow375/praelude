@@ -4,6 +4,7 @@ import { HistoryPanel } from "../pieces/HistoryPanel";
 import { HISTORY, HISTORY_LOWER } from "../../shell/terms";
 import type { PieceSummary } from "../pieces/types";
 import { AnomaliesPanel } from "./AnomaliesPanel";
+import { DayTimeline } from "./DayTimeline";
 import "./LedgerWorkspace.css";
 
 function messageOf(reason: unknown) {
@@ -11,6 +12,31 @@ function messageOf(reason: unknown) {
   return typeof reason === "string"
     ? reason
     : `The practice ${HISTORY_LOWER} could not be loaded.`;
+}
+
+type HistoryView = "days" | "pieces";
+
+const HISTORY_VIEW_KEY = "ck.history.view";
+
+/** Days is the default view (binding ambiguity resolution). Anything other
+ * than the literal stored value "pieces" falls back to Days — including a
+ * missing/inaccessible localStorage. */
+function loadStoredHistoryView(): HistoryView {
+  try {
+    return window.localStorage.getItem(HISTORY_VIEW_KEY) === "pieces"
+      ? "pieces"
+      : "days";
+  } catch {
+    return "days";
+  }
+}
+
+function saveStoredHistoryView(view: HistoryView) {
+  try {
+    window.localStorage.setItem(HISTORY_VIEW_KEY, view);
+  } catch {
+    // Best-effort persistence only; the in-memory view still works this session.
+  }
 }
 
 interface LedgerWorkspaceProps {
@@ -30,6 +56,12 @@ export function LedgerWorkspace({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectionError, setSelectionError] = useState<string | null>(null);
+  const [view, setView] = useState<HistoryView>(loadStoredHistoryView);
+
+  const changeView = useCallback((next: HistoryView) => {
+    setView(next);
+    saveStoredHistoryView(next);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +92,16 @@ export function LedgerWorkspace({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A deep link (Universe jump / `openLedgerForPiece`) asks for ONE exact
+  // record, which only exists in the Pieces view. Landing on the Days default
+  // while `piece_select` fires for an invisible piece is the regression this
+  // guards. The view state moves, but `ck.history.view` is deliberately NOT
+  // rewritten: a transient jump must not redefine the user's chosen default.
+  useEffect(() => {
+    if (requestedPieceId == null) return;
+    setView("pieces");
+  }, [requestRevision, requestedPieceId]);
 
   useEffect(() => {
     if (
@@ -102,68 +144,112 @@ export function LedgerWorkspace({
         </p>
       )}
 
-      <div className="ledger-layout ck-reveal-item">
-        <aside
-          className="ledger-piece-index"
-          aria-label={`Pieces in ${HISTORY}`}
+      <div
+        className="ledger-view-switch"
+        role="tablist"
+        aria-label="History view"
+      >
+        <button
+          type="button"
+          role="tab"
+          id="history-view-tab-days"
+          aria-controls="history-view-panel-days"
+          aria-selected={view === "days"}
+          className={`ledger-view-tab${view === "days" ? " is-active" : ""}`}
+          onClick={() => changeView("days")}
         >
-          <div className="ledger-index-head">
-            <span>Repertoire</span>
-            <strong>{pieces.length}</strong>
-          </div>
-          {loading ? (
-            <p role="status">Reading pieces…</p>
-          ) : pieces.length === 0 ? (
-            <p>No pieces are recorded yet.</p>
-          ) : (
-            <ul>
-              {pieces.map((piece, index) => (
-                <li key={piece.id}>
-                  <button
-                    type="button"
-                    className={`ck-fit-reveal${piece.id === selectedId ? " is-selected" : ""}`}
-                    aria-pressed={piece.id === selectedId}
-                    onClick={() => setSelectedId(piece.id)}
-                  >
-                    <span>{String(index + 1).padStart(2, "0")}</span>
-                    <span>
-                      <strong className="ck-fit">{piece.title}</strong>
-                      {piece.composer && (
-                        <small className="ck-fit">{piece.composer}</small>
-                      )}
-                    </span>
-                    <span aria-hidden="true">→</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </aside>
-
-        <section
-          className="ledger-record"
-          aria-label={
-            selected
-              ? `${selected.title} practice evidence`
-              : "Practice evidence"
-          }
+          Days
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="history-view-tab-pieces"
+          aria-controls="history-view-panel-pieces"
+          aria-selected={view === "pieces"}
+          className={`ledger-view-tab${view === "pieces" ? " is-active" : ""}`}
+          onClick={() => changeView("pieces")}
         >
-          {selected ? (
-            <>
-              <header>
-                <p className="ck-kicker">Selected record</p>
-                <h2>{selected.title}</h2>
-                {selected.composer && <p>{selected.composer}</p>}
-              </header>
-              <HistoryPanel pieceId={selected.id} />
-            </>
-          ) : !loading ? (
-            <div className="ledger-empty">
-              <p>Select a piece to inspect its exact sets and attempts.</p>
-            </div>
-          ) : null}
-        </section>
+          Pieces
+        </button>
       </div>
+
+      {view === "days" ? (
+        <div
+          role="tabpanel"
+          id="history-view-panel-days"
+          aria-labelledby="history-view-tab-days"
+        >
+          <DayTimeline />
+        </div>
+      ) : (
+        <div
+          className="ledger-layout ck-reveal-item"
+          role="tabpanel"
+          id="history-view-panel-pieces"
+          aria-labelledby="history-view-tab-pieces"
+        >
+          <aside
+            className="ledger-piece-index"
+            aria-label={`Pieces in ${HISTORY}`}
+          >
+            <div className="ledger-index-head">
+              <span>Repertoire</span>
+              <strong>{pieces.length}</strong>
+            </div>
+            {loading ? (
+              <p role="status">Reading pieces…</p>
+            ) : pieces.length === 0 ? (
+              <p>No pieces are recorded yet.</p>
+            ) : (
+              <ul>
+                {pieces.map((piece, index) => (
+                  <li key={piece.id}>
+                    <button
+                      type="button"
+                      className={`ck-fit-reveal${piece.id === selectedId ? " is-selected" : ""}`}
+                      aria-pressed={piece.id === selectedId}
+                      onClick={() => setSelectedId(piece.id)}
+                    >
+                      <span>{String(index + 1).padStart(2, "0")}</span>
+                      <span>
+                        <strong className="ck-fit">{piece.title}</strong>
+                        {piece.composer && (
+                          <small className="ck-fit">{piece.composer}</small>
+                        )}
+                      </span>
+                      <span aria-hidden="true">→</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+
+          <section
+            className="ledger-record"
+            aria-label={
+              selected
+                ? `${selected.title} practice evidence`
+                : "Practice evidence"
+            }
+          >
+            {selected ? (
+              <>
+                <header>
+                  <p className="ck-kicker">Selected record</p>
+                  <h2>{selected.title}</h2>
+                  {selected.composer && <p>{selected.composer}</p>}
+                </header>
+                <HistoryPanel pieceId={selected.id} />
+              </>
+            ) : !loading ? (
+              <div className="ledger-empty">
+                <p>Select a piece to inspect its exact sets and attempts.</p>
+              </div>
+            ) : null}
+          </section>
+        </div>
+      )}
 
       <AnomaliesPanel />
     </main>

@@ -1,4 +1,6 @@
 import type { Goal, PieceSummary } from "../pieces/types";
+import type { HistoryDaySummary } from "../ledger/historyDays";
+import type { DaySheet } from "../notebook/lines";
 
 export type DailyWorkStatus = "planned" | "done" | "dismissed";
 export type DailyWorkSource = "manual" | "planner" | "recovery";
@@ -79,13 +81,29 @@ export interface RecoveryApplyResult {
 }
 
 export interface CalendarApi {
-  list: (request: { from: string; to: string; pieceId: number | null }) => Promise<DailyWork[]>;
+  list: (request: {
+    from: string;
+    to: string;
+    pieceId: number | null;
+  }) => Promise<DailyWork[]>;
   create: (args: DailyWorkCreateArgs) => Promise<DailyWork>;
-  update: (id: number, expectedUpdatedTs: string, patch: DailyWorkPatch) => Promise<DailyWork>;
+  update: (
+    id: number,
+    expectedUpdatedTs: string,
+    patch: DailyWorkPatch,
+  ) => Promise<DailyWork>;
   delete: (id: number, expectedUpdatedTs: string) => Promise<void>;
   recoveryPreview: () => Promise<RecoveryPreview>;
-  recoveryApply: (decisions: RecoveryDecision[]) => Promise<RecoveryApplyResult>;
+  recoveryApply: (
+    decisions: RecoveryDecision[],
+  ) => Promise<RecoveryApplyResult>;
   setCapacity: (minutes: number) => Promise<void>;
   listPieces: () => Promise<PieceSummary[]>;
   listGoals: (pieceId: number) => Promise<Goal[]>;
+  /** Task B3: one call per visible week — the History read model's day
+   * summaries, reused here to render the "done" side of each day cell. */
+  historyDays: (from: string, to: string) => Promise<HistoryDaySummary[]>;
+  /** Task B3: one call per visible week — existing day sheets in range, the
+   * "planned" side of each day cell. */
+  daySheetsRange: (from: string, to: string) => Promise<DaySheet[]>;
 }

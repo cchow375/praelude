@@ -11,6 +11,7 @@ mod crud;
 mod day_sheet;
 mod events;
 mod history_backfill;
+mod history_days;
 mod migrations;
 pub mod model;
 mod practice_loop;
@@ -23,6 +24,7 @@ mod v8_backfill;
 
 pub use day_sheet::{DaySheet, PiecePlan};
 pub use events::EventKind;
+pub use history_days::{HistoryDayDetail, HistoryDaySummary};
 pub(crate) use practice_v2::{command_id as v2_command_id, validate_open as v2_validate_open};
 pub use score_atlas::{AtomicTargetSavePayload, CalibrationView};
 pub use score_marks::{ScoreMark, ScorePageMarks};

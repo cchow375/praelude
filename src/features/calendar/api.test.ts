@@ -135,6 +135,26 @@ describe("calendarApi", () => {
     expect(invokeMock).toHaveBeenCalledWith("goal_list", { pieceId: 9 });
   });
 
+  it("historyDays() calls history_days with { from, to }, defaulting a null result to []", async () => {
+    invokeMock.mockResolvedValueOnce(null);
+    const result = await calendarApi.historyDays("2026-07-13", "2026-07-19");
+    expect(invokeMock).toHaveBeenCalledWith("history_days", {
+      from: "2026-07-13",
+      to: "2026-07-19",
+    });
+    expect(result).toEqual([]);
+  });
+
+  it("daySheetsRange() calls day_sheets_range with { from, to }, defaulting a null result to []", async () => {
+    invokeMock.mockResolvedValueOnce(null);
+    const result = await calendarApi.daySheetsRange("2026-07-13", "2026-07-19");
+    expect(invokeMock).toHaveBeenCalledWith("day_sheets_range", {
+      from: "2026-07-13",
+      to: "2026-07-19",
+    });
+    expect(result).toEqual([]);
+  });
+
   it("propagates a rejected invoke() call without swallowing the error", async () => {
     invokeMock.mockRejectedValueOnce(new Error("backend unavailable"));
     await expect(calendarApi.recoveryPreview()).rejects.toThrow(

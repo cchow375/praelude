@@ -23,6 +23,12 @@
 // ---------------------------------------------------------------------------
 
 import type { AnomalyReport } from "../features/ledger/AnomaliesPanel";
+import type {
+  HistoryDayDetail,
+  HistoryDaySet,
+  HistoryDaySession,
+  HistoryDaySummary,
+} from "../features/ledger/historyDays";
 import type { DailyWork, RecoveryPreview } from "../features/calendar/types";
 import type {
   BlockHistory,
@@ -1737,6 +1743,252 @@ function staleMarkCount(args: Record<string, unknown>): number {
 const DAY_SHEETS = new Map<string, DaySheet>();
 const PIECE_PLANS = new Map<number, PiecePlan>();
 
+// --- History day-timeline (Task B2) ----------------------------------------
+//
+// Deterministic, read-only fixtures for `history_days`/`history_day_detail`/
+// `day_sheets_range` (task B1's three commands). Five days: a recent
+// single-piece day, a multi-piece day, a day with a mastered set, another
+// normal day, and — deliberately dated 150 days back, OUTSIDE the
+// DayTimeline's initial 120-day fetch window — a 50-set QA stress-test day
+// that only becomes reachable once "Earlier days" extends the window. This
+// keeps the default view uncluttered while still exercising the dense-list
+// render path live in `npm run dev:mock`.
+
+const HISTORY_DAY_RECENT = dayLocalOffset(-2);
+const HISTORY_DAY_MULTI_PIECE = dayLocalOffset(-5);
+const HISTORY_DAY_MASTERED = dayLocalOffset(-10);
+const HISTORY_DAY_NORMAL = dayLocalOffset(-20);
+const HISTORY_DAY_DENSE = dayLocalOffset(-150);
+
+// Task B3: TODAY needs its own "done" evidence, paired with `seedQaFixtures`'s
+// TODAY day sheet (20 planned minutes), so the Calendar's planned-vs-done cell
+// for today shows live non-empty data in `npm run dev:mock` rather than the
+// "cells with neither" empty state (spec S7 — today stops showing empty).
+const HISTORY_DAY_TODAY: HistoryDaySummary = {
+  date: TODAY,
+  focused_seconds: 14 * 60,
+  session_count: 1,
+  attempts: 5,
+  cleans: 4,
+  sets_touched: 1,
+  mastered_sets: 0,
+  pieces: [{ piece_id: 1, title: "Scherzo No. 2", attempts: 5 }],
+};
+
+const HISTORY_DAY_SUMMARIES: HistoryDaySummary[] = [
+  HISTORY_DAY_TODAY,
+  {
+    date: HISTORY_DAY_RECENT,
+    focused_seconds: 42 * 60,
+    session_count: 1,
+    attempts: 12,
+    cleans: 8,
+    sets_touched: 3,
+    mastered_sets: 0,
+    pieces: [{ piece_id: 1, title: "Scherzo No. 2", attempts: 12 }],
+  },
+  {
+    date: HISTORY_DAY_MULTI_PIECE,
+    focused_seconds: 55 * 60,
+    session_count: 2,
+    attempts: 20,
+    cleans: 14,
+    sets_touched: 5,
+    mastered_sets: 0,
+    pieces: [
+      { piece_id: 1, title: "Scherzo No. 2", attempts: 12 },
+      { piece_id: 2, title: "The White Peacock", attempts: 8 },
+    ],
+  },
+  {
+    date: HISTORY_DAY_MASTERED,
+    focused_seconds: 30 * 60,
+    session_count: 1,
+    attempts: 10,
+    cleans: 9,
+    sets_touched: 2,
+    mastered_sets: 1,
+    pieces: [{ piece_id: 1, title: "Scherzo No. 2", attempts: 10 }],
+  },
+  {
+    date: HISTORY_DAY_NORMAL,
+    focused_seconds: 18 * 60,
+    session_count: 1,
+    attempts: 6,
+    cleans: 3,
+    sets_touched: 2,
+    mastered_sets: 0,
+    pieces: [{ piece_id: 2, title: "The White Peacock", attempts: 6 }],
+  },
+  {
+    date: HISTORY_DAY_DENSE,
+    focused_seconds: 180 * 60,
+    session_count: 4,
+    attempts: 400,
+    cleans: 250,
+    sets_touched: 50,
+    mastered_sets: 3,
+    pieces: [
+      { piece_id: 1, title: "Scherzo No. 2", attempts: 250 },
+      { piece_id: 2, title: "The White Peacock", attempts: 150 },
+    ],
+  },
+];
+
+function historyDaySet(
+  date: string,
+  index: number,
+  overrides: Partial<HistoryDaySet> = {},
+): HistoryDaySet {
+  return {
+    block_id: 9_000 + index,
+    piece_id: index % 2 === 0 ? 1 : 2,
+    piece_title: index % 2 === 0 ? "Scherzo No. 2" : "The White Peacock",
+    region_name: index % 3 === 0 ? null : `Section ${index + 1}`,
+    m_start: index * 4 + 1,
+    m_end: index * 4 + 8,
+    attempts: 8,
+    cleans: 5,
+    flawed: 2,
+    failed: 1,
+    start_bpm: 72,
+    end_bpm: 96,
+    mastery_status: index % 10 === 0 ? "satisfied" : "not_satisfied",
+    first_ts: `${date}T10:00:00Z`,
+    last_ts: `${date}T10:30:00Z`,
+    ...overrides,
+  };
+}
+
+function historyDaySession(
+  date: string,
+  sessionId: number,
+  overrides: Partial<HistoryDaySession> = {},
+): HistoryDaySession {
+  return {
+    session_id: sessionId,
+    started_at: `${date}T09:00:00Z`,
+    ended_at: `${date}T09:45:00Z`,
+    focused_seconds: 30 * 60,
+    ...overrides,
+  };
+}
+
+const HISTORY_DAY_DETAILS = new Map<string, HistoryDayDetail>([
+  [
+    TODAY,
+    {
+      date: TODAY,
+      sessions: [historyDaySession(TODAY, 500, { focused_seconds: 14 * 60 })],
+      sets: [historyDaySet(TODAY, 0, { attempts: 5, cleans: 4 })],
+    },
+  ],
+  [
+    HISTORY_DAY_RECENT,
+    {
+      date: HISTORY_DAY_RECENT,
+      sessions: [historyDaySession(HISTORY_DAY_RECENT, 501)],
+      sets: [
+        historyDaySet(HISTORY_DAY_RECENT, 0, { attempts: 5, cleans: 3 }),
+        historyDaySet(HISTORY_DAY_RECENT, 1, { attempts: 4, cleans: 3 }),
+        historyDaySet(HISTORY_DAY_RECENT, 2, { attempts: 3, cleans: 2 }),
+      ],
+    },
+  ],
+  [
+    HISTORY_DAY_MULTI_PIECE,
+    {
+      date: HISTORY_DAY_MULTI_PIECE,
+      sessions: [
+        historyDaySession(HISTORY_DAY_MULTI_PIECE, 502, {
+          started_at: `${HISTORY_DAY_MULTI_PIECE}T08:00:00Z`,
+          ended_at: `${HISTORY_DAY_MULTI_PIECE}T08:30:00Z`,
+          focused_seconds: 25 * 60,
+        }),
+        historyDaySession(HISTORY_DAY_MULTI_PIECE, 503, {
+          started_at: `${HISTORY_DAY_MULTI_PIECE}T18:00:00Z`,
+          ended_at: `${HISTORY_DAY_MULTI_PIECE}T18:30:00Z`,
+          focused_seconds: 30 * 60,
+        }),
+      ],
+      sets: Array.from({ length: 5 }, (_, index) =>
+        historyDaySet(HISTORY_DAY_MULTI_PIECE, index),
+      ),
+    },
+  ],
+  [
+    HISTORY_DAY_MASTERED,
+    {
+      date: HISTORY_DAY_MASTERED,
+      sessions: [historyDaySession(HISTORY_DAY_MASTERED, 504)],
+      sets: [
+        historyDaySet(HISTORY_DAY_MASTERED, 0, {
+          attempts: 6,
+          cleans: 6,
+          flawed: 0,
+          failed: 0,
+          mastery_status: "satisfied",
+        }),
+        historyDaySet(HISTORY_DAY_MASTERED, 1, { attempts: 4, cleans: 3 }),
+      ],
+    },
+  ],
+  [
+    HISTORY_DAY_NORMAL,
+    {
+      date: HISTORY_DAY_NORMAL,
+      sessions: [historyDaySession(HISTORY_DAY_NORMAL, 505)],
+      sets: [
+        historyDaySet(HISTORY_DAY_NORMAL, 1, { attempts: 3, cleans: 2 }),
+        historyDaySet(HISTORY_DAY_NORMAL, 3, { attempts: 3, cleans: 1 }),
+      ],
+    },
+  ],
+  [
+    HISTORY_DAY_DENSE,
+    {
+      date: HISTORY_DAY_DENSE,
+      sessions: [
+        historyDaySession(HISTORY_DAY_DENSE, 506),
+        historyDaySession(HISTORY_DAY_DENSE, 507),
+        historyDaySession(HISTORY_DAY_DENSE, 508),
+        historyDaySession(HISTORY_DAY_DENSE, 509),
+      ],
+      // The QA stress case: 50 sets in one day.
+      sets: Array.from({ length: 50 }, (_, index) =>
+        historyDaySet(HISTORY_DAY_DENSE, index),
+      ),
+    },
+  ],
+]);
+
+function withinRange(date: string, from: string, to: string): boolean {
+  return date >= from && date <= to;
+}
+
+function historyDaysMock(args: unknown): HistoryDaySummary[] {
+  const record = argsRecord(args);
+  const from = String(record.from ?? "");
+  const to = String(record.to ?? "");
+  return HISTORY_DAY_SUMMARIES.filter((day) =>
+    withinRange(day.date, from, to),
+  ).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+}
+
+function historyDayDetailMock(args: unknown): HistoryDayDetail {
+  const date = String(argsRecord(args).date ?? "");
+  return HISTORY_DAY_DETAILS.get(date) ?? { date, sessions: [], sets: [] };
+}
+
+function daySheetsRangeMock(args: unknown): DaySheet[] {
+  const record = argsRecord(args);
+  const from = String(record.from ?? "");
+  const to = String(record.to ?? "");
+  return [...DAY_SHEETS.values()]
+    .filter((sheet) => withinRange(sheet.date, from, to))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
 function argsRecord(args: unknown): Record<string, unknown> {
   return (args ?? {}) as Record<string, unknown>;
 }
@@ -2157,6 +2409,14 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return piecePlanGet(args);
     case "piece_plan_save":
       return piecePlanSave(args);
+
+    // History day-timeline (Task B2) — read-only, deterministic fixtures.
+    case "history_days":
+      return historyDaysMock(args);
+    case "history_day_detail":
+      return historyDayDetailMock(args);
+    case "day_sheets_range":
+      return daySheetsRangeMock(args);
 
     default:
       return null;

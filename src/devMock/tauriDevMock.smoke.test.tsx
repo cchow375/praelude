@@ -69,6 +69,9 @@ describe("dev-mock five-workspace render harness", () => {
 
   it("mounts Ledger and discloses an anomaly group", async () => {
     renderWorkspace(<LedgerWorkspace />);
+    // Task B2: Days is now LedgerWorkspace's default view; switch to Pieces
+    // to reach the untouched piece-index content this test exercises.
+    fireEvent.click(await screen.findByRole("tab", { name: "Pieces" }));
     // pieces_list fills the index and auto-selects the first piece (title shown
     // in both the index row and the selected-record header).
     expect(

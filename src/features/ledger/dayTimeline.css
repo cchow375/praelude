@@ -1,0 +1,122 @@
+/* Task B2: History day-timeline. Inherits the paper system from
+   src/design/tokens.css — no new tokens, no local alias block. */
+
+.day-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 82rem;
+  margin: 0 auto;
+}
+
+.day-timeline-empty,
+.day-timeline-end {
+  padding: var(--space-4);
+  color: var(--ink-secondary);
+  font-family: var(--font-display);
+}
+
+.day-timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.day-card {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--paper-raised);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.day-card-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-card-toggle:hover {
+  background: var(--surface-hover);
+}
+
+.day-card-header {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+}
+
+.day-card-chevron {
+  flex-shrink: 0;
+  color: var(--ink-tertiary);
+}
+
+.day-card-detail {
+  padding: 0 var(--space-4) var(--space-4);
+  border-top: 1px solid var(--hairline);
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.day-card-sessions {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+}
+
+.day-card-sets {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.day-card-set {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+
+.day-card-empty {
+  margin: var(--space-3) 0 0;
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+}
+
+.day-timeline-earlier {
+  align-self: flex-start;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--paper-raised);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.day-timeline-earlier:disabled {
+  cursor: default;
+  opacity: 0.6;
+}

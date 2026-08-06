@@ -1178,6 +1178,45 @@ fn piece_plan_save(
         .map_err(|e| e.to_string())
 }
 
+// ── History/Calendar day-bucketed read models (Plan B, task B1) ────────────
+//
+// Pure reads over existing tables — no migration, no new indexes, no write
+// paths. Every day boundary is a LOCAL calendar day, matching the session
+// day-scoping convention (see `store::history_days`).
+
+/// One row per LOCAL day in `[from,to]` with any practice evidence, newest
+/// first — the History timeline's top-level list.
+#[tauri::command]
+fn history_days(
+    from: String,
+    to: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<store::HistoryDaySummary>, String> {
+    store.history_days(&from, &to).map_err(|e| e.to_string())
+}
+
+/// One LOCAL day's full detail: every session and every set touched that day.
+#[tauri::command]
+fn history_day_detail(
+    date: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::HistoryDayDetail, String> {
+    store.history_day_detail(&date).map_err(|e| e.to_string())
+}
+
+/// Existing day sheets whose date falls in `[from,to]`, ascending; read-only,
+/// never creates a row for a date that has none.
+#[tauri::command]
+fn day_sheets_range(
+    from: String,
+    to: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<store::DaySheet>, String> {
+    store
+        .day_sheets_range(&from, &to)
+        .map_err(|e| e.to_string())
+}
+
 fn rejected_plan(
     command_id: &str,
     error: String,
@@ -2063,6 +2102,9 @@ pub fn run() {
             day_sheet_save,
             piece_plan_get,
             piece_plan_save,
+            history_days,
+            history_day_detail,
+            day_sheets_range,
             session_plan_start,
             tutorial_video_list,
             tutorial_video_scan,
