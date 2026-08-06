@@ -882,10 +882,13 @@ pub(crate) fn validate_open(
 /// Open one live rep set inside an already-open transaction, reusing the exact
 /// block/contract/context/event writes `v2_open_set` commits. Callers own the
 /// transaction and commit, so a durable command (e.g. the reviewed session
-/// plan) can atomically wrap this open in one receipted operation. Enforces the
-/// single-live-set invariant here so an in-flight block rejects a second open
-/// with no partial writes. Returns the fresh `V2Open` plus the operation's
-/// canonical event ids for the receipt.
+/// plan) can atomically wrap this open in one receipted operation. Enforces
+/// the one-ACTIVE-set invariant here (Task A4b: `set_contract_one_active_v2_idx`,
+/// SCHEMA_V14) so an in-flight ACTIVE block rejects a second open with no
+/// partial writes — a set merely sitting `paused` elsewhere no longer blocks
+/// opening a fresh one; paused sets are plural by design (the paused-sets
+/// tray). Returns the fresh `V2Open` plus the operation's canonical event ids
+/// for the receipt.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn open_set_in_tx(
     tx: &Transaction<'_>,
@@ -900,7 +903,7 @@ pub(super) fn open_set_in_tx(
     now: &str,
 ) -> rusqlite::Result<(V2Open, Vec<i64>)> {
     let active_exists: bool = tx.query_row(
-        "SELECT EXISTS(SELECT 1 FROM set_contract WHERE set_state IN ('active','paused'))",
+        "SELECT EXISTS(SELECT 1 FROM set_contract WHERE set_state='active')",
         [],
         |row| row.get(0),
     )?;

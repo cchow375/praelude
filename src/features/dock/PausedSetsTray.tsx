@@ -83,7 +83,7 @@ export function PausedSetsTray({ repSetState }: PausedSetsTrayProps) {
     if (busySetId != null) return;
     setBusySetId(row.set_id);
     try {
-      const receipt = await resumePausedSet();
+      const receipt = await resumePausedSet(row.set_id);
       // `rep_resume` resolves business rejections as a receipt rather than
       // throwing — only a COMMITTED receipt means the set actually resumed.
       // A rejected/confirmation-required receipt leaves the row in place and

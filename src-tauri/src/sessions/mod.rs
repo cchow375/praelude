@@ -865,7 +865,7 @@ mod tests {
         // through the standard pause path (it was never explicitly paused),
         // then (b) resume it as the FIRST event of the new session.
         clock.set("2026-08-08T12:05:00Z");
-        rep.resume("resume-after-boundary").unwrap();
+        rep.resume("resume-after-boundary", None).unwrap();
         let new_sid = sessions.current_id().unwrap();
         assert_ne!(old_sid, new_sid, "resume crossed into a fresh session");
         assert_eq!(

@@ -765,9 +765,19 @@ fn rep_pause(command_id: String, rep: State<'_, Arc<RepEngine>>) -> MutationRece
         .unwrap_or_else(|error| rejected_snapshot(&command_id, error))
 }
 
+/// Task A4b: `set_id` picks which paused set to resume (the paused-sets
+/// tray's per-row Resume button passes it). `None` keeps the pre-A4b
+/// behavior — resume the only paused set database-wide; rejects as
+/// ambiguous if several are paused. If some other set is currently active,
+/// it is auto-paused and the target activated atomically — see
+/// `RepEngine::resume`.
 #[tauri::command]
-fn rep_resume(command_id: String, rep: State<'_, Arc<RepEngine>>) -> MutationReceipt<RepSnapshot> {
-    rep.resume(&command_id)
+fn rep_resume(
+    command_id: String,
+    set_id: Option<i64>,
+    rep: State<'_, Arc<RepEngine>>,
+) -> MutationReceipt<RepSnapshot> {
+    rep.resume(&command_id, set_id)
         .unwrap_or_else(|error| rejected_snapshot(&command_id, error))
 }
 

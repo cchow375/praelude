@@ -928,6 +928,14 @@ impl Store {
         Ok(receipt)
     }
 
+    /// Resume `block_id` (must be `paused`). Task A4b: with the invariant
+    /// relaxed to one-ACTIVE-set, some OTHER set may legitimately be `active`
+    /// at the same time `block_id` is `paused` — in that case this auto-pauses
+    /// the other set and activates `block_id` in the SAME transaction, so a
+    /// mid-way failure rolls back both transitions and neither set changes
+    /// state. The receipt's summary and entity refs/event ids reflect both
+    /// transitions when an auto-pause happened, and read exactly as before
+    /// (single "resumed" transition) when nothing else was active.
     pub(crate) fn v2_resume(
         &self,
         session_hint: Option<i64>,
@@ -960,6 +968,67 @@ impl Store {
         if before.set_state != "paused" {
             return Err(invalid("only a paused practice set can resume"));
         }
+
+        // Auto-pause whatever else is currently active, if anything — the
+        // one-ACTIVE-set invariant (`set_contract_one_active_v2_idx`) would
+        // otherwise reject activating `block_id` outright.
+        let other_active_id: Option<i64> = tx
+            .query_row(
+                "SELECT set_id FROM set_contract WHERE set_state='active' AND set_id<>?1",
+                [block_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        let mut entity_refs = Vec::new();
+        let mut event_ids = Vec::new();
+        let mut summary_parts = Vec::new();
+
+        if let Some(other_id) = other_active_id {
+            let other_before = project(&tx, other_id)?;
+            close_interval(&tx, other_id, now, "pause", Some(pending.id))?;
+            tx.execute(
+                "UPDATE set_contract SET set_state='paused' WHERE set_id=?1",
+                [other_id],
+            )?;
+            let pause_active_seconds = load_loop_projection(
+                &tx,
+                other_id,
+                other_before.m_start,
+                other_before.m_end,
+                &other_before.focus,
+                "paused",
+            )?
+            .active_seconds;
+            let pause_payload = json!({
+                "block_id": other_id,
+                "piece_id": other_before.piece_id,
+                "active_seconds": pause_active_seconds,
+                "command_id": command_id,
+                "auto_paused_for_resume_of": block_id,
+            });
+            let (_, pause_event_id) = insert_loop_event(
+                &tx,
+                LoopEventWrite {
+                    session_id: Some(session.id),
+                    piece_id: other_before.piece_id,
+                    kind: "rep_pause",
+                    payload: &pause_payload,
+                    entity_type: "set",
+                    entity_id: other_id,
+                    source,
+                    command_id,
+                    now,
+                },
+            )?;
+            entity_refs.push(MutationEntityRef {
+                entity_type: "set".into(),
+                entity_id: other_id,
+            });
+            event_ids.push(pause_event_id);
+            summary_parts.push(format!("Paused {}", other_before.piece_title));
+        }
+
         let safety_was_stopped = before.safety_state == "stopped";
         tx.execute(
             "UPDATE set_contract SET set_state='active' WHERE set_id=?1",
@@ -993,17 +1062,29 @@ impl Store {
                 now,
             },
         )?;
+        entity_refs.push(MutationEntityRef {
+            entity_type: "set".into(),
+            entity_id: block_id,
+        });
+        event_ids.push(event_id);
+        summary_parts.push(format!("Resumed {}", before.piece_title));
+
+        let summary = if summary_parts.len() > 1 {
+            summary_parts.join(" \u{b7} ")
+        } else {
+            "Practice resumed with a fresh active interval.".to_string()
+        };
+
         let snapshot = project(&tx, block_id)?;
+        let mut all_event_ids: Vec<i64> = session.start_event_id.into_iter().collect();
+        all_event_ids.extend(event_ids);
         let receipt = finish_operation(
             &tx,
             pending,
-            "Practice resumed with a fresh active interval.",
+            &summary,
             &snapshot,
-            vec![MutationEntityRef {
-                entity_type: "set".into(),
-                entity_id: block_id,
-            }],
-            operation_event_ids(session, event_id),
+            entity_refs,
+            all_event_ids,
             None,
         )?;
         tx.commit()?;
@@ -1801,10 +1882,13 @@ impl Store {
         )
     }
 
-    /// Reconcile a live set after process relaunch. The old open interval is
-    /// closed at its last durable checkpoint, never at relaunch time, so the
-    /// offline gap contributes exactly zero. Active sets then begin a fresh
-    /// interval; paused sets remain paused.
+    /// Reconcile the ACTIVE set (if any) after process relaunch. The old open
+    /// interval is closed at its last durable checkpoint, never at relaunch
+    /// time, so the offline gap contributes exactly zero, then a fresh
+    /// interval begins. Paused sets — any number of them, Task A4b — need no
+    /// reconciliation here: pausing always closes their interval already, so
+    /// only the single ACTIVE row (enforced by `set_contract_one_active_v2_idx`,
+    /// SCHEMA_V14) can ever have one left open by a crash.
     pub(crate) fn v2_restore_active_at(&self, now: &str) -> rusqlite::Result<Option<RepSnapshot>> {
         let mut conn = self
             .conn
@@ -1813,7 +1897,7 @@ impl Store {
         validate_timestamp(&conn, now)?;
         let tx = conn.transaction()?;
         let mut stmt = tx.prepare(
-            "SELECT set_id,set_state FROM set_contract WHERE set_state IN ('active','paused')
+            "SELECT set_id,set_state FROM set_contract WHERE set_state='active'
              ORDER BY set_id DESC LIMIT 2",
         )?;
         let live = stmt

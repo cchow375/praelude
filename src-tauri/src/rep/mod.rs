@@ -195,9 +195,21 @@ impl RepEngine {
         // already active (mirrors the original early-out). Re-checked below
         // after the guard is retaken, since it must be dropped before
         // resolving the session — see the comment there.
+        //
+        // Task A4b: this only blocks on a genuinely ACTIVE tracked block, not
+        // a paused one — the one-ACTIVE-set invariant
+        // (`set_contract_one_active_v2_idx`, SCHEMA_V14) permits opening a
+        // fresh set while this engine's own tracked block sits paused; that
+        // paused block stays exactly as it is (discoverable via
+        // `paused_sets_list`), and `self.active` simply moves its focus to
+        // the newly opened block. Matches `open_set_in_tx`'s own DB-level
+        // check.
         {
             let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-            if active.is_some() {
+            if active
+                .as_ref()
+                .is_some_and(|snap| snap.set_state == "active")
+            {
                 return Err("close the current block first".to_string());
             }
         }
@@ -264,7 +276,10 @@ impl RepEngine {
         // A5 fix round 1, CRITICAL 2).
         let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        if active.is_some() {
+        if active
+            .as_ref()
+            .is_some_and(|snap| snap.set_state == "active")
+        {
             return Err("close the current block first".to_string());
         }
 
@@ -771,42 +786,85 @@ impl RepEngine {
         Ok(receipt)
     }
 
-    pub fn resume(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
-        // Quick peek, no side effects (fix round 2, N1): a failing resume
-        // with nothing active must never mint/roll a session — see
-        // `open_from`. (A paused set still has `active = Some(..)`, so this
-        // only rejects the genuinely-empty case, same as before.)
-        {
-            let active = self
-                .active
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            if active.is_none() {
-                return Err("no live practice set".to_string());
+    /// Resume a practice set. Task A4b: `target_set_id` picks WHICH set.
+    ///
+    /// `Some(id)` resumes exactly that set (the paused-sets tray's per-row
+    /// Resume button always passes this). If some OTHER set is currently
+    /// active, it is auto-paused and the target activated in one atomic
+    /// transaction (`Store::v2_resume`) — a failure there leaves both sets
+    /// exactly as they were. `Store::v2_resume` itself rejects a target that
+    /// is not currently `paused`.
+    ///
+    /// `None` keeps the pre-A4b behavior EXACTLY: resume THIS engine's own
+    /// tracked block (`self.active`), whatever state it is in right now —
+    /// this is what the rep HUD's own Resume chip calls, and it must keep
+    /// working through a day-rollover boundary, where `ensure_session()`
+    /// below may auto-pause that very block via `pause_for_rollover` a
+    /// moment before `Store::v2_resume` validates it. Only when this engine
+    /// instance isn't tracking any block at all (e.g. freshly relaunched
+    /// into a database that has paused rows but no active one, so
+    /// `v2_restore_active_at` restored nothing) does `None` fall back to a
+    /// DB-wide lookup: resume the only paused set, or reject as ambiguous if
+    /// several are paused.
+    pub fn resume(
+        &self,
+        command_id: &str,
+        target_set_id: Option<i64>,
+    ) -> Result<MutationReceipt<RepSnapshot>, String> {
+        // Quick peek, no side effects (fix round 2, N1 discipline): resolve
+        // the target WITHOUT mutating anything, so a doomed-to-fail resume
+        // never mints/rolls a session. The tracked block's id (if any) is
+        // captured here, before `ensure_session()` — its VALUE never changes
+        // across a rollover (only its state does), so this is safe and lets
+        // `active` be dropped before the session call, per this file's lock
+        // discipline.
+        let target_block_id = match target_set_id {
+            Some(id) => id,
+            None => {
+                let tracked = {
+                    let active = self
+                        .active
+                        .lock()
+                        .unwrap_or_else(|poison| poison.into_inner());
+                    active.as_ref().map(|snap| snap.block_id)
+                };
+                match tracked {
+                    Some(id) => id,
+                    None => {
+                        let paused = self
+                            .store
+                            .paused_sets_list()
+                            .map_err(|error| error.to_string())?;
+                        match paused.as_slice() {
+                            [] => return Err("no paused practice set".to_string()),
+                            [only] => only.set_id,
+                            _ => {
+                                return Err("multiple sets are paused; choose which one to resume"
+                                    .to_string())
+                            }
+                        }
+                    }
+                }
             }
-        }
-        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
+        };
+
         let session_hint = Some(self.sessions.ensure_session()?);
-        let mut active = self
-            .active
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        let block_id = active
-            .as_ref()
-            .ok_or_else(|| "no live practice set".to_string())?
-            .block_id;
         let now = self.now()?;
         let mut receipt = self
             .store
             .v2_resume(
                 session_hint,
-                block_id,
+                target_block_id,
                 MutationSource::UserClick,
                 command_id,
                 &now,
             )
             .map_err(|error| error.to_string())?;
-        let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let snapshot = self.apply_snapshot_receipt(&mut active, target_block_id, &mut receipt)?;
         // `adopt_receipt_session` locks `sessions.current` — moved here,
         // AFTER `drop(active)` (fix round 2: see `open_from`).
         drop(active);
@@ -1252,6 +1310,25 @@ impl RepEngine {
     //   - `resync_active_if` locks `active` but never touches `self.sessions`.
     // No remaining path holds `self.active` while calling into
     // `self.sessions`.
+    //
+    // ── Task A4b addendum ─────────────────────────────────────────────────
+    // `resume`'s target resolution (`target_set_id` → `target_block_id`) was
+    // rewritten to read `self.store` (`paused_sets_list`/`v2_snapshot`)
+    // directly instead of `self.active` — it never locks `active` at all
+    // until after `Store::v2_resume` (which may atomically auto-pause a
+    // DIFFERENT active set) has already committed. This is strictly safer
+    // than the old pattern, not just equivalent: the old code peeked
+    // `active` before `ensure_session()`, then relocked it after — the new
+    // code doesn't need `active` for anything until the final
+    // `apply_snapshot_receipt` call, so there is one less lock/unlock cycle
+    // and no window where a stale `active` read could disagree with the
+    // just-committed store state.
+    //
+    // Correction: `resume`'s `target_set_id: None` branch DOES briefly lock
+    // `active` once, to read the tracked block's id — dropped immediately,
+    // well before `ensure_session()`. An explicit `Some(target_set_id)`
+    // never touches `active` during resolution at all. Either way `active`
+    // is never held across a `self.sessions`/`self.store` call.
 }
 
 impl RolloverPauseHook for RepEngine {
@@ -1662,7 +1739,7 @@ mod tests {
         assert!(replay.replayed);
         assert_eq!(replay.receipt_id, first_pause.receipt_id);
         assert!(
-            engine.resume("focus-pause-1").is_err(),
+            engine.resume("focus-pause-1", None).is_err(),
             "same id cannot change payload/kind"
         );
         assert_eq!(
@@ -1675,7 +1752,7 @@ mod tests {
         );
 
         clock.set("2026-07-15T12:02:00Z");
-        let resumed = engine.resume("focus-resume-1").unwrap();
+        let resumed = engine.resume("focus-resume-1", None).unwrap();
         assert_eq!(resumed.value.as_ref().unwrap().active_seconds, 20);
         clock.set("2026-07-15T12:02:10Z");
         assert_eq!(
@@ -1942,7 +2019,7 @@ mod tests {
         let resume_engine = engine.clone();
         let resume_order = order.clone();
         let resumer = std::thread::spawn(move || {
-            resume_engine.resume("safety-race-resume").unwrap();
+            resume_engine.resume("safety-race-resume", None).unwrap();
             resume_order.lock().unwrap().push("resume");
         });
 
@@ -2534,7 +2611,9 @@ mod tests {
                 );
                 elapsed += 10;
                 clock.set(&timestamp_after(elapsed));
-                let resumed = engine.resume(&format!("long-resume-{attempt}")).unwrap();
+                let resumed = engine
+                    .resume(&format!("long-resume-{attempt}"), None)
+                    .unwrap();
                 assert_eq!(resumed.value.as_ref().unwrap().timer_state, "active");
             }
             if attempt == 75 {
@@ -2726,7 +2805,11 @@ mod tests {
         assert_eq!(stopped.verdicts.failed, 0);
         assert_eq!(stopped.reset_count, 0);
         clock.set("2026-07-15T14:00:10Z");
-        let resumed = engine.resume("safety-resume-1").unwrap().value.unwrap();
+        let resumed = engine
+            .resume("safety-resume-1", None)
+            .unwrap()
+            .value
+            .unwrap();
         assert_eq!(resumed.set_state, "active");
         assert_eq!(resumed.safety_state, "cleared");
     }
@@ -4429,8 +4512,15 @@ mod tests {
         assert_set_lifecycle(&fresh, block_id, "mastered", "done");
     }
 
+    // Task A4b: the v9 one-live-set index was replaced by
+    // `set_contract_one_active_v2_idx` (SCHEMA_V14) — the invariant relaxed
+    // from one-LIVE-set (active OR paused) to one-ACTIVE-set. This test was
+    // updated in place rather than duplicated: it still proves a second
+    // ACTIVE row is rejected and a legacy state is ignored by the index, and
+    // now additionally proves the relaxation itself — a PAUSED row no longer
+    // conflicts with an existing ACTIVE row.
     #[test]
-    fn schema_v9_unique_index_rejects_a_second_live_set_but_ignores_legacy_state() {
+    fn schema_v14_unique_index_rejects_a_second_active_set_but_ignores_legacy_and_paused_state() {
         let (engine, pid, store, _rec) = engine_with_piece();
         let original = engine.open(strict_notes_args(pid, 3)).unwrap();
         let replacement = engine.restart(Some(3)).unwrap();
@@ -4438,10 +4528,20 @@ mod tests {
             store
                 .test_scalar_i64(
                     "SELECT count(*) FROM sqlite_master
-                     WHERE type='index' AND name='set_contract_one_live_v2_idx'",
+                     WHERE type='index' AND name='set_contract_one_active_v2_idx'",
                 )
                 .unwrap(),
             1
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64(
+                    "SELECT count(*) FROM sqlite_master
+                     WHERE type='index' AND name='set_contract_one_live_v2_idx'",
+                )
+                .unwrap(),
+            0,
+            "the v9 index must be dropped, not merely superseded"
         );
 
         store
@@ -4450,9 +4550,10 @@ mod tests {
                 original.block_id
             ))
             .unwrap();
+        // A second ACTIVE row is still rejected.
         let error = store
             .test_execute_batch(&format!(
-                "UPDATE set_contract SET set_state='paused' WHERE set_id={}",
+                "UPDATE set_contract SET set_state='active' WHERE set_id={}",
                 original.block_id
             ))
             .unwrap_err()
@@ -4477,6 +4578,34 @@ mod tests {
                 .unwrap(),
             "active"
         );
+
+        // The relaxation itself: PAUSED no longer conflicts with an existing
+        // ACTIVE row — `replacement` stays active throughout.
+        store
+            .test_execute_batch(&format!(
+                "UPDATE set_contract SET set_state='paused' WHERE set_id={}",
+                original.block_id
+            ))
+            .unwrap();
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={}",
+                    original.block_id
+                ))
+                .unwrap(),
+            "paused"
+        );
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={}",
+                    replacement.block_id
+                ))
+                .unwrap(),
+            "active",
+            "the pre-existing active row is unaffected"
+        );
     }
 
     #[test]
@@ -4488,7 +4617,7 @@ mod tests {
         let _replacement = engine.restart(Some(3)).unwrap();
         store
             .test_execute_batch(&format!(
-                "DROP INDEX set_contract_one_live_v2_idx;
+                "DROP INDEX set_contract_one_active_v2_idx;
                  UPDATE set_contract SET set_state='active' WHERE set_id={0};
                  UPDATE rep_block SET status='open' WHERE id={0};",
                 original.block_id
@@ -4845,23 +4974,16 @@ mod tests {
         }
     }
 
-    // Task A4 note (see task report for the full write-up): the brief's
-    // acceptance test calls for seeding TWO pieces each with a paused set
-    // plus one active set elsewhere and asserting all three rows/order. That
-    // fixture cannot be built under the current, frozen (v14) schema: a
-    // partial unique index predating this task —
-    // `set_contract_one_live_v2_idx` (SCHEMA_V9, migrations.rs) —
-    // enforces AT MOST ONE `set_contract` row in the whole database with
-    // `set_state IN ('active','paused')` at any time, application write path
-    // or raw SQL alike (confirmed empirically: both `open_set_in_tx` and a
-    // direct `INSERT ... set_state='paused'` reject a second live row with a
-    // UNIQUE constraint failure on that index). So today the paused-sets
-    // tray can only ever hold 0 or 1 row; two *concurrently* paused sets are
-    // schema-impossible without a migration, which is out of scope here.
-    // The two tests below verify everything that IS reachable under the
-    // real invariant: the query's join/field-mapping/timestamp-derivation
-    // against a genuinely paused set, and that it excludes rows in any
-    // other state (including a second, non-live row seeded alongside it).
+    // Task A4 note: originally the brief's acceptance test (seed two pieces,
+    // pause one set each, one active elsewhere → `sets_paused_list` returns
+    // exactly the two paused rows, newest-paused first) was schema-impossible
+    // under `set_contract_one_live_v2_idx` (SCHEMA_V9), which allowed at most
+    // ONE live (active OR paused) row database-wide. Task A4b (SCHEMA_V14)
+    // relaxed that to `set_contract_one_active_v2_idx` — one ACTIVE row max,
+    // any number paused — so the two tests below still cover the
+    // single-paused-row join/field-mapping/exclusion behavior, and the
+    // fixture test further down (`sets_paused_list_returns_two_paused_sets_...`)
+    // now builds and asserts the real multi-row/newest-first fixture.
     #[test]
     fn sets_paused_list_returns_the_paused_set_with_correct_join_fields_and_streak() {
         let (engine, pid, store, _rec) = engine_with_piece();
@@ -4891,7 +5013,7 @@ mod tests {
         assert!(!row.paused_since_ts.is_empty());
 
         // Resuming takes it out of the tray.
-        engine.resume("test-resume-1").unwrap();
+        engine.resume("test-resume-1", None).unwrap();
         assert!(store.paused_sets_list().unwrap().is_empty());
     }
 
@@ -4933,6 +5055,172 @@ mod tests {
         assert_eq!(rows.len(), 1, "only the genuinely paused set");
         assert_eq!(rows[0].set_id, opened.block_id);
         assert_eq!(rows[0].piece_id, pid);
+    }
+
+    /// Task A4b: the real A4 acceptance fixture — two pieces each paused, one
+    /// active elsewhere. Schema-impossible before this task (see the A4 note
+    /// above); now buildable through the ordinary engine write path because
+    /// `open_from`'s in-memory guard and `open_set_in_tx`'s DB-level guard
+    /// both relaxed from "blocks on active-or-paused" to "blocks on active
+    /// only" (SCHEMA_V14's `set_contract_one_active_v2_idx`). Also proves two
+    /// paused rows coexist and the newest-paused-first ordering.
+    #[test]
+    fn sets_paused_list_returns_two_paused_sets_newest_first_with_one_active_elsewhere() {
+        let (engine, pid1, store, _rec) = engine_with_piece();
+        let pid2 = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/Debussy - Clair de Lune".into(),
+                title: "Clair de Lune".into(),
+                composer: Some("Debussy".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+        let pid3 = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/Ravel - Jeux d'eau".into(),
+                title: "Jeux d'eau".into(),
+                composer: Some("Ravel".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        let opened1 = engine.open(tempo_args(pid1, 90.0)).unwrap();
+        engine.pause("fixture-pause-1").unwrap();
+
+        let opened2 = engine.open(tempo_args(pid2, 80.0)).unwrap();
+        engine.pause("fixture-pause-2").unwrap();
+
+        // The third set stays active elsewhere — never paused.
+        let opened3 = engine.open(tempo_args(pid3, 70.0)).unwrap();
+        assert_eq!(opened3.set_state, "active");
+
+        let rows = store.paused_sets_list().unwrap();
+        assert_eq!(rows.len(), 2, "two paused rows coexist");
+        assert_eq!(
+            rows[0].set_id, opened2.block_id,
+            "newest-paused (opened2) first"
+        );
+        assert_eq!(rows[1].set_id, opened1.block_id);
+        assert!(
+            rows.iter().all(|row| row.set_id != opened3.block_id),
+            "the active set never appears in the paused tray"
+        );
+    }
+
+    /// Task A4b: `rep_resume` targeting a set OTHER than the one currently
+    /// active auto-pauses the old active set and activates the target, in one
+    /// transaction — the receipt reflects both transitions.
+    #[test]
+    fn resume_with_another_active_auto_pauses_old_and_activates_target_atomically() {
+        let (engine, pid1, store, _rec) = engine_with_piece();
+        let pid2 = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/Debussy - Clair de Lune".into(),
+                title: "Clair de Lune".into(),
+                composer: Some("Debussy".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        let opened1 = engine.open(tempo_args(pid1, 90.0)).unwrap();
+        engine.pause("auto-pause-fixture-1").unwrap();
+        let opened2 = engine.open(tempo_args(pid2, 80.0)).unwrap();
+        assert_eq!(opened2.set_state, "active");
+
+        let receipt = engine
+            .resume("resume-target-1", Some(opened1.block_id))
+            .unwrap();
+        assert_eq!(receipt.status, "committed");
+        let snap = receipt.value.clone().unwrap();
+        assert_eq!(snap.block_id, opened1.block_id);
+        assert_eq!(snap.set_state, "active");
+        assert!(
+            receipt.summary.contains("Paused") && receipt.summary.contains("Resumed"),
+            "{}",
+            receipt.summary
+        );
+        assert_eq!(receipt.entity_refs.len(), 2);
+
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={}",
+                    opened1.block_id
+                ))
+                .unwrap(),
+            "active"
+        );
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={}",
+                    opened2.block_id
+                ))
+                .unwrap(),
+            "paused",
+            "the previously active set was auto-paused"
+        );
+    }
+
+    /// Task A4b: a mid-transaction failure during the auto-pause-then-resume
+    /// leaves BOTH sets exactly as they were — the receipt's atomicity is not
+    /// just claimed but exercised.
+    #[test]
+    fn resume_with_another_active_rolls_back_both_transitions_on_injected_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("resume-atomic.sqlite");
+        let (engine, pid1, store) = engine_with_piece_at(&path);
+        let pid2 = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/Debussy - Clair de Lune".into(),
+                title: "Clair de Lune".into(),
+                composer: Some("Debussy".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        let opened1 = engine.open(tempo_args(pid1, 90.0)).unwrap();
+        engine.pause("rollback-fixture-1").unwrap();
+        let opened2 = engine.open(tempo_args(pid2, 80.0)).unwrap();
+
+        // Fires on `start_interval`'s INSERT for the TARGET's activation —
+        // i.e. strictly after the other set's pause writes have already
+        // happened inside the same transaction, so a real partial-commit bug
+        // would leave `opened2` paused even though the overall op failed.
+        store
+            .test_execute_batch(
+                "CREATE TRIGGER fail_resume_interval BEFORE INSERT ON practice_interval
+                 BEGIN SELECT RAISE(ABORT,'injected resume failure'); END;",
+            )
+            .unwrap();
+
+        let failed = engine.resume("resume-target-fail-1", Some(opened1.block_id));
+        assert!(failed.is_err());
+
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={}",
+                    opened1.block_id
+                ))
+                .unwrap(),
+            "paused",
+            "target must remain paused when the transaction rolls back"
+        );
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={}",
+                    opened2.block_id
+                ))
+                .unwrap(),
+            "active",
+            "the auto-paused set must roll back to active too"
+        );
     }
 
     #[test]

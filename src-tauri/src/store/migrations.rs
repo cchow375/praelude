@@ -959,6 +959,18 @@ CREATE INDEX score_page_mark_page_idx
   ON score_page_mark(piece_id,edition_id,edition_fingerprint,page,id);
 ";
 
+/// Task A4b: relax the v9 one-live-set invariant to one-ACTIVE-set. Discovered
+/// mid-A4 — `set_contract_one_live_v2_idx` (SCHEMA_V9) is a partial unique
+/// index over the constant `1` scoped to `set_state IN ('active','paused')`,
+/// so the whole database can hold at most one live (active OR paused) row.
+/// That makes the approved spec's plural paused-sets tray schema-impossible.
+/// v14 is unshipped (the live DB is still v13 as of this branch), so this
+/// step amends v14's own batch rather than adding a v15 — v9's historical DDL
+/// is untouched. The new index narrows the predicate to `set_state='active'`
+/// only: at most one set may be active database-wide, but any number may sit
+/// `paused` simultaneously. See `store::practice_v2::open_set_in_tx` and
+/// `store::practice_loop::v2_resume` for the write paths that enforce/consume
+/// this.
 pub(crate) const SCHEMA_V14: &str = "\
 CREATE TABLE measure_map (
   id INTEGER PRIMARY KEY,
@@ -974,6 +986,9 @@ CREATE TABLE measure_map (
 CREATE INDEX measure_map_piece_idx ON measure_map(piece_id, edition_fingerprint, page);
 ALTER TABLE piece ADD COLUMN banner_text TEXT CHECK(banner_text IS NULL OR length(banner_text) <= 140);
 ALTER TABLE set_contract ADD COLUMN pass_seconds INTEGER CHECK(pass_seconds IS NULL OR (pass_seconds >= 1 AND pass_seconds <= 3600));
+DROP INDEX set_contract_one_live_v2_idx;
+CREATE UNIQUE INDEX set_contract_one_active_v2_idx
+  ON set_contract((1)) WHERE set_state='active';
 ";
 
 // ── v11 → v12: split the "Chamber Pieces Tanglewood" pseudo-piece ────────────

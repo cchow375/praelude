@@ -974,7 +974,17 @@ export function setMockResumeRejects(reject: boolean): void {
   mockResumeRejects = reject;
 }
 
-function repResumeReceipt(commandId: string): MutationReceipt<RepSnapshot> {
+// Task A4b: `rep_resume` gained an optional `setId` (the tray now always
+// passes the specific row's `set_id`; the rep HUD's own Resume chip still
+// omits it). The mock only ever simulates ONE live block (`MOCK_REP_STATE`),
+// so there is no second set to auto-pause here — a `setId` that doesn't
+// match the currently paused mock block simulates the real backend's "only a
+// paused practice set can resume" rejection rather than silently resuming
+// the wrong thing.
+function repResumeReceipt(
+  commandId: string,
+  setId?: number,
+): MutationReceipt<RepSnapshot> {
   if (mockResumeRejects) {
     return {
       receipt_id: `mock-receipt-resume-rejected-${Date.now()}`,
@@ -987,6 +997,22 @@ function repResumeReceipt(commandId: string): MutationReceipt<RepSnapshot> {
       undo_action: null,
       error_code: "practice_rejected",
       error_detail: "Mock-forced rejection for testing.",
+      replayed: false,
+      committed_ts: null,
+    };
+  }
+  if (setId != null && setId !== MOCK_REP_STATE.block_id) {
+    return {
+      receipt_id: `mock-receipt-resume-rejected-${Date.now()}`,
+      command_id: commandId,
+      status: "rejected",
+      summary: "The practice set could not be resumed.",
+      value: null,
+      entity_refs: [],
+      event_ids: [],
+      undo_action: null,
+      error_code: "practice_rejected",
+      error_detail: "only a paused practice set can resume",
       replayed: false,
       committed_ts: null,
     };
@@ -1798,10 +1824,10 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return repPauseReceipt(commandId);
     }
     case "rep_resume": {
-      const commandId = String(
-        ((args ?? {}) as { commandId?: unknown }).commandId ?? "mock-resume",
-      );
-      return repResumeReceipt(commandId);
+      const record = (args ?? {}) as { commandId?: unknown; setId?: unknown };
+      const commandId = String(record.commandId ?? "mock-resume");
+      const setId = typeof record.setId === "number" ? record.setId : undefined;
+      return repResumeReceipt(commandId, setId);
     }
     case "sets_paused_list":
       return mockPausedSets;
