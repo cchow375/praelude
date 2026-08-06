@@ -1760,7 +1760,23 @@ const HISTORY_DAY_MASTERED = dayLocalOffset(-10);
 const HISTORY_DAY_NORMAL = dayLocalOffset(-20);
 const HISTORY_DAY_DENSE = dayLocalOffset(-150);
 
+// Task B3: TODAY needs its own "done" evidence, paired with `seedQaFixtures`'s
+// TODAY day sheet (20 planned minutes), so the Calendar's planned-vs-done cell
+// for today shows live non-empty data in `npm run dev:mock` rather than the
+// "cells with neither" empty state (spec S7 — today stops showing empty).
+const HISTORY_DAY_TODAY: HistoryDaySummary = {
+  date: TODAY,
+  focused_seconds: 14 * 60,
+  session_count: 1,
+  attempts: 5,
+  cleans: 4,
+  sets_touched: 1,
+  mastered_sets: 0,
+  pieces: [{ piece_id: 1, title: "Scherzo No. 2", attempts: 5 }],
+};
+
 const HISTORY_DAY_SUMMARIES: HistoryDaySummary[] = [
+  HISTORY_DAY_TODAY,
   {
     date: HISTORY_DAY_RECENT,
     focused_seconds: 42 * 60,
@@ -1859,6 +1875,14 @@ function historyDaySession(
 }
 
 const HISTORY_DAY_DETAILS = new Map<string, HistoryDayDetail>([
+  [
+    TODAY,
+    {
+      date: TODAY,
+      sessions: [historyDaySession(TODAY, 500, { focused_seconds: 14 * 60 })],
+      sets: [historyDaySet(TODAY, 0, { attempts: 5, cleans: 4 })],
+    },
+  ],
   [
     HISTORY_DAY_RECENT,
     {

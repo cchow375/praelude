@@ -256,6 +256,31 @@
   color: var(--warning);
   font-weight: var(--weight-semibold);
 }
+.calendar-day-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.calendar-day-progress-bar {
+  display: flex;
+  overflow: hidden;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-hover);
+}
+.calendar-day-progress-planned {
+  height: 100%;
+  background: var(--ink-faint);
+}
+.calendar-day-progress-done {
+  height: 100%;
+  background: var(--success);
+}
+.calendar-day-progress-text {
+  margin: 0;
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+}
 .calendar-goal-milestones {
   display: flex;
   flex-direction: column;

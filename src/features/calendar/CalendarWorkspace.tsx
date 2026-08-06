@@ -1,9 +1,18 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
 import type { Goal, PieceSummary } from "../pieces/types";
 import { calendarApi } from "./api";
 import { addDays, dayLabel, startOfWeek, todayLocal, weekLabel } from "./dates";
 import { RecoveryReview } from "./RecoveryReview";
+import { mergePlannedVsDone } from "./plannedVsDone";
+import type { PlannedVsDoneDay } from "./plannedVsDone";
 import type {
   CalendarApi,
   DailyWork,
@@ -25,11 +34,17 @@ interface References {
   goals: Goal[];
 }
 
-export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarWorkspaceProps) {
+export function CalendarWorkspace({
+  api = calendarApi,
+  initialToday,
+}: CalendarWorkspaceProps) {
   const today = initialToday ?? todayLocal();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(today));
   const [work, setWork] = useState<DailyWork[]>([]);
-  const [references, setReferences] = useState<References>({ pieces: [], goals: [] });
+  const [references, setReferences] = useState<References>({
+    pieces: [],
+    goals: [],
+  });
   const [capacity, setCapacity] = useState(60);
   const [capacityDraft, setCapacityDraft] = useState("60");
   const [preview, setPreview] = useState<RecoveryPreview | null>(null);
@@ -38,10 +53,32 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
   const [sheetDate, setSheetDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [plannedVsDone, setPlannedVsDone] = useState<
+    Record<string, PlannedVsDoneDay>
+  >({});
   const weekEnd = addDays(weekStart, 6);
-  const dates = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart]);
+  // Task B3: bar widths are proportional against the WEEK's max(planned,
+  // done) minutes, not each cell's own max — so a light Tuesday and a heavy
+  // Friday stay visually comparable within one strip. `1` floors the
+  // denominator so an all-empty week never divides by zero.
+  const weekMaxMinutes = useMemo(
+    () =>
+      Math.max(
+        1,
+        ...Object.values(plannedVsDone).flatMap((day) => [
+          day.plannedMinutes,
+          day.doneMinutes,
+        ]),
+      ),
+    [plannedVsDone],
+  );
+  const dates = useMemo(
+    () => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)),
+    [weekStart],
+  );
   const mountedRef = useRef(false);
   const weekRequestGenerationRef = useRef(0);
+  const plannedVsDoneGenerationRef = useRef(0);
   const currentWeekRef = useRef({ from: weekStart, to: weekEnd });
 
   useLayoutEffect(() => {
@@ -52,12 +89,11 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
     if (!mountedRef.current) return;
     const generation = ++weekRequestGenerationRef.current;
     const { from, to } = currentWeekRef.current;
-    const ownsState = () => (
-      mountedRef.current
-      && generation === weekRequestGenerationRef.current
-      && currentWeekRef.current.from === from
-      && currentWeekRef.current.to === to
-    );
+    const ownsState = () =>
+      mountedRef.current &&
+      generation === weekRequestGenerationRef.current &&
+      currentWeekRef.current.from === from &&
+      currentWeekRef.current.to === to;
     setLoading(true);
     setError(null);
     try {
@@ -87,27 +123,68 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
     }
   }, [api]);
 
+  // Task B3: one `history_days` + one `day_sheets_range` call per visible
+  // week (never per cell). Same alive-guard/generation-token shape as
+  // `loadWeek` above, so fast week navigation can't let a stale response
+  // overwrite a newer one. Best-effort: a failed fetch leaves the merged
+  // record as-is rather than surfacing a second error banner — daily_work
+  // already owns `error`/`loading` for this view.
+  const loadPlannedVsDone = useCallback(async () => {
+    if (!mountedRef.current) return;
+    const generation = ++plannedVsDoneGenerationRef.current;
+    const { from, to } = currentWeekRef.current;
+    const weekDates = dates;
+    const ownsState = () =>
+      mountedRef.current &&
+      generation === plannedVsDoneGenerationRef.current &&
+      currentWeekRef.current.from === from &&
+      currentWeekRef.current.to === to;
+    try {
+      const [days, sheets] = await Promise.all([
+        api.historyDays(from, to),
+        api.daySheetsRange(from, to),
+      ]);
+      if (ownsState()) {
+        setPlannedVsDone(mergePlannedVsDone(sheets, days, weekDates));
+      }
+    } catch {
+      // Best-effort: leave prior planned-vs-done data (or none) in place.
+    }
+  }, [api, dates]);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       weekRequestGenerationRef.current += 1;
+      plannedVsDoneGenerationRef.current += 1;
     };
   }, []);
-  useEffect(() => { void loadWeek(); }, [loadWeek, weekEnd, weekStart]);
-  useEffect(() => { void loadPreview(); }, [loadPreview]);
+  useEffect(() => {
+    void loadWeek();
+  }, [loadWeek, weekEnd, weekStart]);
+  useEffect(() => {
+    void loadPlannedVsDone();
+  }, [loadPlannedVsDone, weekEnd, weekStart]);
+  useEffect(() => {
+    void loadPreview();
+  }, [loadPreview]);
   useEffect(() => {
     let active = true;
     void (async () => {
       try {
         const pieces = await api.listPieces();
-        const goalLists = await Promise.all(pieces.map((piece) => api.listGoals(piece.id)));
+        const goalLists = await Promise.all(
+          pieces.map((piece) => api.listGoals(piece.id)),
+        );
         if (active) setReferences({ pieces, goals: goalLists.flat() });
       } catch (cause) {
         if (active) setError(errorMessage(cause));
       }
     })();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [api]);
 
   const mutate = async (operation: () => Promise<unknown>) => {
@@ -153,7 +230,10 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
         <div>
           <p className="calendar-eyebrow">Calendar</p>
           <h1>Make the week explicit.</h1>
-          <p>Plan real work. Completing a card never invents practice time, attempts, or mastery.</p>
+          <p>
+            Plan real work. Completing a card never invents practice time,
+            attempts, or mastery.
+          </p>
         </div>
         <div className="calendar-capacity">
           <label htmlFor="calendar-capacity">Daily capacity</label>
@@ -170,45 +250,101 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
               }}
             />
             <span>min</span>
-            <button type="button" aria-label="Save daily capacity" onClick={() => void saveCapacity()}>Save</button>
+            <button
+              type="button"
+              aria-label="Save daily capacity"
+              onClick={() => void saveCapacity()}
+            >
+              Save
+            </button>
           </div>
         </div>
       </header>
 
       {preview && preview.items.length > 0 && (
-        <section className="recovery-banner" aria-label="Missed work available for review">
+        <section
+          className="recovery-banner"
+          aria-label="Missed work available for review"
+        >
           <div>
-            <strong>{preview.items.length} missed {preview.items.length === 1 ? "item" : "items"} {preview.items.length === 1 ? "needs" : "need"} a decision.</strong>
-            <span>Reviewing is not a penalty. Nothing moves automatically.</span>
+            <strong>
+              {preview.items.length} missed{" "}
+              {preview.items.length === 1 ? "item" : "items"}{" "}
+              {preview.items.length === 1 ? "needs" : "need"} a decision.
+            </strong>
+            <span>
+              Reviewing is not a penalty. Nothing moves automatically.
+            </span>
           </div>
-          <button type="button" onClick={() => setReviewing(true)}>Review missed work</button>
+          <button type="button" onClick={() => setReviewing(true)}>
+            Review missed work
+          </button>
         </section>
       )}
 
-      <details className="calendar-retention" onToggle={(event) => setRetentionOpen(event.currentTarget.open)}>
-        <summary>Retention checks <span>Confirm, lower, reopen, or snooze—never auto-promote yesterday’s result.</span></summary>
+      <details
+        className="calendar-retention"
+        onToggle={(event) => setRetentionOpen(event.currentTarget.open)}
+      >
+        <summary>
+          Retention checks{" "}
+          <span>
+            Confirm, lower, reopen, or snooze—never auto-promote yesterday’s
+            result.
+          </span>
+        </summary>
         {retentionOpen && <RetentionQueue asOfDate={today} />}
       </details>
 
       <nav className="calendar-week-nav" aria-label="Calendar week">
-        <button type="button" aria-label="Previous week" onClick={() => setWeekStart(addDays(weekStart, -7))}>←</button>
-        <button type="button" onClick={() => setWeekStart(startOfWeek(today))}>This week</button>
+        <button
+          type="button"
+          aria-label="Previous week"
+          onClick={() => setWeekStart(addDays(weekStart, -7))}
+        >
+          ←
+        </button>
+        <button type="button" onClick={() => setWeekStart(startOfWeek(today))}>
+          This week
+        </button>
         <strong aria-live="polite">{weekLabel(weekStart, weekEnd)}</strong>
-        <button type="button" aria-label="Next week" onClick={() => setWeekStart(addDays(weekStart, 7))}>→</button>
+        <button
+          type="button"
+          aria-label="Next week"
+          onClick={() => setWeekStart(addDays(weekStart, 7))}
+        >
+          →
+        </button>
       </nav>
 
-      {error && <p className="calendar-error" role="alert">{error}</p>}
+      {error && (
+        <p className="calendar-error" role="alert">
+          {error}
+        </p>
+      )}
       {loading ? (
-        <p className="calendar-loading" role="status">Loading this week…</p>
+        <p className="calendar-loading" role="status">
+          Loading this week…
+        </p>
       ) : (
         <section className="calendar-strip" aria-label={`Week of ${weekStart}`}>
           {dates.map((date) => {
             const items = work
               .filter((item) => item.scheduled_date === date)
-              .sort((left, right) => left.sort_order - right.sort_order || left.id - right.id);
+              .sort(
+                (left, right) =>
+                  left.sort_order - right.sort_order || left.id - right.id,
+              );
             const milestones = references.goals
-              .filter((goal) => goal.kind === "big" && goal.parent_goal_id === null && goal.target_date === date)
-              .sort((left, right) => left.order - right.order || left.id - right.id);
+              .filter(
+                (goal) =>
+                  goal.kind === "big" &&
+                  goal.parent_goal_id === null &&
+                  goal.target_date === date,
+              )
+              .sort(
+                (left, right) => left.order - right.order || left.id - right.id,
+              );
             return (
               <CalendarDay
                 key={date}
@@ -221,6 +357,8 @@ export function CalendarWorkspace({ api = calendarApi, initialToday }: CalendarW
                 api={api}
                 onMutate={mutate}
                 onOpenSheet={() => setSheetDate(date)}
+                progress={plannedVsDone[date]}
+                weekMaxMinutes={weekMaxMinutes}
               />
             );
           })}
@@ -244,6 +382,8 @@ function CalendarDay({
   api,
   onMutate,
   onOpenSheet,
+  progress,
+  weekMaxMinutes,
 }: {
   date: string;
   today: string;
@@ -254,59 +394,126 @@ function CalendarDay({
   api: CalendarApi;
   onMutate: (operation: () => Promise<unknown>) => Promise<boolean>;
   onOpenSheet: () => void;
+  progress: PlannedVsDoneDay | undefined;
+  weekMaxMinutes: number;
 }) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
-  const used = items.filter((item) => item.status === "planned").reduce((sum, item) => sum + item.planned_minutes, 0);
+  const used = items
+    .filter((item) => item.status === "planned")
+    .reduce((sum, item) => sum + item.planned_minutes, 0);
   const label = dayLabel(date);
   return (
-    <section className={`calendar-day ${date === today ? "is-today" : ""}`} aria-label={`${label.weekday} ${label.date}`}>
+    <section
+      className={`calendar-day ${date === today ? "is-today" : ""}`}
+      aria-label={`${label.weekday} ${label.date}`}
+    >
       <header>
-        <button type="button" className="calendar-day-sheet-open" aria-label={`Open day sheet for ${label.weekday} ${label.date}`} onClick={onOpenSheet}><span>{label.weekday}</span><strong>{label.date}</strong></button>
-        <span className={used > capacity ? "is-over" : ""}>{used}/{capacity} min</span>
+        <button
+          type="button"
+          className="calendar-day-sheet-open"
+          aria-label={`Open day sheet for ${label.weekday} ${label.date}`}
+          onClick={onOpenSheet}
+        >
+          <span>{label.weekday}</span>
+          <strong>{label.date}</strong>
+        </button>
+        <span className={used > capacity ? "is-over" : ""}>
+          {used}/{capacity} min
+        </span>
       </header>
+      {progress &&
+        (progress.plannedMinutes > 0 || progress.doneMinutes > 0) && (
+          <div className="calendar-day-progress">
+            <div className="calendar-day-progress-bar" aria-hidden="true">
+              {progress.plannedMinutes > 0 && (
+                <span
+                  className="calendar-day-progress-planned"
+                  style={{
+                    width: `${(progress.plannedMinutes / weekMaxMinutes) * 100}%`,
+                  }}
+                />
+              )}
+              {progress.doneMinutes > 0 && (
+                <span
+                  className="calendar-day-progress-done"
+                  style={{
+                    width: `${(progress.doneMinutes / weekMaxMinutes) * 100}%`,
+                  }}
+                />
+              )}
+            </div>
+            <p className="calendar-day-progress-text">
+              {progress.plannedMinutes} planned · {progress.doneMinutes} done
+            </p>
+          </div>
+        )}
+      {/* v7: streak/photo layer slots here */}
       {milestones.length > 0 && (
-        <div className="calendar-goal-milestones" aria-label={`Big goal deadlines on ${date}`}>
+        <div
+          className="calendar-goal-milestones"
+          aria-label={`Big goal deadlines on ${date}`}
+        >
           {milestones.map((goal) => {
-            const piece = references.pieces.find((candidate) => candidate.id === goal.piece_id);
+            const piece = references.pieces.find(
+              (candidate) => candidate.id === goal.piece_id,
+            );
             return (
-              <article key={goal.id} className={`calendar-goal-milestone ${goal.done ? "is-done" : ""}`}>
+              <article
+                key={goal.id}
+                className={`calendar-goal-milestone ${goal.done ? "is-done" : ""}`}
+              >
                 <span>Big Goal deadline</span>
                 <strong>{goal.text}</strong>
-                <small>{piece?.title ?? "Piece"}{goal.done ? " · complete" : ""}</small>
+                <small>
+                  {piece?.title ?? "Piece"}
+                  {goal.done ? " · complete" : ""}
+                </small>
               </article>
             );
           })}
         </div>
       )}
       <div className="calendar-day-work">
-        {items.length === 0 && milestones.length === 0 && <p className="calendar-day-empty">No work planned.</p>}
-        {items.map((item) => editing === item.id ? (
-          <WorkForm
-            key={item.id}
-            date={date}
-            references={references}
-            work={item}
-            onCancel={() => setEditing(null)}
-            onSave={async (draft) => {
-              const saved = await onMutate(() => api.update(item.id, item.updated_ts, {
-                title: draft.title,
-                planned_minutes: draft.minutes,
-                scheduled_date: draft.date,
-              }));
-              if (saved) setEditing(null);
-            }}
-          />
-        ) : (
-          <WorkCard
-            key={item.id}
-            item={item}
-            onEdit={() => setEditing(item.id)}
-            onMove={() => setEditing(item.id)}
-            onPatch={async (patch) => { await onMutate(() => api.update(item.id, item.updated_ts, patch)); }}
-            onDelete={async () => { await onMutate(() => api.delete(item.id, item.updated_ts)); }}
-          />
-        ))}
+        {items.length === 0 && milestones.length === 0 && (
+          <p className="calendar-day-empty">No work planned.</p>
+        )}
+        {items.map((item) =>
+          editing === item.id ? (
+            <WorkForm
+              key={item.id}
+              date={date}
+              references={references}
+              work={item}
+              onCancel={() => setEditing(null)}
+              onSave={async (draft) => {
+                const saved = await onMutate(() =>
+                  api.update(item.id, item.updated_ts, {
+                    title: draft.title,
+                    planned_minutes: draft.minutes,
+                    scheduled_date: draft.date,
+                  }),
+                );
+                if (saved) setEditing(null);
+              }}
+            />
+          ) : (
+            <WorkCard
+              key={item.id}
+              item={item}
+              onEdit={() => setEditing(item.id)}
+              onMove={() => setEditing(item.id)}
+              onPatch={async (patch) => {
+                await onMutate(() =>
+                  api.update(item.id, item.updated_ts, patch),
+                );
+              }}
+              onDelete={async () => {
+                await onMutate(() => api.delete(item.id, item.updated_ts));
+              }}
+            />
+          ),
+        )}
       </div>
       {creating ? (
         <WorkForm
@@ -314,20 +521,28 @@ function CalendarDay({
           references={references}
           onCancel={() => setCreating(false)}
           onSave={async (draft) => {
-            const saved = await onMutate(() => api.create({
-              goal_id: draft.goalId,
-              region_id: null,
-              block_id: null,
-              title: draft.title,
-              minutes: draft.minutes,
-              date: draft.date,
-              source: "manual",
-            }));
+            const saved = await onMutate(() =>
+              api.create({
+                goal_id: draft.goalId,
+                region_id: null,
+                block_id: null,
+                title: draft.title,
+                minutes: draft.minutes,
+                date: draft.date,
+                source: "manual",
+              }),
+            );
             if (saved) setCreating(false);
           }}
         />
       ) : (
-        <button type="button" className="calendar-add-work" onClick={() => setCreating(true)}>+ Add work</button>
+        <button
+          type="button"
+          className="calendar-add-work"
+          onClick={() => setCreating(true)}
+        >
+          + Add work
+        </button>
       )}
     </section>
   );
@@ -351,17 +566,38 @@ function WorkCard({
       <div className="calendar-work-card-copy">
         <strong>{item.title}</strong>
         <span>{item.piece_title}</span>
-        <span>{item.parent_goal_text ? `${item.parent_goal_text} › ` : ""}{item.goal_text}</span>
+        <span>
+          {item.parent_goal_text ? `${item.parent_goal_text} › ` : ""}
+          {item.goal_text}
+        </span>
       </div>
       <span className="calendar-work-minutes">{item.planned_minutes} min</span>
-      {item.status !== "planned" && <span className="calendar-work-status">{item.status === "done" ? "Done" : "Dismissed"}</span>}
+      {item.status !== "planned" && (
+        <span className="calendar-work-status">
+          {item.status === "done" ? "Done" : "Dismissed"}
+        </span>
+      )}
       <div className="calendar-work-actions">
-        <button type="button" onClick={onEdit}>Edit</button>
-        <button type="button" onClick={onMove}>Move</button>
+        <button type="button" onClick={onEdit}>
+          Edit
+        </button>
+        <button type="button" onClick={onMove}>
+          Move
+        </button>
         {item.status === "planned" && (
           <>
-            <button type="button" onClick={() => void onPatch({ status: "done" })}>Done</button>
-            <button type="button" onClick={() => void onPatch({ status: "dismissed" })}>Dismiss</button>
+            <button
+              type="button"
+              onClick={() => void onPatch({ status: "done" })}
+            >
+              Done
+            </button>
+            <button
+              type="button"
+              onClick={() => void onPatch({ status: "dismissed" })}
+            >
+              Dismiss
+            </button>
           </>
         )}
         <ConfirmDelete label="Delete this daily work?" onConfirm={onDelete}>
@@ -372,7 +608,12 @@ function WorkCard({
   );
 }
 
-interface WorkDraft { goalId: number; title: string; minutes: number; date: string }
+interface WorkDraft {
+  goalId: number;
+  title: string;
+  minutes: number;
+  date: string;
+}
 
 function WorkForm({
   date,
@@ -391,43 +632,108 @@ function WorkForm({
   const [goalId, setGoalId] = useState(firstGoal);
   const [title, setTitle] = useState(work?.title ?? "");
   const [minutes, setMinutes] = useState(work?.planned_minutes ?? 20);
-  const [scheduledDate, setScheduledDate] = useState(work?.scheduled_date ?? date);
+  const [scheduledDate, setScheduledDate] = useState(
+    work?.scheduled_date ?? date,
+  );
   const [saving, setSaving] = useState(false);
-  const valid = goalId > 0 && title.trim().length > 0 && Number.isInteger(minutes) && minutes >= 1 && minutes <= 240;
+  const valid =
+    goalId > 0 &&
+    title.trim().length > 0 &&
+    Number.isInteger(minutes) &&
+    minutes >= 1 &&
+    minutes <= 240;
 
   const submit = async () => {
     if (!valid || saving) return;
     setSaving(true);
     try {
-      await onSave({ goalId, title: title.trim(), minutes, date: scheduledDate });
+      await onSave({
+        goalId,
+        title: title.trim(),
+        minutes,
+        date: scheduledDate,
+      });
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <form className="calendar-work-form" aria-label={work ? `Edit ${work.title}` : `Add work on ${date}`} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+    <form
+      className="calendar-work-form"
+      aria-label={work ? `Edit ${work.title}` : `Add work on ${date}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
       {!work && (
         <label>
           <span>Goal</span>
-          <select aria-label="Goal" value={goalId} onChange={(event) => setGoalId(Number(event.target.value))}>
-            {references.goals.length === 0 && <option value={0}>Create a goal in Practice first</option>}
+          <select
+            aria-label="Goal"
+            value={goalId}
+            onChange={(event) => setGoalId(Number(event.target.value))}
+          >
+            {references.goals.length === 0 && (
+              <option value={0}>Create a goal in Practice first</option>
+            )}
             {references.goals.map((goal) => {
-              const piece = references.pieces.find((candidate) => candidate.id === goal.piece_id);
-              const parent = references.goals.find((candidate) => candidate.id === goal.parent_goal_id);
-              return <option key={goal.id} value={goal.id}>{piece?.title ?? "Piece"} · {parent ? `${parent.text} › ` : ""}{goal.text}</option>;
+              const piece = references.pieces.find(
+                (candidate) => candidate.id === goal.piece_id,
+              );
+              const parent = references.goals.find(
+                (candidate) => candidate.id === goal.parent_goal_id,
+              );
+              return (
+                <option key={goal.id} value={goal.id}>
+                  {piece?.title ?? "Piece"} ·{" "}
+                  {parent ? `${parent.text} › ` : ""}
+                  {goal.text}
+                </option>
+              );
             })}
           </select>
         </label>
       )}
-      <label><span>Exact work step (separate from the Goal)</span><input autoFocus value={title} aria-label="Work title" onChange={(event) => setTitle(event.target.value)} /></label>
+      <label>
+        <span>Exact work step (separate from the Goal)</span>
+        <input
+          autoFocus
+          value={title}
+          aria-label="Work title"
+          onChange={(event) => setTitle(event.target.value)}
+        />
+      </label>
       <div className="calendar-form-row">
-        <label><span>Minutes</span><input type="number" min="1" max="240" value={minutes} aria-label="Planned minutes" onChange={(event) => setMinutes(Number(event.target.value))} /></label>
-        <label><span>Date</span><input type="date" value={scheduledDate} aria-label="Scheduled date" onChange={(event) => setScheduledDate(event.target.value)} /></label>
+        <label>
+          <span>Minutes</span>
+          <input
+            type="number"
+            min="1"
+            max="240"
+            value={minutes}
+            aria-label="Planned minutes"
+            onChange={(event) => setMinutes(Number(event.target.value))}
+          />
+        </label>
+        <label>
+          <span>Date</span>
+          <input
+            type="date"
+            value={scheduledDate}
+            aria-label="Scheduled date"
+            onChange={(event) => setScheduledDate(event.target.value)}
+          />
+        </label>
       </div>
       <div className="calendar-form-actions">
-        <button type="button" onClick={onCancel}>Cancel</button>
-        <button type="submit" disabled={!valid || saving}>{saving ? "Saving…" : "Save"}</button>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="submit" disabled={!valid || saving}>
+          {saving ? "Saving…" : "Save"}
+        </button>
       </div>
     </form>
   );
