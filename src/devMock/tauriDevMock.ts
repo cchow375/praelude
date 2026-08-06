@@ -1679,6 +1679,264 @@ function mockCalibration(pieceId: number): unknown {
   };
 }
 
+// --- Measure mapping (Plan C, task C4) ------------------------------------
+//
+// Canned `measure_scan_page` outputs (page 1 clean, page 2 with a deliberate
+// continuity_break) plus a small, faithful-enough reconciliation and
+// `measure_map` CRUD against in-memory state, so the whole scan → reconcile →
+// review → Apply flow is offline-QA-able. This mirrors (a simplified, no-XML/
+// no-calibration version of) `score::measure_reconcile::reconcile`'s own
+// forward-fill-from-nearest-anchor rule — see that module's doc comment.
+
+interface MockScanSystem {
+  y_top: number;
+  y_bottom: number;
+  x_left: number;
+  x_right: number;
+  barline_xs: number[];
+  printed_numbers: {
+    number: number;
+    x: number;
+    y: number;
+    confidence: number;
+  }[];
+  staves: number;
+}
+
+interface MockScanPageOutput {
+  systems: MockScanSystem[];
+}
+
+/** Page 1: a clean single system, printed number 1 pins the first bar
+ * exactly — reconciling this alone produces zero conflicts. Page 2: a
+ * printed number that CONTRADICTS where page 1 left off (asks for 10 when
+ * only 5 is expected) — a deliberate `continuity_break`. Any other page
+ * number gets a plain, unlabeled system so a full-length mock score still
+ * scans end to end without inventing more conflicts. */
+function mockScanPage(page: number): MockScanPageOutput {
+  if (page === 1) {
+    return {
+      systems: [
+        {
+          y_top: 0.1,
+          y_bottom: 0.2,
+          x_left: 0.05,
+          x_right: 0.9,
+          barline_xs: [0.3, 0.5, 0.7, 0.9],
+          printed_numbers: [{ number: 1, x: 0.05, y: 0.09, confidence: 0.95 }],
+          staves: 2,
+        },
+      ],
+    };
+  }
+  if (page === 2) {
+    return {
+      systems: [
+        {
+          y_top: 0.3,
+          y_bottom: 0.4,
+          x_left: 0.05,
+          x_right: 0.9,
+          barline_xs: [0.3, 0.5, 0.7, 0.9],
+          printed_numbers: [{ number: 10, x: 0.05, y: 0.29, confidence: 0.9 }],
+          staves: 2,
+        },
+      ],
+    };
+  }
+  return {
+    systems: [
+      {
+        y_top: 0.1,
+        y_bottom: 0.2,
+        x_left: 0.05,
+        x_right: 0.9,
+        barline_xs: [0.4, 0.9],
+        printed_numbers: [],
+        staves: 2,
+      },
+    ],
+  };
+}
+
+interface MockMapBar {
+  x_right: number;
+  number: number;
+  confidence?: number;
+  source: "model" | "user" | "interpolated";
+}
+
+interface MockMapSystem {
+  y_top: number;
+  y_bottom: number;
+  x_left: number;
+  x_right: number;
+  bars: MockMapBar[];
+}
+
+interface MockMeasureMapPageRow {
+  page: number;
+  map: { version: number; systems: MockMapSystem[] };
+}
+
+type MockMapConflict = {
+  kind: "continuity_break";
+  page: number;
+  system: number;
+  expected: number;
+  found: number;
+};
+
+const ANCHOR_CONFIDENCE_MIN = 0.5;
+
+function mockReconcile(pages: { page: number; scan: MockScanPageOutput }[]): {
+  pages: MockMeasureMapPageRow[];
+  conflicts: MockMapConflict[];
+  total_bars: number;
+} {
+  const sorted = [...pages].sort((a, b) => a.page - b.page);
+
+  interface FlatBar {
+    page: number;
+    system: number;
+    x_right: number;
+    number: number;
+  }
+  const flat: FlatBar[] = [];
+  const systemMeta: {
+    page: number;
+    system: number;
+    y_top: number;
+    y_bottom: number;
+    x_left: number;
+    x_right: number;
+    start: number;
+    count: number;
+  }[] = [];
+  for (const { page, scan } of sorted) {
+    const systems = [...scan.systems].sort((a, b) => a.y_top - b.y_top);
+    systems.forEach((system, systemIndex) => {
+      const start = flat.length;
+      for (const x_right of system.barline_xs) {
+        flat.push({ page, system: systemIndex + 1, x_right, number: 0 });
+      }
+      systemMeta.push({
+        page,
+        system: systemIndex + 1,
+        y_top: system.y_top,
+        y_bottom: system.y_bottom,
+        x_left: system.x_left,
+        x_right: system.x_right,
+        start,
+        count: system.barline_xs.length,
+      });
+    });
+  }
+
+  interface Anchor {
+    index: number;
+    number: number;
+    page: number;
+    system: number;
+    confidence?: number;
+  }
+  const anchors: Anchor[] = [];
+  for (const { page, scan } of sorted) {
+    const metasForPage = systemMeta.filter((m) => m.page === page);
+    for (const system of scan.systems) {
+      for (const printed of system.printed_numbers) {
+        if (printed.confidence < ANCHOR_CONFIDENCE_MIN) continue;
+        const owning =
+          metasForPage.find(
+            (m) => printed.y >= m.y_top && printed.y <= m.y_bottom,
+          ) ?? metasForPage[0];
+        if (!owning || owning.count === 0) continue;
+        let localIndex = 0;
+        for (let i = 0; i < owning.count; i += 1) {
+          localIndex = i;
+          if (flat[owning.start + i].x_right >= printed.x) break;
+        }
+        anchors.push({
+          index: owning.start + localIndex,
+          number: printed.number,
+          page: owning.page,
+          system: owning.system,
+          confidence: printed.confidence,
+        });
+      }
+    }
+  }
+  anchors.sort((a, b) => a.index - b.index);
+
+  const effectiveAnchors: Anchor[] =
+    anchors.length > 0 && anchors[0].index === 0
+      ? anchors
+      : flat.length > 0
+        ? [
+            { index: 0, number: 1, page: sorted[0]?.page ?? 1, system: 1 },
+            ...anchors,
+          ]
+        : anchors;
+
+  for (let a = 0; a < effectiveAnchors.length; a += 1) {
+    const anchor = effectiveAnchors[a];
+    const end = effectiveAnchors[a + 1]?.index ?? flat.length;
+    for (let i = anchor.index; i < end; i += 1) {
+      flat[i].number = anchor.number + (i - anchor.index);
+    }
+  }
+
+  const conflicts: MockMapConflict[] = [];
+  for (let a = 0; a < effectiveAnchors.length - 1; a += 1) {
+    const left = effectiveAnchors[a];
+    const right = effectiveAnchors[a + 1];
+    const expected = right.number - left.number;
+    const found = right.index - left.index;
+    if (expected !== found) {
+      conflicts.push({
+        kind: "continuity_break",
+        page: left.page,
+        system: left.system,
+        expected: Math.max(0, expected),
+        found,
+      });
+    }
+  }
+
+  const anchorConfidenceByIndex = new Map(
+    anchors.map((anchor) => [anchor.index, anchor.confidence]),
+  );
+  const resultPages: MockMeasureMapPageRow[] = sorted.map(({ page }) => {
+    const metas = systemMeta.filter((m) => m.page === page);
+    const systems: MockMapSystem[] = metas.map((meta) => ({
+      y_top: meta.y_top,
+      y_bottom: meta.y_bottom,
+      x_left: meta.x_left,
+      x_right: meta.x_right,
+      bars: flat
+        .slice(meta.start, meta.start + meta.count)
+        .map((bar, localIndex) => ({
+          x_right: bar.x_right,
+          number: bar.number,
+          confidence: anchorConfidenceByIndex.get(meta.start + localIndex),
+          source: "model" as const,
+        })),
+    }));
+    return { page, map: { version: 1, systems } };
+  });
+
+  return { pages: resultPages, conflicts, total_bars: flat.length };
+}
+
+/** `(piece_id, edition_fingerprint)` -> applied map, exactly like the real
+ * `measure_map` table's identity key (`edition_id` is accepted but not part
+ * of it — see `store::measure_map`'s module docs). */
+const MOCK_MEASURE_MAP = new Map<string, MockMeasureMapPageRow[]>();
+
+function measureMapKey(pieceId: number, fingerprint: string): string {
+  return `${pieceId}::${fingerprint}`;
+}
+
 // --- Pencil marks on the score -------------------------------------------
 //
 // STATEFUL, like the notebook maps below, so the browser harness exercises the
@@ -2418,6 +2676,56 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "day_sheets_range":
       return daySheetsRangeMock(args);
 
+    // Measure mapping (Plan C, task C4) — canned scans + a faithful-enough
+    // local reconcile + full measure_map CRUD, so the scan → review → Apply
+    // flow is offline-QA-able end to end.
+    case "measure_scan_page": {
+      const record = argsRecord(args);
+      return mockScanPage(Number(record.page ?? 1));
+    }
+    case "measure_reconcile": {
+      const record = argsRecord(args);
+      const inputs = (() => {
+        try {
+          return JSON.parse(String(record.pagesJson ?? "[]")) as {
+            page: number;
+            scan: MockScanPageOutput;
+          }[];
+        } catch {
+          return [];
+        }
+      })();
+      return mockReconcile(inputs);
+    }
+    case "measure_map_get": {
+      const record = argsRecord(args);
+      const key = measureMapKey(
+        pieceIdOf(args),
+        String(record.editionFingerprint ?? ""),
+      );
+      return MOCK_MEASURE_MAP.get(key) ?? [];
+    }
+    case "measure_map_apply": {
+      const record = argsRecord(args);
+      const key = measureMapKey(
+        pieceIdOf(args),
+        String(record.editionFingerprint ?? ""),
+      );
+      const pages = (record.pages ?? []) as MockMeasureMapPageRow[];
+      MOCK_MEASURE_MAP.set(key, pages);
+      return pages.length;
+    }
+    case "measure_map_clear": {
+      const record = argsRecord(args);
+      const key = measureMapKey(
+        pieceIdOf(args),
+        String(record.editionFingerprint ?? ""),
+      );
+      const removed = MOCK_MEASURE_MAP.get(key)?.length ?? 0;
+      MOCK_MEASURE_MAP.delete(key);
+      return removed;
+    }
+
     default:
       return null;
   }
@@ -2464,6 +2772,8 @@ export function installTauriDevMock(
   mockCheckpointedSeconds = MOCK_REP_STATE.active_seconds ?? 0;
   // Task A11: banner edits never bleed between installs.
   MOCK_BANNERS.clear();
+  // Task C4: applied measure maps never bleed between installs.
+  MOCK_MEASURE_MAP.clear();
 
   let callbackId = 0;
   let subscriptionId = 0;

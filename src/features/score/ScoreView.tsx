@@ -89,6 +89,18 @@ import type {
   ScorePdfApi,
   ScoreFocusContext,
 } from "./types";
+import { MeasureMapPanel } from "./mapping/MeasureMapPanel";
+import { MeasureOverlay } from "./mapping/MeasureOverlay";
+import {
+  getMeasureMapEntry,
+  measureMapGet,
+  publishMeasureMap,
+  readShowMeasuresPreference,
+  subscribeMeasureMap,
+  writeShowMeasuresPreference,
+  type MeasureMapCacheEntry,
+} from "./mapping/measureMap";
+import "./mapping/measureMapping.css";
 import "./ScoreView.css";
 
 const PDF_LOAD_TIMEOUT_MS = 30_000;
@@ -681,6 +693,13 @@ export function ScoreView({
   // on the right-hand page of the 2-page view is what undo takes back. Reset to
   // the anchor page on every page turn.
   const [markPage, setMarkPage] = useState(1);
+  // ── Measure mapping (Plan C, task C4) ─────────────────────────────────────
+  const [mapPanelOpen, setMapPanelOpen] = useState(false);
+  const [measuresVisible, setMeasuresVisible] = useState(() =>
+    readShowMeasuresPreference(),
+  );
+  const [measureMapEntry, setMeasureMapEntry] =
+    useState<MeasureMapCacheEntry | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   // MusicXML measure facts for the wizard's strip, fetched on wizard open. Null
   // whenever the piece has no MusicXML (or the fetch fails): the wizard then works
@@ -1234,6 +1253,39 @@ export function ScoreView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calibrationApi, editionKey, pieceId]);
 
+  // Applied measure map: read the shared cache immediately (no flash of
+  // "unmapped" on a piece switch back to an already-applied edition), then
+  // subscribe for live updates (Apply publishes into the SAME cache — see
+  // `mapping/measureMap.ts`). A cache miss triggers exactly one background
+  // `measure_map_get` hydration per edition; an empty answer just means
+  // "never mapped" and is not treated as an error.
+  useEffect(() => {
+    if (!edition) {
+      setMeasureMapEntry(null);
+      return;
+    }
+    const editionId = edition.id;
+    const fingerprint = edition.fingerprint;
+    setMeasureMapEntry(getMeasureMapEntry(pieceId, editionId));
+    const unsubscribe = subscribeMeasureMap(
+      pieceId,
+      editionId,
+      setMeasureMapEntry,
+    );
+    if (!getMeasureMapEntry(pieceId, editionId)) {
+      void measureMapGet(pieceId, editionId, fingerprint)
+        .then((rows) => {
+          if (rows.length > 0) {
+            publishMeasureMap(pieceId, editionId, fingerprint, rows);
+          }
+        })
+        .catch(() => undefined);
+    }
+    return unsubscribe;
+    // editionKey captures the identity we key on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editionKey, pieceId]);
+
   // ── Pencil marks: load, draw, undo, clear ─────────────────────────────────
 
   // Marks belong to one piece+edition+fingerprint. A switch of any of the three
@@ -1593,6 +1645,35 @@ export function ScoreView({
         return items;
       } catch {
         return null;
+      }
+    },
+    [document],
+  );
+
+  // The `needs_client_raster` retry path for measure scanning: render the
+  // CURRENT PDF.js page to a canvas and encode it as a JPEG (the
+  // `firstPageCache` idiom — `canvas.toBlob(..., "image/jpeg", 0.85)`), off
+  // the ALREADY-open document so the panel never opens a second copy of the
+  // PDF just to rasterize one vector page.
+  const rasterizePageForScan = useCallback(
+    async (pageNumber: number): Promise<number[]> => {
+      if (!document) throw new Error("No score document is open.");
+      const handle = await document.getPage(pageNumber);
+      try {
+        const canvas = window.document.createElement("canvas");
+        const { promise } = handle.render(canvas, 2, 1);
+        await promise;
+        if (typeof canvas.toBlob !== "function") {
+          throw new Error("This browser cannot rasterize a page for scanning.");
+        }
+        const blob = await new Promise<Blob | null>((resolve) => {
+          canvas.toBlob(resolve, "image/jpeg", 0.85);
+        });
+        if (!blob) throw new Error("Rasterizing this page failed.");
+        const buffer = await blob.arrayBuffer();
+        return Array.from(new Uint8Array(buffer));
+      } finally {
+        handle.cleanup();
       }
     },
     [document],
@@ -2338,6 +2419,20 @@ export function ScoreView({
     );
   };
 
+  // A cached map applies to the fingerprint it was fetched/applied under —
+  // NEVER mode-gated (Flaws B48): a mismatch always shows the notice, and the
+  // (now possibly wrong) numbers are withheld rather than shown against the
+  // wrong page geometry.
+  const measureMapStale = Boolean(
+    measureMapEntry &&
+    edition &&
+    measureMapEntry.fingerprint !== edition.fingerprint,
+  );
+  const measureMapByPage =
+    measureMapEntry && !measureMapStale
+      ? new Map(measureMapEntry.pages.map((row) => [row.page, row.map]))
+      : null;
+
   if (phase === "loading-editions") {
     return (
       <div className="score-state" role="status">
@@ -2422,6 +2517,28 @@ export function ScoreView({
             {calibrationAnchors.length > 0
               ? "Edit score map"
               : "Map this score"}
+          </button>
+          <button
+            type="button"
+            className="score-map-measures"
+            disabled={phase !== "ready" || !edition || pageCount < 1}
+            onClick={() => setMapPanelOpen(true)}
+          >
+            Map measures
+          </button>
+          <button
+            type="button"
+            className={`score-measure-toggle ${measuresVisible ? "is-active" : ""}`}
+            aria-pressed={measuresVisible}
+            onClick={() =>
+              setMeasuresVisible((current) => {
+                const next = !current;
+                writeShowMeasuresPreference(next);
+                return next;
+              })
+            }
+          >
+            {measuresVisible ? "Hide measures" : "Show measures"}
           </button>
           <span
             id={targetInstructionsId}
@@ -2527,6 +2644,21 @@ export function ScoreView({
           </button>
         </div>
       </header>
+
+      {measureMapStale && (
+        <div
+          className="measure-map-stale"
+          role="status"
+          data-testid="measure-map-stale"
+        >
+          <span>
+            Measure map is stale — the score changed since it was scanned.
+          </span>
+          <button type="button" onClick={() => setMapPanelOpen(true)}>
+            Re-scan
+          </button>
+        </div>
+      )}
 
       {(pencilMode || pencilError) && (
         <div className="score-pencil-bar" aria-label="Pencil controls">
@@ -2678,6 +2810,15 @@ export function ScoreView({
                         }
                         onSelect={selectRegion}
                       />
+                      {measuresVisible && (
+                        <MeasureOverlay
+                          page={measureMapByPage?.get(pageNumber) ?? null}
+                          pageNumber={pageNumber}
+                          conflicts={[]}
+                          visible={measuresVisible}
+                          stale={false}
+                        />
+                      )}
                       {markEdition && (
                         <PencilOverlay
                           pageNumber={pageNumber}
@@ -3028,6 +3169,20 @@ export function ScoreView({
           }}
           onClose={() => setWizardOpen(false)}
         />
+      )}
+
+      {mapPanelOpen && edition && document && (
+        <div className="measure-map-panel-backdrop" role="presentation">
+          <MeasureMapPanel
+            pieceId={pieceId}
+            editionId={edition.id}
+            editionFingerprint={edition.fingerprint}
+            pageCount={pageCount}
+            onClose={() => setMapPanelOpen(false)}
+            onApplied={() => setMapPanelOpen(false)}
+            rasterizePage={rasterizePageForScan}
+          />
+        </div>
       )}
     </section>
   );

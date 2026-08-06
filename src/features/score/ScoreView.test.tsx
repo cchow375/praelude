@@ -26,6 +26,11 @@ import type {
 } from "./types";
 import type { AtomicTargetSavePayload } from "./atlas/savePayload";
 import { fitContextBucket, sharedFirstPageBitmaps } from "./firstPageCache";
+import {
+  publishMeasureMap,
+  resetMeasureMapStoreForTests,
+  type MeasureMapPageRow,
+} from "./mapping/measureMap";
 
 const EDITIONS: PdfEdition[] = [
   {
@@ -1850,9 +1855,7 @@ describe("ScoreView — page-image fast path", () => {
     render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
     const page = await screen.findByLabelText("Score page 1");
     await waitFor(() => expect(pageImage).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(page.getAttribute("data-source")).toBe("pdf"),
-    );
+    await waitFor(() => expect(page.getAttribute("data-source")).toBe("pdf"));
     const canvas = screen.getByLabelText(
       "Rendered score page 1",
     ) as HTMLCanvasElement;
@@ -1886,8 +1889,76 @@ describe("ScoreView — page-image fast path", () => {
     const pdf = makePdf(3);
     render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
     const page = await screen.findByLabelText("Score page 1");
-    await waitFor(() =>
-      expect(page.getAttribute("data-source")).toBe("pdf"),
+    await waitFor(() => expect(page.getAttribute("data-source")).toBe("pdf"));
+  });
+});
+
+// ── Measure mapping (Plan C, task C4) ───────────────────────────────────────
+
+describe("ScoreView measure mapping", () => {
+  afterEach(() => {
+    resetMeasureMapStoreForTests();
+  });
+
+  function sampleMap(): MeasureMapPageRow[] {
+    return [
+      {
+        page: 1,
+        map: {
+          version: 1,
+          systems: [
+            {
+              y_top: 0.1,
+              y_bottom: 0.2,
+              x_left: 0.05,
+              x_right: 0.95,
+              bars: [
+                { x_right: 0.3, number: 1, source: "model" },
+                { x_right: 0.6, number: 2, source: "model" },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+  }
+
+  it("shows the Map measures button once an edition is ready, and opens the panel", async () => {
+    const pdf = makePdf(3);
+    render(<ScoreView pieceId={7} api={makeApi()} adapter={pdf.adapter} />);
+    await screen.findByLabelText("Score page 1");
+
+    const button = screen.getByText("Map measures");
+    expect(button).toBeTruthy();
+    fireEvent.click(button);
+    expect(await screen.findByTestId("measure-map-panel")).toBeTruthy();
+    expect(screen.getByText(/3 pages/)).toBeTruthy();
+  });
+
+  it("the Show measures toggle persists and reveals cached bar numbers", async () => {
+    publishMeasureMap(7, "urtext", "a", sampleMap());
+    const pdf = makePdf(3);
+    render(<ScoreView pieceId={7} api={makeApi()} adapter={pdf.adapter} />);
+    await screen.findByLabelText("Score page 1");
+
+    const toggle = screen.getByText("Show measures");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(toggle);
+    expect(await screen.findAllByTestId("measure-map-number")).toHaveLength(2);
+    expect(screen.getByText("Hide measures").getAttribute("aria-pressed")).toBe(
+      "true",
     );
+
+    fireEvent.click(screen.getByText("Hide measures"));
+    expect(screen.queryAllByTestId("measure-map-number")).toHaveLength(0);
+  });
+
+  it("always shows the stale notice when the cached map's fingerprint no longer matches the edition", async () => {
+    publishMeasureMap(7, "urtext", "stale-fingerprint", sampleMap());
+    const pdf = makePdf(3);
+    render(<ScoreView pieceId={7} api={makeApi()} adapter={pdf.adapter} />);
+    await screen.findByLabelText("Score page 1");
+
+    expect(await screen.findByTestId("measure-map-stale")).toBeTruthy();
   });
 });
