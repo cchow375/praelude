@@ -68,14 +68,6 @@ export function pieceContextAt(
   return null;
 }
 
-/** Sum every timed-block line — the header's "planned minutes" total (spec 1/2). */
-export function totalMinutes(body: NotebookLine[]): number {
-  return body.reduce(
-    (sum, line) => (line.type === "block" ? sum + line.minutes : sum),
-    0,
-  );
-}
-
 export function clampMinutes(value: number): number {
   if (!Number.isFinite(value)) return MIN_BLOCK_MINUTES;
   return Math.max(

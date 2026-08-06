@@ -122,6 +122,25 @@ describe("ReadOnlyDaySheet plan total (spec A9)", () => {
     expect(screen.queryByText(/unestimated/)).toBeNull();
   });
 
+  it("carries a plain-words aria-label distinct from the Σ-shorthand visible text (fix wave item 4)", async () => {
+    await internals().invoke("day_sheet_save", {
+      date: PAST_DAY,
+      bodyJson: JSON.stringify([
+        { type: "block", minutes: 25 },
+        { type: "block", minutes: 50 },
+        { type: "item", text: "measure 12 run", checked: false },
+        { type: "item", text: "scales", checked: true },
+        { type: "item", text: "sight read", checked: false },
+      ]),
+    });
+    render(<ReadOnlyDaySheet date={PAST_DAY} />, { wrapper });
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText("75 minutes planned, 2 lines unestimated"),
+      ).toBeTruthy(),
+    );
+  });
+
   it("renders no total at all for an empty sheet", async () => {
     render(<ReadOnlyDaySheet date={PAST_DAY} />, { wrapper });
     await screen.findByTestId("read-only-empty");

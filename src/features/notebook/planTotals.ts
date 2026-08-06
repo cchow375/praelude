@@ -38,5 +38,22 @@ export function formatPlanTotals(totals: PlanTotals): string | null {
   if (totals.minutes === 0 && totals.untimedActionLines === 0) return null;
   const base = `Σ ${totals.minutes} min planned`;
   if (totals.untimedActionLines === 0) return base;
-  return `${base} · ${totals.untimedActionLines} lines unestimated`;
+  const lineWord = totals.untimedActionLines === 1 ? "line" : "lines";
+  return `${base} · ${totals.untimedActionLines} ${lineWord} unestimated`;
+}
+
+/**
+ * Fix wave item 4: an accessible, plain-words twin of `formatPlanTotals` —
+ * the visible header keeps the "Σ"/"min" shorthand (a sighted reader parses
+ * it instantly), but a screen reader announcing "sigma 75 min planned" reads
+ * as a symbol dump, not a sentence. Same null contract as `formatPlanTotals`
+ * (nothing timed, nothing unestimated -> no header, no label to attach it to).
+ */
+export function formatPlanTotalsAriaLabel(totals: PlanTotals): string | null {
+  if (totals.minutes === 0 && totals.untimedActionLines === 0) return null;
+  const minuteWord = totals.minutes === 1 ? "minute" : "minutes";
+  const base = `${totals.minutes} ${minuteWord} planned`;
+  if (totals.untimedActionLines === 0) return base;
+  const lineWord = totals.untimedActionLines === 1 ? "line" : "lines";
+  return `${base}, ${totals.untimedActionLines} ${lineWord} unestimated`;
 }

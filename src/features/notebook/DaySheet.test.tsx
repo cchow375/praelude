@@ -236,6 +236,23 @@ describe("DaySheet — timed blocks + header total (spec 1/2)", () => {
     );
   });
 
+  it("carries a plain-words aria-label distinct from the Σ-shorthand visible text (fix wave item 4)", async () => {
+    await seedSheet(DATE, [
+      { type: "piece", piece_id: 1 },
+      { type: "block", minutes: 45, piece_id: 1 },
+      { type: "item", text: "slow hands", checked: false, piece_id: 1 },
+    ]);
+    renderSheet();
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText("45 minutes planned, 1 line unestimated"),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.getByText("Σ 45 min planned · 1 line unestimated"),
+    ).toBeTruthy();
+  });
+
   it("adds a timed block from the focused item's chip", async () => {
     await seedSheet(DATE, [
       { type: "piece", piece_id: 1 },
@@ -247,7 +264,7 @@ describe("DaySheet — timed blocks + header total (spec 1/2)", () => {
     fireEvent.click(screen.getByRole("button", { name: "25 min" }));
     await waitFor(() =>
       expect(
-        screen.getByText("Σ 25 min planned · 1 lines unestimated"),
+        screen.getByText("Σ 25 min planned · 1 line unestimated"),
       ).toBeTruthy(),
     );
   });
@@ -456,5 +473,33 @@ describe("DaySheet — pin a goal to the score (A11)", () => {
     expect(
       screen.queryByRole("button", { name: "Pin this goal to the score" }),
     ).toBeNull();
+  });
+});
+
+describe("DaySheet — lesson-prep bring chips (fix wave item 11)", () => {
+  it("keys duplicate bring entries distinctly, without a React duplicate-key warning", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // A `bring` list with the same piece id twice (e.g. a stale duplicate
+    // from an earlier edit) used to key both chips `key={pieceId}` — React
+    // warns "two children with the same key" and can lose track of which
+    // chip is which.
+    await seedSheet(DATE, [
+      { type: "piece", piece_id: 1 },
+      { type: "lesson_prep", bring: [1, 1], want: "" },
+    ]);
+    renderSheet();
+    await waitFor(() =>
+      expect(screen.getAllByText("Scherzo No. 2").length).toBeGreaterThan(0),
+    );
+    expect(
+      screen.getAllByRole("button", {
+        name: "Remove Scherzo No. 2 from bring list",
+      }),
+    ).toHaveLength(2);
+    const keyWarning = errorSpy.mock.calls.some((args) =>
+      String(args[0]).includes("same key"),
+    );
+    expect(keyWarning).toBe(false);
+    errorSpy.mockRestore();
   });
 });

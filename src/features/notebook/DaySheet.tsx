@@ -12,7 +12,11 @@ import { useReceipts } from "../receipts/ReceiptCenter";
 import { addDays, parseLocalDate, todayLocal } from "../calendar/dates";
 import type { Goal, PieceSummary } from "../pieces/types";
 import type { DaySheet as DaySheetData, NotebookLine } from "./lines";
-import { formatPlanTotals, planTotals } from "./planTotals";
+import {
+  formatPlanTotals,
+  formatPlanTotalsAriaLabel,
+  planTotals,
+} from "./planTotals";
 import { useDaySheet, type UseDaySheet } from "./useDaySheet";
 import {
   addBring,
@@ -286,7 +290,12 @@ export function DaySheetView({
     [pieces],
   );
 
-  const planSummary = useMemo(() => formatPlanTotals(planTotals(body)), [body]);
+  const totals = useMemo(() => planTotals(body), [body]);
+  const planSummary = useMemo(() => formatPlanTotals(totals), [totals]);
+  const planSummaryAriaLabel = useMemo(
+    () => formatPlanTotalsAriaLabel(totals),
+    [totals],
+  );
 
   // --- Editing primitives --------------------------------------------------
 
@@ -724,8 +733,16 @@ export function DaySheetView({
           <div className="ck-ns-prep-col">
             <span className="ck-ns-prep-label">Bring to lesson</span>
             <div className="ck-ns-prep-bring">
-              {line.bring.map((pieceId) => (
-                <span key={pieceId} className="ck-ns-bring-chip">
+              {line.bring.map((pieceId, bringIndex) => (
+                // Fix wave item 11: keyed by `pieceId` alone, two chips for
+                // the same piece (a stale/duplicated `bring` entry) would
+                // collide on the same React key — a composite with the
+                // array position is unique regardless of what `bring`
+                // contains.
+                <span
+                  key={`${pieceId}:${bringIndex}`}
+                  className="ck-ns-bring-chip"
+                >
                   {pieceTitle(pieceId)}
                   <button
                     type="button"
@@ -876,7 +893,10 @@ export function DaySheetView({
       <header className="ck-ns-head">
         <p className="ck-ns-date">{fullDateLabel(date)}</p>
         {planSummary && (
-          <p className="ck-ns-total" aria-label={planSummary}>
+          <p
+            className="ck-ns-total"
+            aria-label={planSummaryAriaLabel ?? planSummary}
+          >
             {planSummary}
           </p>
         )}

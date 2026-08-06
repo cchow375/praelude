@@ -2404,14 +2404,21 @@ mod tests {
 
         release_tx.send(()).unwrap();
 
-        opener
-            .join()
-            .unwrap()
-            .expect("the practice mutation completes once the rollover finishes");
+        // Fix round 2 re-review: the bounded wait must gate FIRST. Joining the
+        // opener thread (unbounded) before this recv_timeout meant a
+        // reintroduced ABBA deadlock would hang `opener.join()` forever —
+        // hanging the whole test SUITE rather than failing this one test.
+        // Bounding on `export_rx` first means a regression here fails fast
+        // via the `.expect()` panic below instead of wedging the runner.
         let exported = export_rx
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("end_session_and_export must not deadlock and must complete");
         assert!(exported.is_ok(), "{exported:?}");
+
+        opener
+            .join()
+            .unwrap()
+            .expect("the practice mutation completes once the rollover finishes");
     }
 
     #[test]

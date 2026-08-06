@@ -56,6 +56,12 @@ describe("formatPlanTotals (spec A9)", () => {
     ).toBe("Σ 75 min planned · 3 lines unestimated");
   });
 
+  it("uses the singular 'line' when exactly one is unestimated (fix wave item 1)", () => {
+    expect(
+      formatPlanTotals({ minutes: 4, timedLines: 1, untimedActionLines: 1 }),
+    ).toBe("Σ 4 min planned · 1 line unestimated");
+  });
+
   it("omits the second clause when nothing is unestimated", () => {
     expect(
       formatPlanTotals({ minutes: 75, timedLines: 2, untimedActionLines: 0 }),
