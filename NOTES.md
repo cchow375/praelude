@@ -43,8 +43,7 @@
   - **Orphaned test modules from stalled agents get adopted deliberately or deleted** — a stalled
     lane left 226 lines of green tests in practice_loop.rs (adopted, `daf1dad` — one pins replay
     idempotency nothing else covered); three other stray test files were audited and deleted.
-  - Full task-by-task record: `.superpowers/sdd/2026-08-05-codakiller-v6-plan-a-practice-surfaces/progress.md`
-    (until workspace cleanup) and vault `(C) Changelog` 2026-08-06 entry; new flaws B56–B62.
+  - Full task-by-task record: vault `(C) Changelog` 2026-08-06 entry; new flaws B56–B62.
 
 - **v6.0.0 Practice Core — design round only (2026-08-05, spec commit `ea388cc`, no code):**
   spec at `docs/superpowers/specs/2026-08-05-codakiller-v6-practice-core.md`, from Christian's

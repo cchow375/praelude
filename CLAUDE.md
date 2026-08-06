@@ -75,7 +75,10 @@ B47–B55.
 
 **Active: v6.0.0 "Practice Core"** — spec approved 2026-08-05 from Christian's July 31
 feedback: `docs/superpowers/specs/2026-08-05-codakiller-v6-practice-core.md` (commit
-`ea388cc`). Measure mapping, sub-sections, floating Practice Dock, pause-across-days,
+`ea388cc`). **Plan A "Practice Surfaces" MERGED to main 2026-08-06 (merge `d0bb001`)** —
+dock/pause/sessions/plans/banner + schema v14; gates vitest 1829/1, cargo 718/0; three live
+QA rounds. Plans B (History/Calendar) → C (mapping/sub-sections) → D (voice/Brain) remain
+before v6.0.0 ships. Measure mapping, sub-sections, floating Practice Dock, pause-across-days,
 day-scoped sessions, dated day sheets + time estimates, History timeline, Calendar
 planned-vs-done, score goals banner, voice/metronome overhaul (narrated-corpus gate
 binding), Brain quick fixes. Schema v13→v14 (rehearse on a copy first — never the live DB).
