@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -121,7 +122,14 @@ describe("LedgerCalendarWorkspace", () => {
   it("mounts the Pieces surface (browser/intake/goals) in the same slot", async () => {
     renderWorkspace();
     await screen.findByTestId("ledger-workspace");
-    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
+    // Scoped to the OUTER surface switcher: LedgerWorkspace's own inner
+    // Days|Pieces view toggle (task B2) also has a "Pieces" tab, and both
+    // are mounted at once here (Days is LedgerWorkspace's default view).
+    fireEvent.click(
+      within(
+        screen.getByRole("tablist", { name: "History surface" }),
+      ).getByRole("tab", { name: "Pieces" }),
+    );
     // The piece library (browser + pieces_scan) is now reachable.
     expect(
       await screen.findByRole("heading", { name: "Score map" }),
