@@ -918,10 +918,17 @@ const MOCK_REP_STATE: RepSnapshot = {
 let mockSetState: "active" | "paused" = "active";
 let mockPausedSets: PausedSetRow[] = [];
 
+// Task A4b fix round 1 (folded minor a): deliberately DISTINCT from
+// `MOCK_REP_STATE.block_id` (102) — if the frontend ever dropped `setId` off
+// a paused-row Resume call (regressing back to the pre-A4b no-target
+// command), this mismatch would make the resume hit the rejection branch
+// below instead of silently "succeeding" against the wrong id.
+const MOCK_PAUSED_SET_ID = 5102;
+
 function mockPausedRow(): PausedSetRow {
   return {
-    set_id: MOCK_REP_STATE.block_id,
-    block_id: MOCK_REP_STATE.block_id,
+    set_id: MOCK_PAUSED_SET_ID,
+    block_id: MOCK_PAUSED_SET_ID,
     piece_id: MOCK_REP_STATE.piece_id,
     piece_title: MOCK_REP_STATE.piece_title,
     m_start: MOCK_REP_STATE.m_start,
@@ -974,13 +981,34 @@ export function setMockResumeRejects(reject: boolean): void {
   mockResumeRejects = reject;
 }
 
+// Task A4b fix round 1: the real backend's `Store::v2_resume` can atomically
+// auto-pause a DIFFERENT set while resuming the target (rep/mod.rs's
+// `resume`) — the mock only ever tracks ONE simulated live block, so it
+// can't derive that on its own. Test-only hook, same spirit as
+// `setMockResumeRejects`: when set, the next COMMITTED resume replaces
+// `mockPausedSets` with this value (instead of clearing it to `[]`) and
+// includes it in the receipt's summary, simulating "the backend just
+// auto-paused this other set while resuming the target" — the exact
+// scenario `PausedSetsTray` must refetch and surface.
+let mockPausedSetsAfterResume: PausedSetRow[] | null = null;
+
+/** Test-only: seed what `mockPausedSets` becomes after the NEXT committed
+ * `rep_resume` (simulating an auto-paused OTHER set), or `null` to restore
+ * the default "clears to empty" behavior. Not reachable through any UI
+ * affordance. */
+export function setMockPausedSetsAfterResume(
+  rows: PausedSetRow[] | null,
+): void {
+  mockPausedSetsAfterResume = rows;
+}
+
 // Task A4b: `rep_resume` gained an optional `setId` (the tray now always
 // passes the specific row's `set_id`; the rep HUD's own Resume chip still
-// omits it). The mock only ever simulates ONE live block (`MOCK_REP_STATE`),
-// so there is no second set to auto-pause here — a `setId` that doesn't
-// match the currently paused mock block simulates the real backend's "only a
-// paused practice set can resume" rejection rather than silently resuming
-// the wrong thing.
+// omits it — that's `undefined`, not a mismatch, and is accepted). The mock
+// only ever simulates ONE live block, so there is no second set to
+// auto-pause here — a `setId` that doesn't match `MOCK_PAUSED_SET_ID`
+// simulates the real backend's "only a paused practice set can resume"
+// rejection rather than silently resuming the wrong thing.
 function repResumeReceipt(
   commandId: string,
   setId?: number,
@@ -1001,7 +1029,7 @@ function repResumeReceipt(
       committed_ts: null,
     };
   }
-  if (setId != null && setId !== MOCK_REP_STATE.block_id) {
+  if (setId != null && setId !== MOCK_PAUSED_SET_ID) {
     return {
       receipt_id: `mock-receipt-resume-rejected-${Date.now()}`,
       command_id: commandId,
@@ -1018,17 +1046,22 @@ function repResumeReceipt(
     };
   }
   mockSetState = "active";
-  mockPausedSets = [];
+  const autoPaused = mockPausedSetsAfterResume;
+  mockPausedSets = autoPaused ?? [];
   const snap: RepSnapshot = {
     ...MOCK_REP_STATE,
     set_state: "active",
     timer_state: "active",
   };
+  const summary =
+    autoPaused != null && autoPaused.length > 0
+      ? `Paused ${autoPaused[0].piece_title} \u{b7} Resumed ${MOCK_REP_STATE.piece_title}`
+      : "Practice resumed.";
   return {
     receipt_id: `mock-receipt-resume-${Date.now()}`,
     command_id: commandId,
     status: "committed",
-    summary: "Practice resumed.",
+    summary,
     value: snap,
     entity_refs: [{ entity_type: "set", entity_id: snap.block_id }],
     event_ids: [],
@@ -2059,6 +2092,8 @@ export function installTauriDevMock(): void {
   mockSetState = "active";
   mockPausedSets = [];
   mockResumeRejects = false;
+  // Task A4b fix round 1: fresh auto-pause-simulation state per install.
+  mockPausedSetsAfterResume = null;
   // Task A10: fresh pass-seconds round-trip state per install.
   mockLastPassSeconds = null;
   // Task A11: banner edits never bleed between installs.

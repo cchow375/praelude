@@ -806,49 +806,80 @@ impl RepEngine {
     /// `v2_restore_active_at` restored nothing) does `None` fall back to a
     /// DB-wide lookup: resume the only paused set, or reject as ambiguous if
     /// several are paused.
+    ///
+    /// Task A4b fix round 1: `active` is taken BEFORE `Store::v2_resume` and
+    /// held across it (for both branches), exactly like `pause` and
+    /// `safety_stop_after_commit` already do — this restores the pre-A4b
+    /// guarantee that a concurrent resume cannot overtake a safety physical
+    /// stop, which holds `active` across its own `after_commit()` callback
+    /// (see `resume_cannot_overtake_the_safety_physical_stop` and
+    /// `resume_with_explicit_target_cannot_overtake_the_safety_physical_stop`).
+    /// Legal under this file's lock order (`active` < `store.conn` —
+    /// `Store::v2_resume` takes `store.conn` internally, strictly after
+    /// `active`, never the reverse).
     pub fn resume(
         &self,
         command_id: &str,
         target_set_id: Option<i64>,
     ) -> Result<MutationReceipt<RepSnapshot>, String> {
-        // Quick peek, no side effects (fix round 2, N1 discipline): resolve
-        // the target WITHOUT mutating anything, so a doomed-to-fail resume
-        // never mints/rolls a session. The tracked block's id (if any) is
-        // captured here, before `ensure_session()` — its VALUE never changes
-        // across a rollover (only its state does), so this is safe and lets
-        // `active` be dropped before the session call, per this file's lock
-        // discipline.
-        let target_block_id = match target_set_id {
-            Some(id) => id,
-            None => {
-                let tracked = {
-                    let active = self
-                        .active
-                        .lock()
-                        .unwrap_or_else(|poison| poison.into_inner());
-                    active.as_ref().map(|snap| snap.block_id)
-                };
-                match tracked {
-                    Some(id) => id,
-                    None => {
-                        let paused = self
-                            .store
-                            .paused_sets_list()
-                            .map_err(|error| error.to_string())?;
-                        match paused.as_slice() {
-                            [] => return Err("no paused practice set".to_string()),
-                            [only] => only.set_id,
-                            _ => {
-                                return Err("multiple sets are paused; choose which one to resume"
-                                    .to_string())
-                            }
-                        }
+        // Quick peek, no side effects (fix round 2, N1 discipline): when
+        // there is no explicit target AND this engine isn't tracking any
+        // block, resolve the DB-wide fallback ("the only paused set") here,
+        // before minting/rolling a session — a plain read, so it cannot
+        // leave any partial state behind on the early-return failure paths.
+        // `Some(id)` needs no peek at all: the target is already known and
+        // `Store::v2_resume` validates it.
+        let untracked_fallback_id = if target_set_id.is_none() {
+            let tracked = {
+                let active = self
+                    .active
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                active.is_some()
+            };
+            if tracked {
+                None
+            } else {
+                let paused = self
+                    .store
+                    .paused_sets_list()
+                    .map_err(|error| error.to_string())?;
+                match paused.as_slice() {
+                    [] => return Err("no paused practice set".to_string()),
+                    [only] => Some(only.set_id),
+                    _ => {
+                        return Err(
+                            "multiple sets are paused; choose which one to resume".to_string()
+                        )
                     }
                 }
             }
+        } else {
+            None
         };
 
         let session_hint = Some(self.sessions.ensure_session()?);
+        // Task A4b fix round 1: `active` is taken BEFORE `Store::v2_resume`
+        // and held across it — see the doc comment above.
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let target_block_id = match target_set_id {
+            Some(id) => id,
+            None => match untracked_fallback_id {
+                Some(id) => id,
+                // The common case: this engine's own tracked block, re-read
+                // fresh from the just-(re)taken guard rather than trusting
+                // any earlier peek — matches `pause`'s own pattern.
+                None => {
+                    active
+                        .as_ref()
+                        .ok_or_else(|| "no paused practice set".to_string())?
+                        .block_id
+                }
+            },
+        };
         let now = self.now()?;
         let mut receipt = self
             .store
@@ -860,10 +891,6 @@ impl RepEngine {
                 &now,
             )
             .map_err(|error| error.to_string())?;
-        let mut active = self
-            .active
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
         let snapshot = self.apply_snapshot_receipt(&mut active, target_block_id, &mut receipt)?;
         // `adopt_receipt_session` locks `sessions.current` — moved here,
         // AFTER `drop(active)` (fix round 2: see `open_from`).
@@ -1311,24 +1338,20 @@ impl RepEngine {
     // No remaining path holds `self.active` while calling into
     // `self.sessions`.
     //
-    // ── Task A4b addendum ─────────────────────────────────────────────────
-    // `resume`'s target resolution (`target_set_id` → `target_block_id`) was
-    // rewritten to read `self.store` (`paused_sets_list`/`v2_snapshot`)
-    // directly instead of `self.active` — it never locks `active` at all
-    // until after `Store::v2_resume` (which may atomically auto-pause a
-    // DIFFERENT active set) has already committed. This is strictly safer
-    // than the old pattern, not just equivalent: the old code peeked
-    // `active` before `ensure_session()`, then relocked it after — the new
-    // code doesn't need `active` for anything until the final
-    // `apply_snapshot_receipt` call, so there is one less lock/unlock cycle
-    // and no window where a stale `active` read could disagree with the
-    // just-committed store state.
-    //
-    // Correction: `resume`'s `target_set_id: None` branch DOES briefly lock
-    // `active` once, to read the tracked block's id — dropped immediately,
-    // well before `ensure_session()`. An explicit `Some(target_set_id)`
-    // never touches `active` during resolution at all. Either way `active`
-    // is never held across a `self.sessions`/`self.store` call.
+    // ── Task A4b addendum (fix round 1) ────────────────────────────────────
+    // `resume` gained a `target_set_id: Option<i64>` (Task A4b) and now takes
+    // `active` BEFORE `Store::v2_resume` and holds it across that call, on
+    // BOTH branches — restoring the pre-A4b guarantee that a concurrent
+    // resume cannot overtake `safety_stop_after_commit`'s physical stop
+    // (which holds `active` across its own `after_commit()` callback). This
+    // is the same shape every other mutation in this file already uses
+    // (`pause`, `checkpoint`, `reflect`, `safety_stop_after_commit`, …):
+    // resolve the session BEFORE taking `active` (`target_set_id: None`'s
+    // DB-wide "untracked" fallback, when it applies, is resolved even
+    // earlier still, via a separate lock-and-drop peek with no session risk
+    // either way), then take `active` once and hold it for the store call
+    // and the snapshot it returns. `active` is never held across a
+    // `self.sessions` call anywhere in `resume`.
 }
 
 impl RolloverPauseHook for RepEngine {
@@ -1986,13 +2009,23 @@ mod tests {
     /// The active-set mutex held across the safety physical stop orders a
     /// concurrent resume strictly after it: resume blocks on `self.active` until
     /// the stop closure finishes, so it can never observe a half-applied stop.
+    ///
+    /// Task A4b fix round 1: also checks `set_contract.set_state` directly at
+    /// the 50ms checkpoint, not just whether `resume()` has returned —
+    /// `resume()` returning is not on its own a reliable signal (every path
+    /// locks `active` at least once in `apply_snapshot_receipt` right before
+    /// returning, regardless of whether the DB write itself was properly
+    /// ordered), so the DB check is the assertion that actually matters. See
+    /// `resume_with_explicit_target_cannot_overtake_the_safety_physical_stop`
+    /// for the sibling case this reasoning was discovered fixing.
     #[test]
     fn resume_cannot_overtake_the_safety_physical_stop() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("safety-resume-race.sqlite");
         let clock = Arc::new(FixedClock::new("2026-07-15T14:50:00Z"));
-        let (engine, piece_id, _store) = engine_with_fixed_clock(&path, clock.clone());
-        engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        let opened = engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        let block_id = opened.block_id;
         let engine = Arc::new(engine);
 
         let order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
@@ -2023,8 +2056,18 @@ mod tests {
             resume_order.lock().unwrap().push("resume");
         });
 
-        // Give the resumer time to reach the lock; it must stay blocked there.
+        // Give the resumer time to reach the lock; it must stay blocked there
+        // — checked at the DB layer directly (see the doc comment above).
         std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={block_id}"
+                ))
+                .unwrap(),
+            "paused",
+            "the resume's DB write must not land before the physical stop finishes"
+        );
         assert!(
             order.lock().unwrap().is_empty(),
             "resume must not complete before the physical stop finishes"
@@ -2037,6 +2080,97 @@ mod tests {
             *order.lock().unwrap(),
             vec!["physical_stop", "resume"],
             "the physical stop is fully applied before resume proceeds"
+        );
+        let resumed = engine.state().unwrap().unwrap();
+        assert_eq!(resumed.set_state, "active");
+        assert_eq!(resumed.safety_state, "cleared");
+    }
+
+    /// Task A4b fix round 1 regression: the explicit-target `Some(id)` path
+    /// must give the exact same ordering guarantee as `None` above — a
+    /// resume of a SPECIFIC set (the paused-sets tray's per-row Resume) must
+    /// not overtake a concurrent safety physical stop either. Before the fix
+    /// round 1 fix, `resume`'s `Some` branch never touched `active` until
+    /// AFTER `Store::v2_resume` had already committed, so it could race
+    /// ahead of the stop instead of blocking on the mutex.
+    ///
+    /// Checks the underlying `set_contract.set_state` DIRECTLY at the 50ms
+    /// checkpoint, not merely whether `resume()` has returned — every code
+    /// path (buggy or fixed) locks `active` at least once, in
+    /// `apply_snapshot_receipt`, right before returning, so a black-box
+    /// "has `resume()` returned yet" check blocks identically either way and
+    /// would NOT have caught this bug. The DB write itself is the thing that
+    /// must not happen early.
+    #[test]
+    fn resume_with_explicit_target_cannot_overtake_the_safety_physical_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("safety-resume-target-race.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T14:50:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        let opened = engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        let target_block_id = opened.block_id;
+        let engine = Arc::new(engine);
+
+        let order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (inside_tx, inside_rx) = std::sync::mpsc::channel::<()>();
+
+        clock.set("2026-07-15T14:50:05Z");
+        let stop_engine = engine.clone();
+        let stop_order = order.clone();
+        let stopper = std::thread::spawn(move || {
+            stop_engine
+                .safety_stop_after_commit("safety-target-race", Some("pain in wrist"), || {
+                    // Signal we are inside the physical stop (holding `active`),
+                    // then block until the test releases us.
+                    inside_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    stop_order.lock().unwrap().push("physical_stop");
+                })
+                .unwrap();
+        });
+
+        // The stopper now holds `active` inside the physical-stop closure.
+        // Its `v2_safety_stop` call has already committed by this point
+        // (the DB write happens before `after_commit()`, per its own doc
+        // comment), so the target is genuinely `paused` in the DB already —
+        // a concurrent resume that doesn't block on `active` could commit
+        // for real here, not just race a fake/inert lock.
+        inside_rx.recv().unwrap();
+        let resume_engine = engine.clone();
+        let resume_order = order.clone();
+        let resumer = std::thread::spawn(move || {
+            resume_engine
+                .resume("safety-target-race-resume", Some(target_block_id))
+                .unwrap();
+            resume_order.lock().unwrap().push("resume");
+        });
+
+        // Give the resumer time to reach the lock; it must stay blocked there
+        // — checked at the DB layer directly, since `resume()` returning is
+        // NOT a reliable signal (see the doc comment above).
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={target_block_id}"
+                ))
+                .unwrap(),
+            "paused",
+            "the resume's DB write must not land before the physical stop finishes"
+        );
+        assert!(
+            order.lock().unwrap().is_empty(),
+            "resume must not complete before the physical stop finishes"
+        );
+
+        release_tx.send(()).unwrap();
+        stopper.join().unwrap();
+        resumer.join().unwrap();
+        assert_eq!(
+            *order.lock().unwrap(),
+            vec!["physical_stop", "resume"],
+            "the physical stop is fully applied before the explicit-target resume proceeds"
         );
         let resumed = engine.state().unwrap().unwrap();
         assert_eq!(resumed.set_state, "active");
@@ -5220,6 +5354,68 @@ mod tests {
                 .unwrap(),
             "active",
             "the auto-paused set must roll back to active too"
+        );
+    }
+
+    /// Task A4b fix round 1: `resume(None)`'s DB-wide fallback ("the only
+    /// paused set") rejects outright when this engine instance is tracking
+    /// nothing AND nothing in the database is paused.
+    #[test]
+    fn resume_none_errors_when_nothing_is_tracked_and_nothing_is_paused() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        let error = engine.resume("resume-empty-1", None).unwrap_err();
+        assert_eq!(error, "no paused practice set");
+    }
+
+    /// Task A4b fix round 1: `resume(None)`'s DB-wide fallback rejects as
+    /// ambiguous — rather than silently picking one — when this engine
+    /// instance is tracking nothing and SEVERAL sets are paused. The two
+    /// paused rows are seeded via raw SQL specifically so this engine never
+    /// opens/pauses either through its own API — `self.active` stays `None`
+    /// throughout, exercising the untracked fallback path, not the "resume
+    /// my own tracked block" path.
+    #[test]
+    fn resume_none_errors_as_ambiguous_when_several_sets_are_paused_and_nothing_is_tracked() {
+        let (engine, pid, store, _rec) = engine_with_piece();
+        let pid2 = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/Debussy - Clair de Lune".into(),
+                title: "Clair de Lune".into(),
+                composer: Some("Debussy".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        store
+            .test_execute_batch(&format!(
+                "INSERT INTO rep_block
+                     (id,piece_id,m_start,m_end,focus,use_metronome,status,
+                      start_bpm,target_bpm,planned_reps,variants)
+                 VALUES (9101,{pid},1,8,'tempo',1,'open',60.0,90.0,0,'[]');
+                 INSERT INTO set_contract
+                     (set_id,contract_version,name,rationale,mastery_basis,required_success,
+                      reset_on_flawed,reset_on_failed,recovery_policy,set_state,
+                      mastery_verification,source)
+                 VALUES (9101,1,'Seed paused A','Untracked fixture row.',
+                         'consecutive_clean',3,1,0,'none','paused','verified','user_click');
+                 INSERT INTO rep_block
+                     (id,piece_id,m_start,m_end,focus,use_metronome,status,
+                      start_bpm,target_bpm,planned_reps,variants)
+                 VALUES (9102,{pid2},1,8,'tempo',1,'open',60.0,90.0,0,'[]');
+                 INSERT INTO set_contract
+                     (set_id,contract_version,name,rationale,mastery_basis,required_success,
+                      reset_on_flawed,reset_on_failed,recovery_policy,set_state,
+                      mastery_verification,source)
+                 VALUES (9102,1,'Seed paused B','Untracked fixture row.',
+                         'consecutive_clean',3,1,0,'none','paused','verified','user_click');"
+            ))
+            .unwrap();
+
+        let error = engine.resume("resume-ambiguous-1", None).unwrap_err();
+        assert_eq!(
+            error,
+            "multiple sets are paused; choose which one to resume"
         );
     }
 

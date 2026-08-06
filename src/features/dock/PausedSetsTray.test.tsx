@@ -11,9 +11,12 @@ import { DockProvider } from "./DockProvider";
 import { PausedSetsTray } from "./PausedSetsTray";
 import {
   installTauriDevMock,
+  setMockPausedSetsAfterResume,
   setMockResumeRejects,
   uninstallTauriDevMock,
 } from "../../devMock/tauriDevMock";
+import { ReceiptCenterProvider } from "../receipts/ReceiptCenter";
+import type { PausedSetRow } from "../rep/pausedSets";
 
 // Task A4: the paused-sets tray reads `sets_paused_list` and resumes through
 // the existing `rep_resume` command — no new write path. These tests run
@@ -35,6 +38,26 @@ function Harness({ repSetState }: { repSetState: string | null | undefined }) {
     <DockProvider>
       <PausedSetsTray repSetState={repSetState} />
     </DockProvider>
+  );
+}
+
+// Task A4b fix round 1: a separate harness (rather than changing the shared
+// one above) so this is the ONLY suite exercising the `ReceiptCenter`
+// surface — `ReceiptCenter` always renders an (empty when idle) `role="alert"`
+// live region alongside the tray's own content-only one, which would make
+// the existing rejected-receipt test's unscoped `findByRole("alert")` above
+// ambiguous if the shared harness carried it too.
+function ReceiptHarness({
+  repSetState,
+}: {
+  repSetState: string | null | undefined;
+}) {
+  return (
+    <ReceiptCenterProvider>
+      <DockProvider>
+        <PausedSetsTray repSetState={repSetState} />
+      </DockProvider>
+    </ReceiptCenterProvider>
   );
 }
 
@@ -147,5 +170,57 @@ describe("PausedSetsTray (Task A4)", () => {
     await waitFor(() =>
       expect(within(panel).getByText("No paused sets")).toBeTruthy(),
     );
+  });
+
+  // Task A4b fix round 1 (IMPORTANT 2): a committed resume can atomically
+  // auto-pause a DIFFERENT set (`Store::v2_resume`'s auto-pause-then-resume).
+  // That other set's own transition never touches THIS engine's own
+  // `repSetState` (it goes active -> active from this tray's point of view),
+  // so the tray must refetch explicitly on every committed resume, not only
+  // on a `repSetState` change — otherwise the newly auto-paused set appears
+  // nowhere and the receipt's "Paused X · Resumed Y" summary is discarded.
+  it("refetches after a committed resume and lists the set the backend just auto-paused", async () => {
+    const { rerender } = render(<ReceiptHarness repSetState="active" />);
+    await seamInvoke("rep_pause", { commandId: "test-pause" });
+    rerender(<ReceiptHarness repSetState="paused" />);
+
+    const panel = await screen.findByRole("dialog", { name: "Paused Sets" });
+    await screen.findByText("Scherzo No. 2");
+
+    const otherPausedRow: PausedSetRow = {
+      set_id: 777,
+      block_id: 777,
+      piece_id: 42,
+      piece_title: "Clair de Lune",
+      m_start: 1,
+      m_end: 8,
+      bpm: 60,
+      target_bpm: 90,
+      paused_since_ts: new Date().toISOString(),
+      current_clean_streak: 2,
+    };
+    setMockPausedSetsAfterResume([otherPausedRow]);
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Resume" }));
+
+    // The resumed row (Scherzo No. 2) leaves, and the just-auto-paused one
+    // (Clair de Lune) appears — proving a refetch happened, not a local
+    // filter of the resumed row alone (which would have left the tray
+    // empty, exactly IMPORTANT 2's failure mode).
+    await waitFor(() =>
+      expect(within(panel).getByText("Clair de Lune")).toBeTruthy(),
+    );
+    expect(within(panel).queryByText("Scherzo No. 2")).toBeNull();
+
+    // The receipt's "Paused X · Resumed Y" summary is surfaced through the
+    // established ReceiptCenter surface (its polite `role="status"` live
+    // region), not silently discarded.
+    const status = await screen.findByRole("status");
+    await waitFor(() => {
+      expect(status.textContent).toContain("Paused Clair de Lune");
+      expect(status.textContent).toContain("Resumed Scherzo No. 2");
+    });
+
+    setMockPausedSetsAfterResume(null);
   });
 });

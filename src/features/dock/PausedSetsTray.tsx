@@ -7,7 +7,7 @@ import {
   type PausedSetRow,
 } from "../rep/pausedSets";
 import { commandErrorMessage } from "../../services/command";
-import type { MutationReceipt } from "../receipts/ReceiptCenter";
+import { useReceipts, type MutationReceipt } from "../receipts/ReceiptCenter";
 import { Button } from "../../ui";
 import "./dock.css";
 
@@ -40,6 +40,7 @@ export interface PausedSetsTrayProps {
  */
 export function PausedSetsTray({ repSetState }: PausedSetsTrayProps) {
   const dock = useDock("paused");
+  const receipts = useReceipts();
   const [rows, setRows] = useState<PausedSetRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busySetId, setBusySetId] = useState<number | null>(null);
@@ -92,8 +93,19 @@ export function PausedSetsTray({ repSetState }: PausedSetsTrayProps) {
         setError(receiptError(receipt));
         return;
       }
-      setRows((current) => current.filter((r) => r.set_id !== row.set_id));
       setError(null);
+      // Task A4b fix round 1: a committed resume may have auto-paused a
+      // DIFFERENT set (`Store::v2_resume`'s atomic auto-pause-then-resume) —
+      // that set's transition never touches `repSetState` (THIS engine's own
+      // focus goes active -> active), so the mount/repSetState effect above
+      // never refetches on its own. Refetch explicitly so a newly
+      // auto-paused set appears, and surface the receipt's
+      // "Paused X · Resumed Y" summary through the established ReceiptCenter
+      // surface (same idiom as `useRep.ts`'s own `receipts.mutation` calls)
+      // — the local `role="alert"` region above stays reserved for
+      // rejections, not committed summaries.
+      receipts.mutation(receipt);
+      void refresh();
     } catch (cause) {
       setError(commandErrorMessage(cause, "The set could not be resumed."));
     } finally {
