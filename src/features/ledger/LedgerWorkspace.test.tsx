@@ -108,15 +108,29 @@ describe("LedgerWorkspace", () => {
 
   it("opens the exact requested record and keeps native piece context synchronized", async () => {
     render(<LedgerWorkspace requestedPieceId={2} />);
-    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
-
+    // NO manual tab click: a deep link must land ON the requested record.
+    // Clicking "Pieces" here previously masked the regression where the
+    // workspace stayed on the Days default while piece_select fired for a
+    // piece nobody could see.
     expect(await screen.findByRole("heading", { name: "Poem" })).toBeTruthy();
+    expect(
+      screen.getByRole("tab", { name: "Pieces" }).getAttribute("aria-selected"),
+    ).toBe("true");
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith("piece_select", { id: 2 }),
     );
     expect(invokeMock).toHaveBeenCalledWith("rep_blocks_for_piece", {
       pieceId: 2,
     });
+  });
+
+  it("does not persist the deep link's Pieces view as the stored default", async () => {
+    window.localStorage.setItem("ck.history.view", "days");
+    render(<LedgerWorkspace requestedPieceId={2} requestRevision={1} />);
+
+    expect(await screen.findByRole("heading", { name: "Poem" })).toBeTruthy();
+    // Transient jump: the view moved, the remembered default did not.
+    expect(window.localStorage.getItem("ck.history.view")).toBe("days");
   });
 
   it("drills piece → block summary row → reps via reps_for_block on expand", async () => {

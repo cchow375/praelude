@@ -49,7 +49,7 @@
 }
 
 .day-card-toggle:hover {
-  background: var(--surface-hover, rgba(26, 23, 20, 0.03));
+  background: var(--surface-hover);
 }
 
 .day-card-header {

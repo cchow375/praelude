@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { commandErrorMessage } from "../../services/command";
 import {
   addDays,
@@ -161,6 +161,13 @@ export function DayTimeline() {
   const [detailErrors, setDetailErrors] = useState<Map<string, string>>(
     new Map(),
   );
+  /** Dates whose detail has been fetched or is in flight. A ref, not state:
+   * the `details`/`detailLoading` guard read render-time values, so two
+   * toggles inside the SAME tick both saw the pre-click snapshot and both
+   * fired `history_day_detail`. This is written synchronously, so
+   * exactly-once holds even under same-tick spam. A failed fetch clears its
+   * entry so a later expand can retry. */
+  const requestedDetailsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -229,13 +236,24 @@ export function DayTimeline() {
       });
       // Disclosure-first: never prefetch. Fetch once on first expand; a
       // cached detail (or an in-flight fetch) is never re-requested.
-      if (details.has(date) || detailLoading.has(date)) return;
+      if (requestedDetailsRef.current.has(date)) return;
+      requestedDetailsRef.current.add(date);
       setDetailLoading((prev) => new Set(prev).add(date));
+      // A retry after a failure must not keep rendering the old error on top
+      // of the freshly-loaded day (the render below prefers detailError over
+      // detail).
+      setDetailErrors((prev) => {
+        if (!prev.has(date)) return prev;
+        const next = new Map(prev);
+        next.delete(date);
+        return next;
+      });
       historyDayDetail(date)
         .then((detail) => {
           setDetails((prev) => new Map(prev).set(date, detail));
         })
         .catch((reason) => {
+          requestedDetailsRef.current.delete(date);
           setDetailErrors((prev) =>
             new Map(prev).set(
               date,
@@ -251,7 +269,9 @@ export function DayTimeline() {
           });
         });
     },
-    [detailLoading, details],
+    // No state deps: the fetch guard is the ref above, so this callback is
+    // stable and can never capture a stale `details`/`detailLoading`.
+    [],
   );
 
   const visibleDays = days.slice(0, visibleCount);
@@ -297,7 +317,9 @@ export function DayTimeline() {
         </button>
       )}
       {showEndOfHistory && (
-        <p className="day-timeline-end">You’ve reached the end of history.</p>
+        // Honest copy: this is the 400-day backend reach ceiling
+        // (MAX_WINDOW_DAYS), not the end of the practice record.
+        <p className="day-timeline-end">Showing the last 400 days.</p>
       )}
     </section>
   );

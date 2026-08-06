@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -204,6 +205,71 @@ describe("DayTimeline", () => {
     ).toBe(1);
   });
 
+  it("fetches history_day_detail exactly once under a same-tick double toggle", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "history_days") return Promise.resolve([RECENT_DAY]);
+      if (command === "history_day_detail")
+        return Promise.resolve(detailFor(RECENT_DAY));
+      return Promise.resolve(null);
+    });
+    render(<DayTimeline />);
+
+    const toggle = await screen.findByRole("button", {
+      name: formatDayHeader(RECENT_DAY),
+    });
+
+    // Raw DOM clicks inside ONE act: expand + collapse batch together, so the
+    // render-time `details`/`detailLoading` guard sees the SAME empty
+    // snapshot for both and fires two fetches for one day.
+    act(() => {
+      toggle.click();
+      toggle.click();
+    });
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.filter((call) => call[0] === "history_day_detail")
+          .length,
+      ).toBe(1),
+    );
+
+    // The card ends collapsed; re-expanding still serves the cached detail.
+    expect(screen.queryByText(/Development/)).toBeNull();
+    fireEvent.click(toggle);
+    expect(await screen.findByText(/Development/)).toBeTruthy();
+    expect(
+      invokeMock.mock.calls.filter((call) => call[0] === "history_day_detail")
+        .length,
+    ).toBe(1);
+  });
+
+  it("retries a failed day detail on a later expand", async () => {
+    let attempts = 0;
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "history_days") return Promise.resolve([RECENT_DAY]);
+      if (command === "history_day_detail") {
+        attempts += 1;
+        if (attempts === 1) return Promise.reject("day is unreadable");
+        return Promise.resolve(detailFor(RECENT_DAY));
+      }
+      return Promise.resolve(null);
+    });
+    render(<DayTimeline />);
+
+    const toggle = await screen.findByRole("button", {
+      name: formatDayHeader(RECENT_DAY),
+    });
+    fireEvent.click(toggle);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "day is unreadable",
+    );
+
+    // Collapse, then expand again: a failure is not cached as a result.
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    expect(await screen.findByText(/Development/)).toBeTruthy();
+    expect(attempts).toBe(2);
+  });
+
   it("'Earlier days' first reveals already-fetched days before requesting more", async () => {
     const extraDays = Array.from({ length: 5 }, (_, index) =>
       day({
@@ -276,6 +342,33 @@ describe("DayTimeline", () => {
     expect(historyDaysCalls[1][1]).toMatchObject({
       from: addDays(TODAY, -239),
     });
+  });
+
+  it("states the 400-day reach ceiling honestly once the window is maxed out", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "history_days") return Promise.resolve([RECENT_DAY]);
+      return Promise.resolve(null);
+    });
+    render(<DayTimeline />);
+    await screen.findByText(formatDayHeader(RECENT_DAY));
+
+    // 120 → 240 → 360 → 400 days: three extensions exhaust the backend's
+    // MAX_RANGE_DAYS window.
+    for (let index = 0; index < 3; index += 1) {
+      fireEvent.click(screen.getByRole("button", { name: "Earlier days" }));
+      await waitFor(() =>
+        expect(
+          invokeMock.mock.calls.filter((call) => call[0] === "history_days")
+            .length,
+        ).toBe(index + 2),
+      );
+    }
+
+    // Not "the end of history" — the record may go further back than the
+    // window reaches.
+    expect(await screen.findByText("Showing the last 400 days.")).toBeTruthy();
+    expect(screen.queryByText(/end of history/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Earlier days" })).toBeNull();
   });
 
   it("shows a calm empty state when there is no practice evidence", async () => {

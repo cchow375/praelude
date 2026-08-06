@@ -93,6 +93,16 @@ export function LedgerWorkspace({
     void load();
   }, [load]);
 
+  // A deep link (Universe jump / `openLedgerForPiece`) asks for ONE exact
+  // record, which only exists in the Pieces view. Landing on the Days default
+  // while `piece_select` fires for an invisible piece is the regression this
+  // guards. The view state moves, but `ck.history.view` is deliberately NOT
+  // rewritten: a transient jump must not redefine the user's chosen default.
+  useEffect(() => {
+    if (requestedPieceId == null) return;
+    setView("pieces");
+  }, [requestRevision, requestedPieceId]);
+
   useEffect(() => {
     if (
       requestedPieceId != null &&
