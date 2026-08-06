@@ -8,7 +8,13 @@ import {
 } from "../rep/pausedSets";
 import { commandErrorMessage } from "../../services/command";
 import { useReceipts, type MutationReceipt } from "../receipts/ReceiptCenter";
+import type { RepSnapshot } from "../rep/useRep";
 import { Button } from "../../ui";
+import { NAV_RAIL_WIDTH } from "./dockState";
+import {
+  ASSUMED_MAX_HEIGHT as REP_ASSUMED_MAX_HEIGHT,
+  DEFAULT_POSITION as REP_DEFAULT_POSITION,
+} from "./RepPanel";
 import "./dock.css";
 
 /** Mirrors `useRetention.ts`'s `receiptError` — a rejected receipt carries its
@@ -21,14 +27,30 @@ function receiptError(receipt: MutationReceipt): string {
   );
 }
 
-/** Below the rep counter's default spot so both can be open at once without
- * overlapping on first launch. */
-const DEFAULT_POSITION = { x: 24, y: 340 };
+/** Fix wave item 9: derived from the rep panel's own default position + its
+ * documented assumed-max-height ceiling (RepPanel.tsx), plus a gap, so an
+ * auto-opened rep panel and a manually-opened tray never start stacked on
+ * top of each other at the 720x520 floor — see dockDefaultLayout.test.ts.
+ * `x` clears the nav rail the same way the rep panel's own default does. */
+export const DEFAULT_POSITION = {
+  x: NAV_RAIL_WIDTH + 12,
+  y: REP_DEFAULT_POSITION.y + REP_ASSUMED_MAX_HEIGHT + 24,
+};
+
+/** Fix wave item 9: same spirit as RepPanel's `ASSUMED_MAX_HEIGHT` — a
+ * documented ceiling (not a measurement) for the tray's own rendered height,
+ * so the clock panel's default can in turn clear IT. */
+export const ASSUMED_MAX_HEIGHT = 140;
 
 export interface PausedSetsTrayProps {
   /** The rep engine's own `set_state`, so the tray refetches on the
    * active<->paused transition instead of polling. */
   repSetState: string | null | undefined;
+  /** Fix wave item 10: `useRep()`'s own apply seam (its `applySnapshot`
+   * under the hood) — a committed resume's snapshot goes through this SAME
+   * path so the rep panel updates immediately instead of showing a stale
+   * "· paused" state until an unrelated event refreshes it. */
+  applyExternalReceipt: (receipt: MutationReceipt<RepSnapshot>) => void;
 }
 
 /**
@@ -38,7 +60,10 @@ export interface PausedSetsTrayProps {
  * command the rep HUD's own Pause/Resume toggle uses; this panel adds no new
  * write path, only a read surface plus the existing mutation.
  */
-export function PausedSetsTray({ repSetState }: PausedSetsTrayProps) {
+export function PausedSetsTray({
+  repSetState,
+  applyExternalReceipt,
+}: PausedSetsTrayProps) {
   const dock = useDock("paused");
   const receipts = useReceipts();
   const [rows, setRows] = useState<PausedSetRow[]>([]);
@@ -105,6 +130,12 @@ export function PausedSetsTray({ repSetState }: PausedSetsTrayProps) {
       // — the local `role="alert"` region above stays reserved for
       // rejections, not committed summaries.
       receipts.mutation(receipt);
+      // Fix wave item 10: this resume's committed snapshot IS the rep
+      // engine's new state (it becomes the active set) — apply it through
+      // the same seam the rep HUD's own mutations use so the panel reflects
+      // "active"/Pause immediately, not the stale "· paused"/Resume it was
+      // showing before this click.
+      applyExternalReceipt(receipt);
       void refresh();
     } catch (cause) {
       setError(commandErrorMessage(cause, "The set could not be resumed."));

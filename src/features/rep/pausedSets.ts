@@ -5,6 +5,7 @@ import {
 } from "../../services/command";
 import { createCommandId } from "../../services/commandId";
 import type { MutationReceipt } from "../receipts/ReceiptCenter";
+import type { RepSnapshot } from "./useRep";
 
 /**
  * Task A4: one row of the paused-sets tray. Field names and types mirror the
@@ -55,13 +56,13 @@ export function listPausedSets(
 // and still surfaces as a rejected promise here.
 const REP_RESUME = defineCommand<
   { commandId: string; setId: number },
-  MutationReceipt
+  MutationReceipt<RepSnapshot>
 >("rep_resume", "The practice timer could not be resumed.");
 
 export function resumePausedSet(
   setId: number,
   invoker?: CommandInvoker,
-): Promise<MutationReceipt> {
+): Promise<MutationReceipt<RepSnapshot>> {
   const commandId = createCommandId("paused-tray-resume");
   return executeCommand(REP_RESUME, { commandId, setId }, invoker);
 }

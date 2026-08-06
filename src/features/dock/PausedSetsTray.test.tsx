@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -33,10 +33,19 @@ function seamInvoke<T>(cmd: string, args?: unknown): Promise<T> {
   return internals.invoke(cmd, args);
 }
 
-function Harness({ repSetState }: { repSetState: string | null | undefined }) {
+function Harness({
+  repSetState,
+  applyExternalReceipt = () => {},
+}: {
+  repSetState: string | null | undefined;
+  applyExternalReceipt?: (receipt: unknown) => void;
+}) {
   return (
     <DockProvider>
-      <PausedSetsTray repSetState={repSetState} />
+      <PausedSetsTray
+        repSetState={repSetState}
+        applyExternalReceipt={applyExternalReceipt as never}
+      />
     </DockProvider>
   );
 }
@@ -49,13 +58,18 @@ function Harness({ repSetState }: { repSetState: string | null | undefined }) {
 // ambiguous if the shared harness carried it too.
 function ReceiptHarness({
   repSetState,
+  applyExternalReceipt = () => {},
 }: {
   repSetState: string | null | undefined;
+  applyExternalReceipt?: (receipt: unknown) => void;
 }) {
   return (
     <ReceiptCenterProvider>
       <DockProvider>
-        <PausedSetsTray repSetState={repSetState} />
+        <PausedSetsTray
+          repSetState={repSetState}
+          applyExternalReceipt={applyExternalReceipt as never}
+        />
       </DockProvider>
     </ReceiptCenterProvider>
   );
@@ -170,6 +184,38 @@ describe("PausedSetsTray (Task A4)", () => {
     await waitFor(() =>
       expect(within(panel).getByText("No paused sets")).toBeTruthy(),
     );
+  });
+
+  // Fix wave item 10: a committed resume's snapshot must reach the rep
+  // engine's OWN state (through `applyExternalReceipt`, `useRep.ts`'s own
+  // apply seam) — not just this tray's local row list — so the rep panel
+  // stops showing "· paused"/Resume the moment this click commits.
+  it("applies a committed resume's snapshot through applyExternalReceipt, not a parallel state path", async () => {
+    const applyExternalReceipt = vi.fn();
+    const { rerender } = render(
+      <Harness
+        repSetState="active"
+        applyExternalReceipt={applyExternalReceipt}
+      />,
+    );
+    await seamInvoke("rep_pause", { commandId: "test-pause" });
+    rerender(
+      <Harness
+        repSetState="paused"
+        applyExternalReceipt={applyExternalReceipt}
+      />,
+    );
+
+    const panel = await screen.findByRole("dialog", { name: "Paused Sets" });
+    await screen.findByText("Scherzo No. 2");
+    expect(applyExternalReceipt).not.toHaveBeenCalled();
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(applyExternalReceipt).toHaveBeenCalledTimes(1));
+
+    const [receipt] = applyExternalReceipt.mock.calls[0];
+    expect(receipt.status).toBe("committed");
+    expect(receipt.value?.set_state).toBe("active");
   });
 
   // Task A4b fix round 1 (IMPORTANT 2): a committed resume can atomically

@@ -1183,7 +1183,10 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         onRecover={rep.recover}
         onClose={rep.close}
       />
-      <PausedSetsTray repSetState={rep.snap?.set_state} />
+      <PausedSetsTray
+        repSetState={rep.snap?.set_state}
+        applyExternalReceipt={rep.applyExternalReceipt}
+      />
       <ClockPanel />
     </DockProvider>
   );

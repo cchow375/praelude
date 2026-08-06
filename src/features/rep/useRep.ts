@@ -460,6 +460,15 @@ export interface UseRep {
   recover: (action: RecoveryActionRequest) => Promise<void>;
   /** Close the active block. */
   close: () => Promise<void>;
+  /**
+   * Fix wave item 10: applies an EXTERNALLY-committed receipt's snapshot
+   * (e.g. the paused-sets tray's own `rep_resume` call, which does not go
+   * through this hook's `resume()`) through the SAME `applySnapshot` seam
+   * every one of this hook's own mutations uses — no parallel state. A
+   * no-op for anything that isn't a committed receipt with a value; the
+   * caller is expected to have already handled a rejection on its own.
+   */
+  applyExternalReceipt: (receipt: MutationReceipt<RepSnapshot>) => void;
 }
 
 export function useRep(): UseRep {
@@ -649,6 +658,20 @@ export function useRep(): UseRep {
       const id = commandId(operation);
       try {
         const receipt = await invokeReceipt(id);
+        // Fix wave item 8: an unmocked/misbehaving backend resolving with
+        // `null`/`undefined` instead of a receipt used to reach
+        // `receipt.status` below and throw a raw TypeError — caught by the
+        // generic `catch` further down, which ALSO calls `receipts.error`,
+        // so every occurrence (e.g. the 15s checkpoint heartbeat hitting an
+        // unhandled command) stacked a fresh toast. Guard explicitly so this
+        // is treated exactly like any other rejected receipt: one
+        // `showError` call, one thrown `MutationReceiptRejectedError`, no
+        // `receipts.error` toast pile-up.
+        if (receipt == null) {
+          settleCommandId(operation);
+          showError(fallbackMessage);
+          throw new MutationReceiptRejectedError(fallbackMessage);
+        }
         if (
           publishCommitted ||
           receipt.status !== "committed" ||
@@ -1284,6 +1307,22 @@ export function useRep(): UseRep {
     }
   }, [applySnapshot, clearError, receipts, showError]);
 
+  // Fix wave item 10: the paused-sets tray resumes through its OWN direct
+  // `rep_resume` call (pausedSets.ts's `resumePausedSet`), not through this
+  // hook's `resume()` — so the receipt it gets back never otherwise reaches
+  // `applySnapshot`, and the rep panel kept showing the pre-resume "· paused"
+  // state until an unrelated event happened to refresh it. This applies that
+  // receipt through the exact same seam `resume()`/every other mutation here
+  // uses, so there is one snapshot-of-record, not a second copy.
+  const applyExternalReceipt = useCallback(
+    (receipt: MutationReceipt<RepSnapshot>) => {
+      if (receipt.status === "committed" && receipt.value != null) {
+        applySnapshot(receipt.value);
+      }
+    },
+    [applySnapshot],
+  );
+
   return {
     snap,
     feed,
@@ -1302,5 +1341,6 @@ export function useRep(): UseRep {
     safetyStop,
     recover,
     close,
+    applyExternalReceipt,
   };
 }

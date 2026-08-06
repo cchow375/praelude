@@ -68,7 +68,19 @@ function isoDaysAgo(days: number): string {
   return date.toISOString();
 }
 
+/** Local YYYY-MM-DD `days` ago, matching `todayLocal()`'s own local (not
+ * UTC) day math — used only by the fix-wave item 12 QA fixtures below. */
+function dayLocalOffset(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 const TODAY = todayLocal();
+const YESTERDAY = dayLocalOffset(-1);
 
 // --- Repertoire -----------------------------------------------------------
 
@@ -1073,6 +1085,40 @@ function repResumeReceipt(
   };
 }
 
+// Fix wave item 8: the checkpoint heartbeat (useRep.ts's 15s `rep_checkpoint`
+// interval, active while a set is timing) had NO mock handler at all — the
+// switch's `default: return null` resolved every checkpoint call with `null`
+// instead of a receipt, and the null-guard added to
+// `runSnapshotReceiptMutation` (useRep.ts) turned that into a repeating
+// error toast every 15s. A real checkpoint just persists elapsed focused
+// seconds and returns the (otherwise unchanged) snapshot — mirror that here
+// so `dev:mock` behaves like the real backend instead of erroring on a timer.
+let mockCheckpointedSeconds = MOCK_REP_STATE.active_seconds ?? 0;
+
+function repCheckpointReceipt(commandId: string): MutationReceipt<RepSnapshot> {
+  mockCheckpointedSeconds += 15;
+  const snap: RepSnapshot = {
+    ...MOCK_REP_STATE,
+    set_state: mockSetState,
+    timer_state: mockSetState,
+    active_seconds: mockCheckpointedSeconds,
+  };
+  return {
+    receipt_id: `mock-receipt-checkpoint-${Date.now()}`,
+    command_id: commandId,
+    status: "committed",
+    summary: "Focused time checkpointed.",
+    value: snap,
+    entity_refs: [{ entity_type: "set", entity_id: snap.block_id }],
+    event_ids: [],
+    undo_action: null,
+    error_code: null,
+    error_detail: null,
+    replayed: false,
+    committed_ts: new Date().toISOString(),
+  };
+}
+
 // Task A10: `rep_open`'s optional `context.pass_seconds` round-trips through
 // the mock so `BlockForm`'s live estimate is exercisable in `dev:mock`
 // without a Rust backend. Not otherwise surfaced by any read command (the
@@ -1720,6 +1766,41 @@ function daySheetSave(args: unknown): DaySheet {
   return saved;
 }
 
+// Fix wave item 12: `DAY_SHEETS` starts genuinely empty (see the comment
+// above) — correct for every automated test, which seeds exactly what it
+// needs through `day_sheet_save`, but it left the interactive `dev:mock`
+// harness with NOTHING to browse: carry-forward, plan totals, and
+// pin-from-day-sheet all need a PAST day with real content and a TODAY sheet
+// with a timed line + a goal reference to exercise at all. Deliberately
+// opt-in (see `installTauriDevMock`'s `seedQaFixtures` option) — the test
+// suite's `installTauriDevMock()` calls stay exactly as empty as before,
+// this only runs for the real interactive harness (main.tsx).
+function seedQaFixtures(): void {
+  DAY_SHEETS.set(YESTERDAY, {
+    date: YESTERDAY,
+    body: [
+      { type: "piece", piece_id: 1 },
+      { type: "item", text: "Slow hands separately, m. 65-96", checked: false },
+      {
+        type: "item",
+        text: "Voice the melody over the tremolo",
+        checked: false,
+      },
+      { type: "block", minutes: 25, piece_id: 1 },
+    ],
+    updated_at: isoDaysAgo(1),
+  });
+  DAY_SHEETS.set(TODAY, {
+    date: TODAY,
+    body: [
+      { type: "piece", piece_id: 1 },
+      { type: "block", minutes: 20, piece_id: 1 },
+      { type: "goal_ref", goal_id: 1 },
+    ],
+    updated_at: new Date().toISOString(),
+  });
+}
+
 function piecePlanGet(args: unknown): PiecePlan | null {
   const record = argsRecord(args);
   const pieceId = Number(record.pieceId ?? record.piece_id);
@@ -1861,6 +1942,16 @@ function routeCommand(cmd: string, args: unknown): unknown {
       const commandId = String(record.commandId ?? "mock-resume");
       const setId = typeof record.setId === "number" ? record.setId : undefined;
       return repResumeReceipt(commandId, setId);
+    }
+    // Fix wave item 8: see `repCheckpointReceipt` — the 15s focused-time
+    // heartbeat now has a real (committed) mock handler instead of falling
+    // through to `default: return null`.
+    case "rep_checkpoint": {
+      const commandId = String(
+        ((args ?? {}) as { commandId?: unknown }).commandId ??
+          "mock-checkpoint",
+      );
+      return repCheckpointReceipt(commandId);
     }
     case "sets_paused_list":
       return mockPausedSets;
@@ -2074,17 +2165,30 @@ function routeCommand(cmd: string, args: unknown): unknown {
 
 let installed = false;
 
+export interface InstallTauriDevMockOptions {
+  /** Fix wave item 12: seed a deterministic yesterday/today day-sheet pair
+   * (carry-forward + plan-totals + pin-from-day-sheet material) so the real
+   * interactive `dev:mock` harness has something to browse. Defaults to
+   * `false` so every test suite's `installTauriDevMock()` call keeps getting
+   * the genuinely-empty notebook backend it always has — only `main.tsx`
+   * (the actual `npm run dev:mock` entry point) opts in. */
+  seedQaFixtures?: boolean;
+}
+
 /**
  * Install the dev-only Tauri seam onto `window`. Idempotent. Called ONLY behind
  * the `VITE_DEV_MOCK` flag (main.tsx) or explicitly from the smoke test.
  */
-export function installTauriDevMock(): void {
+export function installTauriDevMock(
+  options: InstallTauriDevMockOptions = {},
+): void {
   if (installed) return;
   installed = true;
   // Fresh, empty notebook backend per install so date/piece-keyed tests do not
   // bleed state into one another.
   DAY_SHEETS.clear();
   PIECE_PLANS.clear();
+  if (options.seedQaFixtures) seedQaFixtures();
   // Reset runtime-created goals so promotion tests start from the seeded set.
   CREATED_GOALS.clear();
   mockGoalSeq = 900;
@@ -2096,6 +2200,8 @@ export function installTauriDevMock(): void {
   mockPausedSetsAfterResume = null;
   // Task A10: fresh pass-seconds round-trip state per install.
   mockLastPassSeconds = null;
+  // Fix wave item 8: fresh checkpoint-seconds state per install.
+  mockCheckpointedSeconds = MOCK_REP_STATE.active_seconds ?? 0;
   // Task A11: banner edits never bleed between installs.
   MOCK_BANNERS.clear();
 
