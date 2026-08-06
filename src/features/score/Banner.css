@@ -28,6 +28,11 @@
   font-size: clamp(0.95rem, 2.2vw, 1.35rem);
   line-height: 1.25;
   color: var(--ink);
+  /* One row, always: a 140-char goal on a narrow window ends in an ellipsis
+     rather than pushing the score page down a line. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: text;
   border-radius: var(--r-sm);
   transition: background var(--dur-fast) var(--ease-out);

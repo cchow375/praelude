@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -14,6 +15,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import { ScoreBanner } from "./Banner";
 import { BANNER_MAX_CHARS, truncateBanner } from "./bannerText";
+import { publishBanner, subscribeBanner } from "./bannerStore";
 import type { PieceDetailData } from "../pieces/types";
 
 afterEach(() => {
@@ -237,5 +239,80 @@ describe("ScoreBanner", () => {
       key: "Escape",
     });
     expect(screen.getByText("Old goal")).toBeTruthy();
+  });
+});
+
+describe("ScoreBanner — the shared banner store (A11 fix 1)", () => {
+  it("takes a banner published elsewhere without re-reading the piece", async () => {
+    mockBackend("Old goal");
+    render(<ScoreBanner pieceId={1} />);
+    await screen.findByText("Old goal");
+    const readsSoFar = invokeMock.mock.calls.filter(
+      (call) => call[0] === "piece_get",
+    ).length;
+
+    act(() => publishBanner(1, "Pinned from the day sheet"));
+
+    expect(screen.getByText("Pinned from the day sheet")).toBeTruthy();
+    expect(
+      invokeMock.mock.calls.filter((call) => call[0] === "piece_get"),
+    ).toHaveLength(readsSoFar);
+  });
+
+  it("ignores a banner published for a different piece", async () => {
+    mockBackend("Old goal");
+    render(<ScoreBanner pieceId={1} />);
+    await screen.findByText("Old goal");
+
+    act(() => publishBanner(2, "Someone else's goal"));
+
+    expect(screen.getByText("Old goal")).toBeTruthy();
+  });
+
+  it("a published clear empties the strip back to '+ goal'", async () => {
+    mockBackend("Old goal");
+    render(<ScoreBanner pieceId={1} />);
+    await screen.findByText("Old goal");
+
+    act(() => publishBanner(1, null));
+
+    expect(
+      screen.getByRole("button", { name: "Add a goal banner" }),
+    ).toBeTruthy();
+  });
+
+  it("publishes its own saves, so a second mounted banner follows along", async () => {
+    mockBackend("Old goal");
+    const heard: (string | null)[] = [];
+    const stop = subscribeBanner(1, (text) => heard.push(text));
+
+    render(<ScoreBanner pieceId={1} />);
+    fireEvent.click(await screen.findByText("Old goal"));
+    const field = screen.getByLabelText("Goal banner text");
+    fireEvent.change(field, { target: { value: "New goal" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    await waitFor(() => expect(heard).toEqual(["New goal"]));
+    stop();
+  });
+
+  it("a pin that lands mid-load is not overwritten by the load", async () => {
+    let settle: (detail: PieceDetailData) => void = () => {};
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "piece_get")
+        return new Promise<PieceDetailData>((resolve) => {
+          settle = resolve;
+        });
+      return Promise.resolve(undefined);
+    });
+    render(<ScoreBanner pieceId={1} />);
+
+    act(() => publishBanner(1, "Pinned first"));
+    // The (older) read now comes back: it must not win.
+    await act(async () => {
+      settle(detail("Stale goal"));
+    });
+
+    expect(screen.getByText("Pinned first")).toBeTruthy();
   });
 });

@@ -51,6 +51,7 @@ import {
   type NotebookLine,
   type PiecePlan,
 } from "../features/notebook/lines";
+import { BANNER_MAX_CHARS } from "../features/score/bannerText";
 
 /** Local YYYY-MM-DD, matching calendar/dates.ts `todayLocal()`. */
 function todayLocal(): string {
@@ -213,7 +214,6 @@ const PIECE_DETAILS: Record<number, PieceDetailData> = {
 /** Task A11: banner edits made during a dev run, keyed by piece id. Absent =
  *  use the fixture's own `banner_text`. Cleared in `installTauriDevMock()`. */
 const MOCK_BANNERS = new Map<number, string | null>();
-const MOCK_BANNER_MAX_CHARS = 140;
 
 const REGIONS: Record<number, Region[]> = {
   1: [
@@ -1904,8 +1904,8 @@ function routeCommand(cmd: string, args: unknown): unknown {
       if (!detail) throw `piece ${id} not found`;
       const raw = ((args ?? {}) as { text?: string | null }).text ?? null;
       const text = raw == null || raw.trim() === "" ? null : raw;
-      if (text != null && Array.from(text).length > MOCK_BANNER_MAX_CHARS) {
-        throw `A score banner is limited to ${MOCK_BANNER_MAX_CHARS} characters (that one is ${Array.from(text).length}).`;
+      if (text != null && Array.from(text).length > BANNER_MAX_CHARS) {
+        throw `A score banner is limited to ${BANNER_MAX_CHARS} characters (that one is ${Array.from(text).length}).`;
       }
       MOCK_BANNERS.set(id, text);
       return { ...detail, banner_text: text };

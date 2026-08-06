@@ -18,6 +18,7 @@ import {
 } from "../../devMock/tauriDevMock";
 import { ReceiptCenterProvider } from "../receipts/ReceiptCenter";
 import { DaySheet } from "./DaySheet";
+import { ScoreBanner } from "../score/Banner";
 import type { NotebookLine } from "./lines";
 
 const DATE = "2026-03-10"; // never "today", so the legacy migration never fires
@@ -395,6 +396,55 @@ describe("DaySheet — pin a goal to the score (A11)", () => {
       banner_text: string | null;
     };
     expect(detail.banner_text).toBe("second goal");
+  });
+
+  it("updates a Score banner that is ALREADY MOUNTED, with no refetch or remount", async () => {
+    // The Shell keeps a visited workspace mounted-but-hidden, so the Score
+    // banner Christian pinned "into" is the very instance still on screen. It
+    // must show the new sentence without being rebuilt.
+    await seedSheet(DATE, [
+      { type: "piece", piece_id: 1 },
+      { type: "item", text: "clean the coda", checked: false, piece_id: 1 },
+    ]);
+    render(
+      <>
+        <ScoreBanner pieceId={1} />
+        <DaySheet date={DATE} />
+      </>,
+      { wrapper },
+    );
+
+    // The banner has loaded piece 1's existing sentence and is staying mounted.
+    const banner = await screen.findByRole("button", {
+      name: "Edit the goal banner",
+    });
+    expect(banner.textContent).toBe(
+      "Even development voicing, hands together at 84",
+    );
+
+    const spy = spyInvoke();
+    const item = await screen.findByDisplayValue("clean the coda");
+    fireEvent.focus(item);
+    fireEvent.click(screen.getByRole("button", { name: "goal" }));
+    await screen.findByLabelText("Goal");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pin this goal to the score" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Edit the goal banner" })
+          .textContent,
+      ).toBe("clean the coda"),
+    );
+    // Same DOM node: it re-rendered, it was not torn down and rebuilt.
+    expect(screen.getByRole("button", { name: "Edit the goal banner" })).toBe(
+      banner,
+    );
+    // And it never re-read the piece to find out.
+    expect(spy.mock.calls.filter((args) => args[0] === "piece_get")).toEqual(
+      [],
+    );
   });
 
   it("renders no pin at all on a ⚑ line with no piece to pin it to", async () => {

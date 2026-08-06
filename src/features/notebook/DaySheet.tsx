@@ -54,6 +54,7 @@ import {
   PlusIcon,
 } from "./notebookIcons";
 import { truncateBanner } from "../score/bannerText";
+import { publishBanner } from "../score/bannerStore";
 import { PassageHelper } from "./PassageHelper";
 import "./DaySheet.css";
 
@@ -92,7 +93,7 @@ const GOAL_UPDATE = defineCommand<
 // A11: "pin to score" writes the same per-piece banner the Score workspace edits.
 const PIECE_BANNER_SET = defineCommand<
   { pieceId: number; text: string | null },
-  unknown
+  { banner_text: string | null } | null
 >("piece_banner_set", "The goal could not be pinned to the score.");
 
 const DEFAULT_BLOCK_MINUTES = 25;
@@ -449,10 +450,15 @@ export function DaySheetView({
   const pinGoalToScore = useCallback(
     async (pieceId: number, text: string) => {
       try {
-        await executeCommand(PIECE_BANNER_SET, {
+        const pinned = truncateBanner(text);
+        const detail = await executeCommand(PIECE_BANNER_SET, {
           pieceId,
-          text: truncateBanner(text),
+          text: pinned,
         });
+        // The Score workspace stays mounted behind this one, so tell the shared
+        // banner store: a pin has to change the strip that is already on screen,
+        // not just the one the next mount would build.
+        publishBanner(pieceId, detail?.banner_text ?? pinned);
         receipts.committed("Pinned to the score.");
       } catch (cause) {
         receipts.error(cause, "The goal could not be pinned to the score.");

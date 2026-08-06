@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type KeyboardEvent,
   type SVGProps,
@@ -8,6 +9,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import type { PieceDetailData } from "../pieces/types";
 import { BANNER_MAX_CHARS } from "./bannerText";
+import { publishBanner, subscribeBanner } from "./bannerStore";
 import "./Banner.css";
 
 function messageOf(reason: unknown): string {
@@ -88,10 +90,14 @@ export function ScoreBanner({ pieceId }: ScoreBannerProps) {
   const [dismissed, setDismissed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The banner is read straight off the piece, so a pin from the day sheet is
-  // picked up the next time the score mounts without any cross-surface wiring.
+  // Set when the store hands us a banner for this piece; the load below then
+  // stops trusting its own (older) read — a pin that lands mid-load wins.
+  const supersededByStore = useRef(false);
+
+  // The banner is read straight off the piece on mount / piece change…
   useEffect(() => {
     let alive = true;
+    supersededByStore.current = false;
     setLoaded(false);
     setEditing(false);
     setConfirmingDelete(false);
@@ -101,12 +107,12 @@ export function ScoreBanner({ pieceId }: ScoreBannerProps) {
     invoke<PieceDetailData>("piece_get", { id: pieceId }).then(
       (detail) => {
         if (!alive) return;
-        setText(detail?.banner_text ?? null);
+        if (!supersededByStore.current) setText(detail?.banner_text ?? null);
         setLoaded(true);
       },
       () => {
         if (!alive) return;
-        setText(null);
+        if (!supersededByStore.current) setText(null);
         setLoaded(true);
       },
     );
@@ -114,6 +120,23 @@ export function ScoreBanner({ pieceId }: ScoreBannerProps) {
       alive = false;
     };
   }, [pieceId]);
+
+  // …and after that it is kept live by the shared store, because this workspace
+  // stays mounted (just hidden) while a banner is pinned from the day sheet.
+  // An in-flight edit is left alone: a remote change must not eat typed words.
+  useEffect(
+    () =>
+      subscribeBanner(pieceId, (next) => {
+        supersededByStore.current = true;
+        setText(next);
+        setLoaded(true);
+        setConfirmingDelete(false);
+        // A banner that arrives from elsewhere is new information — show it
+        // even if this session had hidden the old one.
+        setDismissed(false);
+      }),
+    [pieceId],
+  );
 
   const save = useCallback(
     async (next: string | null) => {
@@ -123,9 +146,12 @@ export function ScoreBanner({ pieceId }: ScoreBannerProps) {
           pieceId,
           text: next,
         });
-        setText(detail?.banner_text ?? null);
+        const saved = detail?.banner_text ?? null;
+        setText(saved);
         setEditing(false);
         setConfirmingDelete(false);
+        // Tell every other surface, so the store is written from both ends.
+        publishBanner(pieceId, saved);
       } catch (reason) {
         // The previous banner stays on screen: a rejected edit must never look
         // like it landed.
