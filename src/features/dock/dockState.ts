@@ -105,6 +105,36 @@ export function withPanel(
   return { ...state, [id]: { ...existing, ...updates } };
 }
 
+/** Fix wave item 9: the shell's nav rail is a fixed 148px-wide column
+ * (shell.css `.shell` grid-template-columns) — a dock panel default position
+ * with x below this covers it. Kept here (not imported from CSS) so the
+ * dock's pure layer stays framework-agnostic; DockPanel-hosting components
+ * cross-check against it in their own default-position tests. */
+export const NAV_RAIL_WIDTH = 148;
+
+/** Fix wave item 6: minimized/closed panels used to all pin to the exact
+ * same fixed bottom-right coordinates (dock.css) — with more than one pill
+ * up, only the topmost was clickable. Each currently-pill-form panel (closed
+ * OR minimized — see item 7's collapse of "closed" into the same pill
+ * affordance) gets a distinct vertical slot, in a stable id-sorted order so
+ * the stack never reshuffles under the user while other panel state changes. */
+export const PILL_STACK_STEP_PX = 44;
+
+/** This panel's 0-based slot in the pill stack, among every OTHER panel
+ * currently shown as a pill (closed or minimized). Pure — same spirit as
+ * `clampPosition`/`clampPanelWidth`: the caller (DockPanel) supplies the
+ * state, this never touches the DOM. */
+export function pillStackIndex(state: DockState, id: string): number {
+  const pillIds = Object.keys(state)
+    .filter((key) => {
+      const panel = state[key];
+      return !panel.open || panel.minimized;
+    })
+    .sort();
+  const index = pillIds.indexOf(id);
+  return index < 0 ? 0 : index;
+}
+
 /** The z a panel must take to become the topmost — one above the current max. */
 export function nextZ(state: DockState): number {
   const zs = Object.values(state).map((p) => p.z);

@@ -5,7 +5,13 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { clampPanelWidth, clampPosition, type Size } from "./dockState";
+import {
+  clampPanelWidth,
+  clampPosition,
+  pillStackIndex,
+  PILL_STACK_STEP_PX,
+  type Size,
+} from "./dockState";
 import { useDock, useDockContext } from "./DockProvider";
 import "./dock.css";
 
@@ -111,8 +117,6 @@ export function DockPanel({
     };
   }, [moveClamped]);
 
-  if (!panel.open) return null;
-
   function beginDrag(e: ReactPointerEvent) {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button")) return;
@@ -142,12 +146,24 @@ export function DockPanel({
     moveClamped(panel.x + dx, panel.y + dy);
   }
 
-  if (panel.minimized) {
+  // Fix wave item 7: a registered panel must never be fully invisible. The
+  // old contract rendered NOTHING for a never-opened/closed panel (`open`
+  // false) — with nothing to ever call `dock.open()` on its own (no toolbar,
+  // no menu), a closed panel like the clock was permanently unreachable.
+  // Closed now collapses into the SAME pill affordance as minimized, so
+  // "closed" and "minimized" are visually identical (both a pill) — only
+  // their persisted `open` flag differs, and that distinction still matters
+  // for `close()` vs `minimize()`'s own semantics (see DockProvider).
+  if (!panel.open || panel.minimized) {
+    const stackIndex = pillStackIndex(ctx.state, id);
     return (
       <button
         type="button"
         className={panel.flashing ? "dock-pill dock-pill-flash" : "dock-pill"}
-        style={{ zIndex: panel.z }}
+        style={{
+          zIndex: panel.z,
+          bottom: `calc(var(--s-3) + ${stackIndex * PILL_STACK_STEP_PX}px)`,
+        }}
         onClick={dock.open}
         aria-label={`Restore ${title}`}
       >

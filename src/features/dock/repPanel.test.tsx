@@ -142,13 +142,16 @@ describe("RepPanel — rep HUD's shell-level dock host (Task A3)", () => {
 
   it("DOES reopen a fully CLOSED (not minimized) panel on the next inactive->active transition", async () => {
     // Closed and minimized are different states in DockProvider (`open`
-    // false vs `minimized` true) — a closed panel has no pill affordance at
-    // all, so the only way back is the same auto-open transition that first
-    // showed it. This must keep working even though the sibling test above
-    // proves a MINIMIZED panel is deliberately left alone. Everything below
-    // happens against the SAME DockProvider instance (one `render`, driven
-    // only by `rerender`) so the panel's closed state genuinely persists
-    // across the transition, rather than being reset by a fresh mount.
+    // false vs `minimized` true), but since fix wave item 7 both collapse to
+    // the SAME pill affordance (a registered panel must never be fully
+    // invisible) — a closed panel is reachable by clicking its pill same as
+    // a minimized one. This test now proves the auto-open transition ALSO
+    // still reopens a closed panel on its own (not just leaving it to the
+    // user's own pill click), same shape as the very first open. Everything
+    // below happens against the SAME DockProvider instance (one `render`,
+    // driven only by `rerender`) so the panel's closed state genuinely
+    // persists across the transition, rather than being reset by a fresh
+    // mount.
     const snap = makeSnap({ set_state: "active" });
     const { rerender } = render(<Harness snap={snap} />);
     await screen.findByRole("dialog", { name: "Rep Counter" });
@@ -156,8 +159,8 @@ describe("RepPanel — rep HUD's shell-level dock host (Task A3)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close Rep Counter" }));
     expect(screen.queryByRole("dialog", { name: "Rep Counter" })).toBeNull();
     expect(
-      screen.queryByRole("button", { name: "Restore Rep Counter" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "Restore Rep Counter" }),
+    ).toBeTruthy();
 
     // The set pauses (leaves "active" — set_state changes, so the effect's
     // dependency actually re-fires), then a later verdict resumes it — a

@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { DockPanel } from "./DockPanel";
 import { useDock } from "./DockProvider";
 import { Button } from "../../ui";
+import { NAV_RAIL_WIDTH } from "./dockState";
+import {
+  ASSUMED_MAX_HEIGHT as PAUSED_ASSUMED_MAX_HEIGHT,
+  DEFAULT_POSITION as PAUSED_DEFAULT_POSITION,
+} from "./PausedSetsTray";
 import {
   MAX_CUSTOM_MINUTES,
   MIN_CUSTOM_MINUTES,
@@ -13,9 +18,14 @@ import {
 } from "./timerMachine";
 import "./dock.css";
 
-/** Below the paused-sets tray's default spot so all three panels start clear
- * of one another on first launch. */
-const DEFAULT_POSITION = { x: 24, y: 480 };
+/** Fix wave item 9: below the paused-sets tray's own (rep-derived) default
+ * spot, clear of the nav rail — see RepPanel.tsx/PausedSetsTray.tsx for the
+ * same reasoning. All three panels default CLOSED (a pill, per item 7), so
+ * this position is only ever used once a panel is actually opened. */
+export const DEFAULT_POSITION = {
+  x: NAV_RAIL_WIDTH + 12,
+  y: PAUSED_DEFAULT_POSITION.y + PAUSED_ASSUMED_MAX_HEIGHT + 24,
+};
 
 /** How often the display re-renders. Purely cosmetic — the underlying
  * `timerMachine` is time-based (tick(now) diffs against an anchor

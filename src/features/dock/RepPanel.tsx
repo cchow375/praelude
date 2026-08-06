@@ -1,19 +1,31 @@
 import { useEffect, useRef } from "react";
 import { DockPanel } from "./DockPanel";
 import { useDock } from "./DockProvider";
+import { NAV_RAIL_WIDTH } from "./dockState";
 import { RepHud, type RepHudProps } from "../rep/RepHud";
 
-/** Top-left-ish default so the panel starts clear of the nav rail and the
- * header band; the user's drag/keyboard position takes over from here on
- * (persisted via DockProvider once localStorage is available). */
-const DEFAULT_POSITION = { x: 24, y: 88 };
+/** Fix wave item 9: the previous `x: 24` sat INSIDE the 148px-wide nav rail
+ * (shell.css), so an auto-opened rep panel covered it. `NAV_RAIL_WIDTH + s-3`
+ * clears the rail with a small gap; `y: 16` keeps it near the top, clear of
+ * the header band. Exported so the default-layout test (dockDefaultLayout.
+ * test.ts) can check it against the other panels' defaults without
+ * duplicating the numbers. */
+export const DEFAULT_POSITION = { x: NAV_RAIL_WIDTH + 12, y: 16 };
 
 /** RepHud is denser than the framework's 320px default (three full-width
  * verdict buttons, a streak line, a metrics grid, a drawer of secondary
  * controls) — it needs real room, not the generic panel width. Still
  * clamped to the viewport by DockPanel/clampPanelWidth, so this holds at the
  * 720x520 dense-layout floor: 720 - 2*24 = 672px available, well above 440. */
-const PANEL_WIDTH = 440;
+export const PANEL_WIDTH = 440;
+
+/** Fix wave item 9: a documented, conservative CEILING on RepHud's real
+ * rendered height (verdict buttons + streak line + metrics grid + drawer) —
+ * not a measurement (jsdom always reports zero layout), just enough for the
+ * OTHER dock panels' own default `y` to be picked clear of it so an
+ * auto-opened rep panel and a manually-opened paused-sets tray don't start
+ * stacked on top of one another at the 720x520 floor. */
+export const ASSUMED_MAX_HEIGHT = 260;
 
 /**
  * Task A3: the rep HUD's shell-level dock host. RepHud's own render/logic is

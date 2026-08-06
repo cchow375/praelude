@@ -48,10 +48,21 @@ function renderPanel(id = "rep") {
   );
 }
 
-describe("DockPanel — not open", () => {
-  it("renders nothing when the panel has never been opened", () => {
+describe("DockPanel — not open (fix wave item 7: closed collapses to a pill, never invisible)", () => {
+  it("renders a pill, not nothing, when the panel has never been opened", () => {
     renderPanel();
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Restore Rep Counter" }),
+    ).toBeTruthy();
+  });
+
+  it("clicking the never-opened panel's pill opens it", () => {
+    renderPanel();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Restore Rep Counter" }),
+    );
+    expect(screen.getByRole("dialog", { name: "Rep Counter" })).toBeTruthy();
   });
 });
 
@@ -139,15 +150,76 @@ describe("DockPanel — minimize / restore", () => {
     ).toBeNull();
   });
 
-  it("the close button hides the panel entirely (not just minimized)", () => {
+  it("the close button collapses the panel to its pill — reachable, never fully invisible (fix wave item 7)", () => {
     seedOpenPanel("rep");
     renderPanel();
     fireEvent.click(screen.getByRole("button", { name: "Close Rep Counter" }));
 
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(
-      screen.queryByRole("button", { name: "Restore Rep Counter" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "Restore Rep Counter" }),
+    ).toBeTruthy();
+  });
+});
+
+describe("DockPanel — pill stacking (fix wave item 6)", () => {
+  it("gives each of three minimized panels a distinct pill position, not one shared spot", () => {
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        rep: { x: 0, y: 0, minimized: true, open: true, z: 1, flashing: false },
+        paused: {
+          x: 0,
+          y: 0,
+          minimized: true,
+          open: true,
+          z: 2,
+          flashing: false,
+        },
+        clock: {
+          x: 0,
+          y: 0,
+          minimized: true,
+          open: true,
+          z: 3,
+          flashing: false,
+        },
+      }),
+    );
+    render(
+      <DockProvider>
+        <DockPanel
+          id="rep"
+          title="Rep Counter"
+          defaultPosition={{ x: 20, y: 20 }}
+        >
+          <div>rep body</div>
+        </DockPanel>
+        <DockPanel
+          id="paused"
+          title="Paused Sets"
+          defaultPosition={{ x: 20, y: 20 }}
+        >
+          <div>paused body</div>
+        </DockPanel>
+        <DockPanel id="clock" title="Clock" defaultPosition={{ x: 20, y: 20 }}>
+          <div>clock body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    const pills = [
+      screen.getByRole("button", { name: "Restore Rep Counter" }),
+      screen.getByRole("button", { name: "Restore Paused Sets" }),
+      screen.getByRole("button", { name: "Restore Clock" }),
+    ];
+    const bottoms = pills.map((pill) => pill.style.bottom);
+    // Every pill must be independently clickable — a shared spot would put
+    // two+ pills at the identical CSS position, occluding all but the top one.
+    expect(new Set(bottoms).size).toBe(3);
+    for (const pill of pills) {
+      fireEvent.click(pill);
+    }
   });
 });
 
