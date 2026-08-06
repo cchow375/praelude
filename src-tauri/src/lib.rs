@@ -1201,6 +1201,42 @@ async fn measure_map_clear(
     .map_err(|e| format!("measure map clear worker failed: {e}"))?
 }
 
+/// Vision-scan one page for its measure geometry (Plan C, task C2). Never
+/// caches — every call is an explicit, user-triggered request through the
+/// SAME Claude-primary/Gemini-fallback provider chain (and key resolution)
+/// as the Brain. `page_jpeg` is `None` for the normal server-render path;
+/// when the server's fast path refuses a page (a vector edition) the error
+/// string is the exact literal `"needs_client_raster"`, and the frontend
+/// re-calls with a canvas-encoded JPEG.
+#[tauri::command]
+async fn measure_scan_page(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    page: u32,
+    page_jpeg: Option<Vec<u8>>,
+    store: State<'_, Arc<Store>>,
+) -> Result<score::measure_scan::ScanPageOutput, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let preference = store.get_setting("brain.provider").ok().flatten();
+        let chain = brain::ProviderChain::from_native_config_with_preference(preference.as_deref());
+        score::measure_scan::measure_scan_page(
+            &store,
+            piece_id,
+            &edition_id,
+            &edition_fingerprint,
+            page,
+            page_jpeg,
+            &chain,
+            &brain::NativeTransport::new(),
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("measure scan worker failed: {e}"))?
+}
+
 // ── Practice Notebook: day sheets + per-piece long-term plans (spec §C2) ────
 
 /// Read the Practice Notebook day sheet for `date`, or `null` when none has been
@@ -2172,6 +2208,7 @@ pub fn run() {
             measure_map_get,
             measure_map_apply,
             measure_map_clear,
+            measure_scan_page,
             day_sheet_get,
             day_sheet_save,
             piece_plan_get,
