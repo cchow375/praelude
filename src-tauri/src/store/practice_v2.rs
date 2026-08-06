@@ -735,6 +735,7 @@ pub(super) fn insert_event(
     Ok((feed_id, canonical_id))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn insert_contract(
     tx: &Transaction<'_>,
     set_id: i64,
@@ -743,6 +744,7 @@ fn insert_contract(
     restart_of: Option<i64>,
     source: MutationSource,
     planned_seconds: Option<u32>,
+    pass_seconds: Option<i64>,
 ) -> rusqlite::Result<()> {
     let (recovery_policy, recovery_value, recovery_minimum) = match contract.recovery {
         RecoveryPolicy::None => ("none", 0_u32, 0_u32),
@@ -769,9 +771,9 @@ fn insert_contract(
           required_success,reset_on_flawed,reset_on_failed,recovery_policy,
           recovery_value,recovery_minimum,tempo_policy_json,attempt_ceiling,
           planned_seconds,retention_delay_days,source_refs_json,set_state,
-          mastery_verification,restart_of_set_id,source)
+          mastery_verification,restart_of_set_id,source,pass_seconds)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,
-                 ?15,NULL,?16,?17,'verified',?18,?19)",
+                 ?15,NULL,?16,?17,'verified',?18,?19,?20)",
         rusqlite::params![
             set_id,
             contract.template_id,
@@ -794,6 +796,7 @@ fn insert_contract(
             state,
             restart_of,
             source_name(source),
+            pass_seconds,
         ],
     )?;
     Ok(())
@@ -948,6 +951,7 @@ pub(super) fn open_set_in_tx(
         None,
         source,
         context.and_then(|value| value.planned_seconds),
+        context.and_then(|value| value.pass_seconds),
     )?;
     super::practice_loop::capture_open_context(tx, block_id, args, context, now)?;
     let payload = json!({
@@ -1603,6 +1607,11 @@ impl Store {
             [block_id],
             |row| row.get(0),
         )?;
+        let pass_seconds: Option<i64> = tx.query_row(
+            "SELECT pass_seconds FROM set_contract WHERE set_id=?1",
+            [block_id],
+            |row| row.get(0),
+        )?;
         insert_contract(
             &tx,
             new_id,
@@ -1611,6 +1620,7 @@ impl Store {
             Some(block_id),
             source,
             planned_seconds,
+            pass_seconds,
         )?;
         super::practice_loop::capture_restart_context(&tx, block_id, new_id, now)?;
         let payload = json!({
@@ -1742,6 +1752,15 @@ impl Store {
 
     #[cfg(test)]
     pub(crate) fn test_scalar_i64(&self, sql: &str) -> rusqlite::Result<i64> {
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        conn.query_row(sql, [], |row| row.get(0))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_scalar_i64_opt(&self, sql: &str) -> rusqlite::Result<Option<i64>> {
         let conn = self
             .conn
             .lock()

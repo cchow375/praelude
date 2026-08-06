@@ -281,6 +281,7 @@ impl Store {
             method: None,
             planned_seconds: Some(planned_seconds),
             reflection: None,
+            pass_seconds: None,
         };
 
         let (opened, event_ids) = open_set_in_tx(

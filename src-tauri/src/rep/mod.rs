@@ -1637,6 +1637,7 @@ mod tests {
                     method: Some("blocked".into()),
                     planned_seconds: Some(300),
                     reflection: None,
+                    pass_seconds: None,
                 }),
             )
             .unwrap();
@@ -1719,6 +1720,83 @@ mod tests {
         let closed = engine.close().unwrap().unwrap();
         assert_eq!(closed.active_seconds, 50);
         assert_eq!(closed.timer_state, "stopped");
+    }
+
+    /// Task A10: `rep_open`'s optional `context.pass_seconds` persists into
+    /// `set_contract.pass_seconds`. `Some(30)` round-trips, an absent value
+    /// stores NULL, and an out-of-range value is rejected by the column's
+    /// existing CHECK (1-3600, added in the v14 migration for Task A1).
+    #[test]
+    fn open_with_context_persists_pass_seconds_and_enforces_the_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pass_seconds.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-08-05T09:00:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+
+        let opened = engine
+            .open_with_context(
+                strict_notes_args(piece_id, 3),
+                Some(SetFocusContextInput {
+                    intention: None,
+                    judging_axis: None,
+                    hands: None,
+                    method: None,
+                    planned_seconds: None,
+                    reflection: None,
+                    pass_seconds: Some(30),
+                }),
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .test_scalar_i64_opt(&format!(
+                    "SELECT pass_seconds FROM set_contract WHERE set_id={}",
+                    opened.block_id
+                ))
+                .unwrap(),
+            Some(30)
+        );
+        engine.close().unwrap();
+
+        // Absent pass_seconds stores NULL, not a sentinel.
+        let opened_none = engine
+            .open_with_context(strict_notes_args(piece_id, 3), None)
+            .unwrap();
+        assert_eq!(
+            store
+                .test_scalar_i64_opt(&format!(
+                    "SELECT pass_seconds FROM set_contract WHERE set_id={}",
+                    opened_none.block_id
+                ))
+                .unwrap(),
+            None
+        );
+        engine.close().unwrap();
+
+        // Out-of-bounds (CHECK is 1-3600) is rejected; no set opens.
+        let before_count = store
+            .test_scalar_i64("SELECT count(*) FROM set_contract")
+            .unwrap();
+        let rejected = engine.open_with_context(
+            strict_notes_args(piece_id, 3),
+            Some(SetFocusContextInput {
+                intention: None,
+                judging_axis: None,
+                hands: None,
+                method: None,
+                planned_seconds: None,
+                reflection: None,
+                pass_seconds: Some(3601),
+            }),
+        );
+        assert!(rejected.is_err());
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM set_contract")
+                .unwrap(),
+            before_count,
+            "a rejected open must not leave a partial set_contract row"
+        );
     }
 
     /// A live set whose process stalls mid-practice (a laptop-sleep gap, no
@@ -2393,6 +2471,7 @@ mod tests {
                     method: Some("rhythmic variants".into()),
                     planned_seconds: Some(1_200),
                     reflection: None,
+                    pass_seconds: None,
                 }),
             )
             .unwrap();
@@ -2671,6 +2750,7 @@ mod tests {
                     method: Some("blocked".into()),
                     planned_seconds: Some(180),
                     reflection: None,
+                    pass_seconds: None,
                 }),
             )
             .unwrap();

@@ -263,6 +263,11 @@ pub struct SetFocusContextInput {
     pub planned_seconds: Option<u32>,
     #[serde(default)]
     pub reflection: Option<String>,
+    /// Task A10: estimated seconds for one pass through the set's ladder.
+    /// Persists to `set_contract.pass_seconds` (nullable, CHECK 1-3600); the
+    /// column enforces the range so out-of-bounds values reject at the DB.
+    #[serde(default)]
+    pub pass_seconds: Option<i64>,
 }
 
 fn deserialize_nullable_bpm<'de, D>(deserializer: D) -> Result<f64, D::Error>

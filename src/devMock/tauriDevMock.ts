@@ -35,6 +35,7 @@ import type {
 } from "../features/pieces/types";
 import type {
   CheckOutcome,
+  RepOpenArgs,
   RepSnapshot,
   RetentionCheckView,
   Verdict,
@@ -1005,6 +1006,47 @@ function repResumeReceipt(commandId: string): MutationReceipt<RepSnapshot> {
   };
 }
 
+// Task A10: `rep_open`'s optional `context.pass_seconds` round-trips through
+// the mock so `BlockForm`'s live estimate is exercisable in `dev:mock`
+// without a Rust backend. Not otherwise surfaced by any read command (the
+// real backend only persists it into `set_contract`, never returns it on the
+// snapshot) — a test-only getter reads it directly, same spirit as
+// `setMockResumeRejects` above.
+let mockLastPassSeconds: number | null = null;
+
+/** Test-only: the most recent `rep_open` mock call's `context.pass_seconds`
+ * (or `null` if the last open had none / none has happened yet). */
+export function mockLastOpenedPassSeconds(): number | null {
+  return mockLastPassSeconds;
+}
+
+function repOpenSnapshot(args: unknown, context: unknown): RepSnapshot {
+  const a = (args ?? {}) as Partial<RepOpenArgs>;
+  const c = (context ?? {}) as { pass_seconds?: number | null };
+  mockLastPassSeconds = c.pass_seconds ?? null;
+  mockSetState = "active";
+  mockPausedSets = [];
+  return {
+    ...MOCK_REP_STATE,
+    piece_id: a.piece_id ?? MOCK_REP_STATE.piece_id,
+    m_start: a.m_start ?? MOCK_REP_STATE.m_start,
+    m_end: a.m_end ?? MOCK_REP_STATE.m_end,
+    label: a.label ?? MOCK_REP_STATE.label,
+    bpm: a.start_bpm ?? MOCK_REP_STATE.bpm,
+    start_bpm: a.start_bpm ?? MOCK_REP_STATE.start_bpm,
+    target_bpm: a.target_bpm ?? MOCK_REP_STATE.target_bpm,
+    planned_reps: a.planned_reps ?? MOCK_REP_STATE.planned_reps,
+    focus: a.focus ?? MOCK_REP_STATE.focus,
+    use_metronome: a.use_metronome ?? MOCK_REP_STATE.use_metronome,
+    reps_done: 0,
+    verdicts: { clean: 0, flawed: 0, failed: 0 },
+    last: null,
+    set_state: "active",
+    timer_state: "active",
+    active_seconds: 0,
+  };
+}
+
 // Sample attempt rows so a Ledger block drill-in (`reps_for_block`) shows real
 // evidence instead of an empty "No attempts logged." list in the static harness.
 const REPS_BY_BLOCK: Record<number, Rep[]> = {
@@ -1727,6 +1769,13 @@ function routeCommand(cmd: string, args: unknown): unknown {
         set_state: mockSetState,
         timer_state: mockSetState,
       };
+    // Task A10: the composer/block-open flow's single write. Round-trips
+    // `context.pass_seconds` (see `mockLastOpenedPassSeconds`) without
+    // otherwise changing any other mocked read/write path.
+    case "rep_open": {
+      const record = (args ?? {}) as { args?: unknown; context?: unknown };
+      return repOpenSnapshot(record.args, record.context);
+    }
     // Clean/Sloppy/Again in the HUD: return a committed CheckOutcome so the
     // receipt lands GREEN (previously unmapped → null → red error receipt).
     case "rep_check":
@@ -1955,6 +2004,8 @@ export function installTauriDevMock(): void {
   mockSetState = "active";
   mockPausedSets = [];
   mockResumeRejects = false;
+  // Task A10: fresh pass-seconds round-trip state per install.
+  mockLastPassSeconds = null;
 
   let callbackId = 0;
   let subscriptionId = 0;

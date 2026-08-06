@@ -311,6 +311,8 @@ export interface SetFocusContextInput {
   method?: string | null;
   planned_seconds?: number | null;
   reflection?: string | null;
+  /** Task A10: estimated seconds for one pass through the set's ladder. */
+  pass_seconds?: number | null;
 }
 
 /** Verdict strings accepted by `rep_check`. */

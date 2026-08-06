@@ -12,7 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { PDFDocumentLoadingTask, PDFPageProxy } from "pdfjs-dist";
 import type { BlockHistory, Region } from "../pieces/types";
-import type { RepOpenArgs } from "../rep/useRep";
+import type { RepOpenArgs, SetFocusContextInput } from "../rep/useRep";
 import { BlockForm } from "../rep/BlockForm";
 import {
   anchorForEdition,
@@ -443,7 +443,7 @@ export interface ScoreViewProps {
   activeRange?: { m_start: number; m_end: number } | null;
   defaultTargetBpm?: number | null;
   defaultCleanStreak?: number;
-  onOpenBlock?: (args: RepOpenArgs) => void;
+  onOpenBlock?: (args: RepOpenArgs, context?: SetFocusContextInput) => void;
   opening?: boolean;
   onRegionsChanged?: () => void;
   onContextChange?: (context: ScoreFocusContext) => void;

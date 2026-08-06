@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { RepOpenArgs, VariantSpec } from "./useRep";
+import type { RepOpenArgs, SetFocusContextInput, VariantSpec } from "./useRep";
+import {
+  buildLadderPreview,
+  estimateSetSeconds,
+  formatSetEstimate,
+} from "./estimate";
 import "../../ui/forms.css";
 
 // ---------------------------------------------------------------------------
@@ -29,7 +34,13 @@ interface BlockFormProps {
   defaultLabel?: string;
   /** Persisted practice default; v2 defaults to five consecutive cleans. */
   defaultCleanStreak?: number;
-  onOpen: (args: RepOpenArgs) => void;
+  /**
+   * Task A10: `context` is passed ONLY when the pianist entered a one-pass
+   * estimate — omitted (single-argument call) otherwise, so a caller wired
+   * directly to `rep.open` (which defaults a missing context to `null`) sees
+   * byte-identical args to before this field existed.
+   */
+  onOpen: (args: RepOpenArgs, context?: SetFocusContextInput) => void;
   opening?: boolean;
   /** Prevents a guaranteed backend rejection while another set owns the loop. */
   blockedReason?: string | null;
@@ -118,6 +129,9 @@ export function BlockForm({
   const [focus, setFocus] = useState("tempo");
   const [useMetronome, setUseMetronome] = useState(true);
   const [moreOpen, setMoreOpen] = useState(false);
+  // Task A10: optional one-pass estimate. Empty by default — no field
+  // touched means no context is sent and no estimate renders.
+  const [passSeconds, setPassSeconds] = useState<string>("");
 
   // Settings can finish saving while this form remains mounted. Adopt that
   // saved default until the pianist has started editing this form's target;
@@ -170,6 +184,28 @@ export function BlockForm({
   if (reviewAt != null) summaryParts.push(`review at ${reviewAt}`);
   const defaultsSummary = summaryParts.join(" · ");
 
+  // Task A10: a live "≈ X–Y min" estimate beside the optional one-pass field.
+  // Only meaningful for a tempo-focused set with a positive pass time; the
+  // ladder is a client-side preview of the same start/target/step/reps
+  // fields already on this form (see estimate.ts — not the backend's
+  // authoritative auto-ladder resolution).
+  const parsedPassSeconds = parseIntOrNull(passSeconds);
+  const estimateText =
+    focus === "tempo" && parsedPassSeconds != null && parsedPassSeconds > 0
+      ? formatSetEstimate(
+          estimateSetSeconds(
+            parsedPassSeconds,
+            buildLadderPreview(
+              parseNumOr(startBpm, 60),
+              parseIntOrNull(targetBpm),
+              parseNumOr(bpmStep, 4),
+              parseIntOrNull(cleanNeeded) ?? 3,
+            ),
+            parseNumOr(startBpm, 60),
+          ),
+        )
+      : null;
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (opening || blockedReason) return;
@@ -202,7 +238,13 @@ export function BlockForm({
       focus,
       use_metronome: useMetronome,
     };
-    onOpen(args);
+    // Byte-compatibility (Task A10): an untouched field means a single-arg
+    // call, identical to every payload before this field existed.
+    if (parsedPassSeconds != null && parsedPassSeconds > 0) {
+      onOpen(args, { pass_seconds: parsedPassSeconds });
+    } else {
+      onOpen(args);
+    }
   };
 
   return (
@@ -438,6 +480,30 @@ export function BlockForm({
                     </label>
                   </div>
                 )}
+                <div className="ck-field-grid ck-pass-estimate">
+                  <label className="ck-field">
+                    <span className="ck-label">One pass ≈ (sec, optional)</span>
+                    <input
+                      className="ck-input"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={3600}
+                      value={passSeconds}
+                      placeholder="No estimate"
+                      aria-label="One pass seconds"
+                      onChange={(e) => setPassSeconds(e.target.value)}
+                    />
+                  </label>
+                  {estimateText && (
+                    <span
+                      className="ck-pass-estimate-text"
+                      aria-label="Set time estimate"
+                    >
+                      {estimateText}
+                    </span>
+                  )}
+                </div>
               </fieldset>
             )}
 
