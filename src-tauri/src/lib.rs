@@ -1130,6 +1130,77 @@ fn score_marks_clear_page(
         .map_err(|e| e.to_string())
 }
 
+// ── Measure mapping store CRUD (Plan C, task C1) ────────────────────────────
+//
+// Pure CRUD over schema v14's `measure_map` table plus the typed, versioned
+// systems model — no vision, no reconciliation (later Plan C tasks). Off the
+// main thread via `spawn_blocking`, the house idiom for store access here.
+
+/// Every mapped page for one piece+edition fingerprint, page-ordered. An empty
+/// vec means unmapped — the frontend then offers the scan-and-map flow.
+#[tauri::command]
+async fn measure_map_get(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<store::MeasureMapPageRow>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .measure_map_get(piece_id, &edition_id, &edition_fingerprint)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("measure map read worker failed: {e}"))?
+}
+
+/// Validate `pages` as a whole payload (cross-page bar-number continuity
+/// enforced at every page boundary present in the payload) and, only if every
+/// page is valid, atomically REPLACE ALL existing rows for
+/// `(piece_id, edition_fingerprint)` — not just the pages given here — in one
+/// transaction. A re-apply is therefore the new whole truth for that
+/// fingerprint: a previously-mapped page absent from `pages` is dropped, not
+/// preserved. A single invalid page rejects the whole call before the
+/// transaction opens, so nothing is written. Returns the number of pages
+/// written.
+#[tauri::command]
+async fn measure_map_apply(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    pages: Vec<store::MeasureMapPageRow>,
+    store: State<'_, Arc<Store>>,
+) -> Result<u32, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .measure_map_apply(piece_id, &edition_id, &edition_fingerprint, pages)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("measure map apply worker failed: {e}"))?
+}
+
+/// Delete every mapped page for one piece+edition fingerprint (destructive;
+/// the UI confirms first). Rows under any OTHER fingerprint of the same piece
+/// are untouched. Returns how many rows were removed.
+#[tauri::command]
+async fn measure_map_clear(
+    piece_id: i64,
+    edition_fingerprint: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<u32, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .measure_map_clear(piece_id, &edition_fingerprint)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("measure map clear worker failed: {e}"))?
+}
+
 // ── Practice Notebook: day sheets + per-piece long-term plans (spec §C2) ────
 
 /// Read the Practice Notebook day sheet for `date`, or `null` when none has been
@@ -2098,6 +2169,9 @@ pub fn run() {
             score_mark_add,
             score_mark_undo,
             score_marks_clear_page,
+            measure_map_get,
+            measure_map_apply,
+            measure_map_clear,
             day_sheet_get,
             day_sheet_save,
             piece_plan_get,
