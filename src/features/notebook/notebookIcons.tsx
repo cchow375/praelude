@@ -122,6 +122,16 @@ export function CloseIcon(props: IconProps) {
   );
 }
 
+/** Pin this goal to the score: a drawing pin pushed into the page. */
+export function PinIcon(props: IconProps) {
+  return (
+    <Glyph {...props}>
+      <path d="M9 4h6l-1 5 3 3v2H7v-2l3-3z" />
+      <line x1="12" y1="14" x2="12" y2="20" />
+    </Glyph>
+  );
+}
+
 /** Lesson notes: a folded-corner page. */
 export function NotesIcon(props: IconProps) {
   return (

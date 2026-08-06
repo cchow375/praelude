@@ -46,6 +46,7 @@ const piece: PieceDetailData = {
   hard_spots: [],
   current_state: null,
   notes: null,
+  banner_text: null,
 };
 
 function wrapper({ children }: { children: ReactNode }) {

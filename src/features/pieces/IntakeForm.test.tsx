@@ -22,6 +22,7 @@ function basePiece(overrides: Partial<PieceDetailData> = {}): PieceDetailData {
     hard_spots: [],
     current_state: null,
     notes: null,
+    banner_text: null,
     ...overrides,
   };
 }

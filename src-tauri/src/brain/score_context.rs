@@ -817,6 +817,7 @@ mod tests {
             hard_spots: vec![],
             current_state: None,
             notes: None,
+            banner_text: None,
         }
     }
 

@@ -315,3 +315,96 @@ describe("DaySheet — goal promotion (spec 13)", () => {
     ).toBe(true);
   });
 });
+
+describe("DaySheet — pin a goal to the score (A11)", () => {
+  /** Promote a seeded plan item to a goal and return its rendered ⚑ row. */
+  async function promoteToGoal(text: string) {
+    await seedSheet(DATE, [
+      { type: "piece", piece_id: 1 },
+      { type: "item", text, checked: false, piece_id: 1 },
+    ]);
+    renderSheet();
+    const item = await screen.findByDisplayValue(text);
+    fireEvent.focus(item);
+    fireEvent.click(screen.getByRole("button", { name: "goal" }));
+    return await screen.findByLabelText("Goal");
+  }
+
+  function bannerCalls(spy: ReturnType<typeof spyInvoke>) {
+    return spy.mock.calls.filter((args) => args[0] === "piece_banner_set");
+  }
+
+  it("pins the ⚑ line's text to its piece's score banner", async () => {
+    const spy = spyInvoke();
+    await promoteToGoal("clean the coda");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pin this goal to the score" }),
+    );
+
+    await waitFor(() => expect(bannerCalls(spy)).toHaveLength(1));
+    expect(bannerCalls(spy)[0][1]).toEqual({
+      pieceId: 1,
+      text: "clean the coda",
+    });
+
+    // The pin really reached the piece, not just the wire.
+    const detail = (await internals().invoke("piece_get", { id: 1 })) as {
+      banner_text: string | null;
+    };
+    expect(detail.banner_text).toBe("clean the coda");
+  });
+
+  it("truncates an over-long goal to exactly 140 characters with an ellipsis", async () => {
+    const spy = spyInvoke();
+    const long = `${"a".repeat(200)}`;
+    await promoteToGoal(long);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pin this goal to the score" }),
+    );
+
+    await waitFor(() => expect(bannerCalls(spy)).toHaveLength(1));
+    const sent = (bannerCalls(spy)[0][1] as { text: string }).text;
+    expect(Array.from(sent)).toHaveLength(140);
+    expect(sent.endsWith("…")).toBe(true);
+    expect(sent.startsWith("aaa")).toBe(true);
+  });
+
+  it("last pin wins — a second pin overwrites the banner unconditionally", async () => {
+    const spy = spyInvoke();
+    await promoteToGoal("first goal");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pin this goal to the score" }),
+    );
+    await waitFor(() => expect(bannerCalls(spy)).toHaveLength(1));
+
+    // Retype the goal and pin again: no merge prompt, the new text simply wins.
+    const goalField = await screen.findByLabelText("Goal");
+    fireEvent.change(goalField, { target: { value: "second goal" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pin this goal to the score" }),
+    );
+
+    await waitFor(() => expect(bannerCalls(spy)).toHaveLength(2));
+    expect(bannerCalls(spy)[1][1]).toEqual({
+      pieceId: 1,
+      text: "second goal",
+    });
+    const detail = (await internals().invoke("piece_get", { id: 1 })) as {
+      banner_text: string | null;
+    };
+    expect(detail.banner_text).toBe("second goal");
+  });
+
+  it("renders no pin at all on a ⚑ line with no piece to pin it to", async () => {
+    // A goal_ref with no piece heading above it has no piece context and no
+    // resolvable goal, so there is nothing to pin — and no disabled button.
+    await seedSheet(DATE, [{ type: "goal_ref", goal_id: 401 }]);
+    renderSheet();
+    await screen.findByLabelText("Goal");
+    expect(
+      screen.queryByRole("button", { name: "Pin this goal to the score" }),
+    ).toBeNull();
+  });
+});

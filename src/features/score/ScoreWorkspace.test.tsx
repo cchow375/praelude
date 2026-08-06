@@ -278,3 +278,45 @@ describe("ScoreWorkspace", () => {
     );
   });
 });
+
+describe("ScoreWorkspace — goals banner (A11)", () => {
+  it("renders the selected piece's banner above the score page", async () => {
+    invokeMock.mockImplementation((command: string, args?: unknown) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      if (command === "piece_get") {
+        const id = ((args ?? {}) as { id?: number }).id;
+        return Promise.resolve({
+          id,
+          banner_text: id === 1 ? "Even development voicing" : null,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    render(<ScoreWorkspace />);
+
+    const banner = await screen.findByTestId("score-banner");
+    expect(banner.textContent).toContain("Even development voicing");
+    // Above the page, not below it: the strip precedes the reader in the DOM.
+    const view = screen.getByTestId("score-view-stub");
+    expect(
+      banner.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("shows only the quiet '+ goal' affordance for a piece with no banner", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      if (command === "piece_get")
+        return Promise.resolve({ id: 1, banner_text: null });
+      return Promise.resolve(undefined);
+    });
+
+    render(<ScoreWorkspace />);
+
+    expect(
+      await screen.findByRole("button", { name: "Add a goal banner" }),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("score-banner")).toBeNull();
+  });
+});

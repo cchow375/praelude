@@ -4,6 +4,7 @@ import type { PieceSummary } from "../pieces/types";
 import type { PracticeBrainContext } from "../brain/types";
 import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
 import { ScoreView } from "./ScoreView";
+import { ScoreBanner } from "./Banner";
 import { MetronomeQuickBar } from "../metronome/MetronomeQuickBar";
 import { ScorePlanTab } from "../notebook/ScorePlanTab";
 import type { ScoreFocusContext } from "./types";
@@ -305,6 +306,10 @@ export function ScoreWorkspace({
             {/* The score reader stays mounted while the Plan tab is shown so its
                 PDF is not torn down and reloaded on every toggle. */}
             <div className="score-workspace-pane" hidden={tab !== "score"}>
+              {/* The piece's one goal sentence sits directly over the page, so
+                  it is the first thing read before playing. With no banner it
+                  collapses to a single "+ goal" affordance and costs no height. */}
+              <ScoreBanner key={selectedId} pieceId={selectedId} />
               <ScoreView
                 key={selectedId}
                 pieceId={selectedId}

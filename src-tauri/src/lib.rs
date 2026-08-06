@@ -398,6 +398,83 @@ fn piece_get(id: i64, store: State<'_, Arc<Store>>) -> Result<PieceDetail, Strin
         .ok_or_else(|| format!("piece {id} not found"))
 }
 
+/// The most a score goals banner may hold. Mirrors the `piece.banner_text`
+/// CHECK constraint added by schema v14 (A1).
+pub const BANNER_MAX_CHARS: usize = 140;
+
+/// Normalize + bound one banner edit BEFORE it can reach SQLite. Blank text is
+/// a clear, not a stored empty banner; anything over [`BANNER_MAX_CHARS`] is
+/// rejected here with a message the user can act on, so the column's CHECK
+/// constraint is never the thing that fails an edit.
+fn validate_banner_text(text: Option<String>) -> Result<Option<String>, String> {
+    let Some(text) = text else { return Ok(None) };
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    let length = text.chars().count();
+    if length > BANNER_MAX_CHARS {
+        return Err(format!(
+            "A score banner is limited to {BANNER_MAX_CHARS} characters (that one is {length})."
+        ));
+    }
+    Ok(Some(text))
+}
+
+/// Pin (or, with `text: None`, clear) the one goal sentence shown over a
+/// piece's score. Returns the piece's refreshed detail.
+#[tauri::command]
+fn piece_banner_set(
+    piece_id: i64,
+    text: Option<String>,
+    store: State<'_, Arc<Store>>,
+) -> Result<PieceDetail, String> {
+    let text = validate_banner_text(text)?;
+    store
+        .piece_banner_set(piece_id, text.as_deref())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("piece {piece_id} not found"))
+}
+
+#[cfg(test)]
+mod banner_text_tests {
+    use super::*;
+
+    #[test]
+    fn a_banner_of_exactly_the_limit_is_accepted() {
+        let at_limit = "x".repeat(BANNER_MAX_CHARS);
+        assert_eq!(
+            validate_banner_text(Some(at_limit.clone())),
+            Ok(Some(at_limit))
+        );
+    }
+
+    #[test]
+    fn a_141_character_banner_is_rejected_before_sqlite_sees_it() {
+        let too_long = "x".repeat(BANNER_MAX_CHARS + 1);
+        let error = validate_banner_text(Some(too_long)).unwrap_err();
+        assert!(
+            error.contains("140") && error.contains("141"),
+            "the rejection must name the limit and the overage: {error}"
+        );
+    }
+
+    #[test]
+    fn the_limit_counts_characters_not_bytes() {
+        // 140 multi-byte characters is 420 bytes but a legal banner; a
+        // byte-length check would wrongly reject it.
+        let accented = "é".repeat(BANNER_MAX_CHARS);
+        assert!(validate_banner_text(Some(accented)).is_ok());
+        assert!(validate_banner_text(Some("é".repeat(BANNER_MAX_CHARS + 1))).is_err());
+    }
+
+    #[test]
+    fn none_and_blank_text_both_mean_clear_the_banner() {
+        assert_eq!(validate_banner_text(None), Ok(None));
+        assert_eq!(validate_banner_text(Some("   ".into())), Ok(None));
+        assert_eq!(validate_banner_text(Some(String::new())), Ok(None));
+    }
+}
+
 /// Every real PDF edition directly inside this piece's `score/` folder or
 /// piece root. Edition ids are stable piece-relative paths, never arbitrary
 /// filesystem paths supplied by the frontend.
@@ -1936,6 +2013,7 @@ pub fn run() {
             score_page_cache_load,
             score_page_cache_save,
             piece_intake_save,
+            piece_banner_set,
             piece_select,
             rep_open,
             rep_check,

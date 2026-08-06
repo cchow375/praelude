@@ -80,6 +80,10 @@ pub struct PieceDetail {
     pub hard_spots: Vec<HardSpot>,
     pub current_state: Option<String>,
     pub notes: Option<String>,
+    /// The one goal sentence pinned over this piece's score (schema v14).
+    /// `None` = no banner. Bounded to 140 characters by both the Rust command
+    /// and the column's CHECK constraint.
+    pub banner_text: Option<String>,
 }
 
 /// A trouble spot the user flagged during intake: a measure range and a note.

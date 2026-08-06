@@ -50,8 +50,10 @@ import {
   FlagIcon,
   NotesIcon,
   PieceIcon,
+  PinIcon,
   PlusIcon,
 } from "./notebookIcons";
+import { truncateBanner } from "../score/bannerText";
 import { PassageHelper } from "./PassageHelper";
 import "./DaySheet.css";
 
@@ -87,6 +89,11 @@ const GOAL_UPDATE = defineCommand<
   { id: number; patch: Partial<Pick<Goal, "text" | "target_date">> },
   Goal
 >("goal_update", "The goal could not be updated.");
+// A11: "pin to score" writes the same per-piece banner the Score workspace edits.
+const PIECE_BANNER_SET = defineCommand<
+  { pieceId: number; text: string | null },
+  unknown
+>("piece_banner_set", "The goal could not be pinned to the score.");
 
 const DEFAULT_BLOCK_MINUTES = 25;
 
@@ -436,6 +443,24 @@ export function DaySheetView({
     [receipts],
   );
 
+  // A11: put this goal's words over its score. The pin OVERWRITES whatever
+  // banner the piece already had — one goal is on the stand at a time, so a
+  // merge prompt would be a question with no useful answer.
+  const pinGoalToScore = useCallback(
+    async (pieceId: number, text: string) => {
+      try {
+        await executeCommand(PIECE_BANNER_SET, {
+          pieceId,
+          text: truncateBanner(text),
+        });
+        receipts.committed("Pinned to the score.");
+      } catch (cause) {
+        receipts.error(cause, "The goal could not be pinned to the score.");
+      }
+    },
+    [receipts],
+  );
+
   const choosePiece = useCallback(
     (pieceId: number) => {
       if (!picker) return;
@@ -745,6 +770,12 @@ export function DaySheetView({
   const renderGoal = (line: NotebookLine, index: number) => {
     if (line.type !== "goal_ref") return null;
     const goal = goalCache.get(line.goal_id);
+    // Where this goal would land on a stand: the piece heading it sits under,
+    // else the goal's own piece. With neither — or with nothing written yet —
+    // there is no score to pin to, so the affordance is absent rather than
+    // present-but-dead.
+    const pinTarget = pieceContextAt(body, index) ?? goal?.piece_id ?? null;
+    const pinText = goal?.text?.trim() ?? "";
     return (
       <div className="ck-ns-line" data-type="goal_ref">
         <div className="ck-ns-goal paper-ruled">
@@ -783,6 +814,17 @@ export function DaySheetView({
               })
             }
           />
+          {pinTarget != null && pinText !== "" && (
+            <button
+              type="button"
+              className="ck-ns-icon-btn"
+              aria-label="Pin this goal to the score"
+              title="Pin this goal to the score"
+              onClick={() => void pinGoalToScore(pinTarget, pinText)}
+            >
+              <PinIcon size={14} />
+            </button>
+          )}
           <button
             type="button"
             className="ck-ns-icon-btn"

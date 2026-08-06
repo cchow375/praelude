@@ -29,6 +29,8 @@ export interface PieceDetailData extends PieceSummary {
   hard_spots: HardSpot[];
   current_state: string | null;
   notes: string | null;
+  /** The one goal sentence pinned over this piece's score (schema v14 / A11). */
+  banner_text: string | null;
 }
 
 export interface Intake {
@@ -70,7 +72,8 @@ export interface BlockHistory {
   required_clean_streak?: number | null;
   effective_required_clean_streak?: number | null;
   recovery_remaining?: number;
-  mastery_status?: "satisfied" | "not_satisfied" | "not_applicable" | "unverified_legacy";
+  mastery_status?:
+    "satisfied" | "not_satisfied" | "not_applicable" | "unverified_legacy";
   mastery_verified?: boolean;
   set_state?: string;
   /** Optional review prompt; reaching it never proves mastery. */

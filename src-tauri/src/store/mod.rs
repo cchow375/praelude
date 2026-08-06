@@ -303,7 +303,7 @@ impl Store {
             "SELECT id, title, composer, folder_path, xml_path,
                     COALESCE(preferred_pdf_path, pdf_path),
                     goals, deadline, target_tempo, hard_spots, current_state,
-                    intake_done, notes
+                    intake_done, notes, banner_text
              FROM piece WHERE id = ?1",
             [id],
             |row| {
@@ -327,6 +327,7 @@ impl Store {
                     current_state: row.get(10)?,
                     intake_done: row.get(11)?,
                     notes: row.get(12)?,
+                    banner_text: row.get(13)?,
                 })
             },
         )
@@ -2648,6 +2649,7 @@ mod tests {
         assert!(d.hard_spots.is_empty());
         assert!(!d.intake_done);
         assert_eq!(d.composer, None);
+        assert_eq!(d.banner_text, None, "a fresh piece carries no score banner");
         assert_eq!(store.get_piece(9999).unwrap(), None, "unknown id -> None");
     }
 

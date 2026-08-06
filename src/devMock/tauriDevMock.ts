@@ -170,6 +170,7 @@ const PIECE_DETAILS: Record<number, PieceDetailData> = {
     hard_spots: [{ measures: "65-96", note: "Development hand coordination" }],
     current_state: "Development section under tempo",
     notes: "Keep the left hand light in the opening.",
+    banner_text: "Even development voicing, hands together at 84",
   },
   2: {
     id: 2,
@@ -187,6 +188,7 @@ const PIECE_DETAILS: Record<number, PieceDetailData> = {
     hard_spots: [{ measures: "40-52", note: "Climax pedaling" }],
     current_state: "Reading the opening",
     notes: null,
+    banner_text: null,
   },
   3: {
     id: 3,
@@ -204,8 +206,14 @@ const PIECE_DETAILS: Record<number, PieceDetailData> = {
     hard_spots: [],
     current_state: null,
     notes: null,
+    banner_text: null,
   },
 };
+
+/** Task A11: banner edits made during a dev run, keyed by piece id. Absent =
+ *  use the fixture's own `banner_text`. Cleared in `installTauriDevMock()`. */
+const MOCK_BANNERS = new Map<number, string | null>();
+const MOCK_BANNER_MAX_CHARS = 140;
 
 const REGIONS: Record<number, Region[]> = {
   1: [
@@ -1853,8 +1861,29 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return MOCK_DOWNLOADS;
     case "pick_import_file":
       return null;
-    case "piece_get":
-      return PIECE_DETAILS[pieceIdOf(args)] ?? null;
+    case "piece_get": {
+      const detail = PIECE_DETAILS[pieceIdOf(args)];
+      if (!detail) return null;
+      const id = pieceIdOf(args);
+      return MOCK_BANNERS.has(id)
+        ? { ...detail, banner_text: MOCK_BANNERS.get(id) ?? null }
+        : detail;
+    }
+    // Task A11: the score goals banner. Length is bounded exactly as the Rust
+    // command bounds it, so the browser harness rejects an over-long pin the
+    // same way native does.
+    case "piece_banner_set": {
+      const id = pieceIdOf(args);
+      const detail = PIECE_DETAILS[id];
+      if (!detail) throw `piece ${id} not found`;
+      const raw = ((args ?? {}) as { text?: string | null }).text ?? null;
+      const text = raw == null || raw.trim() === "" ? null : raw;
+      if (text != null && Array.from(text).length > MOCK_BANNER_MAX_CHARS) {
+        throw `A score banner is limited to ${MOCK_BANNER_MAX_CHARS} characters (that one is ${Array.from(text).length}).`;
+      }
+      MOCK_BANNERS.set(id, text);
+      return { ...detail, banner_text: text };
+    }
     case "region_list":
       return REGIONS[pieceIdOf(args)] ?? [];
 
@@ -2006,6 +2035,8 @@ export function installTauriDevMock(): void {
   mockResumeRejects = false;
   // Task A10: fresh pass-seconds round-trip state per install.
   mockLastPassSeconds = null;
+  // Task A11: banner edits never bleed between installs.
+  MOCK_BANNERS.clear();
 
   let callbackId = 0;
   let subscriptionId = 0;
