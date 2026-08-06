@@ -1284,14 +1284,7 @@ async fn measure_reconcile(
             .score_calibration_get(piece_id, &edition_id, &edition_fingerprint)
             .map_err(|e| e.to_string())?
             .map(|calibration| {
-                calibration
-                    .points
-                    .into_iter()
-                    .map(|point| score::measure_reconcile::CalibrationAnchor {
-                        page: point.page as u32,
-                        measure: point.measure as u32,
-                    })
-                    .collect()
+                score::measure_reconcile::topmost_calibration_anchors(&calibration.points)
             })
             .unwrap_or_default();
 

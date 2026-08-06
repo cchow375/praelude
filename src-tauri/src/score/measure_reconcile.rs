@@ -25,29 +25,44 @@
 //! system's `x_left` for bar 0), matching `store::measure_map::MapSystem`'s
 //! own doc comment on `MapBar` verbatim. No `+1`/`-1` reinterpretation needed.
 //!
-//! # Numbering
+//! # Numbering (the contract C4's TS mirror must match)
 //!
 //! Bars are laid out into one global, page-ordered / system-ordered (by
-//! sorted `y_top`) / bar-ordered stream. An implicit anchor always pins the
-//! very first bar of the stream to the start number (1, or a pickup's 0 when
-//! a printed number pins it — see [`reconcile`]'s doc comment for the pickup
-//! rule). Every OTHER bar's number is `nearest_preceding_anchor.number + (i -
-//! nearest_preceding_anchor.index)` — a plain forward fill from whichever
-//! anchor (implicit start, or a confident printed number) precedes it in the
-//! stream. Because the implicit start anchor always exists at index 0, this
-//! single forward pass already delivers "backward" propagation for every bar
-//! before the first real printed-number anchor: there is nothing before
-//! index 0 to fill backward into. Consecutive anchor pairs are cross-checked
-//! against the actual barline count between them; a mismatch is a
-//! `continuity_break` conflict, and the forward-fill numbering is left as-is
-//! (both bars keep `source: "model"` — this pass never guesses which anchor
-//! is "right").
+//! sorted `y_top`) / bar-ordered stream. Every printed number with
+//! confidence at least 0.5, anywhere in the stream, is a numbering anchor
+//! (an `{index, number}` pair). Numbering is genuinely BIDIRECTIONAL around
+//! those anchors:
+//!
+//! - **>= 1 printed anchor exists**: NO synthetic anchor is added. The span
+//!   BEFORE the first anchor is back-filled FROM it (`first.number - (dist)`
+//!   walking backward), clamped at the pickup floor (1, or 0 when
+//!   `has_pickup`) — an underflow (the anchor's number can't reach back that
+//!   far) clamps to the floor AND raises a `continuity_break` on that
+//!   leading span (`page`/`system` of the very first bar; `expected` =
+//!   anchor number minus the floor, `found` = bars actually available
+//!   before the anchor). From the first anchor onward, every span
+//!   forward-fills from its nearest preceding anchor (mid-spans between two
+//!   anchors, then the trailing span past the last one) — `pickup_ambiguity`
+//!   never fires in this branch: any real anchor is treated as sufficient
+//!   evidence for the whole stream's offset, pickup included.
+//! - **Zero printed anchors exist**: a single synthetic anchor pins bar 0 to
+//!   1, and (only in THIS branch) `has_pickup` raises `pickup_ambiguity`
+//!   since there is no evidence at all for where the pickup boundary falls.
+//!
+//! Consecutive anchor pairs (including the leading-span's virtual "floor"
+//! anchor) are cross-checked: the barline count between them must match
+//! what their numbers imply, else `continuity_break`; a mismatch does not
+//! block numbering (both bars keep `source: "model"` — this pass never
+//! guesses which anchor is "right", it forward-fills through the break and
+//! lets the conflict carry the span).
 
 use std::cmp::Ordering;
 
 use serde::Serialize;
 
-use crate::store::{MapBar, MapBarSource, MapSystem, MeasureMapPage, MeasureMapPageRow};
+use crate::store::{
+    CalibrationPoint, MapBar, MapBarSource, MapSystem, MeasureMapPage, MeasureMapPageRow,
+};
 
 use super::measure_scan::{PrintedNumber, ScanPageOutput, ScanSystem};
 
@@ -70,14 +85,46 @@ pub struct XmlTotals {
     pub has_pickup: bool,
 }
 
-/// One calibration line anchor, reduced to page + measure (the binding v1
-/// reading of `score_calibration_get`'s `CalibrationPoint`: its `y` position
-/// is ignored — a calibration anchor asserts "page P's mapped run starts at
-/// measure M", checked against the first mapped bar found on that page).
+/// One calibration line anchor, reduced to page + measure — a calibration
+/// anchor asserts "page P's mapped run starts at measure M", checked against
+/// the first mapped bar found on that page. Built by
+/// [`topmost_calibration_anchors`] from `score_calibration_get`'s raw,
+/// PER-SYSTEM `CalibrationPoint`s (see that function's doc comment for why).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CalibrationAnchor {
     pub page: u32,
     pub measure: u32,
+}
+
+/// Reduce a page's calibration line anchors to this pass's page-level
+/// [`CalibrationAnchor`]s. `CalibrationPoint` is a PER-SYSTEM anchor — one
+/// per system start on a page, each `{page, y, measure}` (see
+/// `atlas/mapping/anchors.ts`'s `LineAnchor` doc comment) — not a whole-page
+/// anchor. `reconcile` only checks a page's FIRST mapped bar, so comparing
+/// every point on a page (each describing a different, lower system) would
+/// produce false `anchor_disagreement`s on a correctly-mapped page. This
+/// keeps only the minimum-`y` point per page (the page's topmost/first
+/// system); richer per-system anchoring is future work.
+pub fn topmost_calibration_anchors(points: &[CalibrationPoint]) -> Vec<CalibrationAnchor> {
+    let mut topmost: std::collections::HashMap<i64, (f64, i64)> = std::collections::HashMap::new();
+    for point in points {
+        topmost
+            .entry(point.page)
+            .and_modify(|(y, measure)| {
+                if point.y < *y {
+                    *y = point.y;
+                    *measure = point.measure;
+                }
+            })
+            .or_insert((point.y, point.measure));
+    }
+    topmost
+        .into_iter()
+        .map(|(page, (_, measure))| CalibrationAnchor {
+            page: page as u32,
+            measure: measure as u32,
+        })
+        .collect()
 }
 
 /// A typed reconciliation conflict. `kind` (the serde tag) is the literal
@@ -125,6 +172,17 @@ pub enum MapConflict {
         page: u32,
         system_a: u32,
         system_b: u32,
+    },
+    /// The reconciled output itself, independent of any numbering conflict,
+    /// violates an invariant `store::measure_map::Store::measure_map_apply`
+    /// hard-rejects (an empty system, non-increasing bar `x_right`s, or
+    /// non-increasing bar numbers) — a page could otherwise reconcile with
+    /// zero OTHER conflicts yet still be un-Applyable. The review UI must
+    /// treat this exactly like any other conflict for the Apply gate.
+    Unapplyable {
+        page: u32,
+        system: u32,
+        reason: String,
     },
 }
 
@@ -205,16 +263,20 @@ fn sorted_systems_with_overlap_conflicts<'a>(
 }
 
 /// Find which bar (by local, 0-based index within the system) a printed
-/// number's x falls into: the first bar whose right edge is at or past the
-/// number's x, or the last bar if the number's x is past every bar (a
-/// printed number can sit slightly right of the barline it labels).
+/// number's x falls into: the first bar whose right edge is STRICTLY past
+/// the number's x, or the last bar if the number's x is at or past every
+/// bar (a printed number can sit slightly right of the barline it labels).
+/// A number sitting exactly ON a barline is a tie between "end of the
+/// preceding bar" and "start of the following bar" — ties break toward the
+/// following bar (a printed number visually labels the bar it introduces,
+/// not the one it closes), so the comparison is strict `<`, not `<=`.
 fn bar_index_for_x(bar_right_edges: &[f64], x: f64) -> Option<usize> {
     if bar_right_edges.is_empty() {
         return None;
     }
     bar_right_edges
         .iter()
-        .position(|right| x <= *right)
+        .position(|right| x < *right)
         .or(Some(bar_right_edges.len() - 1))
 }
 
@@ -247,10 +309,12 @@ fn system_for_y(systems: &[&SystemWork], y: f64) -> Option<usize> {
 /// calibration anchors -> a typed measure map plus conflicts. See the module
 /// doc comment for the barline/numbering rules in full.
 ///
-/// Pickup rule: when `xml.has_pickup` is true, the very first bar of the
-/// whole stream needs a printed number (confidence >= 0.5) pinning it,
-/// otherwise numbering defaults to starting at 1 and a `pickup_ambiguity`
-/// conflict is emitted (the review UI lets the user renumber to a 0-start).
+/// Pickup rule: when `xml.has_pickup` is true, ANY printed number (confidence
+/// at least 0.5) anywhere in the stream is treated as sufficient evidence to
+/// derive the pickup offset by bidirectional back/forward fill; only when
+/// there is NO printed anchor at all does numbering default to starting at 1
+/// with a `pickup_ambiguity` conflict (the review UI lets the user renumber
+/// to a 0-start).
 pub fn reconcile(
     pages: Vec<(u32, ScanPageOutput)>,
     xml: Option<XmlTotals>,
@@ -344,36 +408,34 @@ pub fn reconcile(
     printed_anchors.sort_by_key(|a| a.index);
     printed_anchors.dedup_by_key(|a| a.index);
 
-    // Pass 3: the pickup rule + the implicit start anchor.
+    // Pass 3: printed anchors establish the numbering; a synthetic 1-start
+    // is used ONLY when there is no printed anchor anywhere in the whole
+    // stream. When at least one printed anchor exists, it is trusted to
+    // determine numbers both forward AND backward from it — a pickup offset
+    // is only truly ambiguous when there is zero evidence to derive it from.
     let has_pickup = xml.map(|x| x.has_pickup).unwrap_or(false);
-    let first_bar = bar_works.first();
-    let pins_first_bar = printed_anchors.first().is_some_and(|a| a.index == 0);
-    let start_number = if has_pickup && pins_first_bar {
-        printed_anchors[0].number
-    } else {
-        if has_pickup && !pins_first_bar {
+    let floor: u32 = if has_pickup { 0 } else { 1 };
+    let mut anchors_sorted = printed_anchors.clone();
+    if anchors_sorted.is_empty() {
+        if has_pickup {
             conflicts.push(MapConflict::PickupAmbiguity {
-                page: first_bar.map(|b| b.page).unwrap_or(1),
+                page: bar_works.first().map(|b| b.page).unwrap_or(1),
             });
         }
-        1
-    };
-
-    let mut anchors_sorted = printed_anchors.clone();
-    if !pins_first_bar {
-        if let Some(first) = first_bar {
+        if let Some(first) = bar_works.first() {
             anchors_sorted.push(Anchor {
                 index: 0,
-                number: start_number,
+                number: 1,
                 page: first.page,
                 system: first.system,
                 confidence: None,
             });
-            anchors_sorted.sort_by_key(|a| a.index);
         }
     }
 
-    // Pass 4: continuity checks between consecutive anchors.
+    // Pass 4: continuity checks between consecutive printed anchors (the
+    // barline count between two anchors must match what their numbers
+    // imply; also fires when a later anchor's number is not greater).
     for pair in anchors_sorted.windows(2) {
         let (a, b) = (pair[0], pair[1]);
         let expected = b.number.saturating_sub(a.number);
@@ -388,18 +450,43 @@ pub fn reconcile(
         }
     }
 
-    // Pass 5: forward-fill numbering from the nearest preceding anchor.
+    // Pass 5: true bidirectional numbering. The span BEFORE the first
+    // anchor back-fills FROM it (clamped at the pickup floor — 1, or 0 when
+    // `has_pickup` — with an underflow `continuity_break` on that leading
+    // span when the anchor's number can't reach back that far); every span
+    // from the first anchor onward forward-fills from its nearest preceding
+    // anchor (mid-spans between anchors, then the trailing span past the
+    // last one).
     let mut assigned: Vec<u32> = vec![0; bar_works.len()];
-    let mut anchor_ptr = 0usize;
-    for (i, number) in assigned.iter_mut().enumerate() {
-        while anchor_ptr + 1 < anchors_sorted.len() && anchors_sorted[anchor_ptr + 1].index <= i {
-            anchor_ptr += 1;
+    if let Some(first_anchor) = anchors_sorted.first().copied() {
+        if first_anchor.index > 0 {
+            let unclamped_start = first_anchor.number as i64 - first_anchor.index as i64;
+            let clamped_start = unclamped_start.max(i64::from(floor)) as u32;
+            if unclamped_start < i64::from(floor) {
+                conflicts.push(MapConflict::ContinuityBreak {
+                    page: bar_works[0].page,
+                    system: bar_works[0].system,
+                    expected: first_anchor.number.saturating_sub(floor),
+                    found: first_anchor.index as u32,
+                });
+            }
+            for (i, number) in assigned[..first_anchor.index].iter_mut().enumerate() {
+                *number = clamped_start.saturating_add(i as u32);
+            }
         }
-        let anchor = &anchors_sorted[anchor_ptr];
-        // `anchor.number` is untrusted, model-reported input (a printed
-        // number is never range-checked beyond being a `u32`) — a
-        // pathological reply near `u32::MAX` must saturate, not panic.
-        *number = anchor.number.saturating_add((i - anchor.index) as u32);
+
+        let mut anchor_ptr = 0usize;
+        for (i, number) in assigned.iter_mut().enumerate().skip(first_anchor.index) {
+            while anchor_ptr + 1 < anchors_sorted.len() && anchors_sorted[anchor_ptr + 1].index <= i
+            {
+                anchor_ptr += 1;
+            }
+            let anchor = &anchors_sorted[anchor_ptr];
+            // `anchor.number` is untrusted, model-reported input (a printed
+            // number is never range-checked beyond being a `u32`) — a
+            // pathological reply near `u32::MAX` must saturate, not panic.
+            *number = anchor.number.saturating_add((i - anchor.index) as u32);
+        }
     }
 
     // Confidence carried on the exact bar a printed number pinned; every
@@ -465,11 +552,82 @@ pub fn reconcile(
         });
     }
 
+    // Pass 9: the reconciled output can still violate an invariant
+    // `measure_map_apply` hard-rejects even when every OTHER pass found no
+    // conflict (an empty system from a system with zero `barline_xs`, or
+    // non-increasing bar `x_right`s from unsorted `barline_xs` — neither is
+    // checked by `ScanSystem::is_valid`). Surface those as `unapplyable`
+    // conflicts too, so a conflict-free result is genuinely Apply-ready.
+    conflicts.extend(apply_invariant_conflicts(&result_pages));
+
     ReconcileResult {
         pages: result_pages,
         conflicts,
         total_bars: bar_works.len() as u32,
     }
+}
+
+/// Re-check the assembled output against exactly the invariants
+/// `store::measure_map::Store::measure_map_apply` enforces (mirrors
+/// `validate_page_systems` there): every system has at least one bar, each
+/// system's bar `x_right`s strictly increase, and bar numbers strictly
+/// increase system-to-system/page-to-page across the WHOLE result. A page
+/// whose own numbering conflicts already flagged a break (e.g. a
+/// `continuity_break`) will naturally also fail the number-monotonicity
+/// check here; this pass is not gated on there being no other conflict —
+/// it is the last, independent word on "can this actually be Applied".
+fn apply_invariant_conflicts(pages: &[MeasureMapPageRow]) -> Vec<MapConflict> {
+    let mut conflicts = Vec::new();
+    let mut last_number: Option<u32> = None;
+    for row in pages {
+        for (idx, system) in row.map.systems.iter().enumerate() {
+            let system_no = idx as u32 + 1;
+            if system.bars.is_empty() {
+                conflicts.push(MapConflict::Unapplyable {
+                    page: row.page,
+                    system: system_no,
+                    reason: "system has no bars".to_string(),
+                });
+                continue;
+            }
+
+            let mut prev_x_right: Option<f64> = None;
+            let mut x_right_is_monotonic = true;
+            for bar in &system.bars {
+                if let Some(prev) = prev_x_right {
+                    if bar.x_right <= prev {
+                        x_right_is_monotonic = false;
+                    }
+                }
+                prev_x_right = Some(bar.x_right);
+            }
+            if !x_right_is_monotonic {
+                conflicts.push(MapConflict::Unapplyable {
+                    page: row.page,
+                    system: system_no,
+                    reason: "bar x_right values are not strictly increasing".to_string(),
+                });
+            }
+
+            let mut numbers_are_monotonic = true;
+            for bar in &system.bars {
+                if let Some(last) = last_number {
+                    if bar.number <= last {
+                        numbers_are_monotonic = false;
+                    }
+                }
+                last_number = Some(bar.number);
+            }
+            if !numbers_are_monotonic {
+                conflicts.push(MapConflict::Unapplyable {
+                    page: row.page,
+                    system: system_no,
+                    reason: "bar numbers are not strictly increasing".to_string(),
+                });
+            }
+        }
+    }
+    conflicts
 }
 
 #[cfg(test)]
@@ -850,6 +1008,230 @@ mod tests {
             .conflicts
             .iter()
             .any(|c| matches!(c, MapConflict::OverlappingSystems { .. })));
+    }
+
+    // ── bidirectional numbering (Fix round 1: back-fill from a real anchor) ──
+
+    /// Reviewer probe 1 (verbatim): page 1 has 10 unnumbered bars; page 2's
+    /// single bar carries a printed "15". The whole 10-bar leading span must
+    /// back-fill FROM that anchor (5..14), not forward-fill from a synthetic
+    /// 1-start (which would wrongly produce 1..10 plus a spurious
+    /// continuity_break at the page boundary).
+    #[test]
+    fn a_printed_anchor_on_a_later_page_back_fills_the_whole_leading_span_cleanly() {
+        let ten_bars: Vec<f64> = (1..=10).map(|i| 0.10 + f64::from(i) * 0.08).collect();
+        let page1 = page_output(vec![system(0.10, 0.25, 0.10, 0.90, ten_bars, vec![])]);
+        let page2 = page_output(vec![system(
+            0.10,
+            0.25,
+            0.10,
+            0.90,
+            vec![0.90],
+            vec![printed(15, 0.10, 0.09, 0.95)],
+        )]);
+        let result = reconcile(vec![(1, page1), (2, page2)], None, vec![]);
+        assert!(
+            result.conflicts.is_empty(),
+            "expected zero conflicts, got {:?}",
+            result.conflicts
+        );
+        let page1_numbers: Vec<u32> = result.pages[0].map.systems[0]
+            .bars
+            .iter()
+            .map(|b| b.number)
+            .collect();
+        assert_eq!(page1_numbers, vec![5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+        assert_eq!(result.pages[1].map.systems[0].bars[0].number, 15);
+    }
+
+    /// Reviewer probe 2 (verbatim): a pickup piece where the printed "5"
+    /// pins stream index 5 (the 6th bar), not index 0. True bidirectional
+    /// fill must back-fill the 5 bars before it down to the pickup floor
+    /// (0) exactly, landing on a fully monotonic 0..11 with NO
+    /// pickup_ambiguity (a real anchor is evidence enough, wherever it
+    /// sits).
+    #[test]
+    fn a_pickup_pinned_mid_stream_back_fills_to_the_zero_floor_monotonically() {
+        let twelve_bars: Vec<f64> = (1..=12)
+            .map(|i| 0.10 + f64::from(i) * 0.073_333_3)
+            .collect();
+        let page = page_output(vec![system(
+            0.10,
+            0.25,
+            0.10,
+            0.98,
+            twelve_bars,
+            vec![printed(5, 0.50, 0.09, 0.95)],
+        )]);
+        let xml = XmlTotals {
+            max_measure: 11,
+            has_pickup: true,
+        };
+        let result = reconcile(vec![(1, page)], Some(xml), vec![]);
+        assert!(
+            !result
+                .conflicts
+                .iter()
+                .any(|c| matches!(c, MapConflict::PickupAmbiguity { .. })),
+            "a real printed anchor is sufficient evidence, no pickup_ambiguity: {:?}",
+            result.conflicts
+        );
+        let numbers: Vec<u32> = result.pages[0].map.systems[0]
+            .bars
+            .iter()
+            .map(|b| b.number)
+            .collect();
+        assert_eq!(numbers, (0..=11).collect::<Vec<u32>>());
+    }
+
+    /// When back-filling from the first anchor would go below the pickup
+    /// floor (1, no pickup here), the leading span clamps at the floor and
+    /// raises a continuity_break instead of underflowing.
+    #[test]
+    fn back_fill_underflow_clamps_at_the_floor_and_raises_a_continuity_break() {
+        let ten_bars: Vec<f64> = (1..=10).map(|i| 0.10 + f64::from(i) * 0.08).collect();
+        let page = page_output(vec![system(
+            0.10,
+            0.25,
+            0.10,
+            0.90,
+            ten_bars,
+            vec![printed(3, 0.90, 0.09, 0.95)],
+        )]);
+        let result = reconcile(vec![(1, page)], None, vec![]);
+        // The anchor pins local index 9 (the 10th bar); the leading span
+        // before it is indices 0..9 — 9 bars available, not 10.
+        assert!(result.conflicts.contains(&MapConflict::ContinuityBreak {
+            page: 1,
+            system: 1,
+            expected: 2,
+            found: 9,
+        }));
+        let numbers: Vec<u32> = result.pages[0].map.systems[0]
+            .bars
+            .iter()
+            .map(|b| b.number)
+            .collect();
+        assert_eq!(numbers, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 3]);
+    }
+
+    // ── calibration anchors are per-system, not per-page (Fix round 1) ──
+
+    #[test]
+    fn topmost_calibration_anchors_keeps_only_the_minimum_y_point_per_page() {
+        let points = vec![
+            CalibrationPoint {
+                page: 1,
+                y: 0.60,
+                measure: 9,
+            },
+            CalibrationPoint {
+                page: 1,
+                y: 0.10,
+                measure: 1,
+            },
+            CalibrationPoint {
+                page: 1,
+                y: 0.35,
+                measure: 5,
+            },
+        ];
+        let anchors = topmost_calibration_anchors(&points);
+        assert_eq!(
+            anchors,
+            vec![CalibrationAnchor {
+                page: 1,
+                measure: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn three_per_system_calibration_points_on_one_correctly_mapped_page_produce_zero_disagreements()
+    {
+        let page = clean_page(vec![printed(1, 0.10, 0.09, 0.95)]); // page starts at bar 1
+        let points = vec![
+            CalibrationPoint {
+                page: 1,
+                y: 0.10,
+                measure: 1,
+            },
+            CalibrationPoint {
+                page: 1,
+                y: 0.35,
+                measure: 5,
+            },
+            CalibrationPoint {
+                page: 1,
+                y: 0.60,
+                measure: 9,
+            },
+        ];
+        let anchors = topmost_calibration_anchors(&points);
+        let result = reconcile(vec![(1, page)], None, anchors);
+        assert!(
+            !result
+                .conflicts
+                .iter()
+                .any(|c| matches!(c, MapConflict::AnchorDisagreement { .. })),
+            "{:?}",
+            result.conflicts
+        );
+    }
+
+    // ── unapplyable: conflict-free-yet-unapplyable outputs (Fix round 1) ──
+
+    #[test]
+    fn an_empty_barline_system_is_flagged_unapplyable_instead_of_silently_vanishing() {
+        let page = page_output(vec![
+            system(
+                0.10,
+                0.25,
+                0.10,
+                0.90,
+                vec![0.30, 0.50, 0.70, 0.90],
+                vec![printed(1, 0.10, 0.09, 0.95)],
+            ),
+            system(0.35, 0.50, 0.10, 0.90, vec![], vec![]),
+        ]);
+        let result = reconcile(vec![(1, page)], None, vec![]);
+        assert!(result.conflicts.contains(&MapConflict::Unapplyable {
+            page: 1,
+            system: 2,
+            reason: "system has no bars".to_string(),
+        }));
+    }
+
+    #[test]
+    fn unsorted_barline_xs_are_flagged_unapplyable() {
+        // barline_xs out of ascending order: bar x_right ends up non-monotonic.
+        let page = page_output(vec![system(
+            0.10,
+            0.25,
+            0.10,
+            0.90,
+            vec![0.50, 0.30, 0.70, 0.90],
+            vec![],
+        )]);
+        let result = reconcile(vec![(1, page)], None, vec![]);
+        assert!(result.conflicts.iter().any(|c| matches!(
+            c,
+            MapConflict::Unapplyable {
+                page: 1,
+                system: 1,
+                ..
+            }
+        )));
+    }
+
+    // ── bar_index_for_x exact-boundary tie-break (Fix round 1) ──
+
+    #[test]
+    fn a_printed_number_exactly_on_a_barline_resolves_to_the_following_bar() {
+        let right_edges = vec![0.30, 0.50, 0.70, 0.90];
+        // Exactly on barline index 1 (0.50): must resolve to bar index 2
+        // (the bar it STARTS), not bar index 1 (the bar it closes).
+        assert_eq!(bar_index_for_x(&right_edges, 0.50), Some(2));
     }
 
     // ── prompt regression: pin the load-bearing substrings (C2 carry-forward) ──

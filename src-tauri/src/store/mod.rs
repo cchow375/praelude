@@ -33,7 +33,7 @@ pub use history_days::{HistoryDayDetail, HistoryDaySummary};
 #[allow(unused_imports)]
 pub use measure_map::{MapBar, MapBarSource, MapSystem, MeasureMapPage, MeasureMapPageRow};
 pub(crate) use practice_v2::{command_id as v2_command_id, validate_open as v2_validate_open};
-pub use score_atlas::{AtomicTargetSavePayload, CalibrationView};
+pub use score_atlas::{AtomicTargetSavePayload, CalibrationPoint, CalibrationView};
 pub use score_marks::{ScoreMark, ScorePageMarks};
 pub use session_plan::{SessionPlanStartOutcome, SessionPlanStartPayload};
 
