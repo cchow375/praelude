@@ -80,6 +80,10 @@ pub struct PieceDetail {
     pub hard_spots: Vec<HardSpot>,
     pub current_state: Option<String>,
     pub notes: Option<String>,
+    /// The one goal sentence pinned over this piece's score (schema v14).
+    /// `None` = no banner. Bounded to 140 characters by both the Rust command
+    /// and the column's CHECK constraint.
+    pub banner_text: Option<String>,
 }
 
 /// A trouble spot the user flagged during intake: a measure range and a note.
@@ -263,6 +267,11 @@ pub struct SetFocusContextInput {
     pub planned_seconds: Option<u32>,
     #[serde(default)]
     pub reflection: Option<String>,
+    /// Task A10: estimated seconds for one pass through the set's ladder.
+    /// Persists to `set_contract.pass_seconds` (nullable, CHECK 1-3600); the
+    /// column enforces the range so out-of-bounds values reject at the DB.
+    #[serde(default)]
+    pub pass_seconds: Option<i64>,
 }
 
 fn deserialize_nullable_bpm<'de, D>(deserializer: D) -> Result<f64, D::Error>
@@ -502,6 +511,27 @@ pub struct BrainTurnRow {
 pub struct BrainThreadResume {
     pub thread_id: i64,
     pub turns: Vec<BrainTurnRow>,
+}
+
+/// Task A4: one row of the paused-sets tray — a set currently sitting in
+/// `set_contract.set_state='paused'`, joined out to its piece and working
+/// range. `paused_since_ts` is the timestamp of that set's most recent
+/// `rep_pause` event (the same durable ledger `rep_pause`/`rep_resume`
+/// already write); falls back to the contract's `created_ts` for a paused
+/// row with no recorded pause event (legacy/migrated data only — every
+/// pause taken through `rep_pause` always has one).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PausedSetRow {
+    pub set_id: i64,
+    pub block_id: i64,
+    pub piece_id: i64,
+    pub piece_title: String,
+    pub m_start: i64,
+    pub m_end: i64,
+    pub bpm: i64,
+    pub target_bpm: i64,
+    pub paused_since_ts: String,
+    pub current_clean_streak: i64,
 }
 
 /// Read-only summary of one recent recovery action, for Brain grounding only.

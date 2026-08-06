@@ -19,10 +19,10 @@ use serde_json::Value;
 
 use crate::ledger::MutationSource;
 use crate::protocol::PracticeContract;
-use crate::sessions::{SessionService, StateEmitter};
+use crate::sessions::{RolloverPauseHook, SessionService, StateEmitter};
 use crate::store::model::{
-    CheckOutcome, ExportResult, MutationReceipt, RecoveryActionRequest, RepOpenArgs, RepSnapshot,
-    RetentionCheckView, RetentionResult, SetFocusContextInput,
+    CheckOutcome, ExportResult, MutationReceipt, PausedSetRow, RecoveryActionRequest, RepOpenArgs,
+    RepSnapshot, RetentionCheckView, RetentionResult, SetFocusContextInput,
 };
 use crate::store::{
     v2_command_id, v2_validate_open, EventKind, SessionPlanStartOutcome, SessionPlanStartPayload,
@@ -154,6 +154,14 @@ impl RepEngine {
         Ok(self.snapshot())
     }
 
+    /// Task A4: every currently-paused set, independent of which one (if any)
+    /// this engine instance holds as its own live block.
+    pub fn paused_sets_list(&self) -> Result<Vec<PausedSetRow>, String> {
+        self.store
+            .paused_sets_list()
+            .map_err(|error| error.to_string())
+    }
+
     /// Open a rep block. Rejects opening while one is already active (the caller
     /// must close it first — this keeps a mis-heard "open a tracker" from silently
     /// abandoning a block mid-practice). Resolves an "auto" ladder to concrete
@@ -183,9 +191,27 @@ impl RepEngine {
         if let Some(error) = &self.restore_error {
             return Err(error.clone());
         }
-        let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        if active.is_some() {
-            return Err("close the current block first".to_string());
+        // Quick peek, no side effects: reject immediately if a block is
+        // already active (mirrors the original early-out). Re-checked below
+        // after the guard is retaken, since it must be dropped before
+        // resolving the session — see the comment there.
+        //
+        // Task A4b: this only blocks on a genuinely ACTIVE tracked block, not
+        // a paused one — the one-ACTIVE-set invariant
+        // (`set_contract_one_active_v2_idx`, SCHEMA_V14) permits opening a
+        // fresh set while this engine's own tracked block sits paused; that
+        // paused block stays exactly as it is (discoverable via
+        // `paused_sets_list`), and `self.active` simply moves its focus to
+        // the newly opened block. Matches `open_set_in_tx`'s own DB-level
+        // check.
+        {
+            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+            if active
+                .as_ref()
+                .is_some_and(|snap| snap.set_state == "active")
+            {
+                return Err("close the current block first".to_string());
+            }
         }
 
         self.store
@@ -241,7 +267,22 @@ impl RepEngine {
         let mut contract = PracticeContract::consecutive_clean(required_clean_streak);
         contract.attempt_ceiling = args.planned_reps;
         v2_validate_open(&args, &rule, planned, &contract).map_err(|error| error.to_string())?;
-        let session_hint = self.sessions.cached_practice_session();
+
+        // Only after validation passes do we touch the session — preserves
+        // "an invalid open touches zero rows" — and only while `self.active`
+        // is NOT held: the day-rollover boundary may need to pause whatever
+        // set is active, which locks `self.active` itself (see
+        // `pause_for_rollover`); holding it here first would deadlock (task
+        // A5 fix round 1, CRITICAL 2).
+        let session_hint = Some(self.sessions.ensure_session()?);
+        let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+        if active
+            .as_ref()
+            .is_some_and(|snap| snap.set_state == "active")
+        {
+            return Err("close the current block first".to_string());
+        }
+
         let command_id = v2_command_id(source, "open");
         let now = self.now()?;
         let opened = self
@@ -258,11 +299,16 @@ impl RepEngine {
                 &now,
             )
             .map_err(|e| e.to_string())?;
-        self.sessions
-            .adopt_committed_practice_session(opened.session_id);
         let snap = opened.snapshot;
         *active = Some(snap.clone());
+        // `adopt_committed_practice_session` locks `sessions.current` — moved
+        // here, AFTER `drop(active)` (fix round 2: a rollover on another
+        // thread holds `current` while it locks `active` via the pause hook;
+        // holding `active` while THIS thread locks `current` would be the
+        // reverse order, an ABBA deadlock between the two threads).
         drop(active);
+        self.sessions
+            .adopt_committed_practice_session(opened.session_id);
         self.sessions
             .emit_persisted_practice(opened.feed_id, EventKind::REP_OPEN);
         self.emit_state(Some(&snap));
@@ -302,6 +348,19 @@ impl RepEngine {
         source: MutationSource,
         command_id_override: Option<&str>,
     ) -> Result<CheckOutcome, String> {
+        // Quick peek, no side effects (fix round 2, N1): a failing check
+        // with nothing active must never mint/roll a session — see
+        // `open_from`.
+        {
+            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+            if active.is_none() {
+                return Err("no active rep block".to_string());
+            }
+        }
+        // Resolved BEFORE the active-set guard is retaken — see `open_from`
+        // (same deadlock hazard: the day-rollover pause locks `self.active`
+        // too).
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let snap = active
             .as_ref()
@@ -309,7 +368,6 @@ impl RepEngine {
         let cur_lane = ladder::variant_index_for_rep(&snap.variants, snap.tries + 1);
         let rep_variant = cur_lane.map(|i| snap.variants[i].name.clone());
         let block_id = snap.block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let generated_command_id;
         let command_id = if let Some(command_id) = command_id_override {
             command_id
@@ -332,10 +390,6 @@ impl RepEngine {
             )
             .map_err(|error| error.to_string())?;
         let mut receipt = mutation.receipt.clone();
-        if let Some(session_id) = receipt.as_ref().and_then(|value| value.session_id) {
-            self.sessions
-                .adopt_committed_practice_session(session_id);
-        }
         let replayed = receipt.as_ref().is_some_and(|receipt| receipt.replayed);
         let out_snap = if replayed {
             self.store
@@ -353,7 +407,12 @@ impl RepEngine {
         let block_done = out_snap.mastery_status == "satisfied";
         let say = compose_v2_say(&out_snap, verdict, new_bpm);
         *active = Some(out_snap.clone());
+        // `adopt_committed_practice_session` locks `sessions.current` —
+        // moved here, AFTER `drop(active)` (fix round 2: see `open_from`).
         drop(active);
+        if let Some(session_id) = receipt.as_ref().and_then(|value| value.session_id) {
+            self.sessions.adopt_committed_practice_session(session_id);
+        }
         if let Some(feed_id) = mutation.feed_id {
             self.sessions
                 .emit_persisted_practice(feed_id, EventKind::REP);
@@ -380,27 +439,46 @@ impl RepEngine {
         self.close_from(MutationSource::VoiceHotLoop)
     }
 
-    /// End and export the practice session only when no set is live.  The
-    /// active-set guard is held across export + end so a concurrent open/check
-    /// cannot split one logical set across two sessions between the preflight
-    /// and the durable session close.
+    /// End and export the practice session only when no set is live.
+    ///
+    /// Quick peek, no side effects, guard dropped immediately (fix round 2,
+    /// N2): `sessions.end_and_export` acquires `sessions.lifecycle`, and
+    /// every practice mutation now takes `lifecycle` → `current` → `active`
+    /// (via `ensure_session` → a same-thread rollover pause). Holding
+    /// `self.active` here across that call would be the reverse order
+    /// (`active` → `lifecycle`) on a DIFFERENT thread — a cross-thread ABBA
+    /// deadlock the instant the two interleave (e.g. "End my day"/app-exit
+    /// racing a voice rep at a day boundary). `self.active` is never held
+    /// across any `SessionService` call anywhere in this file — see the
+    /// module-level audit note near the bottom of this impl block.
     pub fn end_session_and_export(
         &self,
         pieces_dir: &Path,
     ) -> Result<Option<ExportResult>, String> {
-        let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        if active.is_some() {
-            return Err("Close the current practice set before ending the session.".into());
+        {
+            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+            if active.is_some() {
+                return Err("Close the current practice set before ending the session.".into());
+            }
         }
         Ok(self.sessions.end_and_export(&self.store, pieces_dir))
     }
 
     fn close_from(&self, source: MutationSource) -> Result<Option<RepSnapshot>, String> {
+        // Quick peek, no side effects (fix round 2, N1): a no-op close with
+        // nothing active must never mint/roll a session — see `open_from`.
+        {
+            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+            if active.is_none() {
+                return Ok(None);
+            }
+        }
+        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
+        let sid = self.sessions.ensure_session()?;
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let Some(current) = active.as_ref() else {
             return Ok(None);
         };
-        let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(source, "close");
         let now = self.now()?;
         let mutation = self
@@ -418,16 +496,32 @@ impl RepEngine {
     }
 
     pub fn undo(&self) -> Result<CheckOutcome, String> {
+        // Quick peek, no side effects (fix round 2, N1): a failing undo with
+        // nothing active must never mint/roll a session — see `open_from`.
+        {
+            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+            if active.is_none() {
+                return Err("no active rep block".to_string());
+            }
+        }
+        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
+        let sid = self.sessions.ensure_session()?;
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let block_id = active
             .as_ref()
             .ok_or_else(|| "no active rep block".to_string())?
             .block_id;
-        let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(MutationSource::UserClick, "undo");
+        let now = self.now()?;
         let mutation = self
             .store
-            .v2_undo(sid, block_id, MutationSource::UserClick, &command_id)
+            .v2_undo(
+                sid,
+                block_id,
+                MutationSource::UserClick,
+                &command_id,
+                Some(&now),
+            )
             .map_err(|error| error.to_string())?;
         let snap = mutation.snapshot;
         *active = Some(snap.clone());
@@ -452,13 +546,24 @@ impl RepEngine {
         note: Option<String>,
         replace_note: bool,
     ) -> Result<CheckOutcome, String> {
+        // Quick peek, no side effects (fix round 2, N1): a failing correct
+        // with nothing active must never mint/roll a session — see
+        // `open_from`.
+        {
+            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+            if active.is_none() {
+                return Err("no active rep block".to_string());
+            }
+        }
+        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
+        let sid = self.sessions.ensure_session()?;
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let block_id = active
             .as_ref()
             .ok_or_else(|| "no active rep block".to_string())?
             .block_id;
-        let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(MutationSource::UserClick, "correct");
+        let now = self.now()?;
         let mutation = self
             .store
             .v2_correct(
@@ -471,6 +576,7 @@ impl RepEngine {
                 MutationSource::UserClick,
                 &command_id,
                 true,
+                Some(&now),
             )
             .map_err(|error| error.to_string())?;
         let snap = mutation.snapshot;
@@ -490,13 +596,24 @@ impl RepEngine {
     }
 
     pub fn reverse_adjustment(&self, adjustment_id: i64) -> Result<CheckOutcome, String> {
+        // Quick peek, no side effects (fix round 2, N1): a failing reversal
+        // with nothing active must never mint/roll a session — see
+        // `open_from`.
+        {
+            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+            if active.is_none() {
+                return Err("no active rep block".to_string());
+            }
+        }
+        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
+        let sid = self.sessions.ensure_session()?;
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let block_id = active
             .as_ref()
             .ok_or_else(|| "no active rep block".to_string())?
             .block_id;
-        let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(MutationSource::UserClick, "reverse_adjustment");
+        let now = self.now()?;
         let mutation = self
             .store
             .v2_reverse_adjustment(
@@ -505,6 +622,7 @@ impl RepEngine {
                 adjustment_id,
                 MutationSource::UserClick,
                 &command_id,
+                Some(&now),
             )
             .map_err(|error| error.to_string())?;
         let snap = mutation.snapshot;
@@ -524,12 +642,22 @@ impl RepEngine {
     }
 
     pub fn restart(&self, required_clean_streak: Option<u32>) -> Result<RepSnapshot, String> {
+        // Quick peek, no side effects (fix round 2, N1): a failing restart
+        // with nothing active must never mint/roll a session — see
+        // `open_from`.
+        {
+            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+            if active.is_none() {
+                return Err("no active rep block".to_string());
+            }
+        }
+        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
+        let sid = self.sessions.ensure_session()?;
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
         let block_id = active
             .as_ref()
             .ok_or_else(|| "no active rep block".to_string())?
             .block_id;
-        let sid = self.sessions.ensure_session()?;
         let command_id = v2_command_id(MutationSource::UserClick, "restart");
         let now = self.now()?;
         let opened = self
@@ -564,21 +692,24 @@ impl RepEngine {
         if let Some(error) = &self.restore_error {
             return Err(error.clone());
         }
+        // Resolved BEFORE the active-set guard — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let receipt = self
             .store
             .session_plan_start(session_hint, payload, MutationSource::UserClick, &now)
             .map_err(|error| error.to_string())?;
-        self.adopt_receipt_session(&receipt);
         let snapshot = receipt
             .value
             .as_ref()
             .map(|outcome| outcome.snapshot.clone())
             .ok_or_else(|| "session plan receipt has no snapshot".to_string())?;
         *active = Some(snapshot.clone());
+        // `adopt_receipt_session` locks `sessions.current` — moved here,
+        // AFTER `drop(active)` (fix round 2: see `open_from`).
         drop(active);
+        self.adopt_receipt_session(&receipt);
         self.emit_state(Some(&snapshot));
         Ok(receipt)
     }
@@ -608,12 +739,25 @@ impl RepEngine {
 
     fn adopt_receipt_session<T>(&self, receipt: &MutationReceipt<T>) {
         if let Some(session_id) = receipt.session_id {
-            self.sessions
-                .adopt_committed_practice_session(session_id);
+            self.sessions.adopt_committed_practice_session(session_id);
         }
     }
 
     pub fn pause(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
+        // Quick peek, no side effects (fix round 2, N1): a failing pause
+        // with nothing active must never mint/roll a session — see
+        // `open_from`.
+        {
+            let active = self
+                .active
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            if active.is_none() {
+                return Err("no live practice set".to_string());
+            }
+        }
+        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self
             .active
             .lock()
@@ -622,7 +766,6 @@ impl RepEngine {
             .as_ref()
             .ok_or_else(|| "no live practice set".to_string())?
             .block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let mut receipt = self
             .store
@@ -634,42 +777,183 @@ impl RepEngine {
                 &now,
             )
             .map_err(|error| error.to_string())?;
-        self.adopt_receipt_session(&receipt);
         let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        // `adopt_receipt_session` locks `sessions.current` — moved here,
+        // AFTER `drop(active)` (fix round 2: see `open_from`).
         drop(active);
+        self.adopt_receipt_session(&receipt);
         self.emit_state(Some(&snapshot));
         Ok(receipt)
     }
 
-    pub fn resume(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
+    /// Resume a practice set. Task A4b: `target_set_id` picks WHICH set.
+    ///
+    /// `Some(id)` resumes exactly that set (the paused-sets tray's per-row
+    /// Resume button always passes this). If some OTHER set is currently
+    /// active, it is auto-paused and the target activated in one atomic
+    /// transaction (`Store::v2_resume`) — a failure there leaves both sets
+    /// exactly as they were. `Store::v2_resume` itself rejects a target that
+    /// is not currently `paused`.
+    ///
+    /// `None` keeps the pre-A4b behavior EXACTLY: resume THIS engine's own
+    /// tracked block (`self.active`), whatever state it is in right now —
+    /// this is what the rep HUD's own Resume chip calls, and it must keep
+    /// working through a day-rollover boundary, where `ensure_session()`
+    /// below may auto-pause that very block via `pause_for_rollover` a
+    /// moment before `Store::v2_resume` validates it. Only when this engine
+    /// instance isn't tracking any block at all (e.g. freshly relaunched
+    /// into a database that has paused rows but no active one, so
+    /// `v2_restore_active_at` restored nothing) does `None` fall back to a
+    /// DB-wide lookup: resume the only paused set, or reject as ambiguous if
+    /// several are paused.
+    ///
+    /// Task A4b fix round 1: `active` is taken BEFORE `Store::v2_resume` and
+    /// held across it (for both branches), exactly like `pause` and
+    /// `safety_stop_after_commit` already do — this restores the pre-A4b
+    /// guarantee that a concurrent resume cannot overtake a safety physical
+    /// stop, which holds `active` across its own `after_commit()` callback
+    /// (see `resume_cannot_overtake_the_safety_physical_stop` and
+    /// `resume_with_explicit_target_cannot_overtake_the_safety_physical_stop`).
+    /// Legal under this file's lock order (`active` < `store.conn` —
+    /// `Store::v2_resume` takes `store.conn` internally, strictly after
+    /// `active`, never the reverse).
+    pub fn resume(
+        &self,
+        command_id: &str,
+        target_set_id: Option<i64>,
+    ) -> Result<MutationReceipt<RepSnapshot>, String> {
+        // Quick peek, no side effects (fix round 2, N1 discipline): when
+        // there is no explicit target AND this engine isn't tracking any
+        // block, resolve the DB-wide fallback ("the only paused set") here,
+        // before minting/rolling a session — a plain read, so it cannot
+        // leave any partial state behind on the early-return failure paths.
+        // `Some(id)` needs no peek at all: the target is already known and
+        // `Store::v2_resume` validates it.
+        let untracked_fallback_id = if target_set_id.is_none() {
+            let tracked = {
+                let active = self
+                    .active
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                active.is_some()
+            };
+            if tracked {
+                None
+            } else {
+                let paused = self
+                    .store
+                    .paused_sets_list()
+                    .map_err(|error| error.to_string())?;
+                match paused.as_slice() {
+                    [] => return Err("no paused practice set".to_string()),
+                    [only] => Some(only.set_id),
+                    _ => {
+                        return Err(
+                            "multiple sets are paused; choose which one to resume".to_string()
+                        )
+                    }
+                }
+            }
+        } else {
+            None
+        };
+
+        let session_hint = Some(self.sessions.ensure_session()?);
+        // Task A4b fix round 1: `active` is taken BEFORE `Store::v2_resume`
+        // and held across it — see the doc comment above.
         let mut active = self
             .active
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let block_id = active
-            .as_ref()
-            .ok_or_else(|| "no live practice set".to_string())?
-            .block_id;
-        let session_hint = self.sessions.cached_practice_session();
+        let target_block_id = match target_set_id {
+            Some(id) => id,
+            None => match untracked_fallback_id {
+                Some(id) => id,
+                // The common case: this engine's own tracked block, re-read
+                // fresh from the just-(re)taken guard rather than trusting
+                // any earlier peek — matches `pause`'s own pattern.
+                None => {
+                    active
+                        .as_ref()
+                        .ok_or_else(|| "no paused practice set".to_string())?
+                        .block_id
+                }
+            },
+        };
         let now = self.now()?;
         let mut receipt = self
             .store
             .v2_resume(
                 session_hint,
-                block_id,
+                target_block_id,
                 MutationSource::UserClick,
                 command_id,
                 &now,
             )
             .map_err(|error| error.to_string())?;
-        self.adopt_receipt_session(&receipt);
-        let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        let snapshot = self.apply_snapshot_receipt(&mut active, target_block_id, &mut receipt)?;
+        // `adopt_receipt_session` locks `sessions.current` — moved here,
+        // AFTER `drop(active)` (fix round 2: see `open_from`).
         drop(active);
+        self.adopt_receipt_session(&receipt);
         self.emit_state(Some(&snapshot));
         Ok(receipt)
     }
 
+    /// Task A5 rollover hook: pause whatever set is active, at an explicit
+    /// already-committed boundary timestamp, through the exact same store path
+    /// [`Self::pause`] uses — but attributed to `session_id` (the closing
+    /// session) and without touching the session cache at all (never calls
+    /// `adopt_committed_practice_session`; `SessionService` owns updating its
+    /// own cache around the rollover it is already mid-way through).
+    ///
+    /// Called from `SessionService::resolve_session()` — every mutation entry
+    /// point above resolves its session (`ensure_session()`/`self.now()`
+    /// wiring) *before* taking the `self.active` lock precisely so this can
+    /// safely acquire it here: if a caller held `self.active` across its own
+    /// `ensure_session()` call, a rollover on that same thread would recurse
+    /// into this function and self-deadlock on the same non-reentrant mutex
+    /// (fix round 1, CRITICAL 2). A no-op when nothing is active.
+    fn pause_for_rollover(&self, session_id: i64, at: &str) -> Result<(), String> {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let Some(block_id) = active.as_ref().map(|snapshot| snapshot.block_id) else {
+            return Ok(());
+        };
+        let command_id = v2_command_id(MutationSource::SystemSchedule, "day_rollover_pause");
+        let mut receipt = self
+            .store
+            .v2_pause(
+                Some(session_id),
+                block_id,
+                MutationSource::SystemSchedule,
+                &command_id,
+                at,
+            )
+            .map_err(|error| error.to_string())?;
+        let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        drop(active);
+        self.emit_state(Some(&snapshot));
+        Ok(())
+    }
+
     pub fn checkpoint(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
+        // Quick peek, no side effects (fix round 2, N1): a failing
+        // checkpoint with nothing active must never mint/roll a session —
+        // see `open_from`.
+        {
+            let active = self
+                .active
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            if active.is_none() {
+                return Err("no live practice set".to_string());
+            }
+        }
+        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self
             .active
             .lock()
@@ -678,7 +962,6 @@ impl RepEngine {
             .as_ref()
             .ok_or_else(|| "no live practice set".to_string())?
             .block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let mut receipt = self
             .store
@@ -690,9 +973,11 @@ impl RepEngine {
                 &now,
             )
             .map_err(|error| error.to_string())?;
-        self.adopt_receipt_session(&receipt);
         let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        // `adopt_receipt_session` locks `sessions.current` — moved here,
+        // AFTER `drop(active)` (fix round 2: see `open_from`).
         drop(active);
+        self.adopt_receipt_session(&receipt);
         self.emit_state(Some(&snapshot));
         Ok(receipt)
     }
@@ -702,6 +987,20 @@ impl RepEngine {
         command_id: &str,
         reflection: &str,
     ) -> Result<MutationReceipt<RepSnapshot>, String> {
+        // Quick peek, no side effects (fix round 2, N1): a failing reflect
+        // with nothing active must never mint/roll a session — see
+        // `open_from`.
+        {
+            let active = self
+                .active
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            if active.is_none() {
+                return Err("no live practice set".to_string());
+            }
+        }
+        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self
             .active
             .lock()
@@ -710,7 +1009,6 @@ impl RepEngine {
             .as_ref()
             .ok_or_else(|| "no live practice set".to_string())?
             .block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let mut receipt = self
             .store
@@ -723,9 +1021,11 @@ impl RepEngine {
                 &now,
             )
             .map_err(|error| error.to_string())?;
-        self.adopt_receipt_session(&receipt);
         let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        // `adopt_receipt_session` locks `sessions.current` — moved here,
+        // AFTER `drop(active)` (fix round 2: see `open_from`).
         drop(active);
+        self.adopt_receipt_session(&receipt);
         self.emit_state(Some(&snapshot));
         Ok(receipt)
     }
@@ -743,6 +1043,22 @@ impl RepEngine {
     where
         F: FnOnce() -> R,
     {
+        // Quick peek, no side effects (fix round 2, N1): a failing safety
+        // stop with nothing active must never mint/roll a session — see
+        // `open_from`. `execute_safety_stop` still runs the physical stop on
+        // this early `Err` (its fail-safe closure fires whenever the
+        // closure passed in here was never consumed).
+        {
+            let active = self
+                .active
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            if active.is_none() {
+                return Err("no live practice set".to_string());
+            }
+        }
+        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self
             .active
             .lock()
@@ -751,7 +1067,6 @@ impl RepEngine {
             .as_ref()
             .ok_or_else(|| "no live practice set".to_string())?
             .block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let mut receipt = self
             .store
@@ -764,13 +1079,21 @@ impl RepEngine {
                 &now,
             )
             .map_err(|error| error.to_string())?;
-        self.adopt_receipt_session(&receipt);
         let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        // `adopt_receipt_session` locks `sessions.current` — moved to AFTER
+        // `drop(active)` on both exits below (fix round 2: see `open_from`).
+        // `after_commit()` (the physical stop) still runs WHILE `active` is
+        // held, unchanged — that ordering guarantee (a concurrent resume
+        // cannot overtake the physical stop) is independent of the
+        // session-cache update and must stay put.
         if receipt.replayed {
+            drop(active);
+            self.adopt_receipt_session(&receipt);
             return Ok((receipt, None));
         }
         let physical_state = after_commit();
         drop(active);
+        self.adopt_receipt_session(&receipt);
         self.emit_state(Some(&snapshot));
         Ok((receipt, Some(physical_state)))
     }
@@ -806,6 +1129,20 @@ impl RepEngine {
         command_id: &str,
         action: &RecoveryActionRequest,
     ) -> Result<MutationReceipt<RepSnapshot>, String> {
+        // Quick peek, no side effects (fix round 2, N1): a failing recover
+        // with nothing active must never mint/roll a session — see
+        // `open_from`.
+        {
+            let active = self
+                .active
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            if active.is_none() {
+                return Err("no live practice set".to_string());
+            }
+        }
+        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
+        let session_hint = Some(self.sessions.ensure_session()?);
         let mut active = self
             .active
             .lock()
@@ -814,7 +1151,6 @@ impl RepEngine {
             .as_ref()
             .ok_or_else(|| "no live practice set".to_string())?
             .block_id;
-        let session_hint = self.sessions.cached_practice_session();
         let now = self.now()?;
         let mut receipt = self
             .store
@@ -827,9 +1163,11 @@ impl RepEngine {
                 &now,
             )
             .map_err(|error| error.to_string())?;
-        self.adopt_receipt_session(&receipt);
         let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        // `adopt_receipt_session` locks `sessions.current` — moved here,
+        // AFTER `drop(active)` (fix round 2: see `open_from`).
         drop(active);
+        self.adopt_receipt_session(&receipt);
         self.emit_state(Some(&snapshot));
         Ok(receipt)
     }
@@ -847,10 +1185,11 @@ impl RepEngine {
         due_date: &str,
     ) -> Result<MutationReceipt<RetentionCheckView>, String> {
         let now = self.now()?;
+        let session_hint = Some(self.sessions.ensure_session()?);
         let receipt = self
             .store
             .retention_snooze(
-                self.sessions.cached_practice_session(),
+                session_hint,
                 check_id,
                 due_date,
                 MutationSource::UserClick,
@@ -870,7 +1209,7 @@ impl RepEngine {
         transition: &str,
     ) -> Result<MutationReceipt<RetentionCheckView>, String> {
         let now = self.now()?;
-        let session_hint = self.sessions.cached_practice_session();
+        let session_hint = Some(self.sessions.ensure_session()?);
         let outcome = match transition {
             "confirm" => self.store.retention_confirm(
                 session_hint,
@@ -969,6 +1308,56 @@ impl RepEngine {
             e.emit("rep://state", payload);
         }
     }
+
+    // ── Task A5 fix round 2 audit note ──────────────────────────────────────
+    // Every path in this file that locks `self.active` and then calls into
+    // `self.sessions` was walked (grep for `self.active.lock` ×
+    // `self.sessions.`/`ensure_session`) and confirmed to release `active`
+    // FIRST:
+    //   - `ensure_session()`/session_hint resolution: `open_from`,
+    //     `check_from`, `close_from`, `undo`, `correct`, `reverse_adjustment`,
+    //     `restart`, `session_plan_start`, `pause`, `resume`, `checkpoint`,
+    //     `reflect`, `safety_stop_after_commit`, `recover` — all resolve the
+    //     session (and, for the ones that can no-op/fail on "nothing
+    //     active", quick-peek `active` first) BEFORE taking the guard that
+    //     spans the store mutation (round 1 CRITICAL 2 / round 2 N1).
+    //   - `adopt_committed_practice_session`/`adopt_receipt_session` (locks
+    //     `sessions.current`): `open_from`, `check_from`, `session_plan_start`,
+    //     `pause`, `resume`, `checkpoint`, `reflect`,
+    //     `safety_stop_after_commit`, `recover` all now call it AFTER
+    //     `drop(active)`, not before (round 2 — a rollover on another thread
+    //     holds `current` while locking `active` via the pause hook; the
+    //     reverse order on this thread was a second ABBA hazard).
+    //   - `emit_persisted_practice`/`emit_state` never lock a `sessions`
+    //     mutex (only `store` reads and the `emitter` mutex) — safe to call
+    //     while `active` is held or not.
+    //   - `end_session_and_export` and `pause_for_rollover` never hold
+    //     `active` across a `sessions.*` call (round 2 N2; the latter is the
+    //     CALLEE the whole invariant protects against re-entering).
+    //   - `resync_active_if` locks `active` but never touches `self.sessions`.
+    // No remaining path holds `self.active` while calling into
+    // `self.sessions`.
+    //
+    // ── Task A4b addendum (fix round 1) ────────────────────────────────────
+    // `resume` gained a `target_set_id: Option<i64>` (Task A4b) and now takes
+    // `active` BEFORE `Store::v2_resume` and holds it across that call, on
+    // BOTH branches — restoring the pre-A4b guarantee that a concurrent
+    // resume cannot overtake `safety_stop_after_commit`'s physical stop
+    // (which holds `active` across its own `after_commit()` callback). This
+    // is the same shape every other mutation in this file already uses
+    // (`pause`, `checkpoint`, `reflect`, `safety_stop_after_commit`, …):
+    // resolve the session BEFORE taking `active` (`target_set_id: None`'s
+    // DB-wide "untracked" fallback, when it applies, is resolved even
+    // earlier still, via a separate lock-and-drop peek with no session risk
+    // either way), then take `active` once and hold it for the store call
+    // and the snapshot it returns. `active` is never held across a
+    // `self.sessions` call anywhere in `resume`.
+}
+
+impl RolloverPauseHook for RepEngine {
+    fn pause_active_at_rollover(&self, session_id: i64, at: &str) -> Result<(), String> {
+        self.pause_for_rollover(session_id, at)
+    }
 }
 
 /// Format a BPM for a spoken/UI line: a whole number prints without a decimal
@@ -1064,6 +1453,17 @@ mod tests {
         }
     }
 
+    // Task A5: `resolve_session()` now reads its own clock to enforce the
+    // same-local-day adoption boundary, so a simulated-relaunch test that
+    // rebuilds the session service must feed it the SAME fixed clock the rep
+    // engine uses — otherwise the service falls back to real wall time and
+    // sees an unrelated calendar day, forking the session lineage.
+    impl crate::sessions::SessionClock for FixedClock {
+        fn now(&self, _store: &Store) -> Result<String, String> {
+            Ok(self.value.lock().unwrap().clone())
+        }
+    }
+
     fn timestamp_after(seconds: u32) -> String {
         let hour = 12 + seconds / 3_600;
         let minute = (seconds % 3_600) / 60;
@@ -1085,7 +1485,7 @@ mod tests {
                 pdf_path: None,
             })
             .unwrap();
-        let sessions = Arc::new(SessionService::new(store.clone()));
+        let sessions = Arc::new(SessionService::new_with_clock(store.clone(), clock.clone()));
         let engine = RepEngine::new_with_clock(store.clone(), sessions, clock);
         (engine, piece_id, store)
     }
@@ -1175,6 +1575,7 @@ mod tests {
                 correction_id,
                 MutationSource::UserClick,
                 &v2_command_id(MutationSource::UserClick, "terminal_correct_reverse"),
+                None,
             )
             .unwrap();
         assert_set_lifecycle(store, block_id, state, "abandoned");
@@ -1193,6 +1594,7 @@ mod tests {
                 void_id,
                 MutationSource::UserClick,
                 &v2_command_id(MutationSource::UserClick, "terminal_void_reverse"),
+                None,
             )
             .unwrap();
         assert_set_lifecycle(store, block_id, state, "abandoned");
@@ -1335,6 +1737,7 @@ mod tests {
                     method: Some("blocked".into()),
                     planned_seconds: Some(300),
                     reflection: None,
+                    pass_seconds: None,
                 }),
             )
             .unwrap();
@@ -1359,7 +1762,7 @@ mod tests {
         assert!(replay.replayed);
         assert_eq!(replay.receipt_id, first_pause.receipt_id);
         assert!(
-            engine.resume("focus-pause-1").is_err(),
+            engine.resume("focus-pause-1", None).is_err(),
             "same id cannot change payload/kind"
         );
         assert_eq!(
@@ -1372,7 +1775,7 @@ mod tests {
         );
 
         clock.set("2026-07-15T12:02:00Z");
-        let resumed = engine.resume("focus-resume-1").unwrap();
+        let resumed = engine.resume("focus-resume-1", None).unwrap();
         assert_eq!(resumed.value.as_ref().unwrap().active_seconds, 20);
         clock.set("2026-07-15T12:02:10Z");
         assert_eq!(
@@ -1419,6 +1822,83 @@ mod tests {
         assert_eq!(closed.timer_state, "stopped");
     }
 
+    /// Task A10: `rep_open`'s optional `context.pass_seconds` persists into
+    /// `set_contract.pass_seconds`. `Some(30)` round-trips, an absent value
+    /// stores NULL, and an out-of-range value is rejected by the column's
+    /// existing CHECK (1-3600, added in the v14 migration for Task A1).
+    #[test]
+    fn open_with_context_persists_pass_seconds_and_enforces_the_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pass_seconds.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-08-05T09:00:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+
+        let opened = engine
+            .open_with_context(
+                strict_notes_args(piece_id, 3),
+                Some(SetFocusContextInput {
+                    intention: None,
+                    judging_axis: None,
+                    hands: None,
+                    method: None,
+                    planned_seconds: None,
+                    reflection: None,
+                    pass_seconds: Some(30),
+                }),
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .test_scalar_i64_opt(&format!(
+                    "SELECT pass_seconds FROM set_contract WHERE set_id={}",
+                    opened.block_id
+                ))
+                .unwrap(),
+            Some(30)
+        );
+        engine.close().unwrap();
+
+        // Absent pass_seconds stores NULL, not a sentinel.
+        let opened_none = engine
+            .open_with_context(strict_notes_args(piece_id, 3), None)
+            .unwrap();
+        assert_eq!(
+            store
+                .test_scalar_i64_opt(&format!(
+                    "SELECT pass_seconds FROM set_contract WHERE set_id={}",
+                    opened_none.block_id
+                ))
+                .unwrap(),
+            None
+        );
+        engine.close().unwrap();
+
+        // Out-of-bounds (CHECK is 1-3600) is rejected; no set opens.
+        let before_count = store
+            .test_scalar_i64("SELECT count(*) FROM set_contract")
+            .unwrap();
+        let rejected = engine.open_with_context(
+            strict_notes_args(piece_id, 3),
+            Some(SetFocusContextInput {
+                intention: None,
+                judging_axis: None,
+                hands: None,
+                method: None,
+                planned_seconds: None,
+                reflection: None,
+                pass_seconds: Some(3601),
+            }),
+        );
+        assert!(rejected.is_err());
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM set_contract")
+                .unwrap(),
+            before_count,
+            "a rejected open must not leave a partial set_contract row"
+        );
+    }
+
     /// A live set whose process stalls mid-practice (a laptop-sleep gap, no
     /// pause and no relaunch) must not bank the wall-clock gap as focus time.
     /// The delayed heartbeat is capped at the 60s ceiling, the stalled interval
@@ -1463,9 +1943,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .test_scalar_i64(
-                    "SELECT count(*) FROM practice_interval WHERE ended_ts IS NULL"
-                )
+                .test_scalar_i64("SELECT count(*) FROM practice_interval WHERE ended_ts IS NULL")
                 .unwrap(),
             1,
             "a fresh interval resumed live capture"
@@ -1505,7 +1983,10 @@ mod tests {
             })
             .unwrap();
         assert!(!first.replayed);
-        assert!(physical.is_some(), "first delivery performs the physical stop");
+        assert!(
+            physical.is_some(),
+            "first delivery performs the physical stop"
+        );
         assert_eq!(stops.load(Ordering::SeqCst), 1);
 
         let (replay, physical_replay) = engine
@@ -1528,13 +2009,23 @@ mod tests {
     /// The active-set mutex held across the safety physical stop orders a
     /// concurrent resume strictly after it: resume blocks on `self.active` until
     /// the stop closure finishes, so it can never observe a half-applied stop.
+    ///
+    /// Task A4b fix round 1: also checks `set_contract.set_state` directly at
+    /// the 50ms checkpoint, not just whether `resume()` has returned —
+    /// `resume()` returning is not on its own a reliable signal (every path
+    /// locks `active` at least once in `apply_snapshot_receipt` right before
+    /// returning, regardless of whether the DB write itself was properly
+    /// ordered), so the DB check is the assertion that actually matters. See
+    /// `resume_with_explicit_target_cannot_overtake_the_safety_physical_stop`
+    /// for the sibling case this reasoning was discovered fixing.
     #[test]
     fn resume_cannot_overtake_the_safety_physical_stop() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("safety-resume-race.sqlite");
         let clock = Arc::new(FixedClock::new("2026-07-15T14:50:00Z"));
-        let (engine, piece_id, _store) = engine_with_fixed_clock(&path, clock.clone());
-        engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        let opened = engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        let block_id = opened.block_id;
         let engine = Arc::new(engine);
 
         let order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
@@ -1561,12 +2052,22 @@ mod tests {
         let resume_engine = engine.clone();
         let resume_order = order.clone();
         let resumer = std::thread::spawn(move || {
-            resume_engine.resume("safety-race-resume").unwrap();
+            resume_engine.resume("safety-race-resume", None).unwrap();
             resume_order.lock().unwrap().push("resume");
         });
 
-        // Give the resumer time to reach the lock; it must stay blocked there.
+        // Give the resumer time to reach the lock; it must stay blocked there
+        // — checked at the DB layer directly (see the doc comment above).
         std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={block_id}"
+                ))
+                .unwrap(),
+            "paused",
+            "the resume's DB write must not land before the physical stop finishes"
+        );
         assert!(
             order.lock().unwrap().is_empty(),
             "resume must not complete before the physical stop finishes"
@@ -1583,6 +2084,341 @@ mod tests {
         let resumed = engine.state().unwrap().unwrap();
         assert_eq!(resumed.set_state, "active");
         assert_eq!(resumed.safety_state, "cleared");
+    }
+
+    /// Task A4b fix round 1 regression: the explicit-target `Some(id)` path
+    /// must give the exact same ordering guarantee as `None` above — a
+    /// resume of a SPECIFIC set (the paused-sets tray's per-row Resume) must
+    /// not overtake a concurrent safety physical stop either. Before the fix
+    /// round 1 fix, `resume`'s `Some` branch never touched `active` until
+    /// AFTER `Store::v2_resume` had already committed, so it could race
+    /// ahead of the stop instead of blocking on the mutex.
+    ///
+    /// Checks the underlying `set_contract.set_state` DIRECTLY at the 50ms
+    /// checkpoint, not merely whether `resume()` has returned — every code
+    /// path (buggy or fixed) locks `active` at least once, in
+    /// `apply_snapshot_receipt`, right before returning, so a black-box
+    /// "has `resume()` returned yet" check blocks identically either way and
+    /// would NOT have caught this bug. The DB write itself is the thing that
+    /// must not happen early.
+    #[test]
+    fn resume_with_explicit_target_cannot_overtake_the_safety_physical_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("safety-resume-target-race.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T14:50:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+        let opened = engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        let target_block_id = opened.block_id;
+        let engine = Arc::new(engine);
+
+        let order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (inside_tx, inside_rx) = std::sync::mpsc::channel::<()>();
+
+        clock.set("2026-07-15T14:50:05Z");
+        let stop_engine = engine.clone();
+        let stop_order = order.clone();
+        let stopper = std::thread::spawn(move || {
+            stop_engine
+                .safety_stop_after_commit("safety-target-race", Some("pain in wrist"), || {
+                    // Signal we are inside the physical stop (holding `active`),
+                    // then block until the test releases us.
+                    inside_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    stop_order.lock().unwrap().push("physical_stop");
+                })
+                .unwrap();
+        });
+
+        // The stopper now holds `active` inside the physical-stop closure.
+        // Its `v2_safety_stop` call has already committed by this point
+        // (the DB write happens before `after_commit()`, per its own doc
+        // comment), so the target is genuinely `paused` in the DB already —
+        // a concurrent resume that doesn't block on `active` could commit
+        // for real here, not just race a fake/inert lock.
+        inside_rx.recv().unwrap();
+        let resume_engine = engine.clone();
+        let resume_order = order.clone();
+        let resumer = std::thread::spawn(move || {
+            resume_engine
+                .resume("safety-target-race-resume", Some(target_block_id))
+                .unwrap();
+            resume_order.lock().unwrap().push("resume");
+        });
+
+        // Give the resumer time to reach the lock; it must stay blocked there
+        // — checked at the DB layer directly, since `resume()` returning is
+        // NOT a reliable signal (see the doc comment above).
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={target_block_id}"
+                ))
+                .unwrap(),
+            "paused",
+            "the resume's DB write must not land before the physical stop finishes"
+        );
+        assert!(
+            order.lock().unwrap().is_empty(),
+            "resume must not complete before the physical stop finishes"
+        );
+
+        release_tx.send(()).unwrap();
+        stopper.join().unwrap();
+        resumer.join().unwrap();
+        assert_eq!(
+            *order.lock().unwrap(),
+            vec!["physical_stop", "resume"],
+            "the physical stop is fully applied before the explicit-target resume proceeds"
+        );
+        let resumed = engine.state().unwrap().unwrap();
+        assert_eq!(resumed.set_state, "active");
+        assert_eq!(resumed.safety_state, "cleared");
+    }
+
+    /// Fix round 1, CRITICAL 2 regression: `close_from` (like `undo`,
+    /// `correct`, `reverse_adjustment`, and `restart`) locks `self.active`
+    /// and then resolves the session. The day-rollover pause hook
+    /// (`pause_for_rollover`) re-locks `self.active` on whatever thread
+    /// triggers the rollover — before the fix, a `close()` that was the
+    /// first call to observe a day boundary with a set still active would
+    /// self-deadlock on that non-reentrant `std::sync::Mutex`, hard-hanging
+    /// (reachable in production from `finalize_practice_on_exit`, i.e.
+    /// quitting the app with a set active across midnight). Runs on a
+    /// background thread with a bounded wait so a regression fails this
+    /// test instead of hanging the whole suite.
+    #[test]
+    fn day_rollover_pause_does_not_deadlock_a_practice_mutation_holding_active() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollover-deadlock.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T12:00:00Z"));
+        let (engine, piece_id, _store) = engine_with_fixed_clock(&path, clock.clone());
+        let engine = Arc::new(engine);
+        engine.sessions.set_rollover_pause_hook(engine.clone());
+
+        engine.open(strict_notes_args(piece_id, 5)).unwrap();
+
+        // Three days later — a TZ-safe crossing (see the `sessions` module
+        // tests' comments on why a wide gap is used instead of "just after
+        // midnight").
+        clock.set("2026-07-18T12:05:00Z");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let close_engine = engine.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(close_engine.close());
+        });
+
+        let result = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("close() across a day boundary must not deadlock");
+        let closed = result
+            .unwrap()
+            .expect("the live set closes despite the same-call rollover");
+        assert_eq!(closed.set_state, "closed_unresolved");
+    }
+
+    /// Fix round 1, CRITICAL 1 regression: `rep_open` (via `RepEngine::open`,
+    /// the UI/voice entry point) resolves its session through
+    /// `ensure_session()` BEFORE its durable transaction starts, so the
+    /// day-rollover boundary applies to practice writes, not only to
+    /// `sessions.log()`/`ensure_session()` callers outside the practice loop.
+    /// Before the fix, `v2_open_set`'s own `resolve_practice_session` adopted
+    /// ANY still-open session with no day check — a rep opened after
+    /// midnight would have silently landed in yesterday's session.
+    #[test]
+    fn rep_open_after_a_day_boundary_lands_in_a_new_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("open-day-boundary.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T12:00:00Z"));
+        let (engine, piece_id, store) = engine_with_fixed_clock(&path, clock.clone());
+
+        engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        let old_sid = engine.sessions.current_id().unwrap();
+        engine.close().unwrap();
+
+        // Three days later — a TZ-safe crossing (see the `sessions` module
+        // tests' comments).
+        clock.set("2026-07-18T12:05:00Z");
+        let opened = engine.open(strict_notes_args(piece_id, 5)).unwrap();
+        let new_sid = engine.sessions.current_id().unwrap();
+
+        assert_ne!(
+            old_sid, new_sid,
+            "the second rep_open crossed the day boundary into a fresh session"
+        );
+        let rep_open_session: i64 = store
+            .test_scalar_i64(&format!(
+                "SELECT session_id FROM event
+                 WHERE kind='rep_open' AND entity_id={}
+                 ORDER BY id DESC LIMIT 1",
+                opened.block_id
+            ))
+            .unwrap();
+        assert_eq!(
+            rep_open_session, new_sid,
+            "the post-boundary rep_open is canonically attributed to the new session, \
+             not adopted into the prior day's session"
+        );
+    }
+
+    /// Fix round 2, N1 regression: a call that will no-op or fail on
+    /// "nothing active" must never resolve/mint a session as a side effect
+    /// — round 1's blast radius had every such call resolve the session
+    /// BEFORE its own "nothing active" early-out, so e.g. every graceful
+    /// quit with no live set (`finalize_practice_on_exit` calls
+    /// `rep.close()` unconditionally) opened a phantom session and
+    /// immediately ended it.
+    #[test]
+    fn noop_close_with_nothing_active_does_not_mint_a_session() {
+        let (engine, _pid, store, _rec) = engine_with_piece();
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM session")
+                .unwrap(),
+            0,
+            "fresh store, nothing has opened a session yet"
+        );
+
+        let result = engine.close().unwrap();
+        assert!(result.is_none(), "no-op: nothing was active to close");
+
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM session")
+                .unwrap(),
+            0,
+            "the no-op close must not have minted a session"
+        );
+    }
+
+    #[test]
+    fn failed_undo_and_check_with_nothing_active_do_not_mint_a_session() {
+        let (engine, _pid, store, _rec) = engine_with_piece();
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM session")
+                .unwrap(),
+            0
+        );
+
+        assert!(engine.undo().is_err(), "nothing active: undo must fail");
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM session")
+                .unwrap(),
+            0,
+            "the failed undo must not have minted a session"
+        );
+
+        assert!(
+            engine.check(RepVerdict::Clean, None).is_err(),
+            "nothing active: check must fail"
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM session")
+                .unwrap(),
+            0,
+            "the failed check must not have minted a session"
+        );
+    }
+
+    /// Fix round 2, N2 regression: `end_session_and_export` used to hold
+    /// `self.active` across `sessions.end_and_export(...)` (which acquires
+    /// `sessions.lifecycle`) — the reverse of the lock order every practice
+    /// mutation's day-rollover pause takes (`lifecycle` → `current` →
+    /// `active`, via the pause hook). A slow rollover hook forces the
+    /// worst-case interleave deterministically: it stalls mid-rollover,
+    /// holding `lifecycle` + `current`, while a concurrent
+    /// `end_session_and_export` is confirmed blocked waiting on
+    /// `lifecycle` — reproducing exactly the cross-thread ABBA shape (the
+    /// re-reviewer's probe). Both sides must still complete once released;
+    /// bounded by `recv_timeout` so a regression fails this test instead of
+    /// hanging the suite.
+    #[test]
+    fn end_session_and_export_does_not_deadlock_with_a_concurrent_day_boundary_rollover() {
+        struct SlowPauseHook {
+            inner: Arc<RepEngine>,
+            reached: std::sync::mpsc::Sender<()>,
+            release: Mutex<std::sync::mpsc::Receiver<()>>,
+        }
+        impl RolloverPauseHook for SlowPauseHook {
+            fn pause_active_at_rollover(&self, session_id: i64, at: &str) -> Result<(), String> {
+                let _ = self.reached.send(());
+                let _ = self.release.lock().unwrap().recv();
+                self.inner.pause_active_at_rollover(session_id, at)
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let pieces_dir = dir.path().to_path_buf();
+        let path = dir.path().join("n2-abba.sqlite");
+        let clock = Arc::new(FixedClock::new("2026-07-15T12:00:00Z"));
+        let (engine, piece_id, _store) = engine_with_fixed_clock(&path, clock.clone());
+        let engine = Arc::new(engine);
+
+        let (reached_tx, reached_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        engine
+            .sessions
+            .set_rollover_pause_hook(Arc::new(SlowPauseHook {
+                inner: engine.clone(),
+                reached: reached_tx,
+                release: Mutex::new(release_rx),
+            }));
+
+        // Establish a session (nothing active) to roll over.
+        engine.sessions.ensure_session().unwrap();
+
+        // Three days later — a TZ-safe crossing (see the sibling tests).
+        clock.set("2026-07-18T12:05:00Z");
+
+        // Thread B: a practice mutation (`open`) crosses the day boundary.
+        // Its rollover reaches the stalled hook — holding
+        // `sessions.lifecycle` + `sessions.current` — and blocks there.
+        let open_engine = engine.clone();
+        let opener = std::thread::spawn(move || open_engine.open(open_args(piece_id)));
+
+        reached_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the rollover hook must be reached");
+
+        // Thread A: end_session_and_export, concurrently, while B is
+        // mid-rollover holding `lifecycle`. Under the pre-fix code (holding
+        // `active` across this call) this is exactly the deadlock shape;
+        // now it must simply block on `lifecycle` like any other caller.
+        let export_engine = engine.clone();
+        let (export_tx, export_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = export_tx.send(export_engine.end_session_and_export(&pieces_dir));
+        });
+
+        // Confirm A is genuinely blocked (not racing ahead) before releasing B.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(
+            export_rx.try_recv().is_err(),
+            "export must still be waiting on `lifecycle`, held by the stalled rollover"
+        );
+
+        release_tx.send(()).unwrap();
+
+        // Fix round 2 re-review: the bounded wait must gate FIRST. Joining the
+        // opener thread (unbounded) before this recv_timeout meant a
+        // reintroduced ABBA deadlock would hang `opener.join()` forever —
+        // hanging the whole test SUITE rather than failing this one test.
+        // Bounding on `export_rx` first means a regression here fails fast
+        // via the `.expect()` panic below instead of wedging the runner.
+        let exported = export_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("end_session_and_export must not deadlock and must complete");
+        assert!(exported.is_ok(), "{exported:?}");
+
+        opener
+            .join()
+            .unwrap()
+            .expect("the practice mutation completes once the rollover finishes");
     }
 
     #[test]
@@ -1742,22 +2578,29 @@ mod tests {
             .unwrap();
         assert!(retry.receipt.unwrap().replayed);
 
+        let sessions_after = store
+            .test_scalar_i64("SELECT count(*) FROM session")
+            .unwrap();
         assert_eq!(
-            store
-                .test_scalar_i64("SELECT count(*) FROM session")
-                .unwrap(),
+            sessions_after,
             sessions_before + 1,
             "the replayed retry must not open a second session"
         );
+        // Task A5 fix round 1 (CRITICAL 1): `check_from` now resolves/opens
+        // the session through `SessionService::ensure_session()` BEFORE the
+        // durable `check` transaction even starts (so the day-rollover
+        // boundary applies to practice writes too), not inside it — so the
+        // new session's `session_start` event no longer carries a
+        // command-id-derived tag. What still must hold: exactly one
+        // `session_start` per session that ever existed (one per row in
+        // `session`, matching `sessions_after`) — proving the replayed retry
+        // never mints a second one for the session it (re)opened.
         assert_eq!(
             store
-                .test_scalar_i64(
-                    "SELECT count(*) FROM event
-                     WHERE kind='session_start' AND command_id='cmd-session-x:session_start'"
-                )
+                .test_scalar_i64("SELECT count(*) FROM event WHERE kind='session_start'")
                 .unwrap(),
-            1,
-            "exactly one session_start event carries the derived command id"
+            sessions_after,
+            "exactly one session_start per session, even after the replayed retry"
         );
     }
 
@@ -1846,6 +2689,7 @@ mod tests {
                     method: Some("rhythmic variants".into()),
                     planned_seconds: Some(1_200),
                     reflection: None,
+                    pass_seconds: None,
                 }),
             )
             .unwrap();
@@ -1908,7 +2752,9 @@ mod tests {
                 );
                 elapsed += 10;
                 clock.set(&timestamp_after(elapsed));
-                let resumed = engine.resume(&format!("long-resume-{attempt}")).unwrap();
+                let resumed = engine
+                    .resume(&format!("long-resume-{attempt}"), None)
+                    .unwrap();
                 assert_eq!(resumed.value.as_ref().unwrap().timer_state, "active");
             }
             if attempt == 75 {
@@ -1950,7 +2796,7 @@ mod tests {
                 clock.set(&timestamp_after(elapsed));
                 engine = RepEngine::new_with_clock(
                     store.clone(),
-                    Arc::new(SessionService::new(store.clone())),
+                    Arc::new(SessionService::new_with_clock(store.clone(), clock.clone())),
                     clock.clone(),
                 );
                 let restored = engine.snapshot().expect("set restored after relaunch");
@@ -2100,7 +2946,11 @@ mod tests {
         assert_eq!(stopped.verdicts.failed, 0);
         assert_eq!(stopped.reset_count, 0);
         clock.set("2026-07-15T14:00:10Z");
-        let resumed = engine.resume("safety-resume-1").unwrap().value.unwrap();
+        let resumed = engine
+            .resume("safety-resume-1", None)
+            .unwrap()
+            .value
+            .unwrap();
         assert_eq!(resumed.set_state, "active");
         assert_eq!(resumed.safety_state, "cleared");
     }
@@ -2124,6 +2974,7 @@ mod tests {
                     method: Some("blocked".into()),
                     planned_seconds: Some(180),
                     reflection: None,
+                    pass_seconds: None,
                 }),
             )
             .unwrap();
@@ -2690,12 +3541,20 @@ mod tests {
         // (iii) malformed checked_as_of.
         reject(
             "confirm-bad-date",
-            retention_result(RetentionDecision::ConfirmRetained, "2026-13-40", "clean pass"),
+            retention_result(
+                RetentionDecision::ConfirmRetained,
+                "2026-13-40",
+                "clean pass",
+            ),
         );
         // (iv) checked_as_of earlier than the due date.
         reject(
             "confirm-precedes-due",
-            retention_result(RetentionDecision::ConfirmRetained, "2026-07-10", "too early"),
+            retention_result(
+                RetentionDecision::ConfirmRetained,
+                "2026-07-10",
+                "too early",
+            ),
         );
         // (v) invalid conditions: out-of-range bpm, inverted measures, and the
         // empty default that carries no condition at all.
@@ -3794,8 +4653,15 @@ mod tests {
         assert_set_lifecycle(&fresh, block_id, "mastered", "done");
     }
 
+    // Task A4b: the v9 one-live-set index was replaced by
+    // `set_contract_one_active_v2_idx` (SCHEMA_V14) — the invariant relaxed
+    // from one-LIVE-set (active OR paused) to one-ACTIVE-set. This test was
+    // updated in place rather than duplicated: it still proves a second
+    // ACTIVE row is rejected and a legacy state is ignored by the index, and
+    // now additionally proves the relaxation itself — a PAUSED row no longer
+    // conflicts with an existing ACTIVE row.
     #[test]
-    fn schema_v9_unique_index_rejects_a_second_live_set_but_ignores_legacy_state() {
+    fn schema_v14_unique_index_rejects_a_second_active_set_but_ignores_legacy_and_paused_state() {
         let (engine, pid, store, _rec) = engine_with_piece();
         let original = engine.open(strict_notes_args(pid, 3)).unwrap();
         let replacement = engine.restart(Some(3)).unwrap();
@@ -3803,10 +4669,20 @@ mod tests {
             store
                 .test_scalar_i64(
                     "SELECT count(*) FROM sqlite_master
-                     WHERE type='index' AND name='set_contract_one_live_v2_idx'",
+                     WHERE type='index' AND name='set_contract_one_active_v2_idx'",
                 )
                 .unwrap(),
             1
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64(
+                    "SELECT count(*) FROM sqlite_master
+                     WHERE type='index' AND name='set_contract_one_live_v2_idx'",
+                )
+                .unwrap(),
+            0,
+            "the v9 index must be dropped, not merely superseded"
         );
 
         store
@@ -3815,9 +4691,10 @@ mod tests {
                 original.block_id
             ))
             .unwrap();
+        // A second ACTIVE row is still rejected.
         let error = store
             .test_execute_batch(&format!(
-                "UPDATE set_contract SET set_state='paused' WHERE set_id={}",
+                "UPDATE set_contract SET set_state='active' WHERE set_id={}",
                 original.block_id
             ))
             .unwrap_err()
@@ -3842,6 +4719,34 @@ mod tests {
                 .unwrap(),
             "active"
         );
+
+        // The relaxation itself: PAUSED no longer conflicts with an existing
+        // ACTIVE row — `replacement` stays active throughout.
+        store
+            .test_execute_batch(&format!(
+                "UPDATE set_contract SET set_state='paused' WHERE set_id={}",
+                original.block_id
+            ))
+            .unwrap();
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={}",
+                    original.block_id
+                ))
+                .unwrap(),
+            "paused"
+        );
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={}",
+                    replacement.block_id
+                ))
+                .unwrap(),
+            "active",
+            "the pre-existing active row is unaffected"
+        );
     }
 
     #[test]
@@ -3853,7 +4758,7 @@ mod tests {
         let _replacement = engine.restart(Some(3)).unwrap();
         store
             .test_execute_batch(&format!(
-                "DROP INDEX set_contract_one_live_v2_idx;
+                "DROP INDEX set_contract_one_active_v2_idx;
                  UPDATE set_contract SET set_state='active' WHERE set_id={0};
                  UPDATE rep_block SET status='open' WHERE id={0};",
                 original.block_id
@@ -4190,6 +5095,335 @@ mod tests {
             0
         );
         assert_eq!(engine.snapshot().unwrap().tries, 0);
+    }
+
+    fn tempo_args(piece_id: i64, target_bpm: f64) -> RepOpenArgs {
+        RepOpenArgs {
+            piece_id,
+            region_id: None,
+            m_start: 1,
+            m_end: 8,
+            label: None,
+            start_bpm: 60.0,
+            target_bpm: Some(target_bpm),
+            planned_reps: None,
+            required_clean_streak: Some(3),
+            increment: None,
+            variants: vec![],
+            focus: "tempo".into(),
+            use_metronome: true,
+        }
+    }
+
+    // Task A4 note: originally the brief's acceptance test (seed two pieces,
+    // pause one set each, one active elsewhere → `sets_paused_list` returns
+    // exactly the two paused rows, newest-paused first) was schema-impossible
+    // under `set_contract_one_live_v2_idx` (SCHEMA_V9), which allowed at most
+    // ONE live (active OR paused) row database-wide. Task A4b (SCHEMA_V14)
+    // relaxed that to `set_contract_one_active_v2_idx` — one ACTIVE row max,
+    // any number paused — so the two tests below still cover the
+    // single-paused-row join/field-mapping/exclusion behavior, and the
+    // fixture test further down (`sets_paused_list_returns_two_paused_sets_...`)
+    // now builds and asserts the real multi-row/newest-first fixture.
+    #[test]
+    fn sets_paused_list_returns_the_paused_set_with_correct_join_fields_and_streak() {
+        let (engine, pid, store, _rec) = engine_with_piece();
+        assert!(
+            store.paused_sets_list().unwrap().is_empty(),
+            "nothing paused yet"
+        );
+
+        let opened = engine.open(tempo_args(pid, 90.0)).unwrap();
+        // One clean rep before pausing, so `current_clean_streak` proves it
+        // is reusing the live projection rather than always reporting 0.
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.pause("test-pause-1").unwrap();
+
+        let rows = store.paused_sets_list().unwrap();
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.set_id, opened.block_id);
+        assert_eq!(row.block_id, opened.block_id);
+        assert_eq!(row.piece_id, pid);
+        assert_eq!(row.piece_title, "Scherzo");
+        assert_eq!(row.m_start, 1);
+        assert_eq!(row.m_end, 8);
+        assert_eq!(row.bpm, 60);
+        assert_eq!(row.target_bpm, 90);
+        assert_eq!(row.current_clean_streak, 1);
+        assert!(!row.paused_since_ts.is_empty());
+
+        // Resuming takes it out of the tray.
+        engine.resume("test-resume-1", None).unwrap();
+        assert!(store.paused_sets_list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn sets_paused_list_excludes_sets_in_any_other_state() {
+        let (engine, pid, store, _rec) = engine_with_piece();
+        let pid2 = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/Debussy - Clair de Lune".into(),
+                title: "Clair de Lune".into(),
+                composer: Some("Debussy".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        let opened = engine.open(tempo_args(pid, 90.0)).unwrap();
+        engine.pause("test-pause-1").unwrap();
+
+        // A second, unrelated set that never went through 'active'/'paused'
+        // (so it never touches the single-live-set unique index) — proves
+        // the WHERE clause, not just an accidental single-row table.
+        store
+            .test_execute_batch(&format!(
+                "INSERT INTO rep_block
+                     (id,piece_id,m_start,m_end,focus,use_metronome,status,
+                      start_bpm,target_bpm,planned_reps,variants)
+                 VALUES (9002,{pid2},1,8,'tempo',1,'done',60.0,100.0,0,'[]');
+                 INSERT INTO set_contract
+                     (set_id,contract_version,name,rationale,mastery_basis,required_success,
+                      reset_on_flawed,reset_on_failed,recovery_policy,set_state,
+                      mastery_verification,source)
+                 VALUES (9002,1,'Seed mastered set','A non-paused control row.',
+                         'consecutive_clean',3,1,0,'none','mastered','verified','user_click');"
+            ))
+            .unwrap();
+
+        let rows = store.paused_sets_list().unwrap();
+        assert_eq!(rows.len(), 1, "only the genuinely paused set");
+        assert_eq!(rows[0].set_id, opened.block_id);
+        assert_eq!(rows[0].piece_id, pid);
+    }
+
+    /// Task A4b: the real A4 acceptance fixture — two pieces each paused, one
+    /// active elsewhere. Schema-impossible before this task (see the A4 note
+    /// above); now buildable through the ordinary engine write path because
+    /// `open_from`'s in-memory guard and `open_set_in_tx`'s DB-level guard
+    /// both relaxed from "blocks on active-or-paused" to "blocks on active
+    /// only" (SCHEMA_V14's `set_contract_one_active_v2_idx`). Also proves two
+    /// paused rows coexist and the newest-paused-first ordering.
+    #[test]
+    fn sets_paused_list_returns_two_paused_sets_newest_first_with_one_active_elsewhere() {
+        let (engine, pid1, store, _rec) = engine_with_piece();
+        let pid2 = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/Debussy - Clair de Lune".into(),
+                title: "Clair de Lune".into(),
+                composer: Some("Debussy".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+        let pid3 = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/Ravel - Jeux d'eau".into(),
+                title: "Jeux d'eau".into(),
+                composer: Some("Ravel".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        let opened1 = engine.open(tempo_args(pid1, 90.0)).unwrap();
+        engine.pause("fixture-pause-1").unwrap();
+
+        let opened2 = engine.open(tempo_args(pid2, 80.0)).unwrap();
+        engine.pause("fixture-pause-2").unwrap();
+
+        // The third set stays active elsewhere — never paused.
+        let opened3 = engine.open(tempo_args(pid3, 70.0)).unwrap();
+        assert_eq!(opened3.set_state, "active");
+
+        let rows = store.paused_sets_list().unwrap();
+        assert_eq!(rows.len(), 2, "two paused rows coexist");
+        assert_eq!(
+            rows[0].set_id, opened2.block_id,
+            "newest-paused (opened2) first"
+        );
+        assert_eq!(rows[1].set_id, opened1.block_id);
+        assert!(
+            rows.iter().all(|row| row.set_id != opened3.block_id),
+            "the active set never appears in the paused tray"
+        );
+    }
+
+    /// Task A4b: `rep_resume` targeting a set OTHER than the one currently
+    /// active auto-pauses the old active set and activates the target, in one
+    /// transaction — the receipt reflects both transitions.
+    #[test]
+    fn resume_with_another_active_auto_pauses_old_and_activates_target_atomically() {
+        let (engine, pid1, store, _rec) = engine_with_piece();
+        let pid2 = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/Debussy - Clair de Lune".into(),
+                title: "Clair de Lune".into(),
+                composer: Some("Debussy".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        let opened1 = engine.open(tempo_args(pid1, 90.0)).unwrap();
+        engine.pause("auto-pause-fixture-1").unwrap();
+        let opened2 = engine.open(tempo_args(pid2, 80.0)).unwrap();
+        assert_eq!(opened2.set_state, "active");
+
+        let receipt = engine
+            .resume("resume-target-1", Some(opened1.block_id))
+            .unwrap();
+        assert_eq!(receipt.status, "committed");
+        let snap = receipt.value.clone().unwrap();
+        assert_eq!(snap.block_id, opened1.block_id);
+        assert_eq!(snap.set_state, "active");
+        assert!(
+            receipt.summary.contains("Paused") && receipt.summary.contains("Resumed"),
+            "{}",
+            receipt.summary
+        );
+        assert_eq!(receipt.entity_refs.len(), 2);
+
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={}",
+                    opened1.block_id
+                ))
+                .unwrap(),
+            "active"
+        );
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={}",
+                    opened2.block_id
+                ))
+                .unwrap(),
+            "paused",
+            "the previously active set was auto-paused"
+        );
+    }
+
+    /// Task A4b: a mid-transaction failure during the auto-pause-then-resume
+    /// leaves BOTH sets exactly as they were — the receipt's atomicity is not
+    /// just claimed but exercised.
+    #[test]
+    fn resume_with_another_active_rolls_back_both_transitions_on_injected_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("resume-atomic.sqlite");
+        let (engine, pid1, store) = engine_with_piece_at(&path);
+        let pid2 = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/Debussy - Clair de Lune".into(),
+                title: "Clair de Lune".into(),
+                composer: Some("Debussy".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        let opened1 = engine.open(tempo_args(pid1, 90.0)).unwrap();
+        engine.pause("rollback-fixture-1").unwrap();
+        let opened2 = engine.open(tempo_args(pid2, 80.0)).unwrap();
+
+        // Fires on `start_interval`'s INSERT for the TARGET's activation —
+        // i.e. strictly after the other set's pause writes have already
+        // happened inside the same transaction, so a real partial-commit bug
+        // would leave `opened2` paused even though the overall op failed.
+        store
+            .test_execute_batch(
+                "CREATE TRIGGER fail_resume_interval BEFORE INSERT ON practice_interval
+                 BEGIN SELECT RAISE(ABORT,'injected resume failure'); END;",
+            )
+            .unwrap();
+
+        let failed = engine.resume("resume-target-fail-1", Some(opened1.block_id));
+        assert!(failed.is_err());
+
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={}",
+                    opened1.block_id
+                ))
+                .unwrap(),
+            "paused",
+            "target must remain paused when the transaction rolls back"
+        );
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={}",
+                    opened2.block_id
+                ))
+                .unwrap(),
+            "active",
+            "the auto-paused set must roll back to active too"
+        );
+    }
+
+    /// Task A4b fix round 1: `resume(None)`'s DB-wide fallback ("the only
+    /// paused set") rejects outright when this engine instance is tracking
+    /// nothing AND nothing in the database is paused.
+    #[test]
+    fn resume_none_errors_when_nothing_is_tracked_and_nothing_is_paused() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        let error = engine.resume("resume-empty-1", None).unwrap_err();
+        assert_eq!(error, "no paused practice set");
+    }
+
+    /// Task A4b fix round 1: `resume(None)`'s DB-wide fallback rejects as
+    /// ambiguous — rather than silently picking one — when this engine
+    /// instance is tracking nothing and SEVERAL sets are paused. The two
+    /// paused rows are seeded via raw SQL specifically so this engine never
+    /// opens/pauses either through its own API — `self.active` stays `None`
+    /// throughout, exercising the untracked fallback path, not the "resume
+    /// my own tracked block" path.
+    #[test]
+    fn resume_none_errors_as_ambiguous_when_several_sets_are_paused_and_nothing_is_tracked() {
+        let (engine, pid, store, _rec) = engine_with_piece();
+        let pid2 = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/Debussy - Clair de Lune".into(),
+                title: "Clair de Lune".into(),
+                composer: Some("Debussy".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        store
+            .test_execute_batch(&format!(
+                "INSERT INTO rep_block
+                     (id,piece_id,m_start,m_end,focus,use_metronome,status,
+                      start_bpm,target_bpm,planned_reps,variants)
+                 VALUES (9101,{pid},1,8,'tempo',1,'open',60.0,90.0,0,'[]');
+                 INSERT INTO set_contract
+                     (set_id,contract_version,name,rationale,mastery_basis,required_success,
+                      reset_on_flawed,reset_on_failed,recovery_policy,set_state,
+                      mastery_verification,source)
+                 VALUES (9101,1,'Seed paused A','Untracked fixture row.',
+                         'consecutive_clean',3,1,0,'none','paused','verified','user_click');
+                 INSERT INTO rep_block
+                     (id,piece_id,m_start,m_end,focus,use_metronome,status,
+                      start_bpm,target_bpm,planned_reps,variants)
+                 VALUES (9102,{pid2},1,8,'tempo',1,'open',60.0,90.0,0,'[]');
+                 INSERT INTO set_contract
+                     (set_id,contract_version,name,rationale,mastery_basis,required_success,
+                      reset_on_flawed,reset_on_failed,recovery_policy,set_state,
+                      mastery_verification,source)
+                 VALUES (9102,1,'Seed paused B','Untracked fixture row.',
+                         'consecutive_clean',3,1,0,'none','paused','verified','user_click');"
+            ))
+            .unwrap();
+
+        let error = engine.resume("resume-ambiguous-1", None).unwrap_err();
+        assert_eq!(
+            error,
+            "multiple sets are paused; choose which one to resume"
+        );
     }
 
     #[test]

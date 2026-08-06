@@ -928,6 +928,14 @@ impl Store {
         Ok(receipt)
     }
 
+    /// Resume `block_id` (must be `paused`). Task A4b: with the invariant
+    /// relaxed to one-ACTIVE-set, some OTHER set may legitimately be `active`
+    /// at the same time `block_id` is `paused` — in that case this auto-pauses
+    /// the other set and activates `block_id` in the SAME transaction, so a
+    /// mid-way failure rolls back both transitions and neither set changes
+    /// state. The receipt's summary and entity refs/event ids reflect both
+    /// transitions when an auto-pause happened, and read exactly as before
+    /// (single "resumed" transition) when nothing else was active.
     pub(crate) fn v2_resume(
         &self,
         session_hint: Option<i64>,
@@ -960,6 +968,67 @@ impl Store {
         if before.set_state != "paused" {
             return Err(invalid("only a paused practice set can resume"));
         }
+
+        // Auto-pause whatever else is currently active, if anything — the
+        // one-ACTIVE-set invariant (`set_contract_one_active_v2_idx`) would
+        // otherwise reject activating `block_id` outright.
+        let other_active_id: Option<i64> = tx
+            .query_row(
+                "SELECT set_id FROM set_contract WHERE set_state='active' AND set_id<>?1",
+                [block_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        let mut entity_refs = Vec::new();
+        let mut event_ids = Vec::new();
+        let mut summary_parts = Vec::new();
+
+        if let Some(other_id) = other_active_id {
+            let other_before = project(&tx, other_id)?;
+            close_interval(&tx, other_id, now, "pause", Some(pending.id))?;
+            tx.execute(
+                "UPDATE set_contract SET set_state='paused' WHERE set_id=?1",
+                [other_id],
+            )?;
+            let pause_active_seconds = load_loop_projection(
+                &tx,
+                other_id,
+                other_before.m_start,
+                other_before.m_end,
+                &other_before.focus,
+                "paused",
+            )?
+            .active_seconds;
+            let pause_payload = json!({
+                "block_id": other_id,
+                "piece_id": other_before.piece_id,
+                "active_seconds": pause_active_seconds,
+                "command_id": command_id,
+                "auto_paused_for_resume_of": block_id,
+            });
+            let (_, pause_event_id) = insert_loop_event(
+                &tx,
+                LoopEventWrite {
+                    session_id: Some(session.id),
+                    piece_id: other_before.piece_id,
+                    kind: "rep_pause",
+                    payload: &pause_payload,
+                    entity_type: "set",
+                    entity_id: other_id,
+                    source,
+                    command_id,
+                    now,
+                },
+            )?;
+            entity_refs.push(MutationEntityRef {
+                entity_type: "set".into(),
+                entity_id: other_id,
+            });
+            event_ids.push(pause_event_id);
+            summary_parts.push(format!("Paused {}", other_before.piece_title));
+        }
+
         let safety_was_stopped = before.safety_state == "stopped";
         tx.execute(
             "UPDATE set_contract SET set_state='active' WHERE set_id=?1",
@@ -993,17 +1062,29 @@ impl Store {
                 now,
             },
         )?;
+        entity_refs.push(MutationEntityRef {
+            entity_type: "set".into(),
+            entity_id: block_id,
+        });
+        event_ids.push(event_id);
+        summary_parts.push(format!("Resumed {}", before.piece_title));
+
+        let summary = if summary_parts.len() > 1 {
+            summary_parts.join(" \u{b7} ")
+        } else {
+            "Practice resumed with a fresh active interval.".to_string()
+        };
+
         let snapshot = project(&tx, block_id)?;
+        let mut all_event_ids: Vec<i64> = session.start_event_id.into_iter().collect();
+        all_event_ids.extend(event_ids);
         let receipt = finish_operation(
             &tx,
             pending,
-            "Practice resumed with a fresh active interval.",
+            &summary,
             &snapshot,
-            vec![MutationEntityRef {
-                entity_type: "set".into(),
-                entity_id: block_id,
-            }],
-            operation_event_ids(session, event_id),
+            entity_refs,
+            all_event_ids,
             None,
         )?;
         tx.commit()?;
@@ -1801,10 +1882,13 @@ impl Store {
         )
     }
 
-    /// Reconcile a live set after process relaunch. The old open interval is
-    /// closed at its last durable checkpoint, never at relaunch time, so the
-    /// offline gap contributes exactly zero. Active sets then begin a fresh
-    /// interval; paused sets remain paused.
+    /// Reconcile the ACTIVE set (if any) after process relaunch. The old open
+    /// interval is closed at its last durable checkpoint, never at relaunch
+    /// time, so the offline gap contributes exactly zero, then a fresh
+    /// interval begins. Paused sets — any number of them, Task A4b — need no
+    /// reconciliation here: pausing always closes their interval already, so
+    /// only the single ACTIVE row (enforced by `set_contract_one_active_v2_idx`,
+    /// SCHEMA_V14) can ever have one left open by a crash.
     pub(crate) fn v2_restore_active_at(&self, now: &str) -> rusqlite::Result<Option<RepSnapshot>> {
         let mut conn = self
             .conn
@@ -1813,7 +1897,7 @@ impl Store {
         validate_timestamp(&conn, now)?;
         let tx = conn.transaction()?;
         let mut stmt = tx.prepare(
-            "SELECT set_id,set_state FROM set_contract WHERE set_state IN ('active','paused')
+            "SELECT set_id,set_state FROM set_contract WHERE set_state='active'
              ORDER BY set_id DESC LIMIT 2",
         )?;
         let live = stmt
@@ -1870,5 +1954,231 @@ impl Store {
         let snapshot = project(&tx, *set_id)?;
         tx.commit()?;
         Ok(Some(snapshot))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::model::RetentionCondition;
+
+    fn mem_conn() -> Connection {
+        Connection::open_in_memory().unwrap()
+    }
+
+    // ── validate_timestamp ──────────────────────────────────────────────
+
+    #[test]
+    fn validate_timestamp_rejects_non_timestamp_strings() {
+        let conn = mem_conn();
+        let error = validate_timestamp(&conn, "not-a-timestamp").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("valid absolute SQLite timestamp"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_timestamp_rejects_empty_string() {
+        let conn = mem_conn();
+        assert!(validate_timestamp(&conn, "").is_err());
+    }
+
+    #[test]
+    fn validate_timestamp_accepts_a_valid_absolute_timestamp() {
+        let conn = mem_conn();
+        assert!(validate_timestamp(&conn, "2026-08-05T12:00:00Z").is_ok());
+    }
+
+    // ── validate_date ────────────────────────────────────────────────────
+
+    #[test]
+    fn validate_date_rejects_a_calendar_impossible_date() {
+        let conn = mem_conn();
+        let error = validate_date(&conn, "2026-02-30").unwrap_err();
+        assert!(
+            error.to_string().contains("valid YYYY-MM-DD form"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_date_accepts_a_wellformed_date() {
+        let conn = mem_conn();
+        assert!(validate_date(&conn, "2026-08-05").is_ok());
+    }
+
+    // ── validate_retention_condition ────────────────────────────────────
+
+    #[test]
+    fn validate_retention_condition_rejects_bpm_out_of_range() {
+        let condition = RetentionCondition {
+            bpm: Some(401.0),
+            ..Default::default()
+        };
+        let error = validate_retention_condition(&condition, "test").unwrap_err();
+        assert!(
+            error.to_string().contains("BPM must be between 1 and 400"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_retention_condition_rejects_an_incomplete_measure_range() {
+        let condition = RetentionCondition {
+            m_start: Some(5),
+            m_end: None,
+            ..Default::default()
+        };
+        let error = validate_retention_condition(&condition, "test").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("measure range must be complete and ordered"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_retention_condition_rejects_an_inverted_measure_range() {
+        let condition = RetentionCondition {
+            m_start: Some(10),
+            m_end: Some(5),
+            ..Default::default()
+        };
+        assert!(validate_retention_condition(&condition, "test").is_err());
+    }
+
+    #[test]
+    fn validate_retention_condition_rejects_clean_streak_out_of_range() {
+        let condition = RetentionCondition {
+            required_clean_streak: Some(101),
+            ..Default::default()
+        };
+        let error = validate_retention_condition(&condition, "test").unwrap_err();
+        assert!(
+            error.to_string().contains("clean streak must be 1 to 100"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_retention_condition_rejects_a_completely_empty_condition() {
+        let condition = RetentionCondition::default();
+        let error = validate_retention_condition(&condition, "test").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("must contain at least one condition"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_retention_condition_accepts_a_single_populated_field() {
+        let condition = RetentionCondition {
+            bpm: Some(120.0),
+            ..Default::default()
+        };
+        assert!(validate_retention_condition(&condition, "test").is_ok());
+    }
+
+    // ── required_text / optional_text ───────────────────────────────────
+
+    #[test]
+    fn required_text_rejects_whitespace_only_input() {
+        let error = required_text("   ", "label", 10).unwrap_err();
+        assert!(
+            error.to_string().contains("must be 1 to 10 characters"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn required_text_rejects_input_over_the_max_length() {
+        let long = "a".repeat(11);
+        assert!(required_text(&long, "label", 10).is_err());
+    }
+
+    #[test]
+    fn required_text_trims_surrounding_whitespace() {
+        assert_eq!(required_text("  hi  ", "label", 10).unwrap(), "hi");
+    }
+
+    #[test]
+    fn optional_text_passes_through_none() {
+        assert_eq!(optional_text(None, "label", 10).unwrap(), None);
+    }
+
+    #[test]
+    fn optional_text_rejects_a_present_but_empty_value() {
+        assert!(optional_text(Some(""), "label", 10).is_err());
+    }
+
+    // ── request_fingerprint ──────────────────────────────────────────────
+
+    #[test]
+    fn request_fingerprint_rejects_oversized_payloads() {
+        let huge = json!({"note": "x".repeat(25_000)});
+        let error = request_fingerprint(&huge).unwrap_err();
+        assert!(error.to_string().contains("too large"), "{error}");
+    }
+
+    #[test]
+    fn request_fingerprint_accepts_a_small_payload() {
+        let value = json!({"block_id": 1});
+        assert!(request_fingerprint(&value).is_ok());
+    }
+
+    // ── begin_operation idempotency mismatch ────────────────────────────
+
+    /// The v1 evidence path relies on this guard: a replayed command_id whose
+    /// payload changed must be rejected outright rather than silently
+    /// returning the first commit's receipt for a different request.
+    #[test]
+    fn begin_operation_rejects_replay_with_a_different_payload() {
+        let store = Store::open(":memory:").expect("open in-memory store");
+        let mut conn = store.conn.lock().unwrap();
+        let tx = conn.transaction().unwrap();
+        let fingerprint_a = request_fingerprint(&json!({"block_id": 1})).unwrap();
+        match begin_operation::<Value>(
+            &tx,
+            "cmd-1",
+            "pause",
+            &fingerprint_a,
+            Some(1),
+            MutationSource::UserClick,
+            "2026-08-05T12:00:00Z",
+        )
+        .unwrap()
+        {
+            OperationStart::New(pending) => {
+                finish_operation(&tx, pending, "ok", &json!({}), vec![], vec![], None).unwrap();
+            }
+            OperationStart::Replay(_) => panic!("expected a fresh operation"),
+        }
+
+        let fingerprint_b = request_fingerprint(&json!({"block_id": 2})).unwrap();
+        let result: rusqlite::Result<OperationStart<Value>> = begin_operation(
+            &tx,
+            "cmd-1",
+            "pause",
+            &fingerprint_b,
+            Some(1),
+            MutationSource::UserClick,
+            "2026-08-05T12:00:01Z",
+        );
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("expected a replay/payload mismatch error"),
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("already committed with a different operation payload"),
+            "{error}"
+        );
     }
 }

@@ -1275,6 +1275,7 @@ impl Store {
             MutationSource::UserClick,
             &command_id,
             keep_open,
+            None,
         )?;
         Ok(block_id)
     }
@@ -2338,5 +2339,100 @@ mod brain_memory {
             piece_two.turns.is_empty(),
             "piece 2 never sees piece 1's turns"
         );
+    }
+}
+
+// ── A11: the per-piece score goals banner ───────────────────────────────────
+
+impl Store {
+    /// Set (or, with `None`, clear) the one goal sentence pinned over a piece's
+    /// score, and return the piece's refreshed detail.
+    ///
+    /// Length is NOT checked here — the command layer rejects anything over
+    /// [`crate::BANNER_MAX_CHARS`] before this is ever reached, and the column's
+    /// own CHECK constraint is the last line of defence.
+    pub fn piece_banner_set(
+        &self,
+        piece_id: i64,
+        text: Option<&str>,
+    ) -> rusqlite::Result<Option<crate::store::model::PieceDetail>> {
+        {
+            let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+            conn.execute(
+                "UPDATE piece SET banner_text = ?2 WHERE id = ?1",
+                rusqlite::params![piece_id, text],
+            )?;
+        } // drop the guard before get_piece takes it again
+        self.get_piece(piece_id)
+    }
+}
+
+#[cfg(test)]
+mod piece_banner {
+    use super::test_support::seed_piece;
+    use super::*;
+    use crate::store::Store;
+
+    #[test]
+    fn piece_banner_set_round_trips_text_and_clears_with_none() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        assert_eq!(
+            s.get_piece(1).unwrap().unwrap().banner_text,
+            None,
+            "a fresh piece has no banner"
+        );
+
+        let set = s
+            .piece_banner_set(1, Some("Even development voicing"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(set.banner_text.as_deref(), Some("Even development voicing"));
+        assert_eq!(
+            s.get_piece(1).unwrap().unwrap().banner_text.as_deref(),
+            Some("Even development voicing"),
+            "the banner is durable, not just echoed back"
+        );
+
+        let cleared = s.piece_banner_set(1, None).unwrap().unwrap();
+        assert_eq!(cleared.banner_text, None);
+        assert_eq!(s.get_piece(1).unwrap().unwrap().banner_text, None);
+    }
+
+    #[test]
+    fn piece_banner_set_leaves_the_rest_of_the_piece_untouched() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        s.piece_field_update(
+            1,
+            PieceFieldPatch {
+                notes: Some(Some("Left hand light".into())),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let after = s
+            .piece_banner_set(1, Some("Perform from memory"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.notes.as_deref(), Some("Left hand light"));
+        assert_eq!(after.title, "Piece 1");
+    }
+
+    #[test]
+    fn the_column_check_still_rejects_an_over_long_banner() {
+        // Proves the 140-char CHECK is real, which is exactly why the command
+        // layer validates FIRST rather than letting a user edit reach SQLite.
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let too_long = "x".repeat(141);
+        assert!(s.piece_banner_set(1, Some(&too_long)).is_err());
+    }
+
+    #[test]
+    fn setting_a_banner_on_an_unknown_piece_returns_none() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        assert_eq!(s.piece_banner_set(9999, Some("nope")).unwrap(), None);
     }
 }

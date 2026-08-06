@@ -18,6 +18,7 @@ import {
 } from "../../devMock/tauriDevMock";
 import { ReceiptCenterProvider } from "../receipts/ReceiptCenter";
 import { DaySheet } from "./DaySheet";
+import { ScoreBanner } from "../score/Banner";
 import type { NotebookLine } from "./lines";
 
 const DATE = "2026-03-10"; // never "today", so the legacy migration never fires
@@ -225,14 +226,31 @@ describe("DaySheet — timed blocks + header total (spec 1/2)", () => {
     ]);
     renderSheet();
     await waitFor(() =>
-      expect(screen.getByText("35 min planned")).toBeTruthy(),
+      expect(screen.getByText("Σ 35 min planned")).toBeTruthy(),
     );
     const minutes = screen.getAllByLabelText("Block minutes");
     fireEvent.change(minutes[1], { target: { value: "20" } });
     fireEvent.blur(minutes[1]);
     await waitFor(() =>
-      expect(screen.getByText("45 min planned")).toBeTruthy(),
+      expect(screen.getByText("Σ 45 min planned")).toBeTruthy(),
     );
+  });
+
+  it("carries a plain-words aria-label distinct from the Σ-shorthand visible text (fix wave item 4)", async () => {
+    await seedSheet(DATE, [
+      { type: "piece", piece_id: 1 },
+      { type: "block", minutes: 45, piece_id: 1 },
+      { type: "item", text: "slow hands", checked: false, piece_id: 1 },
+    ]);
+    renderSheet();
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText("45 minutes planned, 1 line unestimated"),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.getByText("Σ 45 min planned · 1 line unestimated"),
+    ).toBeTruthy();
   });
 
   it("adds a timed block from the focused item's chip", async () => {
@@ -245,7 +263,9 @@ describe("DaySheet — timed blocks + header total (spec 1/2)", () => {
     fireEvent.focus(item);
     fireEvent.click(screen.getByRole("button", { name: "25 min" }));
     await waitFor(() =>
-      expect(screen.getByText("25 min planned")).toBeTruthy(),
+      expect(
+        screen.getByText("Σ 25 min planned · 1 line unestimated"),
+      ).toBeTruthy(),
     );
   });
 });
@@ -311,5 +331,175 @@ describe("DaySheet — goal promotion (spec 13)", () => {
     expect(
       screen.getByRole("button", { name: "goal" }).hasAttribute("disabled"),
     ).toBe(true);
+  });
+});
+
+describe("DaySheet — pin a goal to the score (A11)", () => {
+  /** Promote a seeded plan item to a goal and return its rendered ⚑ row. */
+  async function promoteToGoal(text: string) {
+    await seedSheet(DATE, [
+      { type: "piece", piece_id: 1 },
+      { type: "item", text, checked: false, piece_id: 1 },
+    ]);
+    renderSheet();
+    const item = await screen.findByDisplayValue(text);
+    fireEvent.focus(item);
+    fireEvent.click(screen.getByRole("button", { name: "goal" }));
+    return await screen.findByLabelText("Goal");
+  }
+
+  function bannerCalls(spy: ReturnType<typeof spyInvoke>) {
+    return spy.mock.calls.filter((args) => args[0] === "piece_banner_set");
+  }
+
+  it("pins the ⚑ line's text to its piece's score banner", async () => {
+    const spy = spyInvoke();
+    await promoteToGoal("clean the coda");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pin this goal to the score" }),
+    );
+
+    await waitFor(() => expect(bannerCalls(spy)).toHaveLength(1));
+    expect(bannerCalls(spy)[0][1]).toEqual({
+      pieceId: 1,
+      text: "clean the coda",
+    });
+
+    // The pin really reached the piece, not just the wire.
+    const detail = (await internals().invoke("piece_get", { id: 1 })) as {
+      banner_text: string | null;
+    };
+    expect(detail.banner_text).toBe("clean the coda");
+  });
+
+  it("truncates an over-long goal to exactly 140 characters with an ellipsis", async () => {
+    const spy = spyInvoke();
+    const long = `${"a".repeat(200)}`;
+    await promoteToGoal(long);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pin this goal to the score" }),
+    );
+
+    await waitFor(() => expect(bannerCalls(spy)).toHaveLength(1));
+    const sent = (bannerCalls(spy)[0][1] as { text: string }).text;
+    expect(Array.from(sent)).toHaveLength(140);
+    expect(sent.endsWith("…")).toBe(true);
+    expect(sent.startsWith("aaa")).toBe(true);
+  });
+
+  it("last pin wins — a second pin overwrites the banner unconditionally", async () => {
+    const spy = spyInvoke();
+    await promoteToGoal("first goal");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pin this goal to the score" }),
+    );
+    await waitFor(() => expect(bannerCalls(spy)).toHaveLength(1));
+
+    // Retype the goal and pin again: no merge prompt, the new text simply wins.
+    const goalField = await screen.findByLabelText("Goal");
+    fireEvent.change(goalField, { target: { value: "second goal" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pin this goal to the score" }),
+    );
+
+    await waitFor(() => expect(bannerCalls(spy)).toHaveLength(2));
+    expect(bannerCalls(spy)[1][1]).toEqual({
+      pieceId: 1,
+      text: "second goal",
+    });
+    const detail = (await internals().invoke("piece_get", { id: 1 })) as {
+      banner_text: string | null;
+    };
+    expect(detail.banner_text).toBe("second goal");
+  });
+
+  it("updates a Score banner that is ALREADY MOUNTED, with no refetch or remount", async () => {
+    // The Shell keeps a visited workspace mounted-but-hidden, so the Score
+    // banner Christian pinned "into" is the very instance still on screen. It
+    // must show the new sentence without being rebuilt.
+    await seedSheet(DATE, [
+      { type: "piece", piece_id: 1 },
+      { type: "item", text: "clean the coda", checked: false, piece_id: 1 },
+    ]);
+    render(
+      <>
+        <ScoreBanner pieceId={1} />
+        <DaySheet date={DATE} />
+      </>,
+      { wrapper },
+    );
+
+    // The banner has loaded piece 1's existing sentence and is staying mounted.
+    const banner = await screen.findByRole("button", {
+      name: "Edit the goal banner",
+    });
+    expect(banner.textContent).toBe(
+      "Even development voicing, hands together at 84",
+    );
+
+    const spy = spyInvoke();
+    const item = await screen.findByDisplayValue("clean the coda");
+    fireEvent.focus(item);
+    fireEvent.click(screen.getByRole("button", { name: "goal" }));
+    await screen.findByLabelText("Goal");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pin this goal to the score" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Edit the goal banner" })
+          .textContent,
+      ).toBe("clean the coda"),
+    );
+    // Same DOM node: it re-rendered, it was not torn down and rebuilt.
+    expect(screen.getByRole("button", { name: "Edit the goal banner" })).toBe(
+      banner,
+    );
+    // And it never re-read the piece to find out.
+    expect(spy.mock.calls.filter((args) => args[0] === "piece_get")).toEqual(
+      [],
+    );
+  });
+
+  it("renders no pin at all on a ⚑ line with no piece to pin it to", async () => {
+    // A goal_ref with no piece heading above it has no piece context and no
+    // resolvable goal, so there is nothing to pin — and no disabled button.
+    await seedSheet(DATE, [{ type: "goal_ref", goal_id: 401 }]);
+    renderSheet();
+    await screen.findByLabelText("Goal");
+    expect(
+      screen.queryByRole("button", { name: "Pin this goal to the score" }),
+    ).toBeNull();
+  });
+});
+
+describe("DaySheet — lesson-prep bring chips (fix wave item 11)", () => {
+  it("keys duplicate bring entries distinctly, without a React duplicate-key warning", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // A `bring` list with the same piece id twice (e.g. a stale duplicate
+    // from an earlier edit) used to key both chips `key={pieceId}` — React
+    // warns "two children with the same key" and can lose track of which
+    // chip is which.
+    await seedSheet(DATE, [
+      { type: "piece", piece_id: 1 },
+      { type: "lesson_prep", bring: [1, 1], want: "" },
+    ]);
+    renderSheet();
+    await waitFor(() =>
+      expect(screen.getAllByText("Scherzo No. 2").length).toBeGreaterThan(0),
+    );
+    expect(
+      screen.getAllByRole("button", {
+        name: "Remove Scherzo No. 2 from bring list",
+      }),
+    ).toHaveLength(2);
+    const keyWarning = errorSpy.mock.calls.some((args) =>
+      String(args[0]).includes("same key"),
+    );
+    expect(keyWarning).toBe(false);
+    errorSpy.mockRestore();
   });
 });

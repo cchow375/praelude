@@ -9,7 +9,7 @@ import { repMasteryStatus, repMasteryVerified, repTries } from "./useRep";
 import { Button, type ButtonVariant } from "../../ui";
 import "./RepHud.css";
 
-interface RepHudProps {
+export interface RepHudProps {
   snap: RepSnapshot | null;
   feed: LastRep[];
   error: string | null;

@@ -83,25 +83,12 @@ describe("TodayPracticePanel — day-sheet-first window (spec C5)", () => {
     ).toBeTruthy();
   });
 
-  it("keeps the active-set HUD reachable inside the open window (requirement 2)", async () => {
-    renderPanel({
-      activeSetHud: <div data-testid="active-hud">Active set</div>,
-    });
-
-    const dialog = await screen.findByRole("region", {
-      name: "Today's Practice",
-    });
-    // The shell-owned HUD renders INSIDE the window — docked along its foot, so
-    // a live set is never hidden behind the overlay and never pushes the day
-    // sheet off the top of the surface.
-    expect(within(dialog).getByTestId("today-practice-hud")).toBeTruthy();
-    expect(within(dialog).getByTestId("active-hud")).toBeTruthy();
-  });
-
-  it("has no HUD dock when no set is live", async () => {
-    renderPanel({ activeSetHud: null });
-    await screen.findByRole("region", {
-      name: "Today's Practice" });
+  it("no longer hosts the active-set HUD (Task A3: it moved to the shell-level Practice Dock)", async () => {
+    // The old docked strip (TodayPracticePanel.tsx ~136-143) is gone entirely —
+    // no legacy fallback rendering. TodayPracticePanelProps no longer even
+    // accepts an `activeSetHud` prop to render one through.
+    renderPanel();
+    await screen.findByRole("region", { name: "Today's Practice" });
     expect(screen.queryByTestId("today-practice-hud")).toBeNull();
   });
 
@@ -109,7 +96,8 @@ describe("TodayPracticePanel — day-sheet-first window (spec C5)", () => {
     const spy = spyInvoke();
     renderPanel();
     await screen.findByRole("region", {
-      name: "Today's Practice" });
+      name: "Today's Practice",
+    });
 
     // Collapsed fold = static summary text only; the 1+2N candidate fetch
     // (pieces_list per piece: region_list + rep_blocks_for_piece) must not fire.
@@ -134,7 +122,8 @@ describe("TodayPracticePanel — day-sheet-first window (spec C5)", () => {
     renderPanel();
 
     await screen.findByRole("region", {
-      name: "Today's Practice" });
+      name: "Today's Practice",
+    });
 
     // Open the single quiet "suggested from retention" fold. jsdom does not run
     // the native <details> click→toggle, so open it explicitly and dispatch the
@@ -158,7 +147,9 @@ describe("TodayPracticePanel — day-sheet-first window (spec C5)", () => {
     // The suggestion becomes an editable checkbox item + a timed block whose
     // minutes re-total the sheet header (the dev-mock due check is 4 minutes).
     await waitFor(() =>
-      expect(screen.getByLabelText("4 minutes planned")).toBeTruthy(),
+      expect(
+        screen.getByLabelText("4 minutes planned, 1 line unestimated"),
+      ).toBeTruthy(),
     );
     expect(screen.getByDisplayValue("Opening theme")).toBeTruthy();
 

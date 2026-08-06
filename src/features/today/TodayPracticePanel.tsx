@@ -1,15 +1,10 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useComposerCandidates, type ComposerCandidateApi } from "../composer";
 import { todayLocal } from "../calendar/dates";
-import { TodayDaySheet, useTodaySheet } from "../notebook/DaySheetStore";
+import { useTodaySheet } from "../notebook/DaySheetStore";
 import { insertSuggestion } from "../notebook/daySheetOps";
 import { MetronomeQuickBar } from "../metronome/MetronomeQuickBar";
+import { DaySheetNav } from "./DaySheetNav";
 import { CloseIcon } from "./menuIcons";
 import "./TodayWorkspace.css";
 
@@ -21,9 +16,6 @@ export interface TodayPracticePanelProps {
   /** Deep link (spec C3): a day-sheet piece heading opens Score on that piece's
    *  Plan tab. Threaded up to the shell's score navigation idiom. */
   onOpenPiecePlan: (pieceId: number) => void;
-  /** The shell-owned active-set HUD, docked here so it stays reachable over the
-   *  window while a practice set is live (requirement 2). Null when no set. */
-  activeSetHud?: ReactNode;
   /** Dismisses the panel back to the main menu (Esc, the ×, or the trigger). */
   onClose: () => void;
   /** Test seam for the suggested-from-retention evidence; native by default. */
@@ -36,17 +28,17 @@ export interface TodayPracticePanelProps {
  * type your practice. The old plain-language plan box, the launch board, and the
  * parallel session composer are gone; retention/repair evidence now appears as one
  * quiet "suggested" fold that INSERTS real plan lines (a checkbox item + a timed
- * block) into the same sheet, never a second surface. The active-set HUD docks as
- * a strip along the FOOT of the window — it used to sit above the sheet, where it
- * pushed the writing surface below the fold and made the whole screen read as a
- * form; receipts and recovery live underneath as before. Esc, the ×, or the
- * trigger returns to the menu.
+ * block) into the same sheet, never a second surface. The active-set HUD no
+ * longer docks here at all (Task A3) — it moved to a shell-level floating
+ * Practice Dock panel that persists over every workspace, this window
+ * included, so it never has to be threaded down into this surface; receipts
+ * and recovery live underneath as before. Esc, the ×, or the trigger returns
+ * to the menu.
  */
 export function TodayPracticePanel({
   onOpenAtlas,
   onOpenCalendar,
   onOpenPiecePlan,
-  activeSetHud = null,
   onClose,
   candidateApi,
 }: TodayPracticePanelProps) {
@@ -108,7 +100,7 @@ export function TodayPracticePanel({
         </header>
 
         <div className="today-practice-body">
-          <TodayDaySheet onOpenPiece={onOpenPiecePlan} />
+          <DaySheetNav onOpenPiece={onOpenPiecePlan} />
 
           <div className="today-practice-margin">
             <SuggestedFromRetention candidateApi={candidateApi} />
@@ -131,16 +123,6 @@ export function TodayPracticePanel({
             </div>
           </div>
         </div>
-
-        {/* The live set docks as a strip along the foot of the window rather than
-            as a card stacked on top of the page: it stays reachable the whole
-            time a set is open without ever displacing the writing surface. The
-            HUD's own layout is owned elsewhere; this is only the dock. */}
-        {activeSetHud && (
-          <div className="today-practice-hud" data-testid="today-practice-hud">
-            {activeSetHud}
-          </div>
-        )}
       </div>
     </div>
   );

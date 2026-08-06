@@ -8,7 +8,7 @@
 use rusqlite::{Connection, OptionalExtension};
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 13;
+pub const SCHEMA_VERSION: i32 = 14;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -959,6 +959,38 @@ CREATE INDEX score_page_mark_page_idx
   ON score_page_mark(piece_id,edition_id,edition_fingerprint,page,id);
 ";
 
+/// Task A4b: relax the v9 one-live-set invariant to one-ACTIVE-set. Discovered
+/// mid-A4 — `set_contract_one_live_v2_idx` (SCHEMA_V9) is a partial unique
+/// index over the constant `1` scoped to `set_state IN ('active','paused')`,
+/// so the whole database can hold at most one live (active OR paused) row.
+/// That makes the approved spec's plural paused-sets tray schema-impossible.
+/// v14 is unshipped (the live DB is still v13 as of this branch), so this
+/// step amends v14's own batch rather than adding a v15 — v9's historical DDL
+/// is untouched. The new index narrows the predicate to `set_state='active'`
+/// only: at most one set may be active database-wide, but any number may sit
+/// `paused` simultaneously. See `store::practice_v2::open_set_in_tx` and
+/// `store::practice_loop::v2_resume` for the write paths that enforce/consume
+/// this.
+pub(crate) const SCHEMA_V14: &str = "\
+CREATE TABLE measure_map (
+  id INTEGER PRIMARY KEY,
+  piece_id INTEGER NOT NULL REFERENCES piece(id) ON DELETE CASCADE,
+  edition_id TEXT NOT NULL,
+  edition_fingerprint TEXT NOT NULL,
+  page INTEGER NOT NULL CHECK(page >= 1),
+  systems_json TEXT NOT NULL CHECK(length(systems_json) <= 262144),
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(piece_id, edition_fingerprint, page)
+);
+CREATE INDEX measure_map_piece_idx ON measure_map(piece_id, edition_fingerprint, page);
+ALTER TABLE piece ADD COLUMN banner_text TEXT CHECK(banner_text IS NULL OR length(banner_text) <= 140);
+ALTER TABLE set_contract ADD COLUMN pass_seconds INTEGER CHECK(pass_seconds IS NULL OR (pass_seconds >= 1 AND pass_seconds <= 3600));
+DROP INDEX set_contract_one_live_v2_idx;
+CREATE UNIQUE INDEX set_contract_one_active_v2_idx
+  ON set_contract((1)) WHERE set_state='active';
+";
+
 // ── v11 → v12: split the "Chamber Pieces Tanglewood" pseudo-piece ────────────
 //
 // One vault folder was used as a chamber-music staging drawer and holds two
@@ -1635,6 +1667,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             Ok(())
         })();
         if let Err(error) = v13 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
+    if version < 14 {
+        let v14 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            conn.execute_batch(SCHEMA_V14)?;
+            conn.execute_batch("PRAGMA user_version = 14;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v14 {
             let _ = conn.execute_batch("ROLLBACK;");
             return Err(error);
         }
@@ -4213,14 +4259,162 @@ mod v3_tests {
             .is_err());
     }
 
+    /// Build a v13 database by chaining every prior step manually (mirrors the
+    /// v12→v13 test's own setup), so v14's step can be exercised in isolation.
+    fn seed_v13() -> Connection {
+        let c = seed_v11();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        split_chamber_pieces_tanglewood(&c).unwrap();
+        c.execute_batch("PRAGMA user_version = 12; COMMIT;")
+            .unwrap();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        c.execute_batch(SCHEMA_V13).unwrap();
+        c.execute_batch("PRAGMA user_version = 13; COMMIT;")
+            .unwrap();
+        c
+    }
+
+    /// v13 → v14 adds `measure_map`, `piece.banner_text` and
+    /// `set_contract.pass_seconds` — and nothing else.
+    #[test]
+    fn migrate_v13_to_v14_adds_measure_map_and_columns() {
+        let c = seed_v13();
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name='measure_map'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0,
+            "the table does not exist before the step"
+        );
+
+        migrate(&c).unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+        assert_eq!(SCHEMA_VERSION, 14);
+
+        // measure_map insert/select round-trips (piece id=1, "Etude", already
+        // exists from seed_v11()).
+        c.execute(
+            "INSERT INTO measure_map (piece_id,edition_id,edition_fingerprint,page,systems_json)
+             VALUES (1,'score/e.pdf','fp',1,'[]')",
+            [],
+        )
+        .unwrap();
+        let round_tripped: String = c
+            .query_row(
+                "SELECT systems_json FROM measure_map WHERE piece_id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(round_tripped, "[]");
+
+        // A page < 1 is rejected by the schema itself.
+        assert!(c
+            .execute(
+                "INSERT INTO measure_map (piece_id,edition_id,edition_fingerprint,page,systems_json)
+                 VALUES (1,'score/e.pdf','fp',0,'[]')",
+                [],
+            )
+            .is_err());
+
+        // piece.banner_text: NULL is fine, over-limit (>140 chars) is rejected.
+        c.execute("UPDATE piece SET banner_text = NULL WHERE id=1", [])
+            .unwrap();
+        let long_banner = "x".repeat(141);
+        assert!(c
+            .execute(
+                "UPDATE piece SET banner_text = ?1 WHERE id=1",
+                rusqlite::params![long_banner],
+            )
+            .is_err());
+        let ok_banner = "x".repeat(140);
+        c.execute(
+            "UPDATE piece SET banner_text = ?1 WHERE id=1",
+            rusqlite::params![ok_banner],
+        )
+        .unwrap();
+
+        // set_contract.pass_seconds: NULL is fine, out-of-range is rejected.
+        c.execute(
+            "INSERT INTO rep_block (id,piece_id,m_start,m_end) VALUES (9001,1,1,4)",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO set_contract
+               (set_id,contract_version,name,rationale,mastery_basis,required_success,
+                reset_on_flawed,reset_on_failed,recovery_policy,set_state,
+                mastery_verification,source,pass_seconds)
+             VALUES (9001,1,'left hand','testing v14','consecutive_clean',3,0,0,'none',
+                'active','unverified','user_click',NULL)",
+            [],
+        )
+        .unwrap();
+        assert!(c
+            .execute(
+                "UPDATE set_contract SET pass_seconds = 0 WHERE set_id=9001",
+                []
+            )
+            .is_err());
+        assert!(c
+            .execute(
+                "UPDATE set_contract SET pass_seconds = 3601 WHERE set_id=9001",
+                [],
+            )
+            .is_err());
+        c.execute(
+            "UPDATE set_contract SET pass_seconds = 3600 WHERE set_id=9001",
+            [],
+        )
+        .unwrap();
+    }
+
+    /// A second `migrate()` call at v14 changes nothing.
+    #[test]
+    fn migrate_is_idempotent_at_v14() {
+        let c = seed_v13();
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+
+        migrate(&c).unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name='measure_map'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
+        );
+    }
+
     #[test]
     fn newer_schema_fails_before_reconciliation_or_writes() {
         let c = Connection::open_in_memory().unwrap();
-        c.execute_batch(
+        c.execute_batch(&format!(
             "CREATE TABLE sentinel(id INTEGER PRIMARY KEY,value TEXT);
              INSERT INTO sentinel(id,value) VALUES (1,'preserve me');
-             PRAGMA user_version = 14;",
-        )
+             PRAGMA user_version = {};",
+            SCHEMA_VERSION + 1
+        ))
         .unwrap();
 
         let error = migrate(&c).unwrap_err().to_string();
@@ -4228,7 +4422,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            14
+            SCHEMA_VERSION + 1
         );
         assert_eq!(
             c.query_row("SELECT value FROM sentinel WHERE id=1", [], |row| {

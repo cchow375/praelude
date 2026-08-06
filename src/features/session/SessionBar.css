@@ -126,6 +126,63 @@
   outline-offset: var(--focus-ring-offset);
 }
 
+/* "End my day" (task A5): a secondary/outline twin of .session-end — same
+   size, less visual weight, since the confirm dialog is the primary guard
+   against an accidental click. */
+.session-end-day {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 var(--s-3);
+  font-size: 0.875rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.session-end-day:active {
+  transform: translateY(1px);
+}
+.session-end-day:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.session-end-day:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Fix wave item 5: the inline "End your practice day?" confirm — same idiom
+   as Banner.css's .score-banner-confirm (ask sentence + two text actions),
+   replacing `window.confirm`. */
+.session-end-day-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex: 0 0 auto;
+}
+
+.session-end-day-confirm-ask {
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+}
+
+.session-end-day-action {
+  border: 0;
+  background: none;
+  padding: 0 var(--s-1);
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.session-end-day-action:hover,
+.session-end-day-action:focus-visible {
+  color: var(--ink);
+}
+
 .session-timeline {
   list-style: none;
   margin: 0;

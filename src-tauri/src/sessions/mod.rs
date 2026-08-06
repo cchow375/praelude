@@ -25,6 +25,33 @@ pub trait StateEmitter: Send + Sync {
     fn emit(&self, event: &str, payload: Value);
 }
 
+/// Test seam for "now", mirroring `crate::rep::PracticeClock`: production wraps
+/// [`Store::now_rfc3339`]; tests inject a fixed/movable value so the
+/// same-local-calendar-day session adoption boundary (task A5) never depends on
+/// wall-clock time or a sleep.
+pub(crate) trait SessionClock: Send + Sync {
+    fn now(&self, store: &Store) -> Result<String, String>;
+}
+
+struct StoreSessionClock;
+
+impl SessionClock for StoreSessionClock {
+    fn now(&self, store: &Store) -> Result<String, String> {
+        store.now_rfc3339().map_err(|error| error.to_string())
+    }
+}
+
+/// Pauses whatever practice set is currently active, through the *same*
+/// internal store path the `rep_pause` command uses (never a raw `UPDATE`, never
+/// a new write path) — at an explicit already-committed timestamp rather than
+/// "now". Wired to the rep engine after construction (the `AppHandle`-style seam
+/// again) so the rep engine's own in-memory active-block cache never diverges
+/// from a pause `resolve_session()` performs on its behalf at a day-rollover
+/// boundary. A no-op (`Ok`) when nothing is currently active.
+pub trait RolloverPauseHook: Send + Sync {
+    fn pause_active_at_rollover(&self, session_id: i64, at: &str) -> Result<(), String>;
+}
+
 /// The session log service. Managed by Tauri behind an `Arc`; the rep engine,
 /// the voice loop, and the command layer all log through the one instance.
 pub struct SessionService {
@@ -37,15 +64,26 @@ pub struct SessionService {
     /// lifetime. Resolved lazily (reusing a store-side open session on restart).
     current: Mutex<Option<i64>>,
     emitter: Mutex<Option<Arc<dyn StateEmitter>>>,
+    clock: Arc<dyn SessionClock>,
+    /// The rep engine's rollover-pause seam (task A5). `None` until the app
+    /// wires it post-construction; a rollover with no hook installed simply
+    /// closes/opens sessions without pausing anything.
+    pause_hook: Mutex<Option<Arc<dyn RolloverPauseHook>>>,
 }
 
 impl SessionService {
     pub fn new(store: Arc<Store>) -> Self {
+        Self::new_with_clock(store, Arc::new(StoreSessionClock))
+    }
+
+    pub(crate) fn new_with_clock(store: Arc<Store>, clock: Arc<dyn SessionClock>) -> Self {
         SessionService {
             store,
             lifecycle: Mutex::new(()),
             current: Mutex::new(None),
             emitter: Mutex::new(None),
+            clock,
+            pause_hook: Mutex::new(None),
         }
     }
 
@@ -53,6 +91,14 @@ impl SessionService {
     pub fn set_emitter(&self, emitter: Arc<dyn StateEmitter>) {
         if let Ok(mut g) = self.emitter.lock() {
             *g = Some(emitter);
+        }
+    }
+
+    /// Install the rollover-pause hook (once the rep engine exists — it is
+    /// constructed with an `Arc` to this service, so wiring happens after).
+    pub fn set_rollover_pause_hook(&self, hook: Arc<dyn RolloverPauseHook>) {
+        if let Ok(mut g) = self.pause_hook.lock() {
+            *g = Some(hook);
         }
     }
 
@@ -65,39 +111,132 @@ impl SessionService {
 
     /// Resolve the current session id, opening (or adopting a store-side open)
     /// session on demand. Best-effort: returns `None` only if the store errors.
+    ///
+    /// Task A5 (day-scoped sessions): the process-cached session and a
+    /// store-side still-open session (restart-adoption) are both subject to
+    /// the same rule — adopted ONLY if their last event (falling back to
+    /// `started_at`) is on the same LOCAL calendar day as now. Otherwise the
+    /// old session is closed retroactively at that last-event timestamp (never
+    /// "now" — no phantom overnight focused time), any still-active practice
+    /// set is paused through the standard pause path first, and a fresh
+    /// session opens. Checked lazily on every call (no timer, no sleep) so a
+    /// session left open for several days closes the same way on the next
+    /// event, and exactly one new session opens — never one per skipped day.
     fn resolve_session(&self) -> Option<i64> {
         let mut cur = self.current.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(sid) = *cur {
-            return Some(sid);
-        }
-        let sid = match self.store.latest_open_session() {
-            Ok(Some(sid)) => sid,
-            Ok(None) => match self.store.open_session() {
-                Ok(sid) => {
-                    // Durable canonical log: a genuinely new session begins (not on
-                    // restart-adoption of an already-open session above).
-                    if let Err(e) = self.store.append_event(
-                        EventKind::SESSION_START,
-                        Some(sid),
-                        None,
-                        &Value::Object(Default::default()),
-                    ) {
-                        eprintln!("session: failed to append SESSION_START event: {e}");
-                    }
-                    sid
+
+        let now = match self.clock.now(&self.store) {
+            Ok(now) => now,
+            Err(e) => {
+                eprintln!("session: failed to read clock: {e}");
+                // Fail open: adopt whatever is cached/open rather than block
+                // practice on a clock read error.
+                if let Some(sid) = *cur {
+                    return Some(sid);
                 }
+                match self.store.latest_open_session() {
+                    Ok(Some(sid)) => {
+                        *cur = Some(sid);
+                        return Some(sid);
+                    }
+                    Ok(None) => return self.open_fresh_session(&mut cur),
+                    Err(e) => {
+                        eprintln!("session: failed to query open session: {e}");
+                        return None;
+                    }
+                }
+            }
+        };
+
+        let candidate = match *cur {
+            Some(sid) => Some(sid),
+            None => match self.store.latest_open_session() {
+                Ok(open) => open,
                 Err(e) => {
-                    eprintln!("session: failed to open session: {e}");
-                    return None;
+                    eprintln!("session: failed to query open session: {e}");
+                    None
                 }
             },
+        };
+
+        if let Some(sid) = candidate {
+            match self.store.session_last_event_and_same_local_day(sid, &now) {
+                Ok(Some((_, true))) => {
+                    *cur = Some(sid);
+                    return Some(sid);
+                }
+                Ok(Some((last_ts, false))) => {
+                    self.rollover_close(sid, &last_ts);
+                    *cur = None;
+                    // Falls through to open a fresh session below.
+                }
+                Ok(None) => {
+                    // The session row is gone; nothing to adopt or close.
+                    *cur = None;
+                }
+                Err(e) => {
+                    eprintln!("session: failed to check session day boundary for {sid}: {e}");
+                    // Fail open rather than fork a duplicate session.
+                    *cur = Some(sid);
+                    return Some(sid);
+                }
+            }
+        }
+
+        self.open_fresh_session(&mut cur)
+    }
+
+    /// Open a genuinely new session (not restart-adoption of an already-open
+    /// one), append its canonical `SESSION_START` evidence, and cache it.
+    fn open_fresh_session(&self, cur: &mut std::sync::MutexGuard<'_, Option<i64>>) -> Option<i64> {
+        // Stamped through the same clock the day-rollover boundary reads (see
+        // `log()`); a clock-read error falls back to SQLite's own `now()`.
+        let opened = match self.clock.now(&self.store) {
+            Ok(now) => self.store.open_session_at(&now),
+            Err(_) => self.store.open_session(),
+        };
+        let sid = match opened {
+            Ok(sid) => {
+                if let Err(e) = self.store.append_event(
+                    EventKind::SESSION_START,
+                    Some(sid),
+                    None,
+                    &Value::Object(Default::default()),
+                ) {
+                    eprintln!("session: failed to append SESSION_START event: {e}");
+                }
+                sid
+            }
             Err(e) => {
-                eprintln!("session: failed to query open session: {e}");
+                eprintln!("session: failed to open session: {e}");
                 return None;
             }
         };
-        *cur = Some(sid);
+        **cur = Some(sid);
         Some(sid)
+    }
+
+    /// Retroactively close `sid` at `last_ts` (its own last event, verbatim —
+    /// never "now"), pausing any still-active practice set through the
+    /// standard pause path first so the pause event lands inside the closing
+    /// session's own log, at the same boundary timestamp.
+    fn rollover_close(&self, sid: i64, last_ts: &str) {
+        if let Some(hook) = self.pause_hook.lock().ok().and_then(|g| g.clone()) {
+            if let Err(e) = hook.pause_active_at_rollover(sid, last_ts) {
+                eprintln!("session: rollover auto-pause failed for session {sid}: {e}");
+            }
+        }
+        if let Err(e) = self.store.end_session_at(sid, last_ts, "") {
+            eprintln!("session: failed to retroactively close session {sid}: {e}");
+        }
+        if let Err(e) = self.store.append_event(
+            EventKind::SESSION_END,
+            Some(sid),
+            None,
+            &Value::Object(Default::default()),
+        ) {
+            eprintln!("session: failed to append SESSION_END event: {e}");
+        }
     }
 
     /// Append an event to the current session and emit it. Auto-opens a session
@@ -110,7 +249,16 @@ impl SessionService {
         let Some(sid) = self.resolve_session() else {
             return;
         };
-        let event_id = match self.store.insert_session_event(sid, kind, &payload) {
+        // Stamped through the same clock the day-rollover boundary reads (in
+        // production this is still real time; a clock-read error falls back to
+        // SQLite's own `datetime('now')` rather than dropping the event).
+        let event_id = match self.clock.now(&self.store) {
+            Ok(now) => self
+                .store
+                .insert_session_event_at(sid, kind, &payload, &now),
+            Err(_) => self.store.insert_session_event(sid, kind, &payload),
+        };
+        let event_id = match event_id {
             Ok(id) => id,
             Err(e) => {
                 eprintln!("session: failed to log {kind} event: {e}");
@@ -129,13 +277,6 @@ impl SessionService {
             .unwrap_or_else(|poison| poison.into_inner());
         self.resolve_session()
             .ok_or_else(|| "Could not open a practice session.".to_string())
-    }
-
-    /// Return only the in-process cache as a transaction hint. Practice writes
-    /// resolve/adopt/create the authoritative open session inside their own
-    /// SQLite transaction, after durable-command replay preflight.
-    pub(crate) fn cached_practice_session(&self) -> Option<i64> {
-        *self.current.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     /// Update the process cache only after the practice transaction that
@@ -163,18 +304,43 @@ impl SessionService {
         }
     }
 
+    /// The session id the process cache or store currently has open,
+    /// regardless of whether it is still on today's local calendar day. Used
+    /// internally where a *stale* (cross-day) session must still be found —
+    /// to close it correctly (`end_raw_locked`) — never for display.
+    fn raw_open_session_id(&self) -> Option<i64> {
+        let cur = self.current.lock().unwrap_or_else(|p| p.into_inner());
+        match *cur {
+            Some(sid) => Some(sid),
+            None => self.store.latest_open_session().ok().flatten(),
+        }
+    }
+
+    /// `raw_open_session_id()`, filtered to same-local-day sessions only. A
+    /// session left open from a prior day is real (still `ended_at IS NULL`
+    /// in the store) but must never be displayed or adopted as "the current
+    /// session" — it is resolved/closed the next time an event or an
+    /// explicit end reaches it, not read as still live (fix round 1,
+    /// IMPORTANT 3).
+    fn same_day_open_session_id(&self) -> Option<i64> {
+        let sid = self.raw_open_session_id()?;
+        let now = self.clock.now(&self.store).ok()?;
+        match self.store.session_last_event_and_same_local_day(sid, &now) {
+            Ok(Some((_, true))) => Some(sid),
+            // Stale, unknown, or unreadable — fail closed rather than show a
+            // possibly-days-old session as live.
+            _ => None,
+        }
+    }
+
     /// The current session and its event log (newest-first, capped at 200), or
     /// `None` when no session has been started. Timestamps are RFC3339 UTC.
     pub fn current(&self) -> Option<SessionView> {
         // Reflect an already-open session even before this process logged
-        // anything (e.g. right after a restart), without opening a new one.
-        let sid = {
-            let cur = self.current.lock().unwrap_or_else(|p| p.into_inner());
-            match *cur {
-                Some(sid) => Some(sid),
-                None => self.store.latest_open_session().ok().flatten(),
-            }
-        }?;
+        // anything (e.g. right after a restart), without opening a new one —
+        // but never one left open from a prior local day (see
+        // `same_day_open_session_id`).
+        let sid = self.same_day_open_session_id()?;
 
         let started_at = self
             .store
@@ -197,13 +363,14 @@ impl SessionService {
         })
     }
 
-    /// The current session id, if one is open (without opening one).
+    /// The current session id, if one is open on today's local calendar day
+    /// (without opening one). Never a session left open from a prior day —
+    /// see `same_day_open_session_id`. Test-only: production now reads
+    /// through `current()` (display) or `raw_open_session_id()`
+    /// (`end_and_export`, which must still find a stale session to close).
+    #[cfg(test)]
     pub fn current_id(&self) -> Option<i64> {
-        let cur = self.current.lock().unwrap_or_else(|p| p.into_inner());
-        match *cur {
-            Some(sid) => Some(sid),
-            None => self.store.latest_open_session().ok().flatten(),
-        }
+        self.same_day_open_session_id()
     }
 
     /// Mark the current session ended (empty summary — the vault export in
@@ -219,13 +386,25 @@ impl SessionService {
         self.end_raw_locked()
     }
 
+    /// Close `sid` (whether on today's local day or stale), stamping
+    /// `ended_at` at the correct boundary: "now" for a same-day session, or
+    /// its own last event for one left open from a prior day — closing a
+    /// stale session at "now" would silently write an overnight-spanning
+    /// session (fix round 1, IMPORTANT 3).
     fn end_raw_locked(&self) -> Option<i64> {
         let mut cur = self.current.lock().unwrap_or_else(|p| p.into_inner());
         let sid = match *cur {
             Some(sid) => sid,
             None => self.store.latest_open_session().ok().flatten()?,
         };
-        if let Err(e) = self.store.end_session(sid, "") {
+        let close_result = match self.clock.now(&self.store) {
+            Ok(now) => match self.store.session_last_event_and_same_local_day(sid, &now) {
+                Ok(Some((last_ts, false))) => self.store.end_session_at(sid, &last_ts, ""),
+                _ => self.store.end_session(sid, ""),
+            },
+            Err(_) => self.store.end_session(sid, ""),
+        };
+        if let Err(e) = close_result {
             eprintln!("session: failed to end session {sid}: {e}");
             return None;
         }
@@ -253,7 +432,10 @@ impl SessionService {
             .lifecycle
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let sid = self.current_id()?;
+        // Deliberately the RAW (unfiltered) lookup, not `current_id()`: "End my
+        // day" must still find and correctly close a session left open from a
+        // prior local day, not treat it as if nothing were open.
+        let sid = self.raw_open_session_id()?;
         // Export BEFORE ending: reads the event log (ending does not touch it).
         let result = export::write_session_md(store, sid, pieces_dir);
         self.end_raw_locked();
@@ -346,6 +528,377 @@ mod tests {
             b.current().unwrap().events.len(),
             2,
             "both events in one session"
+        );
+    }
+
+    // ── Task A5: day-scoped sessions ────────────────────────────────────────
+
+    /// A movable clock implementing both this module's [`SessionClock`] and
+    /// `crate::rep::PracticeClock`, so one instance can drive a `SessionService`
+    /// and a `RepEngine` in lockstep across a simulated midnight — never a real
+    /// sleep or wall-clock dependency.
+    struct FixedClock(Mutex<String>);
+
+    impl FixedClock {
+        fn new(value: &str) -> Arc<Self> {
+            Arc::new(FixedClock(Mutex::new(value.to_string())))
+        }
+        fn set(&self, value: &str) {
+            *self.0.lock().unwrap() = value.to_string();
+        }
+    }
+
+    impl SessionClock for FixedClock {
+        fn now(&self, _store: &Store) -> Result<String, String> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+    }
+
+    impl crate::rep::PracticeClock for FixedClock {
+        fn now(&self, _store: &Store) -> Result<String, String> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+    }
+
+    #[test]
+    fn same_calendar_day_restart_adopts_the_open_session() {
+        let store = Arc::new(Store::open(":memory:").unwrap());
+        // Fix round 1 (minor a): clustered near UTC midday, not near a real
+        // UTC midnight — a wide local-day window that stays green regardless
+        // of the machine's timezone (unlike 09:00Z/22:30Z, only same-local-day
+        // for roughly UTC-9..UTC+1).
+        let clock = FixedClock::new("2026-08-05T12:00:00Z");
+        let a = SessionService::new_with_clock(store.clone(), clock.clone());
+        a.log("rep", json!({ "n": 1 }));
+        let sid = a.current_id().unwrap();
+
+        // Later the SAME local day: a fresh service instance (as if the app
+        // restarted) adopts the still-open session.
+        clock.set("2026-08-05T13:30:00Z");
+        let b = SessionService::new_with_clock(store, clock);
+        b.log("rep", json!({ "n": 2 }));
+        assert_eq!(b.current_id(), Some(sid), "same-day session is adopted");
+        assert_eq!(b.current().unwrap().events.len(), 2);
+    }
+
+    #[test]
+    fn first_event_after_midnight_closes_the_old_session_at_its_last_event() {
+        let store = Arc::new(Store::open(":memory:").unwrap());
+        // Fix round 1 (minor a): midday-clustered same-day pair, then a
+        // multi-day jump for the rollover — both TZ-safe (see the sibling
+        // test's comment).
+        let clock = FixedClock::new("2026-08-05T12:00:00Z");
+        let svc = SessionService::new_with_clock(store.clone(), clock.clone());
+
+        svc.log("rep", json!({ "n": 1 }));
+        clock.set("2026-08-05T13:10:00Z");
+        svc.log("rep", json!({ "n": 2 })); // last event of the old day
+        let old_sid = svc.current_id().unwrap();
+
+        // First event past local midnight rolls the day over (three days
+        // later, so the boundary crossing holds under any local timezone).
+        clock.set("2026-08-08T13:15:00Z");
+        svc.log("rep", json!({ "n": 3 }));
+        let new_sid = svc.current_id().unwrap();
+
+        assert_ne!(old_sid, new_sid, "a fresh session opens after the boundary");
+        let ended_at = store
+            .test_scalar_string(&format!("SELECT ended_at FROM session WHERE id={old_sid}"))
+            .unwrap();
+        assert_eq!(
+            ended_at, "2026-08-05T13:10:00Z",
+            "closed at its own last event, never at rollover-detection time"
+        );
+
+        // The new session's only event is the post-midnight one; the old
+        // session's events never gained a phantom overnight entry.
+        let old_view_events = store.session_events(old_sid).unwrap();
+        assert_eq!(old_view_events.len(), 2);
+        let new_view_events = store.session_events(new_sid).unwrap();
+        assert_eq!(new_view_events.len(), 1);
+    }
+
+    #[test]
+    fn multi_day_gap_closes_once_and_opens_exactly_one_new_session() {
+        // A session left open from three days ago closes the same way — no
+        // synthetic sessions are created for the empty days in between.
+        let store = Arc::new(Store::open(":memory:").unwrap());
+        let clock = FixedClock::new("2026-08-02T10:00:00Z");
+        let svc = SessionService::new_with_clock(store.clone(), clock.clone());
+        svc.log("rep", json!({}));
+        let old_sid = svc.current_id().unwrap();
+
+        clock.set("2026-08-05T08:00:00Z");
+        svc.log("rep", json!({}));
+        let new_sid = svc.current_id().unwrap();
+
+        assert_ne!(old_sid, new_sid);
+        let ended_at = store
+            .test_scalar_string(&format!("SELECT ended_at FROM session WHERE id={old_sid}"))
+            .unwrap();
+        assert_eq!(ended_at, "2026-08-02T10:00:00Z");
+        let session_count: i64 = store
+            .test_scalar_i64("SELECT COUNT(*) FROM session")
+            .unwrap();
+        assert_eq!(
+            session_count, 2,
+            "no synthetic sessions for the skipped days"
+        );
+    }
+
+    // ── Task A5 fix round 1, IMPORTANT 3 ────────────────────────────────────
+    // A session left open from a prior local day (no event has reached
+    // `resolve_session()` to roll it over yet) must not be displayed or
+    // adopted as "the current session" by a pure read, and "End my day" must
+    // still find and correctly close it at its own last event.
+
+    #[test]
+    fn current_and_current_id_do_not_surface_a_session_left_open_from_a_prior_day() {
+        let store = Arc::new(Store::open(":memory:").unwrap());
+        let clock = FixedClock::new("2026-08-05T12:00:00Z");
+        let svc = SessionService::new_with_clock(store.clone(), clock.clone());
+        svc.log("rep", json!({}));
+        assert!(svc.current().is_some(), "same-day session is live");
+        assert!(svc.current_id().is_some());
+
+        // A NEW `SessionService` instance restarting on a later local day
+        // (as if the app relaunched three days later) must not treat the
+        // still-open session as live, even though the store still has it as
+        // `ended_at IS NULL`.
+        clock.set("2026-08-08T12:05:00Z");
+        let relaunched = SessionService::new_with_clock(store, clock);
+        assert!(
+            relaunched.current().is_none(),
+            "a session left open from a prior local day is not displayed as live"
+        );
+        assert!(relaunched.current_id().is_none());
+    }
+
+    #[test]
+    fn end_my_day_on_a_stale_session_closes_it_at_its_last_event_not_now() {
+        // The "End my day" chain: `end_and_export` -> `end_raw_locked`. A
+        // session left open from a prior local day must still be found and
+        // closed — but at its own last event, never "now" (which would
+        // silently write a session that spans the overnight/multi-day gap).
+        let store = Arc::new(Store::open(":memory:").unwrap());
+        let clock = FixedClock::new("2026-08-05T12:00:00Z");
+        let svc = SessionService::new_with_clock(store.clone(), clock.clone());
+        svc.log("rep", json!({}));
+        let stale_sid = svc.current_id().unwrap();
+
+        // No event ever reaches `resolve_session()` again — the app is
+        // relaunched three days later and the user immediately hits "End my
+        // day" without practicing first.
+        clock.set("2026-08-08T12:05:00Z");
+        let relaunched = SessionService::new_with_clock(store.clone(), clock);
+        assert!(
+            relaunched.current_id().is_none(),
+            "not displayed as live going in"
+        );
+
+        let ended = relaunched
+            .end_raw()
+            .expect("the stale session still closes");
+        assert_eq!(ended, stale_sid);
+        let ended_at = store
+            .test_scalar_string(&format!(
+                "SELECT ended_at FROM session WHERE id={stale_sid}"
+            ))
+            .unwrap();
+        assert_eq!(
+            ended_at, "2026-08-05T12:00:00Z",
+            "closed at its own last event, never at end-my-day-detection time"
+        );
+    }
+
+    #[test]
+    fn day_rollover_pauses_a_still_active_set_through_the_standard_pause_path() {
+        use crate::rep::RepEngine;
+        use crate::store::model::{RepOpenArgs, ScanPiece};
+
+        let store = Arc::new(Store::open(":memory:").unwrap());
+        let piece_id = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/A5 rollover".into(),
+                title: "A5 rollover".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        let clock = FixedClock::new("2026-08-05T20:00:00Z");
+        let sessions = Arc::new(SessionService::new_with_clock(store.clone(), clock.clone()));
+        let rep = Arc::new(RepEngine::new_with_clock(
+            store.clone(),
+            sessions.clone(),
+            clock.clone(),
+        ));
+        sessions.set_rollover_pause_hook(rep.clone());
+
+        let snapshot = rep
+            .open(RepOpenArgs {
+                piece_id,
+                region_id: None,
+                m_start: 1,
+                m_end: 8,
+                label: None,
+                start_bpm: 80.0,
+                target_bpm: Some(120.0),
+                planned_reps: Some(10),
+                required_clean_streak: None,
+                increment: None,
+                variants: vec![],
+                focus: "tempo".into(),
+                use_metronome: false,
+            })
+            .unwrap();
+        let block_id = snapshot.block_id;
+        let old_sid = sessions.current_id().unwrap();
+
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={block_id}"
+                ))
+                .unwrap(),
+            "active"
+        );
+
+        // First event past local midnight: rolls the day over, which must pause
+        // the still-active set through the SAME store path `rep_pause` uses.
+        clock.set("2026-08-08T00:05:00Z");
+        sessions.log("misc", json!({}));
+        let new_sid = sessions.current_id().unwrap();
+        assert_ne!(old_sid, new_sid);
+
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={block_id}"
+                ))
+                .unwrap(),
+            "paused",
+            "the active set is auto-paused at day rollover"
+        );
+
+        let pause_events: i64 = store
+            .test_scalar_i64(&format!(
+                "SELECT COUNT(*) FROM session_event
+                 WHERE session_id={old_sid} AND kind='rep_pause'"
+            ))
+            .unwrap();
+        assert_eq!(
+            pause_events, 1,
+            "the pause event lands in the closing (old) session, not the new one"
+        );
+
+        let ended_at = store
+            .test_scalar_string(&format!("SELECT ended_at FROM session WHERE id={old_sid}"))
+            .unwrap();
+        assert_eq!(
+            ended_at, "2026-08-05T20:00:00Z",
+            "closed at its last event, unmoved by the pause landing at the same instant"
+        );
+    }
+
+    #[test]
+    fn focused_seconds_of_a_retro_closed_session_excludes_the_overnight_gap() {
+        // Task A5 fix round 1 (IMPORTANT 4): the post-boundary practice event
+        // is recorded through the REP ENGINE (a real `check()`, which writes
+        // to the canonical `event` table `metrics::focused_seconds` reads),
+        // not `sessions.log()` (which only writes the live session-panel
+        // feed) — so this test cannot pass by accident if day-scoping were
+        // deleted; it must actually land the new event in a NEW session.
+        use crate::rep::{RepEngine, RepVerdict};
+        use crate::store::model::{RepOpenArgs, ScanPiece};
+
+        let store = Arc::new(Store::open(":memory:").unwrap());
+        let piece_id = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/v/A5 focused seconds".into(),
+                title: "A5 focused seconds".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        // Fix round 1 (minor a): midday-clustered, TZ-safe (see the sibling
+        // tests' comments).
+        let clock = FixedClock::new("2026-08-05T12:00:00Z");
+        let sessions = Arc::new(SessionService::new_with_clock(store.clone(), clock.clone()));
+        let rep = Arc::new(RepEngine::new_with_clock(
+            store.clone(),
+            sessions.clone(),
+            clock.clone(),
+        ));
+        sessions.set_rollover_pause_hook(rep.clone());
+
+        let opened = rep
+            .open(RepOpenArgs {
+                piece_id,
+                region_id: None,
+                m_start: 1,
+                m_end: 8,
+                label: None,
+                start_bpm: 80.0,
+                target_bpm: Some(120.0),
+                planned_reps: Some(10),
+                required_clean_streak: None,
+                increment: None,
+                variants: vec![],
+                focus: "tempo".into(),
+                use_metronome: false,
+            })
+            .unwrap();
+        let block_id = opened.block_id;
+        let old_sid = sessions.current_id().unwrap();
+
+        // A rep 30s later, still the same local day.
+        clock.set("2026-08-05T12:00:30Z");
+        rep.check(RepVerdict::Clean, None).unwrap();
+
+        // Three days later (TZ-safe crossing — see the sibling tests):
+        // `resume()` is the first call to observe the boundary. It must
+        // (a) roll the session over, auto-pausing the still-active set
+        // through the standard pause path (it was never explicitly paused),
+        // then (b) resume it as the FIRST event of the new session.
+        clock.set("2026-08-08T12:05:00Z");
+        rep.resume("resume-after-boundary", None).unwrap();
+        let new_sid = sessions.current_id().unwrap();
+        assert_ne!(old_sid, new_sid, "resume crossed into a fresh session");
+        assert_eq!(
+            store
+                .test_scalar_string(&format!(
+                    "SELECT set_state FROM set_contract WHERE set_id={block_id}"
+                ))
+                .unwrap(),
+            "active",
+            "auto-paused by the rollover, then immediately resumed"
+        );
+
+        // A further rep now lands in the new session's canonical log. (Not
+        // filtered by `entity_id` — a "rep" event's `entity_id` is the
+        // ATTEMPT id, not the block id, and both checks happen to land on
+        // this one block, so the latest "rep" row overall is unambiguous.)
+        rep.check(RepVerdict::Clean, None).unwrap();
+        let new_rep_session: i64 = store
+            .test_scalar_i64(
+                "SELECT session_id FROM event WHERE kind='rep' ORDER BY id DESC LIMIT 1",
+            )
+            .unwrap();
+        assert_eq!(
+            new_rep_session, new_sid,
+            "the post-boundary rep is canonically attributed to the new session"
+        );
+
+        let old_events = store.events_for_session(old_sid).unwrap();
+        let seconds = crate::metrics::focused_seconds(&old_events);
+        assert_eq!(
+            seconds, 30,
+            "only the intra-day 30s gap counts; the ~3-day gap is excluded \
+             entirely because the old session's canonical log stops at the boundary"
         );
     }
 }

@@ -35,11 +35,13 @@ import type {
 } from "../features/pieces/types";
 import type {
   CheckOutcome,
+  RepOpenArgs,
   RepSnapshot,
   RetentionCheckView,
   Verdict,
 } from "../features/rep/useRep";
 import type { MutationReceipt } from "../features/receipts/ReceiptCenter";
+import type { PausedSetRow } from "../features/rep/pausedSets";
 import type { SessionView } from "../features/session/useSession";
 import type { UniverseSnapshot } from "../features/universe/types";
 import {
@@ -49,6 +51,7 @@ import {
   type NotebookLine,
   type PiecePlan,
 } from "../features/notebook/lines";
+import { BANNER_MAX_CHARS } from "../features/score/bannerText";
 
 /** Local YYYY-MM-DD, matching calendar/dates.ts `todayLocal()`. */
 function todayLocal(): string {
@@ -65,7 +68,19 @@ function isoDaysAgo(days: number): string {
   return date.toISOString();
 }
 
+/** Local YYYY-MM-DD `days` ago, matching `todayLocal()`'s own local (not
+ * UTC) day math — used only by the fix-wave item 12 QA fixtures below. */
+function dayLocalOffset(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 const TODAY = todayLocal();
+const YESTERDAY = dayLocalOffset(-1);
 
 // --- Repertoire -----------------------------------------------------------
 
@@ -168,6 +183,7 @@ const PIECE_DETAILS: Record<number, PieceDetailData> = {
     hard_spots: [{ measures: "65-96", note: "Development hand coordination" }],
     current_state: "Development section under tempo",
     notes: "Keep the left hand light in the opening.",
+    banner_text: "Even development voicing, hands together at 84",
   },
   2: {
     id: 2,
@@ -185,6 +201,7 @@ const PIECE_DETAILS: Record<number, PieceDetailData> = {
     hard_spots: [{ measures: "40-52", note: "Climax pedaling" }],
     current_state: "Reading the opening",
     notes: null,
+    banner_text: null,
   },
   3: {
     id: 3,
@@ -202,8 +219,13 @@ const PIECE_DETAILS: Record<number, PieceDetailData> = {
     hard_spots: [],
     current_state: null,
     notes: null,
+    banner_text: null,
   },
 };
+
+/** Task A11: banner edits made during a dev run, keyed by piece id. Absent =
+ *  use the fixture's own `banner_text`. Cleared in `installTauriDevMock()`. */
+const MOCK_BANNERS = new Map<number, string | null>();
 
 const REGIONS: Record<number, Region[]> = {
   1: [
@@ -901,6 +923,243 @@ const MOCK_REP_STATE: RepSnapshot = {
   method: "tempo ladder",
 };
 
+// Task A4: the paused-sets tray's backing state. `rep_pause`/`rep_resume`
+// toggle `mockSetState` and keep `mockPausedSets` in sync so `sets_paused_list`
+// reflects it — the same real/mock relationship as `rep_state` vs. the ledger
+// counters below. Reset in `installTauriDevMock()` so tests don't bleed state.
+let mockSetState: "active" | "paused" = "active";
+let mockPausedSets: PausedSetRow[] = [];
+
+// Task A4b fix round 1 (folded minor a): deliberately DISTINCT from
+// `MOCK_REP_STATE.block_id` (102) — if the frontend ever dropped `setId` off
+// a paused-row Resume call (regressing back to the pre-A4b no-target
+// command), this mismatch would make the resume hit the rejection branch
+// below instead of silently "succeeding" against the wrong id.
+const MOCK_PAUSED_SET_ID = 5102;
+
+function mockPausedRow(): PausedSetRow {
+  return {
+    set_id: MOCK_PAUSED_SET_ID,
+    block_id: MOCK_PAUSED_SET_ID,
+    piece_id: MOCK_REP_STATE.piece_id,
+    piece_title: MOCK_REP_STATE.piece_title,
+    m_start: MOCK_REP_STATE.m_start,
+    m_end: MOCK_REP_STATE.m_end,
+    bpm: MOCK_REP_STATE.bpm ?? 0,
+    target_bpm: MOCK_REP_STATE.target_bpm ?? 0,
+    paused_since_ts: new Date().toISOString(),
+    current_clean_streak: mockCleanStreak,
+  };
+}
+
+function repPauseReceipt(commandId: string): MutationReceipt<RepSnapshot> {
+  mockSetState = "paused";
+  mockPausedSets = [mockPausedRow()];
+  const snap: RepSnapshot = {
+    ...MOCK_REP_STATE,
+    set_state: "paused",
+    timer_state: "paused",
+  };
+  return {
+    receipt_id: `mock-receipt-pause-${Date.now()}`,
+    command_id: commandId,
+    status: "committed",
+    summary: "Practice paused; paused time will not count.",
+    value: snap,
+    entity_refs: [{ entity_type: "set", entity_id: snap.block_id }],
+    event_ids: [],
+    undo_action: null,
+    error_code: null,
+    error_detail: null,
+    replayed: false,
+    committed_ts: new Date().toISOString(),
+  };
+}
+
+// Task A4 fix round 1: a deterministic, test-controlled hook to force the
+// next `rep_resume` mock call to resolve a REJECTED receipt (a business
+// rejection, not a thrown error — real rejections like "only a paused
+// practice set can resume" arrive exactly this way, per lib.rs's
+// `rejected_snapshot`). Distinct from the mock's plain-string-throw
+// convention (e.g. `book_add`'s validation failures): this is a rejected
+// PROMISE RESOLUTION carrying a receipt, not a thrown/rejected promise.
+let mockResumeRejects = false;
+
+/** Test-only: flip whether the next `rep_resume` mock call rejects the
+ * receipt. Not reachable through any UI affordance — imported directly by
+ * tests, same spirit as `imslp_search`'s query-driven failure trigger below
+ * but for a receipt-shaped (not thrown) rejection. */
+export function setMockResumeRejects(reject: boolean): void {
+  mockResumeRejects = reject;
+}
+
+// Task A4b fix round 1: the real backend's `Store::v2_resume` can atomically
+// auto-pause a DIFFERENT set while resuming the target (rep/mod.rs's
+// `resume`) — the mock only ever tracks ONE simulated live block, so it
+// can't derive that on its own. Test-only hook, same spirit as
+// `setMockResumeRejects`: when set, the next COMMITTED resume replaces
+// `mockPausedSets` with this value (instead of clearing it to `[]`) and
+// includes it in the receipt's summary, simulating "the backend just
+// auto-paused this other set while resuming the target" — the exact
+// scenario `PausedSetsTray` must refetch and surface.
+let mockPausedSetsAfterResume: PausedSetRow[] | null = null;
+
+/** Test-only: seed what `mockPausedSets` becomes after the NEXT committed
+ * `rep_resume` (simulating an auto-paused OTHER set), or `null` to restore
+ * the default "clears to empty" behavior. Not reachable through any UI
+ * affordance. */
+export function setMockPausedSetsAfterResume(
+  rows: PausedSetRow[] | null,
+): void {
+  mockPausedSetsAfterResume = rows;
+}
+
+// Task A4b: `rep_resume` gained an optional `setId` (the tray now always
+// passes the specific row's `set_id`; the rep HUD's own Resume chip still
+// omits it — that's `undefined`, not a mismatch, and is accepted). The mock
+// only ever simulates ONE live block, so there is no second set to
+// auto-pause here — a `setId` that doesn't match `MOCK_PAUSED_SET_ID`
+// simulates the real backend's "only a paused practice set can resume"
+// rejection rather than silently resuming the wrong thing.
+function repResumeReceipt(
+  commandId: string,
+  setId?: number,
+): MutationReceipt<RepSnapshot> {
+  if (mockResumeRejects) {
+    return {
+      receipt_id: `mock-receipt-resume-rejected-${Date.now()}`,
+      command_id: commandId,
+      status: "rejected",
+      summary: "Practice could not be resumed.",
+      value: null,
+      entity_refs: [],
+      event_ids: [],
+      undo_action: null,
+      error_code: "practice_rejected",
+      error_detail: "Mock-forced rejection for testing.",
+      replayed: false,
+      committed_ts: null,
+    };
+  }
+  if (setId != null && setId !== MOCK_PAUSED_SET_ID) {
+    return {
+      receipt_id: `mock-receipt-resume-rejected-${Date.now()}`,
+      command_id: commandId,
+      status: "rejected",
+      summary: "The practice set could not be resumed.",
+      value: null,
+      entity_refs: [],
+      event_ids: [],
+      undo_action: null,
+      error_code: "practice_rejected",
+      error_detail: "only a paused practice set can resume",
+      replayed: false,
+      committed_ts: null,
+    };
+  }
+  mockSetState = "active";
+  const autoPaused = mockPausedSetsAfterResume;
+  mockPausedSets = autoPaused ?? [];
+  const snap: RepSnapshot = {
+    ...MOCK_REP_STATE,
+    set_state: "active",
+    timer_state: "active",
+  };
+  const summary =
+    autoPaused != null && autoPaused.length > 0
+      ? `Paused ${autoPaused[0].piece_title} \u{b7} Resumed ${MOCK_REP_STATE.piece_title}`
+      : "Practice resumed.";
+  return {
+    receipt_id: `mock-receipt-resume-${Date.now()}`,
+    command_id: commandId,
+    status: "committed",
+    summary,
+    value: snap,
+    entity_refs: [{ entity_type: "set", entity_id: snap.block_id }],
+    event_ids: [],
+    undo_action: null,
+    error_code: null,
+    error_detail: null,
+    replayed: false,
+    committed_ts: new Date().toISOString(),
+  };
+}
+
+// Fix wave item 8: the checkpoint heartbeat (useRep.ts's 15s `rep_checkpoint`
+// interval, active while a set is timing) had NO mock handler at all — the
+// switch's `default: return null` resolved every checkpoint call with `null`
+// instead of a receipt, and the null-guard added to
+// `runSnapshotReceiptMutation` (useRep.ts) turned that into a repeating
+// error toast every 15s. A real checkpoint just persists elapsed focused
+// seconds and returns the (otherwise unchanged) snapshot — mirror that here
+// so `dev:mock` behaves like the real backend instead of erroring on a timer.
+let mockCheckpointedSeconds = MOCK_REP_STATE.active_seconds ?? 0;
+
+function repCheckpointReceipt(commandId: string): MutationReceipt<RepSnapshot> {
+  mockCheckpointedSeconds += 15;
+  const snap: RepSnapshot = {
+    ...MOCK_REP_STATE,
+    set_state: mockSetState,
+    timer_state: mockSetState,
+    active_seconds: mockCheckpointedSeconds,
+  };
+  return {
+    receipt_id: `mock-receipt-checkpoint-${Date.now()}`,
+    command_id: commandId,
+    status: "committed",
+    summary: "Focused time checkpointed.",
+    value: snap,
+    entity_refs: [{ entity_type: "set", entity_id: snap.block_id }],
+    event_ids: [],
+    undo_action: null,
+    error_code: null,
+    error_detail: null,
+    replayed: false,
+    committed_ts: new Date().toISOString(),
+  };
+}
+
+// Task A10: `rep_open`'s optional `context.pass_seconds` round-trips through
+// the mock so `BlockForm`'s live estimate is exercisable in `dev:mock`
+// without a Rust backend. Not otherwise surfaced by any read command (the
+// real backend only persists it into `set_contract`, never returns it on the
+// snapshot) — a test-only getter reads it directly, same spirit as
+// `setMockResumeRejects` above.
+let mockLastPassSeconds: number | null = null;
+
+/** Test-only: the most recent `rep_open` mock call's `context.pass_seconds`
+ * (or `null` if the last open had none / none has happened yet). */
+export function mockLastOpenedPassSeconds(): number | null {
+  return mockLastPassSeconds;
+}
+
+function repOpenSnapshot(args: unknown, context: unknown): RepSnapshot {
+  const a = (args ?? {}) as Partial<RepOpenArgs>;
+  const c = (context ?? {}) as { pass_seconds?: number | null };
+  mockLastPassSeconds = c.pass_seconds ?? null;
+  mockSetState = "active";
+  mockPausedSets = [];
+  return {
+    ...MOCK_REP_STATE,
+    piece_id: a.piece_id ?? MOCK_REP_STATE.piece_id,
+    m_start: a.m_start ?? MOCK_REP_STATE.m_start,
+    m_end: a.m_end ?? MOCK_REP_STATE.m_end,
+    label: a.label ?? MOCK_REP_STATE.label,
+    bpm: a.start_bpm ?? MOCK_REP_STATE.bpm,
+    start_bpm: a.start_bpm ?? MOCK_REP_STATE.start_bpm,
+    target_bpm: a.target_bpm ?? MOCK_REP_STATE.target_bpm,
+    planned_reps: a.planned_reps ?? MOCK_REP_STATE.planned_reps,
+    focus: a.focus ?? MOCK_REP_STATE.focus,
+    use_metronome: a.use_metronome ?? MOCK_REP_STATE.use_metronome,
+    reps_done: 0,
+    verdicts: { clean: 0, flawed: 0, failed: 0 },
+    last: null,
+    set_state: "active",
+    timer_state: "active",
+    active_seconds: 0,
+  };
+}
+
 // Sample attempt rows so a Ledger block drill-in (`reps_for_block`) shows real
 // evidence instead of an empty "No attempts logged." list in the static harness.
 const REPS_BY_BLOCK: Record<number, Rep[]> = {
@@ -1507,6 +1766,41 @@ function daySheetSave(args: unknown): DaySheet {
   return saved;
 }
 
+// Fix wave item 12: `DAY_SHEETS` starts genuinely empty (see the comment
+// above) — correct for every automated test, which seeds exactly what it
+// needs through `day_sheet_save`, but it left the interactive `dev:mock`
+// harness with NOTHING to browse: carry-forward, plan totals, and
+// pin-from-day-sheet all need a PAST day with real content and a TODAY sheet
+// with a timed line + a goal reference to exercise at all. Deliberately
+// opt-in (see `installTauriDevMock`'s `seedQaFixtures` option) — the test
+// suite's `installTauriDevMock()` calls stay exactly as empty as before,
+// this only runs for the real interactive harness (main.tsx).
+function seedQaFixtures(): void {
+  DAY_SHEETS.set(YESTERDAY, {
+    date: YESTERDAY,
+    body: [
+      { type: "piece", piece_id: 1 },
+      { type: "item", text: "Slow hands separately, m. 65-96", checked: false },
+      {
+        type: "item",
+        text: "Voice the melody over the tremolo",
+        checked: false,
+      },
+      { type: "block", minutes: 25, piece_id: 1 },
+    ],
+    updated_at: isoDaysAgo(1),
+  });
+  DAY_SHEETS.set(TODAY, {
+    date: TODAY,
+    body: [
+      { type: "piece", piece_id: 1 },
+      { type: "block", minutes: 20, piece_id: 1 },
+      { type: "goal_ref", goal_id: 1 },
+    ],
+    updated_at: new Date().toISOString(),
+  });
+}
+
 function piecePlanGet(args: unknown): PiecePlan | null {
   const record = argsRecord(args);
   const pieceId = Number(record.pieceId ?? record.piece_id);
@@ -1618,11 +1912,49 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "book_excerpt":
       return mockBookExcerpt(args);
     case "rep_state":
-      return MOCK_REP_STATE;
+      return {
+        ...MOCK_REP_STATE,
+        set_state: mockSetState,
+        timer_state: mockSetState,
+      };
+    // Task A10: the composer/block-open flow's single write. Round-trips
+    // `context.pass_seconds` (see `mockLastOpenedPassSeconds`) without
+    // otherwise changing any other mocked read/write path.
+    case "rep_open": {
+      const record = (args ?? {}) as { args?: unknown; context?: unknown };
+      return repOpenSnapshot(record.args, record.context);
+    }
     // Clean/Sloppy/Again in the HUD: return a committed CheckOutcome so the
     // receipt lands GREEN (previously unmapped → null → red error receipt).
     case "rep_check":
       return repCheckOutcome(args);
+    // Task A4: the rep HUD's existing Pause/Resume toggle and the paused-sets
+    // tray's Resume button both call these two commands — no separate mock
+    // write path, matching the real backend.
+    case "rep_pause": {
+      const commandId = String(
+        ((args ?? {}) as { commandId?: unknown }).commandId ?? "mock-pause",
+      );
+      return repPauseReceipt(commandId);
+    }
+    case "rep_resume": {
+      const record = (args ?? {}) as { commandId?: unknown; setId?: unknown };
+      const commandId = String(record.commandId ?? "mock-resume");
+      const setId = typeof record.setId === "number" ? record.setId : undefined;
+      return repResumeReceipt(commandId, setId);
+    }
+    // Fix wave item 8: see `repCheckpointReceipt` — the 15s focused-time
+    // heartbeat now has a real (committed) mock handler instead of falling
+    // through to `default: return null`.
+    case "rep_checkpoint": {
+      const commandId = String(
+        ((args ?? {}) as { commandId?: unknown }).commandId ??
+          "mock-checkpoint",
+      );
+      return repCheckpointReceipt(commandId);
+    }
+    case "sets_paused_list":
+      return mockPausedSets;
     case "metro_state":
       return METRO_STATE;
     case "session_current":
@@ -1679,8 +2011,29 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return MOCK_DOWNLOADS;
     case "pick_import_file":
       return null;
-    case "piece_get":
-      return PIECE_DETAILS[pieceIdOf(args)] ?? null;
+    case "piece_get": {
+      const detail = PIECE_DETAILS[pieceIdOf(args)];
+      if (!detail) return null;
+      const id = pieceIdOf(args);
+      return MOCK_BANNERS.has(id)
+        ? { ...detail, banner_text: MOCK_BANNERS.get(id) ?? null }
+        : detail;
+    }
+    // Task A11: the score goals banner. Length is bounded exactly as the Rust
+    // command bounds it, so the browser harness rejects an over-long pin the
+    // same way native does.
+    case "piece_banner_set": {
+      const id = pieceIdOf(args);
+      const detail = PIECE_DETAILS[id];
+      if (!detail) throw `piece ${id} not found`;
+      const raw = ((args ?? {}) as { text?: string | null }).text ?? null;
+      const text = raw == null || raw.trim() === "" ? null : raw;
+      if (text != null && Array.from(text).length > BANNER_MAX_CHARS) {
+        throw `A score banner is limited to ${BANNER_MAX_CHARS} characters (that one is ${Array.from(text).length}).`;
+      }
+      MOCK_BANNERS.set(id, text);
+      return { ...detail, banner_text: text };
+    }
     case "region_list":
       return REGIONS[pieceIdOf(args)] ?? [];
 
@@ -1812,20 +2165,45 @@ function routeCommand(cmd: string, args: unknown): unknown {
 
 let installed = false;
 
+export interface InstallTauriDevMockOptions {
+  /** Fix wave item 12: seed a deterministic yesterday/today day-sheet pair
+   * (carry-forward + plan-totals + pin-from-day-sheet material) so the real
+   * interactive `dev:mock` harness has something to browse. Defaults to
+   * `false` so every test suite's `installTauriDevMock()` call keeps getting
+   * the genuinely-empty notebook backend it always has — only `main.tsx`
+   * (the actual `npm run dev:mock` entry point) opts in. */
+  seedQaFixtures?: boolean;
+}
+
 /**
  * Install the dev-only Tauri seam onto `window`. Idempotent. Called ONLY behind
  * the `VITE_DEV_MOCK` flag (main.tsx) or explicitly from the smoke test.
  */
-export function installTauriDevMock(): void {
+export function installTauriDevMock(
+  options: InstallTauriDevMockOptions = {},
+): void {
   if (installed) return;
   installed = true;
   // Fresh, empty notebook backend per install so date/piece-keyed tests do not
   // bleed state into one another.
   DAY_SHEETS.clear();
   PIECE_PLANS.clear();
+  if (options.seedQaFixtures) seedQaFixtures();
   // Reset runtime-created goals so promotion tests start from the seeded set.
   CREATED_GOALS.clear();
   mockGoalSeq = 900;
+  // Task A4: fresh paused-sets tray state per install.
+  mockSetState = "active";
+  mockPausedSets = [];
+  mockResumeRejects = false;
+  // Task A4b fix round 1: fresh auto-pause-simulation state per install.
+  mockPausedSetsAfterResume = null;
+  // Task A10: fresh pass-seconds round-trip state per install.
+  mockLastPassSeconds = null;
+  // Fix wave item 8: fresh checkpoint-seconds state per install.
+  mockCheckpointedSeconds = MOCK_REP_STATE.active_seconds ?? 0;
+  // Task A11: banner edits never bleed between installs.
+  MOCK_BANNERS.clear();
 
   let callbackId = 0;
   let subscriptionId = 0;

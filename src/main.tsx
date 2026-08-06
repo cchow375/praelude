@@ -16,7 +16,12 @@ async function bootstrap() {
   // a normal `vite` dev run and the real Tauri app are byte-for-byte unaffected.
   if (import.meta.env.VITE_DEV_MOCK) {
     const { installTauriDevMock } = await import("./devMock/tauriDevMock");
-    installTauriDevMock();
+    // Fix wave item 12: seed deterministic yesterday/today day-sheet fixtures
+    // so carry-forward, plan totals, and pin-from-day-sheet are all
+    // QA-able in this interactive harness — the test suite's own
+    // `installTauriDevMock()` calls do not opt in, so nothing here changes
+    // any test's behavior.
+    installTauriDevMock({ seedQaFixtures: true });
   }
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

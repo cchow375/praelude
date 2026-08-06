@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ASSISTANT, HISTORY } from "../../shell/terms";
 import { TodayPracticePanel } from "./TodayPracticePanel";
 import { ReaderWindow } from "../reader/ReaderWindow";
@@ -27,11 +27,6 @@ interface TodayWorkspaceProps {
   onOpenLedger: () => void;
   onOpenUniverse: () => void;
   onOpenSettings: () => void;
-  /** The shell-owned active-set HUD, docked into the practice window so it stays
-   *  reachable while a set is live (requirement 2). */
-  activeSetHud?: ReactNode;
-  /** Lets the shell hide its own stage HUD while the window owns it (no double). */
-  onPracticeOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -48,8 +43,6 @@ export function TodayWorkspace({
   onOpenLedger,
   onOpenUniverse,
   onOpenSettings,
-  activeSetHud = null,
-  onPracticeOpenChange,
 }: TodayWorkspaceProps) {
   const [practiceOpen, setPracticeOpen] = useState(false);
   const practiceTriggerRef = useRef<HTMLButtonElement>(null);
@@ -61,12 +54,6 @@ export function TodayWorkspace({
   // never carried over from the state the pick was made in (see useHomeQuote).
   const { quote, connector } = useHomeQuote(useQuoteSignals());
   const [readerOpen, setReaderOpen] = useState(false);
-
-  // Keep the shell informed so it can hand HUD ownership to the window while the
-  // window is open (and reclaim its stage dock when the window closes).
-  useEffect(() => {
-    onPracticeOpenChange?.(practiceOpen);
-  }, [practiceOpen, onPracticeOpenChange]);
 
   // The practice page REPLACES the menu rather than floating over it, so the
   // trigger is unmounted while it is open and cannot be focused synchronously
@@ -91,7 +78,6 @@ export function TodayWorkspace({
         onOpenAtlas={onOpenAtlas}
         onOpenCalendar={onOpenCalendar}
         onOpenPiecePlan={onOpenPiecePlan}
-        activeSetHud={activeSetHud}
         onClose={closePractice}
       />
     );

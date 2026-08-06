@@ -250,27 +250,17 @@ describe("TodayWorkspace practice window", () => {
     ).toBeNull();
   });
 
-  it("docks the shell-owned active-set HUD in the window and reports open state", async () => {
-    const onPracticeOpenChange = vi.fn();
-    openPractice({
-      activeSetHud: <div data-testid="active-hud">Active set</div>,
-      onPracticeOpenChange,
-    });
+  it("no longer threads an active-set HUD into the practice window (Task A3: shell-level Practice Dock)", async () => {
+    // TodayWorkspaceProps dropped `activeSetHud`/`onPracticeOpenChange`
+    // entirely — the rep HUD now lives in a shell-level dock panel that
+    // persists across every workspace tab, so this window has nothing left
+    // to dock and nothing to report back to the shell.
+    openPractice();
 
     const dialog = await screen.findByRole("region", {
       name: "Today's Practice",
     });
-    // The HUD is reachable inside the window (requirement 2).
-    expect(within(dialog).getByTestId("active-hud")).toBeTruthy();
-    // The shell is told the window is open (so it can hand off its stage dock).
-    expect(onPracticeOpenChange).toHaveBeenLastCalledWith(true);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Close Today's Practice" }),
-    );
-    await waitFor(() =>
-      expect(onPracticeOpenChange).toHaveBeenLastCalledWith(false),
-    );
+    expect(within(dialog).queryByTestId("today-practice-hud")).toBeNull();
   });
 
   it("routes the window's Calendar and Score entry points", async () => {

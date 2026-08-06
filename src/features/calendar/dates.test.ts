@@ -23,7 +23,9 @@ describe("parseLocalDate", () => {
   });
 
   it("throws on an invalid/malformed date string", () => {
-    expect(() => parseLocalDate("not-a-date")).toThrow("Invalid local date: not-a-date");
+    expect(() => parseLocalDate("not-a-date")).toThrow(
+      "Invalid local date: not-a-date",
+    );
     expect(() => parseLocalDate("2026-7-15")).toThrow(); // not zero-padded
     expect(() => parseLocalDate("2026/07/15")).toThrow();
     expect(() => parseLocalDate("")).toThrow();
@@ -63,6 +65,19 @@ describe("addDays", () => {
 
   it("is a no-op with an amount of zero", () => {
     expect(addDays("2026-07-15", 0)).toBe("2026-07-15");
+  });
+
+  // Local-time-safety regression (spec A7): addDays must operate on Date PARTS
+  // via a local Date, never Date.parse/ISO, or a US DST transition shifts the
+  // result by a day in whichever TZ the test runs in.
+  it("crosses the US spring-forward DST boundary without an off-by-one", () => {
+    // 2026-03-08 is the day before US DST begins (2026-03-09).
+    expect(addDays("2026-03-08", 1)).toBe("2026-03-09");
+  });
+
+  it("crosses the US fall-back DST boundary without an off-by-one", () => {
+    // 2026-11-01 is the day before US DST ends (2026-11-02).
+    expect(addDays("2026-11-01", 1)).toBe("2026-11-02");
   });
 });
 

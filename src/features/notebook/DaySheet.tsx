@@ -12,6 +12,11 @@ import { useReceipts } from "../receipts/ReceiptCenter";
 import { addDays, parseLocalDate, todayLocal } from "../calendar/dates";
 import type { Goal, PieceSummary } from "../pieces/types";
 import type { DaySheet as DaySheetData, NotebookLine } from "./lines";
+import {
+  formatPlanTotals,
+  formatPlanTotalsAriaLabel,
+  planTotals,
+} from "./planTotals";
 import { useDaySheet, type UseDaySheet } from "./useDaySheet";
 import {
   addBring,
@@ -36,7 +41,6 @@ import {
   splitLine,
   toGoalRef,
   toggleChecked,
-  totalMinutes,
   unchecked,
   withPlainText,
   type Caret,
@@ -50,8 +54,11 @@ import {
   FlagIcon,
   NotesIcon,
   PieceIcon,
+  PinIcon,
   PlusIcon,
 } from "./notebookIcons";
+import { truncateBanner } from "../score/bannerText";
+import { publishBanner } from "../score/bannerStore";
 import { PassageHelper } from "./PassageHelper";
 import "./DaySheet.css";
 
@@ -87,6 +94,11 @@ const GOAL_UPDATE = defineCommand<
   { id: number; patch: Partial<Pick<Goal, "text" | "target_date">> },
   Goal
 >("goal_update", "The goal could not be updated.");
+// A11: "pin to score" writes the same per-piece banner the Score workspace edits.
+const PIECE_BANNER_SET = defineCommand<
+  { pieceId: number; text: string | null },
+  { banner_text: string | null } | null
+>("piece_banner_set", "The goal could not be pinned to the score.");
 
 const DEFAULT_BLOCK_MINUTES = 25;
 
@@ -278,7 +290,12 @@ export function DaySheetView({
     [pieces],
   );
 
-  const total = useMemo(() => totalMinutes(body), [body]);
+  const totals = useMemo(() => planTotals(body), [body]);
+  const planSummary = useMemo(() => formatPlanTotals(totals), [totals]);
+  const planSummaryAriaLabel = useMemo(
+    () => formatPlanTotalsAriaLabel(totals),
+    [totals],
+  );
 
   // --- Editing primitives --------------------------------------------------
 
@@ -431,6 +448,29 @@ export function DaySheetView({
         setGoalCache((prev) => new Map(prev).set(goal.id, goal));
       } catch (cause) {
         receipts.error(cause, "The goal could not be updated.");
+      }
+    },
+    [receipts],
+  );
+
+  // A11: put this goal's words over its score. The pin OVERWRITES whatever
+  // banner the piece already had — one goal is on the stand at a time, so a
+  // merge prompt would be a question with no useful answer.
+  const pinGoalToScore = useCallback(
+    async (pieceId: number, text: string) => {
+      try {
+        const pinned = truncateBanner(text);
+        const detail = await executeCommand(PIECE_BANNER_SET, {
+          pieceId,
+          text: pinned,
+        });
+        // The Score workspace stays mounted behind this one, so tell the shared
+        // banner store: a pin has to change the strip that is already on screen,
+        // not just the one the next mount would build.
+        publishBanner(pieceId, detail?.banner_text ?? pinned);
+        receipts.committed("Pinned to the score.");
+      } catch (cause) {
+        receipts.error(cause, "The goal could not be pinned to the score.");
       }
     },
     [receipts],
@@ -693,8 +733,16 @@ export function DaySheetView({
           <div className="ck-ns-prep-col">
             <span className="ck-ns-prep-label">Bring to lesson</span>
             <div className="ck-ns-prep-bring">
-              {line.bring.map((pieceId) => (
-                <span key={pieceId} className="ck-ns-bring-chip">
+              {line.bring.map((pieceId, bringIndex) => (
+                // Fix wave item 11: keyed by `pieceId` alone, two chips for
+                // the same piece (a stale/duplicated `bring` entry) would
+                // collide on the same React key — a composite with the
+                // array position is unique regardless of what `bring`
+                // contains.
+                <span
+                  key={`${pieceId}:${bringIndex}`}
+                  className="ck-ns-bring-chip"
+                >
                   {pieceTitle(pieceId)}
                   <button
                     type="button"
@@ -745,6 +793,12 @@ export function DaySheetView({
   const renderGoal = (line: NotebookLine, index: number) => {
     if (line.type !== "goal_ref") return null;
     const goal = goalCache.get(line.goal_id);
+    // Where this goal would land on a stand: the piece heading it sits under,
+    // else the goal's own piece. With neither — or with nothing written yet —
+    // there is no score to pin to, so the affordance is absent rather than
+    // present-but-dead.
+    const pinTarget = pieceContextAt(body, index) ?? goal?.piece_id ?? null;
+    const pinText = goal?.text?.trim() ?? "";
     return (
       <div className="ck-ns-line" data-type="goal_ref">
         <div className="ck-ns-goal paper-ruled">
@@ -783,6 +837,17 @@ export function DaySheetView({
               })
             }
           />
+          {pinTarget != null && pinText !== "" && (
+            <button
+              type="button"
+              className="ck-ns-icon-btn"
+              aria-label="Pin this goal to the score"
+              title="Pin this goal to the score"
+              onClick={() => void pinGoalToScore(pinTarget, pinText)}
+            >
+              <PinIcon size={14} />
+            </button>
+          )}
           <button
             type="button"
             className="ck-ns-icon-btn"
@@ -827,9 +892,12 @@ export function DaySheetView({
     >
       <header className="ck-ns-head">
         <p className="ck-ns-date">{fullDateLabel(date)}</p>
-        {total > 0 && (
-          <p className="ck-ns-total" aria-label={`${total} minutes planned`}>
-            {total} min planned
+        {planSummary && (
+          <p
+            className="ck-ns-total"
+            aria-label={planSummaryAriaLabel ?? planSummary}
+          >
+            {planSummary}
           </p>
         )}
       </header>

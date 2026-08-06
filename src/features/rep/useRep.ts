@@ -311,6 +311,8 @@ export interface SetFocusContextInput {
   method?: string | null;
   planned_seconds?: number | null;
   reflection?: string | null;
+  /** Task A10: estimated seconds for one pass through the set's ladder. */
+  pass_seconds?: number | null;
 }
 
 /** Verdict strings accepted by `rep_check`. */
@@ -458,6 +460,15 @@ export interface UseRep {
   recover: (action: RecoveryActionRequest) => Promise<void>;
   /** Close the active block. */
   close: () => Promise<void>;
+  /**
+   * Fix wave item 10: applies an EXTERNALLY-committed receipt's snapshot
+   * (e.g. the paused-sets tray's own `rep_resume` call, which does not go
+   * through this hook's `resume()`) through the SAME `applySnapshot` seam
+   * every one of this hook's own mutations uses — no parallel state. A
+   * no-op for anything that isn't a committed receipt with a value; the
+   * caller is expected to have already handled a rejection on its own.
+   */
+  applyExternalReceipt: (receipt: MutationReceipt<RepSnapshot>) => void;
 }
 
 export function useRep(): UseRep {
@@ -465,6 +476,25 @@ export function useRep(): UseRep {
   const [feed, setFeed] = useState<LastRep[]>([]);
   const [error, setError] = useState<string | null>(null);
   const receipts = useReceipts();
+
+  // Residuals fix wave (defect 3, "rep elapsed-time stale ~10s around
+  // pause/resume"): `active_seconds` only ever changed when a fresh snapshot
+  // landed (a mutation's receipt, or the 15s checkpoint interval below) — the
+  // HUD showed a flat number between those, so right after a pause/resume the
+  // readout looked "stuck" for up to ~10-15s until the next snapshot bumped
+  // it. This anchors a locally-ticking display value to the LAST authoritative
+  // `active_seconds` + the wall-clock moment it landed, so it advances
+  // smoothly every second instead of only on receipt. The anchor is reset
+  // inside `applySnapshot` below — the ONE seam both this hook's own
+  // mutations AND `applyExternalReceipt` (the paused-sets tray's resume) flow
+  // through — so a resume's fresh snapshot re-anchors immediately instead of
+  // the display continuing to extrapolate from a now-stale base.
+  const activeSecondsAnchor = useRef<{
+    base: number;
+    at: number;
+    ticking: boolean;
+  }>({ base: 0, at: Date.now(), ticking: false });
+  const [elapsedTick, setElapsedTick] = useState(0);
 
   const snapRef = useRef<RepSnapshot | null>(null);
   const errorTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -533,9 +563,32 @@ export function useRep(): UseRep {
       }
       snapRef.current = next;
       setSnap(next);
+      // Residuals fix wave (defect 3): re-anchor the ticking elapsed display
+      // to THIS authoritative snapshot the instant it lands — same seam every
+      // snapshot (own mutations, the event stream, and applyExternalReceipt)
+      // already funnels through, no parallel state.
+      activeSecondsAnchor.current = {
+        base: next?.active_seconds ?? 0,
+        at: Date.now(),
+        ticking:
+          next != null &&
+          (next.timer_state ??
+            (next.set_state === "active" ? "active" : "")) === "active",
+      };
     },
     [publishAttemptReceipt],
   );
+
+  // Ticks the elapsed-time display once a second while the anchor above is
+  // "live" (an active timing interval) — purely cosmetic re-render, same
+  // pattern as ClockPanel/SessionBar's own `now` tick; the anchor's `base` +
+  // `at` stay the source of truth so this never drifts from what the backend
+  // last durably confirmed.
+  useEffect(() => {
+    if (!activeSecondsAnchor.current.ticking) return undefined;
+    const id = window.setInterval(() => setElapsedTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [snap?.block_id, snap?.timer_state, snap?.set_state]);
 
   const showError = useCallback((msg: string) => {
     setError(msg);
@@ -647,6 +700,20 @@ export function useRep(): UseRep {
       const id = commandId(operation);
       try {
         const receipt = await invokeReceipt(id);
+        // Fix wave item 8: an unmocked/misbehaving backend resolving with
+        // `null`/`undefined` instead of a receipt used to reach
+        // `receipt.status` below and throw a raw TypeError — caught by the
+        // generic `catch` further down, which ALSO calls `receipts.error`,
+        // so every occurrence (e.g. the 15s checkpoint heartbeat hitting an
+        // unhandled command) stacked a fresh toast. Guard explicitly so this
+        // is treated exactly like any other rejected receipt: one
+        // `showError` call, one thrown `MutationReceiptRejectedError`, no
+        // `receipts.error` toast pile-up.
+        if (receipt == null) {
+          settleCommandId(operation);
+          showError(fallbackMessage);
+          throw new MutationReceiptRejectedError(fallbackMessage);
+        }
         if (
           publishCommitted ||
           receipt.status !== "committed" ||
@@ -1282,8 +1349,43 @@ export function useRep(): UseRep {
     }
   }, [applySnapshot, clearError, receipts, showError]);
 
+  // Fix wave item 10: the paused-sets tray resumes through its OWN direct
+  // `rep_resume` call (pausedSets.ts's `resumePausedSet`), not through this
+  // hook's `resume()` — so the receipt it gets back never otherwise reaches
+  // `applySnapshot`, and the rep panel kept showing the pre-resume "· paused"
+  // state until an unrelated event happened to refresh it. This applies that
+  // receipt through the exact same seam `resume()`/every other mutation here
+  // uses, so there is one snapshot-of-record, not a second copy.
+  const applyExternalReceipt = useCallback(
+    (receipt: MutationReceipt<RepSnapshot>) => {
+      if (receipt.status === "committed" && receipt.value != null) {
+        applySnapshot(receipt.value);
+      }
+    },
+    [applySnapshot],
+  );
+
+  // Residuals fix wave (defect 3): overlay the ticking `active_seconds` onto
+  // the returned snapshot — `elapsedTick` (bumped once a second while the
+  // anchor is live) is this render's only reason to recompute it. Everything
+  // BUT `active_seconds` still comes straight from the authoritative `snap`;
+  // this is a display-only derivation, never written back to `snapRef`/state,
+  // so it can never itself become the "prev" a future `applySnapshot` diffs
+  // against.
+  void elapsedTick;
+  const anchor = activeSecondsAnchor.current;
+  const displaySnap: RepSnapshot | null = snap
+    ? {
+        ...snap,
+        active_seconds: anchor.ticking
+          ? anchor.base +
+            Math.max(0, Math.floor((Date.now() - anchor.at) / 1000))
+          : (snap.active_seconds ?? anchor.base),
+      }
+    : null;
+
   return {
-    snap,
+    snap: displaySnap,
     feed,
     error,
     clearError,
@@ -1300,5 +1402,6 @@ export function useRep(): UseRep {
     safetyStop,
     recover,
     close,
+    applyExternalReceipt,
   };
 }

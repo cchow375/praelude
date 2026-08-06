@@ -1,0 +1,57 @@
+/* ==========================================================================
+   Day-sheet date navigator (spec A7) — a quiet strip above the sheet: ‹ date ›
+   plus a "Today" jump that only appears once you have navigated away.
+   Consumes ONLY design/tokens.css. No hex anywhere in this file.
+   ========================================================================== */
+
+.day-sheet-nav-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+  font-family: var(--font-sans);
+}
+
+.day-sheet-nav-arrow {
+  border: none;
+  background: none;
+  padding: var(--s-1) var(--s-2);
+  border-radius: var(--r-sm);
+  color: var(--ink-dim);
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.day-sheet-nav-arrow:hover:not(:disabled) {
+  color: var(--ink);
+  background-color: var(--bg-sunken);
+}
+
+.day-sheet-nav-arrow:disabled {
+  color: var(--ink-ghost);
+  cursor: default;
+}
+
+.day-sheet-nav-label {
+  min-width: 8em;
+  text-align: center;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 1.05em;
+}
+
+.day-sheet-nav-today {
+  border: none;
+  background: none;
+  padding: var(--s-1) var(--s-2);
+  border-radius: var(--r-sm);
+  color: var(--accent);
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.day-sheet-nav-today:hover {
+  text-decoration: underline;
+}

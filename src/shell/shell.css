@@ -1,25 +1,30 @@
 /* ==========================================================================
    CodaKiller v4 — app shell, PAPER edition.
 
-   LAYOUT LAW (v5, defect D1/D4): the shell is a two-column, two-row grid.
-   The rail spans both rows; column 2 is split into a HEADER BAND and the
-   scrolling STAGE. Anything that used to float over the workspace as a fixed
-   overlay — the live-session strip above all — now lives in the header band and
-   RESERVES ITS OWN SPACE. Nothing in this shell is `position: fixed` over
-   interactive chrome any more; the session strip used to land on top of the
-   Score screen's "Piece" label and its selector, occluding a primary control.
+   LAYOUT LAW (v5, defect D1/D4): the shell is a two-column, three-row grid.
+   The rail spans all three rows; column 2 is split into a HEADER BAND, the
+   scrolling STAGE, and (residuals fix wave, defect 4) the DOCK PILL BAR.
+   Anything that used to float over the workspace as a fixed overlay — the
+   live-session strip, and now the dock's minimized-panel pills — lives in a
+   real grid row and RESERVES ITS OWN SPACE. Nothing in this shell is
+   `position: fixed` over interactive chrome any more; the session strip used
+   to land on top of the Score screen's "Piece" label and its selector,
+   occluding a primary control, and the pill stack used to do the same to a
+   day sheet's carry-forward button at the 720x520 dense-layout floor.
 
    The stage is the only scroll container (`height: 100vh` + `minmax(0, 1fr)`),
-   so the header band stays put without needing sticky/fixed positioning and can
-   never overlap the content beneath it.
+   so the header band and pill bar stay put without needing sticky/fixed
+   positioning and can never overlap the content beneath/above them.
    ========================================================================== */
 
 .shell {
   display: grid;
   grid-template-columns: 148px 1fr;
-  /* row 1 = header band (collapses to 0 when nothing is in it), row 2 = stage.
-     minmax(0, 1fr) lets the stage shrink so ITS overflow scrolls, not the body. */
-  grid-template-rows: auto minmax(0, 1fr);
+  /* row 1 = header band (collapses to 0 when nothing is in it), row 2 = stage
+     (minmax(0, 1fr) lets IT shrink so its own overflow scrolls, not the
+     body), row 3 = the dock pill bar (dock.css's `.dock-pill-bar`, also
+     collapses to 0 via `:empty` when there are no pills). */
+  grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100vh;
   background: var(--bg);
   color: var(--ink);
@@ -181,19 +186,6 @@
 }
 .shell-loading {
   min-height: 40px;
-}
-
-/* The active-set dock. Bounded to the reading measure so the set card is a
-   strip the eye can take in at arm's length, not a full-bleed wall. */
-.shell-set-dock {
-  display: block;
-  width: 100%;
-  /* Bounded so the set card is a strip, not a full-bleed wall on a wide
-     window. Wider than --measure (which is a PROSE column): the HUD is a
-     control strip whose context line has to fit a title, a range, condition
-     chips and the always-reachable controls without stacking. */
-  max-width: 56rem;
-  margin: 0 0 var(--s-5);
 }
 
 /* --- One staggered entrance on load (runs once; no ambient loop) -------- */

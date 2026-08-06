@@ -147,6 +147,77 @@ describe("BlockForm layout", () => {
   });
 });
 
+describe("BlockForm pass-seconds estimate (Task A10)", () => {
+  it("submits with a single argument when no pass-time is entered (byte-compatible with pre-A10 callers)", () => {
+    const onOpen = vi.fn();
+    render(<BlockForm pieceId={7} onOpen={onOpen} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    // A single positional argument — no second `context` argument at all,
+    // not even `undefined` or `null` — so a caller wired straight to
+    // `rep.open` sees the exact same invoke args as before this field
+    // existed (rep.open defaults a missing context to `null` itself).
+    expect(onOpen.mock.calls[0]).toHaveLength(1);
+    expect(onOpen).toHaveBeenCalledWith({
+      piece_id: 7,
+      region_id: null,
+      m_start: 1,
+      m_end: 1,
+      label: null,
+      start_bpm: 60,
+      target_bpm: null,
+      planned_reps: null,
+      required_clean_streak: 5,
+      increment: null,
+      variants: [],
+      focus: "tempo",
+      use_metronome: true,
+    });
+  });
+
+  it("passes pass_seconds as a second context argument once entered", () => {
+    const onOpen = vi.fn();
+    render(<BlockForm pieceId={7} onOpen={onOpen} />);
+    openMore();
+    fireEvent.change(screen.getByLabelText("One pass seconds"), {
+      target: { value: "30" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen.mock.calls[0]).toHaveLength(2);
+    expect(onOpen.mock.calls[0][1]).toEqual({ pass_seconds: 30 });
+  });
+
+  it("renders no estimate until a pass-time is entered, then the worked-example minutes", () => {
+    render(<BlockForm pieceId={7} onOpen={vi.fn()} />);
+    openMore();
+    expect(screen.queryByLabelText("Set time estimate")).toBeNull();
+
+    // Ladder preview from defaults (start 60, no target) is one rung of 3
+    // reps at 60 bpm; pass=30s -> low = 3*30*1 + 3*3 = 99s, high = 148.5s,
+    // both round up to whole minutes: 2 and 3.
+    fireEvent.change(screen.getByLabelText("One pass seconds"), {
+      target: { value: "30" },
+    });
+    expect(screen.getByLabelText("Set time estimate").textContent).toBe(
+      "≈ 2–3 min",
+    );
+  });
+
+  it("has no pass-seconds field for a non-tempo focus", () => {
+    render(<BlockForm pieceId={7} onOpen={vi.fn()} />);
+    openMore();
+    fireEvent.change(screen.getByLabelText("Focus"), {
+      target: { value: "notes" },
+    });
+    expect(screen.queryByLabelText("One pass seconds")).toBeNull();
+  });
+});
+
 describe("BlockForm behavior", () => {
   it("adopts a newly saved default until this form's clean target has been edited", () => {
     const onOpen = vi.fn();

@@ -228,15 +228,43 @@ describe("SessionBar component", () => {
     expect(onEnd).toHaveBeenCalledTimes(1);
   });
 
-  it("disables the end button and shows 'Ending…' while ending=true, and ignores clicks", () => {
-    const onEnd = vi.fn();
-    render(<SessionBar session={makeSession()} onEnd={onEnd} ending />);
-    const button = screen.getByRole("button", {
-      name: "Ending…",
-    }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+  it("shows an 'End my day' button beside 'End session'", () => {
+    render(<SessionBar session={makeSession()} onEnd={() => {}} />);
+    expect(screen.getByText("End my day")).toBeTruthy();
+    expect(screen.getByText("End session")).toBeTruthy();
+  });
 
-    fireEvent.click(button);
+  it("'End my day' asks for inline confirmation and calls onEnd only when confirmed (fix wave item 5: no window.confirm)", () => {
+    const onEnd = vi.fn();
+    render(<SessionBar session={makeSession()} onEnd={onEnd} />);
+
+    fireEvent.click(screen.getByText("End my day"));
+    expect(screen.getByText("End your practice day?")).toBeTruthy();
+    expect(onEnd).not.toHaveBeenCalled();
+
+    // Declining leaves the session open and restores the plain button.
+    fireEvent.click(screen.getByText("Keep going"));
+    expect(onEnd).not.toHaveBeenCalled();
+    expect(screen.getByText("End my day")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("End my day"));
+    fireEvent.click(screen.getByText("End day"));
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables both end buttons and shows 'Ending…' on each while ending=true, and ignores clicks", () => {
+    const onEnd = vi.fn();
+    const { container } = render(
+      <SessionBar session={makeSession()} onEnd={onEnd} ending />,
+    );
+    const buttons = screen.getAllByRole("button", { name: "Ending…" });
+    expect(buttons).toHaveLength(2);
+    expect(container.querySelector(".session-end")).not.toBeNull();
+    expect(container.querySelector(".session-end-day")).not.toBeNull();
+    for (const button of buttons) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(button);
+    }
     expect(onEnd).not.toHaveBeenCalled();
   });
 

@@ -280,6 +280,20 @@ select.ck-input {
   margin-top: var(--space-1);
 }
 
+/* Task A10: the optional one-pass estimate, beside its field. */
+.ck-pass-estimate {
+  margin-top: var(--space-1);
+  align-items: flex-end;
+}
+.ck-pass-estimate-text {
+  display: flex;
+  align-items: center;
+  padding-bottom: var(--space-2);
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
 /* Primary action: the ink stamp — solid ink fill, paper text (16.8:1). On
    paper this is the inverse of the v3 button, and --accent-invert-* carries
    the flip, so every consumer of those names follows automatically. */

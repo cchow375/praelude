@@ -303,7 +303,7 @@ impl Store {
             "SELECT id, title, composer, folder_path, xml_path,
                     COALESCE(preferred_pdf_path, pdf_path),
                     goals, deadline, target_tempo, hard_spots, current_state,
-                    intake_done, notes
+                    intake_done, notes, banner_text
              FROM piece WHERE id = ?1",
             [id],
             |row| {
@@ -327,6 +327,7 @@ impl Store {
                     current_state: row.get(10)?,
                     intake_done: row.get(11)?,
                     notes: row.get(12)?,
+                    banner_text: row.get(13)?,
                 })
             },
         )
@@ -952,6 +953,20 @@ impl Store {
         )
     }
 
+    /// Open a new session at an explicit, already-committed `started_at`
+    /// (rather than SQLite's own `datetime('now')`). Used by the session
+    /// service so the day-rollover boundary check and the event it opens
+    /// against agree on the same clock (production: still real time; tests:
+    /// an injected fixed value — see `sessions::SessionClock`).
+    pub(crate) fn open_session_at(&self, started_at: &str) -> rusqlite::Result<i64> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row(
+            "INSERT INTO session (started_at) VALUES (?1) RETURNING id",
+            [started_at],
+            |row| row.get(0),
+        )
+    }
+
     /// The id of the most recently opened session that has not been ended, if any.
     pub fn latest_open_session(&self) -> rusqlite::Result<Option<i64>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
@@ -976,6 +991,27 @@ impl Store {
              VALUES (?1, ?2, ?3)
              RETURNING id",
             rusqlite::params![session_id, kind, json_to_sql(payload)?],
+            |row| row.get(0),
+        )
+    }
+
+    /// Same as [`Self::insert_session_event`], but at an explicit `ts` rather
+    /// than SQLite's own `datetime('now')` — so every session-event write
+    /// agrees with the same clock the day-rollover boundary check reads (see
+    /// `sessions::SessionClock`).
+    pub(crate) fn insert_session_event_at(
+        &self,
+        session_id: i64,
+        kind: &str,
+        payload: &serde_json::Value,
+        ts: &str,
+    ) -> rusqlite::Result<i64> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row(
+            "INSERT INTO session_event (session_id, ts, kind, payload)
+             VALUES (?1, ?2, ?3, ?4)
+             RETURNING id",
+            rusqlite::params![session_id, ts, kind, json_to_sql(payload)?],
             |row| row.get(0),
         )
     }
@@ -1012,6 +1048,51 @@ impl Store {
             rusqlite::params![id, summary_md],
         )?;
         Ok(())
+    }
+
+    /// Close a session retroactively, at an explicit already-committed
+    /// timestamp rather than `datetime('now')`. Used by the day-rollover
+    /// adoption boundary: a session left open into the next local calendar day
+    /// is closed at its own last event, never at rollover-detection time, so no
+    /// phantom overnight focused time is ever attributed to it.
+    pub(crate) fn end_session_at(
+        &self,
+        id: i64,
+        ended_at: &str,
+        summary_md: &str,
+    ) -> rusqlite::Result<()> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.execute(
+            "UPDATE session SET ended_at = ?2, summary_md = ?3 WHERE id = ?1",
+            rusqlite::params![id, ended_at, summary_md],
+        )?;
+        Ok(())
+    }
+
+    /// A session's last event timestamp (falling back to `started_at` when it
+    /// has no events yet), returned verbatim in whatever native format that row
+    /// already carries, alongside whether that timestamp falls on the same
+    /// LOCAL calendar day as `now` — both sides compared through SQLite's
+    /// `'localtime'` modifier (the Mac's local timezone at evaluation time, per
+    /// the v6 day-scoped-sessions adoption rule). `None` if the session id is
+    /// unknown.
+    pub(crate) fn session_last_event_and_same_local_day(
+        &self,
+        session_id: i64,
+        now: &str,
+    ) -> rusqlite::Result<Option<(String, bool)>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row(
+            "SELECT ts, date(ts,'localtime') = date(?2,'localtime')
+             FROM (SELECT COALESCE(
+                     (SELECT MAX(ts) FROM session_event WHERE session_id = ?1),
+                     (SELECT started_at FROM session WHERE id = ?1)
+                   ) AS ts)
+             WHERE ts IS NOT NULL",
+            rusqlite::params![session_id, now],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
+        )
+        .optional()
     }
 
     /// A session's events in chronological (insertion) order. The command layer
@@ -2568,6 +2649,7 @@ mod tests {
         assert!(d.hard_spots.is_empty());
         assert!(!d.intake_done);
         assert_eq!(d.composer, None);
+        assert_eq!(d.banner_text, None, "a fresh piece carries no score banner");
         assert_eq!(store.get_piece(9999).unwrap(), None, "unknown id -> None");
     }
 

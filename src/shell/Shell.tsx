@@ -31,7 +31,11 @@ import {
   type RepSnapshot,
   type SetFocusContextInput,
 } from "../features/rep/useRep";
-import { RepHud } from "../features/rep/RepHud";
+import { DockProvider } from "../features/dock/DockProvider";
+import { RepPanel } from "../features/dock/RepPanel";
+import { PausedSetsTray } from "../features/dock/PausedSetsTray";
+import { ClockPanel } from "../features/dock/ClockPanel";
+import { DockPillBar } from "../features/dock/DockPillBar";
 import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
 import { useVoice } from "../features/voice/useVoice";
@@ -333,12 +337,11 @@ export interface ShellProps {
   defaultCleanStreak?: number;
 }
 
-// D1/D4: the dock is plain in-flow layout. It used to carry a
-// `calc(var(--s-6) + var(--s-5))` top margin whose only job was to duck under
-// the fixed session overlay, and a 680px max-height that reserved a wall of
-// space above the workspace. The session strip now lives in the header band, so
-// the set card simply starts at the top of the stage. Geometry lives in
-// .shell-set-dock (shell.css) so the reading measure is applied in one place.
+// D1/D4 (historical): the active-set card used to be an in-flow strip pinned
+// under the fixed session overlay via a top margin + 680px max-height. The
+// session strip has lived in the header band since, and the active-set card
+// itself moved into a floating Practice Dock panel (Task A3) — it no longer
+// occupies stage layout at all.
 const VOICE_DRAFT_STYLE: CSSProperties = {
   position: "fixed",
   left: "50%",
@@ -360,7 +363,6 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     tab: null as null | "plan",
     revision: 0,
   });
-  const [todayPracticeOpen, setTodayPracticeOpen] = useState(false);
   const [ledgerSurface, setLedgerSurface] = useState<LedgerSurface>("ledger");
   const [requestedLedgerPiece, setRequestedLedgerPiece] = useState({
     pieceId: null as number | null,
@@ -920,31 +922,6 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     setView("ledger");
   }, []);
 
-  // The single active-set HUD element. It docks in the shell stage normally, but
-  // while the Today's-Practice window is open the window renders it instead (so
-  // an active set stays reachable over the overlay — requirement 2). Exactly one
-  // instance mounts: the stage dock is suppressed while the window owns it.
-  const activeSetHud = rep.snap ? (
-    <RepHud
-      snap={rep.snap}
-      feed={rep.feed}
-      error={rep.error}
-      collapsed={repHudCollapsed}
-      onToggleCollapsed={() => setRepHudCollapsed((collapsed) => !collapsed)}
-      onCheck={rep.check}
-      onUndo={rep.undo}
-      onCorrect={rep.correct}
-      onReverseAdjustment={rep.reverseAdjustment}
-      onRestart={rep.restart}
-      onPause={rep.pause}
-      onResume={rep.resume}
-      onReflect={rep.reflect}
-      onSafetyStop={rep.safetyStop}
-      onRecover={rep.recover}
-      onClose={rep.close}
-    />
-  ) : null;
-
   const shellTree = (
     <div className="shell">
       <aside className="shell-rail" aria-label="CodaKiller">
@@ -1028,11 +1005,6 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         role="tabpanel"
         aria-labelledby={view === "settings" ? undefined : `tab-${view}`}
       >
-        {rep.snap && !todayPracticeOpen && (
-          <aside className="shell-set-dock" aria-label="Active practice set">
-            {activeSetHud}
-          </aside>
-        )}
         <Suspense
           fallback={<div className="shell-loading" aria-hidden="true" />}
         >
@@ -1059,8 +1031,6 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                     onOpenLedger={openLedgerHistory}
                     onOpenUniverse={() => setView("universe")}
                     onOpenSettings={openSettings}
-                    activeSetHud={activeSetHud}
-                    onPracticeOpenChange={setTodayPracticeOpen}
                   />
                 </div>
               )}
@@ -1110,6 +1080,8 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
           )}
         </Suspense>
       </main>
+
+      <DockPillBar />
 
       {(pendingBrainAction || pendingVoiceDraft) && (
         <div style={VOICE_DRAFT_STYLE} className="voice-command-surface">
@@ -1188,5 +1160,37 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       )}
     </div>
   );
-  return <TodaySheetProvider>{shellTree}</TodaySheetProvider>;
+  // Shell-level dock, same promotion pattern the session event bar used in v3
+  // Phase 5: mounted once here so its panels persist across every workspace
+  // tab rather than being re-created per view. Task A4 added PausedSetsTray
+  // ("paused") and Task A6 added ClockPanel ("clock") as one more line
+  // alongside RepPanel each.
+  return (
+    <DockProvider>
+      <TodaySheetProvider>{shellTree}</TodaySheetProvider>
+      <RepPanel
+        snap={rep.snap}
+        feed={rep.feed}
+        error={rep.error}
+        collapsed={repHudCollapsed}
+        onToggleCollapsed={() => setRepHudCollapsed((collapsed) => !collapsed)}
+        onCheck={rep.check}
+        onUndo={rep.undo}
+        onCorrect={rep.correct}
+        onReverseAdjustment={rep.reverseAdjustment}
+        onRestart={rep.restart}
+        onPause={rep.pause}
+        onResume={rep.resume}
+        onReflect={rep.reflect}
+        onSafetyStop={rep.safetyStop}
+        onRecover={rep.recover}
+        onClose={rep.close}
+      />
+      <PausedSetsTray
+        repSetState={rep.snap?.set_state}
+        applyExternalReceipt={rep.applyExternalReceipt}
+      />
+      <ClockPanel />
+    </DockProvider>
+  );
 }

@@ -2,6 +2,50 @@
 
 ## Decisions
 
+- **v6 Plan A "Practice Surfaces" — built + verified on branch `v6/plan-a` (2026-08-05/06,
+  commits `9f0ceb2..b7744f5`, NOT merged/shipped; installed app still v5.0.0):** the engineering
+  facts that must survive:
+  - **The lock lattice is now law: `lifecycle < current < pause_hook < active < store.conn`,
+    and NO path may hold `rep.active` across any `SessionService` call.** Three distinct ABBA
+    deadlock classes were found and fixed during A5/A4b (lifecycle↔active via the rollover pause
+    hook — reachable from app exit; current↔active via adopt-while-locked; and the resume path's
+    safety-stop ordering). Every rep mutation peeks `active`, drops, calls `ensure_session()`,
+    relocks. A normative module comment lives at `rep/mod.rs` (~"Task A4b addendum"). Two-thread
+    regression tests with recv_timeout pin each class — and the bounded wait must gate BEFORE any
+    unbounded join or a regression hangs CI instead of failing (learned the hard way).
+  - **Early-outs must precede session resolution.** Round 1 of the A5 fixes put `ensure_session()`
+    ahead of the "nothing active" early-outs — every graceful app quit then minted+ended a phantom
+    session. If a call will no-op or fail, it must return before touching session state.
+  - **One-ACTIVE-set invariant (v14, unshipped):** SCHEMA_V9's one-LIVE-set unique index
+    (`active|paused`) made plural paused sets impossible; the unshipped v14 batch drops it for
+    `set_contract_one_active_v2_idx (WHERE set_state='active')`. Historical v9 DDL untouched.
+    `rep_resume(Some(set_id))` auto-pauses any other active set in ONE transaction; receipt says
+    "Paused X · Resumed Y".
+  - **jsdom green ≠ app works — the live-QA class of bug.** 1,787 passing tests coexisted with:
+    a Clock panel NOTHING could open (every test opened it programmatically; no UI path existed),
+    a devMock missing the `rep_checkpoint` heartbeat handler (error toast every 15 s during any
+    active set), default panel positions overlapping at 720×520 (constants-only tests can't see
+    rendered height), and a pill overlay swallowing clicks on content underneath. Rules distilled:
+    every registered dock panel must always render at least a pill; clamp position on every
+    become-visible transition against MEASURED size (not constants); overlays that can cover
+    interactive content are forbidden — the pill bar is a real shell-grid row; the devMock must
+    cover every command the frontend calls on a timer.
+  - **`window.confirm` is banned** — wry/WKWebView may silently return falsy; it was the codebase's
+    only native dialog ("End my day") and is now the inline-confirm idiom. Grep stays clean.
+  - **Cross-surface staleness class:** Shell keeps workspaces mounted-hidden, so any per-piece
+    surface fed by fetch-on-mount goes stale when another tab writes (banner hit this; fixed with
+    a module-level pub/sub `bannerStore`). Any new per-piece surface needs a shared store/pub-sub,
+    not a refetch-on-mount.
+  - **The migration rehearsal harness cannot green-run on current live-DB copies** (pre-existing:
+    v11→v12 backfill asserts 0 reattributions, live copies produce 118). v14 was verified via
+    direct sqlite3 checks on the copy instead (user_version, index predicate, row counts,
+    integrity). Diagnose before Plans B–D lean on this gate. Filed as Flaws B58.
+  - **Orphaned test modules from stalled agents get adopted deliberately or deleted** — a stalled
+    lane left 226 lines of green tests in practice_loop.rs (adopted, `daf1dad` — one pins replay
+    idempotency nothing else covered); three other stray test files were audited and deleted.
+  - Full task-by-task record: `.superpowers/sdd/2026-08-05-codakiller-v6-plan-a-practice-surfaces/progress.md`
+    (until workspace cleanup) and vault `(C) Changelog` 2026-08-06 entry; new flaws B56–B62.
+
 - **v6.0.0 Practice Core — design round only (2026-08-05, spec commit `ea388cc`, no code):**
   spec at `docs/superpowers/specs/2026-08-05-codakiller-v6-practice-core.md`, from Christian's
   July 31 goal dump. Engineering-relevant facts fixed during design:

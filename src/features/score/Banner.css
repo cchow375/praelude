@@ -1,0 +1,140 @@
+/* The per-piece goals banner (A11) — one strip, paper tokens only.
+   It sits above the score page, so it is deliberately a single row: at the
+   720x520 dense-layout floor it must cost one line of height, never a block. */
+
+.score-banner {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  padding: var(--s-1) var(--s-2);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* The banner IS the sentence: the serif display face the notebook writes its
+   titles in, sized to be read from the piano, clamped so a long goal still fits
+   the one strip. */
+.score-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-family: var(--font-display);
+  font-size: clamp(0.95rem, 2.2vw, 1.35rem);
+  line-height: 1.25;
+  color: var(--ink);
+  /* One row, always: a 140-char goal on a narrow window ends in an ellipsis
+     rather than pushing the score page down a line. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
+  border-radius: var(--r-sm);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.score-banner-text:hover,
+.score-banner-text:focus-visible {
+  background: var(--bg-raised);
+}
+
+.score-banner-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: clamp(0.95rem, 2.2vw, 1.35rem);
+  line-height: 1.25;
+  color: var(--ink);
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 2px var(--s-1);
+}
+
+.score-banner.is-editing {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-2);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.score-banner-tools,
+.score-banner-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex: 0 0 auto;
+}
+
+.score-banner-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: var(--ink-dim);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.score-banner-icon:hover,
+.score-banner-icon:focus-visible {
+  color: var(--ink);
+}
+
+.score-banner-confirm-ask,
+.score-banner-action {
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+}
+
+.score-banner-action {
+  border: 0;
+  background: none;
+  padding: 0 var(--s-1);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.score-banner-action:hover,
+.score-banner-action:focus-visible {
+  color: var(--ink);
+}
+
+.score-banner-error {
+  flex: 1 0 100%;
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--signal-error);
+}
+
+/* No banner: one small affordance, no strip, no reserved height. */
+.score-banner-empty {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--s-2);
+}
+
+.score-banner-add {
+  border: 0;
+  background: none;
+  padding: 2px var(--s-1);
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.score-banner-add:hover,
+.score-banner-add:focus-visible {
+  color: var(--ink);
+}

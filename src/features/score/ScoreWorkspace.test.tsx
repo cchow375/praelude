@@ -278,3 +278,74 @@ describe("ScoreWorkspace", () => {
     );
   });
 });
+
+describe("ScoreWorkspace — goals banner (A11)", () => {
+  it("renders the selected piece's banner above the score page", async () => {
+    invokeMock.mockImplementation((command: string, args?: unknown) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      if (command === "piece_get") {
+        const id = ((args ?? {}) as { id?: number }).id;
+        return Promise.resolve({
+          id,
+          banner_text: id === 1 ? "Even development voicing" : null,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    render(<ScoreWorkspace />);
+
+    const banner = await screen.findByTestId("score-banner");
+    expect(banner.textContent).toContain("Even development voicing");
+    // Above the page, not below it: the strip precedes the reader in the DOM.
+    const view = screen.getByTestId("score-view-stub");
+    expect(
+      banner.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("shows only the quiet '+ goal' affordance for a piece with no banner", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      if (command === "piece_get")
+        return Promise.resolve({ id: 1, banner_text: null });
+      return Promise.resolve(undefined);
+    });
+
+    render(<ScoreWorkspace />);
+
+    expect(
+      await screen.findByRole("button", { name: "Add a goal banner" }),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("score-banner")).toBeNull();
+  });
+
+  // Fix wave item 11 (live-QA finding): ScoreBanner and ScoreView used to
+  // BOTH carry `key={selectedId}` as siblings under the same pane — React
+  // warns "two children with the same key" on every mount/piece-switch
+  // regardless of the two components being different types. ScoreView keeps
+  // its key deliberately (a fresh mount per piece resets PDF/tool state);
+  // ScoreBanner does not need one (it resets its own state via a
+  // `[pieceId]` effect), so this pins that only ScoreView's key survives.
+  it("does not warn about a duplicate React key between the banner and the score view", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    invokeMock.mockImplementation((command: string, args?: unknown) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      if (command === "piece_get") {
+        const id = ((args ?? {}) as { id?: number }).id;
+        return Promise.resolve({ id, banner_text: "One goal" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    render(<ScoreWorkspace />);
+    await screen.findByTestId("score-view-stub");
+    await screen.findByTestId("score-banner");
+
+    const keyWarning = errorSpy.mock.calls.some((args) =>
+      String(args[0]).includes("same key"),
+    );
+    expect(keyWarning).toBe(false);
+    errorSpy.mockRestore();
+  });
+});

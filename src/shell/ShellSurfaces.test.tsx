@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NaturalPracticeActionDraft } from "../features/voice/domain/actionDraft";
@@ -321,6 +322,33 @@ describe("Shell app-level practice surfaces", () => {
     expect(screen.getByText("mm. 65–96")).toBeTruthy();
     // Verdict entry from the kit is present.
     expect(screen.getByRole("button", { name: "Clean" })).toBeTruthy();
+  });
+
+  it("keeps the rep panel reachable across every workspace tab (Task A3: shell-level, not per-view)", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await screen.findByRole("dialog", { name: "Rep Counter" });
+
+    // Universe, Ledger, and Score are all lazy-mounted, view-switched
+    // surfaces — the dock panel lives OUTSIDE that switch (mounted once at
+    // shell level, per the brief), so it must survive navigating to each.
+    fireEvent.click(screen.getByRole("tab", { name: "Universe" }));
+    await screen.findByTestId("universe-workspace-stub");
+    let panel = await screen.findByRole("dialog", { name: "Rep Counter" });
+    expect(within(panel).getByText("Scherzo No. 2")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Score" }));
+    await screen.findByTestId("score-workspace-stub");
+    panel = await screen.findByRole("dialog", { name: "Rep Counter" });
+    expect(within(panel).getByText("Scherzo No. 2")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Today" }));
+    await screen.findByTestId("workspace-today");
+    panel = await screen.findByRole("dialog", { name: "Rep Counter" });
+    expect(within(panel).getByText("Scherzo No. 2")).toBeTruthy();
   });
 
   it("mounts the session bar from the current session", async () => {

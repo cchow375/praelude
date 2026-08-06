@@ -10,7 +10,8 @@ use serde_json::{json, Value};
 
 use super::model::{
     json_from_sql, json_to_sql, BlockHistory, IncrementRule, LastRep, MutationEntityRef,
-    MutationReceipt, RepOpenArgs, RepSnapshot, SetFocusContextInput, VariantSpec, VerdictCounts,
+    MutationReceipt, PausedSetRow, RepOpenArgs, RepSnapshot, SetFocusContextInput, VariantSpec,
+    VerdictCounts,
 };
 use super::Store;
 use crate::ledger::{
@@ -466,6 +467,69 @@ fn trailing_clean_at_or_above(
     streak
 }
 
+/// Task A4: every set currently sitting in `set_contract.set_state='paused'`,
+/// newest-paused first. Reuses [`project`] for `current_clean_streak` rather
+/// than re-deriving streak math here — the ledger projection is the single
+/// source of truth for that number everywhere else it's shown.
+pub(super) fn paused_sets_list(conn: &Connection) -> rusqlite::Result<Vec<PausedSetRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT sc.set_id, rb.piece_id, p.title, rb.m_start, rb.m_end,
+                (SELECT e.ts FROM event e
+                  WHERE e.entity_type='set' AND e.entity_id=sc.set_id AND e.kind='rep_pause'
+                  ORDER BY e.id DESC LIMIT 1) AS paused_since_ts,
+                (SELECT e.id FROM event e
+                  WHERE e.entity_type='set' AND e.entity_id=sc.set_id AND e.kind='rep_pause'
+                  ORDER BY e.id DESC LIMIT 1) AS paused_event_id
+         FROM set_contract sc
+         JOIN rep_block rb ON rb.id = sc.set_id
+         JOIN piece p ON p.id = rb.piece_id
+         WHERE sc.set_state = 'paused'
+         ORDER BY paused_event_id IS NULL, paused_event_id DESC, sc.set_id DESC",
+    )?;
+    let raw = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(stmt);
+
+    let mut out = Vec::with_capacity(raw.len());
+    for (set_id, piece_id, piece_title, m_start, m_end, paused_since_ts) in raw {
+        let snapshot = project(conn, set_id)?;
+        // Legacy/migrated paused rows with no recorded `rep_pause` event (see
+        // the ambiguity note on `PausedSetRow`) fall back to the contract's
+        // own creation timestamp rather than a fabricated pause time.
+        let paused_since_ts = match paused_since_ts {
+            Some(ts) => ts,
+            None => conn.query_row(
+                "SELECT created_ts FROM set_contract WHERE set_id=?1",
+                [set_id],
+                |row| row.get(0),
+            )?,
+        };
+        out.push(PausedSetRow {
+            set_id,
+            block_id: set_id,
+            piece_id,
+            piece_title,
+            m_start,
+            m_end,
+            bpm: snapshot.bpm.unwrap_or(0.0).round() as i64,
+            target_bpm: snapshot.target_bpm.unwrap_or(0.0).round() as i64,
+            paused_since_ts,
+            current_clean_streak: i64::from(snapshot.current_clean_streak),
+        });
+    }
+    Ok(out)
+}
+
 pub(super) fn project(conn: &Connection, block_id: i64) -> rusqlite::Result<RepSnapshot> {
     let row = load_set_row(conn, block_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
     let loop_state = super::practice_loop::load_loop_projection(
@@ -671,6 +735,7 @@ pub(super) fn insert_event(
     Ok((feed_id, canonical_id))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn insert_contract(
     tx: &Transaction<'_>,
     set_id: i64,
@@ -679,6 +744,7 @@ fn insert_contract(
     restart_of: Option<i64>,
     source: MutationSource,
     planned_seconds: Option<u32>,
+    pass_seconds: Option<i64>,
 ) -> rusqlite::Result<()> {
     let (recovery_policy, recovery_value, recovery_minimum) = match contract.recovery {
         RecoveryPolicy::None => ("none", 0_u32, 0_u32),
@@ -705,9 +771,9 @@ fn insert_contract(
           required_success,reset_on_flawed,reset_on_failed,recovery_policy,
           recovery_value,recovery_minimum,tempo_policy_json,attempt_ceiling,
           planned_seconds,retention_delay_days,source_refs_json,set_state,
-          mastery_verification,restart_of_set_id,source)
+          mastery_verification,restart_of_set_id,source,pass_seconds)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,
-                 ?15,NULL,?16,?17,'verified',?18,?19)",
+                 ?15,NULL,?16,?17,'verified',?18,?19,?20)",
         rusqlite::params![
             set_id,
             contract.template_id,
@@ -730,6 +796,7 @@ fn insert_contract(
             state,
             restart_of,
             source_name(source),
+            pass_seconds,
         ],
     )?;
     Ok(())
@@ -815,10 +882,13 @@ pub(crate) fn validate_open(
 /// Open one live rep set inside an already-open transaction, reusing the exact
 /// block/contract/context/event writes `v2_open_set` commits. Callers own the
 /// transaction and commit, so a durable command (e.g. the reviewed session
-/// plan) can atomically wrap this open in one receipted operation. Enforces the
-/// single-live-set invariant here so an in-flight block rejects a second open
-/// with no partial writes. Returns the fresh `V2Open` plus the operation's
-/// canonical event ids for the receipt.
+/// plan) can atomically wrap this open in one receipted operation. Enforces
+/// the one-ACTIVE-set invariant here (Task A4b: `set_contract_one_active_v2_idx`,
+/// SCHEMA_V14) so an in-flight ACTIVE block rejects a second open with no
+/// partial writes — a set merely sitting `paused` elsewhere no longer blocks
+/// opening a fresh one; paused sets are plural by design (the paused-sets
+/// tray). Returns the fresh `V2Open` plus the operation's canonical event ids
+/// for the receipt.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn open_set_in_tx(
     tx: &Transaction<'_>,
@@ -833,7 +903,7 @@ pub(super) fn open_set_in_tx(
     now: &str,
 ) -> rusqlite::Result<(V2Open, Vec<i64>)> {
     let active_exists: bool = tx.query_row(
-        "SELECT EXISTS(SELECT 1 FROM set_contract WHERE set_state IN ('active','paused'))",
+        "SELECT EXISTS(SELECT 1 FROM set_contract WHERE set_state='active')",
         [],
         |row| row.get(0),
     )?;
@@ -884,6 +954,7 @@ pub(super) fn open_set_in_tx(
         None,
         source,
         context.and_then(|value| value.planned_seconds),
+        context.and_then(|value| value.pass_seconds),
     )?;
     super::practice_loop::capture_open_context(tx, block_id, args, context, now)?;
     let payload = json!({
@@ -922,6 +993,16 @@ pub(super) fn open_set_in_tx(
 }
 
 impl Store {
+    /// IPC-facing read for the paused-sets tray (Task A4). See
+    /// [`paused_sets_list`] for the query and streak-reuse rationale.
+    pub fn paused_sets_list(&self) -> rusqlite::Result<Vec<PausedSetRow>> {
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        paused_sets_list(&conn)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_open_set(
         &self,
@@ -1211,6 +1292,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         keep_open: bool,
+        now: Option<&str>,
     ) -> rusqlite::Result<V2Mutation> {
         let mut conn = self
             .conn
@@ -1302,7 +1384,7 @@ impl Store {
                 entity_id: attempt_id,
                 source,
                 command_id,
-                timestamp: None,
+                timestamp: now,
             },
         )?;
         let new_bpm = projected_retune(before.bpm, snapshot.bpm);
@@ -1328,7 +1410,7 @@ impl Store {
                     entity_id: block_id,
                     source,
                     command_id: &tempo_command,
-                    timestamp: None,
+                    timestamp: now,
                 },
             )?;
         }
@@ -1341,12 +1423,19 @@ impl Store {
         })
     }
 
+    /// `now`: `Some` stamps the compensating `rep_edit`/`tempo_change` events at
+    /// that already-committed timestamp (RepEngine callers thread its own clock
+    /// through here so a history repair under a test/fixed clock never reads
+    /// back as "on a different day" from the surrounding practice — task A5);
+    /// `None` preserves the original behavior (SQLite's own `datetime('now')`)
+    /// for callers with no clock of their own (data-repair/import paths).
     pub(crate) fn v2_undo(
         &self,
         session_id: i64,
         block_id: i64,
         source: MutationSource,
         command_id: &str,
+        now: Option<&str>,
     ) -> rusqlite::Result<V2Mutation> {
         self.v2_adjust(
             Some(session_id),
@@ -1358,6 +1447,7 @@ impl Store {
             source,
             command_id,
             true,
+            now,
         )
     }
 
@@ -1373,6 +1463,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         keep_open: bool,
+        now: Option<&str>,
     ) -> rusqlite::Result<V2Mutation> {
         let (kind, after) = if replace_note {
             (
@@ -1387,6 +1478,7 @@ impl Store {
         };
         self.v2_adjust(
             session_id, block_id, attempt_id, kind, &after, None, source, command_id, keep_open,
+            now,
         )
     }
 
@@ -1408,6 +1500,7 @@ impl Store {
             source,
             command_id,
             keep_open,
+            None,
         )
     }
 
@@ -1439,6 +1532,7 @@ impl Store {
         adjustment_id: i64,
         source: MutationSource,
         command_id: &str,
+        now: Option<&str>,
     ) -> rusqlite::Result<V2Mutation> {
         let conn = self
             .conn
@@ -1461,6 +1555,7 @@ impl Store {
             source,
             command_id,
             true,
+            now,
         )
     }
 
@@ -1515,6 +1610,11 @@ impl Store {
             [block_id],
             |row| row.get(0),
         )?;
+        let pass_seconds: Option<i64> = tx.query_row(
+            "SELECT pass_seconds FROM set_contract WHERE set_id=?1",
+            [block_id],
+            |row| row.get(0),
+        )?;
         insert_contract(
             &tx,
             new_id,
@@ -1523,6 +1623,7 @@ impl Store {
             Some(block_id),
             source,
             planned_seconds,
+            pass_seconds,
         )?;
         super::practice_loop::capture_restart_context(&tx, block_id, new_id, now)?;
         let payload = json!({
@@ -1654,6 +1755,15 @@ impl Store {
 
     #[cfg(test)]
     pub(crate) fn test_scalar_i64(&self, sql: &str) -> rusqlite::Result<i64> {
+        let conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        conn.query_row(sql, [], |row| row.get(0))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_scalar_i64_opt(&self, sql: &str) -> rusqlite::Result<Option<i64>> {
         let conn = self
             .conn
             .lock()

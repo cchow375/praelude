@@ -1,5 +1,9 @@
-import { useMemo } from "react";
-import { defineCommand, executeCommand } from "../../services/command";
+import { useEffect, useMemo, useState } from "react";
+import {
+  commandErrorMessage,
+  defineCommand,
+  executeCommand,
+} from "../../services/command";
 import { todayLocal } from "../calendar/dates";
 import { clearTodayPlan, readTodayPlan } from "../today/todayPlan";
 import {
@@ -38,7 +42,80 @@ export interface UseDaySheet {
   flush: () => void;
 }
 
-export function useDaySheet(date: string): UseDaySheet {
+export interface UseDaySheetOptions {
+  /**
+   * Past-date browsing (spec A7). Loads the sheet read-only through
+   * `day_sheet_get` and mounts NO autosave path at all — `useAutosavedDocument`
+   * is never instantiated, not merely inhibited, so a past date can never write
+   * `day_sheet_save` (never creates a row for a browsed date). `setBody`/`flush`
+   * are no-ops; the legacy `todayPlan` migration never runs here either, since
+   * it is a `load()` behaviour of the LIVE path only.
+   */
+  readOnly?: boolean;
+}
+
+/**
+ * `readOnly` is resolved by a plain branch, not a runtime toggle: it picks
+ * ONE hook shape for the whole lifetime of a given call site. Callers that let
+ * `readOnly` vary for the same `date` prop across renders must key their
+ * component on `date` (the day-sheet nav does) so a flip always remounts
+ * rather than changing which hooks run on an already-mounted instance.
+ */
+export function useDaySheet(
+  date: string,
+  options: UseDaySheetOptions = {},
+): UseDaySheet {
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- see doc comment above
+  return options.readOnly ? useReadOnlyDaySheet(date) : useLiveDaySheet(date);
+}
+
+function useReadOnlyDaySheet(date: string): UseDaySheet {
+  const [body, setBodyState] = useState<NotebookLine[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setStatus("loading");
+    setError(null);
+    executeCommand(DAY_SHEET_GET, { date }).then(
+      (sheet) => {
+        if (!alive) return;
+        setBodyState(sheet ? sheet.body : []);
+        setUpdatedAt(sheet ? sheet.updated_at : null);
+        setStatus("ready");
+      },
+      (cause) => {
+        if (!alive) return;
+        setError(
+          commandErrorMessage(cause, "Today's page could not be opened."),
+        );
+        setStatus("error");
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [date]);
+
+  return {
+    body,
+    // Read-only: nothing in this surface renders an editable line, so this
+    // never fires. It is a no-op, not a throw, so a stray call can't crash a
+    // page the user is only reading.
+    setBody: () => {},
+    status,
+    error,
+    saving: false,
+    updatedAt,
+    flush: () => {},
+  };
+}
+
+function useLiveDaySheet(date: string): UseDaySheet {
   const config = useMemo(
     () => ({
       key: date,

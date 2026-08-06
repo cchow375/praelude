@@ -55,6 +55,7 @@ export function SessionBar({
 }: SessionBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [confirmingEndDay, setConfirmingEndDay] = useState(false);
   const startedRef = useRef<number | null>(null);
 
   startedRef.current = session ? parseStartedAt(session.started_at) : null;
@@ -102,6 +103,52 @@ export function SessionBar({
         >
           {ending ? "Ending…" : "End session"}
         </button>
+        {/* Task A5: day-scoped sessions. Same underlying command as "End
+            session" (a session never spans a calendar day now, so ending it
+            IS ending the day) — this control just asks for confirmation
+            first, since "end my day" reads as a bigger commitment than the
+            quiet in-place end button beside it.
+
+            Fix wave item 5: this used to be `window.confirm`, the only
+            native JS dialog in the codebase — wry/WKWebView has historically
+            returned falsy from it silently, which would make "End my day"
+            look like a dead button. Same inline-confirm idiom as
+            Banner.tsx's "Remove this banner?" flow instead. */}
+        {confirmingEndDay ? (
+          <span className="session-end-day-confirm">
+            <span className="session-end-day-confirm-ask">
+              End your practice day?
+            </span>
+            <button
+              type="button"
+              className="session-end-day-action"
+              onClick={() => {
+                setConfirmingEndDay(false);
+                onEnd();
+              }}
+            >
+              End day
+            </button>
+            <button
+              type="button"
+              className="session-end-day-action"
+              aria-label="Keep the session open"
+              onClick={() => setConfirmingEndDay(false)}
+            >
+              Keep going
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="session-end-day"
+            onClick={() => setConfirmingEndDay(true)}
+            disabled={ending || Boolean(blockedReason)}
+            title={blockedReason ?? undefined}
+          >
+            {ending ? "Ending…" : "End my day"}
+          </button>
+        )}
       </div>
 
       {/* The helper sentence is a SIBLING of the control row, not a child of a

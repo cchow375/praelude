@@ -7,7 +7,11 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Intake, PieceDetailData } from "./types";
-import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
+import type {
+  RepOpenArgs,
+  RepSnapshot,
+  SetFocusContextInput,
+} from "../rep/useRep";
 import { IntakeForm } from "./IntakeForm";
 import { BlockForm } from "../rep/BlockForm";
 import { EditableField } from "../../components/EditableField";
@@ -36,7 +40,10 @@ import type { ScoreFocusContext } from "../score/types";
 interface PieceDetailProps {
   piece: PieceDetailData;
   onBack: () => void;
-  onOpenBlock: (args: RepOpenArgs) => Promise<void>;
+  onOpenBlock: (
+    args: RepOpenArgs,
+    context?: SetFocusContextInput | null,
+  ) => Promise<void>;
   activeRep?: RepSnapshot | null;
   defaultCleanStreak?: number;
   /** Notifies the parent list when the piece record changes (badges/summary). */
@@ -134,11 +141,11 @@ export function PieceDetail({
   );
 
   const openBlock = useCallback(
-    async (args: RepOpenArgs) => {
+    async (args: RepOpenArgs, context?: SetFocusContextInput) => {
       setOpening(true);
       setError(null);
       try {
-        await onOpenBlock(args);
+        await onOpenBlock(args, context);
         // Refresh history so the just-opened block appears.
         setHistoryRevision((revision) => revision + 1);
       } catch (cause) {
