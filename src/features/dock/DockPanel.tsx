@@ -132,6 +132,7 @@ export function DockPanel({
         { ...viewportClamped, width: size.width, height: size.height },
         ctx.getOtherRects(id),
         viewport,
+        MIN_VISIBLE_ON_OPEN_PX,
       );
       ctx.move(id, resolved.x, resolved.y);
     });
@@ -283,7 +284,7 @@ export function DockPanel({
         transform: `translate(${panel.x}px, ${panel.y}px)`,
         zIndex: panel.z,
         width: `${effectiveWidth}px`,
-        maxHeight: `${dockPanelMaxHeight(window.innerHeight)}px`,
+        maxHeight: `${dockPanelMaxHeight(window.innerHeight, panel.y)}px`,
       }}
       onPointerDown={() => ctx.focus(id)}
       onKeyDown={onKeyDown}

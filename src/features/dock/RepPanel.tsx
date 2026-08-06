@@ -32,7 +32,10 @@ export const PANEL_WIDTH = 440;
  * ENFORCES this ceiling — content past it scrolls internally
  * (`.dock-panel-body { overflow-y: auto }`) instead of growing outward — so
  * this constant and the real rendered height can never disagree. */
-export const ASSUMED_MAX_HEIGHT = dockPanelMaxHeight(DENSE_LAYOUT_FLOOR.height);
+export const ASSUMED_MAX_HEIGHT = dockPanelMaxHeight(
+  DENSE_LAYOUT_FLOOR.height,
+  DEFAULT_POSITION.y,
+);
 
 /**
  * Task A3: the rep HUD's shell-level dock host. RepHud's own render/logic is

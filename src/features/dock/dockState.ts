@@ -101,30 +101,77 @@ export function clampPosition(
   };
 }
 
-/** Residuals fix wave (defect 1, "clock opens off-screen"): the floor used
- * the FIRST time a panel becomes visible (mount already-open, pill-restore
- * click, or a programmatic `open()`) — deliberately larger than the drag
- * floor (MIN_VISIBLE_PX) so the panel's title bar AND at least one row of
- * body content land on screen, not just enough of it to grab with a mouse. */
-export const MIN_VISIBLE_ON_OPEN_PX = 132;
+/** Residuals fix wave round 2 (defect 1 REFUTED on first pass — see below):
+ * the floor used the FIRST time a panel becomes visible (mount already-open,
+ * pill-restore click, or a programmatic `open()`) — deliberately larger than
+ * the drag floor (MIN_VISIBLE_PX) and now EQUAL to `DOCK_PANEL_MIN_HEIGHT_PX`
+ * (below) so the two stay in lockstep: this is the floor the become-visible
+ * clamp (and `resolveCollision`'s own final fallback) hold `y` to, and it is
+ * exactly the minimum height a panel's OWN box is ever squeezed to. Keeping
+ * them equal is what guarantees a panel's bottom edge can never land past the
+ * viewport — see `dockPanelMaxHeight`'s doc comment for the full argument. */
+export const MIN_VISIBLE_ON_OPEN_PX = 160;
+
+/** Residuals fix wave round 2: the floor a panel's OWN clamped box height is
+ * never squeezed below, regardless of how little room is left below its `y`
+ * — matches `MIN_VISIBLE_ON_OPEN_PX` (the `y` clamp keeps at least this much
+ * room below any panel's top on open, so the two together guarantee a panel
+ * box can ALWAYS render at least this tall without its bottom edge crossing
+ * the viewport edge). */
+export const DOCK_PANEL_MIN_HEIGHT_PX = MIN_VISIBLE_ON_OPEN_PX;
+
+/** Small clearance kept between a panel's bottom edge and the viewport's own
+ * bottom edge — purely cosmetic (so the panel never touches the very edge),
+ * not load-bearing for the containment guarantee itself. */
+export const DOCK_PANEL_BOTTOM_MARGIN_PX = 16;
 
 /** Residuals fix wave (defect 2, "rep panel overlaps tray"): the vertical
- * budget any SINGLE dock panel's body is allowed at the 720x520 dense-layout
- * floor, mirrored by `.dock-panel`'s CSS `max-height` (dock.css) — past this
- * the body scrolls internally (`.dock-panel-body { overflow-y: auto }`)
- * instead of the panel growing past its clamp box. This is what makes
- * default-position stacking math "honest": earlier code guessed at a real
- * rendered height (RepPanel's old `ASSUMED_MAX_HEIGHT = 260`, which live QA
- * showed undershot the real ~450-500px drawer); now the number IS the
- * ceiling, enforced by CSS, not a guess about content that can grow past it. */
+ * budget any SINGLE dock panel's body is allowed to CLAIM at the 720x520
+ * dense-layout floor when it has the whole viewport to itself — mirrored by
+ * `.dock-panel`'s CSS `max-height` (dock.css). Past this the body scrolls
+ * internally (`.dock-panel-body { overflow-y: auto }`) instead of the panel
+ * growing outward. This is what makes default-position stacking math
+ * "honest": earlier code guessed at a real rendered height (RepPanel's old
+ * `ASSUMED_MAX_HEIGHT = 260`, which live QA showed undershot the real
+ * ~450-500px drawer); now the number IS a ceiling enforced by CSS, not a
+ * guess about content that could grow past it. */
 export const DOCK_PANEL_HEIGHT_MARGIN_PX = 220;
 
-/** The `.dock-panel` max-height at a given viewport height, mirroring the
- * CSS `calc(100vh - ${DOCK_PANEL_HEIGHT_MARGIN_PX}px)` rule in dock.css.
- * Exported so default-position math (RepPanel/PausedSetsTray/ClockPanel) and
- * tests derive from the SAME number the CSS actually enforces. */
-export function dockPanelMaxHeight(viewportHeight: number): number {
-  return Math.max(120, viewportHeight - DOCK_PANEL_HEIGHT_MARGIN_PX);
+/**
+ * Residuals fix wave ROUND 2 (defect 1 REFUTED): round 1 clamped the
+ * panel's POSITION but gave every panel the SAME fixed max-height
+ * (`viewportHeight - DOCK_PANEL_HEIGHT_MARGIN_PX`) regardless of where it
+ * actually ended up — with the rep panel expanded (eating most of the
+ * viewport) and the clock pushed below it by `resolveCollision`'s
+ * last-resort fallback, the clock's box still rendered its FULL fixed
+ * max-height starting from a `y` deep in the viewport, so its own bottom
+ * edge landed WELL PAST the viewport bottom. `.dock-panel-body`'s
+ * `overflow-y: auto` only helps for content taller than the panel's OWN
+ * box — it cannot bring pixels back onto screen that are outside the
+ * viewport because the BOX ITSELF extends past it; that is a fundamentally
+ * different failure than "content taller than its box".
+ *
+ * The fix: a panel's max-height is now the SMALLER of (a) the fixed
+ * per-viewport budget above (so one panel opening alone still can't hog the
+ * entire screen, preserving room for others to stack) and (b) the actual
+ * room left between its OWN `y` and the viewport bottom (so its box can
+ * NEVER extend past the viewport, wherever collision-avoidance or clamping
+ * put it). Combined with the `y`-clamp guaranteeing at least
+ * `DOCK_PANEL_MIN_HEIGHT_PX` of room below any panel's top (see
+ * `MIN_VISIBLE_ON_OPEN_PX`/`resolveCollision`), this makes "the box is
+ * always fully on screen, and internal scroll is always genuinely reachable
+ * for anything past its own visible height" a structural guarantee, not
+ * something that can be defeated by an unlucky `y`. */
+export function dockPanelMaxHeight(
+  viewportHeight: number,
+  panelY: number = 0,
+): number {
+  const fixedBudget = Math.max(
+    DOCK_PANEL_MIN_HEIGHT_PX,
+    viewportHeight - DOCK_PANEL_HEIGHT_MARGIN_PX,
+  );
+  const roomBelowY = viewportHeight - panelY - DOCK_PANEL_BOTTOM_MARGIN_PX;
+  return Math.max(DOCK_PANEL_MIN_HEIGHT_PX, Math.min(fixedBudget, roomBelowY));
 }
 
 export interface Rect {
@@ -149,10 +196,13 @@ export function rectsIntersect(a: Rect, b: Rect): boolean {
  * that is ALREADY visible (e.g. the rep panel's real drawer height eating
  * most of the 720x520 floor before the paused-sets tray opens below it).
  * Pushes the candidate below the bottom-most rect it collides with, then
- * re-clamps to the viewport with a smaller (but still non-zero) visibility
- * floor — no rect intersection wins over the "nice to have" open-visibility
- * floor when the two conflict, because a silently-overlapped panel is worse
- * than a clamped one that only shows a sliver until dragged. Pure. */
+ * re-clamps `y` to the viewport with `minVisible` (the caller passes
+ * `MIN_VISIBLE_ON_OPEN_PX` — see dockState.ts round 2 notes above: this is
+ * the SAME floor `dockPanelMaxHeight` relies on to guarantee a panel's own
+ * box never extends past the viewport, so the two must be called with the
+ * same number). No rect intersection wins over that floor when the two
+ * conflict — a silently-overlapped panel is worse than one squeezed to its
+ * minimum usable height. Pure. */
 export function resolveCollision(
   candidate: Rect,
   others: Rect[],

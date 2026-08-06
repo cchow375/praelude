@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  DOCK_PANEL_MIN_HEIGHT_PX,
   DOCK_STORAGE_KEY,
   MIN_PANEL_WIDTH,
   MIN_VISIBLE_ON_OPEN_PX,
@@ -93,6 +94,50 @@ describe("dockPanelMaxHeight (residuals fix wave, defect 2)", () => {
 
   it("never drops below a usable floor even on a very short viewport", () => {
     expect(dockPanelMaxHeight(100)).toBeGreaterThanOrEqual(120);
+  });
+
+  describe("round 2 (defect 1 REFUTED): the y-aware ceiling", () => {
+    it("shrinks a panel's max-height so its bottom edge never crosses the viewport, at the lowest y the become-visible clamp/resolveCollision ever allow", () => {
+      // The `y`-side of this guarantee: clampPosition/resolveCollision (both
+      // called with MIN_VISIBLE_ON_OPEN_PX) never let `y` exceed
+      // `viewportHeight - MIN_VISIBLE_ON_OPEN_PX` in the first place — this
+      // proves the height side holds at exactly that worst-case y.
+      const viewportHeight = 520;
+      const y = viewportHeight - MIN_VISIBLE_ON_OPEN_PX; // the lowest legal y
+      const cap = dockPanelMaxHeight(viewportHeight, y);
+      expect(y + cap).toBeLessThanOrEqual(viewportHeight);
+    });
+
+    it("CANNOT guarantee containment on its own if the caller ignores the y floor (documents why the two constants must move together)", () => {
+      // y=472 is BELOW the MIN_VISIBLE_ON_OPEN_PX floor (360 at this
+      // viewport) — dockPanelMaxHeight still refuses to squeeze the panel
+      // below DOCK_PANEL_MIN_HEIGHT_PX, so containment can be violated. This
+      // is exactly why clampPosition/resolveCollision are ALWAYS called
+      // with MIN_VISIBLE_ON_OPEN_PX in DockPanel.tsx — never a smaller
+      // floor — for the become-visible path.
+      const viewportHeight = 520;
+      const y = 472;
+      const cap = dockPanelMaxHeight(viewportHeight, y);
+      expect(y + cap).toBeGreaterThan(viewportHeight);
+    });
+
+    it("still caps a panel positioned near the top to the fixed per-viewport budget — one panel opening alone must not hog the whole screen", () => {
+      // At y=16 there is plenty of room below (504px) — the fixed budget
+      // (dense-layout floor: 520-220=300) must be what actually limits it,
+      // not the (much larger) dynamic room, so a second panel can still
+      // find somewhere to stack.
+      const cap = dockPanelMaxHeight(520, 16);
+      expect(cap).toBe(300);
+    });
+
+    it("never squeezes a panel below the usable minimum, even with almost no room left below y", () => {
+      const cap = dockPanelMaxHeight(520, 510);
+      expect(cap).toBeGreaterThanOrEqual(DOCK_PANEL_MIN_HEIGHT_PX);
+    });
+
+    it("defaults y to 0 (unchanged single-arg call sites keep behaving exactly as round 1)", () => {
+      expect(dockPanelMaxHeight(520)).toBe(dockPanelMaxHeight(520, 0));
+    });
   });
 });
 

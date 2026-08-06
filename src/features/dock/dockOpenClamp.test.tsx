@@ -124,6 +124,106 @@ describe("DockPanel — become-visible clamp (residuals fix wave, defect 1: cloc
     // And it actually moved — this is the bug: it used to stay at 464.
     expect(y).toBeLessThan(464);
   });
+
+  it("round 2 (REFUTED first pass): with the rep panel already expanded, opening the clock keeps the clock's OWN box fully inside the viewport, not just its top-left corner", async () => {
+    // Live-QA repro: rep expanded first (a real ~470px-tall drawer, well
+    // over the per-panel budget so it gets capped), THEN the clock opened
+    // from the pill bar. Round 1 only clamped the clock's top-left position
+    // — its max-height was still the SAME FIXED budget regardless of where
+    // it landed, so pushed-below-rep it still rendered a box whose bottom
+    // edge fell well past the viewport (QA measured the stopwatch Start
+    // button at top:525.9 in a 520px-tall viewport) with no way to scroll
+    // those off-viewport pixels back on screen — overflow-y only helps for
+    // content taller than the panel's OWN box, not a box that itself
+    // extends past the viewport.
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        rep: {
+          x: 160,
+          y: 16,
+          minimized: false,
+          open: true,
+          z: 1,
+          flashing: false,
+        },
+        clock: {
+          x: 24,
+          y: 504,
+          minimized: false,
+          open: false,
+          z: 2,
+          flashing: false,
+        },
+      }),
+    );
+
+    mockMeasuredSize({ width: 440, height: 470 });
+    const { rerender } = render(
+      <DockProvider>
+        <DockPanel
+          id="rep"
+          title="Rep Counter"
+          defaultPosition={{ x: 160, y: 16 }}
+          width={440}
+        >
+          <div>rep body</div>
+        </DockPanel>
+        <DockPanel id="clock" title="Clock" defaultPosition={{ x: 24, y: 504 }}>
+          <div>clock body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+    await flushClampFrame();
+
+    // The rep panel's OWN rendered rect must already be honest about its
+    // enforced ceiling (its real content, 470, exceeds the per-panel budget
+    // at y=16, so it should be capped, not the raw 470).
+    const repDialog = screen.getByRole("dialog", { name: "Rep Counter" });
+    const repMaxHeight = Number(
+      /^(\d+)px$/.exec(repDialog.style.maxHeight)?.[1] ?? NaN,
+    );
+    expect(repMaxHeight).toBeLessThan(470);
+    expect(repMaxHeight).toBeGreaterThan(0);
+
+    mockMeasuredSize({ width: 260, height: 300 });
+    fireEvent.click(screen.getByRole("button", { name: "Restore Clock" }));
+    await flushClampFrame();
+    rerender(
+      <DockProvider>
+        <DockPanel
+          id="rep"
+          title="Rep Counter"
+          defaultPosition={{ x: 160, y: 16 }}
+          width={440}
+        >
+          <div>rep body</div>
+        </DockPanel>
+        <DockPanel id="clock" title="Clock" defaultPosition={{ x: 24, y: 504 }}>
+          <div>clock body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    const clockDialog = screen.getByRole("dialog", { name: "Clock" });
+    const clockMatch = /translate\((-?\d+)px, (-?\d+)px\)/.exec(
+      clockDialog.style.transform,
+    );
+    expect(clockMatch).not.toBeNull();
+    const clockY = Number(clockMatch![2]);
+    const clockMaxHeight = Number(
+      /^(\d+)px$/.exec(clockDialog.style.maxHeight)?.[1] ?? NaN,
+    );
+    expect(Number.isFinite(clockMaxHeight)).toBe(true);
+
+    // The hard requirement the round-2 report demands: the panel's OWN
+    // bottom edge (y + its enforced max-height) must never cross the
+    // viewport bottom — a genuinely reachable box, whatever is inside it,
+    // rather than one whose lower portion is physically off-screen.
+    expect(clockY + clockMaxHeight).toBeLessThanOrEqual(VIEWPORT.height);
+    // And it must still be a genuinely usable box, not squeezed to nothing.
+    expect(clockMaxHeight).toBeGreaterThanOrEqual(120);
+  });
 });
 
 describe("DockPanel — become-visible collision resolution (residuals fix wave, defect 2: rep panel overlaps tray)", () => {
