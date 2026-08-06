@@ -564,6 +564,100 @@ describe("CalendarWorkspace — planned-vs-done day cells (Task B3)", () => {
   });
 });
 
+describe("CalendarWorkspace — week navigation under same-tick clicks", () => {
+  it("advances one week per click when five Next clicks land in the same tick", async () => {
+    const api = makeApi({ list: vi.fn().mockResolvedValue([]) });
+    render(<CalendarWorkspace api={api} initialToday="2026-07-15" />);
+    await screen.findByLabelText("Week of 2026-07-13");
+
+    // Raw DOM clicks inside ONE act: React batches all five state updates
+    // before re-rendering, so a closure-read `weekStart` would compute every
+    // click from the SAME stale week and advance a single week in total.
+    const next = screen.getByRole("button", { name: "Next week" });
+    act(() => {
+      for (let index = 0; index < 5; index += 1) {
+        next.click();
+      }
+    });
+
+    expect(await screen.findByLabelText("Week of 2026-08-17")).toBeTruthy();
+    await waitFor(() =>
+      expect(api.list).toHaveBeenLastCalledWith({
+        from: "2026-08-17",
+        to: "2026-08-23",
+        pieceId: null,
+      }),
+    );
+  });
+
+  it("retreats one week per click when three Previous clicks land in the same tick", async () => {
+    const api = makeApi({ list: vi.fn().mockResolvedValue([]) });
+    render(<CalendarWorkspace api={api} initialToday="2026-07-15" />);
+    await screen.findByLabelText("Week of 2026-07-13");
+
+    const previous = screen.getByRole("button", { name: "Previous week" });
+    act(() => {
+      for (let index = 0; index < 3; index += 1) {
+        previous.click();
+      }
+    });
+
+    expect(await screen.findByLabelText("Week of 2026-06-22")).toBeTruthy();
+  });
+});
+
+describe("CalendarWorkspace — day sheet close refreshes planned-vs-done", () => {
+  beforeEach(() => {
+    installTauriDevMock();
+  });
+  afterEach(() => {
+    cleanup();
+    uninstallTauriDevMock();
+  });
+
+  it("refetches the week's sheets when the day sheet window closes", async () => {
+    const summary: HistoryDaySummary = {
+      date: "2026-07-15",
+      focused_seconds: 38 * 60,
+      session_count: 1,
+      attempts: 12,
+      cleans: 12,
+      sets_touched: 1,
+      mastered_sets: 0,
+      pieces: [],
+    };
+    const sheetWith = (minutes: number): DaySheet => ({
+      date: "2026-07-15",
+      body: [{ type: "block", minutes, piece_id: 1 }],
+      updated_at: "2026-07-15T00:00:00Z",
+    });
+    const api = makeApi({
+      list: vi.fn().mockResolvedValue([]),
+      historyDays: vi.fn().mockResolvedValue([summary]),
+      // The sheet is edited while the window is open; the second read is what
+      // the strip must pick up on close.
+      daySheetsRange: vi
+        .fn()
+        .mockResolvedValueOnce([sheetWith(20)])
+        .mockResolvedValue([sheetWith(45)]),
+    });
+    render(<CalendarWorkspace api={api} initialToday="2026-07-15" />);
+    expect(await screen.findByText("20 planned · 38 done")).toBeTruthy();
+
+    // Wednesday 2026-07-15 is the third opener in a Monday-start strip.
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /^Open day sheet for/ })[2],
+    );
+    const windowDialog = await screen.findByTestId("day-sheet-window");
+    fireEvent.keyDown(windowDialog, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("day-sheet-window")).toBeNull(),
+    );
+    expect(await screen.findByText("45 planned · 38 done")).toBeTruthy();
+  });
+});
+
 describe("CalendarWorkspace — past-day sheet (spec C1/C3, ledger 3/11)", () => {
   beforeEach(() => {
     installTauriDevMock();

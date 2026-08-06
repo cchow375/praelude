@@ -300,7 +300,7 @@ export function CalendarWorkspace({
         <button
           type="button"
           aria-label="Previous week"
-          onClick={() => setWeekStart(addDays(weekStart, -7))}
+          onClick={() => setWeekStart((previous) => addDays(previous, -7))}
         >
           ←
         </button>
@@ -311,7 +311,11 @@ export function CalendarWorkspace({
         <button
           type="button"
           aria-label="Next week"
-          onClick={() => setWeekStart(addDays(weekStart, 7))}
+          // Functional update: `weekStart` read from the render closure made
+          // rapid same-tick clicks collapse into ONE week of movement (each
+          // click computed from the same stale value). React batches the
+          // updates; the updater sees each prior result.
+          onClick={() => setWeekStart((previous) => addDays(previous, 7))}
         >
           →
         </button>
@@ -366,7 +370,16 @@ export function CalendarWorkspace({
       )}
 
       {sheetDate && (
-        <DaySheetWindow date={sheetDate} onClose={() => setSheetDate(null)} />
+        <DaySheetWindow
+          date={sheetDate}
+          // A day sheet is where planned minutes are edited, so the strip's
+          // planned-vs-done bars are stale the moment the sheet closes.
+          // Refetch through the same generation/alive-guarded loader.
+          onClose={() => {
+            setSheetDate(null);
+            void loadPlannedVsDone();
+          }}
+        />
       )}
     </main>
   );
