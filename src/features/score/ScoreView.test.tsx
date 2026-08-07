@@ -342,6 +342,91 @@ describe("ScoreView", () => {
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
   });
 
+  it("Task C5: hides a sub-section until its parent is selected and shows a sub-sections badge", async () => {
+    const regions = [
+      {
+        id: 1,
+        piece_id: 7,
+        name: "Exposition",
+        notes: null,
+        m_start: 1,
+        m_end: 100,
+        kind: "hard_spot",
+        order: 0,
+        color: null,
+        pdf_anchor: null,
+        parent_region_id: null,
+      },
+      {
+        id: 2,
+        piece_id: 7,
+        name: "Sticky run",
+        notes: null,
+        m_start: 10,
+        m_end: 14,
+        kind: "hard_spot",
+        order: 1,
+        color: null,
+        pdf_anchor: null,
+        parent_region_id: 1,
+      },
+      {
+        id: 3,
+        piece_id: 7,
+        name: "Coda",
+        notes: null,
+        m_start: 200,
+        m_end: 210,
+        kind: "hard_spot",
+        order: 2,
+        color: null,
+        pdf_anchor: null,
+        parent_region_id: null,
+      },
+    ];
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ regions: vi.fn().mockResolvedValue(regions) })}
+        adapter={makePdf(1).adapter}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+
+    const rowLabels = () =>
+      screen
+        .getAllByRole("button")
+        .filter((button) => button.classList.contains("score-region-row"))
+        .map((row) => row.getAttribute("aria-label"));
+
+    // The child ("Sticky run") is not shown until its parent is selected.
+    expect(rowLabels()).toEqual([
+      "Exposition, measures 1 to 100",
+      "Coda, measures 200 to 210",
+    ]);
+    expect(screen.getByText("1 sub-section")).toBeTruthy();
+
+    const parentRow = screen.getByRole("button", {
+      name: "Exposition, measures 1 to 100",
+    });
+    fireEvent.click(parentRow);
+
+    expect(rowLabels()).toEqual([
+      "Exposition, measures 1 to 100",
+      "Sticky run, measures 10 to 14",
+      "Coda, measures 200 to 210",
+    ]);
+
+    // Selecting a different (non-parent) section hides the child again.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Coda, measures 200 to 210" }),
+    );
+    expect(rowLabels()).toEqual([
+      "Exposition, measures 1 to 100",
+      "Coda, measures 200 to 210",
+    ]);
+  });
+
   it("lifts the visible edition, page, and selected section for Practice Brain grounding", async () => {
     const region = {
       id: 4,

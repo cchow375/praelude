@@ -36,7 +36,8 @@ use store::model::{
     BlockHistory, BlockPatch, CheckOutcome, DailyWorkCreate, DailyWorkPatch, ExportResult, Goal,
     GoalCreate, GoalPatch, Intake, MutationReceipt, PanelLayout, PausedSetRow, PieceDetail,
     PieceFieldPatch, PieceSummary, ProgressSummary, RecoveryActionRequest, Region, RegionCreate,
-    RegionPatch, Rep, RepOpenArgs, RepPatch, RepSnapshot, RetentionCheckView, RetentionResult,
+    RegionDeleteMode, RegionPatch, Rep, RepOpenArgs, RepPatch, RepSnapshot, RetentionCheckView,
+    RetentionResult,
     SessionView, SetFocusContextInput, TutorialClip, TutorialClipCreate, TutorialClipPatch,
     TutorialVideo, TutorialVideoPatch, TutorialVideoUpsert,
 };
@@ -963,10 +964,17 @@ fn region_list(piece_id: i64, store: State<'_, Arc<Store>>) -> Result<Vec<Region
     store.region_list(piece_id).map_err(|e| e.to_string())
 }
 
-/// Create a region.
+/// Create a region, optionally as a sub-section of `parent_region_id`
+/// (Task C5 — one level of nesting, same-piece only, friendly errors).
 #[tauri::command]
-fn region_create(args: RegionCreate, store: State<'_, Arc<Store>>) -> Result<Region, String> {
-    store.region_create(args).map_err(|e| e.to_string())
+fn region_create(
+    args: RegionCreate,
+    parent_region_id: Option<i64>,
+    store: State<'_, Arc<Store>>,
+) -> Result<Region, String> {
+    store
+        .region_create_with_parent(args, parent_region_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Apply a partial patch to a region.
@@ -979,10 +987,19 @@ fn region_update(
     store.region_update(id, patch).map_err(|e| e.to_string())
 }
 
-/// Delete a region (member blocks are kept, unlinked).
+/// Delete a region (member blocks are kept, unlinked). `mode` only matters
+/// when the region has children (Task C5): `cascade` deletes them too,
+/// `promote` clears their `parent_region_id` so they survive as top-level
+/// regions. Defaults to `cascade` when omitted.
 #[tauri::command]
-fn region_delete(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
-    store.region_delete(id).map_err(|e| e.to_string())
+fn region_delete(
+    id: i64,
+    mode: Option<RegionDeleteMode>,
+    store: State<'_, Arc<Store>>,
+) -> Result<(), String> {
+    store
+        .region_delete_mode(id, mode.unwrap_or_default())
+        .map_err(|e| e.to_string())
 }
 
 /// Merge `id_absorb` into `id_keep`.

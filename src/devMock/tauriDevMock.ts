@@ -233,7 +233,7 @@ const PIECE_DETAILS: Record<number, PieceDetailData> = {
  *  use the fixture's own `banner_text`. Cleared in `installTauriDevMock()`. */
 const MOCK_BANNERS = new Map<number, string | null>();
 
-const REGIONS: Record<number, Region[]> = {
+const SEED_REGIONS: Record<number, Region[]> = {
   1: [
     {
       id: 11,
@@ -246,6 +246,7 @@ const REGIONS: Record<number, Region[]> = {
       order: 0,
       color: null,
       pdf_anchor: null,
+      parent_region_id: null,
     },
     {
       id: 12,
@@ -258,6 +259,7 @@ const REGIONS: Record<number, Region[]> = {
       order: 1,
       color: null,
       pdf_anchor: null,
+      parent_region_id: null,
     },
     {
       id: 13,
@@ -270,6 +272,7 @@ const REGIONS: Record<number, Region[]> = {
       order: 2,
       color: null,
       pdf_anchor: null,
+      parent_region_id: null,
     },
   ],
   2: [
@@ -284,6 +287,7 @@ const REGIONS: Record<number, Region[]> = {
       order: 0,
       color: null,
       pdf_anchor: null,
+      parent_region_id: null,
     },
     {
       id: 22,
@@ -296,9 +300,28 @@ const REGIONS: Record<number, Region[]> = {
       order: 1,
       color: null,
       pdf_anchor: null,
+      parent_region_id: null,
     },
   ],
 };
+
+/** Mutable per-install region state, reset from `SEED_REGIONS` in
+ * `installTauriDevMock()` so create/delete never bleeds between installs
+ * (the same pattern as `DAY_SHEETS`/`MOCK_BANNERS` below). */
+let REGIONS: Record<number, Region[]> = SEED_REGIONS;
+
+/** Task C5: next id handed to a mock-created region, and a small helper set
+ * so `region_create`/`region_delete` behave like the real store (parent
+ * validation, one-level nesting, cascade/promote) for offline QA. */
+let mockRegionNextId = 100;
+
+function mockAllRegions(): Region[] {
+  return Object.values(REGIONS).flat();
+}
+
+function mockFindRegion(id: number): Region | undefined {
+  return mockAllRegions().find((region) => region.id === id);
+}
 
 const BLOCKS: Record<number, BlockHistory[]> = {
   1: [
@@ -2547,6 +2570,77 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "region_list":
       return REGIONS[pieceIdOf(args)] ?? [];
 
+    // Task C5: full region_create/region_delete coverage (parent-linkage
+    // validation + cascade/promote) so the snap-selection + sub-sections
+    // flow QAs offline, matching the real store's friendly-error and
+    // transactional semantics.
+    case "region_create": {
+      const record = argsRecord(args);
+      const created = argsRecord(record.args);
+      const pieceId = Number(created.piece_id);
+      const parentIdRaw = record.parent_region_id;
+      const parentId =
+        parentIdRaw == null || parentIdRaw === "" ? null : Number(parentIdRaw);
+      try {
+        if (parentId != null) {
+          const parent = mockFindRegion(parentId);
+          if (!parent) {
+            throw new Error("the parent section could not be found");
+          }
+          if (parent.piece_id !== pieceId) {
+            throw new Error(
+              "a sub-section's parent must belong to the same piece",
+            );
+          }
+          if (parent.parent_region_id != null) {
+            throw new Error(
+              "a sub-section cannot itself have sub-sections (only one level of nesting is allowed)",
+            );
+          }
+        }
+        const region: Region = {
+          id: mockRegionNextId++,
+          piece_id: pieceId,
+          name: String(created.name ?? ""),
+          notes: (created.notes as string | null) ?? null,
+          m_start: Number(created.m_start),
+          m_end: Number(created.m_end),
+          kind: String(created.kind ?? "hard_spot"),
+          order: (REGIONS[pieceId] ?? []).length,
+          color: null,
+          pdf_anchor: null,
+          parent_region_id: parentId,
+        };
+        REGIONS[pieceId] = [...(REGIONS[pieceId] ?? []), region];
+        return region;
+      } catch (cause) {
+        asRejectionString(cause);
+      }
+      break;
+    }
+    case "region_delete": {
+      const record = argsRecord(args);
+      const id = Number(record.id);
+      const mode = record.mode === "promote" ? "promote" : "cascade";
+      const target = mockFindRegion(id);
+      if (!target) return null;
+      const children = mockAllRegions().filter(
+        (region) => region.parent_region_id === id,
+      );
+      if (mode === "promote") {
+        for (const child of children) child.parent_region_id = null;
+      } else {
+        const childIds = new Set(children.map((child) => child.id));
+        REGIONS[target.piece_id] = (REGIONS[target.piece_id] ?? []).filter(
+          (region) => !childIds.has(region.id),
+        );
+      }
+      REGIONS[target.piece_id] = (REGIONS[target.piece_id] ?? []).filter(
+        (region) => region.id !== id,
+      );
+      return null;
+    }
+
     // Score atlas: one blank edition + a saved line-anchor calibration for
     // piece 1 (his six pieces are pre-mapped), so the Score tab reaches "ready",
     // drawn boxes resolve to measures, and the Map-this-score wizard shows the
@@ -2774,6 +2868,13 @@ export function installTauriDevMock(
   MOCK_BANNERS.clear();
   // Task C4: applied measure maps never bleed between installs.
   MOCK_MEASURE_MAP.clear();
+  // Task C5: region create/delete state (including parent linkage) never
+  // bleeds between installs — deep-clone the seed fresh every time.
+  REGIONS = JSON.parse(JSON.stringify(SEED_REGIONS)) as Record<
+    number,
+    Region[]
+  >;
+  mockRegionNextId = 100;
 
   let callbackId = 0;
   let subscriptionId = 0;

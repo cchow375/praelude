@@ -237,9 +237,9 @@ fn aggregate(
             let open_recovery_debt = contracts
                 .iter()
                 .fold(0u32, |sum, set| sum.saturating_add(set.recovery_remaining));
-            let recovered = contracts.iter().any(|set| {
-                set.reset_count > 0 && set.mastery_verified && set.mastery_satisfied
-            });
+            let recovered = contracts
+                .iter()
+                .any(|set| set.reset_count > 0 && set.mastery_verified && set.mastery_satisfied);
 
             region_signals.push(RegionSignal {
                 region_id: region.id,
@@ -265,10 +265,16 @@ fn aggregate(
 
         let (rated, clean) = rated_counts(&practice);
         let regions_practiced = count_u32(
-            region_signals.iter().filter(|signal| signal.practiced).count(),
+            region_signals
+                .iter()
+                .filter(|signal| signal.practiced)
+                .count(),
         );
         let regions_revisited = count_u32(
-            region_signals.iter().filter(|signal| signal.revisited).count(),
+            region_signals
+                .iter()
+                .filter(|signal| signal.revisited)
+                .count(),
         );
         let mastered_targets = count_u32(
             region_signals
@@ -277,7 +283,10 @@ fn aggregate(
                 .count(),
         );
         let recovered_targets = count_u32(
-            region_signals.iter().filter(|signal| signal.recovered).count(),
+            region_signals
+                .iter()
+                .filter(|signal| signal.recovered)
+                .count(),
         );
         let open_recovery_debt = region_signals.iter().fold(0u32, |sum, signal| {
             sum.saturating_add(signal.open_recovery_debt)
@@ -304,7 +313,9 @@ fn aggregate(
                 regions_practiced,
                 mastered_targets,
                 recovered_targets,
-                region_signals.iter().any(|signal| signal.recovery_resets > 0),
+                region_signals
+                    .iter()
+                    .any(|signal| signal.recovery_resets > 0),
             ),
             quality_brightness: quality_brightness(rated, clean),
             last_practiced: last_practiced(&practice),
@@ -580,6 +591,7 @@ mod tests {
             order: id,
             color: None,
             pdf_anchor: None,
+            parent_region_id: None,
         }
     }
 

@@ -45,6 +45,10 @@ export function RegionEditor({
   const [splitAt, setSplitAt] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const childRegions = useMemo(
+    () => regions.filter((item) => item.parent_region_id === region.id),
+    [regions, region.id],
+  );
 
   useEffect(() => {
     setTitle(region.name);
@@ -271,14 +275,37 @@ export function RegionEditor({
           </div>
         )}
 
-        <ConfirmDelete
-          label={`Delete “${region.name}”? Its score boxes, highlights, annotations, and tutorial mappings will be deleted; video files stay. Its ${blocks.length} practice block${blocks.length === 1 ? "" : "s"} will stay in history as Ungrouped. Any linked Calendar work will stay but lose this section link.`}
-          onConfirm={() => run(() => crud.regionDelete(region.id))}
-        >
-          <button type="button" className="region-delete">
-            Delete tricky section
-          </button>
-        </ConfirmDelete>
+        {childRegions.length > 0 ? (
+          <ConfirmDelete
+            label={`Delete “${region.name}”? It has ${childRegions.length} sub-section${childRegions.length === 1 ? "" : "s"}. Cascade deletes them too; Promote keeps them as top-level tricky sections.`}
+            actions={[
+              {
+                label: "Promote sub-sections",
+                danger: false,
+                onSelect: () =>
+                  run(() => crud.regionDelete(region.id, "promote")),
+              },
+              {
+                label: "Delete with sub-sections",
+                onSelect: () =>
+                  run(() => crud.regionDelete(region.id, "cascade")),
+              },
+            ]}
+          >
+            <button type="button" className="region-delete">
+              Delete tricky section
+            </button>
+          </ConfirmDelete>
+        ) : (
+          <ConfirmDelete
+            label={`Delete “${region.name}”? Its score boxes, highlights, annotations, and tutorial mappings will be deleted; video files stay. Its ${blocks.length} practice block${blocks.length === 1 ? "" : "s"} will stay in history as Ungrouped. Any linked Calendar work will stay but lose this section link.`}
+            onConfirm={() => run(() => crud.regionDelete(region.id))}
+          >
+            <button type="button" className="region-delete">
+              Delete tricky section
+            </button>
+          </ConfirmDelete>
+        )}
       </details>
       {error && (
         <p className="ck-inline-error" role="alert">
@@ -314,14 +341,25 @@ export function RegionEditor({
 
 /** Details-side list. It includes empty Regions too, so a newly entered tricky
  * section never disappears merely because no practice block exists yet. */
+/** Task C5: a snap (or child-creation gesture) result the create form should
+ * pre-fill from. `start`/`end` remain fully editable — typing stays the
+ * unmapped fallback. */
+export interface RegionCreateDraft {
+  start: number;
+  end: number;
+  parentRegionId?: number | null;
+}
+
 export function TrickySectionsPanel({
   pieceId,
   refreshToken = 0,
   onChanged,
+  initialDraft = null,
 }: {
   pieceId: number;
   refreshToken?: number;
   onChanged?: () => void;
+  initialDraft?: RegionCreateDraft | null;
 }) {
   const crud = useCrud();
   const [regions, setRegions] = useState<Region[]>([]);
@@ -331,8 +369,29 @@ export function TrickySectionsPanel({
   const [notes, setNotes] = useState("");
   const [start, setStart] = useState("1");
   const [end, setEnd] = useState("1");
+  const [parentRegionId, setParentRegionId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!initialDraft) return;
+    setStart(String(initialDraft.start));
+    setEnd(String(initialDraft.end));
+    setParentRegionId(initialDraft.parentRegionId ?? null);
+    setAdding(true);
+  }, [initialDraft]);
+
+  const childCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const region of regions) {
+      if (region.parent_region_id == null) continue;
+      counts.set(
+        region.parent_region_id,
+        (counts.get(region.parent_region_id) ?? 0) + 1,
+      );
+    }
+    return counts;
+  }, [regions]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -400,6 +459,7 @@ export function TrickySectionsPanel({
         m_start: mStart,
         m_end: mEnd,
         kind: "hard_spot",
+        parent_region_id: parentRegionId,
       });
       await crud.regionUpdate(created.id, {
         color: REGION_COLORS[regions.length % REGION_COLORS.length],
@@ -408,6 +468,7 @@ export function TrickySectionsPanel({
       setNotes("");
       setStart(String(mEnd + 1));
       setEnd(String(mEnd + 1));
+      setParentRegionId(null);
       setAdding(false);
       await changed();
     } catch (reason) {
@@ -509,6 +570,12 @@ export function TrickySectionsPanel({
                 <span>
                   mm. {region.m_start}–{region.m_end}
                 </span>
+                {(childCounts.get(region.id) ?? 0) > 0 && (
+                  <span className="tricky-section-subsection-badge">
+                    {childCounts.get(region.id)} sub-section
+                    {childCounts.get(region.id) === 1 ? "" : "s"}
+                  </span>
+                )}
                 {region.notes && <p>{region.notes}</p>}
                 <small>
                   {blocksByRegion.get(region.id)?.length ?? 0} practice blocks

@@ -503,6 +503,11 @@ impl Store {
                                 Box::new(e),
                             )
                         })?,
+                    // This region was just inserted by the target-save flow
+                    // above and cannot have a `target_meta` row yet (that
+                    // insert happens right after this read), so it can never
+                    // already be a sub-section.
+                    parent_region_id: None,
                 })
             },
         )

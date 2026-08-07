@@ -92,6 +92,7 @@ import type {
 import { MeasureMapPanel } from "./mapping/MeasureMapPanel";
 import { MeasureOverlay } from "./mapping/MeasureOverlay";
 import {
+  barRangeForRect,
   getMeasureMapEntry,
   measureMapGet,
   publishMeasureMap,
@@ -663,6 +664,13 @@ export function ScoreView({
   const [newRegionNotes, setNewRegionNotes] = useState("");
   const [newRegionStart, setNewRegionStart] = useState("1");
   const [newRegionEnd, setNewRegionEnd] = useState("1");
+  // Task C5: set from the currently-selected region when a drag-to-create
+  // gesture resolves while a parent is selected — makes the new section a
+  // one-level sub-section. Cleared after create (or when the add form is
+  // cancelled) so a later top-level creation never inherits it by accident.
+  const [newRegionParentId, setNewRegionParentId] = useState<number | null>(
+    null,
+  );
   const [creatingRegion, setCreatingRegion] = useState(false);
   const [targetMode, setTargetMode] = useState(false);
   const [targetDraftId, setTargetDraftId] = useState<string | null>(null);
@@ -1486,9 +1494,28 @@ export function ScoreView({
     onContextChange,
     selectedRegion,
   ]);
+  // Task C5: child sub-sections (parent_region_id set) only render in this
+  // list while their parent is currently selected — keeps the list from
+  // ballooning with detail nobody asked to see yet.
+  const childCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const region of regions) {
+      if (region.parent_region_id == null) continue;
+      counts.set(
+        region.parent_region_id,
+        (counts.get(region.parent_region_id) ?? 0) + 1,
+      );
+    }
+    return counts;
+  }, [regions]);
   const displayedRegions = useMemo(() => {
     const query = regionQuery.trim().toLocaleLowerCase();
     return [...regions]
+      .filter(
+        (region) =>
+          region.parent_region_id == null ||
+          region.parent_region_id === selectedRegionId,
+      )
       .filter(
         (region) =>
           !query ||
@@ -1502,7 +1529,7 @@ export function ScoreView({
           a.m_end - b.m_end ||
           a.name.localeCompare(b.name),
       );
-  }, [regionQuery, regions]);
+  }, [regionQuery, regions, selectedRegionId]);
 
   const resolveTargetMapping = useCallback(
     (anchor: PersistentPdfSelectionAnchor): TargetMappingState => {
@@ -2044,6 +2071,7 @@ export function ScoreView({
         m_start: mStart,
         m_end: mEnd,
         kind: "hard_spot",
+        parent_region_id: newRegionParentId,
       });
       const colored = await crud.regionUpdate(created.id, {
         color: REGION_COLORS[regions.length % REGION_COLORS.length],
@@ -2057,6 +2085,7 @@ export function ScoreView({
       setNewRegionNotes("");
       setNewRegionStart(String(mEnd + 1));
       setNewRegionEnd(String(mEnd + 1));
+      setNewRegionParentId(null);
       setAddingRegion(false);
       setNavigationNotice(
         "New tricky section saved. Drag its first score annotation.",
@@ -2066,6 +2095,43 @@ export function ScoreView({
     } finally {
       setCreatingRegion(false);
     }
+  };
+
+  // Task C5: a drag on a MAPPED page snaps to the bar range it intersects
+  // (system-aware; multi-system drags take the min..max across systems) and
+  // pre-fills the create form — still fully editable, typing is the
+  // unmapped fallback and stays intact. Dragging while a region is selected
+  // (and not already in "marks" annotation mode) creates a CHILD of that
+  // selected region instead of a new top-level section.
+  const handleCreateDragResolve = (rect: PdfAnchorRect) => {
+    if (targetMode) return;
+    const stale =
+      measureMapEntry && edition
+        ? measureMapEntry.fingerprint !== edition.fingerprint
+        : true;
+    const pages = measureMapEntry && !stale ? measureMapEntry.pages : null;
+    const snap = pages
+      ? barRangeForRect(pages, [
+          {
+            page: rect.page,
+            x0: rect.x,
+            y0: rect.y,
+            x1: rect.x + rect.w,
+            y1: rect.y + rect.h,
+          },
+        ])
+      : null;
+    if (snap) {
+      setNewRegionStart(String(snap.m_start));
+      setNewRegionEnd(String(snap.m_end));
+    }
+    setNewRegionParentId(selectedRegionId);
+    setAddingRegion(true);
+    setNavigationNotice(
+      snap
+        ? `Snapped to measures ${snap.m_start}–${snap.m_end}. Add a title to create the section.`
+        : "This page isn't mapped yet — enter the measure range to create the section.",
+    );
   };
 
   const persistMapping = async (rects: PdfAnchorRect[]) => {
@@ -2808,6 +2874,11 @@ export function ScoreView({
                               }
                             : null
                         }
+                        createDrag={
+                          !mapping && !targetMode && edition
+                            ? { onResolve: handleCreateDragResolve }
+                            : null
+                        }
                         onSelect={selectRegion}
                       />
                       {measuresVisible && (
@@ -2905,11 +2976,24 @@ export function ScoreView({
                 <button
                   type="button"
                   aria-expanded={addingRegion}
-                  onClick={() => setAddingRegion((value) => !value)}
+                  onClick={() =>
+                    setAddingRegion((value) => {
+                      if (value) setNewRegionParentId(null);
+                      return !value;
+                    })
+                  }
                 >
                   {addingRegion ? "Cancel" : "+ Add"}
                 </button>
               </div>
+              {addingRegion && newRegionParentId != null && (
+                <p className="score-map-notice" role="status">
+                  Creating a sub-section of{" "}
+                  {regions.find((item) => item.id === newRegionParentId)
+                    ?.name ?? "the selected section"}
+                  .
+                </p>
+              )}
               {addingRegion && (
                 <form
                   className="score-add-region-form"
@@ -3030,6 +3114,12 @@ export function ScoreView({
                             {noteSummary ? ` · ${noteSummary}` : ""}
                           </small>
                         </span>
+                        {(childCounts.get(region.id) ?? 0) > 0 && (
+                          <span className="score-region-subsection-badge">
+                            {childCounts.get(region.id)} sub-section
+                            {childCounts.get(region.id) === 1 ? "" : "s"}
+                          </span>
+                        )}
                         <em
                           className={
                             stale ? "is-stale" : mapped ? "is-mapped" : ""

@@ -369,6 +369,64 @@ export function dragBarline(
   return next;
 }
 
+// ── Snap selection (Task C5) ────────────────────────────────────────────────
+//
+// A drag rect on a MAPPED page snaps to the bar range it intersects, so a new
+// tricky section can be created (or a child creation gesture resolved)
+// without the user typing measure numbers. Geometry is normalized (0..1)
+// within one page, the same convention `PdfAnchorRect`/`MapSystem` already
+// use (`x_left`/`x_right`/`y_top`/`y_bottom`, bar `x_right` is that bar's
+// right edge; its left edge is the previous bar's `x_right`, or the system's
+// `x_left` for the first bar in a system).
+
+export interface DragPageRect {
+  /** 1-indexed page number, matching `MeasureMapPageRow.page`. */
+  page: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/**
+ * Resolve a drag selection (one rect per page it touches — almost always
+ * one page) to the measure-number range it intersects, system-aware: a rect
+ * intersects a system when their y-bands overlap, then intersects a bar
+ * within that system when their x-spans overlap (edges touching count).
+ * Multi-system drags take the min..max bar number across every system the
+ * rect touches. Returns `null` when ANY touched page has no applied map (or
+ * no page was touched at all), so the caller falls back to typed measures —
+ * this function never returns a partial result.
+ */
+export function barRangeForRect(
+  pages: MeasureMapPageRow[],
+  pageRects: DragPageRect[],
+): { m_start: number; m_end: number } | null {
+  if (pageRects.length === 0) return null;
+  let min: number | null = null;
+  let max: number | null = null;
+  for (const rect of pageRects) {
+    const row = pages.find((candidate) => candidate.page === rect.page);
+    if (!row) return null;
+    for (const system of row.map.systems) {
+      const yOverlaps = rect.y1 >= system.y_top && rect.y0 <= system.y_bottom;
+      if (!yOverlaps) continue;
+      let left = system.x_left;
+      for (const bar of system.bars) {
+        const right = bar.x_right;
+        const xOverlaps = rect.x1 >= left && rect.x0 <= right;
+        if (xOverlaps) {
+          if (min === null || bar.number < min) min = bar.number;
+          if (max === null || bar.number > max) max = bar.number;
+        }
+        left = right;
+      }
+    }
+  }
+  if (min === null || max === null) return null;
+  return { m_start: min, m_end: max };
+}
+
 // ── Module-scoped cache + pub/sub (the `bannerStore` pattern) ──────────────
 //
 // Unlike `bannerStore` (which deliberately retains NOTHING), this store DOES

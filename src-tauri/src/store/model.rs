@@ -685,6 +685,12 @@ pub struct Region {
     pub color: Option<String>,
     /// Reserved for P4 (score-viewer anchor); opaque JSON, unused this phase.
     pub pdf_anchor: Option<serde_json::Value>,
+    /// Task C5: the sub-section's parent region, from `target_meta`. `None`
+    /// for every region that is not a child (which is every region that
+    /// existed before this task). Nesting is capped at one level — a region
+    /// with `parent_region_id` set can never itself be a parent.
+    #[serde(default)]
+    pub parent_region_id: Option<i64>,
 }
 
 /// Arguments to create a region.
@@ -697,6 +703,21 @@ pub struct RegionCreate {
     pub m_start: u32,
     pub m_end: u32,
     pub kind: String,
+}
+
+/// Task C5: `region_delete` mode when the region being deleted has children
+/// (via `target_meta.parent_region_id`). Irrelevant (either behaves
+/// identically) when the region has no children, so it defaults to the mode
+/// closest to the old unconditional-delete behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegionDeleteMode {
+    /// Delete the region and every child region too.
+    #[default]
+    Cascade,
+    /// Delete only the region; its children survive as top-level regions
+    /// (their `parent_region_id` is cleared).
+    Promote,
 }
 
 /// A partial region update. Every field is `Option`-absent-means-unchanged;

@@ -21,10 +21,18 @@ export interface RegionMappingDraft {
   onUpdateRect: (index: number, rect: PdfAnchorRect) => void;
 }
 
+/** Task C5: drag-to-create a tricky section (or a child section, inside a
+ * selected parent's page area). Independent of `mapping` — active only when
+ * `mapping` is not, so an existing region's annotation drag always wins. */
+export interface RegionCreateDrag {
+  onResolve: (rect: PdfAnchorRect) => void;
+}
+
 interface RegionOverlayProps {
   pageNumber: number;
   items: RegionOverlayItem[];
   mapping?: RegionMappingDraft | null;
+  createDrag?: RegionCreateDrag | null;
   onSelect: (regionId: number) => void;
 }
 
@@ -71,10 +79,15 @@ function EditableDraft({
 }) {
   const drag = useRef<EditDrag | null>(null);
 
-  const begin = (event: React.PointerEvent<HTMLElement>, mode: EditDrag["mode"]) => {
+  const begin = (
+    event: React.PointerEvent<HTMLElement>,
+    mode: EditDrag["mode"],
+  ) => {
     if (event.button !== 0) return;
     event.stopPropagation();
-    const overlay = event.currentTarget.closest<HTMLElement>(".score-page-overlay");
+    const overlay = event.currentTarget.closest<HTMLElement>(
+      ".score-page-overlay",
+    );
     const bounds = overlay?.getBoundingClientRect();
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -95,17 +108,18 @@ function EditableDraft({
     event.stopPropagation();
     const dx = (event.clientX - active.startX) / active.width;
     const dy = (event.clientY - active.startY) / active.height;
-    const next = active.mode === "move"
-      ? {
-          ...active.original,
-          x: bounded(active.original.x + dx, 0, 1 - active.original.w),
-          y: bounded(active.original.y + dy, 0, 1 - active.original.h),
-        }
-      : {
-          ...active.original,
-          w: bounded(active.original.w + dx, 0.005, 1 - active.original.x),
-          h: bounded(active.original.h + dy, 0.005, 1 - active.original.y),
-        };
+    const next =
+      active.mode === "move"
+        ? {
+            ...active.original,
+            x: bounded(active.original.x + dx, 0, 1 - active.original.w),
+            y: bounded(active.original.y + dy, 0, 1 - active.original.h),
+          }
+        : {
+            ...active.original,
+            w: bounded(active.original.w + dx, 0.005, 1 - active.original.x),
+            h: bounded(active.original.h + dy, 0.005, 1 - active.original.y),
+          };
     onUpdate(index, next);
   };
 
@@ -117,12 +131,17 @@ function EditableDraft({
   };
 
   const keyEdit = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    if (
+      !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+    )
+      return;
     event.preventDefault();
     event.stopPropagation();
     const step = 0.01;
-    const horizontal = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
-    const vertical = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+    const horizontal =
+      event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+    const vertical =
+      event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
     const next = event.shiftKey
       ? {
           ...rect,
@@ -140,7 +159,12 @@ function EditableDraft({
   return (
     <div
       className={`score-region-draft is-editable is-${anchorKind(rect)}`}
-      style={{ ...rectStyle(rect), "--region-color": color ?? "var(--accent)" } as React.CSSProperties}
+      style={
+        {
+          ...rectStyle(rect),
+          "--region-color": color ?? "var(--accent)",
+        } as React.CSSProperties
+      }
       role="button"
       tabIndex={0}
       aria-label={`${label}, editable ${anchorKind(rect)} on page ${rect.page}. Drag or use arrow keys to move; drag the corner or use Shift plus arrows to resize.`}
@@ -150,7 +174,9 @@ function EditableDraft({
       onPointerCancel={finish}
       onKeyDown={keyEdit}
     >
-      {anchorKind(rect) === "note" && <span className="score-region-note-text">{label}</span>}
+      {anchorKind(rect) === "note" && (
+        <span className="score-region-note-text">{label}</span>
+      )}
       <i
         className="score-region-resize"
         aria-hidden="true"
@@ -163,9 +189,22 @@ function EditableDraft({
   );
 }
 
-export function RegionOverlay({ pageNumber, items, mapping, onSelect }: RegionOverlayProps) {
+export function RegionOverlay({
+  pageNumber,
+  items,
+  mapping,
+  createDrag,
+  onSelect,
+}: RegionOverlayProps) {
   const [dragStart, setDragStart] = useState<Point | null>(null);
   const [preview, setPreview] = useState<PdfAnchorRect | null>(null);
+  // `mapping` (editing an existing region's annotations) always wins over
+  // `createDrag` (starting a brand-new section) when both are somehow set.
+  const activeDrag = mapping
+    ? { tool: mapping.tool }
+    : createDrag
+      ? { tool: "box" as const }
+      : null;
 
   const pointIn = (event: React.PointerEvent<HTMLDivElement>): Point => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -173,7 +212,7 @@ export function RegionOverlay({ pageNumber, items, mapping, onSelect }: RegionOv
   };
 
   const finish = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!mapping || !dragStart) return;
+    if (!activeDrag || !dragStart) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const end = pointIn(event);
     const rect = normalizeDrag(
@@ -184,38 +223,42 @@ export function RegionOverlay({ pageNumber, items, mapping, onSelect }: RegionOv
       bounds.width,
       bounds.height,
       pageNumber,
-      mapping.tool,
+      activeDrag.tool,
     );
     setDragStart(null);
     setPreview(null);
-    if (rect) mapping.onAddRect(rect);
+    if (!rect) return;
+    if (mapping) mapping.onAddRect(rect);
+    else createDrag?.onResolve(rect);
   };
 
   return (
     <div
-      className={`score-page-overlay ${mapping ? "is-mapping" : ""}`}
+      className={`score-page-overlay ${mapping ? "is-mapping" : ""} ${createDrag ? "is-create-dragging" : ""}`}
       data-testid={`page-overlay-${pageNumber}`}
       onPointerDown={(event) => {
-        if (!mapping || event.button !== 0) return;
+        if (!activeDrag || event.button !== 0) return;
         event.currentTarget.setPointerCapture?.(event.pointerId);
         const point = pointIn(event);
         setDragStart(point);
         setPreview(null);
       }}
       onPointerMove={(event) => {
-        if (mapping && dragStart) {
+        if (activeDrag && dragStart) {
           const bounds = event.currentTarget.getBoundingClientRect();
           const end = pointIn(event);
-          setPreview(normalizeDrag(
-            dragStart.x,
-            dragStart.y,
-            end.x,
-            end.y,
-            bounds.width,
-            bounds.height,
-            pageNumber,
-            mapping.tool,
-          ));
+          setPreview(
+            normalizeDrag(
+              dragStart.x,
+              dragStart.y,
+              end.x,
+              end.y,
+              bounds.width,
+              bounds.height,
+              pageNumber,
+              activeDrag.tool,
+            ),
+          );
         }
       }}
       onPointerUp={finish}
@@ -224,22 +267,29 @@ export function RegionOverlay({ pageNumber, items, mapping, onSelect }: RegionOv
         setPreview(null);
       }}
     >
-      {items.flatMap((item) => mapping?.regionId === item.regionId ? [] :
-        item.rects
-          .filter((rect) => rect.page === pageNumber)
-          .map((rect, index) => (
-            <button
-              type="button"
-              key={`${item.regionId}-${index}`}
-              className={`score-region-anchor is-${anchorKind(rect)} ${item.selected ? "is-selected" : ""} ${item.active ? "is-active" : ""}`}
-              style={{ ...rectStyle(rect), "--region-color": item.color ?? "var(--accent)" } as React.CSSProperties}
-              aria-label={`${item.label}, ${anchorKind(rect)} on page ${pageNumber}`}
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={() => onSelect(item.regionId)}
-            >
-              {anchorKind(rect) === "note" && <span>{item.label}</span>}
-            </button>
-          )),
+      {items.flatMap((item) =>
+        mapping?.regionId === item.regionId
+          ? []
+          : item.rects
+              .filter((rect) => rect.page === pageNumber)
+              .map((rect, index) => (
+                <button
+                  type="button"
+                  key={`${item.regionId}-${index}`}
+                  className={`score-region-anchor is-${anchorKind(rect)} ${item.selected ? "is-selected" : ""} ${item.active ? "is-active" : ""}`}
+                  style={
+                    {
+                      ...rectStyle(rect),
+                      "--region-color": item.color ?? "var(--accent)",
+                    } as React.CSSProperties
+                  }
+                  aria-label={`${item.label}, ${anchorKind(rect)} on page ${pageNumber}`}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={() => onSelect(item.regionId)}
+                >
+                  {anchorKind(rect) === "note" && <span>{item.label}</span>}
+                </button>
+              )),
       )}
       {mapping?.draftRects
         .map((rect, index) => ({ rect, index }))
@@ -255,7 +305,11 @@ export function RegionOverlay({ pageNumber, items, mapping, onSelect }: RegionOv
           />
         ))}
       {preview && (
-        <span className={`score-region-draft is-live is-${anchorKind(preview)}`} style={rectStyle(preview)} aria-hidden="true" />
+        <span
+          className={`score-region-draft is-live is-${anchorKind(preview)}`}
+          style={rectStyle(preview)}
+          aria-hidden="true"
+        />
       )}
     </div>
   );

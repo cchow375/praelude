@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  barRangeForRect,
   dragBarline,
   getMeasureMapEntry,
   isNeedsClientRaster,
@@ -7,6 +8,7 @@ import {
   renumberBar,
   resetMeasureMapStoreForTests,
   subscribeMeasureMap,
+  type DragPageRect,
   type MapBar,
   type MapSystem,
   type MeasureMapPageRow,
@@ -268,5 +270,109 @@ describe("measure map store", () => {
   it("keeps separate caches per piece+edition", () => {
     publishMeasureMap(1, "score/score.pdf", "fp-1", freshPages());
     expect(getMeasureMapEntry(2, "score/score.pdf")).toBeNull();
+  });
+});
+
+describe("barRangeForRect", () => {
+  // Two systems on page 1, distinct y-bands so multi-system drags are
+  // meaningfully testable; page 2 is intentionally absent from `pages`
+  // (unmapped).
+  const systemA: MapSystem = {
+    y_top: 0.1,
+    y_bottom: 0.2,
+    x_left: 0.05,
+    x_right: 0.95,
+    bars: [bar(1, 0.3), bar(2, 0.5), bar(3, 0.7), bar(4, 0.95)],
+  };
+  const systemB: MapSystem = {
+    y_top: 0.3,
+    y_bottom: 0.4,
+    x_left: 0.05,
+    x_right: 0.95,
+    bars: [bar(5, 0.3), bar(6, 0.5), bar(7, 0.7), bar(8, 0.95)],
+  };
+  const pages: MeasureMapPageRow[] = [
+    { page: 1, map: { version: 1, systems: [systemA, systemB] } },
+  ];
+
+  function rect(partial: Partial<DragPageRect> = {}): DragPageRect {
+    return { page: 1, x0: 0, y0: 0, x1: 0, y1: 0, ...partial };
+  }
+
+  it("resolves a single bar hit within one system", () => {
+    // Bar 2 spans (0.3, 0.5]; a small rect centered inside it.
+    const result = barRangeForRect(pages, [
+      rect({ x0: 0.35, x1: 0.45, y0: 0.12, y1: 0.18 }),
+    ]);
+    expect(result).toEqual({ m_start: 2, m_end: 2 });
+  });
+
+  it("resolves the min..max bar range for a multi-bar drag in one system", () => {
+    // Spans bars 2 (0.3,0.5], 3 (0.5,0.7] fully, and grazes into bar 4.
+    const result = barRangeForRect(pages, [
+      rect({ x0: 0.32, x1: 0.8, y0: 0.12, y1: 0.18 }),
+    ]);
+    expect(result).toEqual({ m_start: 2, m_end: 4 });
+  });
+
+  it("treats an edge-touching rect as intersecting both neighboring bars", () => {
+    // x1 == 0.5 exactly on the boundary between bar 2 (0.3,0.5] and bar 3
+    // (0.5,0.7]; x0 == 0.3 exactly on the boundary between bar 1 and bar 2.
+    const result = barRangeForRect(pages, [
+      rect({ x0: 0.3, x1: 0.5, y0: 0.12, y1: 0.18 }),
+    ]);
+    expect(result).toEqual({ m_start: 1, m_end: 3 });
+  });
+
+  it("treats a y-edge-touching rect as intersecting the system it grazes", () => {
+    // y1 == systemA.y_top exactly; a zero-height rect touching the top edge.
+    const result = barRangeForRect(pages, [
+      rect({ x0: 0.32, x1: 0.4, y0: 0.05, y1: systemA.y_top }),
+    ]);
+    expect(result).toEqual({ m_start: 2, m_end: 2 });
+  });
+
+  it("resolves a multi-system drag as the min..max across every touched system", () => {
+    // Vertically spans both systemA (bars 1-4) and systemB (bars 5-8),
+    // horizontally only touching the first two bars of each.
+    const result = barRangeForRect(pages, [
+      rect({ x0: 0.06, x1: 0.45, y0: 0.1, y1: 0.4 }),
+    ]);
+    expect(result).toEqual({ m_start: 1, m_end: 6 });
+  });
+
+  it("ignores a system whose y-band the rect never reaches", () => {
+    // Between the two systems' y-bands (0.2 to 0.3), touching neither.
+    const result = barRangeForRect(pages, [
+      rect({ x0: 0.32, x1: 0.4, y0: 0.22, y1: 0.28 }),
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it("ignores an x-span entirely outside every bar in a touched system", () => {
+    // Y overlaps systemA, but x is entirely past its last bar (0.95).
+    const result = barRangeForRect(pages, [
+      rect({ x0: 0.97, x1: 0.99, y0: 0.12, y1: 0.18 }),
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it("returns null for a page with no applied map", () => {
+    const result = barRangeForRect(pages, [
+      rect({ page: 2, x0: 0.3, x1: 0.5, y0: 0.12, y1: 0.18 }),
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it("returns null (not partial) when one of several touched pages is unmapped", () => {
+    const result = barRangeForRect(pages, [
+      rect({ page: 1, x0: 0.32, x1: 0.4, y0: 0.12, y1: 0.18 }),
+      rect({ page: 2, x0: 0.32, x1: 0.4, y0: 0.12, y1: 0.18 }),
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when no rects are given", () => {
+    expect(barRangeForRect(pages, [])).toBeNull();
   });
 });

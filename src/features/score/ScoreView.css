@@ -760,6 +760,15 @@
 .score-region-row em.is-mapped {
   color: var(--success);
 }
+.score-region-subsection-badge {
+  flex: 0 0 auto;
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
 .score-region-row em.is-stale {
   color: var(--warning);
 }
