@@ -272,8 +272,11 @@ describe("dev-mock measure mapping handlers", () => {
     expect(reconciled.conflicts).toContainEqual(
       expect.objectContaining({ kind: "pickup_ambiguity" }),
     );
-    // Numbering still starts at the pickup floor (0), not 1.
-    expect(reconciled.pages[0].map.systems[0].bars[0].number).toBe(0);
+    // Zero anchors anywhere -> the synthetic start is UNCONDITIONALLY 1,
+    // even with has_pickup true (the pickup floor only governs back-fill
+    // underflow clamping once a REAL printed-number anchor exists — see
+    // `score::measure_reconcile::reconcile`'s own zero-anchor branch).
+    expect(reconciled.pages[0].map.systems[0].bars[0].number).toBe(1);
   });
 
   it("a non-pickup piece reports has_pickup: false", async () => {

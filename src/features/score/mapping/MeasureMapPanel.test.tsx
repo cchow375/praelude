@@ -16,9 +16,9 @@ import {
 } from "./measureMap";
 
 /** Click a bar-number mark the way a real pointer would (down/up with no
- * movement) — `MeasureOverlay` disambiguates click vs. drag via pointer
- * events, not a native `onClick`. Stubs the overlay's measured width first,
- * since jsdom's real `getBoundingClientRect` is all-zero. */
+ * movement, then the native `click` the browser fires right after). Stubs
+ * the overlay's measured width first, since jsdom's real
+ * `getBoundingClientRect` is all-zero. */
 function clickBar(bar: HTMLElement) {
   const overlay = bar.closest(".measure-map-overlay");
   if (overlay) {
@@ -36,6 +36,7 @@ function clickBar(bar: HTMLElement) {
   }
   fireEvent.pointerDown(bar, { pointerId: 1, clientX: 100, clientY: 50 });
   fireEvent.pointerUp(bar, { pointerId: 1, clientX: 100, clientY: 50 });
+  fireEvent.click(bar);
 }
 
 afterEach(() => {
@@ -439,14 +440,12 @@ describe("MeasureMapPanel", () => {
     const rasterize = vi.fn().mockResolvedValue([9, 9, 9]);
     const pages = [reconciledPages()[0], { ...reconciledPages()[0], page: 2 }];
     const api = makeApi({
-      reconcile: vi
-        .fn()
-        .mockResolvedValue({
-          pages,
-          conflicts: [],
-          total_bars: 6,
-          has_pickup: false,
-        }),
+      reconcile: vi.fn().mockResolvedValue({
+        pages,
+        conflicts: [],
+        total_bars: 6,
+        has_pickup: false,
+      }),
     });
     render(
       <MeasureMapPanel

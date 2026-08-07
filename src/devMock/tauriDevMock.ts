@@ -1982,7 +1982,13 @@ function mockReconcile(
   const conflicts: MockMapConflict[] = [];
 
   if (dedupedAnchors.length === 0) {
-    // Zero anchors anywhere: a synthetic floor-start is used ONLY here.
+    // Zero anchors anywhere: the synthetic start is UNCONDITIONALLY 1,
+    // regardless of has_pickup — the floor (0 with a pickup) only governs
+    // back-fill underflow clamping once a REAL anchor exists (see the
+    // `else` branch below). Mirrors `score::measure_reconcile::reconcile`'s
+    // own zero-anchor branch exactly (pinned by its
+    // `pickup_without_a_pinning_printed_number_defaults_to_one_with_a_conflict`
+    // test: `bars[0].number == 1` even with `has_pickup: true`).
     if (hasPickup) {
       conflicts.push({
         kind: "pickup_ambiguity",
@@ -1990,7 +1996,7 @@ function mockReconcile(
       });
     }
     for (let i = 0; i < flat.length; i += 1) {
-      flat[i].number = floor + i;
+      flat[i].number = 1 + i;
     }
   } else {
     const first = dedupedAnchors[0];

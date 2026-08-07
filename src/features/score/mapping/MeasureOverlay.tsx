@@ -107,6 +107,13 @@ export function MeasureOverlay({
   readOnly = false,
 }: MeasureOverlayProps) {
   const dragRef = useRef<DragState | null>(null);
+  // A completed drag (mouse/touch) still fires a native `click` right after
+  // its `pointerup` — this remembers "the pointer sequence that just ended
+  // crossed the drag threshold" so the `onClick` handler below can swallow
+  // that one synthetic click instead of also renumbering. Cleared by the
+  // very next click, so a genuine keyboard activation (which has no
+  // preceding pointer events at all) is never affected.
+  const justDraggedRef = useRef(false);
   const interactive = !readOnly && Boolean(onBarClick || onBarDrag);
 
   const beginDrag = (
@@ -152,10 +159,7 @@ export function MeasureOverlay({
     onBarDrag(drag.systemIndex, drag.barIndex, newXRight);
   };
 
-  const endDrag = (
-    event: React.PointerEvent<HTMLElement>,
-    currentNumber: number,
-  ) => {
+  const endDrag = (event: React.PointerEvent<HTMLElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     dragRef.current = null;
@@ -164,10 +168,23 @@ export function MeasureOverlay({
     } catch {
       // Nothing was captured; nothing to release.
     }
-    // A pointer up that never crossed the drag threshold is a click.
-    if (!drag.dragged && onBarClick) {
-      onBarClick(drag.systemIndex, drag.barIndex, currentNumber);
+    // The native `click` that follows this `pointerup` (mouse/touch — not
+    // keyboard) is where the actual renumber fires; a real drag suppresses
+    // it there instead of firing here, so a real `<button>` still gets
+    // ordinary keyboard (Enter/Space) activation for free.
+    justDraggedRef.current = drag.dragged;
+  };
+
+  const handleClick = (
+    systemIndex: number,
+    barIndex: number,
+    currentNumber: number,
+  ) => {
+    if (justDraggedRef.current) {
+      justDraggedRef.current = false;
+      return;
     }
+    onBarClick?.(systemIndex, barIndex, currentNumber);
   };
 
   return (
@@ -241,9 +258,10 @@ export function MeasureOverlay({
                           : undefined
                       }
                       onPointerMove={interactive ? moveDrag : undefined}
-                      onPointerUp={
+                      onPointerUp={interactive ? endDrag : undefined}
+                      onClick={
                         interactive
-                          ? (event) => endDrag(event, bar.number)
+                          ? () => handleClick(systemIndex, barIndex, bar.number)
                           : undefined
                       }
                       onPointerCancel={

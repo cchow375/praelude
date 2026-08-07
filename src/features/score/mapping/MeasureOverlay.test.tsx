@@ -106,7 +106,7 @@ describe("MeasureOverlay", () => {
     expect(onRescan).toHaveBeenCalledTimes(1);
   });
 
-  it("calls onBarClick on a pointer down/up that never moves past the drag threshold", () => {
+  it("calls onBarClick on a pointer down/up that never moves past the drag threshold, followed by the native click", () => {
     const onBarClick = vi.fn();
     render(
       <MeasureOverlay
@@ -122,10 +122,35 @@ describe("MeasureOverlay", () => {
     const bar = screen.getAllByTestId("measure-map-number")[1];
     fireEvent.pointerDown(bar, { pointerId: 1, clientX: 500, clientY: 100 });
     fireEvent.pointerUp(bar, { pointerId: 1, clientX: 500, clientY: 100 });
+    // The browser fires a native `click` right after mouse pointerup — jsdom
+    // does not synthesize it automatically, so the test fires it explicitly.
+    fireEvent.click(bar);
     expect(onBarClick).toHaveBeenCalledWith(0, 1, 2);
   });
 
-  it("wires the barline-drag gesture: a real pointer drag calls onBarDrag with the new x_right, and suppresses the click", () => {
+  it("activates via keyboard alone (a real <button>'s Enter/Space -> click, no pointer events at all)", () => {
+    const onBarClick = vi.fn();
+    render(
+      <MeasureOverlay
+        page={samplePage()}
+        pageNumber={1}
+        conflicts={[]}
+        visible
+        stale={false}
+        onBarClick={onBarClick}
+      />,
+    );
+    const bar = screen.getAllByTestId("measure-map-number")[1];
+    expect(bar.tagName).toBe("BUTTON");
+    bar.focus();
+    expect(document.activeElement).toBe(bar);
+    // Enter/Space activation on a native <button> dispatches `click`
+    // directly — no pointerdown/pointermove/pointerup ever fires.
+    fireEvent.click(bar);
+    expect(onBarClick).toHaveBeenCalledWith(0, 1, 2);
+  });
+
+  it("wires the barline-drag gesture: a real pointer drag calls onBarDrag with the new x_right, and the trailing synthetic click never renumbers", () => {
     const onBarClick = vi.fn();
     const onBarDrag = vi.fn();
     render(
@@ -146,7 +171,39 @@ describe("MeasureOverlay", () => {
     fireEvent.pointerMove(bar, { pointerId: 1, clientX: 600, clientY: 100 });
     expect(onBarDrag).toHaveBeenCalledWith(0, 1, expect.closeTo(0.7, 5));
     fireEvent.pointerUp(bar, { pointerId: 1, clientX: 600, clientY: 100 });
+    // A completed mouse drag still fires a native `click` on the same
+    // element right after pointerup — that one must be swallowed, not
+    // treated as a spurious renumber.
+    fireEvent.click(bar);
     expect(onBarClick).not.toHaveBeenCalled();
+  });
+
+  it("a genuine click right after a suppressed drag-click still renumbers normally", () => {
+    const onBarClick = vi.fn();
+    const onBarDrag = vi.fn();
+    render(
+      <MeasureOverlay
+        page={samplePage()}
+        pageNumber={1}
+        conflicts={[]}
+        visible
+        stale={false}
+        onBarClick={onBarClick}
+        onBarDrag={onBarDrag}
+      />,
+    );
+    mockOverlayWidth(1000);
+    const bar = screen.getAllByTestId("measure-map-number")[1];
+    fireEvent.pointerDown(bar, { pointerId: 1, clientX: 500, clientY: 100 });
+    fireEvent.pointerMove(bar, { pointerId: 1, clientX: 600, clientY: 100 });
+    fireEvent.pointerUp(bar, { pointerId: 1, clientX: 600, clientY: 100 });
+    fireEvent.click(bar); // suppressed (the drag's own synthetic click)
+    expect(onBarClick).not.toHaveBeenCalled();
+
+    // The NEXT, independent click (e.g. a keyboard activation right after)
+    // is not permanently swallowed by the one-shot suppression flag.
+    fireEvent.click(bar);
+    expect(onBarClick).toHaveBeenCalledWith(0, 1, 2);
   });
 
   it("bands every system on the page for a page-level unapplyable conflict (system: 0)", () => {
