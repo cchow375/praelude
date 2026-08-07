@@ -1467,6 +1467,34 @@ mod region {
                 .unwrap();
             assert_eq!(count, 0, "region {id} should be deleted");
         }
+        // The FK cascade is the mechanism, but pin the `target_meta` state
+        // directly rather than inferring it from `region_list`: both children's
+        // linkage rows must be gone, and nothing may linger for this parent.
+        for id in [child_a.id, child_b.id] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM target_meta WHERE region_id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 0, "target_meta row for region {id} should be gone");
+        }
+        let orphans: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM target_meta WHERE parent_region_id = ?1",
+                [parent.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            orphans, 0,
+            "no target_meta row may still point at the parent"
+        );
+        let total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM target_meta", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(total, 0, "cascade must leave no target_meta rows behind");
     }
 
     #[test]
@@ -1495,6 +1523,39 @@ mod region {
         assert_eq!(
             remaining[0].parent_region_id, None,
             "the surviving child must be promoted to top-level"
+        );
+        // Pin the `target_meta` state directly: promote must KEEP the child's
+        // linkage row (unlike cascade) and only null out its parent pointer.
+        let conn = s_conn(&s);
+        let rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM target_meta WHERE region_id = ?1",
+                [child.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 1, "the child's target_meta row must survive promote");
+        let parent_ref: Option<i64> = conn
+            .query_row(
+                "SELECT parent_region_id FROM target_meta WHERE region_id = ?1",
+                [child.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            parent_ref, None,
+            "the surviving target_meta row must have parent_region_id = NULL"
+        );
+        let dangling: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM target_meta WHERE parent_region_id = ?1",
+                [parent.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            dangling, 0,
+            "no target_meta row may still point at the parent"
         );
     }
 

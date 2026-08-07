@@ -1514,7 +1514,11 @@ export function ScoreView({
       .filter(
         (region) =>
           region.parent_region_id == null ||
-          region.parent_region_id === selectedRegionId,
+          region.parent_region_id === selectedRegionId ||
+          // Selecting the child moves the selection off its parent; without
+          // this the child would vanish the instant it was clicked and its
+          // own inspector (and practice set) could never be opened.
+          region.id === selectedRegionId,
       )
       .filter(
         (region) =>
@@ -2097,6 +2101,21 @@ export function ScoreView({
     }
   };
 
+  // A cached map applies to the fingerprint it was fetched/applied under —
+  // NEVER mode-gated (Flaws B48): a mismatch always shows the notice, and the
+  // (now possibly wrong) numbers are withheld rather than shown against the
+  // wrong page geometry. Declared here so the drag-to-create handler below
+  // reuses this one staleness check instead of re-deriving it.
+  const measureMapStale = Boolean(
+    measureMapEntry &&
+    edition &&
+    measureMapEntry.fingerprint !== edition.fingerprint,
+  );
+  const measureMapByPage =
+    measureMapEntry && !measureMapStale
+      ? new Map(measureMapEntry.pages.map((row) => [row.page, row.map]))
+      : null;
+
   // Task C5: a drag on a MAPPED page snaps to the bar range it intersects
   // (system-aware; multi-system drags take the min..max across systems) and
   // pre-fills the create form — still fully editable, typing is the
@@ -2105,11 +2124,11 @@ export function ScoreView({
   // selected region instead of a new top-level section.
   const handleCreateDragResolve = (rect: PdfAnchorRect) => {
     if (targetMode) return;
-    const stale =
-      measureMapEntry && edition
-        ? measureMapEntry.fingerprint !== edition.fingerprint
-        : true;
-    const pages = measureMapEntry && !stale ? measureMapEntry.pages : null;
+    const hasMapForEdition = Boolean(measureMapEntry && edition);
+    const pages =
+      hasMapForEdition && !measureMapStale
+        ? (measureMapEntry?.pages ?? null)
+        : null;
     const snap = pages
       ? barRangeForRect(pages, [
           {
@@ -2130,7 +2149,11 @@ export function ScoreView({
     setNavigationNotice(
       snap
         ? `Snapped to measures ${snap.m_start}–${snap.m_end}. Add a title to create the section.`
-        : "This page isn't mapped yet — enter the measure range to create the section.",
+        : measureMapStale
+          ? // A map exists but was scanned against another edition fingerprint —
+            // say so rather than claiming the page was never mapped.
+            "The measure map is stale for this edition — re-scan to snap selections. Enter the measure range to create the section."
+          : "This page isn't mapped yet — enter the measure range to create the section.",
     );
   };
 
@@ -2462,7 +2485,15 @@ export function ScoreView({
                 defaultMeasureEnd={region.m_end}
                 defaultLabel={region.name}
                 defaultTargetBpm={defaultTargetBpm}
-                defaultCleanStreak={defaultCleanStreak}
+                // Task C5: a one-gesture start on a sub-section defaults to
+                // three consecutive cleans (BlockForm always sends an explicit
+                // required_clean_streak, so session_plan_start's child default
+                // never gets a chance on this path). Still fully editable, and
+                // a top-level region keeps the persisted practice default
+                // exactly as before.
+                defaultCleanStreak={
+                  region.parent_region_id != null ? 3 : defaultCleanStreak
+                }
                 onOpen={onOpenBlock}
                 opening={opening}
                 blockedReason={
@@ -2484,20 +2515,6 @@ export function ScoreView({
       </div>
     );
   };
-
-  // A cached map applies to the fingerprint it was fetched/applied under —
-  // NEVER mode-gated (Flaws B48): a mismatch always shows the notice, and the
-  // (now possibly wrong) numbers are withheld rather than shown against the
-  // wrong page geometry.
-  const measureMapStale = Boolean(
-    measureMapEntry &&
-    edition &&
-    measureMapEntry.fingerprint !== edition.fingerprint,
-  );
-  const measureMapByPage =
-    measureMapEntry && !measureMapStale
-      ? new Map(measureMapEntry.pages.map((row) => [row.page, row.map]))
-      : null;
 
   if (phase === "loading-editions") {
     return (

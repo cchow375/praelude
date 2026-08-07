@@ -359,6 +359,7 @@ export function TrickySectionsPanel({
   pieceId: number;
   refreshToken?: number;
   onChanged?: () => void;
+  /** Prefill seam reserved for a future RegionEditor-driven create path; ScoreView.tsx is the live caller path for create-with-snap today. */
   initialDraft?: RegionCreateDraft | null;
 }) {
   const crud = useCrud();
