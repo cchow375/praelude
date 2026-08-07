@@ -2249,19 +2249,18 @@ pre-v5.0.0-session-2026-07-30-204238.db`, SHA-256
   `measureMap.ts` module store, one new callback for client-raster JPEG capture off the
   ALREADY-open PDF.js document, three toolbar buttons, one overlay mount per page). `tsc` +
   the full score suite stayed green throughout.
-- **Barline drag — pure function shipped, pointer gesture NOT wired into the UI.** `dragBarline`
-  in `mapping/measureMap.ts` is implemented and exhaustively tested (clamped between neighbors,
-  source untouched), matching the binding "horizontal only, within the system's x-span" rule.
-  The actual pointer-drag GESTURE on the review overlay's bar-number marks was not wired — it
-  was not in the task's explicit "Failing tests" acceptance list, and time ran out. Follow-up:
-  wire a `PencilOverlay`/`RegionOverlay`-style pointer handler onto `MeasureOverlay`'s bar-number
-  elements in review mode, calling `dragBarline` on move.
-- **The review panel does not paint the real PDF page behind the overlay** — `MeasureMapPanel`'s
-  review pane is a plain aspect-ratio box with `MeasureOverlay` on top, not a live raster of the
-  actual page. Numbers/conflicts are positioned correctly (same normalized-fraction math the
-  real overlay uses), but a reviewer cannot see the engraving while renumbering. Deferred; the
-  panel already receives `pageCount` and could accept a `pageImageSource` to paint one in.
-  `MeasureOverlay` itself is the shared, fully-wired component both call.
+- **Fix round 1 (2026-08-07, commit `b466e14`) closed both of the above.** Barline drag is now
+  wired: `MeasureOverlay` disambiguates click-vs-drag on the SAME pointer sequence with a 3px
+  movement threshold (`pointerDown` records start position; under-threshold `pointerUp` fires
+  `onBarClick`, over-threshold movement fires `onBarDrag` continuously and suppresses the
+  trailing click) — the pattern to copy for any future draggable overlay mark in this codebase.
+  **jsdom gotcha:** `getBoundingClientRect()` is all-zero unless stubbed, and the drag path
+  bails on zero width — but the CLICK path must NOT require that stub (a click-only overlay has
+  no `onBarDrag`, so `beginDrag` only measures width when `onBarDrag` is actually present).
+  Tests needing drag stub the overlay container's rect via `vi.spyOn(el, "getBoundingClientRect")`
+  (the same idiom `RegionOverlay.test.tsx` already used). The review panel now also paints a real
+  page raster (fetched lazily per page via the existing `rasterizePage` callback, as a blob URL)
+  behind the overlay instead of an empty box.
 - **jsdom in this repo's vitest config has NO `window.localStorage`** (Node 22's experimental
   global shadows it; `vitest.config.ts` has no `setupFiles` to polyfill it). Every localStorage
   read/write in this task (`readShowMeasuresPreference` / `writeShowMeasuresPreference`) is
