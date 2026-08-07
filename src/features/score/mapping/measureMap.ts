@@ -107,12 +107,26 @@ export type MapConflict =
       page: number;
       system_a: number;
       system_b: number;
+    }
+  | {
+      kind: "unapplyable";
+      page: number;
+      /** Real 1-based system index for a defect scoped to one system, or `0`
+       * — the Rust sentinel — for a page-/payload-level defect with no
+       * single system to blame (a duplicate page, an oversized page). */
+      system: number;
+      reason: string;
     };
 
 export interface ReconcileResult {
   pages: MeasureMapPageRow[];
   conflicts: MapConflict[];
   total_bars: number;
+  /** Whether this piece's numbering floor is 0 (a pickup measure) or 1 —
+   * mirrors `score::measure_reconcile::ReconcileResult.has_pickup`. `false`
+   * whenever the piece has no MusicXML. The LOCAL renumber/back-fill below
+   * uses this as its floor instead of hardcoding 1. */
+  has_pickup: boolean;
 }
 
 // ── Invoke wrappers ──────────────────────────────────────────────────────────
@@ -195,13 +209,17 @@ export function measureReconcile(
 // from RAW vision scans (printed numbers + barline counts), which the review
 // UI no longer has once it is editing the reconciled `MeasureMapPageRow[]`
 // result. Instead this is a pure, deterministic mirror of the Rust
-// reconciler's OWN propagation rule (`score::measure_reconcile`'s doc
-// comment): every bar's number is `nearestPrecedingAnchor.number + (index -
-// nearestPrecedingAnchor.index)`, forward-filled from whichever anchor
-// precedes it in the flattened page/system/bar stream; bars before the very
-// first anchor fill BACKWARD from it the same way. Here the only anchors are
-// the bars the user has explicitly pinned (`source: "user"`) — a fresh user
-// pin always wins over whatever a model/interpolated bar said, satisfying the
+// reconciler's OWN bidirectional propagation rule (`score::measure_reconcile`
+// fix round 1's contract, see task-C3-report.md): the span BEFORE the first
+// anchor in the flattened page/system/bar stream back-fills FROM it, clamped
+// at the numbering FLOOR (1 normally, 0 when `hasPickup` — the piece's own
+// `ReconcileResult.has_pickup`, threaded in by the caller); every span AFTER
+// an anchor (mid-span between two anchors, or the trailing span past the
+// last one) forward-fills from its nearest preceding anchor. A back-fill that
+// would go below the floor clamps there instead AND raises a
+// `continuity_break` on the leading span. Here the only anchors are the bars
+// the user has explicitly pinned (`source: "user"`) — a fresh user pin
+// always wins over whatever a model/interpolated bar said, satisfying the
 // carry-forward rule that a user pin is trusted over a model one.
 
 export interface BarLocation {
@@ -261,6 +279,7 @@ export function renumberBar(
   pages: MeasureMapPageRow[],
   location: BarLocation,
   newNumber: number,
+  hasPickup = false,
 ): LocalReconcileResult {
   const next = clonePages(pages);
   const flat = flattenBars(next);
@@ -270,7 +289,7 @@ export function renumberBar(
   target.bar.number = Math.max(0, Math.trunc(newNumber));
   target.bar.source = "user";
 
-  return { pages: next, conflicts: applyAnchors(flat) };
+  return { pages: next, conflicts: applyAnchors(flat, hasPickup) };
 }
 
 /** Re-run the SAME forward/backward-fill from whatever user anchors already
@@ -279,23 +298,51 @@ export function renumberBar(
  * membership can use this to keep numbering consistent with existing pins). */
 export function reconcileLocal(
   pages: MeasureMapPageRow[],
+  hasPickup = false,
 ): LocalReconcileResult {
   const next = clonePages(pages);
   const flat = flattenBars(next);
-  return { pages: next, conflicts: applyAnchors(flat) };
+  return { pages: next, conflicts: applyAnchors(flat, hasPickup) };
 }
 
-function applyAnchors(flat: FlatBarRef[]): MapConflict[] {
+/** The numbering floor: 0 for a pickup measure, 1 otherwise — matches
+ * `score::measure_reconcile::reconcile`'s own `floor` binding exactly. */
+function numberingFloor(hasPickup: boolean): number {
+  return hasPickup ? 0 : 1;
+}
+
+function applyAnchors(flat: FlatBarRef[], hasPickup: boolean): MapConflict[] {
   const anchors = flat
     .map((ref, index) => ({ index, ref }))
     .filter(({ ref }) => ref.bar.source === "user");
 
   if (anchors.length === 0) return [];
 
-  // Backward-fill everything before the first anchor.
+  const floor = numberingFloor(hasPickup);
+  const conflicts: MapConflict[] = [];
+
+  // Back-fill everything before the first anchor, clamped at the floor. A
+  // back-fill that would need to go below the floor clamps there instead and
+  // raises a continuity_break on the leading span (mirrors Rust's
+  // `back_fill_underflow_clamps_at_the_floor_and_raises_a_continuity_break`).
   const first = anchors[0];
-  for (let i = 0; i < first.index; i += 1) {
-    flat[i].bar.number = Math.max(0, first.ref.bar.number - (first.index - i));
+  if (first.index > 0) {
+    const wouldUnderflow = first.ref.bar.number - first.index < floor;
+    for (let i = 0; i < first.index; i += 1) {
+      flat[i].bar.number = Math.max(
+        floor,
+        first.ref.bar.number - (first.index - i),
+      );
+    }
+    if (wouldUnderflow) {
+      conflicts.push({
+        kind: "continuity_break",
+        page: flat[0].loc.pageIndex + 1,
+        system: flat[0].loc.systemIndex + 1,
+        expected: Math.max(0, first.ref.bar.number - floor),
+        found: first.index,
+      });
+    }
   }
 
   // Forward-fill from each anchor up to (not including) the next anchor, or
@@ -305,16 +352,13 @@ function applyAnchors(flat: FlatBarRef[]): MapConflict[] {
     const nextAnchor = anchors[a + 1];
     const end = nextAnchor ? nextAnchor.index : flat.length;
     for (let i = anchor.index; i < end; i += 1) {
-      flat[i].bar.number = Math.max(
-        0,
-        anchor.ref.bar.number + (i - anchor.index),
-      );
+      flat[i].bar.number = anchor.ref.bar.number + (i - anchor.index);
     }
   }
 
-  // Conflicts: every consecutive anchor pair whose number gap does not match
-  // its bar-index gap.
-  const conflicts: MapConflict[] = [];
+  // Conflicts: every consecutive pair of REAL anchors whose number gap does
+  // not match their bar-index gap (the leading-span underflow above is a
+  // separate, independent check — it never participates in this loop).
   for (let a = 0; a < anchors.length - 1; a += 1) {
     const left = anchors[a];
     const right = anchors[a + 1];

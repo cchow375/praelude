@@ -465,6 +465,13 @@ export interface ScoreViewProps {
   marksApi?: ScoreMarksApi;
   adapter?: PdfAdapter;
   loadTimeoutMs?: number;
+  /** Reports whenever the measure-mapping panel has unsaved review work in
+   * memory (a scan in progress, or a reconciled-but-not-yet-Applied review).
+   * `ScoreView` remounts fresh per piece (`key={pieceId}` in
+   * `ScoreWorkspace`), which silently DISCARDS that work on an in-app piece
+   * switch — `beforeunload` never fires for an SPA state change. The parent
+   * uses this to guard the switch with a confirm before it happens. */
+  onMeasureMapDirtyChange?: (dirty: boolean) => void;
 }
 
 interface MappingDraft {
@@ -613,6 +620,7 @@ export function ScoreView({
   marksApi = defaultMarksApi,
   adapter = pdfJsAdapter,
   loadTimeoutMs = PDF_LOAD_TIMEOUT_MS,
+  onMeasureMapDirtyChange,
 }: ScoreViewProps) {
   const crud = useCrud();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -3288,6 +3296,7 @@ export function ScoreView({
             onClose={() => setMapPanelOpen(false)}
             onApplied={() => setMapPanelOpen(false)}
             rasterizePage={rasterizePageForScan}
+            onDirtyChange={onMeasureMapDirtyChange}
           />
         </div>
       )}

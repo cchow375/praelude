@@ -164,19 +164,45 @@ describe("renumberBar", () => {
     expect(pinned.source).toBe("user");
   });
 
-  it("never lets a fill go negative", () => {
+  it("never lets a back-fill go below the floor (1, no pickup)", () => {
     const pages = freshPages();
-    const { pages: next } = renumberBar(
+    const { pages: next, conflicts } = renumberBar(
       pages,
       { pageIndex: 1, systemIndex: 1, barIndex: 3 },
       2,
+      // hasPickup defaults to false -> floor 1.
     );
-    expect(
-      next.flatMap((r) =>
-        r.map.systems.flatMap((s) => s.bars.map((b) => b.number)),
-      ),
-    ).not.toContain(-1);
+    expect(Math.min(...numbers(next))).toBeGreaterThanOrEqual(1);
+    // Pinning bar 15 (0-based) to 2 cannot reach back 15 steps without
+    // crossing the floor -> the leading span underflows and is flagged.
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({ kind: "continuity_break" });
+  });
+
+  it("a pickup piece backs the floor down to 0", () => {
+    const pages = freshPages();
+    const { pages: next, conflicts } = renumberBar(
+      pages,
+      { pageIndex: 1, systemIndex: 1, barIndex: 3 },
+      2,
+      /* hasPickup */ true,
+    );
     expect(Math.min(...numbers(next))).toBeGreaterThanOrEqual(0);
+    // Still underflows (15 steps back from 2 needs floor -13), just against
+    // the lower floor of 0 instead of 1.
+    expect(conflicts).toHaveLength(1);
+  });
+
+  it("a back-fill that stays at or above the floor raises no conflict", () => {
+    const pages = freshPages();
+    // Pin flat index 3 (4th bar) to 10: backward span is only 3 bars, easily
+    // clearing the floor of 1 (10-3=7).
+    const { conflicts } = renumberBar(
+      pages,
+      { pageIndex: 0, systemIndex: 0, barIndex: 3 },
+      10,
+    );
+    expect(conflicts).toEqual([]);
   });
 });
 

@@ -15,6 +15,29 @@ import {
   type ScanPageOutput,
 } from "./measureMap";
 
+/** Click a bar-number mark the way a real pointer would (down/up with no
+ * movement) — `MeasureOverlay` disambiguates click vs. drag via pointer
+ * events, not a native `onClick`. Stubs the overlay's measured width first,
+ * since jsdom's real `getBoundingClientRect` is all-zero. */
+function clickBar(bar: HTMLElement) {
+  const overlay = bar.closest(".measure-map-overlay");
+  if (overlay) {
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 100,
+      width: 1000,
+      height: 100,
+      toJSON: () => ({}),
+    } as DOMRect);
+  }
+  fireEvent.pointerDown(bar, { pointerId: 1, clientX: 100, clientY: 50 });
+  fireEvent.pointerUp(bar, { pointerId: 1, clientX: 100, clientY: 50 });
+}
+
 afterEach(() => {
   cleanup();
   resetMeasureMapStoreForTests();
@@ -61,7 +84,12 @@ function reconciledPages(): MeasureMapPageRow[] {
 }
 
 function noConflictResult(): ReconcileResult {
-  return { pages: reconciledPages(), conflicts: [], total_bars: 3 };
+  return {
+    pages: reconciledPages(),
+    conflicts: [],
+    total_bars: 3,
+    has_pickup: false,
+  };
 }
 
 function conflictResult(): ReconcileResult {
@@ -72,6 +100,24 @@ function conflictResult(): ReconcileResult {
       { kind: "continuity_break", page: 1, system: 1, expected: 2, found: 1 },
     ],
     total_bars: 3,
+    has_pickup: false,
+  };
+}
+
+function unapplyableResult(): ReconcileResult {
+  const pages = reconciledPages();
+  return {
+    pages,
+    conflicts: [
+      {
+        kind: "unapplyable",
+        page: 1,
+        system: 0,
+        reason: "duplicate page",
+      },
+    ],
+    total_bars: 3,
+    has_pickup: false,
   };
 }
 
@@ -246,7 +292,7 @@ describe("MeasureMapPanel", () => {
     );
 
     const numbers = screen.getAllByTestId("measure-map-number");
-    fireEvent.click(numbers[1]); // the second bar — renumber to 2 (matches its position)
+    clickBar(numbers[1]); // the second bar — renumber to 2 (matches its position)
 
     await waitFor(() =>
       expect(screen.getByTestId("measure-map-no-conflicts")).toBeTruthy(),
@@ -364,5 +410,205 @@ describe("MeasureMapPanel", () => {
     }) as BeforeUnloadEvent;
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("reports dirty/clean to the caller across scan, review, apply and discard", async () => {
+    const onDirtyChange = vi.fn();
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        onDirtyChange={onDirtyChange}
+        api={makeApi()}
+      />,
+    );
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    fireEvent.click(screen.getByText("Start scan"));
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true));
+    await screen.findByTestId("measure-map-no-conflicts");
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByTestId("measure-map-apply"));
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false));
+  });
+
+  it("paints the reviewed page's raster behind the overlay, and re-fetches on page nav", async () => {
+    const rasterize = vi.fn().mockResolvedValue([9, 9, 9]);
+    const pages = [reconciledPages()[0], { ...reconciledPages()[0], page: 2 }];
+    const api = makeApi({
+      reconcile: vi
+        .fn()
+        .mockResolvedValue({
+          pages,
+          conflicts: [],
+          total_bars: 6,
+          has_pickup: false,
+        }),
+    });
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={2}
+        onClose={vi.fn()}
+        rasterizePage={rasterize}
+        api={api}
+      />,
+    );
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-page-image");
+    expect(rasterize).toHaveBeenCalledWith(1);
+
+    fireEvent.click(screen.getByText("›"));
+    await waitFor(() => expect(rasterize).toHaveBeenCalledWith(2));
+  });
+
+  it("renders and amber-bands a page-level unapplyable conflict", async () => {
+    const api = makeApi({
+      reconcile: vi.fn().mockResolvedValue(unapplyableResult()),
+    });
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={api}
+      />,
+    );
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-conflict-list");
+    expect(screen.getByText(/duplicate page/)).toBeTruthy();
+    expect(screen.getByTestId("measure-map-apply")).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(screen.getByTestId("measure-map-conflict-1-1")).toBeTruthy();
+  });
+
+  it("threads has_pickup from the reconcile result into the local renumber floor", async () => {
+    // A single-anchor pin whose back-fill would underflow floor 1 but NOT
+    // floor 0 — proves has_pickup actually changes renumber behavior.
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("0");
+    const pickupPages: MeasureMapPageRow[] = [
+      {
+        page: 1,
+        map: {
+          version: 1,
+          systems: [
+            {
+              y_top: 0.1,
+              y_bottom: 0.2,
+              x_left: 0.05,
+              x_right: 0.95,
+              bars: [
+                { x_right: 0.3, number: 1, source: "model" },
+                { x_right: 0.6, number: 2, source: "model" },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+    const api = makeApi({
+      reconcile: vi.fn().mockResolvedValue({
+        pages: pickupPages,
+        conflicts: [],
+        total_bars: 2,
+        has_pickup: true,
+      }),
+    });
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={api}
+      />,
+    );
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-no-conflicts");
+    const numbers = screen.getAllByTestId("measure-map-number");
+    clickBar(numbers[0]); // pins bar 0 to "0" — legal only at the pickup floor
+    await waitFor(() =>
+      expect(screen.getAllByTestId("measure-map-number")[0].textContent).toBe(
+        "0",
+      ),
+    );
+    expect(screen.getByTestId("measure-map-no-conflicts")).toBeTruthy();
+    promptSpy.mockRestore();
+  });
+
+  it("bar marks are read-only after Apply, with a re-scan-to-edit hint", async () => {
+    const api = makeApi();
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={api}
+      />,
+    );
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-no-conflicts");
+    fireEvent.click(screen.getByTestId("measure-map-apply"));
+    await waitFor(() => expect(screen.getByText("Applied.")).toBeTruthy());
+    const bar = screen.getAllByTestId("measure-map-number")[0];
+    expect(bar.tagName).toBe("SPAN");
+    expect(bar.getAttribute("title")).toBe("Map applied — re-scan to edit");
+  });
+
+  it("wires the barline-drag gesture end to end: dragging changes the applied x_right", async () => {
+    const apply = vi.fn().mockResolvedValue(1);
+    const api = makeApi({ apply });
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={api}
+      />,
+    );
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-no-conflicts");
+
+    const overlay = screen.getByTestId("measure-map-overlay-1");
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 100,
+      width: 1000,
+      height: 100,
+      toJSON: () => ({}),
+    } as DOMRect);
+    const bar = screen.getAllByTestId("measure-map-number")[0]; // x_right 0.3
+    fireEvent.pointerDown(bar, { pointerId: 5, clientX: 300, clientY: 50 });
+    // +100px over a 1000px-wide overlay = +0.1 normalized -> 0.4.
+    fireEvent.pointerMove(bar, { pointerId: 5, clientX: 400, clientY: 50 });
+    fireEvent.pointerUp(bar, { pointerId: 5, clientX: 400, clientY: 50 });
+
+    fireEvent.click(screen.getByTestId("measure-map-apply"));
+    await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
+    const appliedPages = apply.mock.calls[0][3] as MeasureMapPageRow[];
+    expect(appliedPages[0].map.systems[0].bars[0].x_right).toBeCloseTo(0.4, 5);
+    expect(appliedPages[0].map.systems[0].bars[0].source).toBe("model");
   });
 });

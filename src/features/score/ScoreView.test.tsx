@@ -2130,6 +2130,18 @@ describe("ScoreView measure mapping", () => {
     expect(screen.getByText(/3 pages/)).toBeTruthy();
   });
 
+  it("disables Map measures while the document is still loading (no ready edition yet)", async () => {
+    // An adapter whose `load` never resolves freezes the view at
+    // "loading-document" — editions have resolved (so the toolbar renders)
+    // but `phase !== 'ready'` yet.
+    const adapter = {
+      load: vi.fn(() => new Promise<never>(() => undefined)),
+    };
+    render(<ScoreView pieceId={7} api={makeApi()} adapter={adapter} />);
+    const button = await screen.findByText("Map measures");
+    expect(button).toHaveProperty("disabled", true);
+  });
+
   it("the Show measures toggle persists and reveals cached bar numbers", async () => {
     publishMeasureMap(7, "urtext", "a", sampleMap());
     const pdf = makePdf(3);

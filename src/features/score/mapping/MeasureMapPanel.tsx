@@ -14,12 +14,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  dragBarline,
   isNeedsClientRaster,
   measureMapApply,
   measureReconcile,
   measureScanPage,
   publishMeasureMap,
   renumberBar,
+  type BarLocation,
   type MapConflict,
   type MeasureMapPageRow,
   type ReconcilePageInput,
@@ -51,8 +53,15 @@ export interface MeasureMapPanelProps {
   onApplied?: (pages: MeasureMapPageRow[]) => void;
   /** Render the given 1-based page to a JPEG (the `firstPageCache` idiom:
    * `canvas.toBlob(..., "image/jpeg", 0.85)`), as a plain byte array — used
-   * ONLY on the `needs_client_raster` retry. */
+   * on the `needs_client_raster` retry AND (display-only) to paint the page
+   * under review behind the overlay, so the human has something real to
+   * judge barlines against instead of an empty box. */
   rasterizePage: (page: number) => Promise<number[]>;
+  /** Reports whenever this panel has unsaved review work in memory (a scan
+   * in progress, or a reconciled-but-not-yet-Applied review) — the caller
+   * uses this to guard in-app piece switching (which unmounts this panel
+   * without warning, unlike the tab-level `beforeunload` guard below). */
+  onDirtyChange?: (dirty: boolean) => void;
   api?: MeasureMapApi;
 }
 
@@ -69,6 +78,7 @@ export function MeasureMapPanel({
   onClose,
   onApplied,
   rasterizePage,
+  onDirtyChange,
   api = defaultApi,
 }: MeasureMapPanelProps) {
   const [stage, setStage] = useState<Stage>("intro");
@@ -78,25 +88,86 @@ export function MeasureMapPanel({
   } | null>(null);
   const [workingPages, setWorkingPages] = useState<MeasureMapPageRow[]>([]);
   const [conflicts, setConflicts] = useState<MapConflict[]>([]);
+  const [hasPickup, setHasPickup] = useState(false);
   const [reviewPage, setReviewPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [pageImages, setPageImages] = useState<Record<number, string>>({});
   const cancelRef = useRef(false);
+  const pageImagesRef = useRef<Record<number, string>>({});
+  const requestedImagesRef = useRef(new Set<number>());
+
+  const hasUnsavedWork = dirty && (stage === "review" || stage === "scanning");
 
   // Warn on navigating away from an unsaved review — never mid-scan silence,
   // never after a clean Apply (the existing app-wide confirm idiom: an
   // explicit `beforeunload` guard while there is unapplied work in memory).
   useEffect(() => {
-    if (!dirty || (stage !== "review" && stage !== "scanning"))
-      return undefined;
+    if (!hasUnsavedWork) return undefined;
     const handler = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [dirty, stage]);
+  }, [hasUnsavedWork]);
+
+  // Report the same "unsaved work" signal to the caller so IN-APP piece
+  // switching (which unmounts this panel directly, never touching
+  // `beforeunload`) can guard itself too.
+  useEffect(() => {
+    onDirtyChange?.(hasUnsavedWork);
+  }, [hasUnsavedWork, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+
+  // Display-only page rasters behind the overlay, one per page actually
+  // visited in review — fetched lazily (not all `pageCount` up front) via
+  // the SAME `rasterizePage` callback the client-raster retry uses. Revoked
+  // on unmount; never gates interaction (a missing image just leaves the
+  // overlay over blank space, exactly like before this fix round).
+  useEffect(() => {
+    if (stage !== "review" && stage !== "applying" && stage !== "applied") {
+      return;
+    }
+    if (
+      requestedImagesRef.current.has(reviewPage) ||
+      pageImagesRef.current[reviewPage]
+    ) {
+      return;
+    }
+    requestedImagesRef.current.add(reviewPage);
+    let cancelled = false;
+    void rasterizePage(reviewPage)
+      .then((bytes) => {
+        if (cancelled || typeof URL.createObjectURL !== "function") return;
+        const blob = new Blob([new Uint8Array(bytes)], {
+          type: "image/jpeg",
+        });
+        const url = URL.createObjectURL(blob);
+        pageImagesRef.current = { ...pageImagesRef.current, [reviewPage]: url };
+        setPageImages(pageImagesRef.current);
+      })
+      .catch(() => {
+        // Display-only: a failed raster just leaves that page's preview
+        // blank. Allow a later retry (e.g. a page nav back to it).
+        requestedImagesRef.current.delete(reviewPage);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rasterizePage, reviewPage, stage]);
+
+  useEffect(
+    () => () => {
+      for (const url of Object.values(pageImagesRef.current)) {
+        if (typeof URL.revokeObjectURL === "function") {
+          URL.revokeObjectURL(url);
+        }
+      }
+    },
+    [],
+  );
 
   const startScan = useCallback(async () => {
     setStage("scanning");
@@ -149,6 +220,7 @@ export function MeasureMapPanel({
       );
       setWorkingPages(reconciled.pages);
       setConflicts(reconciled.conflicts);
+      setHasPickup(reconciled.has_pickup);
       setReviewPage(reconciled.pages[0]?.page ?? 1);
       setStage("review");
     } catch (reason) {
@@ -195,12 +267,27 @@ export function MeasureMapPanel({
         workingPages,
         { pageIndex, systemIndex, barIndex },
         Math.trunc(parsed),
+        hasPickup,
       );
       setWorkingPages(result.pages);
       setConflicts(result.conflicts);
       setDirty(true);
     },
-    [workingPages],
+    [hasPickup, workingPages],
+  );
+
+  const handleBarDrag = useCallback(
+    (
+      pageIndex: number,
+      systemIndex: number,
+      barIndex: number,
+      newXRight: number,
+    ) => {
+      const location: BarLocation = { pageIndex, systemIndex, barIndex };
+      setWorkingPages((current) => dragBarline(current, location, newXRight));
+      setDirty(true);
+    },
+    [],
   );
 
   const applyReview = useCallback(async () => {
@@ -341,19 +428,44 @@ export function MeasureMapPanel({
           </div>
 
           <div className="measure-map-page-preview">
+            {pageImages[reviewPage] && (
+              <img
+                className="measure-map-page-image"
+                src={pageImages[reviewPage]}
+                alt=""
+                aria-hidden="true"
+                draggable={false}
+                data-testid="measure-map-page-image"
+              />
+            )}
             <MeasureOverlay
               page={currentRow?.map ?? null}
               pageNumber={reviewPage}
               conflicts={conflicts}
               visible
               stale={false}
-              onBarClick={(systemIndex, barIndex, currentNumber) =>
-                handleBarClick(
-                  Math.max(0, currentPageIndex),
-                  systemIndex,
-                  barIndex,
-                  currentNumber,
-                )
+              readOnly={stage === "applied"}
+              onBarClick={
+                stage === "applied"
+                  ? undefined
+                  : (systemIndex, barIndex, currentNumber) =>
+                      handleBarClick(
+                        Math.max(0, currentPageIndex),
+                        systemIndex,
+                        barIndex,
+                        currentNumber,
+                      )
+              }
+              onBarDrag={
+                stage === "applied"
+                  ? undefined
+                  : (systemIndex, barIndex, newXRight) =>
+                      handleBarDrag(
+                        Math.max(0, currentPageIndex),
+                        systemIndex,
+                        barIndex,
+                        newXRight,
+                      )
               }
             />
           </div>
@@ -399,6 +511,10 @@ function describeConflict(conflict: MapConflict): string {
       return `Page ${conflict.page}, system ${conflict.system}: printed number ${conflict.measure} was read with low confidence (${Math.round(conflict.confidence * 100)}%).`;
     case "overlapping_systems":
       return `Page ${conflict.page}: systems ${conflict.system_a} and ${conflict.system_b} overlap.`;
+    case "unapplyable":
+      return conflict.system === 0
+        ? `Page ${conflict.page}: ${conflict.reason} (this page cannot be applied as-is).`
+        : `Page ${conflict.page}, system ${conflict.system}: ${conflict.reason} (cannot be applied as-is).`;
     default:
       return "Unrecognized conflict.";
   }

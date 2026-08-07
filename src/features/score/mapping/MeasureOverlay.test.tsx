@@ -106,7 +106,7 @@ describe("MeasureOverlay", () => {
     expect(onRescan).toHaveBeenCalledTimes(1);
   });
 
-  it("calls onBarClick with the bar's location and current number", () => {
+  it("calls onBarClick on a pointer down/up that never moves past the drag threshold", () => {
     const onBarClick = vi.fn();
     render(
       <MeasureOverlay
@@ -118,7 +118,114 @@ describe("MeasureOverlay", () => {
         onBarClick={onBarClick}
       />,
     );
-    fireEvent.click(screen.getAllByTestId("measure-map-number")[1]);
+    mockOverlayWidth(1000);
+    const bar = screen.getAllByTestId("measure-map-number")[1];
+    fireEvent.pointerDown(bar, { pointerId: 1, clientX: 500, clientY: 100 });
+    fireEvent.pointerUp(bar, { pointerId: 1, clientX: 500, clientY: 100 });
     expect(onBarClick).toHaveBeenCalledWith(0, 1, 2);
   });
+
+  it("wires the barline-drag gesture: a real pointer drag calls onBarDrag with the new x_right, and suppresses the click", () => {
+    const onBarClick = vi.fn();
+    const onBarDrag = vi.fn();
+    render(
+      <MeasureOverlay
+        page={samplePage()}
+        pageNumber={1}
+        conflicts={[]}
+        visible
+        stale={false}
+        onBarClick={onBarClick}
+        onBarDrag={onBarDrag}
+      />,
+    );
+    mockOverlayWidth(1000);
+    const bar = screen.getAllByTestId("measure-map-number")[1]; // x_right 0.6
+    fireEvent.pointerDown(bar, { pointerId: 1, clientX: 500, clientY: 100 });
+    // 100px right, over a 1000px-wide overlay = +0.1 normalized.
+    fireEvent.pointerMove(bar, { pointerId: 1, clientX: 600, clientY: 100 });
+    expect(onBarDrag).toHaveBeenCalledWith(0, 1, expect.closeTo(0.7, 5));
+    fireEvent.pointerUp(bar, { pointerId: 1, clientX: 600, clientY: 100 });
+    expect(onBarClick).not.toHaveBeenCalled();
+  });
+
+  it("bands every system on the page for a page-level unapplyable conflict (system: 0)", () => {
+    const conflicts: MapConflict[] = [
+      { kind: "unapplyable", page: 1, system: 0, reason: "duplicate page" },
+    ];
+    render(
+      <MeasureOverlay
+        page={samplePage()}
+        pageNumber={1}
+        conflicts={conflicts}
+        visible
+        stale={false}
+      />,
+    );
+    expect(screen.getByTestId("measure-map-conflict-1-1")).toBeTruthy();
+  });
+
+  it("bands only the named system for a system-scoped unapplyable conflict", () => {
+    const conflicts: MapConflict[] = [
+      {
+        kind: "unapplyable",
+        page: 1,
+        system: 1,
+        reason: "bar x_right not increasing",
+      },
+    ];
+    render(
+      <MeasureOverlay
+        page={samplePage()}
+        pageNumber={1}
+        conflicts={conflicts}
+        visible
+        stale={false}
+      />,
+    );
+    expect(screen.getByTestId("measure-map-conflict-1-1")).toBeTruthy();
+  });
+
+  it("read-only bars ignore clicks/drags and carry the re-scan-to-edit hint", () => {
+    const onBarClick = vi.fn();
+    const onBarDrag = vi.fn();
+    render(
+      <MeasureOverlay
+        page={samplePage()}
+        pageNumber={1}
+        conflicts={[]}
+        visible
+        stale={false}
+        onBarClick={onBarClick}
+        onBarDrag={onBarDrag}
+        readOnly
+      />,
+    );
+    const bar = screen.getAllByTestId("measure-map-number")[0];
+    expect(bar.tagName).toBe("SPAN");
+    expect(bar.getAttribute("title")).toBe("Map applied — re-scan to edit");
+    fireEvent.pointerDown(bar, { pointerId: 1, clientX: 500, clientY: 100 });
+    fireEvent.pointerUp(bar, { pointerId: 1, clientX: 500, clientY: 100 });
+    expect(onBarClick).not.toHaveBeenCalled();
+    expect(onBarDrag).not.toHaveBeenCalled();
+  });
 });
+
+/** Stub the overlay container's measured width — jsdom's real
+ * `getBoundingClientRect` always returns 0, which the drag/click gesture
+ * treats as "cannot measure, do nothing" (see `MeasureOverlay.beginDrag`). */
+function mockOverlayWidth(width: number) {
+  const container = document.querySelector(".measure-map-overlay");
+  if (!container) throw new Error("measure-map-overlay container not found");
+  vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+    x: 0,
+    y: 0,
+    left: 0,
+    top: 0,
+    right: width,
+    bottom: 100,
+    width,
+    height: 100,
+    toJSON: () => ({}),
+  });
+}

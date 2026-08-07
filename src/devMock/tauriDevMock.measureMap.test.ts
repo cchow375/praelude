@@ -185,4 +185,111 @@ describe("dev-mock measure mapping handlers", () => {
     });
     expect(rows).toEqual([]);
   });
+
+  // ── Fix round 1: needs_client_raster exercisability + more conflict kinds ──
+
+  it("page 3 needs client raster on the first call (no bytes), then accepts bytes", async () => {
+    await expect(
+      seamInvoke("measure_scan_page", {
+        pieceId: 1,
+        editionId: "score/score.pdf",
+        editionFingerprint: "mock-fp-1",
+        page: 3,
+        pageJpeg: null,
+      }),
+    ).rejects.toBe("needs_client_raster");
+
+    // The retry, WITH bytes, succeeds.
+    const scan = await seamInvoke<ScanPageOutput>("measure_scan_page", {
+      pieceId: 1,
+      editionId: "score/score.pdf",
+      editionFingerprint: "mock-fp-1",
+      page: 3,
+      pageJpeg: [1, 2, 3],
+    });
+    expect(scan.systems[0].barline_xs).toBeDefined();
+
+    // A subsequent call for the SAME (piece, page) no longer needs raster —
+    // "once", not every time.
+    const again = await seamInvoke<ScanPageOutput>("measure_scan_page", {
+      pieceId: 1,
+      editionId: "score/score.pdf",
+      editionFingerprint: "mock-fp-1",
+      page: 3,
+      pageJpeg: null,
+    });
+    expect(again.systems[0].barline_xs).toBeDefined();
+  });
+
+  it("page 3's client-raster content has unsorted barline_xs, flagged unapplyable", async () => {
+    const page3 = await seamInvoke<ScanPageOutput>("measure_scan_page", {
+      pieceId: 2,
+      editionId: "score/score.pdf",
+      editionFingerprint: "mock-fp-2",
+      page: 3,
+      pageJpeg: [1, 2, 3],
+    });
+    const reconciled = await seamInvoke<ReconcileResult>("measure_reconcile", {
+      pieceId: 2,
+      editionId: "score/score.pdf",
+      editionFingerprint: "mock-fp-2",
+      pagesJson: JSON.stringify([{ page: 3, scan: page3 }]),
+    });
+    expect(reconciled.conflicts).toContainEqual(
+      expect.objectContaining({ kind: "unapplyable", page: 3 }),
+    );
+  });
+
+  it("the client-raster gate is scoped per piece — a different piece still needs it", async () => {
+    await expect(
+      seamInvoke("measure_scan_page", {
+        pieceId: 42,
+        editionId: "score/score.pdf",
+        editionFingerprint: "mock-fp-42",
+        page: 3,
+        pageJpeg: null,
+      }),
+    ).rejects.toBe("needs_client_raster");
+  });
+
+  it("piece 6 (the pickup fixture) has zero printed numbers on every page and reports has_pickup + pickup_ambiguity", async () => {
+    const page1 = await seamInvoke<ScanPageOutput>("measure_scan_page", {
+      pieceId: 6,
+      editionId: "score/score.pdf",
+      editionFingerprint: "mock-fp-6",
+      page: 1,
+      pageJpeg: null,
+    });
+    expect(page1.systems[0].printed_numbers).toEqual([]);
+
+    const reconciled = await seamInvoke<ReconcileResult>("measure_reconcile", {
+      pieceId: 6,
+      editionId: "score/score.pdf",
+      editionFingerprint: "mock-fp-6",
+      pagesJson: JSON.stringify([{ page: 1, scan: page1 }]),
+    });
+    expect(reconciled.has_pickup).toBe(true);
+    expect(reconciled.conflicts).toContainEqual(
+      expect.objectContaining({ kind: "pickup_ambiguity" }),
+    );
+    // Numbering still starts at the pickup floor (0), not 1.
+    expect(reconciled.pages[0].map.systems[0].bars[0].number).toBe(0);
+  });
+
+  it("a non-pickup piece reports has_pickup: false", async () => {
+    const page1 = await seamInvoke<ScanPageOutput>("measure_scan_page", {
+      pieceId: 1,
+      editionId: "score/score.pdf",
+      editionFingerprint: "mock-fp-1",
+      page: 1,
+      pageJpeg: null,
+    });
+    const reconciled = await seamInvoke<ReconcileResult>("measure_reconcile", {
+      pieceId: 1,
+      editionId: "score/score.pdf",
+      editionFingerprint: "mock-fp-1",
+      pagesJson: JSON.stringify([{ page: 1, scan: page1 }]),
+    });
+    expect(reconciled.has_pickup).toBe(false);
+  });
 });

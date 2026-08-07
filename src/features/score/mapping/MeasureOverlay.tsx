@@ -11,6 +11,7 @@
 // measurement of its own and stays correct through every zoom/resize without
 // a ResizeObserver.
 
+import { useRef } from "react";
 import type { MapConflict, MeasureMapPage } from "./measureMap";
 
 export interface MeasureOverlayProps {
@@ -27,12 +28,24 @@ export interface MeasureOverlayProps {
   stale: boolean;
   onRescan?: () => void;
   /** Present only in the review flow: clicking a number opens the renumber
-   * control for that bar. */
+   * control for that bar. Suppressed while a drag is in progress (a click
+   * that ends a drag never ALSO renumbers). */
   onBarClick?: (
     systemIndex: number,
     barIndex: number,
     currentNumber: number,
   ) => void;
+  /** Present only in the review flow: horizontal barline drag, fired
+   * continuously as the pointer moves with the bar's new normalized
+   * `x_right`. The caller (via `dragBarline`) owns clamping to neighbors. */
+  onBarDrag?: (
+    systemIndex: number,
+    barIndex: number,
+    newXRight: number,
+  ) => void;
+  /** True once the map is applied: bar marks stop being interactive (no
+   * click-to-renumber, no drag) and show a "re-scan to edit" hint instead. */
+  readOnly?: boolean;
 }
 
 /** True when this conflict names the given page (1-based) and, if it also
@@ -52,6 +65,13 @@ function conflictHitsSystem(
         (conflict.system_a === systemNumber ||
           conflict.system_b === systemNumber)
       );
+    case "unapplyable":
+      // `system: 0` is the Rust sentinel for "no single system to blame" —
+      // band every system on that page instead of none of them.
+      return (
+        conflict.page === pageNumber &&
+        (conflict.system === 0 || conflict.system === systemNumber)
+      );
     case "pickup_ambiguity":
     case "anchor_disagreement":
       return conflict.page === pageNumber;
@@ -62,6 +82,19 @@ function conflictHitsSystem(
   }
 }
 
+/** A drag in progress, kept in a ref so pointer moves never re-render. */
+interface DragState {
+  pointerId: number;
+  systemIndex: number;
+  barIndex: number;
+  startClientX: number;
+  startXRight: number;
+  containerWidth: number;
+  dragged: boolean;
+}
+
+const CLICK_VS_DRAG_THRESHOLD_PX = 3;
+
 export function MeasureOverlay({
   page,
   pageNumber,
@@ -70,7 +103,73 @@ export function MeasureOverlay({
   stale,
   onRescan,
   onBarClick,
+  onBarDrag,
+  readOnly = false,
 }: MeasureOverlayProps) {
+  const dragRef = useRef<DragState | null>(null);
+  const interactive = !readOnly && Boolean(onBarClick || onBarDrag);
+
+  const beginDrag = (
+    event: React.PointerEvent<HTMLElement>,
+    systemIndex: number,
+    barIndex: number,
+    currentXRight: number,
+  ) => {
+    if (readOnly || event.button !== 0) return;
+    if (!onBarClick && !onBarDrag) return;
+    // Width is only needed to compute a drag delta; a click-only overlay (no
+    // `onBarDrag`) still tracks pointer-down/up for click detection without
+    // it, so a jsdom test (whose `getBoundingClientRect` is all-zero unless
+    // stubbed) can exercise onBarClick without also stubbing the measurement.
+    const container = event.currentTarget.closest<HTMLElement>(
+      ".measure-map-overlay",
+    );
+    const width = container?.getBoundingClientRect().width;
+    if (onBarDrag && !width) return;
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Draw without capture.
+    }
+    dragRef.current = {
+      pointerId: event.pointerId,
+      systemIndex,
+      barIndex,
+      startClientX: event.clientX,
+      startXRight: currentXRight,
+      containerWidth: width ?? 0,
+      dragged: false,
+    };
+  };
+
+  const moveDrag = (event: React.PointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !onBarDrag) return;
+    const dx = event.clientX - drag.startClientX;
+    if (Math.abs(dx) > CLICK_VS_DRAG_THRESHOLD_PX) drag.dragged = true;
+    if (!drag.dragged) return;
+    const newXRight = drag.startXRight + dx / drag.containerWidth;
+    onBarDrag(drag.systemIndex, drag.barIndex, newXRight);
+  };
+
+  const endDrag = (
+    event: React.PointerEvent<HTMLElement>,
+    currentNumber: number,
+  ) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    try {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    } catch {
+      // Nothing was captured; nothing to release.
+    }
+    // A pointer up that never crossed the drag threshold is a click.
+    if (!drag.dragged && onBarClick) {
+      onBarClick(drag.systemIndex, drag.barIndex, currentNumber);
+    }
+  };
+
   return (
     <>
       {stale && (
@@ -93,7 +192,7 @@ export function MeasureOverlay({
         <div
           className="measure-map-overlay"
           data-testid={`measure-map-overlay-${pageNumber}`}
-          aria-hidden={!onBarClick}
+          aria-hidden={!interactive}
         >
           {page.systems.map((system, systemIndex) => {
             const systemNumber = systemIndex + 1;
@@ -115,20 +214,50 @@ export function MeasureOverlay({
                   />
                 )}
                 {system.bars.map((bar, barIndex) => {
-                  const Tag = onBarClick ? "button" : "span";
+                  const Tag = interactive ? "button" : "span";
                   return (
                     <Tag
                       key={barIndex}
-                      type={onBarClick ? "button" : undefined}
-                      className={`measure-map-number is-${bar.source} ${flagged ? "is-conflict" : ""}`}
+                      type={interactive ? "button" : undefined}
+                      className={`measure-map-number is-${bar.source} ${flagged ? "is-conflict" : ""} ${readOnly ? "is-read-only" : ""}`}
                       data-testid="measure-map-number"
+                      title={
+                        readOnly ? "Map applied — re-scan to edit" : undefined
+                      }
                       style={{
                         left: `${bar.x_right * 100}%`,
                         top: `${system.y_bottom * 100}%`,
+                        touchAction: interactive ? "none" : undefined,
                       }}
-                      onClick={
-                        onBarClick
-                          ? () => onBarClick(systemIndex, barIndex, bar.number)
+                      onPointerDown={
+                        interactive
+                          ? (event) =>
+                              beginDrag(
+                                event,
+                                systemIndex,
+                                barIndex,
+                                bar.x_right,
+                              )
+                          : undefined
+                      }
+                      onPointerMove={interactive ? moveDrag : undefined}
+                      onPointerUp={
+                        interactive
+                          ? (event) => endDrag(event, bar.number)
+                          : undefined
+                      }
+                      onPointerCancel={
+                        interactive
+                          ? (event) => {
+                              dragRef.current = null;
+                              try {
+                                event.currentTarget.releasePointerCapture?.(
+                                  event.pointerId,
+                                );
+                              } catch {
+                                // Nothing captured.
+                              }
+                            }
                           : undefined
                       }
                     >

@@ -205,12 +205,17 @@ pub enum MapConflict {
 }
 
 /// The reconciled measure map: one `MeasureMapPage` per input page (in page
-/// order), every conflict found, and the total bar count mapped.
+/// order), every conflict found, the total bar count mapped, and whether
+/// this piece's numbering floor was 0 (a pickup) or 1 — carried through so a
+/// downstream LOCAL renumber (the review UI's click-to-renumber, which has no
+/// XML context of its own) can apply the exact same floor instead of
+/// hardcoding 1. `false` whenever no MusicXML `XmlTotals` was available.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ReconcileResult {
     pub pages: Vec<MeasureMapPageRow>,
     pub conflicts: Vec<MapConflict>,
     pub total_bars: u32,
+    pub has_pickup: bool,
 }
 
 /// One bar's working state before final numbering: which page/system it
@@ -593,6 +598,7 @@ pub fn reconcile(
         pages: result_pages,
         conflicts,
         total_bars: bar_works.len() as u32,
+        has_pickup,
     }
 }
 
@@ -1342,5 +1348,25 @@ mod tests {
         assert!(SCAN_PAGE_PROMPT_V1.contains(
             "NEVER infer, guess, or count out a measure number that is not actually printed on the page"
         ));
+    }
+
+    // ── has_pickup on ReconcileResult (fix round 1) ─────────────────────────
+
+    #[test]
+    fn result_carries_has_pickup_true_when_xml_says_so() {
+        let pages = vec![(1, clean_page(vec![printed(0, 0.10, 0.09, 0.95)]))];
+        let xml = Some(XmlTotals {
+            max_measure: 8,
+            has_pickup: true,
+        });
+        let result = reconcile(pages, xml, vec![]);
+        assert!(result.has_pickup);
+    }
+
+    #[test]
+    fn result_carries_has_pickup_false_when_no_xml_is_available() {
+        let pages = vec![(1, clean_page(vec![printed(1, 0.10, 0.09, 0.95)]))];
+        let result = reconcile(pages, None, vec![]);
+        assert!(!result.has_pickup);
     }
 }
