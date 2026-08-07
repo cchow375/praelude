@@ -225,6 +225,192 @@ fn validate_page(
     Ok((systems_json, last_number))
 }
 
+/// One violation of an invariant [`Store::measure_map_apply`] would reject a
+/// payload for, LOCATED for a review UI to point at. `system` is `None` for
+/// a payload- or page-level defect (an invalid/duplicate page number, an
+/// unsupported version, systems out of top-to-bottom order, the page's
+/// serialized size cap) and `Some(1-based index)` for a defect scoped to one
+/// system.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MeasureMapDefect {
+    pub page: u32,
+    pub system: Option<u32>,
+    pub reason: String,
+}
+
+/// Every invariant [`Store::measure_map_apply`] enforces on a payload —
+/// [`validate_page`]/[`validate_page_systems`]'s exact conditions and
+/// thresholds — collected as LOCATED defects instead of the fail-fast single
+/// error those two return on the first violation. `validate_page`/
+/// `validate_page_systems` stay the authoritative fail-fast checkers Apply
+/// itself calls (existing callers rely on their exact error messages/early
+/// return); this function re-derives the SAME conditions (page numbers >= 1,
+/// no duplicate pages, the supported version, per-system geometry — finite
+/// 0..=1 fractions, `y_top < y_bottom`, `x_left < x_right` — systems ordered
+/// top-to-bottom by `y_top`, at least one bar per system, strictly
+/// increasing bar `x_right` within a system, bar `confidence` in 0..=1 when
+/// present, bar numbers strictly increasing across the WHOLE payload
+/// system-to-system/page-to-page, and each page's `systems_json` size cap)
+/// but never stops at the first one. Exists so a caller that never opens a
+/// `Store` — `score::measure_reconcile`'s `Unapplyable` conflict pass chief
+/// among them — can ask "would Apply reject this, and everywhere it would"
+/// without a hand-rolled second copy of the invariant list.
+pub(crate) fn measure_map_payload_defects(pages: &[MeasureMapPageRow]) -> Vec<MeasureMapDefect> {
+    let mut defects = Vec::new();
+
+    for row in pages {
+        if row.page < 1 {
+            defects.push(MeasureMapDefect {
+                page: row.page,
+                system: None,
+                reason: "page numbers start at 1".to_string(),
+            });
+        }
+    }
+
+    let mut sorted: Vec<&MeasureMapPageRow> = pages.iter().collect();
+    sorted.sort_by_key(|row| row.page);
+    for pair in sorted.windows(2) {
+        if pair[0].page == pair[1].page {
+            defects.push(MeasureMapDefect {
+                page: pair[0].page,
+                system: None,
+                reason: format!("duplicate page {}", pair[0].page),
+            });
+        }
+    }
+
+    let mut carry: Option<u32> = None;
+    for row in &sorted {
+        if row.map.version != SUPPORTED_VERSION {
+            defects.push(MeasureMapDefect {
+                page: row.page,
+                system: None,
+                reason: format!(
+                    "unsupported measure map version {} (expected {SUPPORTED_VERSION})",
+                    row.map.version
+                ),
+            });
+        }
+
+        let mut prev_y_top: Option<f64> = None;
+        for (idx, system) in row.map.systems.iter().enumerate() {
+            let system_no = idx as u32 + 1;
+
+            for (value, field) in [
+                (system.y_top, "y_top"),
+                (system.y_bottom, "y_bottom"),
+                (system.x_left, "x_left"),
+                (system.x_right, "x_right"),
+            ] {
+                if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+                    defects.push(MeasureMapDefect {
+                        page: row.page,
+                        system: Some(system_no),
+                        reason: format!("system {field} must be a normalized 0..=1 fraction"),
+                    });
+                }
+            }
+            if system.y_top >= system.y_bottom {
+                defects.push(MeasureMapDefect {
+                    page: row.page,
+                    system: Some(system_no),
+                    reason: "system y_top must be less than y_bottom".to_string(),
+                });
+            }
+            if system.x_left >= system.x_right {
+                defects.push(MeasureMapDefect {
+                    page: row.page,
+                    system: Some(system_no),
+                    reason: "system x_left must be less than x_right".to_string(),
+                });
+            }
+            if let Some(prev) = prev_y_top {
+                if system.y_top <= prev {
+                    defects.push(MeasureMapDefect {
+                        page: row.page,
+                        system: Some(system_no),
+                        reason: "systems must be ordered top-to-bottom (y_top strictly increasing)"
+                            .to_string(),
+                    });
+                }
+            }
+            prev_y_top = Some(system.y_top);
+
+            if system.bars.is_empty() {
+                defects.push(MeasureMapDefect {
+                    page: row.page,
+                    system: Some(system_no),
+                    reason: "a system needs at least one bar".to_string(),
+                });
+                continue;
+            }
+
+            let mut prev_bar_x_right: Option<f64> = None;
+            for bar in &system.bars {
+                if !bar.x_right.is_finite() || !(0.0..=1.0).contains(&bar.x_right) {
+                    defects.push(MeasureMapDefect {
+                        page: row.page,
+                        system: Some(system_no),
+                        reason: "bar x_right must be a normalized 0..=1 fraction".to_string(),
+                    });
+                }
+                if let Some(prev) = prev_bar_x_right {
+                    if bar.x_right <= prev {
+                        defects.push(MeasureMapDefect {
+                            page: row.page,
+                            system: Some(system_no),
+                            reason: "bar x_right must strictly increase within a system"
+                                .to_string(),
+                        });
+                    }
+                }
+                prev_bar_x_right = Some(bar.x_right);
+
+                if let Some(confidence) = bar.confidence {
+                    if !confidence.is_finite() || !(0.0..=1.0).contains(&confidence) {
+                        defects.push(MeasureMapDefect {
+                            page: row.page,
+                            system: Some(system_no),
+                            reason: "bar confidence must be a normalized 0..=1 fraction"
+                                .to_string(),
+                        });
+                    }
+                }
+
+                if let Some(last) = carry {
+                    if bar.number <= last {
+                        defects.push(MeasureMapDefect {
+                            page: row.page,
+                            system: Some(system_no),
+                            reason: format!(
+                                "bar numbers must strictly increase (bar {} follows {})",
+                                bar.number, last
+                            ),
+                        });
+                    }
+                }
+                carry = Some(bar.number);
+            }
+        }
+
+        if let Ok(systems_json) = json_to_sql(&row.map.systems) {
+            if systems_json.len() > MAX_SYSTEMS_JSON_BYTES {
+                defects.push(MeasureMapDefect {
+                    page: row.page,
+                    system: None,
+                    reason: format!(
+                        "measure map is too large ({} bytes, max {MAX_SYSTEMS_JSON_BYTES})",
+                        systems_json.len()
+                    ),
+                });
+            }
+        }
+    }
+
+    defects
+}
+
 impl Store {
     /// Every mapped page for one piece+edition fingerprint, page-ordered. An
     /// empty vec means unmapped. `edition_id` is accepted for call-site
@@ -876,5 +1062,81 @@ mod tests {
             "expected a friendly invalid() message, got: {message}"
         );
         assert_eq!(store.measure_map_row_count_for_test(1, "fp-a"), 0);
+    }
+
+    // ── measure_map_payload_defects (Fix round 2, C3's Unapplyable mirror) ──
+
+    /// A payload that `measure_map_apply` would happily accept produces zero
+    /// defects — `measure_map_payload_defects` must not be trigger-happy on
+    /// exactly the shapes the DB path is fine with.
+    #[test]
+    fn payload_defects_is_empty_for_an_applyable_payload() {
+        let pages = vec![
+            MeasureMapPageRow {
+                page: 1,
+                map: page(1),
+            },
+            MeasureMapPageRow {
+                page: 2,
+                map: page(9),
+            },
+        ];
+        assert_eq!(measure_map_payload_defects(&pages), Vec::new());
+    }
+
+    /// A page-/payload-level defect (a duplicate page number here) has no
+    /// single system to blame — `system` is `None`.
+    #[test]
+    fn payload_defects_flags_a_duplicate_page_at_the_payload_level() {
+        let pages = vec![
+            MeasureMapPageRow {
+                page: 1,
+                map: page(1),
+            },
+            MeasureMapPageRow {
+                page: 1,
+                map: page(1),
+            },
+        ];
+        let defects = measure_map_payload_defects(&pages);
+        assert!(defects
+            .iter()
+            .any(|d| d.page == 1 && d.system.is_none() && d.reason.contains("duplicate page")));
+    }
+
+    /// A system-scoped defect (out-of-range geometry here) is located with
+    /// `system: Some(1-based index)`, and — unlike `validate_page`'s
+    /// fail-fast single error — every other independent defect on the SAME
+    /// payload is still collected too, not just the first one found.
+    #[test]
+    fn payload_defects_locates_a_system_scoped_defect_and_collects_every_defect() {
+        let mut two_bad_pages = vec![
+            MeasureMapPageRow {
+                page: 1,
+                map: page(1),
+            },
+            MeasureMapPageRow {
+                page: 2,
+                map: page(9),
+            },
+        ];
+        // Page 1's first system: y_top pushed out of the 0..=1 range.
+        two_bad_pages[0].map.systems[0].y_top = 1.5;
+        // Page 2's first system: x_right no longer greater than x_left.
+        two_bad_pages[1].map.systems[0].x_right = two_bad_pages[1].map.systems[0].x_left;
+
+        let defects = measure_map_payload_defects(&two_bad_pages);
+        assert!(
+            defects
+                .iter()
+                .any(|d| d.page == 1 && d.system == Some(1) && d.reason.contains("y_top")),
+            "{defects:?}"
+        );
+        assert!(
+            defects.iter().any(|d| d.page == 2
+                && d.system == Some(1)
+                && d.reason.contains("x_left must be less than x_right")),
+            "{defects:?}"
+        );
     }
 }

@@ -49,12 +49,15 @@
 //!   1, and (only in THIS branch) `has_pickup` raises `pickup_ambiguity`
 //!   since there is no evidence at all for where the pickup boundary falls.
 //!
-//! Consecutive anchor pairs (including the leading-span's virtual "floor"
-//! anchor) are cross-checked: the barline count between them must match
-//! what their numbers imply, else `continuity_break`; a mismatch does not
-//! block numbering (both bars keep `source: "model"` — this pass never
-//! guesses which anchor is "right", it forward-fills through the break and
-//! lets the conflict carry the span).
+//! Consecutive REAL printed anchors are cross-checked in their own pass: the
+//! barline count between them must match what their numbers imply, else
+//! `continuity_break`; a mismatch does not block numbering (both bars keep
+//! `source: "model"` — this pass never guesses which anchor is "right", it
+//! forward-fills through the break and lets the conflict carry the span).
+//! The leading span's underflow check (above) is a SEPARATE, independent
+//! branch — the pickup floor is never itself inserted as a real anchor and
+//! never appears in that cross-check pass, it only gates the leading span's
+//! own back-fill.
 
 use std::cmp::Ordering;
 
@@ -105,8 +108,17 @@ pub struct CalibrationAnchor {
 /// produce false `anchor_disagreement`s on a correctly-mapped page. This
 /// keeps only the minimum-`y` point per page (the page's topmost/first
 /// system); richer per-system anchoring is future work.
+///
+/// Deliberately a `BTreeMap`, not a `HashMap`: this module's whole contract
+/// is determinism (`reconcile` is a pure function), and downstream
+/// `AnchorDisagreement` conflicts are pushed in this function's OUTPUT
+/// order — a `HashMap`'s random per-instance hasher would make that order
+/// (and so `ReconcileResult.conflicts`' order) vary run to run for the exact
+/// same input, which a `BTreeMap`'s stable, page-ascending iteration order
+/// rules out entirely.
 pub fn topmost_calibration_anchors(points: &[CalibrationPoint]) -> Vec<CalibrationAnchor> {
-    let mut topmost: std::collections::HashMap<i64, (f64, i64)> = std::collections::HashMap::new();
+    let mut topmost: std::collections::BTreeMap<i64, (f64, i64)> =
+        std::collections::BTreeMap::new();
     for point in points {
         topmost
             .entry(point.page)
@@ -174,11 +186,17 @@ pub enum MapConflict {
         system_b: u32,
     },
     /// The reconciled output itself, independent of any numbering conflict,
-    /// violates an invariant `store::measure_map::Store::measure_map_apply`
-    /// hard-rejects (an empty system, non-increasing bar `x_right`s, or
-    /// non-increasing bar numbers) — a page could otherwise reconcile with
-    /// zero OTHER conflicts yet still be un-Applyable. The review UI must
-    /// treat this exactly like any other conflict for the Apply gate.
+    /// violates one of the FULL set of invariants
+    /// `store::measure_map::Store::measure_map_apply` hard-rejects (see
+    /// `apply_invariant_conflicts`'s doc comment for the complete list) — a
+    /// page could otherwise reconcile with zero OTHER conflicts yet still be
+    /// un-Applyable (e.g. garbage geometry reaching `reconcile` directly
+    /// from an unvalidated caller, bypassing `ScanSystem::is_valid`'s own
+    /// gate). `system` is the real 1-based system index for a defect scoped
+    /// to one system, or `0` — a sentinel meaning "the whole page, no single
+    /// system to blame" — for a page-/payload-level defect (a duplicate
+    /// page, an oversized page). The review UI must treat this exactly like
+    /// any other conflict for the Apply gate.
     Unapplyable {
         page: u32,
         system: u32,
@@ -374,6 +392,15 @@ pub fn reconcile(
             };
             let system = page_systems[owning_idx];
             if system.bar_count == 0 {
+                // A printed number resolved to a system with zero
+                // `barline_xs` has no bar to pin — it is DROPPED here,
+                // silently as far as numbering is concerned. The system
+                // itself is not silently dropped, though: it still reaches
+                // Pass 9 as a zero-bar `MapSystem`, which
+                // `apply_invariant_conflicts` flags `Unapplyable` ("a system
+                // needs at least one bar"), so the page surfaces as
+                // un-Applyable rather than the missing number going
+                // unnoticed.
                 continue;
             }
             let right_edges: Vec<f64> = bar_works
@@ -554,10 +581,12 @@ pub fn reconcile(
 
     // Pass 9: the reconciled output can still violate an invariant
     // `measure_map_apply` hard-rejects even when every OTHER pass found no
-    // conflict (an empty system from a system with zero `barline_xs`, or
-    // non-increasing bar `x_right`s from unsorted `barline_xs` — neither is
-    // checked by `ScanSystem::is_valid`). Surface those as `unapplyable`
-    // conflicts too, so a conflict-free result is genuinely Apply-ready.
+    // conflict — not just an empty system or unsorted `barline_xs`, but
+    // anything the payload validator would reject (out-of-range geometry
+    // reaching `reconcile` directly, e.g. from an unvalidated caller, is
+    // never itself checked by any earlier pass here). Surface every such
+    // defect as `unapplyable` too, so a conflict-free result is genuinely
+    // Apply-ready — see `apply_invariant_conflicts`'s own doc comment.
     conflicts.extend(apply_invariant_conflicts(&result_pages));
 
     ReconcileResult {
@@ -567,67 +596,33 @@ pub fn reconcile(
     }
 }
 
-/// Re-check the assembled output against exactly the invariants
-/// `store::measure_map::Store::measure_map_apply` enforces (mirrors
-/// `validate_page_systems` there): every system has at least one bar, each
-/// system's bar `x_right`s strictly increase, and bar numbers strictly
-/// increase system-to-system/page-to-page across the WHOLE result. A page
-/// whose own numbering conflicts already flagged a break (e.g. a
-/// `continuity_break`) will naturally also fail the number-monotonicity
-/// check here; this pass is not gated on there being no other conflict —
-/// it is the last, independent word on "can this actually be Applied".
+/// Re-check the assembled output against the FULL invariant list
+/// `store::measure_map::Store::measure_map_apply` enforces, via
+/// `store::measure_map_payload_defects` — page numbers, no duplicate pages,
+/// the supported version, per-system geometry (finite 0..=1 fractions,
+/// `y_top < y_bottom`, `x_left < x_right`), systems ordered top-to-bottom,
+/// at least one bar per system, strictly increasing bar `x_right` within a
+/// system, bar `confidence` in range when present, bar numbers strictly
+/// increasing across the WHOLE result, and the serialized size cap. This
+/// reuses that store-side checker rather than re-deriving the invariant list
+/// by hand, so the two can never quietly drift apart. A page-/payload-level
+/// defect (no single system to blame — a duplicate page, an oversized page)
+/// reports `system: 0`, a sentinel meaning "the whole page", since
+/// `MapConflict::Unapplyable.system` is not optional (real systems are
+/// always numbered from 1 — see its own doc comment). A page whose own
+/// numbering conflicts already flagged a break (e.g. a `continuity_break`)
+/// will naturally also fail the number-monotonicity check here; this pass is
+/// not gated on there being no other conflict — it is the last, independent
+/// word on "can this actually be Applied".
 fn apply_invariant_conflicts(pages: &[MeasureMapPageRow]) -> Vec<MapConflict> {
-    let mut conflicts = Vec::new();
-    let mut last_number: Option<u32> = None;
-    for row in pages {
-        for (idx, system) in row.map.systems.iter().enumerate() {
-            let system_no = idx as u32 + 1;
-            if system.bars.is_empty() {
-                conflicts.push(MapConflict::Unapplyable {
-                    page: row.page,
-                    system: system_no,
-                    reason: "system has no bars".to_string(),
-                });
-                continue;
-            }
-
-            let mut prev_x_right: Option<f64> = None;
-            let mut x_right_is_monotonic = true;
-            for bar in &system.bars {
-                if let Some(prev) = prev_x_right {
-                    if bar.x_right <= prev {
-                        x_right_is_monotonic = false;
-                    }
-                }
-                prev_x_right = Some(bar.x_right);
-            }
-            if !x_right_is_monotonic {
-                conflicts.push(MapConflict::Unapplyable {
-                    page: row.page,
-                    system: system_no,
-                    reason: "bar x_right values are not strictly increasing".to_string(),
-                });
-            }
-
-            let mut numbers_are_monotonic = true;
-            for bar in &system.bars {
-                if let Some(last) = last_number {
-                    if bar.number <= last {
-                        numbers_are_monotonic = false;
-                    }
-                }
-                last_number = Some(bar.number);
-            }
-            if !numbers_are_monotonic {
-                conflicts.push(MapConflict::Unapplyable {
-                    page: row.page,
-                    system: system_no,
-                    reason: "bar numbers are not strictly increasing".to_string(),
-                });
-            }
-        }
-    }
-    conflicts
+    crate::store::measure_map_payload_defects(pages)
+        .into_iter()
+        .map(|defect| MapConflict::Unapplyable {
+            page: defect.page,
+            system: defect.system.unwrap_or(0),
+            reason: defect.reason,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1179,7 +1174,79 @@ mod tests {
         );
     }
 
-    // ── unapplyable: conflict-free-yet-unapplyable outputs (Fix round 1) ──
+    /// Fix round 2, finding 1: `topmost_calibration_anchors` used to
+    /// accumulate into a `HashMap` and return its (random-per-instance)
+    /// iteration order, so `ReconcileResult.conflicts`' order for the SAME
+    /// input varied run to run — a determinism violation in a module whose
+    /// whole contract is "pure function, same input -> same output". Two
+    /// pages that both disagree with their calibration anchor; run the
+    /// whole round-trip 20 times in one process and require the exact same
+    /// conflict list, in the exact same order, every time.
+    #[test]
+    fn calibration_disagreement_conflict_order_is_deterministic_across_runs() {
+        // Deliberately inserted page-2-before-page-1 to prove the fix isn't
+        // "happens to already be sorted" — a `BTreeMap` sorts by page
+        // regardless of insertion order.
+        let points = vec![
+            CalibrationPoint {
+                page: 2,
+                y: 0.10,
+                measure: 99,
+            },
+            CalibrationPoint {
+                page: 1,
+                y: 0.10,
+                measure: 9,
+            },
+        ];
+        let page1 = page_output(vec![system(
+            0.10,
+            0.25,
+            0.10,
+            0.90,
+            vec![0.30, 0.60, 0.90],
+            vec![],
+        )]);
+        let page2 = page_output(vec![system(
+            0.10,
+            0.25,
+            0.10,
+            0.90,
+            vec![0.30, 0.60, 0.90],
+            vec![],
+        )]);
+        // No printed anchors anywhere: numbering defaults to 1, 2, 3 (page
+        // 1) then 4, 5, 6 (page 2) — deterministic on its own, independent
+        // of the calibration-anchor-order bug this test targets.
+        let expected = vec![
+            MapConflict::AnchorDisagreement {
+                page: 1,
+                anchor_measure: 9,
+                mapped_measure: 1,
+            },
+            MapConflict::AnchorDisagreement {
+                page: 2,
+                anchor_measure: 99,
+                mapped_measure: 4,
+            },
+        ];
+
+        for iteration in 0..20 {
+            let anchors = topmost_calibration_anchors(&points);
+            let result = reconcile(vec![(1, page1.clone()), (2, page2.clone())], None, anchors);
+            let disagreements: Vec<MapConflict> = result
+                .conflicts
+                .into_iter()
+                .filter(|c| matches!(c, MapConflict::AnchorDisagreement { .. }))
+                .collect();
+            assert_eq!(
+                disagreements, expected,
+                "conflict order must be deterministic (iteration {iteration})"
+            );
+        }
+    }
+
+    // ── unapplyable: conflict-free-yet-unapplyable outputs (Fix round 1, extended round 2) ──
 
     #[test]
     fn an_empty_barline_system_is_flagged_unapplyable_instead_of_silently_vanishing() {
@@ -1195,10 +1262,14 @@ mod tests {
             system(0.35, 0.50, 0.10, 0.90, vec![], vec![]),
         ]);
         let result = reconcile(vec![(1, page)], None, vec![]);
+        // Reason text now comes verbatim from
+        // `store::measure_map_payload_defects` (Fix round 2), not a
+        // hand-rolled string, so it matches `validate_page_systems`'s own
+        // wording exactly.
         assert!(result.conflicts.contains(&MapConflict::Unapplyable {
             page: 1,
             system: 2,
-            reason: "system has no bars".to_string(),
+            reason: "a system needs at least one bar".to_string(),
         }));
     }
 
@@ -1222,6 +1293,30 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    /// Fix round 2, finding 2 (probe-G, verbatim scenario): garbage geometry
+    /// reaching `reconcile` DIRECTLY — simulating an unvalidated payload
+    /// reaching the `measure_reconcile` command, bypassing
+    /// `measure_scan::parse_scan_output`'s own `ScanSystem::is_valid` gate
+    /// entirely (which `reconcile` itself never re-checks). Before this fix
+    /// round, only "empty bars" and "unsorted barline_xs" were mirrored, so
+    /// out-of-range coordinates like this reconciled with ZERO conflicts
+    /// yet would still be hard-rejected by `measure_map_apply`. Now the full
+    /// invariant list (via `store::measure_map_payload_defects`) catches it.
+    #[test]
+    fn garbage_geometry_reaching_reconcile_directly_is_flagged_unapplyable() {
+        // y_top = 1.5 is out of the 0.0..=1.0 normalized-fraction range.
+        let page = page_output(vec![system(1.5, 1.6, 0.10, 0.90, vec![0.30, 0.90], vec![])]);
+        let result = reconcile(vec![(1, page)], None, vec![]);
+        assert!(
+            result
+                .conflicts
+                .iter()
+                .any(|c| matches!(c, MapConflict::Unapplyable { page: 1, .. })),
+            "expected an Unapplyable conflict for out-of-range geometry, got {:?}",
+            result.conflicts
+        );
     }
 
     // ── bar_index_for_x exact-boundary tie-break (Fix round 1) ──
