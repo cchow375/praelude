@@ -89,6 +89,19 @@ import type {
   ScorePdfApi,
   ScoreFocusContext,
 } from "./types";
+import { MeasureMapPanel } from "./mapping/MeasureMapPanel";
+import { MeasureOverlay } from "./mapping/MeasureOverlay";
+import {
+  barRangeForRect,
+  getMeasureMapEntry,
+  measureMapGet,
+  publishMeasureMap,
+  readShowMeasuresPreference,
+  subscribeMeasureMap,
+  writeShowMeasuresPreference,
+  type MeasureMapCacheEntry,
+} from "./mapping/measureMap";
+import "./mapping/measureMapping.css";
 import "./ScoreView.css";
 
 const PDF_LOAD_TIMEOUT_MS = 30_000;
@@ -452,6 +465,13 @@ export interface ScoreViewProps {
   marksApi?: ScoreMarksApi;
   adapter?: PdfAdapter;
   loadTimeoutMs?: number;
+  /** Reports whenever the measure-mapping panel has unsaved review work in
+   * memory (a scan in progress, or a reconciled-but-not-yet-Applied review).
+   * `ScoreView` remounts fresh per piece (`key={pieceId}` in
+   * `ScoreWorkspace`), which silently DISCARDS that work on an in-app piece
+   * switch — `beforeunload` never fires for an SPA state change. The parent
+   * uses this to guard the switch with a confirm before it happens. */
+  onMeasureMapDirtyChange?: (dirty: boolean) => void;
 }
 
 interface MappingDraft {
@@ -600,6 +620,7 @@ export function ScoreView({
   marksApi = defaultMarksApi,
   adapter = pdfJsAdapter,
   loadTimeoutMs = PDF_LOAD_TIMEOUT_MS,
+  onMeasureMapDirtyChange,
 }: ScoreViewProps) {
   const crud = useCrud();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -651,6 +672,13 @@ export function ScoreView({
   const [newRegionNotes, setNewRegionNotes] = useState("");
   const [newRegionStart, setNewRegionStart] = useState("1");
   const [newRegionEnd, setNewRegionEnd] = useState("1");
+  // Task C5: set from the currently-selected region when a drag-to-create
+  // gesture resolves while a parent is selected — makes the new section a
+  // one-level sub-section. Cleared after create (or when the add form is
+  // cancelled) so a later top-level creation never inherits it by accident.
+  const [newRegionParentId, setNewRegionParentId] = useState<number | null>(
+    null,
+  );
   const [creatingRegion, setCreatingRegion] = useState(false);
   const [targetMode, setTargetMode] = useState(false);
   const [targetDraftId, setTargetDraftId] = useState<string | null>(null);
@@ -681,6 +709,13 @@ export function ScoreView({
   // on the right-hand page of the 2-page view is what undo takes back. Reset to
   // the anchor page on every page turn.
   const [markPage, setMarkPage] = useState(1);
+  // ── Measure mapping (Plan C, task C4) ─────────────────────────────────────
+  const [mapPanelOpen, setMapPanelOpen] = useState(false);
+  const [measuresVisible, setMeasuresVisible] = useState(() =>
+    readShowMeasuresPreference(),
+  );
+  const [measureMapEntry, setMeasureMapEntry] =
+    useState<MeasureMapCacheEntry | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   // MusicXML measure facts for the wizard's strip, fetched on wizard open. Null
   // whenever the piece has no MusicXML (or the fetch fails): the wizard then works
@@ -1234,6 +1269,39 @@ export function ScoreView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calibrationApi, editionKey, pieceId]);
 
+  // Applied measure map: read the shared cache immediately (no flash of
+  // "unmapped" on a piece switch back to an already-applied edition), then
+  // subscribe for live updates (Apply publishes into the SAME cache — see
+  // `mapping/measureMap.ts`). A cache miss triggers exactly one background
+  // `measure_map_get` hydration per edition; an empty answer just means
+  // "never mapped" and is not treated as an error.
+  useEffect(() => {
+    if (!edition) {
+      setMeasureMapEntry(null);
+      return;
+    }
+    const editionId = edition.id;
+    const fingerprint = edition.fingerprint;
+    setMeasureMapEntry(getMeasureMapEntry(pieceId, editionId));
+    const unsubscribe = subscribeMeasureMap(
+      pieceId,
+      editionId,
+      setMeasureMapEntry,
+    );
+    if (!getMeasureMapEntry(pieceId, editionId)) {
+      void measureMapGet(pieceId, editionId, fingerprint)
+        .then((rows) => {
+          if (rows.length > 0) {
+            publishMeasureMap(pieceId, editionId, fingerprint, rows);
+          }
+        })
+        .catch(() => undefined);
+    }
+    return unsubscribe;
+    // editionKey captures the identity we key on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editionKey, pieceId]);
+
   // ── Pencil marks: load, draw, undo, clear ─────────────────────────────────
 
   // Marks belong to one piece+edition+fingerprint. A switch of any of the three
@@ -1434,9 +1502,32 @@ export function ScoreView({
     onContextChange,
     selectedRegion,
   ]);
+  // Task C5: child sub-sections (parent_region_id set) only render in this
+  // list while their parent is currently selected — keeps the list from
+  // ballooning with detail nobody asked to see yet.
+  const childCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const region of regions) {
+      if (region.parent_region_id == null) continue;
+      counts.set(
+        region.parent_region_id,
+        (counts.get(region.parent_region_id) ?? 0) + 1,
+      );
+    }
+    return counts;
+  }, [regions]);
   const displayedRegions = useMemo(() => {
     const query = regionQuery.trim().toLocaleLowerCase();
     return [...regions]
+      .filter(
+        (region) =>
+          region.parent_region_id == null ||
+          region.parent_region_id === selectedRegionId ||
+          // Selecting the child moves the selection off its parent; without
+          // this the child would vanish the instant it was clicked and its
+          // own inspector (and practice set) could never be opened.
+          region.id === selectedRegionId,
+      )
       .filter(
         (region) =>
           !query ||
@@ -1450,7 +1541,7 @@ export function ScoreView({
           a.m_end - b.m_end ||
           a.name.localeCompare(b.name),
       );
-  }, [regionQuery, regions]);
+  }, [regionQuery, regions, selectedRegionId]);
 
   const resolveTargetMapping = useCallback(
     (anchor: PersistentPdfSelectionAnchor): TargetMappingState => {
@@ -1593,6 +1684,35 @@ export function ScoreView({
         return items;
       } catch {
         return null;
+      }
+    },
+    [document],
+  );
+
+  // The `needs_client_raster` retry path for measure scanning: render the
+  // CURRENT PDF.js page to a canvas and encode it as a JPEG (the
+  // `firstPageCache` idiom — `canvas.toBlob(..., "image/jpeg", 0.85)`), off
+  // the ALREADY-open document so the panel never opens a second copy of the
+  // PDF just to rasterize one vector page.
+  const rasterizePageForScan = useCallback(
+    async (pageNumber: number): Promise<number[]> => {
+      if (!document) throw new Error("No score document is open.");
+      const handle = await document.getPage(pageNumber);
+      try {
+        const canvas = window.document.createElement("canvas");
+        const { promise } = handle.render(canvas, 2, 1);
+        await promise;
+        if (typeof canvas.toBlob !== "function") {
+          throw new Error("This browser cannot rasterize a page for scanning.");
+        }
+        const blob = await new Promise<Blob | null>((resolve) => {
+          canvas.toBlob(resolve, "image/jpeg", 0.85);
+        });
+        if (!blob) throw new Error("Rasterizing this page failed.");
+        const buffer = await blob.arrayBuffer();
+        return Array.from(new Uint8Array(buffer));
+      } finally {
+        handle.cleanup();
       }
     },
     [document],
@@ -1963,6 +2083,7 @@ export function ScoreView({
         m_start: mStart,
         m_end: mEnd,
         kind: "hard_spot",
+        parent_region_id: newRegionParentId,
       });
       const colored = await crud.regionUpdate(created.id, {
         color: REGION_COLORS[regions.length % REGION_COLORS.length],
@@ -1976,6 +2097,7 @@ export function ScoreView({
       setNewRegionNotes("");
       setNewRegionStart(String(mEnd + 1));
       setNewRegionEnd(String(mEnd + 1));
+      setNewRegionParentId(null);
       setAddingRegion(false);
       setNavigationNotice(
         "New tricky section saved. Drag its first score annotation.",
@@ -1985,6 +2107,62 @@ export function ScoreView({
     } finally {
       setCreatingRegion(false);
     }
+  };
+
+  // A cached map applies to the fingerprint it was fetched/applied under —
+  // NEVER mode-gated (Flaws B48): a mismatch always shows the notice, and the
+  // (now possibly wrong) numbers are withheld rather than shown against the
+  // wrong page geometry. Declared here so the drag-to-create handler below
+  // reuses this one staleness check instead of re-deriving it.
+  const measureMapStale = Boolean(
+    measureMapEntry &&
+    edition &&
+    measureMapEntry.fingerprint !== edition.fingerprint,
+  );
+  const measureMapByPage =
+    measureMapEntry && !measureMapStale
+      ? new Map(measureMapEntry.pages.map((row) => [row.page, row.map]))
+      : null;
+
+  // Task C5: a drag on a MAPPED page snaps to the bar range it intersects
+  // (system-aware; multi-system drags take the min..max across systems) and
+  // pre-fills the create form — still fully editable, typing is the
+  // unmapped fallback and stays intact. Dragging while a region is selected
+  // (and not already in "marks" annotation mode) creates a CHILD of that
+  // selected region instead of a new top-level section.
+  const handleCreateDragResolve = (rect: PdfAnchorRect) => {
+    if (targetMode) return;
+    const hasMapForEdition = Boolean(measureMapEntry && edition);
+    const pages =
+      hasMapForEdition && !measureMapStale
+        ? (measureMapEntry?.pages ?? null)
+        : null;
+    const snap = pages
+      ? barRangeForRect(pages, [
+          {
+            page: rect.page,
+            x0: rect.x,
+            y0: rect.y,
+            x1: rect.x + rect.w,
+            y1: rect.y + rect.h,
+          },
+        ])
+      : null;
+    if (snap) {
+      setNewRegionStart(String(snap.m_start));
+      setNewRegionEnd(String(snap.m_end));
+    }
+    setNewRegionParentId(selectedRegionId);
+    setAddingRegion(true);
+    setNavigationNotice(
+      snap
+        ? `Snapped to measures ${snap.m_start}–${snap.m_end}. Add a title to create the section.`
+        : measureMapStale
+          ? // A map exists but was scanned against another edition fingerprint —
+            // say so rather than claiming the page was never mapped.
+            "The measure map is stale for this edition — re-scan to snap selections. Enter the measure range to create the section."
+          : "This page isn't mapped yet — enter the measure range to create the section.",
+    );
   };
 
   const persistMapping = async (rects: PdfAnchorRect[]) => {
@@ -2315,7 +2493,15 @@ export function ScoreView({
                 defaultMeasureEnd={region.m_end}
                 defaultLabel={region.name}
                 defaultTargetBpm={defaultTargetBpm}
-                defaultCleanStreak={defaultCleanStreak}
+                // Task C5: a one-gesture start on a sub-section defaults to
+                // three consecutive cleans (BlockForm always sends an explicit
+                // required_clean_streak, so session_plan_start's child default
+                // never gets a chance on this path). Still fully editable, and
+                // a top-level region keeps the persisted practice default
+                // exactly as before.
+                defaultCleanStreak={
+                  region.parent_region_id != null ? 3 : defaultCleanStreak
+                }
                 onOpen={onOpenBlock}
                 opening={opening}
                 blockedReason={
@@ -2423,6 +2609,28 @@ export function ScoreView({
               ? "Edit score map"
               : "Map this score"}
           </button>
+          <button
+            type="button"
+            className="score-map-measures"
+            disabled={phase !== "ready" || !edition || pageCount < 1}
+            onClick={() => setMapPanelOpen(true)}
+          >
+            Map measures
+          </button>
+          <button
+            type="button"
+            className={`score-measure-toggle ${measuresVisible ? "is-active" : ""}`}
+            aria-pressed={measuresVisible}
+            onClick={() =>
+              setMeasuresVisible((current) => {
+                const next = !current;
+                writeShowMeasuresPreference(next);
+                return next;
+              })
+            }
+          >
+            {measuresVisible ? "Hide measures" : "Show measures"}
+          </button>
           <span
             id={targetInstructionsId}
             className="score-atlas-draw-instructions"
@@ -2527,6 +2735,21 @@ export function ScoreView({
           </button>
         </div>
       </header>
+
+      {measureMapStale && (
+        <div
+          className="measure-map-stale"
+          role="status"
+          data-testid="measure-map-stale"
+        >
+          <span>
+            Measure map is stale — the score changed since it was scanned.
+          </span>
+          <button type="button" onClick={() => setMapPanelOpen(true)}>
+            Re-scan
+          </button>
+        </div>
+      )}
 
       {(pencilMode || pencilError) && (
         <div className="score-pencil-bar" aria-label="Pencil controls">
@@ -2676,8 +2899,22 @@ export function ScoreView({
                               }
                             : null
                         }
+                        createDrag={
+                          !mapping && !targetMode && edition
+                            ? { onResolve: handleCreateDragResolve }
+                            : null
+                        }
                         onSelect={selectRegion}
                       />
+                      {measuresVisible && (
+                        <MeasureOverlay
+                          page={measureMapByPage?.get(pageNumber) ?? null}
+                          pageNumber={pageNumber}
+                          conflicts={[]}
+                          visible={measuresVisible}
+                          stale={false}
+                        />
+                      )}
                       {markEdition && (
                         <PencilOverlay
                           pageNumber={pageNumber}
@@ -2764,11 +3001,24 @@ export function ScoreView({
                 <button
                   type="button"
                   aria-expanded={addingRegion}
-                  onClick={() => setAddingRegion((value) => !value)}
+                  onClick={() =>
+                    setAddingRegion((value) => {
+                      if (value) setNewRegionParentId(null);
+                      return !value;
+                    })
+                  }
                 >
                   {addingRegion ? "Cancel" : "+ Add"}
                 </button>
               </div>
+              {addingRegion && newRegionParentId != null && (
+                <p className="score-map-notice" role="status">
+                  Creating a sub-section of{" "}
+                  {regions.find((item) => item.id === newRegionParentId)
+                    ?.name ?? "the selected section"}
+                  .
+                </p>
+              )}
               {addingRegion && (
                 <form
                   className="score-add-region-form"
@@ -2889,6 +3139,12 @@ export function ScoreView({
                             {noteSummary ? ` · ${noteSummary}` : ""}
                           </small>
                         </span>
+                        {(childCounts.get(region.id) ?? 0) > 0 && (
+                          <span className="score-region-subsection-badge">
+                            {childCounts.get(region.id)} sub-section
+                            {childCounts.get(region.id) === 1 ? "" : "s"}
+                          </span>
+                        )}
                         <em
                           className={
                             stale ? "is-stale" : mapped ? "is-mapped" : ""
@@ -3028,6 +3284,21 @@ export function ScoreView({
           }}
           onClose={() => setWizardOpen(false)}
         />
+      )}
+
+      {mapPanelOpen && edition && document && (
+        <div className="measure-map-panel-backdrop" role="presentation">
+          <MeasureMapPanel
+            pieceId={pieceId}
+            editionId={edition.id}
+            editionFingerprint={edition.fingerprint}
+            pageCount={pageCount}
+            onClose={() => setMapPanelOpen(false)}
+            onApplied={() => setMapPanelOpen(false)}
+            rasterizePage={rasterizePageForScan}
+            onDirtyChange={onMeasureMapDirtyChange}
+          />
+        </div>
       )}
     </section>
   );

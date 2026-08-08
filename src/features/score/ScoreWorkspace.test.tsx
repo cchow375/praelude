@@ -104,6 +104,57 @@ describe("ScoreWorkspace", () => {
     await waitFor(() => expect(picker.value).toBe("2"));
   });
 
+  it("guards an in-app piece switch while a measure-map review is unsaved (Important 3, fix round 1)", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      return Promise.resolve(undefined);
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    render(<ScoreWorkspace />);
+    const picker = (await screen.findByLabelText(
+      "Choose a piece",
+    )) as HTMLSelectElement;
+    expect(picker.value).toBe("1");
+
+    // ScoreView reports unsaved measure-map review work in progress.
+    const props = scoreViewProps.current as ScoreViewProps;
+    props.onMeasureMapDirtyChange?.(true);
+
+    fireEvent.change(picker, { target: { value: "2" } });
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Discard the measure-map review?"),
+    );
+    // Declined: the switch never happened.
+    expect(picker.value).toBe("1");
+
+    // Confirming proceeds with the switch.
+    confirmSpy.mockReturnValue(true);
+    fireEvent.change(picker, { target: { value: "2" } });
+    await waitFor(() => expect(picker.value).toBe("2"));
+
+    confirmSpy.mockRestore();
+  });
+
+  it("switches pieces freely once the measure-map review is clean", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      return Promise.resolve(undefined);
+    });
+    const confirmSpy = vi.spyOn(window, "confirm");
+
+    render(<ScoreWorkspace />);
+    const picker = (await screen.findByLabelText(
+      "Choose a piece",
+    )) as HTMLSelectElement;
+    await screen.findByTestId("score-view-stub");
+
+    fireEvent.change(picker, { target: { value: "2" } });
+    await waitFor(() => expect(picker.value).toBe("2"));
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
   it("shows the requested no-PDF piece instead of substituting another score", async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === "pieces_list") {

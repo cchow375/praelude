@@ -184,13 +184,21 @@ impl Store {
         let planned_seconds = u32::try_from(item.allocated_minutes * 60)
             .map_err(|_| invalid("the plan item minute allocation is out of range"))?;
 
-        let required = self
-            .get_setting("practice.default_clean_streak")
-            .ok()
-            .flatten()
-            .and_then(|value| value.parse::<u32>().ok())
-            .filter(|value| (1..=100).contains(value))
-            .unwrap_or(5);
+        // Task C5: a one-gesture start on a sub-section (target_meta's
+        // parent_region_id set) defaults required_success to 3 instead of
+        // the usual setting-derived default — deliberately NOT the same
+        // branch as below, so a plain top-level region's computation stays
+        // byte-identical to before this task.
+        let required = if self.region_parent_id(region_id).ok().flatten().is_some() {
+            3
+        } else {
+            self.get_setting("practice.default_clean_streak")
+                .ok()
+                .flatten()
+                .and_then(|value| value.parse::<u32>().ok())
+                .filter(|value| (1..=100).contains(value))
+                .unwrap_or(5)
+        };
 
         let command_id = format!("session-plan-start:{raw_command_id}");
         let fingerprint = request_fingerprint(&json!({
@@ -480,6 +488,66 @@ mod tests {
                 .unwrap(),
             region
         );
+    }
+
+    /// Task C5: a plain top-level region's one-gesture start must compute
+    /// `required` exactly as before this task — same setting-derived value,
+    /// same fields on the resulting snapshot. This is the byte-identical
+    /// guarantee the C5 brief asks for.
+    #[test]
+    fn top_level_region_start_keeps_the_setting_derived_default() {
+        let (store, piece, region) = store_with_region();
+        let plan = plan(vec![item(1, piece, region, 8)]);
+        let receipt = store
+            .session_plan_start(
+                None,
+                &payload("plan-top-level:1", 1, plan),
+                MutationSource::UserClick,
+                NOW,
+            )
+            .expect("plan starts");
+        let outcome = receipt.value.expect("committed outcome");
+        assert_eq!(
+            outcome.snapshot.required_clean_streak, 5,
+            "unchanged: the global default (no custom setting written in this test)"
+        );
+    }
+
+    /// Task C5: starting a session-plan item whose target region is a
+    /// sub-section (`target_meta.parent_region_id` set) must default
+    /// `required_success` to 3, regardless of the `practice.default_clean_streak`
+    /// setting.
+    #[test]
+    fn child_region_start_defaults_required_success_to_three() {
+        let (store, piece, parent_region) = store_with_region();
+        // A setting far from 3, to prove the child default wins over it.
+        store
+            .set_setting("practice.default_clean_streak", "7")
+            .unwrap();
+        let child = store
+            .region_create_with_parent(
+                crate::store::model::RegionCreate {
+                    piece_id: piece,
+                    name: "Tricky run".into(),
+                    notes: None,
+                    m_start: 44,
+                    m_end: 48,
+                    kind: "hard_spot".into(),
+                },
+                Some(parent_region),
+            )
+            .unwrap();
+        let plan = plan(vec![item(1, piece, child.id, 8)]);
+        let receipt = store
+            .session_plan_start(
+                None,
+                &payload("plan-child:1", 1, plan),
+                MutationSource::UserClick,
+                NOW,
+            )
+            .expect("plan starts");
+        let outcome = receipt.value.expect("committed outcome");
+        assert_eq!(outcome.snapshot.required_clean_streak, 3);
     }
 
     #[test]

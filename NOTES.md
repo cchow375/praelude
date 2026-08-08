@@ -2235,3 +2235,38 @@ defaultCleanStreak={defaultCleanStreak} />`. `ScoreWorkspace` wraps the call in 
 pre-v5.0.0-session-2026-07-30-204238.db`, SHA-256
   `271c2fdae7b2245ed328c5d75050068bbcf1160a36a3cb7d11575f3bc95a29a1`, integrity `ok`, **6 pieces /
   98 blocks / 803 reps / 21 sessions**.
+
+## v6 Plan C, task C4 — measure mapping UI (2026-08-06)
+
+- **File-list deviation, deliberate:** the task brief said "Modify: ScoreWorkspace.tsx (Map
+  measures button + overlay mount)", but `ScoreWorkspace.tsx` owns no PDF pixel geometry, no
+  per-page canvas stack, and no toolbar with page/zoom controls — that is all `ScoreView.tsx`
+  (`.score-toolbar`, `PdfPage`/`RegionOverlay`/`PencilOverlay` mounting). Wiring the "Map
+  measures" button, the "Show measures" toggle, the always-on stale notice, and the per-page
+  `MeasureOverlay` mount into `ScoreWorkspace.tsx` instead would have made the toggle either a
+  no-op or force a prop-drilled reimplementation of ScoreView's own page stack. Implemented in
+  `ScoreView.tsx` instead (additive only — new state, one new effect subscribing to the
+  `measureMap.ts` module store, one new callback for client-raster JPEG capture off the
+  ALREADY-open PDF.js document, three toolbar buttons, one overlay mount per page). `tsc` +
+  the full score suite stayed green throughout.
+- **Fix round 1 (2026-08-07, commit `b466e14`) closed both of the above.** Barline drag is now
+  wired: `MeasureOverlay` disambiguates click-vs-drag on the SAME pointer sequence with a 3px
+  movement threshold (`pointerDown` records start position; under-threshold `pointerUp` fires
+  `onBarClick`, over-threshold movement fires `onBarDrag` continuously and suppresses the
+  trailing click) — the pattern to copy for any future draggable overlay mark in this codebase.
+  **jsdom gotcha:** `getBoundingClientRect()` is all-zero unless stubbed, and the drag path
+  bails on zero width — but the CLICK path must NOT require that stub (a click-only overlay has
+  no `onBarDrag`, so `beginDrag` only measures width when `onBarDrag` is actually present).
+  Tests needing drag stub the overlay container's rect via `vi.spyOn(el, "getBoundingClientRect")`
+  (the same idiom `RegionOverlay.test.tsx` already used). The review panel now also paints a real
+  page raster (fetched lazily per page via the existing `rasterizePage` callback, as a blob URL)
+  behind the overlay instead of an empty box.
+- **jsdom in this repo's vitest config has NO `window.localStorage`** (Node 22's experimental
+  global shadows it; `vitest.config.ts` has no `setupFiles` to polyfill it). Every localStorage
+  read/write in this task (`readShowMeasuresPreference` / `writeShowMeasuresPreference`) is
+  therefore try/catch-wrapped and untestable for persistence in this harness — tests assert the
+  `aria-pressed` state instead. This is a pre-existing repo-wide gap (`ScoreWorkspace.tsx`'s own
+  `codakiller.score.lastPieceId` localStorage use has the same blind spot), not new here.
+- 720×520 visual QA (the dense-layout floor) was NOT manually screenshot-verified for this task
+  — no live app run this session. `measureMapping.css` caps the panel at
+  `min(90vw,520px) × min(90vh,480px)` with internal scroll, but this is unverified by eye.

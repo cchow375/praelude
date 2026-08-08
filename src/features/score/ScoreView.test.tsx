@@ -26,6 +26,11 @@ import type {
 } from "./types";
 import type { AtomicTargetSavePayload } from "./atlas/savePayload";
 import { fitContextBucket, sharedFirstPageBitmaps } from "./firstPageCache";
+import {
+  publishMeasureMap,
+  resetMeasureMapStoreForTests,
+  type MeasureMapPageRow,
+} from "./mapping/measureMap";
 
 const EDITIONS: PdfEdition[] = [
   {
@@ -335,6 +340,91 @@ describe("ScoreView", () => {
       rows[2].closest(".score-region-item")?.querySelector('[role="tablist"]'),
     ).toBeTruthy();
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
+  });
+
+  it("Task C5: hides a sub-section until its parent is selected and shows a sub-sections badge", async () => {
+    const regions = [
+      {
+        id: 1,
+        piece_id: 7,
+        name: "Exposition",
+        notes: null,
+        m_start: 1,
+        m_end: 100,
+        kind: "hard_spot",
+        order: 0,
+        color: null,
+        pdf_anchor: null,
+        parent_region_id: null,
+      },
+      {
+        id: 2,
+        piece_id: 7,
+        name: "Sticky run",
+        notes: null,
+        m_start: 10,
+        m_end: 14,
+        kind: "hard_spot",
+        order: 1,
+        color: null,
+        pdf_anchor: null,
+        parent_region_id: 1,
+      },
+      {
+        id: 3,
+        piece_id: 7,
+        name: "Coda",
+        notes: null,
+        m_start: 200,
+        m_end: 210,
+        kind: "hard_spot",
+        order: 2,
+        color: null,
+        pdf_anchor: null,
+        parent_region_id: null,
+      },
+    ];
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ regions: vi.fn().mockResolvedValue(regions) })}
+        adapter={makePdf(1).adapter}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+
+    const rowLabels = () =>
+      screen
+        .getAllByRole("button")
+        .filter((button) => button.classList.contains("score-region-row"))
+        .map((row) => row.getAttribute("aria-label"));
+
+    // The child ("Sticky run") is not shown until its parent is selected.
+    expect(rowLabels()).toEqual([
+      "Exposition, measures 1 to 100",
+      "Coda, measures 200 to 210",
+    ]);
+    expect(screen.getByText("1 sub-section")).toBeTruthy();
+
+    const parentRow = screen.getByRole("button", {
+      name: "Exposition, measures 1 to 100",
+    });
+    fireEvent.click(parentRow);
+
+    expect(rowLabels()).toEqual([
+      "Exposition, measures 1 to 100",
+      "Sticky run, measures 10 to 14",
+      "Coda, measures 200 to 210",
+    ]);
+
+    // Selecting a different (non-parent) section hides the child again.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Coda, measures 200 to 210" }),
+    );
+    expect(rowLabels()).toEqual([
+      "Exposition, measures 1 to 100",
+      "Coda, measures 200 to 210",
+    ]);
   });
 
   it("lifts the visible edition, page, and selected section for Practice Brain grounding", async () => {
@@ -685,7 +775,117 @@ describe("ScoreView", () => {
         m_start: 40,
         m_end: 56,
         label: "Development",
+        // A top-level section keeps the threaded practice default (5 when the
+        // prop is absent) — unchanged by the sub-section rule below.
+        required_clean_streak: 5,
       }),
+    );
+  });
+
+  it("Task C5: a top-level section's set keeps the threaded clean-streak default", async () => {
+    const region = {
+      id: 4,
+      piece_id: 7,
+      name: "Development",
+      notes: null,
+      m_start: 40,
+      m_end: 56,
+      kind: "hard_spot",
+      order: 0,
+      color: null,
+      pdf_anchor: null,
+      parent_region_id: null,
+    };
+    const onOpenBlock = vi.fn();
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ regions: vi.fn().mockResolvedValue([region]) })}
+        adapter={makePdf(1).adapter}
+        onOpenBlock={onOpenBlock}
+        defaultCleanStreak={7}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Development, measures 40 to 56",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+
+    expect(onOpenBlock).toHaveBeenCalledWith(
+      expect.objectContaining({ region_id: 4, required_clean_streak: 7 }),
+    );
+  });
+
+  it("Task C5: a sub-section's set defaults to three consecutive cleans, still editable", async () => {
+    const regions = [
+      {
+        id: 1,
+        piece_id: 7,
+        name: "Exposition",
+        notes: null,
+        m_start: 1,
+        m_end: 100,
+        kind: "hard_spot",
+        order: 0,
+        color: null,
+        pdf_anchor: null,
+        parent_region_id: null,
+      },
+      {
+        id: 2,
+        piece_id: 7,
+        name: "Sticky run",
+        notes: null,
+        m_start: 10,
+        m_end: 14,
+        kind: "hard_spot",
+        order: 1,
+        color: null,
+        pdf_anchor: null,
+        parent_region_id: 1,
+      },
+    ];
+    const onOpenBlock = vi.fn();
+    render(
+      <ScoreView
+        pieceId={7}
+        api={makeApi({ regions: vi.fn().mockResolvedValue(regions) })}
+        adapter={makePdf(1).adapter}
+        onOpenBlock={onOpenBlock}
+        defaultCleanStreak={7}
+      />,
+    );
+    await screen.findByLabelText("Score page 1");
+
+    // Natural flow: select the parent so its child appears, then open the child.
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Exposition, measures 1 to 100",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Sticky run, measures 10 to 14" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+
+    expect(onOpenBlock).toHaveBeenCalledWith(
+      expect.objectContaining({ region_id: 2, required_clean_streak: 3 }),
+    );
+
+    // The pianist can still see and override it in the UI.
+    onOpenBlock.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: /More/ }));
+    const streak = screen.getByLabelText(
+      "Clean streak target",
+    ) as HTMLSelectElement;
+    expect(streak.value).toBe("3");
+    fireEvent.change(streak, { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+    expect(onOpenBlock).toHaveBeenCalledWith(
+      expect.objectContaining({ region_id: 2, required_clean_streak: 10 }),
     );
   });
 
@@ -1850,9 +2050,7 @@ describe("ScoreView — page-image fast path", () => {
     render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
     const page = await screen.findByLabelText("Score page 1");
     await waitFor(() => expect(pageImage).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(page.getAttribute("data-source")).toBe("pdf"),
-    );
+    await waitFor(() => expect(page.getAttribute("data-source")).toBe("pdf"));
     const canvas = screen.getByLabelText(
       "Rendered score page 1",
     ) as HTMLCanvasElement;
@@ -1886,8 +2084,139 @@ describe("ScoreView — page-image fast path", () => {
     const pdf = makePdf(3);
     render(<ScoreView pieceId={7} api={api} adapter={pdf.adapter} />);
     const page = await screen.findByLabelText("Score page 1");
-    await waitFor(() =>
-      expect(page.getAttribute("data-source")).toBe("pdf"),
+    await waitFor(() => expect(page.getAttribute("data-source")).toBe("pdf"));
+  });
+});
+
+// ── Measure mapping (Plan C, task C4) ───────────────────────────────────────
+
+describe("ScoreView measure mapping", () => {
+  afterEach(() => {
+    resetMeasureMapStoreForTests();
+  });
+
+  function sampleMap(): MeasureMapPageRow[] {
+    return [
+      {
+        page: 1,
+        map: {
+          version: 1,
+          systems: [
+            {
+              y_top: 0.1,
+              y_bottom: 0.2,
+              x_left: 0.05,
+              x_right: 0.95,
+              bars: [
+                { x_right: 0.3, number: 1, source: "model" },
+                { x_right: 0.6, number: 2, source: "model" },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+  }
+
+  it("shows the Map measures button once an edition is ready, and opens the panel", async () => {
+    const pdf = makePdf(3);
+    render(<ScoreView pieceId={7} api={makeApi()} adapter={pdf.adapter} />);
+    await screen.findByLabelText("Score page 1");
+
+    const button = screen.getByText("Map measures");
+    expect(button).toBeTruthy();
+    fireEvent.click(button);
+    expect(await screen.findByTestId("measure-map-panel")).toBeTruthy();
+    expect(screen.getByText(/3 pages/)).toBeTruthy();
+  });
+
+  it("disables Map measures while the document is still loading (no ready edition yet)", async () => {
+    // An adapter whose `load` never resolves freezes the view at
+    // "loading-document" — editions have resolved (so the toolbar renders)
+    // but `phase !== 'ready'` yet.
+    const adapter = {
+      load: vi.fn(() => new Promise<never>(() => undefined)),
+    };
+    render(<ScoreView pieceId={7} api={makeApi()} adapter={adapter} />);
+    const button = await screen.findByText("Map measures");
+    expect(button).toHaveProperty("disabled", true);
+  });
+
+  it("the Show measures toggle persists and reveals cached bar numbers", async () => {
+    publishMeasureMap(7, "urtext", "a", sampleMap());
+    const pdf = makePdf(3);
+    render(<ScoreView pieceId={7} api={makeApi()} adapter={pdf.adapter} />);
+    await screen.findByLabelText("Score page 1");
+
+    const toggle = screen.getByText("Show measures");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(toggle);
+    expect(await screen.findAllByTestId("measure-map-number")).toHaveLength(2);
+    expect(screen.getByText("Hide measures").getAttribute("aria-pressed")).toBe(
+      "true",
     );
+
+    fireEvent.click(screen.getByText("Hide measures"));
+    expect(screen.queryAllByTestId("measure-map-number")).toHaveLength(0);
+  });
+
+  it("always shows the stale notice when the cached map's fingerprint no longer matches the edition", async () => {
+    publishMeasureMap(7, "urtext", "stale-fingerprint", sampleMap());
+    const pdf = makePdf(3);
+    render(<ScoreView pieceId={7} api={makeApi()} adapter={pdf.adapter} />);
+    await screen.findByLabelText("Score page 1");
+
+    expect(await screen.findByTestId("measure-map-stale")).toBeTruthy();
+  });
+
+  /** Drag a create-selection across page 1's overlay. */
+  async function dragOnPageOne() {
+    const overlay = await screen.findByTestId("page-overlay-1");
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 800,
+      width: 1000,
+      height: 800,
+      toJSON: () => ({}),
+    } as DOMRect);
+    fireEvent.pointerDown(overlay, {
+      pointerId: 1,
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(overlay, {
+      pointerId: 1,
+      clientX: 500,
+      clientY: 400,
+    });
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
+  }
+
+  it("Task C5: a drag with no map at all says the page isn't mapped yet", async () => {
+    render(
+      <ScoreView pieceId={7} api={makeApi()} adapter={makePdf(3).adapter} />,
+    );
+    await screen.findByLabelText("Score page 1");
+    await dragOnPageOne();
+
+    expect(await screen.findByText(/isn't mapped yet/)).toBeTruthy();
+    expect(screen.queryByText(/stale for this edition/)).toBeNull();
+  });
+
+  it("Task C5: a drag on a page whose map is stale says so instead of 'not mapped yet'", async () => {
+    publishMeasureMap(7, "urtext", "stale-fingerprint", sampleMap());
+    render(
+      <ScoreView pieceId={7} api={makeApi()} adapter={makePdf(3).adapter} />,
+    );
+    await screen.findByLabelText("Score page 1");
+    await dragOnPageOne();
+
+    expect(await screen.findByText(/stale for this edition/)).toBeTruthy();
+    expect(screen.queryByText(/isn't mapped yet/)).toBeNull();
   });
 });

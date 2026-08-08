@@ -264,6 +264,7 @@ mod tests {
             order: 0,
             color: None,
             pdf_anchor: None,
+            parent_region_id: None,
         }
     }
 

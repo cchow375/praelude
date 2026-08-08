@@ -26,9 +26,13 @@ pub use context::GroundingSummary;
 pub use corpus::{BookExcerpt, BookKind, BookListing};
 pub use library::{Citation, MethodCard};
 use library::{EmbeddedLibrary, PracticeLibrary};
-use provider::{
-    NativeTransport, ProviderChain, ProviderName, ProviderOutput, SuggestionDraft, Transport,
-};
+use provider::{ProviderOutput, SuggestionDraft};
+// Re-exported crate-wide (not just within `brain`): `score::measure_scan`
+// (Plan C, C2) drives the same Claude-primary/Gemini-fallback vision chain
+// through `ProviderChain::vision_texts`, so it needs these names too.
+#[cfg(test)]
+pub(crate) use provider::{FakeTransport, HttpResponse, ProviderConfig, ProviderPreference};
+pub(crate) use provider::{NativeTransport, ProviderChain, ProviderName, Transport};
 pub use score_context::XmlMeasureFacts;
 
 const MAX_QUESTION_CHARS: usize = 8_000;

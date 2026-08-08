@@ -12,6 +12,7 @@ mod day_sheet;
 mod events;
 mod history_backfill;
 mod history_days;
+mod measure_map;
 mod migrations;
 pub mod model;
 mod practice_loop;
@@ -25,8 +26,18 @@ mod v8_backfill;
 pub use day_sheet::{DaySheet, PiecePlan};
 pub use events::EventKind;
 pub use history_days::{HistoryDayDetail, HistoryDaySummary};
+// `MapBar`/`MapSystem`/`MapBarSource`/`MeasureMapPage` are the typed contract
+// (task C1 brief), not yet named directly outside `store` — later Plan C
+// tasks (vision scan output, reconciliation) construct them. Kept `pub` now
+// rather than added piecemeal so the contract is stable from the start.
+#[allow(unused_imports)]
+pub use measure_map::{MapBar, MapBarSource, MapSystem, MeasureMapPage, MeasureMapPageRow};
+// `measure_map_payload_defects` backs the `Unapplyable` conflict pass in
+// `score::measure_reconcile` (a same-crate, not cross-crate, consumer) —
+// `pub(crate)` is enough and keeps it out of any external contract.
+pub(crate) use measure_map::measure_map_payload_defects;
 pub(crate) use practice_v2::{command_id as v2_command_id, validate_open as v2_validate_open};
-pub use score_atlas::{AtomicTargetSavePayload, CalibrationView};
+pub use score_atlas::{AtomicTargetSavePayload, CalibrationPoint, CalibrationView};
 pub use score_marks::{ScoreMark, ScorePageMarks};
 pub use session_plan::{SessionPlanStartOutcome, SessionPlanStartPayload};
 

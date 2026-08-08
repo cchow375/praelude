@@ -7,7 +7,8 @@ use rusqlite::{Connection, OptionalExtension};
 
 use super::model::{
     json_to_sql, BlockPatch, BrainThreadResume, BrainTurnRow, Goal, GoalCreate, GoalPatch,
-    PieceFieldPatch, RecoveryActionRow, Region, RegionCreate, RegionPatch, RepPatch,
+    PieceFieldPatch, RecoveryActionRow, Region, RegionCreate, RegionDeleteMode, RegionPatch,
+    RepPatch,
 };
 use super::{EventKind, Store};
 use crate::ledger::MutationSource;
@@ -112,11 +113,20 @@ impl Store {
         Self::region_list_conn(&conn, piece_id)
     }
 
+    /// Task C5: every row gains `target_meta.parent_region_id` via a LEFT JOIN
+    /// (most regions have no `target_meta` row at all, hence LEFT not INNER).
+    const REGION_SELECT: &'static str =
+        "SELECT region.id, region.piece_id, region.name, region.m_start, region.m_end,
+                region.kind, region.sort_order, region.color, region.pdf_anchor, region.notes,
+                target_meta.parent_region_id
+         FROM region LEFT JOIN target_meta ON target_meta.region_id = region.id";
+
     fn region_list_conn(conn: &Connection, piece_id: i64) -> rusqlite::Result<Vec<Region>> {
-        let mut stmt = conn.prepare(
-            "SELECT id, piece_id, name, m_start, m_end, kind, sort_order, color, pdf_anchor, notes
-             FROM region WHERE piece_id = ?1 ORDER BY sort_order",
-        )?;
+        let sql = format!(
+            "{} WHERE region.piece_id = ?1 ORDER BY region.sort_order",
+            Self::REGION_SELECT
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([piece_id], Self::region_from_row)?;
         rows.collect()
     }
@@ -143,16 +153,13 @@ impl Store {
                         Box::new(e),
                     )
                 })?,
+            parent_region_id: row.get(10)?,
         })
     }
 
     fn region_get(conn: &Connection, id: i64) -> rusqlite::Result<Region> {
-        conn.query_row(
-            "SELECT id, piece_id, name, m_start, m_end, kind, sort_order, color, pdf_anchor, notes
-             FROM region WHERE id = ?1",
-            [id],
-            Self::region_from_row,
-        )
+        let sql = format!("{} WHERE region.id = ?1", Self::REGION_SELECT);
+        conn.query_row(&sql, [id], Self::region_from_row)
     }
 
     fn normalized_region_name(value: String) -> rusqlite::Result<String> {
@@ -215,6 +222,81 @@ impl Store {
             Some(args.piece_id),
             &serde_json::json!({ "action": "create", "region_id": id }),
         )?;
+        Ok(region)
+    }
+
+    /// Task C5: this region's parent, if it is a sub-section (`None` for a
+    /// top-level region, or a region with no `target_meta` row at all).
+    pub fn region_parent_id(&self, region_id: i64) -> rusqlite::Result<Option<i64>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        Ok(conn
+            .query_row(
+                "SELECT parent_region_id FROM target_meta WHERE region_id = ?1",
+                [region_id],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten())
+    }
+
+    /// Create a region, optionally as a sub-section of `parent_region_id`.
+    /// Rust enforces, with a friendly error before the DB is ever touched:
+    /// the parent must exist, must belong to the same piece as the new
+    /// region (the `target_meta` trigger is a backstop, not the primary
+    /// check), and must not itself be a sub-section — nesting is capped at
+    /// one level. On success the parent linkage is written to `target_meta`
+    /// (an upsert: a `target_meta` row may already exist for other reasons).
+    pub fn region_create_with_parent(
+        &self,
+        args: RegionCreate,
+        parent_region_id: Option<i64>,
+    ) -> rusqlite::Result<Region> {
+        if let Some(parent_id) = parent_region_id {
+            let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+            let parent_piece: Option<i64> = conn
+                .query_row(
+                    "SELECT piece_id FROM region WHERE id = ?1",
+                    [parent_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let parent_piece = parent_piece.ok_or_else(|| {
+                rusqlite::Error::InvalidParameterName(
+                    "the parent section could not be found".into(),
+                )
+            })?;
+            if parent_piece != args.piece_id {
+                return Err(rusqlite::Error::InvalidParameterName(
+                    "a sub-section's parent must belong to the same piece".into(),
+                ));
+            }
+            let grandparent: Option<i64> = conn
+                .query_row(
+                    "SELECT parent_region_id FROM target_meta WHERE region_id = ?1",
+                    [parent_id],
+                    |row| row.get::<_, Option<i64>>(0),
+                )
+                .optional()?
+                .flatten();
+            if grandparent.is_some() {
+                return Err(rusqlite::Error::InvalidParameterName(
+                    "a sub-section cannot itself have sub-sections (only one level of nesting is allowed)"
+                        .into(),
+                ));
+            }
+        }
+        let mut region = self.region_create(args)?;
+        if let Some(parent_id) = parent_region_id {
+            let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+            conn.execute(
+                "INSERT INTO target_meta (region_id, parent_region_id) VALUES (?1, ?2)
+                 ON CONFLICT(region_id) DO UPDATE SET
+                     parent_region_id = excluded.parent_region_id,
+                     updated_ts = datetime('now')",
+                rusqlite::params![region.id, parent_id],
+            )?;
+            region.parent_region_id = Some(parent_id);
+        }
         Ok(region)
     }
 
@@ -294,13 +376,50 @@ impl Store {
     /// Delete a region; member blocks are kept but their `region_id` is
     /// cleared (never cascade-deleted — a region is organizational, not
     /// load-bearing for practice history). Appends a `region_change` event.
-    pub fn region_delete(&self, id: i64) -> rusqlite::Result<()> {
+    /// Task C5: delete a region that may have children (`target_meta`
+    /// `parent_region_id`). `Cascade` deletes every child region too;
+    /// `Promote` deletes only this region and clears its children's
+    /// `parent_region_id` so they survive as top-level regions. Both paths
+    /// are one transaction — all or nothing. When the region has no
+    /// children, both modes behave identically to the old unconditional
+    /// delete.
+    pub fn region_delete_mode(&self, id: i64, mode: RegionDeleteMode) -> rusqlite::Result<()> {
         let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let piece_id: i64 =
             conn.query_row("SELECT piece_id FROM region WHERE id = ?1", [id], |row| {
                 row.get(0)
             })?;
+        let children: Vec<i64> = {
+            let mut stmt =
+                conn.prepare("SELECT region_id FROM target_meta WHERE parent_region_id = ?1")?;
+            let rows = stmt.query_map([id], |row| row.get(0))?;
+            rows.collect::<rusqlite::Result<Vec<i64>>>()?
+        };
         let tx = conn.transaction()?;
+        match mode {
+            RegionDeleteMode::Promote => {
+                if !children.is_empty() {
+                    tx.execute(
+                        "UPDATE target_meta SET parent_region_id = NULL, updated_ts = datetime('now')
+                         WHERE parent_region_id = ?1",
+                        [id],
+                    )?;
+                }
+            }
+            RegionDeleteMode::Cascade => {
+                for child_id in &children {
+                    tx.execute(
+                        "UPDATE rep_block SET region_id = NULL WHERE region_id = ?1",
+                        [child_id],
+                    )?;
+                    tx.execute(
+                        "UPDATE daily_work SET region_id = NULL WHERE region_id = ?1",
+                        [child_id],
+                    )?;
+                    tx.execute("DELETE FROM region WHERE id = ?1", [child_id])?;
+                }
+            }
+        }
         tx.execute(
             "UPDATE rep_block SET region_id = NULL WHERE region_id = ?1",
             [id],
@@ -323,7 +442,7 @@ impl Store {
             EventKind::REGION_CHANGE,
             None,
             Some(piece_id),
-            &serde_json::json!({ "action": "delete", "region_id": id }),
+            &serde_json::json!({ "action": "delete", "region_id": id, "mode": format!("{mode:?}") }),
         )?;
         Ok(())
     }
@@ -708,7 +827,8 @@ mod region {
             .unwrap();
         let bid = seed_block(&s, 1, 1, 8);
         s.block_set_region(bid, Some(r.id)).unwrap();
-        s.region_delete(r.id).unwrap();
+        s.region_delete_mode(r.id, RegionDeleteMode::Cascade)
+            .unwrap();
         assert!(s.region_list(1).unwrap().is_empty());
         let region_id: Option<i64> = {
             let conn = s_conn(&s);
@@ -785,7 +905,8 @@ mod region {
         }
 
         s.region_merge(keep.id, absorb.id).unwrap();
-        s.region_delete(remove.id).unwrap();
+        s.region_delete_mode(remove.id, RegionDeleteMode::Cascade)
+            .unwrap();
         let work = s.daily_work_list("2026-07-13", "2026-07-13", None).unwrap();
         assert_eq!(
             work.iter()
@@ -1141,6 +1262,351 @@ mod region {
             .map(|r| r.id)
             .collect();
         assert_eq!(ids, vec![b.id, a.id]);
+    }
+
+    // ── Task C5: sub-sections via target_meta.parent_region_id ─────────────
+
+    fn create_region(s: &Store, piece_id: i64, name: &str, m_start: u32, m_end: u32) -> Region {
+        s.region_create(RegionCreate {
+            piece_id,
+            name: name.into(),
+            notes: None,
+            m_start,
+            m_end,
+            kind: "hard_spot".into(),
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn region_create_with_parent_links_child_and_region_list_carries_it() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let parent = create_region(&s, 1, "Exposition", 1, 40);
+        let child = s
+            .region_create_with_parent(
+                RegionCreate {
+                    piece_id: 1,
+                    name: "Sticky run".into(),
+                    notes: None,
+                    m_start: 10,
+                    m_end: 14,
+                    kind: "hard_spot".into(),
+                },
+                Some(parent.id),
+            )
+            .unwrap();
+        assert_eq!(child.parent_region_id, Some(parent.id));
+        let listed = s.region_list(1).unwrap();
+        let listed_child = listed.iter().find(|r| r.id == child.id).unwrap();
+        assert_eq!(listed_child.parent_region_id, Some(parent.id));
+        let listed_parent = listed.iter().find(|r| r.id == parent.id).unwrap();
+        assert_eq!(
+            listed_parent.parent_region_id, None,
+            "the parent itself is still top-level"
+        );
+    }
+
+    #[test]
+    fn region_create_with_parent_rejects_a_missing_parent() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let err = s
+            .region_create_with_parent(
+                RegionCreate {
+                    piece_id: 1,
+                    name: "Orphan".into(),
+                    notes: None,
+                    m_start: 1,
+                    m_end: 4,
+                    kind: "hard_spot".into(),
+                },
+                Some(999),
+            )
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("could not be found"),
+            "expected a friendly not-found message, got: {err}"
+        );
+        assert!(
+            s.region_list(1).unwrap().is_empty(),
+            "no region should have been created"
+        );
+    }
+
+    #[test]
+    fn region_create_with_parent_rejects_cross_piece_parent() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        seed_piece(&s, 2);
+        let parent_in_piece_1 = create_region(&s, 1, "Section A", 1, 20);
+        let err = s
+            .region_create_with_parent(
+                RegionCreate {
+                    piece_id: 2,
+                    name: "Cross-piece child".into(),
+                    notes: None,
+                    m_start: 1,
+                    m_end: 4,
+                    kind: "hard_spot".into(),
+                },
+                Some(parent_in_piece_1.id),
+            )
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("same piece"),
+            "expected a friendly same-piece message, got: {err}"
+        );
+        assert!(s.region_list(2).unwrap().is_empty());
+    }
+
+    #[test]
+    fn region_create_with_parent_rejects_nesting_beyond_one_level() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let grandparent = create_region(&s, 1, "Movement I", 1, 100);
+        let parent = s
+            .region_create_with_parent(
+                RegionCreate {
+                    piece_id: 1,
+                    name: "Development".into(),
+                    notes: None,
+                    m_start: 30,
+                    m_end: 60,
+                    kind: "hard_spot".into(),
+                },
+                Some(grandparent.id),
+            )
+            .unwrap();
+        let err = s
+            .region_create_with_parent(
+                RegionCreate {
+                    piece_id: 1,
+                    name: "Too deep".into(),
+                    notes: None,
+                    m_start: 35,
+                    m_end: 40,
+                    kind: "hard_spot".into(),
+                },
+                Some(parent.id),
+            )
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("only one level of nesting"),
+            "expected a friendly one-level-nesting message, got: {err}"
+        );
+    }
+
+    /// Backstop check: even bypassing the Rust validation entirely (raw SQL,
+    /// as if some other code path forgot to call it), the `target_meta`
+    /// same-piece trigger still rejects a cross-piece parent link.
+    #[test]
+    fn target_meta_same_piece_trigger_still_fires_as_a_backstop() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        seed_piece(&s, 2);
+        let parent_in_piece_1 = create_region(&s, 1, "Section A", 1, 20);
+        let child_in_piece_2 = create_region(&s, 2, "Unrelated", 1, 8);
+        let conn = s_conn(&s);
+        let result = conn.execute(
+            "INSERT INTO target_meta (region_id, parent_region_id) VALUES (?1, ?2)",
+            rusqlite::params![child_in_piece_2.id, parent_in_piece_1.id],
+        );
+        assert!(
+            result.is_err(),
+            "the DB trigger must reject a cross-piece parent even without app-level validation"
+        );
+    }
+
+    #[test]
+    fn region_delete_cascade_removes_children_transactionally() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let parent = create_region(&s, 1, "Parent", 1, 40);
+        let child_a = s
+            .region_create_with_parent(
+                RegionCreate {
+                    piece_id: 1,
+                    name: "Child A".into(),
+                    notes: None,
+                    m_start: 1,
+                    m_end: 8,
+                    kind: "hard_spot".into(),
+                },
+                Some(parent.id),
+            )
+            .unwrap();
+        let child_b = s
+            .region_create_with_parent(
+                RegionCreate {
+                    piece_id: 1,
+                    name: "Child B".into(),
+                    notes: None,
+                    m_start: 9,
+                    m_end: 16,
+                    kind: "hard_spot".into(),
+                },
+                Some(parent.id),
+            )
+            .unwrap();
+        s.region_delete_mode(parent.id, RegionDeleteMode::Cascade)
+            .unwrap();
+        let remaining = s.region_list(1).unwrap();
+        assert!(
+            remaining.is_empty(),
+            "parent and both children must be gone"
+        );
+        // Prove atomicity by re-checking through a fresh read (not just the
+        // in-memory return value): none of the three ids exist any more.
+        let conn = s_conn(&s);
+        for id in [parent.id, child_a.id, child_b.id] {
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM region WHERE id = ?1", [id], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "region {id} should be deleted");
+        }
+        // The FK cascade is the mechanism, but pin the `target_meta` state
+        // directly rather than inferring it from `region_list`: both children's
+        // linkage rows must be gone, and nothing may linger for this parent.
+        for id in [child_a.id, child_b.id] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM target_meta WHERE region_id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 0, "target_meta row for region {id} should be gone");
+        }
+        let orphans: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM target_meta WHERE parent_region_id = ?1",
+                [parent.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            orphans, 0,
+            "no target_meta row may still point at the parent"
+        );
+        let total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM target_meta", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(total, 0, "cascade must leave no target_meta rows behind");
+    }
+
+    #[test]
+    fn region_delete_promote_keeps_children_as_top_level() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let parent = create_region(&s, 1, "Parent", 1, 40);
+        let child = s
+            .region_create_with_parent(
+                RegionCreate {
+                    piece_id: 1,
+                    name: "Child".into(),
+                    notes: None,
+                    m_start: 1,
+                    m_end: 8,
+                    kind: "hard_spot".into(),
+                },
+                Some(parent.id),
+            )
+            .unwrap();
+        s.region_delete_mode(parent.id, RegionDeleteMode::Promote)
+            .unwrap();
+        let remaining = s.region_list(1).unwrap();
+        assert_eq!(remaining.len(), 1, "only the child should survive");
+        assert_eq!(remaining[0].id, child.id);
+        assert_eq!(
+            remaining[0].parent_region_id, None,
+            "the surviving child must be promoted to top-level"
+        );
+        // Pin the `target_meta` state directly: promote must KEEP the child's
+        // linkage row (unlike cascade) and only null out its parent pointer.
+        let conn = s_conn(&s);
+        let rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM target_meta WHERE region_id = ?1",
+                [child.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 1, "the child's target_meta row must survive promote");
+        let parent_ref: Option<i64> = conn
+            .query_row(
+                "SELECT parent_region_id FROM target_meta WHERE region_id = ?1",
+                [child.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            parent_ref, None,
+            "the surviving target_meta row must have parent_region_id = NULL"
+        );
+        let dangling: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM target_meta WHERE parent_region_id = ?1",
+                [parent.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            dangling, 0,
+            "no target_meta row may still point at the parent"
+        );
+    }
+
+    /// Task C5's "come back later" requirement: a child region's retention
+    /// check must route through the EXISTING retention/snooze queue exactly
+    /// as it does for a top-level region today — zero new engine code. The
+    /// `retention_check` row only ever references `region_id`; it has no
+    /// idea whether that region is a sub-section, so this is provable by
+    /// simply exercising the existing command against a child region's
+    /// check and confirming it behaves the same.
+    #[test]
+    fn retention_snooze_works_identically_for_a_child_region_set() {
+        let s = Store::open(":memory:").unwrap();
+        seed_piece(&s, 1);
+        let parent = create_region(&s, 1, "Parent", 1, 40);
+        let child = s
+            .region_create_with_parent(
+                RegionCreate {
+                    piece_id: 1,
+                    name: "Child".into(),
+                    notes: None,
+                    m_start: 1,
+                    m_end: 8,
+                    kind: "hard_spot".into(),
+                },
+                Some(parent.id),
+            )
+            .unwrap();
+        s.test_seed_retention_check(child.id, "2026-07-16", "{}");
+        let check_id: i64 = {
+            let conn = s_conn(&s);
+            conn.query_row(
+                "SELECT id FROM retention_check WHERE region_id = ?1",
+                [child.id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        let receipt = s
+            .retention_snooze(
+                None,
+                check_id,
+                "2026-07-20",
+                MutationSource::UserClick,
+                "child-snooze-1",
+                "2026-07-16T00:00:00Z",
+            )
+            .unwrap();
+        let value = receipt.value.unwrap();
+        assert_eq!(value.due_date, "2026-07-20");
+        assert_eq!(value.original_due_date, "2026-07-16");
     }
 }
 // ── T4: Block update/delete ─────────────────────────────────────────────────

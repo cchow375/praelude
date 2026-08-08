@@ -118,6 +118,19 @@ const PIECES: PieceSummary[] = [
     has_pdf: false,
     intake_done: false,
   },
+  {
+    // Id 6 on purpose: `PICKUP_DEMO_PIECE_ID` (see the measure-mapping
+    // section below) is the mock's pickup fixture — every page reports zero
+    // printed numbers, so a scan produces `pickup_ambiguity`. Listing it here
+    // makes that flow reachable by CLICKING through the pieces list in
+    // `npm run dev:mock`, instead of only by a test hardcoding piece_id 6.
+    id: 6,
+    title: "Menuet in G (pickup demo)",
+    composer: "Christian Petzold",
+    has_xml: false,
+    has_pdf: true,
+    intake_done: true,
+  },
 ];
 
 // Canned IMSLP add-a-score data for the dev harness (no network). The search
@@ -227,13 +240,33 @@ const PIECE_DETAILS: Record<number, PieceDetailData> = {
     notes: null,
     banner_text: null,
   },
+  // The pickup-ambiguity mapping demo (`PICKUP_DEMO_PIECE_ID`). Same shape as
+  // the others so every piece-detail surface works when it is selected.
+  6: {
+    id: 6,
+    title: "Menuet in G (pickup demo)",
+    composer: "Christian Petzold",
+    has_xml: false,
+    has_pdf: true,
+    intake_done: true,
+    folder_path: "/dev-mock/menuet-in-g",
+    xml_path: null,
+    pdf_path: "/dev-mock/menuet-in-g/score.pdf",
+    goals: [],
+    deadline: null,
+    target_tempo: null,
+    hard_spots: [],
+    current_state: "Pickup-measure mapping demo",
+    notes: null,
+    banner_text: null,
+  },
 };
 
 /** Task A11: banner edits made during a dev run, keyed by piece id. Absent =
  *  use the fixture's own `banner_text`. Cleared in `installTauriDevMock()`. */
 const MOCK_BANNERS = new Map<number, string | null>();
 
-const REGIONS: Record<number, Region[]> = {
+const SEED_REGIONS: Record<number, Region[]> = {
   1: [
     {
       id: 11,
@@ -246,6 +279,7 @@ const REGIONS: Record<number, Region[]> = {
       order: 0,
       color: null,
       pdf_anchor: null,
+      parent_region_id: null,
     },
     {
       id: 12,
@@ -258,6 +292,7 @@ const REGIONS: Record<number, Region[]> = {
       order: 1,
       color: null,
       pdf_anchor: null,
+      parent_region_id: null,
     },
     {
       id: 13,
@@ -270,6 +305,7 @@ const REGIONS: Record<number, Region[]> = {
       order: 2,
       color: null,
       pdf_anchor: null,
+      parent_region_id: null,
     },
   ],
   2: [
@@ -284,6 +320,7 @@ const REGIONS: Record<number, Region[]> = {
       order: 0,
       color: null,
       pdf_anchor: null,
+      parent_region_id: null,
     },
     {
       id: 22,
@@ -296,9 +333,28 @@ const REGIONS: Record<number, Region[]> = {
       order: 1,
       color: null,
       pdf_anchor: null,
+      parent_region_id: null,
     },
   ],
 };
+
+/** Mutable per-install region state, reset from `SEED_REGIONS` in
+ * `installTauriDevMock()` so create/delete never bleeds between installs
+ * (the same pattern as `DAY_SHEETS`/`MOCK_BANNERS` below). */
+let REGIONS: Record<number, Region[]> = SEED_REGIONS;
+
+/** Task C5: next id handed to a mock-created region, and a small helper set
+ * so `region_create`/`region_delete` behave like the real store (parent
+ * validation, one-level nesting, cascade/promote) for offline QA. */
+let mockRegionNextId = 100;
+
+function mockAllRegions(): Region[] {
+  return Object.values(REGIONS).flat();
+}
+
+function mockFindRegion(id: number): Region | undefined {
+  return mockAllRegions().find((region) => region.id === id);
+}
 
 const BLOCKS: Record<number, BlockHistory[]> = {
   1: [
@@ -1679,6 +1735,626 @@ function mockCalibration(pieceId: number): unknown {
   };
 }
 
+// --- Measure mapping (Plan C, task C4 + fix round 1 + C6b) -----------------
+//
+// Canned `measure_scan_page` outputs plus a C6b-SUBSET mirror of
+// `score::measure_reconcile::reconcile` and `measure_map` CRUD against
+// in-memory state, so the whole scan → reconcile → review → Apply flow is
+// offline-QA-able.
+//
+// Scope, honestly (the same scope `mockReconcile`'s own doc comment states —
+// keep the two in agreement): this is NOT full parity with the final Rust
+// algorithm. There is no XML and no calibration side channel here, so
+// `total_mismatch`, `anchor_disagreement`, `low_confidence_anchor` and
+// `overlapping_systems` are out of scope and no fixture produces them;
+// `has_pickup` is a piece-id fixture switch (`PICKUP_DEMO_PIECE_ID`) rather
+// than derived from real MusicXML. What the fixtures DO exercise:
+//   - page 1: a clean single system with a printed "1";
+//   - page 2: a printed "10" one system later — since C6b that pair is a
+//     system-start BRACKET, so page 1's system is resolved by
+//     `derived_bar_count` + even interpolation, NOT the plain
+//     `continuity_break` this comment used to claim (no offline
+//     scan-derived continuity_break fixture remains);
+//   - page 3 (`CLIENT_RASTER_PAGE`): needs-client-raster once, then unsorted
+//     `barline_xs` → an `unapplyable` structural defect;
+//   - `PICKUP_DEMO_PIECE_ID`: zero printed numbers anywhere → `pickup_ambiguity`.
+// `measure_map_apply` re-derives the store's own whole-payload invariants
+// (`measureMapApplyDefect`) so a malformed hand-edited payload is rejected
+// here the same way the real command rejects it.
+
+interface MockScanSystem {
+  y_top: number;
+  y_bottom: number;
+  x_left: number;
+  x_right: number;
+  barline_xs: number[];
+  printed_numbers: {
+    number: number;
+    x: number;
+    y: number;
+    confidence: number;
+  }[];
+  staves: number;
+}
+
+interface MockScanPageOutput {
+  systems: MockScanSystem[];
+}
+
+/** Piece id whose every page reports ZERO printed numbers — with `has_pickup`
+ * on (this is the piece the mock treats as pickup-having, see the
+ * `measure_reconcile` case below), zero anchors is exactly the case that
+ * produces `pickup_ambiguity` (no evidence anywhere to derive the pickup
+ * offset from). Any other piece has `has_pickup: false`. */
+const PICKUP_DEMO_PIECE_ID = 6;
+
+/** The one page whose FIRST scan call (no `pageJpeg`) rejects with the exact
+ * `needs_client_raster` literal, so the dev-mock harness can exercise the
+ * client-raster retry path without a real vector-PDF edge case. Once a call
+ * arrives WITH bytes, that (piece, page) is marked served and never rejects
+ * again. */
+const CLIENT_RASTER_PAGE = 3;
+
+/** Page 1: a clean single system, printed number 1 pins the first bar
+ * exactly — reconciling this alone produces zero conflicts. Page 2: a
+ * printed "10" pinning ITS system's first bar, one system after page 1's
+ * "1" — since C6b that adjacent system-start pair is a BRACKET, so
+ * reconciling pages 1+2 together resolves page 1's system via
+ * `derived_bar_count` + even interpolation (9 bars, not the model's 4)
+ * rather than raising a `continuity_break`. Page 3 (after the
+ * client-raster retry): UNSORTED `barline_xs` — a structural defect that
+ * `measure_map_apply` would reject, so `mockReconcile` must flag it
+ * `unapplyable` even though nothing else about the page is wrong. Any other
+ * page gets a plain, unlabeled system so a full-length mock score still
+ * scans end to end without inventing more conflicts. `PICKUP_DEMO_PIECE_ID`
+ * overrides every page to report zero printed numbers, demonstrating the
+ * pickup-ambiguity fixture regardless of which page is asked for. */
+function mockScanPage(page: number, pieceId: number): MockScanPageOutput {
+  if (pieceId === PICKUP_DEMO_PIECE_ID) {
+    return {
+      systems: [
+        {
+          y_top: 0.1,
+          y_bottom: 0.2,
+          x_left: 0.05,
+          x_right: 0.9,
+          barline_xs: [0.3, 0.5, 0.7, 0.9],
+          printed_numbers: [],
+          staves: 2,
+        },
+      ],
+    };
+  }
+  if (page === 1) {
+    return {
+      systems: [
+        {
+          y_top: 0.1,
+          y_bottom: 0.2,
+          x_left: 0.05,
+          x_right: 0.9,
+          barline_xs: [0.3, 0.5, 0.7, 0.9],
+          printed_numbers: [{ number: 1, x: 0.05, y: 0.09, confidence: 0.95 }],
+          staves: 2,
+        },
+      ],
+    };
+  }
+  if (page === 2) {
+    return {
+      systems: [
+        {
+          y_top: 0.3,
+          y_bottom: 0.4,
+          x_left: 0.05,
+          x_right: 0.9,
+          barline_xs: [0.3, 0.5, 0.7, 0.9],
+          printed_numbers: [{ number: 10, x: 0.05, y: 0.29, confidence: 0.9 }],
+          staves: 2,
+        },
+      ],
+    };
+  }
+  if (page === CLIENT_RASTER_PAGE) {
+    return {
+      systems: [
+        {
+          y_top: 0.5,
+          y_bottom: 0.6,
+          x_left: 0.05,
+          x_right: 0.9,
+          // Deliberately unsorted (the "unsorted barline_xs" apply-invariant
+          // defect, C3 fix round 1 finding #3) — same fractions as the clean
+          // pages, out of order.
+          barline_xs: [0.7, 0.3, 0.9, 0.5],
+          printed_numbers: [],
+          staves: 2,
+        },
+      ],
+    };
+  }
+  return {
+    systems: [
+      {
+        y_top: 0.1,
+        y_bottom: 0.2,
+        x_left: 0.05,
+        x_right: 0.9,
+        barline_xs: [0.4, 0.9],
+        printed_numbers: [],
+        staves: 2,
+      },
+    ],
+  };
+}
+
+interface MockMapBar {
+  x_right: number;
+  number: number;
+  confidence?: number;
+  source: "model" | "user" | "interpolated";
+}
+
+interface MockMapSystem {
+  y_top: number;
+  y_bottom: number;
+  x_left: number;
+  x_right: number;
+  bars: MockMapBar[];
+}
+
+interface MockMeasureMapPageRow {
+  page: number;
+  map: { version: number; systems: MockMapSystem[] };
+}
+
+type MockMapConflict =
+  | {
+      kind: "continuity_break";
+      page: number;
+      system: number;
+      expected: number;
+      found: number;
+    }
+  | { kind: "pickup_ambiguity"; page: number }
+  | { kind: "unapplyable"; page: number; system: number; reason: string }
+  | {
+      kind: "derived_bar_count";
+      page: number;
+      system: number;
+      expected: number;
+      found: number;
+    };
+
+const ANCHOR_CONFIDENCE_MIN = 0.5;
+
+/** Mirrors `score::measure_reconcile::system_index_for` — find which system
+ * (by index into `starts`/`counts`) a global bar-stream index falls inside,
+ * or (for an index exactly on a boundary) the system whose start exactly
+ * equals it. */
+function systemIndexFor(
+  starts: number[],
+  counts: number[],
+  idx: number,
+): number {
+  for (let i = 0; i < starts.length; i += 1) {
+    if (idx >= starts[i] && idx < starts[i] + counts[i]) return i;
+  }
+  for (let i = starts.length - 1; i >= 0; i -= 1) {
+    if (starts[i] === idx) return i;
+  }
+  return -1;
+}
+
+/**
+ * Mirrors `score::measure_reconcile::reconcile`'s FINAL bidirectional
+ * numbering contract (C3 fix round 1, `task-C3-report.md`) PLUS the C6b
+ * system-start bracket pass: a synthetic floor-start anchor is used ONLY
+ * when there is no printed anchor anywhere in the whole stream; the instant
+ * at least one real anchor exists, the span BEFORE it back-fills FROM it
+ * (clamped at the floor — 0 with a pickup, 1 otherwise — raising a
+ * `continuity_break` on the leading span if that would underflow), and
+ * every span after an anchor forward-fills from its nearest preceding
+ * anchor. Before any of that, when two consecutive real anchors each pin
+ * their own system's first bar AND are on immediately adjacent systems, the
+ * number gap between them overrides the model's own bar count for the
+ * earlier anchor's system (evenly interpolated, `source: "interpolated"`,
+ * `confidence: undefined`) instead of merely flagging a `continuity_break`
+ * — see `measure_reconcile`'s "System-start bracketing" doc comment. Also
+ * re-derives the `unapplyable` structural checks (empty/unsorted
+ * `barline_xs`) `measure_map_apply` would reject, so a conflict-free mock
+ * result is genuinely Apply-ready, same as the real command. No
+ * XML/calibration side channel exists here, so `total_mismatch`,
+ * `anchor_disagreement`, `low_confidence_anchor` and `overlapping_systems`
+ * are out of scope for the mock — every fixture below only exercises
+ * `continuity_break`, `pickup_ambiguity`, `unapplyable`, and (since C6b)
+ * `derived_bar_count`.
+ */
+function mockReconcile(
+  pages: { page: number; scan: MockScanPageOutput }[],
+  hasPickup: boolean,
+): {
+  pages: MockMeasureMapPageRow[];
+  conflicts: MockMapConflict[];
+  total_bars: number;
+  has_pickup: boolean;
+} {
+  const sorted = [...pages].sort((a, b) => a.page - b.page);
+
+  interface FlatBar {
+    page: number;
+    system: number;
+    x_right: number;
+    number: number;
+  }
+  const flat: FlatBar[] = [];
+  const systemMeta: {
+    page: number;
+    system: number;
+    y_top: number;
+    y_bottom: number;
+    x_left: number;
+    x_right: number;
+    start: number;
+    count: number;
+    /** `true` once the C6b system-start bracket pass below resynthesizes
+     * this system's bars — its `count` then no longer matches the model's
+     * own `barline_xs.length`. */
+    interpolated: boolean;
+  }[] = [];
+  for (const { page, scan } of sorted) {
+    const systems = [...scan.systems].sort((a, b) => a.y_top - b.y_top);
+    systems.forEach((system, systemIndex) => {
+      const start = flat.length;
+      for (const x_right of system.barline_xs) {
+        flat.push({ page, system: systemIndex + 1, x_right, number: 0 });
+      }
+      systemMeta.push({
+        page,
+        system: systemIndex + 1,
+        y_top: system.y_top,
+        y_bottom: system.y_bottom,
+        x_left: system.x_left,
+        x_right: system.x_right,
+        start,
+        count: system.barline_xs.length,
+        interpolated: false,
+      });
+    });
+  }
+
+  interface Anchor {
+    index: number;
+    number: number;
+    page: number;
+    system: number;
+    confidence?: number;
+  }
+  const anchors: Anchor[] = [];
+  for (const { page, scan } of sorted) {
+    const metasForPage = systemMeta.filter((m) => m.page === page);
+    for (const system of scan.systems) {
+      for (const printed of system.printed_numbers) {
+        if (printed.confidence < ANCHOR_CONFIDENCE_MIN) continue;
+        const owning =
+          metasForPage.find(
+            (m) => printed.y >= m.y_top && printed.y <= m.y_bottom,
+          ) ?? metasForPage[0];
+        if (!owning || owning.count === 0) continue;
+        let localIndex = 0;
+        for (let i = 0; i < owning.count; i += 1) {
+          localIndex = i;
+          if (flat[owning.start + i].x_right >= printed.x) break;
+        }
+        anchors.push({
+          index: owning.start + localIndex,
+          number: printed.number,
+          page: owning.page,
+          system: owning.system,
+          confidence: printed.confidence,
+        });
+      }
+    }
+  }
+  anchors.sort((a, b) => a.index - b.index);
+  // Keep only the first-seen anchor per bar index (contradictory printed
+  // numbers pinning the identical bar silently keep the first — a documented
+  // C3 carry-forward, not fixed by this round).
+  const dedupedAnchors: Anchor[] = [];
+  for (const anchor of anchors) {
+    if (dedupedAnchors[dedupedAnchors.length - 1]?.index !== anchor.index) {
+      dedupedAnchors.push(anchor);
+    }
+  }
+
+  const conflicts: MockMapConflict[] = [];
+
+  // Pass (C6b): system-start bracket resolution — mirrors
+  // `score::measure_reconcile::reconcile`'s system-start bracket pass (see
+  // that module's doc comment, "System-start bracketing"). Determined
+  // entirely from the ORIGINAL geometry/anchors above (no cascading); then
+  // `flat`/`systemMeta` are rebuilt and `dedupedAnchors`' indices remapped
+  // before the numbering pass below ever runs.
+  {
+    const oldStarts = systemMeta.map((m) => m.start);
+    const oldCounts = systemMeta.map((m) => m.count);
+    const oldFlat = flat.slice();
+    for (let i = 0; i < systemMeta.length - 1; i += 1) {
+      const a = dedupedAnchors.find((anchor) => anchor.index === oldStarts[i]);
+      const b = dedupedAnchors.find(
+        (anchor) => anchor.index === oldStarts[i + 1],
+      );
+      if (!a || !b) continue;
+      const expected = b.number - a.number;
+      const found = oldCounts[i];
+      // `expected <= 0` (a degenerate/contradictory anchor pair) is left to
+      // the ordinary continuity-break handling below rather than
+      // synthesizing a zero-or-negative-bar system.
+      if (expected === found || expected <= 0) continue;
+      conflicts.push({
+        kind: "derived_bar_count",
+        page: systemMeta[i].page,
+        system: systemMeta[i].system,
+        expected,
+        found,
+      });
+      systemMeta[i].count = expected;
+      systemMeta[i].interpolated = true;
+    }
+    let cursor = 0;
+    for (const meta of systemMeta) {
+      meta.start = cursor;
+      cursor += meta.count;
+    }
+    flat.length = 0;
+    systemMeta.forEach((meta, i) => {
+      if (meta.interpolated) {
+        const width = (meta.x_right - meta.x_left) / meta.count;
+        for (let j = 0; j < meta.count; j += 1) {
+          flat.push({
+            page: meta.page,
+            system: meta.system,
+            x_right: meta.x_left + width * (j + 1),
+            number: 0,
+          });
+        }
+      } else {
+        for (let k = 0; k < meta.count; k += 1) {
+          flat.push({ ...oldFlat[oldStarts[i] + k], number: 0 });
+        }
+      }
+    });
+    for (const anchor of dedupedAnchors) {
+      const sys = systemIndexFor(oldStarts, oldCounts, anchor.index);
+      if (sys === -1) continue;
+      const local = anchor.index - oldStarts[sys];
+      const oldC = oldCounts[sys];
+      const newC = systemMeta[sys].count;
+      const newLocal =
+        oldC === 0 || oldC === newC
+          ? Math.min(local, Math.max(newC - 1, 0))
+          : Math.min(Math.floor((local * newC) / oldC), Math.max(newC - 1, 0));
+      anchor.index = systemMeta[sys].start + newLocal;
+    }
+  }
+
+  const floor = hasPickup ? 0 : 1;
+
+  if (dedupedAnchors.length === 0) {
+    // Zero anchors anywhere: the synthetic start is UNCONDITIONALLY 1,
+    // regardless of has_pickup — the floor (0 with a pickup) only governs
+    // back-fill underflow clamping once a REAL anchor exists (see the
+    // `else` branch below). Mirrors `score::measure_reconcile::reconcile`'s
+    // own zero-anchor branch exactly (pinned by its
+    // `pickup_without_a_pinning_printed_number_defaults_to_one_with_a_conflict`
+    // test: `bars[0].number == 1` even with `has_pickup: true`).
+    if (hasPickup) {
+      conflicts.push({
+        kind: "pickup_ambiguity",
+        page: flat[0]?.page ?? sorted[0]?.page ?? 1,
+      });
+    }
+    for (let i = 0; i < flat.length; i += 1) {
+      flat[i].number = 1 + i;
+    }
+  } else {
+    const first = dedupedAnchors[0];
+    if (first.index > 0) {
+      const wouldUnderflow = first.number - first.index < floor;
+      for (let i = 0; i < first.index; i += 1) {
+        flat[i].number = Math.max(floor, first.number - (first.index - i));
+      }
+      if (wouldUnderflow) {
+        conflicts.push({
+          kind: "continuity_break",
+          page: flat[0].page,
+          system: flat[0].system,
+          expected: Math.max(0, first.number - floor),
+          found: first.index,
+        });
+      }
+    }
+    for (let a = 0; a < dedupedAnchors.length; a += 1) {
+      const anchor = dedupedAnchors[a];
+      const end = dedupedAnchors[a + 1]?.index ?? flat.length;
+      for (let i = anchor.index; i < end; i += 1) {
+        flat[i].number = anchor.number + (i - anchor.index);
+      }
+    }
+    for (let a = 0; a < dedupedAnchors.length - 1; a += 1) {
+      const left = dedupedAnchors[a];
+      const right = dedupedAnchors[a + 1];
+      const expected = right.number - left.number;
+      const found = right.index - left.index;
+      if (expected !== found) {
+        conflicts.push({
+          kind: "continuity_break",
+          page: left.page,
+          system: left.system,
+          expected: Math.max(0, expected),
+          found,
+        });
+      }
+    }
+  }
+
+  // Re-derive the exact structural invariants `measure_map_apply` enforces
+  // (C3 fix round 1 finding #3's `unapplyable`): every system needs at
+  // least one bar, and a system's bar `x_right`s must strictly increase.
+  for (const meta of systemMeta) {
+    if (meta.count === 0) {
+      conflicts.push({
+        kind: "unapplyable",
+        page: meta.page,
+        system: meta.system,
+        reason: "a system needs at least one bar",
+      });
+      continue;
+    }
+    const barsInSystem = flat.slice(meta.start, meta.start + meta.count);
+    for (let i = 1; i < barsInSystem.length; i += 1) {
+      if (barsInSystem[i].x_right <= barsInSystem[i - 1].x_right) {
+        conflicts.push({
+          kind: "unapplyable",
+          page: meta.page,
+          system: meta.system,
+          reason: "bar x_right must strictly increase within a system",
+        });
+        break;
+      }
+    }
+  }
+
+  const anchorConfidenceByIndex = new Map(
+    dedupedAnchors.map((anchor) => [anchor.index, anchor.confidence]),
+  );
+  const resultPages: MockMeasureMapPageRow[] = sorted.map(({ page }) => {
+    const metas = systemMeta.filter((m) => m.page === page);
+    const systems: MockMapSystem[] = metas.map((meta) => ({
+      y_top: meta.y_top,
+      y_bottom: meta.y_bottom,
+      x_left: meta.x_left,
+      x_right: meta.x_right,
+      bars: flat
+        .slice(meta.start, meta.start + meta.count)
+        .map((bar, localIndex) => ({
+          x_right: bar.x_right,
+          number: bar.number,
+          confidence: meta.interpolated
+            ? undefined
+            : anchorConfidenceByIndex.get(meta.start + localIndex),
+          source: meta.interpolated
+            ? ("interpolated" as const)
+            : ("model" as const),
+        })),
+    }));
+    return { page, map: { version: 1, systems } };
+  });
+
+  return {
+    pages: resultPages,
+    conflicts,
+    total_bars: flat.length,
+    has_pickup: hasPickup,
+  };
+}
+
+/** `(piece_id, edition_fingerprint)` -> applied map, exactly like the real
+ * `measure_map` table's identity key (`edition_id` is accepted but not part
+ * of it — see `store::measure_map`'s module docs). */
+const MOCK_MEASURE_MAP = new Map<string, MockMeasureMapPageRow[]>();
+
+function measureMapKey(pieceId: number, fingerprint: string): string {
+  return `${pieceId}::${fingerprint}`;
+}
+
+/** Re-derives the whole-payload invariants `store::measure_map`'s
+ * `validate_page` / `validate_page_systems` enforce (see
+ * `measure_map_payload_defects`' doc comment for the authoritative list), and
+ * returns the first violation's message — or `null` when the payload is
+ * applyable.
+ *
+ * Apply is reachable with geometry that never went back through
+ * `measure_reconcile` (a barline drag, a hand-edited page), so this mock's
+ * Apply has to validate for itself: without it the mock accepted payloads the
+ * real Rust command rejects, which is exactly the parity gap that let live QA
+ * "apply" malformed geometry offline. Fail-fast, like the Rust checker. */
+function measureMapApplyDefect(pages: MockMeasureMapPageRow[]): string | null {
+  const seenPages = new Set<number>();
+  const isFraction = (value: unknown): value is number =>
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= 1;
+
+  let lastNumber: number | null = null;
+  for (const row of [...pages].sort((a, b) => a.page - b.page)) {
+    const page = row.page;
+    if (!Number.isInteger(page) || page < 1) {
+      return `page ${page}: page numbers start at 1`;
+    }
+    if (seenPages.has(page)) return `page ${page}: duplicate page ${page}`;
+    seenPages.add(page);
+    if (row.map?.version !== 1) {
+      return `page ${page}: unsupported measure map version ${row.map?.version} (expected 1)`;
+    }
+
+    let prevYTop: number | null = null;
+    for (const system of row.map.systems ?? []) {
+      for (const [field, value] of [
+        ["system y_top", system.y_top],
+        ["system y_bottom", system.y_bottom],
+        ["system x_left", system.x_left],
+        ["system x_right", system.x_right],
+      ] as const) {
+        if (!isFraction(value)) {
+          return `page ${page}: ${field} must be a normalized 0..=1 fraction`;
+        }
+      }
+      if (system.y_top >= system.y_bottom) {
+        return `page ${page}: system y_top must be less than y_bottom`;
+      }
+      if (system.x_left >= system.x_right) {
+        return `page ${page}: system x_left must be less than x_right`;
+      }
+      if (prevYTop !== null && system.y_top <= prevYTop) {
+        return `page ${page}: systems must be ordered top-to-bottom (y_top strictly increasing)`;
+      }
+      prevYTop = system.y_top;
+
+      if (!system.bars || system.bars.length === 0) {
+        return `page ${page}: a system needs at least one bar`;
+      }
+      let prevXRight: number | null = null;
+      for (const bar of system.bars) {
+        if (!isFraction(bar.x_right)) {
+          return `page ${page}: bar x_right must be a normalized 0..=1 fraction`;
+        }
+        if (prevXRight !== null && bar.x_right <= prevXRight) {
+          return `page ${page}: bar x_right must strictly increase within a system`;
+        }
+        prevXRight = bar.x_right;
+        if (bar.confidence != null && !isFraction(bar.confidence)) {
+          return `page ${page}: bar confidence must be a normalized 0..=1 fraction`;
+        }
+        if (lastNumber !== null && bar.number <= lastNumber) {
+          return `page ${page}: bar numbers must strictly increase (bar ${bar.number} follows ${lastNumber})`;
+        }
+        lastNumber = bar.number;
+      }
+    }
+  }
+  return null;
+}
+
+/** The EXACT literal `score::measure_scan::ScanError::NeedsClientRaster`
+ * serializes to — matched verbatim by the frontend's `isNeedsClientRaster`. */
+const NEEDS_CLIENT_RASTER_LITERAL = "needs_client_raster";
+
+/** `(piece_id, page)` keys already served a client-rasterized JPEG for
+ * `CLIENT_RASTER_PAGE` — the "once" in "errors once, then accepts bytes". */
+const CLIENT_RASTER_SERVED = new Set<string>();
+
 // --- Pencil marks on the score -------------------------------------------
 //
 // STATEFUL, like the notebook maps below, so the browser harness exercises the
@@ -2289,6 +2965,77 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "region_list":
       return REGIONS[pieceIdOf(args)] ?? [];
 
+    // Task C5: full region_create/region_delete coverage (parent-linkage
+    // validation + cascade/promote) so the snap-selection + sub-sections
+    // flow QAs offline, matching the real store's friendly-error and
+    // transactional semantics.
+    case "region_create": {
+      const record = argsRecord(args);
+      const created = argsRecord(record.args);
+      const pieceId = Number(created.piece_id);
+      const parentIdRaw = record.parent_region_id;
+      const parentId =
+        parentIdRaw == null || parentIdRaw === "" ? null : Number(parentIdRaw);
+      try {
+        if (parentId != null) {
+          const parent = mockFindRegion(parentId);
+          if (!parent) {
+            throw new Error("the parent section could not be found");
+          }
+          if (parent.piece_id !== pieceId) {
+            throw new Error(
+              "a sub-section's parent must belong to the same piece",
+            );
+          }
+          if (parent.parent_region_id != null) {
+            throw new Error(
+              "a sub-section cannot itself have sub-sections (only one level of nesting is allowed)",
+            );
+          }
+        }
+        const region: Region = {
+          id: mockRegionNextId++,
+          piece_id: pieceId,
+          name: String(created.name ?? ""),
+          notes: (created.notes as string | null) ?? null,
+          m_start: Number(created.m_start),
+          m_end: Number(created.m_end),
+          kind: String(created.kind ?? "hard_spot"),
+          order: (REGIONS[pieceId] ?? []).length,
+          color: null,
+          pdf_anchor: null,
+          parent_region_id: parentId,
+        };
+        REGIONS[pieceId] = [...(REGIONS[pieceId] ?? []), region];
+        return region;
+      } catch (cause) {
+        asRejectionString(cause);
+      }
+      break;
+    }
+    case "region_delete": {
+      const record = argsRecord(args);
+      const id = Number(record.id);
+      const mode = record.mode === "promote" ? "promote" : "cascade";
+      const target = mockFindRegion(id);
+      if (!target) return null;
+      const children = mockAllRegions().filter(
+        (region) => region.parent_region_id === id,
+      );
+      if (mode === "promote") {
+        for (const child of children) child.parent_region_id = null;
+      } else {
+        const childIds = new Set(children.map((child) => child.id));
+        REGIONS[target.piece_id] = (REGIONS[target.piece_id] ?? []).filter(
+          (region) => !childIds.has(region.id),
+        );
+      }
+      REGIONS[target.piece_id] = (REGIONS[target.piece_id] ?? []).filter(
+        (region) => region.id !== id,
+      );
+      return null;
+    }
+
     // Score atlas: one blank edition + a saved line-anchor calibration for
     // piece 1 (his six pieces are pre-mapped), so the Score tab reaches "ready",
     // drawn boxes resolve to measures, and the Map-this-score wizard shows the
@@ -2418,6 +3165,77 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "day_sheets_range":
       return daySheetsRangeMock(args);
 
+    // Measure mapping (Plan C, task C4 + fix round 1) — canned scans + a
+    // faithful bidirectional local reconcile + full measure_map CRUD, so the
+    // scan → review → Apply flow is offline-QA-able end to end.
+    case "measure_scan_page": {
+      const record = argsRecord(args);
+      const pieceId = pieceIdOf(args);
+      const page = Number(record.page ?? 1);
+      const jpeg = record.pageJpeg;
+      const rasterKey = `${pieceId}::${page}`;
+      if (
+        page === CLIENT_RASTER_PAGE &&
+        (jpeg == null || (Array.isArray(jpeg) && jpeg.length === 0)) &&
+        !CLIENT_RASTER_SERVED.has(rasterKey)
+      ) {
+        CLIENT_RASTER_SERVED.add(rasterKey);
+        throw NEEDS_CLIENT_RASTER_LITERAL;
+      }
+      if (jpeg != null) CLIENT_RASTER_SERVED.add(rasterKey);
+      return mockScanPage(page, pieceId);
+    }
+    case "measure_reconcile": {
+      const record = argsRecord(args);
+      const inputs = (() => {
+        try {
+          return JSON.parse(String(record.pagesJson ?? "[]")) as {
+            page: number;
+            scan: MockScanPageOutput;
+          }[];
+        } catch {
+          return [];
+        }
+      })();
+      // No XML side channel in the mock — `PICKUP_DEMO_PIECE_ID` is the
+      // fixture switch for exercising the pickup-ambiguity conflict.
+      const hasPickup = pieceIdOf(args) === PICKUP_DEMO_PIECE_ID;
+      return mockReconcile(inputs, hasPickup);
+    }
+    case "measure_map_get": {
+      const record = argsRecord(args);
+      const key = measureMapKey(
+        pieceIdOf(args),
+        String(record.editionFingerprint ?? ""),
+      );
+      return MOCK_MEASURE_MAP.get(key) ?? [];
+    }
+    case "measure_map_apply": {
+      const record = argsRecord(args);
+      const key = measureMapKey(
+        pieceIdOf(args),
+        String(record.editionFingerprint ?? ""),
+      );
+      const pages = (record.pages ?? []) as MockMeasureMapPageRow[];
+      // Parity with the real command: a payload that violates the store's
+      // invariants is REJECTED (plain string, like every other mock
+      // rejection), never silently stored.
+      const defect = measureMapApplyDefect(pages);
+      if (defect) throw defect;
+      MOCK_MEASURE_MAP.set(key, pages);
+      return pages.length;
+    }
+    case "measure_map_clear": {
+      const record = argsRecord(args);
+      const key = measureMapKey(
+        pieceIdOf(args),
+        String(record.editionFingerprint ?? ""),
+      );
+      const removed = MOCK_MEASURE_MAP.get(key)?.length ?? 0;
+      MOCK_MEASURE_MAP.delete(key);
+      return removed;
+    }
+
     default:
       return null;
   }
@@ -2464,6 +3282,17 @@ export function installTauriDevMock(
   mockCheckpointedSeconds = MOCK_REP_STATE.active_seconds ?? 0;
   // Task A11: banner edits never bleed between installs.
   MOCK_BANNERS.clear();
+  // Task C4: applied measure maps never bleed between installs.
+  MOCK_MEASURE_MAP.clear();
+  // Task C4 fix round 1: the client-raster "once" gate resets too.
+  CLIENT_RASTER_SERVED.clear();
+  // Task C5: region create/delete state (including parent linkage) never
+  // bleeds between installs — deep-clone the seed fresh every time.
+  REGIONS = JSON.parse(JSON.stringify(SEED_REGIONS)) as Record<
+    number,
+    Region[]
+  >;
+  mockRegionNextId = 100;
 
   let callbackId = 0;
   let subscriptionId = 0;

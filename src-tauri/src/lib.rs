@@ -36,7 +36,8 @@ use store::model::{
     BlockHistory, BlockPatch, CheckOutcome, DailyWorkCreate, DailyWorkPatch, ExportResult, Goal,
     GoalCreate, GoalPatch, Intake, MutationReceipt, PanelLayout, PausedSetRow, PieceDetail,
     PieceFieldPatch, PieceSummary, ProgressSummary, RecoveryActionRequest, Region, RegionCreate,
-    RegionPatch, Rep, RepOpenArgs, RepPatch, RepSnapshot, RetentionCheckView, RetentionResult,
+    RegionDeleteMode, RegionPatch, Rep, RepOpenArgs, RepPatch, RepSnapshot, RetentionCheckView,
+    RetentionResult,
     SessionView, SetFocusContextInput, TutorialClip, TutorialClipCreate, TutorialClipPatch,
     TutorialVideo, TutorialVideoPatch, TutorialVideoUpsert,
 };
@@ -963,10 +964,17 @@ fn region_list(piece_id: i64, store: State<'_, Arc<Store>>) -> Result<Vec<Region
     store.region_list(piece_id).map_err(|e| e.to_string())
 }
 
-/// Create a region.
+/// Create a region, optionally as a sub-section of `parent_region_id`
+/// (Task C5 — one level of nesting, same-piece only, friendly errors).
 #[tauri::command]
-fn region_create(args: RegionCreate, store: State<'_, Arc<Store>>) -> Result<Region, String> {
-    store.region_create(args).map_err(|e| e.to_string())
+fn region_create(
+    args: RegionCreate,
+    parent_region_id: Option<i64>,
+    store: State<'_, Arc<Store>>,
+) -> Result<Region, String> {
+    store
+        .region_create_with_parent(args, parent_region_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Apply a partial patch to a region.
@@ -979,10 +987,19 @@ fn region_update(
     store.region_update(id, patch).map_err(|e| e.to_string())
 }
 
-/// Delete a region (member blocks are kept, unlinked).
+/// Delete a region (member blocks are kept, unlinked). `mode` only matters
+/// when the region has children (Task C5): `cascade` deletes them too,
+/// `promote` clears their `parent_region_id` so they survive as top-level
+/// regions. Defaults to `cascade` when omitted.
 #[tauri::command]
-fn region_delete(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
-    store.region_delete(id).map_err(|e| e.to_string())
+fn region_delete(
+    id: i64,
+    mode: Option<RegionDeleteMode>,
+    store: State<'_, Arc<Store>>,
+) -> Result<(), String> {
+    store
+        .region_delete_mode(id, mode.unwrap_or_default())
+        .map_err(|e| e.to_string())
 }
 
 /// Merge `id_absorb` into `id_keep`.
@@ -1128,6 +1145,170 @@ fn score_marks_clear_page(
     store
         .score_marks_clear_page(piece_id, &edition_id, &edition_fingerprint, page)
         .map_err(|e| e.to_string())
+}
+
+// ── Measure mapping store CRUD (Plan C, task C1) ────────────────────────────
+//
+// Pure CRUD over schema v14's `measure_map` table plus the typed, versioned
+// systems model — no vision, no reconciliation (later Plan C tasks). Off the
+// main thread via `spawn_blocking`, the house idiom for store access here.
+
+/// Every mapped page for one piece+edition fingerprint, page-ordered. An empty
+/// vec means unmapped — the frontend then offers the scan-and-map flow.
+#[tauri::command]
+async fn measure_map_get(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<store::MeasureMapPageRow>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .measure_map_get(piece_id, &edition_id, &edition_fingerprint)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("measure map read worker failed: {e}"))?
+}
+
+/// Validate `pages` as a whole payload (cross-page bar-number continuity
+/// enforced at every page boundary present in the payload) and, only if every
+/// page is valid, atomically REPLACE ALL existing rows for
+/// `(piece_id, edition_fingerprint)` — not just the pages given here — in one
+/// transaction. A re-apply is therefore the new whole truth for that
+/// fingerprint: a previously-mapped page absent from `pages` is dropped, not
+/// preserved. A single invalid page rejects the whole call before the
+/// transaction opens, so nothing is written. Returns the number of pages
+/// written.
+#[tauri::command]
+async fn measure_map_apply(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    pages: Vec<store::MeasureMapPageRow>,
+    store: State<'_, Arc<Store>>,
+) -> Result<u32, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .measure_map_apply(piece_id, &edition_id, &edition_fingerprint, pages)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("measure map apply worker failed: {e}"))?
+}
+
+/// Delete every mapped page for one piece+edition fingerprint (destructive;
+/// the UI confirms first). Rows under any OTHER fingerprint of the same piece
+/// are untouched. Returns how many rows were removed.
+#[tauri::command]
+async fn measure_map_clear(
+    piece_id: i64,
+    edition_fingerprint: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<u32, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .measure_map_clear(piece_id, &edition_fingerprint)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("measure map clear worker failed: {e}"))?
+}
+
+/// Vision-scan one page for its measure geometry (Plan C, task C2). Never
+/// caches — every call is an explicit, user-triggered request through the
+/// SAME Claude-primary/Gemini-fallback provider chain (and key resolution)
+/// as the Brain. `page_jpeg` is `None` for the normal server-render path;
+/// when the server's fast path refuses a page (a vector edition) the error
+/// string is the exact literal `"needs_client_raster"`, and the frontend
+/// re-calls with a canvas-encoded JPEG.
+#[tauri::command]
+async fn measure_scan_page(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    page: u32,
+    page_jpeg: Option<Vec<u8>>,
+    store: State<'_, Arc<Store>>,
+) -> Result<score::measure_scan::ScanPageOutput, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let preference = store.get_setting("brain.provider").ok().flatten();
+        let chain = brain::ProviderChain::from_native_config_with_preference(preference.as_deref());
+        score::measure_scan::measure_scan_page(
+            &store,
+            piece_id,
+            &edition_id,
+            &edition_fingerprint,
+            page,
+            page_jpeg,
+            &chain,
+            &brain::NativeTransport::new(),
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("measure scan worker failed: {e}"))?
+}
+
+/// One page's input to [`measure_reconcile`]: the page number paired with its
+/// raw vision scan. The wire shape of `pages_json`'s array elements.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReconcilePageInput {
+    page: u32,
+    scan: score::measure_scan::ScanPageOutput,
+}
+
+/// Deterministically reconcile a set of page scans into a typed measure map
+/// (Plan C, task C3). Pure reconciliation is `score::measure_reconcile::reconcile`;
+/// this command only resolves its two optional inputs around that pure
+/// function — the piece's MusicXML totals (absent MusicXML -> `None`, the
+/// reconciliation still runs, just without the total-vs-XML check) and the
+/// edition's saved calibration anchors (absent calibration -> no anchors) —
+/// and returns the result straight back to the frontend. Nothing is written
+/// to storage here; `measure_map` is only ever changed by an explicit user
+/// Apply (`measure_map_apply`).
+#[tauri::command]
+async fn measure_reconcile(
+    piece_id: i64,
+    edition_id: String,
+    edition_fingerprint: String,
+    pages_json: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<score::measure_reconcile::ReconcileResult, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let inputs: Vec<ReconcilePageInput> = serde_json::from_str(&pages_json)
+            .map_err(|e| format!("measure reconcile pages are not valid JSON: {e}"))?;
+        let pages = inputs.into_iter().map(|p| (p.page, p.scan)).collect();
+
+        let xml = brain::score_xml_measure_facts(&store, piece_id)
+            .ok()
+            .and_then(|facts| {
+                facts
+                    .max_measure
+                    .map(|max_measure| score::measure_reconcile::XmlTotals {
+                        max_measure,
+                        has_pickup: facts.has_pickup,
+                    })
+            });
+
+        let anchors = store
+            .score_calibration_get(piece_id, &edition_id, &edition_fingerprint)
+            .map_err(|e| e.to_string())?
+            .map(|calibration| {
+                score::measure_reconcile::topmost_calibration_anchors(&calibration.points)
+            })
+            .unwrap_or_default();
+
+        Ok(score::measure_reconcile::reconcile(pages, xml, anchors))
+    })
+    .await
+    .map_err(|e| format!("measure reconcile worker failed: {e}"))?
 }
 
 // ── Practice Notebook: day sheets + per-piece long-term plans (spec §C2) ────
@@ -2098,6 +2279,11 @@ pub fn run() {
             score_mark_add,
             score_mark_undo,
             score_marks_clear_page,
+            measure_map_get,
+            measure_map_apply,
+            measure_map_clear,
+            measure_scan_page,
+            measure_reconcile,
             day_sheet_get,
             day_sheet_save,
             piece_plan_get,

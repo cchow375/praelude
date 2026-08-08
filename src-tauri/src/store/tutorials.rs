@@ -789,7 +789,9 @@ mod tests {
             )
             .is_err());
 
-        store.region_delete(first_region).unwrap();
+        store
+            .region_delete_mode(first_region, crate::store::model::RegionDeleteMode::Cascade)
+            .unwrap();
         assert_eq!(
             store.tutorial_video_list(piece_id).unwrap()[0].clips,
             vec![shared_views[0]
@@ -915,7 +917,9 @@ mod tests {
                 order: 0,
             })
             .unwrap();
-        store.region_delete(doomed).unwrap();
+        store
+            .region_delete_mode(doomed, crate::store::model::RegionDeleteMode::Cascade)
+            .unwrap();
         let conn = store.conn.lock().unwrap();
         assert_eq!(
             conn.query_row("SELECT count(*) FROM tutorial_clip", [], |row| row

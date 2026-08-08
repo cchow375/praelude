@@ -104,6 +104,9 @@ export interface Region {
   m_start: number;
   m_end: number;
   kind: string;
+  /** Task C5: the parent region, when this is a one-level sub-section
+   * (`target_meta.parent_region_id`). `null` for every top-level region. */
+  parent_region_id: number | null;
   order: number;
   color: string | null;
   pdf_anchor: unknown | null;

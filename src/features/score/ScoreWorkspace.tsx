@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { PieceSummary } from "../pieces/types";
 import type { PracticeBrainContext } from "../brain/types";
@@ -84,6 +84,12 @@ export function ScoreWorkspace({
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
   const [tab, setTab] = useState<WorkspaceTab>("score");
+  // ScoreView remounts fresh per piece (`key={selectedId}` below), which
+  // silently discards any unsaved measure-map review the moment `selectedId`
+  // changes — `beforeunload` never fires for an in-app SPA switch. Tracked
+  // in a ref (not state) so the picker's `onChange` can read it synchronously
+  // before committing the switch, without waiting on a re-render.
+  const measureMapDirtyRef = useRef(false);
 
   // Each navigation request sets the tab explicitly: a Plan deep link opens Plan
   // (spec C3); any other jump lands on the Score itself. A plain picker change is
@@ -256,6 +262,18 @@ export function ScoreWorkspace({
                 aria-label="Choose a piece"
                 value={selectedId ?? ""}
                 onChange={(event) => {
+                  if (
+                    measureMapDirtyRef.current &&
+                    !window.confirm(
+                      "Discard the measure-map review? Your scan/edits have not been applied.",
+                    )
+                  ) {
+                    // Revert the <select>'s own DOM value: the browser has
+                    // already changed it before this handler ran.
+                    event.target.value = String(selectedId ?? "");
+                    return;
+                  }
+                  measureMapDirtyRef.current = false;
                   const id = Number(event.target.value);
                   setNavigationError(null);
                   setSelectedId(id);
@@ -333,6 +351,9 @@ export function ScoreWorkspace({
                     ? { m_start: activeRep.m_start, m_end: activeRep.m_end }
                     : null
                 }
+                onMeasureMapDirtyChange={(dirty) => {
+                  measureMapDirtyRef.current = dirty;
+                }}
               />
             </div>
             {tab === "plan" && (

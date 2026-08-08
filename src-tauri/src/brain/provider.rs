@@ -1,6 +1,7 @@
 use std::process::Command;
 use std::time::Duration;
 
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -29,6 +30,10 @@ const MAX_SUGGESTIONS: usize = 4;
 const MAX_EXPANDED_CHARS: usize = 600;
 const MAX_EXPANDED_LINES: usize = 3;
 const MAX_SOURCE_ID_CHARS: usize = 128;
+// Vision page-scan (Plan C, C2) output bounds. A scanned page can carry many
+// systems/bars/printed numbers, so this needs more room than the Q&A answer
+// budget above; still far below either vendor's hard ceiling.
+const MAX_VISION_TOKENS: u32 = 4_096;
 
 const SYSTEM_POLICY: &str = r#"You are Coda, a grounded, conversational piano-practice explainer.
 Hard boundaries:
@@ -124,7 +129,7 @@ impl std::fmt::Debug for ProviderConfig {
 
 impl ProviderConfig {
     #[cfg(test)]
-    pub(super) fn test(preference: ProviderPreference, key: &str, model: &str) -> Self {
+    pub(crate) fn test(preference: ProviderPreference, key: &str, model: &str) -> Self {
         let provider = match preference {
             ProviderPreference::Claude | ProviderPreference::Auto => ProviderName::Claude,
             ProviderPreference::Gemini => ProviderName::Gemini,
@@ -167,7 +172,7 @@ impl ProviderChain {
     }
 
     #[cfg(test)]
-    pub(super) fn from_configs(configs: Vec<ProviderConfig>) -> Self {
+    pub(crate) fn from_configs(configs: Vec<ProviderConfig>) -> Self {
         Self { configs }
     }
 
@@ -361,6 +366,31 @@ impl ProviderChain {
         )?;
         Ok(run.value)
     }
+
+    /// Vision page-scan (Plan C, C2): one JPEG page image plus a text prompt,
+    /// through the SAME Claude-primary/Gemini-fallback chain, same
+    /// transport-retry/fallback semantics, as every text call above. Returns
+    /// every candidate text part the winning provider offered — content
+    /// parsing and the scan's own strict-JSON + one-retry contract are the
+    /// caller's job (`score::measure_scan`), not this module's.
+    pub fn vision_texts(
+        &self,
+        system: &str,
+        prompt: &str,
+        jpeg: &[u8],
+        transport: &dyn Transport,
+    ) -> Result<Vec<String>, BrainError> {
+        let run = self.run(
+            transport,
+            |config| match config.provider {
+                ProviderName::Claude => claude_vision_request(config, system, prompt, jpeg),
+                ProviderName::Gemini => gemini_vision_request(config, system, prompt, jpeg),
+                ProviderName::Offline => unreachable!(),
+            },
+            provider_texts,
+        )?;
+        Ok(run.value)
+    }
 }
 
 /// A successful provider round-trip: which provider answered, its model, and the
@@ -542,6 +572,76 @@ fn gemini_request(
             "contents": [{"role": "user", "parts": [{"text": user_prompt(question, source, context)}]}],
             "generationConfig": {
                 "maxOutputTokens": 4096,
+                "responseMimeType": "application/json",
+                "thinkingConfig": {"thinkingLevel": "minimal"}
+            }
+        }),
+    }
+}
+
+/// Claude image request (Plan C, C2 — additive; the text `claude_request`
+/// above is untouched). Content is an ordered array: the page image block
+/// first, the text prompt second — matching the vendor's documented
+/// image+text message shape. Same model/headers/timeout as the text path.
+fn claude_vision_request(
+    config: &ProviderConfig,
+    system: &str,
+    prompt: &str,
+    jpeg: &[u8],
+) -> HttpRequest {
+    let data = base64::engine::general_purpose::STANDARD.encode(jpeg);
+    HttpRequest {
+        url: ANTHROPIC_URL.into(),
+        headers: vec![
+            ("x-api-key".into(), config.api_key.expose().into()),
+            ("anthropic-version".into(), "2023-06-01".into()),
+        ],
+        body: json!({
+            "model": config.model,
+            "max_tokens": MAX_VISION_TOKENS,
+            "system": system,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": data,
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        }),
+    }
+}
+
+/// Gemini image request (Plan C, C2 — additive; the text `gemini_request`
+/// above is untouched). `inline_data` part first, text part second. Same
+/// model/headers/timeout as the text path.
+fn gemini_vision_request(
+    config: &ProviderConfig,
+    system: &str,
+    prompt: &str,
+    jpeg: &[u8],
+) -> HttpRequest {
+    let data = base64::engine::general_purpose::STANDARD.encode(jpeg);
+    HttpRequest {
+        url: format!("{GEMINI_BASE_URL}/{}:generateContent", config.model),
+        headers: vec![("x-goog-api-key".into(), config.api_key.expose().into())],
+        body: json!({
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [{
+                "role": "user",
+                "parts": [
+                    {"inline_data": {"mime_type": "image/jpeg", "data": data}},
+                    {"text": prompt},
+                ],
+            }],
+            "generationConfig": {
+                "maxOutputTokens": MAX_VISION_TOKENS,
                 "responseMimeType": "application/json",
                 "thinkingConfig": {"thinkingLevel": "minimal"}
             }
@@ -1096,6 +1196,133 @@ mod tests {
             .contains("Never assign or recommend a clean, flawed, or failed rep verdict"));
         assert!(EXPAND_SYSTEM_POLICY.contains("THREE short lines"));
         assert!(EXPAND_SYSTEM_POLICY.contains(r#"{"expanded":"..."}"#));
+    }
+
+    #[test]
+    fn claude_vision_request_carries_the_image_block_then_the_text_block() {
+        let api_key = "claude-vision-secret";
+        let config = ProviderConfig::test(ProviderPreference::Claude, api_key, "claude-test");
+        let jpeg = [0xFFu8, 0xD8, 0xFF, 0xD9];
+        let request = claude_vision_request(&config, "SYSTEM", "USER PROMPT", &jpeg);
+        assert_eq!(request.url, ANTHROPIC_URL);
+        assert_eq!(
+            request.headers,
+            vec![
+                ("x-api-key".to_string(), api_key.to_string()),
+                ("anthropic-version".to_string(), "2023-06-01".to_string()),
+            ]
+        );
+        assert_eq!(
+            request.body,
+            json!({
+                "model": "claude-test",
+                "max_tokens": MAX_VISION_TOKENS,
+                "system": "SYSTEM",
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": base64::engine::general_purpose::STANDARD.encode(jpeg),
+                            },
+                        },
+                        {"type": "text", "text": "USER PROMPT"},
+                    ],
+                }],
+            })
+        );
+        assert!(!request.body.to_string().contains(api_key));
+    }
+
+    #[test]
+    fn gemini_vision_request_carries_inline_data_then_the_text_part() {
+        let api_key = "gemini-vision-secret";
+        let config = ProviderConfig::test(ProviderPreference::Gemini, api_key, "gemini-test");
+        let jpeg = [0xFFu8, 0xD8, 0xFF, 0xD9];
+        let request = gemini_vision_request(&config, "SYSTEM", "USER PROMPT", &jpeg);
+        assert_eq!(
+            request.url,
+            format!("{GEMINI_BASE_URL}/gemini-test:generateContent")
+        );
+        assert_eq!(
+            request.headers,
+            vec![("x-goog-api-key".to_string(), api_key.to_string())]
+        );
+        assert_eq!(
+            request.body,
+            json!({
+                "systemInstruction": {"parts": [{"text": "SYSTEM"}]},
+                "contents": [{
+                    "role": "user",
+                    "parts": [
+                        {"inline_data": {
+                            "mime_type": "image/jpeg",
+                            "data": base64::engine::general_purpose::STANDARD.encode(jpeg),
+                        }},
+                        {"text": "USER PROMPT"},
+                    ],
+                }],
+                "generationConfig": {
+                    "maxOutputTokens": MAX_VISION_TOKENS,
+                    "responseMimeType": "application/json",
+                    "thinkingConfig": {"thinkingLevel": "minimal"}
+                }
+            })
+        );
+        assert!(!request.body.to_string().contains(api_key));
+    }
+
+    #[test]
+    fn vision_texts_falls_through_from_claude_to_gemini_on_transport_failure() {
+        let chain = ProviderChain::from_configs(vec![
+            ProviderConfig::test(ProviderPreference::Claude, "claude-secret", "claude-test"),
+            ProviderConfig::test(ProviderPreference::Gemini, "gemini-secret", "gemini-test"),
+        ]);
+        // Claude's transport failure is retried once (two Claude attempts) then
+        // falls through to Gemini, which succeeds — same chain semantics as
+        // every other provider call.
+        let transport = FakeTransport {
+            responses: std::sync::Mutex::new(
+                vec![
+                    Err(()),
+                    Err(()),
+                    Ok(HttpResponse::ok(json!({
+                        "candidates": [{"content": {"parts": [{"text": "{\"systems\":[]}"}]}}]
+                    }))),
+                ]
+                .into(),
+            ),
+            requests: Default::default(),
+        };
+        let texts = chain
+            .vision_texts("SYSTEM", "scan this page", &[0xFF, 0xD8], &transport)
+            .unwrap();
+        assert_eq!(texts, vec!["{\"systems\":[]}".to_string()]);
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0].url, ANTHROPIC_URL);
+        assert_eq!(requests[1].url, ANTHROPIC_URL);
+        assert!(requests[2].url.contains("gemini-test:generateContent"));
+    }
+
+    #[test]
+    fn text_request_builders_are_untouched_by_the_vision_addition() {
+        // Byte-identical guard: the existing text builders' shape must not
+        // have shifted while adding the vision path.
+        let config = ProviderConfig::test(ProviderPreference::Claude, "k", "claude-test");
+        let context = GroundedContext { json: "{}".into() };
+        let request = claude_request(
+            &config,
+            "hello",
+            QuestionSource::Typed,
+            &context,
+            SYSTEM_POLICY,
+        );
+        assert_eq!(request.body["max_tokens"], 900);
+        assert!(request.body.get("messages").unwrap()[0]["content"].is_string());
     }
 
     fn claude_body(text: &str) -> Vec<u8> {
