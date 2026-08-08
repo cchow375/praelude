@@ -144,6 +144,29 @@ const ANCHOR_CONFIDENCE_MIN: f64 = 0.5;
 /// once their overlap exceeds this fraction of the SMALLER band's height.
 const SYSTEM_OVERLAP_FRACTION_MAX: f64 = 0.2;
 
+/// (C6d) Engraving convention: a system-start measure number is typeset at
+/// the system's own LEFT margin — visually anchored to the start of the
+/// staff, not to any particular barline — so its `x` sits within this
+/// fraction of the system's own width from `x_left`, regardless of how many
+/// bars the system turns out to contain. C6c's own evidence (the residual
+/// `continuity_break`s that survived cross-page bracketing) traced back to
+/// exactly this: `bar_index_for_x` derives "which bar a number labels" from
+/// the model's own (possibly miscounted) `barline_xs`, so the SAME
+/// barline-miscounting defect this whole module exists to route around can
+/// ALSO corrupt the very anchor position it's trying to classify, when the
+/// miscount happens to fall in the bars BEFORE the anchor rather than after
+/// it. A number's PAGE POSITION is not corrupted by that defect at all — it
+/// comes straight from the vision model's OCR read of where the glyph sits,
+/// independent of barline counting — so this is a strictly more reliable
+/// signal for "is this a system-start anchor" than re-deriving it from
+/// `bar_index_for_x`. `0.15` is a generous but not credulous margin: wide
+/// enough to tolerate the model's coordinate noise (the prompt's own
+/// documented example number sits noticeably outside its system's y-band
+/// entirely), narrow enough that a number genuinely printed mid-system
+/// (this piece has none, but a denser edition might) still falls through to
+/// the ordinary barline-based classification below.
+const SYSTEM_START_LEADING_EDGE_FRACTION: f64 = 0.15;
+
 /// The MusicXML-derived totals `reconcile` checks the mapped total against.
 /// Wraps `brain::score_context::xml_measure_facts`'s `max_measure`; absent
 /// when the piece has no MusicXML (reconcile still runs, just without the
@@ -589,8 +612,22 @@ pub fn reconcile(
                 .iter()
                 .map(|b| b.x_right)
                 .collect();
-            let Some(local_idx) = bar_index_for_x(&right_edges, number.x) else {
-                continue;
+            // (C6d) Positional system-start override: a number printed in
+            // the system's own leading-edge zone pins the FIRST bar
+            // regardless of what the (possibly barline-miscounted)
+            // `bar_index_for_x` would say — see
+            // `SYSTEM_START_LEADING_EDGE_FRACTION`'s doc comment. Outside
+            // that zone, classification is unchanged: purely
+            // barline-position-derived, as before C6d.
+            let leading_edge_x = system.x_left
+                + SYSTEM_START_LEADING_EDGE_FRACTION * (system.x_right - system.x_left);
+            let local_idx = if number.x <= leading_edge_x {
+                0
+            } else {
+                let Some(idx) = bar_index_for_x(&right_edges, number.x) else {
+                    continue;
+                };
+                idx
             };
             if number.confidence < ANCHOR_CONFIDENCE_MIN {
                 conflicts.push(MapConflict::LowConfidenceAnchor {
@@ -1363,6 +1400,126 @@ mod tests {
             .iter()
             .flat_map(|s| s.bars.iter())
             .all(|b| b.source == MapBarSource::Model));
+    }
+
+    // ── positional system-start classification (C6d) ───────────────────
+
+    /// The core C6d fix: a number printed at `x_left + 0.05` — well inside
+    /// the leading-edge zone (`x_left + 0.15 * width`) — pins the system's
+    /// FIRST bar even when the system's own `barline_xs` is miscounted such
+    /// that `bar_index_for_x` would otherwise say local index 1: a
+    /// hallucinated extra barline at `x=0.12`, BEFORE the anchor at
+    /// `x=0.15`, is exactly the corruption shape C6c's own evidence traced
+    /// the residual `continuity_break`s to.
+    #[test]
+    fn an_anchor_at_the_leading_edge_of_a_miscounted_system_still_classifies_as_system_start() {
+        let page = page_output(vec![system(
+            0.10,
+            0.25,
+            0.10,                               // x_left
+            0.90, // x_right (width 0.80; leading edge = 0.10 + 0.15*0.80 = 0.22)
+            vec![0.12, 0.30, 0.50, 0.70, 0.90], // hallucinated extra barline at 0.12, BEFORE the anchor
+            vec![printed(1, 0.15, 0.09, 0.95)], // x_left + 0.05 — inside the leading-edge zone
+        )]);
+        let result = reconcile(vec![(1, page)], None, vec![]);
+        // Classified as local index 0 (not 1, which `bar_index_for_x` alone
+        // would have said): the leading span before it is empty, and the
+        // FIRST bar itself carries the anchor's confidence.
+        assert_eq!(result.pages[0].map.systems[0].bars[0].number, 1);
+        assert_eq!(
+            result.pages[0].map.systems[0].bars[0].confidence,
+            Some(0.95)
+        );
+        assert_eq!(
+            result.pages[0].map.systems[0].bars.len(),
+            5,
+            "the hallucinated extra barline itself is untouched by this fix — only ANCHOR \
+             classification changed, not barline counting: {:?}",
+            result.pages[0].map.systems[0].bars
+        );
+    }
+
+    /// The negative case: a number printed well INSIDE a system (past the
+    /// leading-edge zone) is NOT forced to local index 0 — classification
+    /// there is unchanged, purely `bar_index_for_x`-derived, exactly as
+    /// before C6d.
+    #[test]
+    fn an_anchor_mid_system_is_not_forced_to_the_leading_edge() {
+        let page = page_output(vec![system(
+            0.10,
+            0.25,
+            0.10,
+            0.90, // leading edge = 0.22
+            vec![0.30, 0.50, 0.70, 0.90],
+            vec![printed(3, 0.55, 0.09, 0.95)], // well past 0.22 — mid-system
+        )]);
+        let result = reconcile(vec![(1, page)], None, vec![]);
+        // x=0.55 falls into local index 2 by `bar_index_for_x` (first right
+        // edge strictly past 0.55 is 0.70, the 3rd bar) — back-fills 1,2
+        // then the anchor itself at 3, forward-fills 4.
+        let numbers: Vec<u32> = result.pages[0].map.systems[0]
+            .bars
+            .iter()
+            .map(|b| b.number)
+            .collect();
+        assert_eq!(numbers, vec![1, 2, 3, 4]);
+    }
+
+    /// End-to-end: reproduces the C6c-observed corruption shape (bars
+    /// BEFORE a system-start anchor miscounted, not just bars after it) and
+    /// shows it now brackets and resolves correctly instead of surviving as
+    /// a `continuity_break`. System 1's own barline_xs has a hallucinated
+    /// extra bar BEFORE its anchor "1" (x=0.12, before the anchor at 0.15);
+    /// system 2's anchor "9" sits cleanly at ITS OWN leading edge. Before
+    /// C6d, `bar_index_for_x` would have pinned "1" to local index 1 (not
+    /// 0), so system 1 would never have qualified as a bracket endpoint at
+    /// all and this pair would have surfaced as a plain `continuity_break`
+    /// (system 1's own leading corruption, not merely system 1's bar
+    /// COUNT, was the actual defect C6c's evidence traced to). With C6d,
+    /// "1" classifies as local index 0 regardless, the pair brackets, and
+    /// the disagreement (anchors imply 8 bars, model reports 5+4=9 combined
+    /// with the phantom leading bar) resolves via `derived_bar_count`.
+    #[test]
+    fn the_c6c_observed_leading_corruption_shape_now_brackets_and_resolves() {
+        let page = page_output(vec![
+            system(
+                0.10,
+                0.25,
+                0.10,
+                0.90,
+                vec![0.12, 0.30, 0.50, 0.70, 0.90], // hallucinated extra barline BEFORE the anchor
+                vec![printed(1, 0.15, 0.09, 0.95)],
+            ),
+            system(
+                0.35,
+                0.50,
+                0.10,
+                0.90,
+                vec![0.30, 0.50, 0.70, 0.90],
+                vec![printed(9, 0.14, 0.345, 0.95)],
+            ),
+        ]);
+        let result = reconcile(vec![(1, page)], None, vec![]);
+        assert!(
+            !result
+                .conflicts
+                .iter()
+                .any(|c| matches!(c, MapConflict::ContinuityBreak { .. })),
+            "the bracket must resolve, not survive as a continuity_break: {:?}",
+            result.conflicts
+        );
+        assert!(result.conflicts.contains(&MapConflict::DerivedBarCount {
+            page: 1,
+            system: 1,
+            expected: 8,
+            found: 5,
+        }));
+        assert_eq!(result.pages[0].map.systems[0].bars.len(), 8);
+        assert!(result.pages[0].map.systems[0]
+            .bars
+            .iter()
+            .all(|b| b.source == MapBarSource::Interpolated));
+        assert_eq!(result.pages[0].map.systems[1].bars[0].number, 9);
     }
 
     /// A mixed page: system 1->2 is a resolved bracket (model undercounted,
