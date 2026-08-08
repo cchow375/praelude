@@ -231,3 +231,97 @@ with the evidence — do not tune prompts blind; the controller decides the iter
 reported as blocked rather than attempting a blind prompt fix. The evidence above is specific
 enough to act on: printed-number reading needs no work; barline/bar-boundary geometry detection
 does, and a calibration-anchor pin is not the right repair mechanism for that class of defect.
+
+---
+
+## C6b iteration (system-start bracket rule)
+
+The controller's decision from the C6 finding above: when two consecutive real printed
+anchors each sit at their OWN system's first bar, AND are on immediately adjacent systems (no
+unlabeled system in between), the number gap between them is unambiguous ground truth for that
+earlier system's full bar count — independent of whatever `barline_xs` the model itself
+reported. `measure_reconcile::reconcile` now applies this deterministically: agreement keeps
+the model's positions; disagreement resynthesizes the system as N evenly spaced bars
+(`source: interpolated`, `confidence: None`) and raises a new low-severity `derived_bar_count`
+conflict instead of a `continuity_break`. A system whose successor's start has no real anchor
+(this piece's own convention: a page's first system is rarely itself numbered) is simply left
+alone, unchanged, falling through to the existing `continuity_break` handling. Mirrored in the
+TS `MapConflict` union, `describeConflict`, and the devMock's own `mockReconcile` (which
+independently re-derives the same contract offline for the QA harness). Full detail, the exact
+algorithm, and 4 new Rust tests (override / agreement / unbracketed / mixed page) are in
+`task-C6-report.md`'s "C6b" section and the `measure_reconcile.rs` module doc comment. Gates:
+`cargo test --lib` 808/0, `cargo clippy --all-targets -- -D warnings` clean, `vitest` 1982/0,
+`tsc --noEmit` clean.
+
+### Re-run mechanics
+
+The on-disk resumable cache from the C6 run (`plan-c-acceptance-ekier-cache`, keyed by page,
+under `std::env::temp_dir()`) survived intact: 23/25 Ekier pages were served from cache with
+**zero new API calls**. Only the 2 pages C6 never obtained (24, 25) were retried, across two
+process runs, respecting the brief's ≤6-call budget for this case: run 1 spent 4 calls
+(page 24 rate-limited even after one cooldown retry; page 25 succeeded and was cached), run 2
+spent 2 more calls retrying page 24 alone (rate-limited again). **Total: 6 real API calls this
+iteration**, all against Gemini (still no Claude/Anthropic key in this machine's Keychain — see
+the original C6 provider-chain note, unchanged). Page 25's OCR was checked against the
+hand-verified ground truth log and is exact, digit-for-digit (740, 748, 756, 762, 770), same as
+every other page. Page 24 remains never obtained (2/25 pages missing at C6, now 1/25) — the
+same real rate-limit gap, not a simulated one; no further retries were spent past the budget.
+
+### What changed, concretely
+
+Of the 22 within-page system-start brackets checked across the 24 obtained pages, 11 disagreed
+with the model's own `barline_xs` count and were corrected:
+
+| Page | System(s) corrected                                   | Effect                                                                                                                              |
+| ---- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 2    | 2, 3, 4                                               | Partial — page 2's system 1→5 span still has an uncorrected tail (unbracketed final system).                                        |
+| 8    | 3                                                     | Partial — page 8 still needed a pin for its own unbracketed final system.                                                           |
+| 10   | 1, 4                                                  | Partial — same pattern.                                                                                                             |
+| 19   | 1, 2, 3, 4 (all four bracketable systems on the page) | **Full** — page 19 no longer appears in the pinned-pages list at all; it reconciles correctly with zero pin. It needed a pin at C6. |
+| 23   | 1                                                     | Partial.                                                                                                                            |
+
+Landmarks are unaffected and still both exact: **m.67 → page 3**, **m.95 → page 4**. The
+`total_mismatch` gap narrowed sharply in absolute terms — **mapped 775 vs XML 780 (gap 5)**,
+down from C6's 700 vs 780 (gap 80) — but this narrowing is partly an artifact of how often the
+piece re-anchors (each page has ~4 printed numbers, so numbering resets close to correct near
+the END of the stream regardless of drift earlier in it) rather than proof the WHOLE piece's
+physical bar count is now right: 66 `continuity_break` conflicts remain (mostly each page's
+own unlabeled first system, which the bracket rule deliberately does not touch — see rule 2 in
+`measure_reconcile`'s doc comment) and page 24 is still entirely missing from the stream.
+
+### Recomputed acceptance verdicts (C6b)
+
+1. **Ekier sampled printed numbers (pages 2, 8, 14, 20, 25) after review-style pins**:
+   **still FAIL**, but narrower. Raw OCR remains 100% exact on every obtained page (now 24/25,
+   up from 23/25 — page 25 confirmed exact this run). The RECONCILED, pinned map's first bar
+   now matches ground truth exactly on 2/5 sampled pages (2 → 1, 8 → 209 — page 8 needed no
+   correction to land there, unlike at C6), against 3/5 mismatches (14: 404 vs 406; 20: 583 vs
+   584; 25: 708 vs 740, the last one entirely explained by page 24's continued absence). The
+   underlying defect for the remaining mismatches is specifically the un-bracketed,
+   page-opening system this rule was scoped to leave alone (rule 2), not a regression.
+2. **Ekier landmarks (m.67→p.3, m.95→p.4) + total reconciles under the pickup rule**:
+   **PARTIAL**, improved. Both landmarks still locate to the exact right page (unchanged). The
+   total's absolute gap narrowed from 80 to 5, but for the reason explained above (frequent
+   re-anchoring resets late-stream drift), not because the whole piece's physical bar count is
+   now correct — 66 `continuity_break`s remain, concentrated on each page's unlabeled first
+   system, plus page 24 is still entirely unmapped.
+3. **Cortot multi-staff arm (system count exact, bars within 1/page)**: **not re-run** — this
+   arm's evidence never goes through `measure_reconcile` at all (each page is scanned and
+   hand-compared in isolation, no page-to-page or within-page printed-number anchors to
+   bracket), so the C6b algorithm change has no mechanism to affect it. Per the brief
+   ("if its pages lack per-system numbering, an honest PARTIAL stands"), the original C6
+   verdict — system count exact on 2/3 pages, bar-count-within-1 met on 0/3 — is carried
+   forward unchanged rather than re-asserted without new evidence.
+
+**Overall: still BLOCKED**, per the same instruction as C6 ("if acceptance STILL fails, report
+BLOCKED with the evidence — no further blind iteration"). The controller's specific, targeted
+fix is implemented, tested, and shipped (all gates green) and produced a real, measured
+improvement (one full page and parts of four others auto-corrected with zero operator pins,
+the total gap narrowed 80→5, 24/25 pages now obtained), but the piece does not yet fully
+reconcile end-to-end against ground truth. The remaining gap is now narrower and differently
+shaped than at C6: it is concentrated in the unbracketed, page-opening systems (by design left
+untouched by this rule) plus the still-missing page 24 — a different, smaller-scoped problem
+than C6's "barline counting is unreliable everywhere," and a plausible target for a further,
+explicitly-scoped iteration (e.g. extending the bracket rule to use calibration-pin anchors as
+bracket endpoints too, or a geometry-validation pass), but that is the controller's call, not
+this iteration's to make unprompted.
