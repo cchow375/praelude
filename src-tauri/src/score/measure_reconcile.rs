@@ -71,27 +71,59 @@
 //! This module resolves the one case where the truth genuinely IS
 //! recoverable without trusting the model's barline count at all: when two
 //! consecutive real printed anchors each pin their own system's very first
-//! bar (local index 0) AND are on immediately adjacent systems (the earlier
-//! anchor's system, then the very next system in page/`y_top` stream
-//! order — no unlabeled system in between), the number gap between them is
-//! unambiguous ground truth for the FULL bar count of the earlier anchor's
-//! system, independent of whatever `barline_xs` the model reported for it.
-//! When the model's count already agrees, nothing changes (`source:
-//! "model"` positions are kept as-is). When it disagrees, that system's
-//! bars are resynthesized as N evenly spaced positions across its own
-//! `x_left..x_right` span (N = the anchors' number gap), every one
-//! `source: "interpolated"`, `confidence: None` — the model's individual
-//! barline positions are no longer trusted for this system, even any that
-//! happened to be at the right count by coincidence. This deliberately does
-//! NOT raise a `continuity_break` for the resolved pair (the disagreement
-//! was resolved, not merely flagged); a low-severity `derived_bar_count`
-//! conflict is pushed instead so the review UI can still show that a
-//! system's geometry was machine-corrected.
+//! bar (local index 0), the number gap between them is unambiguous ground
+//! truth for the FULL bar count of every system physically between them,
+//! independent of whatever `barline_xs` the model reported for any of
+//! those systems. When the combined model count of that span already
+//! agrees, nothing changes (`source: "model"` positions are kept as-is
+//! everywhere in it). When it disagrees, EVERY system in the span is
+//! resynthesized: each gets `N` evenly spaced positions across its own
+//! `x_left..x_right` (`source: "interpolated"`, `confidence: None`), where
+//! the `N`s are the bracket's derived total distributed across the span's
+//! systems by the largest-remainder / Hamilton apportionment method
+//! (proportional to each system's own ORIGINAL count, remainder bars going
+//! to the systems with the largest fractional share — see
+//! `largest_remainder_distribute`'s own doc comment for the exact
+//! algorithm and why it's deterministic). A system whose redistributed
+//! share happens to equal its original count is left untouched even inside
+//! a resolved bracket. This deliberately does NOT raise a
+//! `continuity_break` for the resolved pair (the disagreement was
+//! resolved, not merely flagged); a low-severity `derived_bar_count`
+//! conflict is pushed per CHANGED system instead, so the review UI can
+//! still show that its geometry was machine-corrected.
 //!
-//! A system whose start (or whose successor's start) has no real anchor —
-//! e.g. this piece's convention that a page's first system is rarely itself
-//! numbered — is simply NOT bracketed: it falls through to the ordinary
-//! `continuity_break` handling above, unchanged.
+//! A system's start with no real anchor — e.g. this piece's convention
+//! that a page's first system is rarely itself numbered — simply cannot be
+//! a bracket ENDPOINT; it still gets swept INTO whichever bracket its real
+//! neighbors form around it (C6c, below), and only truly escapes
+//! resynthesis when no such bracket exists at all (the ordinary
+//! `continuity_break` handling applies unchanged in that case).
+//!
+//! ## Cross-page brackets and the virtual end anchor (C6c)
+//!
+//! C6b's first cut required a bracket's two endpoints to be on IMMEDIATELY
+//! adjacent systems — real per-page evidence showed the actual defect
+//! recurring at page boundaries too (a page's own opening system is
+//! usually unlabeled, so drift accumulated there uncorrected). C6c drops
+//! that restriction: a bracket's span is simply every system between two
+//! consecutive system-start anchors in the GLOBAL page/system/bar stream,
+//! however many pages or unlabeled systems it crosses. The redistribution
+//! math is identical either way — a single-system span (C6b's original
+//! case) is just the `n == 1` case of the same apportionment.
+//!
+//! C6c also adds one VIRTUAL bracket endpoint: when `XmlTotals` is
+//! available and at least one real system-start anchor exists anywhere,
+//! a synthetic anchor `{ index: end_of_stream, number: max_measure + 1 }`
+//! closes the bracket chain, so the TRAILING span (after the last real
+//! anchor) is bracketed too, exactly like any other span — this is why
+//! `total_mismatch` now rarely fires when a system-start anchor exists:
+//! the total is corrected the same way any other bracket disagreement is,
+//! rather than merely being reported as still wrong. The LEADING span
+//! (before the very first anchor) is deliberately NOT given a symmetric
+//! virtual start anchor — it already has its own, different mechanism (the
+//! back-fill described above), and turning it into a bracket too would
+//! mean trusting a page-1-to-anchor gap that has no independent evidence
+//! backing its total the way `max_measure` backs the trailing one.
 
 use std::cmp::Ordering;
 
@@ -211,18 +243,22 @@ pub enum MapConflict {
         measure: u32,
         confidence: f64,
     },
-    /// Low-severity, informational (C6b): this system's bar count came from
-    /// the SYSTEM-START BRACKET RULE, not the model's own `barline_xs` —
-    /// both this system's first bar AND the very next system's first bar
-    /// carried real printed anchors, so the number gap between them is
-    /// authoritative for how many bars actually exist in between, and the
-    /// model's own count (`found`) disagreed with it (`expected`). The
-    /// system's bars were resynthesized as `expected` evenly spaced
-    /// positions across its own x-span (`source: interpolated`,
-    /// `confidence: None` on every bar in it) rather than merely flagged —
-    /// this never accompanies a `continuity_break` for the same pair (the
-    /// disagreement was resolved, not left open). See
-    /// `measure_reconcile`'s module doc comment, "System-start bracketing".
+    /// Low-severity, informational (C6b, extended C6c): this system's bar
+    /// count came from the SYSTEM-START BRACKET RULE, not the model's own
+    /// `barline_xs` — it sits (possibly alongside other systems) between
+    /// two system-start anchors (real ones, or C6c's virtual end-of-piece
+    /// anchor derived from `XmlTotals`) whose number gap disagreed with the
+    /// SUM of the model's own counts across the whole bracketed span. This
+    /// system's individual share of that gap (`expected`, via
+    /// largest-remainder apportionment when the span covers more than one
+    /// system) disagreed with its own model count (`found`), so its bars
+    /// were resynthesized as `expected` evenly spaced positions across its
+    /// own x-span (`source: interpolated`, `confidence: None` on every bar
+    /// in it) rather than merely flagged — one `derived_bar_count` per
+    /// CHANGED system in a span, never a `continuity_break` for the
+    /// resolved bracket pair (the disagreement was resolved, not left
+    /// open). See `measure_reconcile`'s module doc comment, "System-start
+    /// bracketing" and "Cross-page brackets and the virtual end anchor".
     DerivedBarCount {
         page: u32,
         system: u32,
@@ -331,6 +367,53 @@ fn system_index_for(starts: &[usize], counts: &[usize], idx: usize) -> Option<us
         }
     }
     starts.iter().rposition(|&start| start == idx)
+}
+
+/// (C6c) Distribute `target` bars across the systems in `old_counts` (same
+/// order), proportional to each system's own ORIGINAL count, using the
+/// largest-remainder / Hamilton apportionment method: each system's exact
+/// share is `target * old_count / found` (`found` = `old_counts.sum()`);
+/// take the floor of every share as its base allocation, then hand out the
+/// leftover (`target` minus the sum of the floors — always `< old_counts.len()`)
+/// one bar at a time to the systems with the largest fractional remainder,
+/// ties broken by earlier index — fully deterministic, same input always
+/// produces the same output (this module's whole contract). When every
+/// system in the span had zero bars (`found == 0`, degenerate/garbage
+/// input), splits `target` as evenly as possible instead, remainder again
+/// going to the earliest indices. A system whose proportional share rounds
+/// to zero can end up with a genuinely empty allocation here — deliberately
+/// not special-cased; `apply_invariant_conflicts` (Pass 10) already flags an
+/// empty system as `unapplyable`, which is the honest outcome when a
+/// bracket's evidence structurally cannot support one bar per system in its
+/// span.
+fn largest_remainder_distribute(old_counts: &[usize], target: usize) -> Vec<usize> {
+    let n = old_counts.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let found: usize = old_counts.iter().sum();
+    if found == 0 {
+        let base = target / n;
+        let remainder = target % n;
+        return (0..n).map(|i| base + usize::from(i < remainder)).collect();
+    }
+    let mut bases = vec![0usize; n];
+    let mut remainders: Vec<(usize, u64)> = Vec::with_capacity(n);
+    let mut assigned = 0usize;
+    for (i, &count) in old_counts.iter().enumerate() {
+        let numerator = target as u64 * count as u64;
+        let base = (numerator / found as u64) as usize;
+        let remainder = numerator % found as u64;
+        bases[i] = base;
+        assigned += base;
+        remainders.push((i, remainder));
+    }
+    let shortfall = target.saturating_sub(assigned);
+    remainders.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    for &(i, _) in remainders.iter().take(shortfall) {
+        bases[i] += 1;
+    }
+    bases
 }
 
 /// A resolved numbering anchor: a global bar-stream index paired with the
@@ -533,47 +616,75 @@ pub fn reconcile(
     printed_anchors.sort_by_key(|a| a.index);
     printed_anchors.dedup_by_key(|a| a.index);
 
-    // Pass 3 (C6b): system-start bracket resolution. See the module doc
-    // comment's "System-start bracketing" section for the full rationale.
-    // Determined entirely from the ORIGINAL geometry/anchors above — no
-    // cascading, since each system's bracket check only ever looks at its
-    // own start and its immediate successor's start.
+    // Pass 3 (C6b, extended C6c): system-start bracket resolution. See the
+    // module doc comment's "System-start bracketing" section for the full
+    // rationale. Determined entirely from the ORIGINAL geometry/anchors
+    // above — no cascading, since a bracket's span is fixed by its two
+    // boundary anchors' ORIGINAL indices, independent of any other
+    // bracket's outcome.
     let old_bars_start: Vec<usize> = system_works.iter().map(|s| s.bars_start).collect();
     let old_bar_count: Vec<usize> = system_works.iter().map(|s| s.bar_count).collect();
     let mut new_bar_count: Vec<usize> = old_bar_count.clone();
-    for i in 0..system_works.len() {
-        if i + 1 >= system_works.len() {
+
+    // The bracket chain: every REAL printed anchor that sits at its own
+    // system's first bar, in stream order (C6c: no longer restricted to
+    // immediately adjacent systems — a page's trailing systems and the next
+    // page's opening systems bracket together exactly like two systems on
+    // the same page). Plus (C6c) a VIRTUAL trailing anchor derived from the
+    // MusicXML total, when present: `max_measure + 1` at the very end of
+    // the ORIGINAL bar stream, so the span after the LAST real anchor is
+    // bracketed too (the leading span before the FIRST anchor is
+    // deliberately NOT extended this way — it already has its own
+    // back-fill-from-first-anchor mechanism, see the module doc comment).
+    let system_starts: std::collections::HashSet<usize> = old_bars_start.iter().copied().collect();
+    let mut bracket_anchors: Vec<Anchor> = printed_anchors
+        .iter()
+        .copied()
+        .filter(|a| system_starts.contains(&a.index))
+        .collect();
+    if let (Some(xml), Some(last_real)) = (xml, bracket_anchors.last().copied()) {
+        let last_system = system_works.last();
+        bracket_anchors.push(Anchor {
+            index: bar_works.len(),
+            number: xml.max_measure.saturating_add(1),
+            page: last_system.map_or(last_real.page, |s| s.page),
+            system: last_system.map_or(last_real.system, |s| s.system + 1),
+            confidence: None,
+        });
+    }
+
+    for pair in bracket_anchors.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        let span: Vec<usize> = (0..system_works.len())
+            .filter(|&i| old_bars_start[i] >= a.index && old_bars_start[i] < b.index)
+            .collect();
+        if span.is_empty() {
             continue;
         }
-        let a_index = old_bars_start[i];
-        let b_index = old_bars_start[i + 1];
-        let Some(a) = printed_anchors
-            .iter()
-            .find(|anchor| anchor.index == a_index)
-        else {
-            continue;
-        };
-        let Some(b) = printed_anchors
-            .iter()
-            .find(|anchor| anchor.index == b_index)
-        else {
-            continue;
-        };
         let expected = b.number.saturating_sub(a.number);
-        let found = old_bar_count[i] as u32;
+        let found: u32 = span.iter().map(|&i| old_bar_count[i] as u32).sum();
         // `expected == 0` (a degenerate/contradictory anchor pair) is left
         // to the ordinary continuity-break handling below rather than
-        // synthesizing a zero-bar system.
+        // synthesizing a zero-or-negative-bar system.
         if expected == found || expected == 0 {
             continue;
         }
-        conflicts.push(MapConflict::DerivedBarCount {
-            page: system_works[i].page,
-            system: system_works[i].system,
-            expected,
-            found,
-        });
-        new_bar_count[i] = expected as usize;
+        let span_old_counts: Vec<usize> = span.iter().map(|&i| old_bar_count[i]).collect();
+        let span_new_counts = largest_remainder_distribute(&span_old_counts, expected as usize);
+        for (k, &i) in span.iter().enumerate() {
+            if span_new_counts[k] == old_bar_count[i] {
+                // The redistribution happened to land this system back on
+                // its own model count — nothing to change, nothing to flag.
+                continue;
+            }
+            conflicts.push(MapConflict::DerivedBarCount {
+                page: system_works[i].page,
+                system: system_works[i].system,
+                expected: span_new_counts[k] as u32,
+                found: old_bar_count[i] as u32,
+            });
+            new_bar_count[i] = span_new_counts[k];
+        }
     }
 
     // Rebuild bars_start cumulatively from the (possibly overridden) counts,
@@ -1115,13 +1226,23 @@ mod tests {
         );
     }
 
-    /// A system whose start anchor exists but whose SUCCESSOR's start has no
-    /// printed anchor (this piece's own convention: system 3's start is
-    /// unlabeled) is NOT bracketed — the ordinary `continuity_break`
-    /// handling from before C6b still applies unchanged, no
-    /// `derived_bar_count` is produced, and no bars are resynthesized.
+    /// UPDATED for C6c (was
+    /// `a_system_whose_successor_start_is_unanchored_is_left_unbracketed`,
+    /// which pinned the PRE-C6c restriction that a bracket could only span
+    /// two IMMEDIATELY adjacent systems). System 1's start anchor ("1") and
+    /// system 3's start anchor ("20") now bracket the WHOLE span between
+    /// them — system 1 AND system 2 (system 2's own start has no printed
+    /// number at all, exactly this piece's convention of an unlabeled
+    /// system) — since a bracket is no longer restricted to a single
+    /// successor system (C6c: "consecutive system-start anchors in the
+    /// GLOBAL stream"). The combined span (4 + 3 = 7 model bars) disagrees
+    /// with what the anchors imply (20-1=19), so BOTH systems get
+    /// redistributed via the largest-remainder method, proportional to
+    /// their own original counts: system 1 (4/7 share) -> 11, system 2
+    /// (3/7 share) -> 8 (11+8=19 exactly). No `continuity_break` for this
+    /// pair — resolved, not flagged.
     #[test]
-    fn a_system_whose_successor_start_is_unanchored_is_left_unbracketed() {
+    fn a_multi_system_bracket_redistributes_proportionally_across_every_system_in_its_span() {
         let page = page_output(vec![
             system(
                 0.10,
@@ -1144,16 +1265,88 @@ mod tests {
                 0.75,
                 0.10,
                 0.90,
-                vec![0.30, 0.50, 0.70, 0.90], // system 3's start is anchored...
+                vec![0.30, 0.50, 0.70, 0.90], // system 3's start is anchored "20"
                 vec![printed(20, 0.10, 0.595, 0.95)],
             ),
         ]);
         let result = reconcile(vec![(1, page)], None, vec![]);
-        // ...but system 2's start (the anchor pair's PREDECESSOR system 1's
-        // successor) is not, so system 1 -> system 3's anchor pair is not a
-        // system-start bracket (system 1's immediate successor is system 2,
-        // unanchored) — falls through to the plain continuity check across
-        // the combined 7-bar span (system 1 + system 2).
+        assert!(
+            !result
+                .conflicts
+                .iter()
+                .any(|c| matches!(c, MapConflict::ContinuityBreak { .. })),
+            "resolved multi-system bracket must not also raise a continuity_break: {:?}",
+            result.conflicts
+        );
+        assert!(result.conflicts.contains(&MapConflict::DerivedBarCount {
+            page: 1,
+            system: 1,
+            expected: 11,
+            found: 4,
+        }));
+        assert!(result.conflicts.contains(&MapConflict::DerivedBarCount {
+            page: 1,
+            system: 2,
+            expected: 8,
+            found: 3,
+        }));
+        let system1 = &result.pages[0].map.systems[0];
+        let system2 = &result.pages[0].map.systems[1];
+        let system3 = &result.pages[0].map.systems[2];
+        assert_eq!(system1.bars.len(), 11);
+        assert_eq!(system2.bars.len(), 8);
+        assert_eq!(
+            system3.bars.len(),
+            4,
+            "system 3 untouched: {:?}",
+            system3.bars
+        );
+        assert!(system1
+            .bars
+            .iter()
+            .all(|b| b.source == MapBarSource::Interpolated));
+        assert!(system2
+            .bars
+            .iter()
+            .all(|b| b.source == MapBarSource::Interpolated));
+        assert!(system3.bars.iter().all(|b| b.source == MapBarSource::Model));
+        let numbers: Vec<u32> = result.pages[0]
+            .map
+            .systems
+            .iter()
+            .flat_map(|s| s.bars.iter().map(|b| b.number))
+            .collect();
+        assert_eq!(numbers, (1..=23).collect::<Vec<u32>>());
+    }
+
+    /// The true C6c "unbracketed" edge case: a printed number that does NOT
+    /// sit at its own system's first bar can never be a bracket endpoint —
+    /// with only ONE real system-start anchor anywhere (system 1's "1"),
+    /// there is no SECOND system-start anchor to pair it with (system 2's
+    /// "9" is mid-system, not at local index 0), so no bracket forms at
+    /// all: the ordinary `continuity_break` handling applies unchanged, and
+    /// no bars are resynthesized anywhere.
+    #[test]
+    fn a_printed_number_not_at_its_own_systems_start_can_never_bracket() {
+        let page = page_output(vec![
+            system(
+                0.10,
+                0.25,
+                0.10,
+                0.90,
+                vec![0.30, 0.50, 0.70, 0.90], // 4 bars, anchored "1" at its start
+                vec![printed(1, 0.10, 0.09, 0.95)],
+            ),
+            system(
+                0.35,
+                0.50,
+                0.10,
+                0.90,
+                vec![0.30, 0.50, 0.70, 0.90], // 4 bars, "9" pins local index 2, NOT the start
+                vec![printed(9, 0.65, 0.345, 0.95)],
+            ),
+        ]);
+        let result = reconcile(vec![(1, page)], None, vec![]);
         assert!(
             !result
                 .conflicts
@@ -1162,15 +1355,8 @@ mod tests {
             "{:?}",
             result.conflicts
         );
-        assert!(result.conflicts.contains(&MapConflict::ContinuityBreak {
-            page: 1,
-            system: 1,
-            expected: 19,
-            found: 7,
-        }));
-        // Bars are untouched: still the model's original positions/counts.
         assert_eq!(result.pages[0].map.systems[0].bars.len(), 4);
-        assert_eq!(result.pages[0].map.systems[1].bars.len(), 3);
+        assert_eq!(result.pages[0].map.systems[1].bars.len(), 4);
         assert!(result.pages[0]
             .map
             .systems
@@ -1280,17 +1466,86 @@ mod tests {
 
     // ── total mismatch ───────────────────────────────────────────────
 
+    /// UPDATED for C6c: `clean_page`'s single system-1 anchor ("1") now
+    /// pairs with the VIRTUAL end anchor C6c derives from
+    /// `xml.max_measure` (`max_measure + 1` at the very end of the
+    /// original stream) — the trailing span (both systems, 4+4=8 model
+    /// bars) disagrees with what that pair implies (11-1=10), so it gets
+    /// redistributed (5 bars each) instead of merely producing a
+    /// `total_mismatch`: the whole point of the virtual end anchor is that
+    /// a `total_mismatch` should no longer fire when there IS a
+    /// system-start anchor to derive the true trailing count from. See
+    /// `a_total_mismatch_still_fires_without_any_system_start_anchor` for
+    /// the case where `total_mismatch` still applies.
     #[test]
-    fn total_mismatch_against_xml_max_measure_is_flagged() {
+    fn a_virtual_end_anchor_resolves_the_total_via_derived_bar_count_instead_of_total_mismatch() {
         let page = clean_page(vec![printed(1, 0.10, 0.09, 0.95)]); // 8 bars total, ends at 8
         let xml = XmlTotals {
             max_measure: 10,
             has_pickup: false,
         };
         let result = reconcile(vec![(1, page)], Some(xml), vec![]);
+        assert!(
+            !result
+                .conflicts
+                .iter()
+                .any(|c| matches!(c, MapConflict::TotalMismatch { .. })),
+            "{:?}",
+            result.conflicts
+        );
+        assert!(result.conflicts.contains(&MapConflict::DerivedBarCount {
+            page: 1,
+            system: 1,
+            expected: 5,
+            found: 4,
+        }));
+        assert!(result.conflicts.contains(&MapConflict::DerivedBarCount {
+            page: 1,
+            system: 2,
+            expected: 5,
+            found: 4,
+        }));
+        let last = result.pages[0]
+            .map
+            .systems
+            .last()
+            .and_then(|s| s.bars.last())
+            .map(|b| b.number);
+        assert_eq!(last, Some(10));
+    }
+
+    /// The virtual end anchor only exists when there is at least one REAL
+    /// system-start anchor to pair it with (see the module doc comment) —
+    /// with printed numbers that never land at their own system's first
+    /// bar, no bracket (real-to-real OR real-to-virtual) can ever form, so
+    /// `total_mismatch` still fires exactly as it did before C6c.
+    #[test]
+    fn a_total_mismatch_still_fires_without_any_system_start_anchor() {
+        let page = page_output(vec![system(
+            0.10,
+            0.25,
+            0.10,
+            0.90,
+            vec![0.30, 0.50, 0.70, 0.90],
+            vec![printed(3, 0.65, 0.09, 0.95)], // pins local index 2, not the start
+        )]);
+        let xml = XmlTotals {
+            max_measure: 10,
+            has_pickup: false,
+        };
+        let result = reconcile(vec![(1, page)], Some(xml), vec![]);
+        assert!(
+            !result
+                .conflicts
+                .iter()
+                .any(|c| matches!(c, MapConflict::DerivedBarCount { .. })),
+            "{:?}",
+            result.conflicts
+        );
         assert!(result
             .conflicts
-            .contains(&MapConflict::TotalMismatch { mapped: 8, xml: 10 }));
+            .iter()
+            .any(|c| matches!(c, MapConflict::TotalMismatch { .. })));
     }
 
     #[test]
@@ -1778,5 +2033,71 @@ mod tests {
         let pages = vec![(1, clean_page(vec![printed(1, 0.10, 0.09, 0.95)]))];
         let result = reconcile(pages, None, vec![]);
         assert!(!result.has_pickup);
+    }
+
+    /// (C6c) A hallucinated EMPTY system (zero `barline_xs`, the model
+    /// reporting a system with no bars in it) sitting BETWEEN two bracket
+    /// endpoints must not panic or silently swallow the invariant check:
+    /// the span [system1's "1" .. system3's "9") covers all three systems
+    /// (system 2's empty count of 0 counts toward `found`), disagrees with
+    /// what the anchors imply, and gets redistributed. A system whose
+    /// largest-remainder share floors to zero stays empty and is still
+    /// caught by `apply_invariant_conflicts` (Pass 10) as `unapplyable` —
+    /// this rule deliberately does not paper over that with an invented
+    /// minimum of 1.
+    #[test]
+    fn a_hallucinated_empty_system_between_two_bracket_endpoints_does_not_panic() {
+        let page = page_output(vec![
+            system(
+                0.10,
+                0.25,
+                0.10,
+                0.90,
+                vec![0.30, 0.50, 0.70, 0.90], // 4 bars, anchored "1"
+                vec![printed(1, 0.10, 0.09, 0.95)],
+            ),
+            system(
+                0.30,
+                0.33,
+                0.10,
+                0.90,
+                vec![], // hallucinated EMPTY system, no printed numbers
+                vec![],
+            ),
+            system(
+                0.40,
+                0.55,
+                0.10,
+                0.90,
+                vec![0.30, 0.50, 0.90], // 3 bars, anchored "9"
+                vec![printed(9, 0.10, 0.39, 0.95)],
+            ),
+        ]);
+        let result = reconcile(vec![(1, page)], None, vec![]);
+        // Span: system1 (4) + system2 (0) = found 4; expected 9-1=8.
+        // Largest-remainder over old_counts=[4,0], target=8: system1's
+        // share is 8*4/4=8 exact, system2's is 8*0/4=0 — system2 stays
+        // empty, still flagged unapplyable by the existing invariant pass.
+        assert!(result.conflicts.contains(&MapConflict::DerivedBarCount {
+            page: 1,
+            system: 1,
+            expected: 8,
+            found: 4,
+        }));
+        assert!(
+            result.conflicts.iter().any(|c| matches!(
+                c,
+                MapConflict::Unapplyable {
+                    page: 1,
+                    system: 2,
+                    ..
+                }
+            )),
+            "{:?}",
+            result.conflicts
+        );
+        assert_eq!(result.pages[0].map.systems[0].bars.len(), 8);
+        assert_eq!(result.pages[0].map.systems[1].bars.len(), 0);
+        assert_eq!(result.pages[0].map.systems[2].bars.len(), 3);
     }
 }
