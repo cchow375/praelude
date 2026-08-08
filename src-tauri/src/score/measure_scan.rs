@@ -327,6 +327,62 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
+    // ── SCAN_PAGE_PROMPT_V1 (L3): the load-bearing instructions ──────────
+    //
+    // The prompt is the whole contract with the vision model: three things in
+    // it are load-bearing enough that quietly editing them away would silently
+    // degrade every scan without failing any other test. Pinned verbatim.
+
+    #[test]
+    fn scan_prompt_v1_pins_its_load_bearing_instructions() {
+        // 1. The bar-line instruction MUST keep the final bar line — dropping
+        //    it loses the last measure of every system.
+        assert!(
+            SCAN_PAGE_PROMPT_V1.contains("including the final bar line"),
+            "prompt must still ask for the final bar line"
+        );
+
+        // 2. The never-infer rule — the app's golden rule (report only what is
+        //    printed) applied to the model.
+        assert!(
+            SCAN_PAGE_PROMPT_V1.contains(
+                "NEVER infer, guess, or count out a measure number that is not actually printed"
+            ),
+            "prompt must still forbid inferring unprinted measure numbers"
+        );
+        assert!(
+            SCAN_PAGE_PROMPT_V1
+                .contains("ONLY measure numbers that are ACTUALLY PRINTED on the page"),
+            "prompt must still scope printed_numbers to actually-printed numbers"
+        );
+
+        // 3. All THREE worked system-shape examples (grand staff /
+        //    multi-instrument / single line) — the staves field is read
+        //    straight off these.
+        assert!(SCAN_PAGE_PROMPT_V1.contains("System-shape examples"));
+        for example in [
+            "Grand staff (solo piano, 2 staves bracketed together):",
+            "Multi-instrument system (e.g. a trio, 3 staves bracketed together):",
+            "Single-line system (one melodic staff, no bracket):",
+        ] {
+            assert!(
+                SCAN_PAGE_PROMPT_V1.contains(example),
+                "prompt must still carry the worked example: {example}"
+            );
+        }
+        assert_eq!(
+            SCAN_PAGE_PROMPT_V1.matches("\"y_top\":0.").count(),
+            3,
+            "exactly three worked system examples are expected \
+             (the fourth \"y_top\" is the output-contract shape, not an example)"
+        );
+
+        // And the strict-JSON output contract the deny_unknown_fields type
+        // depends on.
+        assert!(SCAN_PAGE_PROMPT_V1.contains("Return EXACTLY ONE JSON object"));
+        assert!(SCAN_PAGE_PROMPT_V1.contains("Systems MUST be ordered top-to-bottom by y_top."));
+    }
+
     // ── strip_code_fence / parse_scan_output ────────────────────────────
 
     #[test]

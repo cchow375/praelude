@@ -118,6 +118,19 @@ const PIECES: PieceSummary[] = [
     has_pdf: false,
     intake_done: false,
   },
+  {
+    // Id 6 on purpose: `PICKUP_DEMO_PIECE_ID` (see the measure-mapping
+    // section below) is the mock's pickup fixture — every page reports zero
+    // printed numbers, so a scan produces `pickup_ambiguity`. Listing it here
+    // makes that flow reachable by CLICKING through the pieces list in
+    // `npm run dev:mock`, instead of only by a test hardcoding piece_id 6.
+    id: 6,
+    title: "Menuet in G (pickup demo)",
+    composer: "Christian Petzold",
+    has_xml: false,
+    has_pdf: true,
+    intake_done: true,
+  },
 ];
 
 // Canned IMSLP add-a-score data for the dev harness (no network). The search
@@ -224,6 +237,26 @@ const PIECE_DETAILS: Record<number, PieceDetailData> = {
     target_tempo: null,
     hard_spots: [],
     current_state: null,
+    notes: null,
+    banner_text: null,
+  },
+  // The pickup-ambiguity mapping demo (`PICKUP_DEMO_PIECE_ID`). Same shape as
+  // the others so every piece-detail surface works when it is selected.
+  6: {
+    id: 6,
+    title: "Menuet in G (pickup demo)",
+    composer: "Christian Petzold",
+    has_xml: false,
+    has_pdf: true,
+    intake_done: true,
+    folder_path: "/dev-mock/menuet-in-g",
+    xml_path: null,
+    pdf_path: "/dev-mock/menuet-in-g/score.pdf",
+    goals: [],
+    deadline: null,
+    target_tempo: null,
+    hard_spots: [],
+    current_state: "Pickup-measure mapping demo",
     notes: null,
     banner_text: null,
   },
@@ -1702,17 +1735,32 @@ function mockCalibration(pieceId: number): unknown {
   };
 }
 
-// --- Measure mapping (Plan C, task C4 + fix round 1) -----------------------
+// --- Measure mapping (Plan C, task C4 + fix round 1 + C6b) -----------------
 //
-// Canned `measure_scan_page` outputs (page 1 clean, page 2 a continuity_break,
-// page 3 needs-client-raster + an unapplyable defect, piece
-// `PICKUP_DEMO_PIECE_ID` a pickup-ambiguity demo) plus a faithful mirror of
-// `score::measure_reconcile::reconcile`'s FINAL bidirectional algorithm (fix
-// round 1's contract, `task-C3-report.md`) and `measure_map` CRUD against
+// Canned `measure_scan_page` outputs plus a C6b-SUBSET mirror of
+// `score::measure_reconcile::reconcile` and `measure_map` CRUD against
 // in-memory state, so the whole scan → reconcile → review → Apply flow is
-// offline-QA-able. No XML/calibration side channel exists in the mock, so
-// `has_pickup` is a piece-id fixture switch rather than derived from real
-// MusicXML — see `PICKUP_DEMO_PIECE_ID` below.
+// offline-QA-able.
+//
+// Scope, honestly (the same scope `mockReconcile`'s own doc comment states —
+// keep the two in agreement): this is NOT full parity with the final Rust
+// algorithm. There is no XML and no calibration side channel here, so
+// `total_mismatch`, `anchor_disagreement`, `low_confidence_anchor` and
+// `overlapping_systems` are out of scope and no fixture produces them;
+// `has_pickup` is a piece-id fixture switch (`PICKUP_DEMO_PIECE_ID`) rather
+// than derived from real MusicXML. What the fixtures DO exercise:
+//   - page 1: a clean single system with a printed "1";
+//   - page 2: a printed "10" one system later — since C6b that pair is a
+//     system-start BRACKET, so page 1's system is resolved by
+//     `derived_bar_count` + even interpolation, NOT the plain
+//     `continuity_break` this comment used to claim (no offline
+//     scan-derived continuity_break fixture remains);
+//   - page 3 (`CLIENT_RASTER_PAGE`): needs-client-raster once, then unsorted
+//     `barline_xs` → an `unapplyable` structural defect;
+//   - `PICKUP_DEMO_PIECE_ID`: zero printed numbers anywhere → `pickup_ambiguity`.
+// `measure_map_apply` re-derives the store's own whole-payload invariants
+// (`measureMapApplyDefect`) so a malformed hand-edited payload is rejected
+// here the same way the real command rejects it.
 
 interface MockScanSystem {
   y_top: number;
@@ -1749,8 +1797,11 @@ const CLIENT_RASTER_PAGE = 3;
 
 /** Page 1: a clean single system, printed number 1 pins the first bar
  * exactly — reconciling this alone produces zero conflicts. Page 2: a
- * printed number that CONTRADICTS where page 1 left off (asks for 10 when
- * only 5 is expected) — a deliberate `continuity_break`. Page 3 (after the
+ * printed "10" pinning ITS system's first bar, one system after page 1's
+ * "1" — since C6b that adjacent system-start pair is a BRACKET, so
+ * reconciling pages 1+2 together resolves page 1's system via
+ * `derived_bar_count` + even interpolation (9 bars, not the model's 4)
+ * rather than raising a `continuity_break`. Page 3 (after the
  * client-raster retry): UNSORTED `barline_xs` — a structural defect that
  * `measure_map_apply` would reject, so `mockReconcile` must flag it
  * `unapplyable` even though nothing else about the page is wrong. Any other
@@ -2215,6 +2266,85 @@ const MOCK_MEASURE_MAP = new Map<string, MockMeasureMapPageRow[]>();
 
 function measureMapKey(pieceId: number, fingerprint: string): string {
   return `${pieceId}::${fingerprint}`;
+}
+
+/** Re-derives the whole-payload invariants `store::measure_map`'s
+ * `validate_page` / `validate_page_systems` enforce (see
+ * `measure_map_payload_defects`' doc comment for the authoritative list), and
+ * returns the first violation's message — or `null` when the payload is
+ * applyable.
+ *
+ * Apply is reachable with geometry that never went back through
+ * `measure_reconcile` (a barline drag, a hand-edited page), so this mock's
+ * Apply has to validate for itself: without it the mock accepted payloads the
+ * real Rust command rejects, which is exactly the parity gap that let live QA
+ * "apply" malformed geometry offline. Fail-fast, like the Rust checker. */
+function measureMapApplyDefect(pages: MockMeasureMapPageRow[]): string | null {
+  const seenPages = new Set<number>();
+  const isFraction = (value: unknown): value is number =>
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= 1;
+
+  let lastNumber: number | null = null;
+  for (const row of [...pages].sort((a, b) => a.page - b.page)) {
+    const page = row.page;
+    if (!Number.isInteger(page) || page < 1) {
+      return `page ${page}: page numbers start at 1`;
+    }
+    if (seenPages.has(page)) return `page ${page}: duplicate page ${page}`;
+    seenPages.add(page);
+    if (row.map?.version !== 1) {
+      return `page ${page}: unsupported measure map version ${row.map?.version} (expected 1)`;
+    }
+
+    let prevYTop: number | null = null;
+    for (const system of row.map.systems ?? []) {
+      for (const [field, value] of [
+        ["system y_top", system.y_top],
+        ["system y_bottom", system.y_bottom],
+        ["system x_left", system.x_left],
+        ["system x_right", system.x_right],
+      ] as const) {
+        if (!isFraction(value)) {
+          return `page ${page}: ${field} must be a normalized 0..=1 fraction`;
+        }
+      }
+      if (system.y_top >= system.y_bottom) {
+        return `page ${page}: system y_top must be less than y_bottom`;
+      }
+      if (system.x_left >= system.x_right) {
+        return `page ${page}: system x_left must be less than x_right`;
+      }
+      if (prevYTop !== null && system.y_top <= prevYTop) {
+        return `page ${page}: systems must be ordered top-to-bottom (y_top strictly increasing)`;
+      }
+      prevYTop = system.y_top;
+
+      if (!system.bars || system.bars.length === 0) {
+        return `page ${page}: a system needs at least one bar`;
+      }
+      let prevXRight: number | null = null;
+      for (const bar of system.bars) {
+        if (!isFraction(bar.x_right)) {
+          return `page ${page}: bar x_right must be a normalized 0..=1 fraction`;
+        }
+        if (prevXRight !== null && bar.x_right <= prevXRight) {
+          return `page ${page}: bar x_right must strictly increase within a system`;
+        }
+        prevXRight = bar.x_right;
+        if (bar.confidence != null && !isFraction(bar.confidence)) {
+          return `page ${page}: bar confidence must be a normalized 0..=1 fraction`;
+        }
+        if (lastNumber !== null && bar.number <= lastNumber) {
+          return `page ${page}: bar numbers must strictly increase (bar ${bar.number} follows ${lastNumber})`;
+        }
+        lastNumber = bar.number;
+      }
+    }
+  }
+  return null;
 }
 
 /** The EXACT literal `score::measure_scan::ScanError::NeedsClientRaster`
@@ -3087,6 +3217,11 @@ function routeCommand(cmd: string, args: unknown): unknown {
         String(record.editionFingerprint ?? ""),
       );
       const pages = (record.pages ?? []) as MockMeasureMapPageRow[];
+      // Parity with the real command: a payload that violates the store's
+      // invariants is REJECTED (plain string, like every other mock
+      // rejection), never silently stored.
+      const defect = measureMapApplyDefect(pages);
+      if (defect) throw defect;
       MOCK_MEASURE_MAP.set(key, pages);
       return pages.length;
     }

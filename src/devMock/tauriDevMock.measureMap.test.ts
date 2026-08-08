@@ -275,6 +275,19 @@ describe("dev-mock measure mapping handlers", () => {
     ).rejects.toBe("needs_client_raster");
   });
 
+  it("the pickup fixture piece is reachable from the pieces list (not test-only)", async () => {
+    const pieces =
+      await seamInvoke<{ id: number; has_pdf: boolean }[]>("pieces_list");
+    const pickup = pieces.find((piece) => piece.id === 6);
+    expect(pickup).toBeDefined();
+    // It needs a PDF for "Map measures" to be offered at all.
+    expect(pickup?.has_pdf).toBe(true);
+    const detail = await seamInvoke<{ id: number } | null>("piece_get", {
+      id: 6,
+    });
+    expect(detail?.id).toBe(6);
+  });
+
   it("piece 6 (the pickup fixture) has zero printed numbers on every page and reports has_pickup + pickup_ambiguity", async () => {
     const page1 = await seamInvoke<ScanPageOutput>("measure_scan_page", {
       pieceId: 6,
@@ -300,6 +313,105 @@ describe("dev-mock measure mapping handlers", () => {
     // underflow clamping once a REAL printed-number anchor exists — see
     // `score::measure_reconcile::reconcile`'s own zero-anchor branch).
     expect(reconciled.pages[0].map.systems[0].bars[0].number).toBe(1);
+  });
+
+  // ── Apply-parity with the real store's whole-payload validation (C7) ─────
+
+  it("rejects the QA's malformed page — a non-monotonic x_right run — instead of storing it", async () => {
+    const malformed: MeasureMapPageRow[] = [
+      {
+        page: 3,
+        map: {
+          version: 1,
+          systems: [
+            {
+              y_top: 0.5,
+              y_bottom: 0.6,
+              x_left: 0.05,
+              x_right: 0.95,
+              // 0.7 -> 0.3 -> 0.9 -> 0.8999: not strictly increasing.
+              bars: [
+                { x_right: 0.7, number: 1, source: "model" },
+                { x_right: 0.3, number: 2, source: "model" },
+                { x_right: 0.9, number: 3, source: "model" },
+                { x_right: 0.8999, number: 4, source: "model" },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+    await expect(
+      seamInvoke("measure_map_apply", {
+        pieceId: 11,
+        editionId: "score/score.pdf",
+        editionFingerprint: "mock-fp-11",
+        pages: malformed,
+      }),
+    ).rejects.toBe(
+      "page 3: bar x_right must strictly increase within a system",
+    );
+
+    // Nothing was stored by the rejected write.
+    const after = await seamInvoke<MeasureMapPageRow[]>("measure_map_get", {
+      pieceId: 11,
+      editionId: "score/score.pdf",
+      editionFingerprint: "mock-fp-11",
+    });
+    expect(after).toEqual([]);
+  });
+
+  it("rejects a system with no bars, and non-increasing bar numbers across pages", async () => {
+    await expect(
+      seamInvoke("measure_map_apply", {
+        pieceId: 12,
+        editionId: "score/score.pdf",
+        editionFingerprint: "mock-fp-12",
+        pages: [
+          {
+            page: 1,
+            map: {
+              version: 1,
+              systems: [
+                {
+                  y_top: 0.1,
+                  y_bottom: 0.2,
+                  x_left: 0.05,
+                  x_right: 0.9,
+                  bars: [],
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ).rejects.toBe("page 1: a system needs at least one bar");
+
+    const oneBar = (page: number, number: number): MeasureMapPageRow => ({
+      page,
+      map: {
+        version: 1,
+        systems: [
+          {
+            y_top: 0.1,
+            y_bottom: 0.2,
+            x_left: 0.05,
+            x_right: 0.9,
+            bars: [{ x_right: 0.3, number, source: "model" }],
+          },
+        ],
+      },
+    });
+    await expect(
+      seamInvoke("measure_map_apply", {
+        pieceId: 12,
+        editionId: "score/score.pdf",
+        editionFingerprint: "mock-fp-12",
+        pages: [oneBar(1, 5), oneBar(2, 5)],
+      }),
+    ).rejects.toBe(
+      "page 2: bar numbers must strictly increase (bar 5 follows 5)",
+    );
   });
 
   it("a non-pickup piece reports has_pickup: false", async () => {
