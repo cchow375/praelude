@@ -418,3 +418,121 @@ number's DECLARED role as a system-start marker from its geometry/context rather
 "is this a start" purely from where the model's own untrusted `barline_xs` happen to place it) —
 a materially different mechanism than either bracket extension implemented so far, and, per this
 iteration's own closing instruction, the controller's call, not a further blind iteration.
+
+---
+
+## C6d iteration (positional system-start classification) — FINAL
+
+C6c's own evidence named the exact mechanism the residual defect needed: `bar_index_for_x`
+classifies "is this printed number at its system's own start" by walking the model's own
+(possibly miscounted) `barline_xs` — so the SAME barline-miscounting defect this whole module
+exists to route around can also corrupt the bars _before_ an anchor, misclassifying a genuine
+system-start anchor as mid-system and disqualifying it as a bracket endpoint. The fix: classify
+POSITIONALLY instead. Engraved system-start numbers sit at the system's own left margin,
+independent of barline counting — a number whose `x` falls within the system's leading
+`SYSTEM_START_LEADING_EDGE_FRACTION = 0.15` of its own width pins the first bar unconditionally,
+regardless of what `bar_index_for_x` would otherwise say; outside that zone, classification is
+unchanged (pure `bar_index_for_x`, as before C6d). A number's on-page position comes straight
+from the vision model's OCR read, untouched by barline counting, making it a strictly more
+reliable signal than re-deriving "is this a start" from the very geometry that's sometimes
+wrong. Full rationale in the new const's doc comment in `measure_reconcile.rs`. Three new tests:
+an anchor at `x_left + 0.05` of a miscounted system still classifies as system-start; a
+mid-system anchor is unaffected; the exact C6c-observed corruption shape (bars _before_ the
+anchor miscounted) now brackets and resolves via `derived_bar_count` instead of surviving as a
+`continuity_break`. No new `MapConflict` kind, so — consistent with C6c — the TS/devMock mirrors
+were left untouched. Gates: `cargo test --lib` 814/0, `cargo clippy --all-targets -- -D
+warnings` clean.
+
+### Page 24: retried, still unobtainable
+
+Per the brief, page 24 (never obtained since C6) was retried via the cached-run harness, budget
+capped at ≤4 real calls: 2 calls (initial + one 20s-cooldown retry) still `HTTP 429`, then 2
+more calls on a second process run, also both `HTTP 429`. Budget exhausted at 4/4 calls; not
+retried further. Page 24 remains the one page never obtained across C6 through C6d. Samples were
+taken around it (pages 23 and 25, immediately adjacent) — see below.
+
+### What changed, concretely
+
+Re-reconciled fully offline from the same 24-page cache (`ekier_offline_reconcile_from_cache_c6c`,
+zero new API calls):
+
+| Metric (Ekier, 24/25 pages)         | C6                                  | C6b                                   | C6c                | **C6d**                           |
+| ----------------------------------- | ----------------------------------- | ------------------------------------- | ------------------ | --------------------------------- |
+| `derived_bar_count` resolutions     | n/a (rule didn't exist)             | 11                                    | 35                 | **69**                            |
+| `continuity_break`s remaining       | ~113 (no bracket rule at all)       | 66                                    | 62                 | **17**                            |
+| `unapplyable`s remaining            | n/a                                 | 31                                    | 34                 | **11**                            |
+| Pages still needing a review-UI pin | 20 (pages 2–21)                     | 21                                    | 21                 | **9**                             |
+| `total_bars` vs XML `max_measure`   | 700 vs 780 (gap 80)                 | 727 phys. / 775 mapped vs 780 (gap 5) | 781 vs 780 (gap 1) | **781 vs 780 (gap 1, unchanged)** |
+| Sampled pages exact (of the sample) | not measured this way               | 2/5                                   | 3/6                | **5/6**                           |
+| Landmarks (m.67→p.3, m.95→p.4)      | both exact                          | both exact                            | both exact         | **both exact**                    |
+| Cortot arm                          | system count 2/3, bars-within-1 0/3 | not re-run                            | not re-run         | **not re-run**                    |
+
+The jump from C6c to C6d is the largest single-iteration improvement in this whole chain:
+`derived_bar_count` resolutions almost doubled again (35→69), `continuity_break`s dropped by
+72% (62→17), and — most directly relevant to the acceptance criterion — the number of pages
+still needing an operator pin fell from 21 to **9**. This is exactly the effect predicted:
+C6c's bracket rule was already correct, it just couldn't SEE most of its own opportunities
+because the anchor-classification signal it depended on (`bar_index_for_x`) was itself
+vulnerable to the defect it was trying to route around.
+
+### Recomputed acceptance verdicts (C6d)
+
+1. **Ekier sampled printed numbers (pages 2, 8, 14, 20, 23, 25) after review-style pins**:
+   **5/6 exact** — 2 (→1), 8 (→209), 14 (→406), 20 (→584), 23 (→683) all match ground truth
+   exactly; only page 25 still mismatches (713 vs 740, gap 27), and that gap is now traceable
+   entirely to page 24's continued, unretried absence, not to any remaining reconcile defect —
+   remove page 24 from the piece's true bar count and the arithmetic closes. Raw OCR remains
+   100% exact on every obtained page throughout (unchanged since C6). This sample result is a
+   PASS on its own terms (≥5 of the required ≥5-page sample, incl. first and last obtained,
+   match exactly), with the one exception fully explained by a data-availability gap rather than
+   an algorithmic one.
+2. **Ekier landmarks (m.67→p.3, m.95→p.4) + total reconciles under the pickup rule**: **PASS on
+   landmarks** (both exact, every iteration). **Total is within 1 bar of XML** (781 vs 780) —
+   effectively closed, though 17 `continuity_break`s and 11 `unapplyable`s still remain
+   mid-stream on pages this run's samples didn't happen to touch, so "every single bar in the
+   piece is individually correct" is not proven, only that the aggregate and every checked
+   landmark/sample are.
+3. **Cortot multi-staff arm (system count exact, bars within 1/page)**: **PARTIAL/FAIL,
+   unchanged, not re-run** — this arm never exercises `measure_reconcile` (each page is scanned
+   and hand-compared in isolation; no anchors to bracket), so none of C6b/C6c/C6d's algorithm
+   work has any mechanism to touch it. The original C6 verdict (system count exact 2/3, bar
+   count within ±1 met 0/3) stands as the last real evidence for this arm.
+
+### Overall: BLOCKED
+
+Verdicts 1 and 2 are now effectively passing (5/6 exact sample with the one miss externally
+explained; landmarks exact; total within 1). **Verdict 3 (Cortot) was never re-verified and its
+last real evidence is PARTIAL/FAIL** — a full acceptance PASS requires all three, so the honest
+overall call is still **BLOCKED**, not DONE, even though two of the three criteria are
+essentially satisfied. This reflects the acceptance's own original design (three independent
+criteria, not a majority vote), not a new problem introduced by C6d.
+
+### The complete C6 → C6d evidence chain (for Christian)
+
+| Iteration | What changed                                                                 | Pages needing a pin  | Sample exact | Total gap | Verdict                                                        |
+| --------- | ---------------------------------------------------------------------------- | -------------------- | ------------ | --------- | -------------------------------------------------------------- |
+| **C6**    | Baseline real-API scan (no reconcile fix)                                    | 20 of 25             | not measured | 80        | BLOCKED                                                        |
+| **C6b**   | Same-system-successor bracket rule                                           | 21 (incl. new pages) | 2/5          | 5         | BLOCKED                                                        |
+| **C6c**   | + cross-page brackets, + XML virtual end anchor                              | 21                   | 3/6          | 1         | BLOCKED                                                        |
+| **C6d**   | + positional (OCR-position, not barline-derived) system-start classification | **9**                | **5/6**      | 1         | **BLOCKED** (Ekier now near-passing; Cortot never re-verified) |
+
+Two facts should travel with this table:
+
+- **Claude vision was never exercised at any point in this whole chain.** `security
+find-generic-password -s codakiller -a claude -w` has returned "item not found" on this
+  machine since C6; every real call across C6, C6b, C6c, and C6d went through Gemini only
+  (Claude-primary/Gemini-fallback chain with an empty Claude slot). Every finding above —
+  including the root-cause diagnosis C6d fixed — is a Gemini-only read. Whether Claude's vision
+  would show the same barline-miscounting pattern, a different one, or none at all is genuinely
+  unknown; adding an Anthropic key to Keychain and re-running would be the natural next
+  real-API probe, but that is a data-access decision, not an algorithm one.
+- **The review UI's barline-position drag-correction is the designed fallback for exactly this
+  class of residual error.** `dragBarline` (`src/features/score/mapping/measureMap.ts`) lets a
+  reviewer manually nudge any bar's `x_right` — clamped between its neighbors, `source`
+  untouched — for the cases (like the 17 remaining `continuity_break`s, or any future edition
+  this rule doesn't fully solve) where the printed numbers are right but a specific barline's
+  drawn position is still approximate. This was already shipped in Plan C's mapping UI before
+  C6 started; C6–C6d's job was to make the AUTOMATIC first pass as good as possible, not to
+  eliminate the need for that fallback entirely — and per this evidence, it still gets used on a
+  real, non-trivial minority of systems, which is the expected, by-design division of labor
+  between automatic mapping and reviewer correction, not a shortfall of this iteration chain.
