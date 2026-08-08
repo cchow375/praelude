@@ -78,9 +78,12 @@ feedback: `docs/superpowers/specs/2026-08-05-codakiller-v6-practice-core.md` (co
 `ea388cc`). **Plan A "Practice Surfaces" MERGED to main 2026-08-06 (merge `d0bb001`)** —
 dock/pause/sessions/plans/banner + schema v14. **Plan B "Read Models" MERGED same day
 (merge `73b415d`)** — history_days/day_detail/day_sheets_range pure reads, History
-Days-timeline default, Calendar planned-vs-done; gates vitest 1886/0, cargo 727/0. Plans C
-(mapping/sub-sections, in progress on `v6/plan-c`) → D (voice/Brain) remain before v6.0.0
-ships. Measure mapping, sub-sections, floating Practice Dock, pause-across-days,
+Days-timeline default, Calendar planned-vs-done; gates vitest 1886/0, cargo 727/0.
+**Plan C "Score Intelligence" MERGED 2026-08-08 (merge `9bae13f`)** — cloud-vision measure
+mapping (scan→reconcile→review/Apply), snap selection, sub-sections; acceptance: OCR flawless,
+barline counting weak → printed numbers became the structure (C6→C6d chain, docs/qa/
+plan-c-scherzo-acceptance.md); Claude vision untested (no Anthropic key — Flaws B67); gates
+vitest 1999/0, cargo 815/0. **Plan D (voice/Brain) is the LAST plan before v6.0.0 ships.** Measure mapping, sub-sections, floating Practice Dock, pause-across-days,
 day-scoped sessions, dated day sheets + time estimates, History timeline, Calendar
 planned-vs-done, score goals banner, voice/metronome overhaul (narrated-corpus gate
 binding), Brain quick fixes. Schema v13→v14 (rehearse on a copy first — never the live DB).
