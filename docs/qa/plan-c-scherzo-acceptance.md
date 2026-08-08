@@ -325,3 +325,96 @@ than C6's "barline counting is unreliable everywhere," and a plausible target fo
 explicitly-scoped iteration (e.g. extending the bracket rule to use calibration-pin anchors as
 bracket endpoints too, or a geometry-validation pass), but that is the controller's call, not
 this iteration's to make unprompted.
+
+---
+
+## C6c iteration (cross-page brackets + XML virtual end anchor)
+
+The controller's follow-up decision, evidence-directed by C6b's own finding (the residual drift
+was concentrated at page boundaries and in the piece total): two extensions of the identical
+system-start bracket rule, no new mechanism. (1) **Cross-page brackets**: a bracket's span is no
+longer restricted to two immediately-adjacent systems — it is every system between two
+consecutive system-start anchors in the GLOBAL page/system/bar stream, however many pages or
+unlabeled systems it crosses. A multi-system span's derived total is split across its systems by
+the **largest-remainder / Hamilton apportionment method**, proportional to each system's own
+original count (deterministic; documented in `largest_remainder_distribute`'s doc comment).
+(2) **Virtual end anchor**: when `XmlTotals` is available and at least one real system-start
+anchor exists, a synthetic anchor `{ index: end_of_stream, number: max_measure + 1 }` closes the
+bracket chain, so the trailing span (after the last real anchor) is bracketed too — this is why
+`total_mismatch` now rarely fires when a system-start anchor exists at all: the total gets
+corrected the same way any other bracket disagreement does. No new `MapConflict` kind was
+needed (still `derived_bar_count`, from C6b), so per the controller's instruction the TS
+union/devMock mirror were intentionally left untouched this iteration — see
+`task-C6-report.md`'s "C6c" section for the exact tests (renamed/updated where C6b's own tests
+pinned the now-superseded single-system-only restriction) and the module doc comment
+("System-start bracketing" + "Cross-page brackets and the virtual end anchor") for the full
+rationale. Gates: `cargo test --lib` 811/0, `cargo clippy --all-targets -- -D warnings` clean.
+
+### Re-run mechanics: fully offline, zero API calls
+
+Per the brief, this iteration re-reconciled purely from the C6/C6b on-disk cache — a new,
+dedicated `#[ignore]`d test (`ekier_offline_reconcile_from_cache_c6c` in `plan_c_acceptance.rs`)
+reads the 24 cached `page-N.json` files directly and calls `measure_reconcile::reconcile` with no
+`ProviderChain`, no network, and no Keychain lookup at all. Page 24 remains the one page never
+obtained (still rate-limited as of C6b; not retried again this iteration, respecting the "no
+further iteration" instruction on the acceptance side — only the algorithm changed). Samples were
+taken around the gap (page 23, immediately before it) as instructed, in addition to the original 5.
+
+### What changed, concretely
+
+- **`derived_bar_count` resolutions: 35** (up from C6b's 11) — the cross-page rule now also
+  corrects the boundary between a page's last labeled system and the next page's opening
+  (unlabeled) system, which C6b's adjacent-systems-only restriction could never reach.
+- **`total_mismatch` gap: 780 vs mapped 781 — a gap of 1**, down from C6b's 775-vs-780 (gap 5)
+  and C6's 700-vs-780 (gap 80). This is now close enough to call "closed" in absolute terms, a
+  direct, expected effect of the virtual end anchor making the total itself a bracketed
+  (self-correcting) quantity rather than a passively-reported mismatch.
+- **`continuity_break`: 62 remain** (down only modestly from C6b's 66, not the near-elimination
+  the cross-page fix targeted). Cross-checking the page/system fields against the
+  `derived_bar_count` list shows these are NOT the same pairs the bracket rule already resolved —
+  they are pairs where at least one of the two real printed-number anchors does **not** resolve
+  to local index 0 of its own system (the geometric proxy this rule — and C6b's — both use for
+  "is this a system-start anchor"). Concretely: the SAME barline-miscounting defect C6 found can
+  also corrupt the bar positions **before** an anchor within its own system, shifting where that
+  anchor's `x` lands relative to the model's own (wrong) `barline_xs`, so the anchor doesn't
+  register as "at the start" even though it is meant to label one. This is a genuine, evidence-
+  grounded limit of the geometric approach, not a bug in this iteration's redistribution math —
+  the redistribution logic runs correctly on the two counts it verified `35` times.
+- **`unapplyable`: 34** (up from C6b's 31) — a side effect of more numbering collisions ("bar
+  numbers must strictly increase") at the seams between resolved and still-broken spans, an
+  honest byproduct of doing MORE local correction, not a new defect class.
+- Landmarks unaffected, still both exact: **m.67 → page 3**, **m.95 → page 4**.
+
+### Recomputed acceptance verdicts (C6c)
+
+1. **Ekier sampled printed numbers (pages 2, 8, 14, 20, 23, 25 — 23 added, adjacent to the
+   still-missing page 24) after review-style pins**: **still FAIL**, modestly narrower. Raw OCR
+   remains 100% exact on every obtained page (unchanged, 24/25). The reconciled, pinned map's
+   first bar now matches ground truth exactly on **3/6** sampled pages (2 → 1, 8 → 209, **23 →
+   683 — new, exact**), against mismatches on 14 (404 vs 406), 20 (583 vs 584), and 25 (713 vs
+   740 — narrower than C6b's 708 vs 740, but still large, entirely attributable to page 24's
+   continued, unretried absence).
+2. **Ekier landmarks (m.67→p.3, m.95→p.4) + total reconciles under the pickup rule**:
+   **PARTIAL**, meaningfully improved. Both landmarks still exact. The total gap is now **1**
+   (781 mapped vs 780 XML), essentially closed in absolute terms — but 62 `continuity_break`s
+   and 34 `unapplyable`s remain mid-stream (see above), so this is not full physical correctness
+   end-to-end, it is the virtual-end-anchor mechanism doing its specific, narrow job well.
+3. **Cortot multi-staff arm (system count exact, bars within 1/page)**: **not re-run**, same
+   reasoning as C6b — this arm never exercises `measure_reconcile`. Original C6 verdict carried
+   forward unchanged.
+
+**Overall: still BLOCKED.** Per the brief's explicit closing instruction for this iteration ("if
+not → BLOCKED with evidence; no further iteration"), this is reported as blocked. The evidence is
+substantial and directionally positive — `derived_bar_count` resolutions roughly tripled (11→35),
+the total gap is essentially closed (80→5→1 across C6→C6b→C6c), and one more page (23) now
+reconciles exactly with zero pin needed — but the acceptance criteria (verdicts 1–3) do not fully
+pass. The residual defect has a newly-identified, specific root cause that is DIFFERENT from
+either C6's ("barline counting is unreliable everywhere") or C6b's framing ("only the page-
+opening system is left unbracketed"): some real printed anchors do not resolve to local index 0
+of their own system in the first place, because the same miscounting defect can corrupt the
+bars _before_ the anchor too, not just the bars in the span the anchor is meant to bound. Fixing
+that would need a different signal than barline-position matching alone (e.g. trusting a printed
+number's DECLARED role as a system-start marker from its geometry/context rather than deriving
+"is this a start" purely from where the model's own untrusted `barline_xs` happen to place it) —
+a materially different mechanism than either bracket extension implemented so far, and, per this
+iteration's own closing instruction, the controller's call, not a further blind iteration.

@@ -481,3 +481,142 @@ fn cortot_multi_staff_scan_sample() {
         eprintln!("CORTOT_EVIDENCE {}", serde_json::to_string(&ev).unwrap());
     }
 }
+
+/// C6c re-evaluation: re-reconcile the Ekier scan purely from the C6/C6b
+/// on-disk resumable cache (`plan-c-acceptance-ekier-cache`, same path/keying
+/// as `ekier_full_scan_reconcile_and_landmark_check`) — ZERO real API calls,
+/// ZERO network, ZERO Keychain lookup. Exists to check the C6c
+/// (cross-page-bracket + XML-virtual-end-anchor) `measure_reconcile` changes
+/// against the exact same real-model evidence C6/C6b already paid for,
+/// without spending any more of the call budget. If the cache is missing or
+/// incomplete this test still runs on whatever pages it finds (the harness's
+/// own "partial maps are legal" posture) — it never itself calls
+/// `measure_scan_page`.
+#[test]
+#[ignore = "reads the C6 cache; run explicitly for C6c re-evaluation (no network)"]
+fn ekier_offline_reconcile_from_cache_c6c() {
+    let (store, piece_id) = scratch_store_with_piece();
+    let cache_dir = std::env::temp_dir().join("plan-c-acceptance-ekier-cache");
+
+    let mut pages_for_reconcile: Vec<(u32, ScanPageOutput)> = Vec::new();
+    let mut missing_pages: Vec<u32> = Vec::new();
+    for page in 1..=EKIER_PAGE_COUNT {
+        let cache_path = cache_dir.join(format!("page-{page}.json"));
+        match std::fs::read_to_string(&cache_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<ScanPageOutput>(&raw).ok())
+        {
+            Some(output) => pages_for_reconcile.push((page, output)),
+            None => missing_pages.push(page),
+        }
+    }
+    eprintln!(
+        "plan-c-acceptance-c6c: {}/{} Ekier pages present from cache; missing: {:?}",
+        pages_for_reconcile.len(),
+        EKIER_PAGE_COUNT,
+        missing_pages
+    );
+
+    let xml_facts = score_xml_measure_facts(&store, piece_id)
+        .expect("parse the real KernScores MusicXML for max_measure/has_pickup");
+    eprintln!(
+        "XML_FACTS max_measure={:?} has_pickup={}",
+        xml_facts.max_measure, xml_facts.has_pickup
+    );
+    let xml_totals = xml_facts.max_measure.map(|max_measure| XmlTotals {
+        max_measure,
+        has_pickup: xml_facts.has_pickup,
+    });
+
+    let first_pass =
+        measure_reconcile::reconcile(pages_for_reconcile.clone(), xml_totals, Vec::new());
+    eprintln!(
+        "RECONCILE_FIRST_PASS_C6C total_bars={} has_pickup={} conflicts={}",
+        first_pass.total_bars,
+        first_pass.has_pickup,
+        first_pass.conflicts.len()
+    );
+    for conflict in &first_pass.conflicts {
+        eprintln!("CONFLICT_FIRST_PASS_C6C {conflict:?}");
+    }
+
+    // Same review-UI-style pin simulation as the real-API test: one
+    // calibration anchor per page ANY conflict touched, from the
+    // hand-verified ground truth. `derived_bar_count` deliberately does
+    // NOT contribute a pin (see the match arm below) — it is already a
+    // resolved, not merely flagged, disagreement.
+    let conflicted_pages: std::collections::BTreeSet<u32> = first_pass
+        .conflicts
+        .iter()
+        .filter_map(|c| match c {
+            MapConflict::ContinuityBreak { page, .. } => Some(*page),
+            MapConflict::AnchorDisagreement { page, .. } => Some(*page),
+            MapConflict::PickupAmbiguity { page } => Some(*page),
+            MapConflict::LowConfidenceAnchor { page, .. } => Some(*page),
+            MapConflict::Unapplyable { page, .. } => Some(*page),
+            MapConflict::OverlappingSystems { page, .. } => Some(*page),
+            MapConflict::TotalMismatch { .. } => None,
+            MapConflict::DerivedBarCount { .. } => None,
+        })
+        .collect();
+    let mut pins: Vec<CalibrationAnchor> = Vec::new();
+    for &page in &conflicted_pages {
+        if let Some((_, measure)) = EKIER_PAGE_START_MEASURE.iter().find(|(p, _)| *p == page) {
+            eprintln!(
+                "PIN_C6C page={page} measure={measure} reason=\"review-UI-style pin from the hand-verified pre-map log, because reconcile still flagged a conflict on this page after C6c\""
+            );
+            pins.push(CalibrationAnchor {
+                page,
+                measure: *measure,
+            });
+        }
+    }
+    eprintln!(
+        "plan-c-acceptance-c6c: {} pages still need a review-UI pin after C6c (vs C6's/C6b's own counts, see the acceptance doc)",
+        pins.len()
+    );
+
+    let final_result = measure_reconcile::reconcile(pages_for_reconcile, xml_totals, pins);
+    eprintln!(
+        "RECONCILE_FINAL_C6C total_bars={} has_pickup={} conflicts={}",
+        final_result.total_bars,
+        final_result.has_pickup,
+        final_result.conflicts.len()
+    );
+    for conflict in &final_result.conflicts {
+        eprintln!("CONFLICT_FINAL_C6C {conflict:?}");
+    }
+
+    for (landmark, expected_page) in [(67u32, 3u32), (95u32, 4u32)] {
+        let located = final_result.pages.iter().find_map(|row| {
+            row.map
+                .systems
+                .iter()
+                .flat_map(|s| s.bars.iter())
+                .any(|bar| bar.number == landmark)
+                .then_some(row.page)
+        });
+        eprintln!(
+            "LANDMARK_C6C measure={landmark} expected_page={expected_page} located_page={located:?}"
+        );
+    }
+
+    // Sampled pages: the original 5 (first/last obtained + 3 spread) PLUS
+    // page 23, immediately adjacent to the still-missing page 24 — "sample
+    // around it" per the C6c brief, since page 24 itself can't be sampled.
+    for page in [2u32, 8, 14, 20, 23, 25] {
+        if let Some((_, expected)) = EKIER_PAGE_START_MEASURE.iter().find(|(p, _)| *p == page) {
+            let mapped_first = final_result
+                .pages
+                .iter()
+                .find(|row| row.page == page)
+                .and_then(|row| row.map.systems.first())
+                .and_then(|s| s.bars.first())
+                .map(|b| b.number);
+            eprintln!(
+                "SAMPLE_C6C page={page} expected_first_measure={expected} mapped_first_measure={mapped_first:?} near_missing_page_24={}",
+                page == 23 || page == 25
+            );
+        }
+    }
+}
