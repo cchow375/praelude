@@ -58,6 +58,40 @@
 //! branch — the pickup floor is never itself inserted as a real anchor and
 //! never appears in that cross-check pass, it only gates the leading span's
 //! own back-fill.
+//!
+//! # System-start bracketing (C6b)
+//!
+//! Task C6's real-API acceptance run (Chopin Scherzo No. 2, Ekier + Cortot)
+//! found printed-number OCR essentially flawless (22/22 exact) but the
+//! model's own per-system `barline_xs` COUNT unreliable in both directions,
+//! with no exploitable pattern — a defect a `continuity_break`/calibration
+//! pin can flag but structurally cannot repair, because the wrong thing is
+//! "how many bar objects exist", not "which number an anchor bar shows".
+//!
+//! This module resolves the one case where the truth genuinely IS
+//! recoverable without trusting the model's barline count at all: when two
+//! consecutive real printed anchors each pin their own system's very first
+//! bar (local index 0) AND are on immediately adjacent systems (the earlier
+//! anchor's system, then the very next system in page/`y_top` stream
+//! order — no unlabeled system in between), the number gap between them is
+//! unambiguous ground truth for the FULL bar count of the earlier anchor's
+//! system, independent of whatever `barline_xs` the model reported for it.
+//! When the model's count already agrees, nothing changes (`source:
+//! "model"` positions are kept as-is). When it disagrees, that system's
+//! bars are resynthesized as N evenly spaced positions across its own
+//! `x_left..x_right` span (N = the anchors' number gap), every one
+//! `source: "interpolated"`, `confidence: None` — the model's individual
+//! barline positions are no longer trusted for this system, even any that
+//! happened to be at the right count by coincidence. This deliberately does
+//! NOT raise a `continuity_break` for the resolved pair (the disagreement
+//! was resolved, not merely flagged); a low-severity `derived_bar_count`
+//! conflict is pushed instead so the review UI can still show that a
+//! system's geometry was machine-corrected.
+//!
+//! A system whose start (or whose successor's start) has no real anchor —
+//! e.g. this piece's convention that a page's first system is rarely itself
+//! numbered — is simply NOT bracketed: it falls through to the ordinary
+//! `continuity_break` handling above, unchanged.
 
 use std::cmp::Ordering;
 
@@ -177,6 +211,24 @@ pub enum MapConflict {
         measure: u32,
         confidence: f64,
     },
+    /// Low-severity, informational (C6b): this system's bar count came from
+    /// the SYSTEM-START BRACKET RULE, not the model's own `barline_xs` —
+    /// both this system's first bar AND the very next system's first bar
+    /// carried real printed anchors, so the number gap between them is
+    /// authoritative for how many bars actually exist in between, and the
+    /// model's own count (`found`) disagreed with it (`expected`). The
+    /// system's bars were resynthesized as `expected` evenly spaced
+    /// positions across its own x-span (`source: interpolated`,
+    /// `confidence: None` on every bar in it) rather than merely flagged —
+    /// this never accompanies a `continuity_break` for the same pair (the
+    /// disagreement was resolved, not left open). See
+    /// `measure_reconcile`'s module doc comment, "System-start bracketing".
+    DerivedBarCount {
+        page: u32,
+        system: u32,
+        expected: u32,
+        found: u32,
+    },
     /// Two systems' y-bands overlap by more than the tolerance — the
     /// hallucinated-extra-system case: a model reply that invents a system
     /// whose band collides with a real one.
@@ -238,6 +290,47 @@ struct SystemWork<'a> {
     bars_start: usize,
     bar_count: usize,
     printed_numbers: &'a [PrintedNumber],
+}
+
+/// One system's FINALIZED geometry, after the system-start bracket pass
+/// (see the module doc comment). Unlike [`SystemWork`], this carries no
+/// borrowed `printed_numbers` — printed-number resolution (Pass 2) always
+/// runs against the model's ORIGINAL, unmodified geometry (a printed
+/// number's x/y still describes where the model actually placed it, even
+/// when this system's bar count is later overridden) and never needs to run
+/// again afterward.
+struct SystemFinal {
+    page: u32,
+    system: u32,
+    y_top: f64,
+    y_bottom: f64,
+    x_left: f64,
+    x_right: f64,
+    bars_start: usize,
+    bar_count: usize,
+    /// `true` when this system's bars were resynthesized by the
+    /// system-start bracket rule (evenly spaced, `source: interpolated`,
+    /// `confidence: None`) rather than kept from the model's own
+    /// `barline_xs` (`source: model`).
+    interpolated: bool,
+}
+
+/// Find which system (by index into a `bars_start`/`bar_count`-aligned pair
+/// of slices) a global bar-stream index falls inside — or, for an index that
+/// lands exactly ON a system boundary with nothing spanning it (a zero-bar
+/// system, or the very end of the stream), the system whose `bars_start`
+/// exactly equals it. Used by the system-start bracket pass to remap a
+/// printed anchor's index from the ORIGINAL bar stream to the FINAL one
+/// after some systems' bar counts changed.
+fn system_index_for(starts: &[usize], counts: &[usize], idx: usize) -> Option<usize> {
+    for i in 0..starts.len() {
+        let start = starts[i];
+        let end = start + counts[i];
+        if idx >= start && idx < end {
+            return Some(i);
+        }
+    }
+    starts.iter().rposition(|&start| start == idx)
 }
 
 /// A resolved numbering anchor: a global bar-stream index paired with the
@@ -440,7 +533,133 @@ pub fn reconcile(
     printed_anchors.sort_by_key(|a| a.index);
     printed_anchors.dedup_by_key(|a| a.index);
 
-    // Pass 3: printed anchors establish the numbering; a synthetic 1-start
+    // Pass 3 (C6b): system-start bracket resolution. See the module doc
+    // comment's "System-start bracketing" section for the full rationale.
+    // Determined entirely from the ORIGINAL geometry/anchors above — no
+    // cascading, since each system's bracket check only ever looks at its
+    // own start and its immediate successor's start.
+    let old_bars_start: Vec<usize> = system_works.iter().map(|s| s.bars_start).collect();
+    let old_bar_count: Vec<usize> = system_works.iter().map(|s| s.bar_count).collect();
+    let mut new_bar_count: Vec<usize> = old_bar_count.clone();
+    for i in 0..system_works.len() {
+        if i + 1 >= system_works.len() {
+            continue;
+        }
+        let a_index = old_bars_start[i];
+        let b_index = old_bars_start[i + 1];
+        let Some(a) = printed_anchors
+            .iter()
+            .find(|anchor| anchor.index == a_index)
+        else {
+            continue;
+        };
+        let Some(b) = printed_anchors
+            .iter()
+            .find(|anchor| anchor.index == b_index)
+        else {
+            continue;
+        };
+        let expected = b.number.saturating_sub(a.number);
+        let found = old_bar_count[i] as u32;
+        // `expected == 0` (a degenerate/contradictory anchor pair) is left
+        // to the ordinary continuity-break handling below rather than
+        // synthesizing a zero-bar system.
+        if expected == found || expected == 0 {
+            continue;
+        }
+        conflicts.push(MapConflict::DerivedBarCount {
+            page: system_works[i].page,
+            system: system_works[i].system,
+            expected,
+            found,
+        });
+        new_bar_count[i] = expected as usize;
+    }
+
+    // Rebuild bars_start cumulatively from the (possibly overridden) counts,
+    // then the finalized per-system geometry and the finalized bar stream:
+    // an overridden system's bars are N evenly spaced synthetic positions
+    // across its own x-span; every other system keeps the model's own
+    // `barline_xs` positions verbatim, unchanged from Pass 1.
+    let mut new_bars_start: Vec<usize> = Vec::with_capacity(system_works.len());
+    let mut cursor = 0usize;
+    for &count in &new_bar_count {
+        new_bars_start.push(cursor);
+        cursor += count;
+    }
+    let systems_final: Vec<SystemFinal> = system_works
+        .iter()
+        .enumerate()
+        .map(|(i, s)| SystemFinal {
+            page: s.page,
+            system: s.system,
+            y_top: s.y_top,
+            y_bottom: s.y_bottom,
+            x_left: s.x_left,
+            x_right: s.x_right,
+            bars_start: new_bars_start[i],
+            bar_count: new_bar_count[i],
+            interpolated: new_bar_count[i] != old_bar_count[i],
+        })
+        .collect();
+    let old_bar_works = bar_works;
+    let mut bar_works: Vec<BarWork> = Vec::with_capacity(cursor);
+    for (i, system) in systems_final.iter().enumerate() {
+        if system.interpolated {
+            let width = (system.x_right - system.x_left) / system.bar_count as f64;
+            for j in 0..system.bar_count {
+                bar_works.push(BarWork {
+                    page: system.page,
+                    system: system.system,
+                    x_right: system.x_left + width * (j as f64 + 1.0),
+                });
+            }
+        } else {
+            let start = old_bars_start[i];
+            for k in 0..system.bar_count {
+                bar_works.push(BarWork {
+                    page: system.page,
+                    system: system.system,
+                    x_right: old_bar_works[start + k].x_right,
+                });
+            }
+        }
+    }
+
+    // Remap every printed anchor's stream index from the ORIGINAL bar
+    // stream to the FINAL one. Unaffected systems remap 1:1 (their local
+    // index is unchanged, only the global offset shifts by whatever earlier
+    // systems' counts changed); an overridden system's own bracketing
+    // anchor (always local index 0, by construction of the bracket check
+    // above) remaps to the new system's local index 0 too, so the pair's
+    // own continuity check below naturally finds `found == expected` with
+    // no special-casing. Any OTHER anchor that happened to fall inside an
+    // overridden system (rare — this piece's convention is one printed
+    // number per system, at its start) is remapped proportionally, since
+    // its original local position is no longer meaningful once the
+    // system's bars were resynthesized.
+    let printed_anchors: Vec<Anchor> = printed_anchors
+        .into_iter()
+        .map(|anchor| {
+            let Some(sys) = system_index_for(&old_bars_start, &old_bar_count, anchor.index) else {
+                return anchor;
+            };
+            let local = anchor.index - old_bars_start[sys];
+            let old_c = old_bar_count[sys];
+            let new_c = new_bar_count[sys];
+            let new_local = if old_c == 0 || old_c == new_c {
+                local.min(new_c.saturating_sub(1))
+            } else {
+                (local * new_c / old_c).min(new_c.saturating_sub(1))
+            };
+            Anchor {
+                index: new_bars_start[sys] + new_local,
+                ..anchor
+            }
+        })
+        .collect();
+
+    // Pass 4: printed anchors establish the numbering; a synthetic 1-start
     // is used ONLY when there is no printed anchor anywhere in the whole
     // stream. When at least one printed anchor exists, it is trusted to
     // determine numbers both forward AND backward from it — a pickup offset
@@ -465,9 +684,12 @@ pub fn reconcile(
         }
     }
 
-    // Pass 4: continuity checks between consecutive printed anchors (the
+    // Pass 5: continuity checks between consecutive printed anchors (the
     // barline count between two anchors must match what their numbers
-    // imply; also fires when a later anchor's number is not greater).
+    // imply; also fires when a later anchor's number is not greater). A
+    // pair resolved by Pass 3's bracket rule naturally finds `found ==
+    // expected` here (see that pass's remap comment) — no special-casing
+    // needed to suppress a `continuity_break` for it.
     for pair in anchors_sorted.windows(2) {
         let (a, b) = (pair[0], pair[1]);
         let expected = b.number.saturating_sub(a.number);
@@ -482,7 +704,7 @@ pub fn reconcile(
         }
     }
 
-    // Pass 5: true bidirectional numbering. The span BEFORE the first
+    // Pass 6: true bidirectional numbering. The span BEFORE the first
     // anchor back-fills FROM it (clamped at the pickup floor — 1, or 0 when
     // `has_pickup` — with an underflow `continuity_break` on that leading
     // span when the anchor's number can't reach back that far); every span
@@ -522,13 +744,16 @@ pub fn reconcile(
     }
 
     // Confidence carried on the exact bar a printed number pinned; every
-    // other bar (interpolated/forward-filled) carries `None`.
+    // other bar (interpolated/forward-filled) carries `None`. An overridden
+    // system's bars are forced to `None` below regardless of this map (Pass
+    // 8), even for the local-index-0 bar that a real anchor pinned — the
+    // model's OWN positions are no longer trusted for that system.
     let confidence_by_index: std::collections::HashMap<usize, f64> = printed_anchors
         .iter()
         .filter_map(|a| a.confidence.map(|c| (a.index, c)))
         .collect();
 
-    // Pass 6: calibration anchor disagreement (first bar mapped per page).
+    // Pass 7: calibration anchor disagreement (first bar mapped per page).
     for calibration in &anchors {
         if let Some(index) = bar_works.iter().position(|b| b.page == calibration.page) {
             let mapped_measure = assigned[index];
@@ -542,7 +767,7 @@ pub fn reconcile(
         }
     }
 
-    // Pass 7: total vs XML max_measure.
+    // Pass 8: total vs XML max_measure.
     if let (Some(xml), Some(&last)) = (xml, assigned.last()) {
         if last != xml.max_measure {
             conflicts.push(MapConflict::TotalMismatch {
@@ -552,19 +777,30 @@ pub fn reconcile(
         }
     }
 
-    // Pass 8: reassemble the typed `MeasureMapPage` per page.
+    // Pass 9: reassemble the typed `MeasureMapPage` per page from the
+    // FINALIZED system list (`systems_final`), not the original
+    // `system_works` — an interpolated system's bars carry `source:
+    // interpolated` / `confidence: None` unconditionally.
     let mut result_pages: Vec<MeasureMapPageRow> = Vec::with_capacity(pages.len());
     for (page, _) in &pages {
         let mut systems: Vec<MapSystem> = Vec::new();
-        for system in system_works.iter().filter(|s| s.page == *page) {
+        for system in systems_final.iter().filter(|s| s.page == *page) {
             let mut bars: Vec<MapBar> = Vec::with_capacity(system.bar_count);
             for local_idx in 0..system.bar_count {
                 let global_idx = system.bars_start + local_idx;
                 bars.push(MapBar {
                     x_right: bar_works[global_idx].x_right,
                     number: assigned[global_idx],
-                    confidence: confidence_by_index.get(&global_idx).copied(),
-                    source: MapBarSource::Model,
+                    confidence: if system.interpolated {
+                        None
+                    } else {
+                        confidence_by_index.get(&global_idx).copied()
+                    },
+                    source: if system.interpolated {
+                        MapBarSource::Interpolated
+                    } else {
+                        MapBarSource::Model
+                    },
                 });
             }
             systems.push(MapSystem {
@@ -584,7 +820,7 @@ pub fn reconcile(
         });
     }
 
-    // Pass 9: the reconciled output can still violate an invariant
+    // Pass 10: the reconciled output can still violate an invariant
     // `measure_map_apply` hard-rejects even when every OTHER pass found no
     // conflict — not just an empty system or unsorted `barline_xs`, but
     // anything the payload validator would reject (out-of-range geometry
@@ -761,14 +997,22 @@ mod tests {
         assert_eq!(result.pages[0].map.systems[1].y_top, 0.35);
     }
 
-    // ── printed-number anchor pulls a miscounted system into conflict ──
+    // ── system-start bracket resolution (C6b) ───────────────────────────
 
+    /// UPDATED for C6b (was
+    /// `a_printed_number_anchor_flags_a_miscounted_system_as_continuity_break`,
+    /// which asserted this exact shape produced a plain `continuity_break`).
+    /// Both anchors here sit at their own system's first bar (system 1's "1"
+    /// at local index 0, system 2's "9" at local index 0) on two immediately
+    /// adjacent systems — exactly the case the system-start bracket rule now
+    /// resolves deterministically instead of merely flagging: system 1's 4
+    /// model-reported bars are wrong (the anchors imply 8), so its bars are
+    /// resynthesized as 8 evenly spaced positions across its own x-span,
+    /// `source: interpolated`, `confidence: None`, and NO `continuity_break`
+    /// fires for this pair — a `derived_bar_count` conflict documents the
+    /// resolution instead.
     #[test]
-    fn a_printed_number_anchor_flags_a_miscounted_system_as_continuity_break() {
-        // System 1: 4 bars, anchored to start at 1 (bars 1..=4).
-        // System 2: only 3 bars but a printed "9" pins its first bar — the
-        // model missed a barline, so the anchor gap (9-1=8) doesn't match
-        // the actual barline count between the anchors (4).
+    fn a_derived_bar_count_overrides_a_wrong_model_count_via_even_interpolation() {
         let noisy = page_output(vec![
             system(
                 0.10,
@@ -788,32 +1032,61 @@ mod tests {
             ),
         ]);
         let result = reconcile(vec![(1, noisy)], None, vec![]);
-        let breaks: Vec<_> = result
-            .conflicts
-            .iter()
-            .filter(|c| matches!(c, MapConflict::ContinuityBreak { .. }))
-            .collect();
-        assert_eq!(
-            breaks.len(),
-            1,
-            "expected exactly one continuity break: {:?}",
+        assert!(
+            !result
+                .conflicts
+                .iter()
+                .any(|c| matches!(c, MapConflict::ContinuityBreak { .. })),
+            "resolved disagreement must not also raise a continuity_break: {:?}",
             result.conflicts
         );
-        assert_eq!(
-            breaks[0],
-            &MapConflict::ContinuityBreak {
+        assert!(
+            result.conflicts.contains(&MapConflict::DerivedBarCount {
                 page: 1,
                 system: 1,
                 expected: 8,
                 found: 4,
-            }
+            }),
+            "{:?}",
+            result.conflicts
         );
+
+        let system1 = &result.pages[0].map.systems[0];
+        assert_eq!(system1.bars.len(), 8, "{:?}", system1.bars);
+        let numbers: Vec<u32> = system1.bars.iter().map(|b| b.number).collect();
+        assert_eq!(numbers, (1..=8).collect::<Vec<u32>>());
+        assert!(
+            system1
+                .bars
+                .iter()
+                .all(|b| b.source == MapBarSource::Interpolated && b.confidence.is_none()),
+            "every bar in an overridden system must be interpolated with no confidence: {:?}",
+            system1.bars
+        );
+        // Evenly spaced across x_left=0.10..x_right=0.90 in 8 equal steps of
+        // 0.10 each: right edges 0.20, 0.30, ..., 0.90.
+        let right_edges: Vec<f64> = system1.bars.iter().map(|b| b.x_right).collect();
+        for (i, edge) in right_edges.iter().enumerate() {
+            let expected_edge = 0.10 + 0.10 * (i as f64 + 1.0);
+            assert!(
+                (edge - expected_edge).abs() < 1e-9,
+                "bar {i} right edge {edge} != {expected_edge}"
+            );
+        }
+        // System 2 is untouched: still its own model-reported 3 bars,
+        // `source: model`, starting at the anchor's own number (9).
+        let system2 = &result.pages[0].map.systems[1];
+        assert_eq!(system2.bars.len(), 3);
+        assert_eq!(system2.bars[0].number, 9);
+        assert!(system2.bars.iter().all(|b| b.source == MapBarSource::Model));
     }
 
-    /// The clean sibling of the above: same shape, but the barline count
-    /// between anchors DOES match what the anchors imply — no conflict.
+    /// The clean sibling of the above: same bracketed shape, but the
+    /// barline count between anchors DOES already match what the anchors
+    /// imply — no conflict of any kind, and the model's own bar positions
+    /// (`source: model`) are kept exactly as reported, not resynthesized.
     #[test]
-    fn a_printed_number_anchor_matching_the_barline_count_produces_no_conflict() {
+    fn a_derived_bar_count_agreeing_with_the_model_keeps_its_positions() {
         let clean = page_output(vec![
             system(
                 0.10,
@@ -834,6 +1107,143 @@ mod tests {
         ]);
         let result = reconcile(vec![(1, clean)], None, vec![]);
         assert!(result.conflicts.is_empty(), "{:?}", result.conflicts);
+        let system1 = &result.pages[0].map.systems[0];
+        assert!(system1.bars.iter().all(|b| b.source == MapBarSource::Model));
+        assert_eq!(
+            system1.bars.iter().map(|b| b.x_right).collect::<Vec<_>>(),
+            vec![0.30, 0.50, 0.70, 0.90]
+        );
+    }
+
+    /// A system whose start anchor exists but whose SUCCESSOR's start has no
+    /// printed anchor (this piece's own convention: system 3's start is
+    /// unlabeled) is NOT bracketed — the ordinary `continuity_break`
+    /// handling from before C6b still applies unchanged, no
+    /// `derived_bar_count` is produced, and no bars are resynthesized.
+    #[test]
+    fn a_system_whose_successor_start_is_unanchored_is_left_unbracketed() {
+        let page = page_output(vec![
+            system(
+                0.10,
+                0.25,
+                0.10,
+                0.90,
+                vec![0.30, 0.50, 0.70, 0.90], // 4 bars, anchored "1"
+                vec![printed(1, 0.10, 0.09, 0.95)],
+            ),
+            system(
+                0.35,
+                0.50,
+                0.10,
+                0.90,
+                vec![0.40, 0.65, 0.90], // 3 bars, no printed number at all
+                vec![],
+            ),
+            system(
+                0.60,
+                0.75,
+                0.10,
+                0.90,
+                vec![0.30, 0.50, 0.70, 0.90], // system 3's start is anchored...
+                vec![printed(20, 0.10, 0.595, 0.95)],
+            ),
+        ]);
+        let result = reconcile(vec![(1, page)], None, vec![]);
+        // ...but system 2's start (the anchor pair's PREDECESSOR system 1's
+        // successor) is not, so system 1 -> system 3's anchor pair is not a
+        // system-start bracket (system 1's immediate successor is system 2,
+        // unanchored) — falls through to the plain continuity check across
+        // the combined 7-bar span (system 1 + system 2).
+        assert!(
+            !result
+                .conflicts
+                .iter()
+                .any(|c| matches!(c, MapConflict::DerivedBarCount { .. })),
+            "{:?}",
+            result.conflicts
+        );
+        assert!(result.conflicts.contains(&MapConflict::ContinuityBreak {
+            page: 1,
+            system: 1,
+            expected: 19,
+            found: 7,
+        }));
+        // Bars are untouched: still the model's original positions/counts.
+        assert_eq!(result.pages[0].map.systems[0].bars.len(), 4);
+        assert_eq!(result.pages[0].map.systems[1].bars.len(), 3);
+        assert!(result.pages[0]
+            .map
+            .systems
+            .iter()
+            .flat_map(|s| s.bars.iter())
+            .all(|b| b.source == MapBarSource::Model));
+    }
+
+    /// A mixed page: system 1->2 is a resolved bracket (model undercounted,
+    /// gets interpolated), system 2->3 already agrees (untouched), pinning
+    /// both C6b outcomes co-existing on one page.
+    #[test]
+    fn a_mixed_page_resolves_one_bracket_and_leaves_the_agreeing_one_untouched() {
+        let page = page_output(vec![
+            system(
+                0.10,
+                0.25,
+                0.10,
+                0.90,
+                vec![0.30, 0.50, 0.70, 0.90], // 4 bars, model undercounts
+                vec![printed(1, 0.10, 0.09, 0.95)],
+            ),
+            system(
+                0.35,
+                0.50,
+                0.10,
+                0.90,
+                vec![0.20, 0.40, 0.60, 0.80, 0.90], // 5 bars, matches the 2->3 anchor gap exactly (9 -> 14 = 5)
+                vec![printed(9, 0.10, 0.345, 0.95)],
+            ),
+            system(
+                0.60,
+                0.75,
+                0.10,
+                0.90,
+                vec![0.30, 0.50, 0.70, 0.90], // 4 bars, irrelevant to the 2->3 bracket check
+                vec![printed(14, 0.10, 0.595, 0.95)],
+            ),
+        ]);
+        let result = reconcile(vec![(1, page)], None, vec![]);
+        assert!(result.conflicts.contains(&MapConflict::DerivedBarCount {
+            page: 1,
+            system: 1,
+            expected: 8,
+            found: 4,
+        }));
+        assert!(
+            !result
+                .conflicts
+                .iter()
+                .any(|c| matches!(c, MapConflict::ContinuityBreak { .. })),
+            "{:?}",
+            result.conflicts
+        );
+        let system1 = &result.pages[0].map.systems[0];
+        assert_eq!(system1.bars.len(), 8);
+        assert!(system1
+            .bars
+            .iter()
+            .all(|b| b.source == MapBarSource::Interpolated));
+        let system2 = &result.pages[0].map.systems[1];
+        assert_eq!(
+            system2.bars.len(),
+            5,
+            "system 2 untouched: {:?}",
+            system2.bars
+        );
+        assert!(system2.bars.iter().all(|b| b.source == MapBarSource::Model));
+        assert_eq!(system2.bars[0].number, 9);
+        let system3 = &result.pages[0].map.systems[2];
+        assert_eq!(system3.bars.len(), 4);
+        assert!(system3.bars.iter().all(|b| b.source == MapBarSource::Model));
+        assert_eq!(system3.bars[0].number, 14);
     }
 
     // ── pickup handling, with and without a pinning printed number ─────

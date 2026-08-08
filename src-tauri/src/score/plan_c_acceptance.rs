@@ -352,6 +352,10 @@ fn ekier_full_scan_reconcile_and_landmark_check() {
             MapConflict::Unapplyable { page, .. } => Some(*page),
             MapConflict::OverlappingSystems { page, .. } => Some(*page),
             MapConflict::TotalMismatch { .. } => None,
+            // Informational (C6b): this system's bars were already resolved
+            // deterministically by the system-start bracket rule — nothing
+            // for a review-UI-style pin to fix here.
+            MapConflict::DerivedBarCount { .. } => None,
         })
         .collect();
     let mut pins: Vec<CalibrationAnchor> = Vec::new();

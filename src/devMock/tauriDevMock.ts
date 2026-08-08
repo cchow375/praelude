@@ -1866,25 +1866,58 @@ type MockMapConflict =
       found: number;
     }
   | { kind: "pickup_ambiguity"; page: number }
-  | { kind: "unapplyable"; page: number; system: number; reason: string };
+  | { kind: "unapplyable"; page: number; system: number; reason: string }
+  | {
+      kind: "derived_bar_count";
+      page: number;
+      system: number;
+      expected: number;
+      found: number;
+    };
 
 const ANCHOR_CONFIDENCE_MIN = 0.5;
 
+/** Mirrors `score::measure_reconcile::system_index_for` — find which system
+ * (by index into `starts`/`counts`) a global bar-stream index falls inside,
+ * or (for an index exactly on a boundary) the system whose start exactly
+ * equals it. */
+function systemIndexFor(
+  starts: number[],
+  counts: number[],
+  idx: number,
+): number {
+  for (let i = 0; i < starts.length; i += 1) {
+    if (idx >= starts[i] && idx < starts[i] + counts[i]) return i;
+  }
+  for (let i = starts.length - 1; i >= 0; i -= 1) {
+    if (starts[i] === idx) return i;
+  }
+  return -1;
+}
+
 /**
  * Mirrors `score::measure_reconcile::reconcile`'s FINAL bidirectional
- * numbering contract (C3 fix round 1, `task-C3-report.md`): a synthetic
- * floor-start anchor is used ONLY when there is no printed anchor anywhere
- * in the whole stream; the instant at least one real anchor exists, the span
- * BEFORE it back-fills FROM it (clamped at the floor — 0 with a pickup, 1
- * otherwise — raising a `continuity_break` on the leading span if that would
- * underflow), and every span after an anchor forward-fills from its nearest
- * preceding anchor. Also re-derives the `unapplyable` structural checks
- * (empty/unsorted `barline_xs`) `measure_map_apply` would reject, so a
- * conflict-free mock result is genuinely Apply-ready, same as the real
- * command. No XML/calibration side channel exists here, so `total_mismatch`,
+ * numbering contract (C3 fix round 1, `task-C3-report.md`) PLUS the C6b
+ * system-start bracket pass: a synthetic floor-start anchor is used ONLY
+ * when there is no printed anchor anywhere in the whole stream; the instant
+ * at least one real anchor exists, the span BEFORE it back-fills FROM it
+ * (clamped at the floor — 0 with a pickup, 1 otherwise — raising a
+ * `continuity_break` on the leading span if that would underflow), and
+ * every span after an anchor forward-fills from its nearest preceding
+ * anchor. Before any of that, when two consecutive real anchors each pin
+ * their own system's first bar AND are on immediately adjacent systems, the
+ * number gap between them overrides the model's own bar count for the
+ * earlier anchor's system (evenly interpolated, `source: "interpolated"`,
+ * `confidence: undefined`) instead of merely flagging a `continuity_break`
+ * — see `measure_reconcile`'s "System-start bracketing" doc comment. Also
+ * re-derives the `unapplyable` structural checks (empty/unsorted
+ * `barline_xs`) `measure_map_apply` would reject, so a conflict-free mock
+ * result is genuinely Apply-ready, same as the real command. No
+ * XML/calibration side channel exists here, so `total_mismatch`,
  * `anchor_disagreement`, `low_confidence_anchor` and `overlapping_systems`
  * are out of scope for the mock — every fixture below only exercises
- * `continuity_break`, `pickup_ambiguity`, and `unapplyable`.
+ * `continuity_break`, `pickup_ambiguity`, `unapplyable`, and (since C6b)
+ * `derived_bar_count`.
  */
 function mockReconcile(
   pages: { page: number; scan: MockScanPageOutput }[],
@@ -1913,6 +1946,10 @@ function mockReconcile(
     x_right: number;
     start: number;
     count: number;
+    /** `true` once the C6b system-start bracket pass below resynthesizes
+     * this system's bars — its `count` then no longer matches the model's
+     * own `barline_xs.length`. */
+    interpolated: boolean;
   }[] = [];
   for (const { page, scan } of sorted) {
     const systems = [...scan.systems].sort((a, b) => a.y_top - b.y_top);
@@ -1930,6 +1967,7 @@ function mockReconcile(
         x_right: system.x_right,
         start,
         count: system.barline_xs.length,
+        interpolated: false,
       });
     });
   }
@@ -1978,8 +2016,78 @@ function mockReconcile(
     }
   }
 
-  const floor = hasPickup ? 0 : 1;
   const conflicts: MockMapConflict[] = [];
+
+  // Pass (C6b): system-start bracket resolution — mirrors
+  // `score::measure_reconcile::reconcile`'s system-start bracket pass (see
+  // that module's doc comment, "System-start bracketing"). Determined
+  // entirely from the ORIGINAL geometry/anchors above (no cascading); then
+  // `flat`/`systemMeta` are rebuilt and `dedupedAnchors`' indices remapped
+  // before the numbering pass below ever runs.
+  {
+    const oldStarts = systemMeta.map((m) => m.start);
+    const oldCounts = systemMeta.map((m) => m.count);
+    const oldFlat = flat.slice();
+    for (let i = 0; i < systemMeta.length - 1; i += 1) {
+      const a = dedupedAnchors.find((anchor) => anchor.index === oldStarts[i]);
+      const b = dedupedAnchors.find(
+        (anchor) => anchor.index === oldStarts[i + 1],
+      );
+      if (!a || !b) continue;
+      const expected = b.number - a.number;
+      const found = oldCounts[i];
+      // `expected <= 0` (a degenerate/contradictory anchor pair) is left to
+      // the ordinary continuity-break handling below rather than
+      // synthesizing a zero-or-negative-bar system.
+      if (expected === found || expected <= 0) continue;
+      conflicts.push({
+        kind: "derived_bar_count",
+        page: systemMeta[i].page,
+        system: systemMeta[i].system,
+        expected,
+        found,
+      });
+      systemMeta[i].count = expected;
+      systemMeta[i].interpolated = true;
+    }
+    let cursor = 0;
+    for (const meta of systemMeta) {
+      meta.start = cursor;
+      cursor += meta.count;
+    }
+    flat.length = 0;
+    systemMeta.forEach((meta, i) => {
+      if (meta.interpolated) {
+        const width = (meta.x_right - meta.x_left) / meta.count;
+        for (let j = 0; j < meta.count; j += 1) {
+          flat.push({
+            page: meta.page,
+            system: meta.system,
+            x_right: meta.x_left + width * (j + 1),
+            number: 0,
+          });
+        }
+      } else {
+        for (let k = 0; k < meta.count; k += 1) {
+          flat.push({ ...oldFlat[oldStarts[i] + k], number: 0 });
+        }
+      }
+    });
+    for (const anchor of dedupedAnchors) {
+      const sys = systemIndexFor(oldStarts, oldCounts, anchor.index);
+      if (sys === -1) continue;
+      const local = anchor.index - oldStarts[sys];
+      const oldC = oldCounts[sys];
+      const newC = systemMeta[sys].count;
+      const newLocal =
+        oldC === 0 || oldC === newC
+          ? Math.min(local, Math.max(newC - 1, 0))
+          : Math.min(Math.floor((local * newC) / oldC), Math.max(newC - 1, 0));
+      anchor.index = systemMeta[sys].start + newLocal;
+    }
+  }
+
+  const floor = hasPickup ? 0 : 1;
 
   if (dedupedAnchors.length === 0) {
     // Zero anchors anywhere: the synthetic start is UNCONDITIONALLY 1,
@@ -2081,8 +2189,12 @@ function mockReconcile(
         .map((bar, localIndex) => ({
           x_right: bar.x_right,
           number: bar.number,
-          confidence: anchorConfidenceByIndex.get(meta.start + localIndex),
-          source: "model" as const,
+          confidence: meta.interpolated
+            ? undefined
+            : anchorConfidenceByIndex.get(meta.start + localIndex),
+          source: meta.interpolated
+            ? ("interpolated" as const)
+            : ("model" as const),
         })),
     }));
     return { page, map: { version: 1, systems } };

@@ -515,6 +515,8 @@ function describeConflict(conflict: MapConflict): string {
       return conflict.system === 0
         ? `Page ${conflict.page}: ${conflict.reason} (this page cannot be applied as-is).`
         : `Page ${conflict.page}, system ${conflict.system}: ${conflict.reason} (cannot be applied as-is).`;
+    case "derived_bar_count":
+      return `Page ${conflict.page}, system ${conflict.system}: bar count corrected from ${conflict.found} to ${conflict.expected} using the printed numbers before and after it.`;
     default:
       return "Unrecognized conflict.";
   }

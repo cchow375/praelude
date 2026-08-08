@@ -116,6 +116,20 @@ export type MapConflict =
        * single system to blame (a duplicate page, an oversized page). */
       system: number;
       reason: string;
+    }
+  | {
+      /** Low-severity, informational (C6b): this system's bar count came
+       * from the system-start bracket rule (both its own start AND the
+       * very next system's start carried real printed anchors), not the
+       * model's own `barline_xs` — its bars were resynthesized as
+       * `expected` evenly spaced positions (`source: "interpolated"`,
+       * `confidence: null`) instead of merely being flagged. Never
+       * co-occurs with a `continuity_break` for the same pair. */
+      kind: "derived_bar_count";
+      page: number;
+      system: number;
+      expected: number;
+      found: number;
     };
 
 export interface ReconcileResult {

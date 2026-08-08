@@ -23,7 +23,15 @@ describe("dev-mock measure mapping handlers", () => {
   beforeEach(() => installTauriDevMock());
   afterEach(() => uninstallTauriDevMock());
 
-  it("page 1 scans clean, page 2 scans with a printed number that breaks continuity", async () => {
+  // UPDATED for C6b: page 1's single system and page 2's single system are
+  // immediately adjacent in the bar stream, and BOTH anchors ("1" and "10")
+  // sit at their own system's first bar — exactly the system-start bracket
+  // case (see `score::measure_reconcile`'s "System-start bracketing" doc
+  // comment, mirrored in this file's `mockReconcile`). Page 1's model bar
+  // count (4) disagrees with what the anchors imply (10-1=9), so it's now
+  // resolved via `derived_bar_count` + even interpolation instead of a plain
+  // `continuity_break` — this test used to pin the OLD (pre-C6b) behavior.
+  it("page 1 scans clean, page 2's printed number implies a bar count page 1's model undercounted", async () => {
     const page1 = await seamInvoke<ScanPageOutput>("measure_scan_page", {
       pieceId: 1,
       editionId: "score/score.pdf",
@@ -52,11 +60,26 @@ describe("dev-mock measure mapping handlers", () => {
       ]),
     });
     expect(reconciled.conflicts).toHaveLength(1);
-    expect(reconciled.conflicts[0]).toMatchObject({ kind: "continuity_break" });
-    // Page 1 is clean and numbers 1..4.
+    expect(reconciled.conflicts[0]).toMatchObject({
+      kind: "derived_bar_count",
+      page: 1,
+      system: 1,
+      expected: 9,
+      found: 4,
+    });
     expect(
-      reconciled.pages[0].map.systems[0].bars.map((b) => b.number),
-    ).toEqual([1, 2, 3, 4]);
+      reconciled.conflicts.some((c) => c.kind === "continuity_break"),
+    ).toBe(false);
+    // Page 1's 4 model-reported bars were resynthesized as 9 evenly spaced
+    // interpolated bars, numbered 1..9 (the anchor gap 10-1=9).
+    const page1Bars = reconciled.pages[0].map.systems[0].bars;
+    expect(page1Bars.map((b) => b.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(page1Bars.every((b) => b.source === "interpolated")).toBe(true);
+    expect(page1Bars.every((b) => b.confidence === undefined)).toBe(true);
+    // Page 2's own system is untouched (still `source: model`, starting
+    // at its own printed "10").
+    const page2Bars = reconciled.pages[1].map.systems[0].bars;
+    expect(page2Bars[0]).toMatchObject({ number: 10, source: "model" });
   });
 
   it("reconciling page 1 alone (a partial scan) produces zero conflicts", async () => {
