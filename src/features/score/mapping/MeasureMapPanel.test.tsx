@@ -122,6 +122,47 @@ function unapplyableResult(): ReconcileResult {
   };
 }
 
+/** The live-QA repro shape: page 1 is clean and editable, page 3 carries a
+ * structural `unapplyable` defect (the devMock's CLIENT_RASTER_PAGE fixture —
+ * unsorted barline_xs). Two pages so a renumber on page 1 is genuinely
+ * "unrelated" to page 3's conflict. */
+function twoPageResultWithPage3Unapplyable(): ReconcileResult {
+  const page1 = reconciledPages()[0];
+  const page3: MeasureMapPageRow = {
+    page: 3,
+    map: {
+      version: 1,
+      systems: [
+        {
+          y_top: 0.5,
+          y_bottom: 0.6,
+          x_left: 0.05,
+          x_right: 0.95,
+          bars: [
+            { x_right: 0.7, number: 4, source: "model" },
+            { x_right: 0.3, number: 5, source: "model" },
+            { x_right: 0.9, number: 6, source: "model" },
+            { x_right: 0.8999, number: 7, source: "model" },
+          ],
+        },
+      ],
+    },
+  };
+  return {
+    pages: [page1, page3],
+    conflicts: [
+      {
+        kind: "unapplyable",
+        page: 3,
+        system: 1,
+        reason: "bar x_right must strictly increase within a system",
+      },
+    ],
+    total_bars: 7,
+    has_pickup: false,
+  };
+}
+
 function makeApi(overrides: Partial<MeasureMapApi> = {}): MeasureMapApi {
   return {
     scanPage: vi.fn().mockResolvedValue(cleanScan()),
@@ -567,6 +608,196 @@ describe("MeasureMapPanel", () => {
     const bar = screen.getAllByTestId("measure-map-number")[0];
     expect(bar.tagName).toBe("SPAN");
     expect(bar.getAttribute("title")).toBe("Map applied — re-scan to edit");
+  });
+
+  // ── Conflict semantics across local edits (live-QA Critical, C7) ────────
+
+  it("a local renumber on page 1 never clears page 3's unapplyable conflict, and Apply stays disabled", async () => {
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("2");
+    const apply = vi.fn().mockResolvedValue(1);
+    const api = makeApi({
+      apply,
+      reconcile: vi.fn().mockResolvedValue(twoPageResultWithPage3Unapplyable()),
+    });
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={3}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={api}
+      />,
+    );
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-conflict-list");
+    expect(screen.getByText(/bar x_right must strictly increase/)).toBeTruthy();
+    expect(screen.getByTestId("measure-map-apply")).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    // Review page 1 (the clean page) and renumber one of its bars.
+    const numbers = screen.getAllByTestId("measure-map-number");
+    clickBar(numbers[1]);
+
+    // The unrelated structural conflict SURVIVES the local pass — before this
+    // fix, `setConflicts(result.conflicts)` replaced the whole list with
+    // applyAnchors' continuity-break-only output and re-enabled Apply over
+    // malformed geometry.
+    await waitFor(() =>
+      expect(screen.getAllByTestId("measure-map-number")[1].textContent).toBe(
+        "2",
+      ),
+    );
+    expect(screen.getByText(/bar x_right must strictly increase/)).toBeTruthy();
+    expect(screen.getByTestId("measure-map-apply")).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(apply).not.toHaveBeenCalled();
+    promptSpy.mockRestore();
+  });
+
+  it("an informational-only conflict set leaves Apply enabled, styled quietly", async () => {
+    const api = makeApi({
+      reconcile: vi.fn().mockResolvedValue({
+        pages: reconciledPages(),
+        conflicts: [
+          {
+            kind: "derived_bar_count",
+            page: 1,
+            system: 1,
+            expected: 9,
+            found: 3,
+          },
+        ],
+        total_bars: 3,
+        has_pickup: false,
+      } satisfies ReconcileResult),
+    });
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={api}
+      />,
+    );
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-conflict-list");
+    // It renders — quietly — but never blocks.
+    const row = screen.getByTestId("measure-map-conflict-informational");
+    expect(row.className).toContain("is-informational");
+    expect(screen.queryByTestId("measure-map-conflict-blocking")).toBeNull();
+    expect(screen.getByTestId("measure-map-apply")).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  // ── F1: interpolated-bar legend ─────────────────────────────────────────
+
+  it("shows the interpolated-bar legend, and marks those bars, only when interpolated bars exist", async () => {
+    const pages = reconciledPages();
+    pages[0].map.systems[0].bars[2].source = "interpolated";
+    const api = makeApi({
+      reconcile: vi.fn().mockResolvedValue({
+        pages,
+        conflicts: [],
+        total_bars: 3,
+        has_pickup: false,
+      } satisfies ReconcileResult),
+    });
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={api}
+      />,
+    );
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-interpolated-legend");
+    expect(screen.getByText(/Dashed numbers were interpolated/)).toBeTruthy();
+    const marks = screen.getAllByTestId("measure-map-number");
+    expect(marks[2].className).toContain("is-interpolated");
+    expect(marks[0].className).not.toContain("is-interpolated");
+  });
+
+  it("omits the interpolated legend when every bar was read directly", async () => {
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={makeApi()}
+      />,
+    );
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-no-conflicts");
+    expect(screen.queryByTestId("measure-map-interpolated-legend")).toBeNull();
+  });
+
+  // ── F3: partial Apply (skip a blocking page) ────────────────────────────
+
+  it("skipping a blocking page omits it from the Apply payload and re-enables Apply", async () => {
+    const apply = vi.fn().mockResolvedValue(1);
+    const onApplied = vi.fn();
+    const result = twoPageResultWithPage3Unapplyable();
+    const api = makeApi({
+      apply,
+      reconcile: vi.fn().mockResolvedValue(result),
+    });
+    render(
+      <MeasureMapPanel
+        pieceId={4}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-4"
+        pageCount={3}
+        onClose={vi.fn()}
+        onApplied={onApplied}
+        rasterizePage={rasterizePage}
+        api={api}
+      />,
+    );
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-conflict-list");
+    // Page 1 is clean: no skip affordance offered there.
+    expect(screen.queryByTestId("measure-map-skip-page")).toBeNull();
+
+    fireEvent.click(screen.getByText("›")); // navigate to page 3
+    await screen.findByTestId("measure-map-skip-page");
+    fireEvent.click(screen.getByTestId("measure-map-skip-page"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("measure-map-apply")).toHaveProperty(
+        "disabled",
+        false,
+      ),
+    );
+    expect(
+      screen.getByTestId("measure-map-apply-summary").textContent,
+    ).toContain("Applying 1 of 2 pages — 1 skipped stay unmapped.");
+    // The blocking row is still listed (it was never resolved, only excluded).
+    expect(screen.getByText(/bar x_right must strictly increase/)).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("measure-map-apply"));
+    await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
+    const sent = apply.mock.calls[0][3] as MeasureMapPageRow[];
+    expect(sent.map((row) => row.page)).toEqual([1]);
+    expect(onApplied).toHaveBeenCalledWith(sent);
+    expect(getMeasureMapEntry(4, "score/score.pdf")?.pages).toEqual(sent);
   });
 
   it("wires the barline-drag gesture end to end: dragging changes the applied x_right", async () => {

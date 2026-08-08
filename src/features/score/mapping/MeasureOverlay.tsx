@@ -58,6 +58,10 @@ function conflictHitsSystem(
   switch (conflict.kind) {
     case "continuity_break":
     case "low_confidence_anchor":
+    // Informational (it never blocks Apply), but it still names exactly one
+    // system whose bars were resynthesized — the human reviewing the page
+    // needs to SEE which system that was.
+    case "derived_bar_count":
       return conflict.page === pageNumber && conflict.system === systemNumber;
     case "overlapping_systems":
       return (

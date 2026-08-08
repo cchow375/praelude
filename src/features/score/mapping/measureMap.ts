@@ -132,6 +132,28 @@ export type MapConflict =
       found: number;
     };
 
+/** The conflict kinds that make a payload genuinely unapplyable — a structural
+ * defect the Rust `measure_map_apply` would reject, or a numbering
+ * contradiction no one has resolved yet. These, and ONLY these, disable Apply.
+ *
+ * Everything else (`derived_bar_count`, `low_confidence_anchor`,
+ * `pickup_ambiguity`, `total_mismatch`) is INFORMATIONAL: worth showing the
+ * human, never worth blocking on — the map is still structurally applyable
+ * with them present, and (C6b) `derived_bar_count` in particular describes a
+ * correction the reconciler already made. */
+export const BLOCKING_CONFLICT_KINDS: ReadonlySet<MapConflict["kind"]> =
+  new Set<MapConflict["kind"]>([
+    "unapplyable",
+    "continuity_break",
+    "overlapping_systems",
+    "anchor_disagreement",
+  ]);
+
+/** True when this conflict must disable Apply — see `BLOCKING_CONFLICT_KINDS`. */
+export function isBlockingConflict(conflict: MapConflict): boolean {
+  return BLOCKING_CONFLICT_KINDS.has(conflict.kind);
+}
+
 export interface ReconcileResult {
   pages: MeasureMapPageRow[];
   conflicts: MapConflict[];
@@ -280,30 +302,65 @@ export interface LocalReconcileResult {
 }
 
 /**
+ * Merge a local pass's freshly-derived conflicts into the conflict list the
+ * review is currently showing.
+ *
+ * `applyAnchors` below can only ever re-derive `continuity_break` — it has no
+ * XML, no calibration anchors and no raw vision scan, so it can neither
+ * confirm nor refute `unapplyable`, `overlapping_systems`,
+ * `anchor_disagreement`, `total_mismatch`, `pickup_ambiguity`,
+ * `low_confidence_anchor` or `derived_bar_count`. Replacing the whole list
+ * with its output therefore SILENTLY DROPPED every one of those (live-QA
+ * Critical, task C7): a renumber anywhere cleared a structural `unapplyable`
+ * on an unrelated page and re-enabled Apply over malformed geometry.
+ *
+ * So: every non-continuity-break conflict survives verbatim, and only the
+ * anchor-derived continuity breaks are replaced. A local edit can never clear
+ * a structural conflict — only a fresh server reconcile (which recomputes the
+ * whole list from raw scans) or an explicit page exclusion can.
+ */
+export function mergeLocalConflicts(
+  current: MapConflict[],
+  fresh: MapConflict[],
+): MapConflict[] {
+  return [
+    ...current.filter((conflict) => conflict.kind !== "continuity_break"),
+    ...fresh,
+  ];
+}
+
+/**
  * Pin `location`'s bar to `newNumber` as a user anchor, then forward/backward
  * fill every OTHER bar in the whole review (across all pages) from the
  * nearest user anchor in stream order. Every consecutive pair of user anchors
  * that disagrees (the bar-index gap between them does not equal their number
  * gap) becomes a visible `continuity_break` conflict — this is the ONLY
- * conflict kind a local edit re-derives; any other kind the last Rust
- * reconcile found (`total_mismatch`, `pickup_ambiguity`, …) is intentionally
- * dropped, since this pass has no XML/vision context to re-check them.
+ * conflict kind a local edit re-derives, so `currentConflicts` (the list the
+ * review is showing right now) is MERGED through `mergeLocalConflicts` rather
+ * than replaced: every other kind survives untouched.
  */
 export function renumberBar(
   pages: MeasureMapPageRow[],
   location: BarLocation,
   newNumber: number,
   hasPickup = false,
+  currentConflicts: MapConflict[] = [],
 ): LocalReconcileResult {
   const next = clonePages(pages);
   const flat = flattenBars(next);
   const target = flat.find((ref) => locationEquals(ref.loc, location));
-  if (!target) return { pages: next, conflicts: [] };
+  if (!target) return { pages: next, conflicts: [...currentConflicts] };
 
   target.bar.number = Math.max(0, Math.trunc(newNumber));
   target.bar.source = "user";
 
-  return { pages: next, conflicts: applyAnchors(flat, hasPickup) };
+  return {
+    pages: next,
+    conflicts: mergeLocalConflicts(
+      currentConflicts,
+      applyAnchors(flat, hasPickup),
+    ),
+  };
 }
 
 /** Re-run the SAME forward/backward-fill from whatever user anchors already
@@ -313,10 +370,17 @@ export function renumberBar(
 export function reconcileLocal(
   pages: MeasureMapPageRow[],
   hasPickup = false,
+  currentConflicts: MapConflict[] = [],
 ): LocalReconcileResult {
   const next = clonePages(pages);
   const flat = flattenBars(next);
-  return { pages: next, conflicts: applyAnchors(flat, hasPickup) };
+  return {
+    pages: next,
+    conflicts: mergeLocalConflicts(
+      currentConflicts,
+      applyAnchors(flat, hasPickup),
+    ),
+  };
 }
 
 /** The numbering floor: 0 for a pickup measure, 1 otherwise — matches

@@ -243,6 +243,56 @@ describe("MeasureOverlay", () => {
     expect(screen.getByTestId("measure-map-conflict-1-1")).toBeTruthy();
   });
 
+  it("bands the named system for an (informational) derived_bar_count conflict", () => {
+    const conflicts: MapConflict[] = [
+      { kind: "derived_bar_count", page: 1, system: 1, expected: 9, found: 3 },
+    ];
+    render(
+      <MeasureOverlay
+        page={samplePage()}
+        pageNumber={1}
+        conflicts={conflicts}
+        visible
+        stale={false}
+      />,
+    );
+    expect(screen.getByTestId("measure-map-conflict-1-1")).toBeTruthy();
+  });
+
+  it("does not band a derived_bar_count conflict on another page/system", () => {
+    const conflicts: MapConflict[] = [
+      { kind: "derived_bar_count", page: 1, system: 2, expected: 9, found: 3 },
+    ];
+    render(
+      <MeasureOverlay
+        page={samplePage()}
+        pageNumber={1}
+        conflicts={conflicts}
+        visible
+        stale={false}
+      />,
+    );
+    expect(screen.queryByTestId("measure-map-conflict-1-1")).toBeNull();
+  });
+
+  it("marks interpolated bars with their own class, distinct from model/user", () => {
+    const page = samplePage();
+    page.systems[0].bars[1].source = "interpolated";
+    render(
+      <MeasureOverlay
+        page={page}
+        pageNumber={1}
+        conflicts={[]}
+        visible
+        stale={false}
+      />,
+    );
+    const marks = screen.getAllByTestId("measure-map-number");
+    expect(marks[0].className).toContain("is-model");
+    expect(marks[1].className).toContain("is-interpolated");
+    expect(marks[2].className).toContain("is-user");
+  });
+
   it("read-only bars ignore clicks/drags and carry the re-scan-to-edit hint", () => {
     const onBarClick = vi.fn();
     const onBarDrag = vi.fn();

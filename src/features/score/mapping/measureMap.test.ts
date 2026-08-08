@@ -3,13 +3,16 @@ import {
   barRangeForRect,
   dragBarline,
   getMeasureMapEntry,
+  isBlockingConflict,
   isNeedsClientRaster,
+  mergeLocalConflicts,
   publishMeasureMap,
   renumberBar,
   resetMeasureMapStoreForTests,
   subscribeMeasureMap,
   type DragPageRect,
   type MapBar,
+  type MapConflict,
   type MapSystem,
   type MeasureMapPageRow,
 } from "./measureMap";
@@ -400,5 +403,135 @@ describe("barRangeForRect", () => {
 
   it("returns null when no rects are given", () => {
     expect(barRangeForRect(pages, [])).toBeNull();
+  });
+});
+
+// ── Conflict partition + local-edit merge (live-QA Critical, C7) ────────────
+
+describe("conflict partition", () => {
+  it("classifies the four structural kinds as blocking", () => {
+    const blocking: MapConflict[] = [
+      { kind: "unapplyable", page: 3, system: 1, reason: "bad geometry" },
+      { kind: "continuity_break", page: 1, system: 1, expected: 2, found: 1 },
+      { kind: "overlapping_systems", page: 2, system_a: 1, system_b: 2 },
+      {
+        kind: "anchor_disagreement",
+        page: 1,
+        anchor_measure: 5,
+        mapped_measure: 7,
+      },
+    ];
+    expect(blocking.every(isBlockingConflict)).toBe(true);
+  });
+
+  it("classifies the four advisory kinds as informational", () => {
+    const informational: MapConflict[] = [
+      { kind: "derived_bar_count", page: 1, system: 1, expected: 9, found: 4 },
+      {
+        kind: "low_confidence_anchor",
+        page: 1,
+        system: 1,
+        measure: 12,
+        confidence: 0.4,
+      },
+      { kind: "pickup_ambiguity", page: 1 },
+      { kind: "total_mismatch", mapped: 100, xml: 101 },
+    ];
+    expect(informational.some(isBlockingConflict)).toBe(false);
+  });
+});
+
+describe("mergeLocalConflicts", () => {
+  it("replaces only continuity breaks and keeps every other kind verbatim", () => {
+    const current: MapConflict[] = [
+      { kind: "unapplyable", page: 3, system: 1, reason: "bad geometry" },
+      { kind: "continuity_break", page: 1, system: 1, expected: 2, found: 1 },
+      { kind: "pickup_ambiguity", page: 1 },
+    ];
+    const fresh: MapConflict[] = [
+      { kind: "continuity_break", page: 2, system: 1, expected: 4, found: 3 },
+    ];
+    expect(mergeLocalConflicts(current, fresh)).toEqual([
+      { kind: "unapplyable", page: 3, system: 1, reason: "bad geometry" },
+      { kind: "pickup_ambiguity", page: 1 },
+      { kind: "continuity_break", page: 2, system: 1, expected: 4, found: 3 },
+    ]);
+  });
+});
+
+describe("renumberBar conflict merge", () => {
+  function twoBarPages(): MeasureMapPageRow[] {
+    return [
+      {
+        page: 1,
+        map: {
+          version: 1,
+          systems: [
+            {
+              y_top: 0.1,
+              y_bottom: 0.2,
+              x_left: 0.05,
+              x_right: 0.95,
+              bars: [bar(1, 0.3), bar(2, 0.6)],
+            },
+          ],
+        },
+      },
+    ];
+  }
+
+  it("carries an unrelated unapplyable conflict through a local renumber", () => {
+    const current: MapConflict[] = [
+      { kind: "unapplyable", page: 3, system: 1, reason: "bad geometry" },
+    ];
+    const result = renumberBar(
+      twoBarPages(),
+      { pageIndex: 0, systemIndex: 0, barIndex: 1 },
+      2,
+      false,
+      current,
+    );
+    expect(result.conflicts).toEqual(current);
+  });
+
+  it("keeps the current list untouched when the location does not exist", () => {
+    const current: MapConflict[] = [
+      { kind: "unapplyable", page: 3, system: 1, reason: "bad geometry" },
+    ];
+    const result = renumberBar(
+      twoBarPages(),
+      { pageIndex: 9, systemIndex: 0, barIndex: 0 },
+      2,
+      false,
+      current,
+    );
+    expect(result.conflicts).toEqual(current);
+  });
+
+  it("still re-derives its own continuity breaks alongside the carried ones", () => {
+    const pages = twoBarPages();
+    pages[0].map.systems[0].bars.push(bar(3, 0.9));
+    const pinned = renumberBar(
+      pages,
+      { pageIndex: 0, systemIndex: 0, barIndex: 0 },
+      1,
+      false,
+      [{ kind: "unapplyable", page: 3, system: 1, reason: "bad geometry" }],
+    );
+    // Two disagreeing user anchors (bar 0 -> 1, bar 2 -> 9) raise a fresh
+    // continuity_break while the carried unapplyable survives.
+    const result = renumberBar(
+      pinned.pages,
+      { pageIndex: 0, systemIndex: 0, barIndex: 2 },
+      9,
+      false,
+      pinned.conflicts,
+    );
+    expect(result.conflicts.filter((c) => c.kind === "unapplyable")).toHaveLength(
+      1,
+    );
+    expect(
+      result.conflicts.filter((c) => c.kind === "continuity_break"),
+    ).toHaveLength(1);
   });
 });

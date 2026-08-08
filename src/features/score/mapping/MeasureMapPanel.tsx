@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   dragBarline,
+  isBlockingConflict,
   isNeedsClientRaster,
   measureMapApply,
   measureReconcile,
@@ -94,6 +95,13 @@ export function MeasureMapPanel({
   const [applyError, setApplyError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [pageImages, setPageImages] = useState<Record<number, string>>({});
+  /** Pages the human chose to leave unmapped rather than fix (F3, partial
+   * Apply). The store treats a re-apply as the new whole truth for this
+   * fingerprint, so omitting a page from the payload simply leaves it
+   * unmapped — see `store::measure_map`'s own module doc. */
+  const [skippedPages, setSkippedPages] = useState<ReadonlySet<number>>(
+    () => new Set<number>(),
+  );
   const cancelRef = useRef(false);
   const pageImagesRef = useRef<Record<number, string>>({});
   const requestedImagesRef = useRef(new Set<number>());
@@ -220,6 +228,7 @@ export function MeasureMapPanel({
       );
       setWorkingPages(reconciled.pages);
       setConflicts(reconciled.conflicts);
+      setSkippedPages(new Set<number>());
       setHasPickup(reconciled.has_pickup);
       setReviewPage(reconciled.pages[0]?.page ?? 1);
       setStage("review");
@@ -243,6 +252,7 @@ export function MeasureMapPanel({
     setStage("intro");
     setWorkingPages([]);
     setConflicts([]);
+    setSkippedPages(new Set<number>());
     setDirty(false);
     setError(null);
     setApplyError(null);
@@ -263,17 +273,21 @@ export function MeasureMapPanel({
       if (input == null) return;
       const parsed = Number(input);
       if (!Number.isFinite(parsed) || parsed < 0) return;
+      // `conflicts` is threaded IN so the local pass merges rather than
+      // replaces: a renumber re-derives continuity breaks only, and must
+      // never clear a structural conflict it cannot see (live-QA Critical).
       const result = renumberBar(
         workingPages,
         { pageIndex, systemIndex, barIndex },
         Math.trunc(parsed),
         hasPickup,
+        conflicts,
       );
       setWorkingPages(result.pages);
       setConflicts(result.conflicts);
       setDirty(true);
     },
-    [hasPickup, workingPages],
+    [conflicts, hasPickup, workingPages],
   );
 
   const handleBarDrag = useCallback(
@@ -290,16 +304,40 @@ export function MeasureMapPanel({
     [],
   );
 
+  const toggleSkipPage = useCallback((page: number) => {
+    setSkippedPages((current) => {
+      const next = new Set(current);
+      if (next.has(page)) next.delete(page);
+      else next.add(page);
+      return next;
+    });
+    setDirty(true);
+  }, []);
+
+  // Apply gates on BLOCKING conflicts only, and only on pages that are
+  // actually being applied: an informational row (derived_bar_count,
+  // low_confidence_anchor, pickup_ambiguity, total_mismatch) is worth showing
+  // but never worth blocking on, and a skipped page's defects leave with it.
+  const pagesToApply = workingPages.filter(
+    (row) => !skippedPages.has(row.page),
+  );
+  const blockingConflicts = conflicts.filter(isBlockingConflict);
+  const activeBlockingConflicts = blockingConflicts.filter(
+    (conflict) => !("page" in conflict) || !skippedPages.has(conflict.page),
+  );
+  const applyBlocked =
+    activeBlockingConflicts.length > 0 || pagesToApply.length === 0;
+
   const applyReview = useCallback(async () => {
-    if (conflicts.length > 0) return;
+    if (applyBlocked) return;
     setStage("applying");
     setApplyError(null);
     try {
-      await api.apply(pieceId, editionId, editionFingerprint, workingPages);
-      publishMeasureMap(pieceId, editionId, editionFingerprint, workingPages);
+      await api.apply(pieceId, editionId, editionFingerprint, pagesToApply);
+      publishMeasureMap(pieceId, editionId, editionFingerprint, pagesToApply);
       setDirty(false);
       setStage("applied");
-      onApplied?.(workingPages);
+      onApplied?.(pagesToApply);
     } catch (reason) {
       // Apply rejected (e.g. a reconciled result whose conflicts were all
       // resolved but the whole-payload validation still fails elsewhere) —
@@ -310,18 +348,27 @@ export function MeasureMapPanel({
     }
   }, [
     api,
-    conflicts.length,
+    applyBlocked,
     editionFingerprint,
     editionId,
     onApplied,
+    pagesToApply,
     pieceId,
-    workingPages,
   ]);
 
   const currentRow =
     workingPages.find((row) => row.page === reviewPage) ?? null;
   const currentPageIndex = workingPages.findIndex(
     (row) => row.page === reviewPage,
+  );
+  const currentPageIsBlocked = blockingConflicts.some(
+    (conflict) => "page" in conflict && conflict.page === reviewPage,
+  );
+  const currentPageSkipped = skippedPages.has(reviewPage);
+  const hasInterpolatedBars = workingPages.some((row) =>
+    row.map.systems.some((system) =>
+      system.bars.some((bar) => bar.source === "interpolated"),
+    ),
   );
 
   return (
@@ -391,12 +438,35 @@ export function MeasureMapPanel({
               <p data-testid="measure-map-no-conflicts">No conflicts.</p>
             ) : (
               <ul data-testid="measure-map-conflict-list">
-                {conflicts.map((conflict, index) => (
-                  <li key={index}>{describeConflict(conflict)}</li>
-                ))}
+                {conflicts.map((conflict, index) => {
+                  const blocking = isBlockingConflict(conflict);
+                  return (
+                    <li
+                      key={index}
+                      className={blocking ? "is-blocking" : "is-informational"}
+                      data-testid={
+                        blocking
+                          ? "measure-map-conflict-blocking"
+                          : "measure-map-conflict-informational"
+                      }
+                    >
+                      {describeConflict(conflict)}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
+
+          {hasInterpolatedBars && (
+            <p
+              className="measure-map-legend"
+              data-testid="measure-map-interpolated-legend"
+            >
+              Dashed numbers were interpolated from surrounding printed numbers,
+              not read directly.
+            </p>
+          )}
 
           <div className="measure-map-page-nav">
             <button
@@ -425,7 +495,26 @@ export function MeasureMapPanel({
             >
               ›
             </button>
+            {(currentPageIsBlocked || currentPageSkipped) &&
+              stage === "review" && (
+                <button
+                  type="button"
+                  className="measure-map-skip-page"
+                  data-testid="measure-map-skip-page"
+                  onClick={() => toggleSkipPage(reviewPage)}
+                >
+                  {currentPageSkipped ? "Include this page" : "Skip this page"}
+                </button>
+              )}
           </div>
+          {currentPageSkipped && (
+            <p
+              className="measure-map-legend"
+              data-testid="measure-map-page-skipped"
+            >
+              Page {reviewPage} is skipped — it will stay unmapped.
+            </p>
+          )}
 
           <div className="measure-map-page-preview">
             {pageImages[reviewPage] && (
@@ -470,6 +559,16 @@ export function MeasureMapPanel({
             />
           </div>
 
+          {skippedPages.size > 0 && (
+            <p
+              className="measure-map-apply-summary"
+              data-testid="measure-map-apply-summary"
+            >
+              Applying {pagesToApply.length} of {workingPages.length} pages —{" "}
+              {skippedPages.size} skipped stay unmapped.
+            </p>
+          )}
+
           <div className="measure-map-actions">
             <button
               type="button"
@@ -482,9 +581,7 @@ export function MeasureMapPanel({
               type="button"
               onClick={() => void applyReview()}
               disabled={
-                conflicts.length > 0 ||
-                stage === "applying" ||
-                stage === "applied"
+                applyBlocked || stage === "applying" || stage === "applied"
               }
               data-testid="measure-map-apply"
             >

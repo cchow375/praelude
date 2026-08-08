@@ -84,6 +84,34 @@
   color: var(--signal-warning, #b8860b);
 }
 
+/* Blocking rows keep the warning amber (they stop Apply); informational rows
+   (derived_bar_count, low_confidence_anchor, pickup_ambiguity,
+   total_mismatch) are quiet — worth reading, never worth blocking on. */
+.measure-map-conflicts li.is-blocking {
+  color: var(--signal-warning, #b8860b);
+}
+
+.measure-map-conflicts li.is-informational {
+  color: var(--ink-dim);
+}
+
+.measure-map-legend,
+.measure-map-apply-summary {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+}
+
+.measure-map-skip-page {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .measure-map-page-nav {
   display: flex;
   align-items: center;
@@ -155,6 +183,16 @@
 .measure-map-number.is-user {
   color: var(--ink-dim);
   font-weight: 600;
+}
+
+/* Bars the reconciler resynthesized (C6b system-start bracketing) rather than
+   read: lighter than a model-read number, dashed-underlined so the difference
+   survives a greyscale/e-ink render. The panel's own legend explains it. */
+.measure-map-number.is-interpolated {
+  color: var(--ink-faint);
+  font-style: italic;
+  text-decoration: underline dashed;
+  text-underline-offset: 2px;
 }
 
 button.measure-map-number {
