@@ -67,8 +67,8 @@ pub mod gemini;
 pub mod say;
 
 use std::fmt;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -128,8 +128,99 @@ pub trait TtsProvider: Send + Sync {
 }
 
 /// Default number of *consecutive* primary failures after which the primary
-/// provider is abandoned for the rest of the process lifetime.
+/// provider is put on cooldown.
 const DEFAULT_FAIL_THRESHOLD: u32 = 2;
+
+/// First cooldown applied when the primary trips the failure threshold.
+const COOLDOWN_BASE: Duration = Duration::from_secs(60);
+
+/// Ceiling for the doubling cooldown. A dead key/network then costs at most one
+/// wasted synth attempt every 10 minutes, while a network that comes back is
+/// picked up within 10 minutes without a relaunch.
+const COOLDOWN_MAX: Duration = Duration::from_secs(600);
+
+// ---------------------------------------------------------------------------
+// Clock seam
+// ---------------------------------------------------------------------------
+
+/// Monotonic time source. Injected (like [`PcmSink`] / [`Gate`]) so the cooldown
+/// state machine is testable without sleeping. Production uses [`SystemClock`].
+pub trait Clock: Send + Sync {
+    fn now(&self) -> Instant;
+}
+
+/// The real clock: `Instant::now()`.
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Degraded-voice status
+// ---------------------------------------------------------------------------
+
+/// Where a primary↔fallback *transition* is reported. Called only when the
+/// degraded flag actually flips, never per failure.
+pub trait TtsStatusSink: Send + Sync {
+    fn set_degraded(&self, degraded: bool);
+}
+
+/// Process-wide "the cloud voice is degraded" flag plus an optional listener.
+///
+/// The TTS provider is built deep inside the voice action thread ([`Speaker`] →
+/// [`select_provider`]) which has no `AppHandle` and no app state, so the status
+/// is published through a process-global hub — the same idiom used elsewhere in
+/// the app for handle-less subsystems (`imslp::SHARED_HTTP`,
+/// `stt::supervisor::CURRENT_HEAR_PGID`). `run()` installs a listener that emits
+/// `voice://tts`; `tts_degraded()` reads the flag for a fresh UI mount.
+pub struct TtsStatusHub {
+    degraded: AtomicBool,
+    listener: Mutex<Option<StatusListener>>,
+}
+
+/// A degraded/recovered transition listener (production: the `voice://tts` emit).
+pub type StatusListener = Box<dyn Fn(bool) + Send + Sync>;
+
+impl TtsStatusHub {
+    fn new() -> TtsStatusHub {
+        TtsStatusHub {
+            degraded: AtomicBool::new(false),
+            listener: Mutex::new(None),
+        }
+    }
+
+    /// Current degraded state (`true` = utterances are coming from `say`).
+    pub fn degraded(&self) -> bool {
+        self.degraded.load(Ordering::Acquire)
+    }
+
+    /// Install the transition listener (replacing any previous one).
+    pub fn set_listener(&self, listener: StatusListener) {
+        if let Ok(mut slot) = self.listener.lock() {
+            *slot = Some(listener);
+        }
+    }
+}
+
+impl TtsStatusSink for TtsStatusHub {
+    fn set_degraded(&self, degraded: bool) {
+        self.degraded.store(degraded, Ordering::Release);
+        if let Ok(slot) = self.listener.lock() {
+            if let Some(listener) = slot.as_ref() {
+                listener(degraded);
+            }
+        }
+    }
+}
+
+/// The process-global status hub.
+pub fn status_hub() -> &'static Arc<TtsStatusHub> {
+    static HUB: OnceLock<Arc<TtsStatusHub>> = OnceLock::new();
+    HUB.get_or_init(|| Arc::new(TtsStatusHub::new()))
+}
 
 /// A [`TtsProvider`] that speaks through a `primary` provider but **falls back**
 /// to a `fallback` provider whenever the primary fails — so an utterance is never
@@ -143,82 +234,179 @@ const DEFAULT_FAIL_THRESHOLD: u32 = 2;
 /// unaffected. `FallbackTts` never enqueues PCM or touches the gate itself.
 ///
 /// Policy (per utterance):
-/// * If the primary is still enabled, try it first. On success the consecutive-
-///   failure counter is reset to 0.
+/// * If the primary is not on cooldown, try it first. On success the consecutive-
+///   failure counter, the cooldown length, and the degraded state are all reset.
 /// * On a primary failure the counter increments and we *immediately* try the
 ///   fallback (the user still hears the ack).
 /// * After [`threshold`](FallbackTts::with_threshold) **consecutive** primary
-///   failures the primary is disabled for the rest of the process lifetime (a
-///   dead network / bad key won't recover mid-session, and retrying it every
-///   utterance would add a pointless timeout before every ack). This transition
-///   is logged exactly once.
+///   failures the primary goes on **cooldown** — 60 s at first, doubling on each
+///   subsequent trip up to a 10 minute cap — instead of being abandoned for the
+///   whole session (v6 S9: a laptop that lost Wi-Fi for a minute must not be
+///   stuck with the robot voice until relaunch). Retrying every utterance is what
+///   the cooldown avoids: it would put a network timeout in front of every ack.
+/// * When a cooldown expires the primary is retried on the next utterance in a
+///   *probation* state: one more failure re-trips it immediately (with the
+///   doubled cooldown), so a still-broken primary costs one attempt per cooldown
+///   window, not `threshold` attempts.
+///
+/// The degraded flag flips on the trip (primary → fallback) and on the first
+/// primary success after a trip (fallback → recovered), and the
+/// [`TtsStatusSink`] is called on those two transitions only — never per
+/// failure. Production passes [`status_hub`], which drives the `voice://tts`
+/// event and the "Voice degraded" pill.
+///
+/// Time comes from an injected [`Clock`] so the whole state machine is unit
+/// tested without sleeping.
 pub struct FallbackTts {
     primary: Box<dyn TtsProvider>,
     fallback: Box<dyn TtsProvider>,
-    /// Count of consecutive primary failures (reset to 0 on any primary success).
-    primary_fails: AtomicU32,
-    /// Latched true once `primary_fails` reaches `threshold`; the primary is then
-    /// never called again.
-    primary_disabled: AtomicBool,
     threshold: u32,
+    clock: Arc<dyn Clock>,
+    status: Arc<dyn TtsStatusSink>,
+    state: Mutex<CooldownState>,
+}
+
+/// Mutable cooldown bookkeeping. Behind one `Mutex` because `Instant` is not an
+/// atomic; the Speaker worker is the only caller, so it is never contended.
+#[derive(Debug, Default)]
+struct CooldownState {
+    /// Consecutive primary failures since the last success / cooldown expiry.
+    fails: u32,
+    /// Cooldown applied at the last trip; the next trip doubles it (capped).
+    last_cooldown: Option<Duration>,
+    /// While `Some(t)` and `now < t`, the primary is skipped entirely.
+    disabled_until: Option<Instant>,
+    /// Whether the last reported transition said "degraded".
+    degraded: bool,
 }
 
 impl FallbackTts {
-    /// Wrap `primary` with a `fallback`, using the default failure threshold (2).
+    /// Wrap `primary` with a `fallback`, using the default failure threshold (2),
+    /// the real clock, and the process-global status hub.
     pub fn new(primary: Box<dyn TtsProvider>, fallback: Box<dyn TtsProvider>) -> FallbackTts {
         FallbackTts::with_threshold(primary, fallback, DEFAULT_FAIL_THRESHOLD)
     }
 
-    /// Wrap with an explicit consecutive-failure `threshold` (`>= 1`). Used by
-    /// tests; production uses [`FallbackTts::new`].
+    /// Wrap with an explicit consecutive-failure `threshold` (`>= 1`).
     pub fn with_threshold(
         primary: Box<dyn TtsProvider>,
         fallback: Box<dyn TtsProvider>,
         threshold: u32,
     ) -> FallbackTts {
+        FallbackTts::with_seams(
+            primary,
+            fallback,
+            threshold,
+            Arc::new(SystemClock),
+            status_hub().clone(),
+        )
+    }
+
+    /// Full seam constructor: explicit threshold, clock, and status sink. Used by
+    /// the cooldown tests; production goes through [`FallbackTts::new`].
+    pub fn with_seams(
+        primary: Box<dyn TtsProvider>,
+        fallback: Box<dyn TtsProvider>,
+        threshold: u32,
+        clock: Arc<dyn Clock>,
+        status: Arc<dyn TtsStatusSink>,
+    ) -> FallbackTts {
         FallbackTts {
             primary,
             fallback,
-            primary_fails: AtomicU32::new(0),
-            primary_disabled: AtomicBool::new(false),
             threshold: threshold.max(1),
+            clock,
+            status,
+            state: Mutex::new(CooldownState::default()),
+        }
+    }
+
+    /// `true` if the primary should be attempted now. Clears an expired cooldown
+    /// and puts the primary on probation (one failure re-trips it).
+    fn primary_ready(&self, state: &mut CooldownState) -> bool {
+        match state.disabled_until {
+            Some(until) if self.clock.now() < until => false,
+            Some(_) => {
+                state.disabled_until = None;
+                // Probation: the next single failure re-trips the cooldown.
+                state.fails = self.threshold.saturating_sub(1);
+                true
+            }
+            None => true,
         }
     }
 }
 
 impl TtsProvider for FallbackTts {
     fn synth(&self, text: &str) -> Result<Pcm> {
-        // The Speaker worker is the only caller and processes utterances strictly
-        // serially, so these atomics never actually race; they are atomics only
-        // because `TtsProvider` is `Sync`.
-        if !self.primary_disabled.load(Ordering::Acquire) {
+        // A transition to report after the lock is released (the listener runs
+        // app code — never call it while holding our own lock).
+        let mut transition: Option<bool> = None;
+        let attempt_primary = {
+            let mut state = self.state.lock().expect("tts fallback state");
+            self.primary_ready(&mut state)
+        };
+
+        if attempt_primary {
             match self.primary.synth(text) {
                 Ok(pcm) => {
-                    self.primary_fails.store(0, Ordering::Release);
+                    {
+                        let mut state = self.state.lock().expect("tts fallback state");
+                        state.fails = 0;
+                        state.last_cooldown = None;
+                        state.disabled_until = None;
+                        if state.degraded {
+                            state.degraded = false;
+                            transition = Some(false);
+                        }
+                    }
+                    if transition.is_some() {
+                        eprintln!("tts: primary provider recovered; back to the cloud voice");
+                        self.status.set_degraded(false);
+                    }
                     return Ok(pcm);
                 }
                 Err(e) => {
-                    let fails = self.primary_fails.fetch_add(1, Ordering::AcqRel) + 1;
-                    eprintln!(
-                        "tts: primary provider failed ({fails}/{}); using fallback: {e}",
-                        self.threshold
-                    );
-                    if fails >= self.threshold
-                        && !self.primary_disabled.swap(true, Ordering::AcqRel)
+                    let mut cooldown = None;
                     {
-                        // Log the permanent-disable transition exactly once.
+                        let mut state = self.state.lock().expect("tts fallback state");
+                        state.fails += 1;
                         eprintln!(
-                            "tts: primary provider disabled after {} consecutive failures; \
-                             using the fallback provider for the rest of this session",
+                            "tts: primary provider failed ({}/{}); using fallback: {e}",
+                            state.fails, self.threshold
+                        );
+                        if state.fails >= self.threshold {
+                            let next = match state.last_cooldown {
+                                Some(prev) => (prev * 2).min(COOLDOWN_MAX),
+                                None => COOLDOWN_BASE,
+                            };
+                            state.last_cooldown = Some(next);
+                            state.disabled_until = Some(self.clock.now() + next);
+                            state.fails = 0;
+                            cooldown = Some(next);
+                            if !state.degraded {
+                                state.degraded = true;
+                                transition = Some(true);
+                            }
+                        }
+                    }
+                    if let Some(cooldown) = cooldown {
+                        eprintln!(
+                            "tts: primary provider paused for {}s after {} consecutive failures; \
+                             using the system voice until then",
+                            cooldown.as_secs(),
                             self.threshold
                         );
+                    }
+                    if transition == Some(true) {
+                        self.status.set_degraded(true);
                     }
                 }
             }
         }
-        // Fallback path (primary just failed, or was already disabled). If the
-        // fallback also fails, that error propagates to the Speaker, which logs it
-        // — the utterance is dropped only when BOTH providers fail.
+        // Fallback path (primary just failed, or is on cooldown). If the fallback
+        // also fails, that error propagates to the Speaker, which logs it — the
+        // utterance is dropped only when BOTH providers fail.
         self.fallback.synth(text)
     }
 }
@@ -540,8 +728,9 @@ pub fn select_provider(
             // has_key is true here (decide_provider guarantees it), so unwrap is safe.
             // Wrap Gemini in a runtime fallback to `say`: if a Gemini synth fails
             // mid-session (network drop, API error), the utterance is still spoken
-            // via the always-available `say`, and after repeated failures Gemini is
-            // abandoned so acks stop paying a network timeout. The wrapper is a
+            // via the always-available `say`, and after repeated failures Gemini
+            // goes on a doubling cooldown so acks stop paying a network timeout
+            // while a recovered network is still picked up. The wrapper is a
             // plain TtsProvider, so the Speaker's half-duplex gate logic is
             // untouched (the fallback attempt happens in synth, gate still OPEN).
             let primary = Box::new(gemini::GeminiTts::new(
@@ -575,7 +764,7 @@ fn network_available() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::{AtomicU64, AtomicUsize};
     use std::sync::Arc;
 
     /// A fake provider whose per-call outcome is scripted, counting how many times
@@ -629,15 +818,92 @@ mod tests {
         pcm.mono_f32 == vec![-1.0f32]
     }
 
+    /// A [`Clock`] the test drives by hand, so cooldown expiry is exercised
+    /// without sleeping.
+    struct FakeClock {
+        base: Instant,
+        offset_ms: AtomicU64,
+    }
+
+    impl FakeClock {
+        fn new() -> Arc<FakeClock> {
+            Arc::new(FakeClock {
+                base: Instant::now(),
+                offset_ms: AtomicU64::new(0),
+            })
+        }
+        fn advance(&self, by: Duration) {
+            self.offset_ms
+                .fetch_add(by.as_millis() as u64, Ordering::AcqRel);
+        }
+    }
+
+    impl Clock for FakeClock {
+        fn now(&self) -> Instant {
+            self.base + Duration::from_millis(self.offset_ms.load(Ordering::Acquire))
+        }
+    }
+
+    /// Records every degraded transition in order, so a test can assert both the
+    /// values and the exact count (transitions only, never per failure).
+    #[derive(Default)]
+    struct RecordingStatus {
+        events: Mutex<Vec<bool>>,
+    }
+
+    impl RecordingStatus {
+        fn new() -> Arc<RecordingStatus> {
+            Arc::new(RecordingStatus::default())
+        }
+        fn events(&self) -> Vec<bool> {
+            self.events.lock().unwrap().clone()
+        }
+    }
+
+    impl TtsStatusSink for RecordingStatus {
+        fn set_degraded(&self, degraded: bool) {
+            self.events.lock().unwrap().push(degraded);
+        }
+    }
+
+    /// Build a `FallbackTts` over scripted providers with a fake clock + status
+    /// recorder. Returns the pieces every cooldown test needs.
+    #[allow(clippy::type_complexity)]
+    fn harness(
+        primary_script: Vec<bool>,
+        fallback_script: Vec<bool>,
+        threshold: u32,
+    ) -> (
+        FallbackTts,
+        Arc<FakeProvider>,
+        Arc<FakeProvider>,
+        Arc<FakeClock>,
+        Arc<RecordingStatus>,
+    ) {
+        let primary = FakeProvider::new("primary", primary_script);
+        let fallback = FakeProvider::new("fallback", fallback_script);
+        let clock = FakeClock::new();
+        let status = RecordingStatus::new();
+        let fb = FallbackTts::with_seams(
+            Box::new(primary.clone()),
+            Box::new(fallback.clone()),
+            threshold,
+            clock.clone(),
+            status.clone(),
+        );
+        (fb, primary, fallback, clock, status)
+    }
+
+    fn disabled(fb: &FallbackTts) -> bool {
+        fb.state.lock().unwrap().disabled_until.is_some()
+    }
+
     // Step 1: primary fails once => fallback used, and the consecutive-failure
     // counter reflects that one failure (still 1, below the threshold of 2, so the
-    // primary is NOT yet disabled).
+    // primary is NOT put on cooldown).
     #[test]
     fn fallback_used_on_single_primary_failure() {
-        let primary = FakeProvider::new("primary", vec![false, true]);
-        let fallback = FakeProvider::new("fallback", vec![true]);
-        let fb =
-            FallbackTts::with_threshold(Box::new(primary.clone()), Box::new(fallback.clone()), 2);
+        let (fb, primary, fallback, _clock, status) = harness(vec![false, true], vec![true], 2);
 
         let pcm = fb.synth("hi").expect("fallback covers the failed primary");
         assert!(
@@ -647,86 +913,172 @@ mod tests {
         assert_eq!(primary.call_count(), 1, "primary was tried once");
         assert_eq!(fallback.call_count(), 1, "fallback was used once");
         assert_eq!(
-            fb.primary_fails.load(Ordering::Acquire),
+            fb.state.lock().unwrap().fails,
             1,
-            "one consecutive fail"
+            "one consecutive fail recorded"
         );
         assert!(
-            !fb.primary_disabled.load(Ordering::Acquire),
-            "one failure (< threshold 2) must not disable the primary"
+            !disabled(&fb),
+            "one failure (< threshold 2) must not pause the primary"
+        );
+        assert!(
+            status.events().is_empty(),
+            "a single failure is not a user-visible transition"
         );
     }
 
-    // Step 1: a primary SUCCESS after a failure resets the consecutive-failure
-    // counter, so an intermittent blip never accumulates toward the disable
-    // threshold.
+    // A primary SUCCESS after a failure resets the consecutive-failure counter, so
+    // an intermittent blip never accumulates toward the cooldown threshold.
     #[test]
     fn primary_success_resets_the_fail_counter() {
         // fail, then succeed, then fail again.
-        let primary = FakeProvider::new("primary", vec![false, true, false]);
-        let fallback = FakeProvider::new("fallback", vec![true]);
-        let fb =
-            FallbackTts::with_threshold(Box::new(primary.clone()), Box::new(fallback.clone()), 2);
+        let (fb, _primary, _fallback, _clock, status) =
+            harness(vec![false, true, false], vec![true], 2);
 
         // 1st: primary fails -> counter 1, fallback used.
         assert!(is_fallback(&fb.synth("a").unwrap()));
-        assert_eq!(fb.primary_fails.load(Ordering::Acquire), 1);
+        assert_eq!(fb.state.lock().unwrap().fails, 1);
         // 2nd: primary succeeds -> counter reset to 0.
         let pcm = fb.synth("b").unwrap();
         assert!(!is_fallback(&pcm), "primary spoke this one");
-        assert_eq!(
-            fb.primary_fails.load(Ordering::Acquire),
-            0,
-            "success resets"
-        );
+        assert_eq!(fb.state.lock().unwrap().fails, 0, "success resets");
         // 3rd: primary fails again -> counter 1, NOT 2 (reset happened), primary
-        // still enabled.
+        // still in play.
         assert!(is_fallback(&fb.synth("c").unwrap()));
-        assert_eq!(fb.primary_fails.load(Ordering::Acquire), 1);
-        assert!(!fb.primary_disabled.load(Ordering::Acquire));
+        assert_eq!(fb.state.lock().unwrap().fails, 1);
+        assert!(!disabled(&fb));
+        assert!(
+            status.events().is_empty(),
+            "never degraded, so no transitions"
+        );
     }
 
-    // Step 1: after 2 CONSECUTIVE primary failures the primary is disabled for the
-    // rest of the process — it is never called again, even though later calls
-    // would have "succeeded" per its script.
+    // After `threshold` consecutive failures the primary goes on cooldown: it is
+    // not called again while the cooldown runs, and the degraded transition is
+    // reported exactly once.
     #[test]
-    fn primary_disabled_after_threshold_consecutive_failures() {
-        // Script says the primary would succeed from the 3rd call on, but it must
-        // never be reached.
-        let primary = FakeProvider::new("primary", vec![false, false, true, true]);
-        let fallback = FakeProvider::new("fallback", vec![true]);
-        let fb =
-            FallbackTts::with_threshold(Box::new(primary.clone()), Box::new(fallback.clone()), 2);
+    fn primary_paused_for_cooldown_after_threshold_failures() {
+        // The primary would succeed from the 3rd call on, but must not be reached
+        // until the cooldown expires.
+        let (fb, primary, fallback, clock, status) =
+            harness(vec![false, false, true, true], vec![true], 2);
 
         assert!(is_fallback(&fb.synth("1").unwrap())); // fail 1
-        assert!(is_fallback(&fb.synth("2").unwrap())); // fail 2 -> disabled
-        assert!(
-            fb.primary_disabled.load(Ordering::Acquire),
-            "disabled at threshold"
-        );
+        assert!(is_fallback(&fb.synth("2").unwrap())); // fail 2 -> cooldown
+        assert!(disabled(&fb), "cooldown armed at threshold");
+        assert_eq!(status.events(), vec![true], "one degraded transition");
 
-        // Two more utterances: the primary must NOT be called again.
+        // Utterances inside the cooldown window never touch the primary.
+        clock.advance(Duration::from_secs(30));
         assert!(is_fallback(&fb.synth("3").unwrap()));
         assert!(is_fallback(&fb.synth("4").unwrap()));
         assert_eq!(
             primary.call_count(),
             2,
-            "primary must never be called after it is disabled"
+            "primary must not be called during the cooldown"
         );
         assert_eq!(fallback.call_count(), 4, "fallback carries every utterance");
+        assert_eq!(status.events(), vec![true], "still exactly one transition");
+    }
+
+    // The whole point of S9: once the cooldown expires the primary is retried, and
+    // a success restores the cloud voice — no relaunch needed. The fail→recover
+    // cycle reports exactly two transitions.
+    #[test]
+    fn primary_retried_after_cooldown_and_recovery_is_reported_once() {
+        let (fb, primary, _fallback, clock, status) =
+            harness(vec![false, false, true], vec![true], 2);
+
+        assert!(is_fallback(&fb.synth("1").unwrap()));
+        assert!(is_fallback(&fb.synth("2").unwrap())); // -> 60 s cooldown
+
+        // Just before expiry: still fallback, primary untouched.
+        clock.advance(COOLDOWN_BASE - Duration::from_secs(1));
+        assert!(is_fallback(&fb.synth("3").unwrap()));
+        assert_eq!(primary.call_count(), 2);
+
+        // After expiry: primary retried and it works again.
+        clock.advance(Duration::from_secs(2));
+        let pcm = fb.synth("4").unwrap();
+        assert!(!is_fallback(&pcm), "primary spoke after the cooldown");
+        assert_eq!(primary.call_count(), 3);
+        assert!(!disabled(&fb), "cooldown cleared on success");
+        assert_eq!(
+            status.events(),
+            vec![true, false],
+            "exactly two transitions for a fail -> recover cycle"
+        );
+
+        // A later success is not another transition.
+        assert!(!is_fallback(&fb.synth("5").unwrap()));
+        assert_eq!(status.events(), vec![true, false]);
+    }
+
+    // Repeated trips double the cooldown (60 s, 120 s, 240 s, ...) and stop at the
+    // 10 minute cap. A still-broken primary costs exactly ONE attempt per window
+    // (probation), not `threshold` attempts.
+    #[test]
+    fn cooldown_doubles_and_caps() {
+        let (fb, primary, _fallback, clock, status) = harness(vec![false], vec![true], 2);
+
+        // Trip 1: two failures -> 60 s.
+        fb.synth("a").unwrap();
+        fb.synth("b").unwrap();
+        assert_eq!(fb.state.lock().unwrap().last_cooldown, Some(COOLDOWN_BASE));
+        assert_eq!(primary.call_count(), 2);
+
+        let mut expected = COOLDOWN_BASE;
+        for step in 0..8 {
+            clock.advance(expected + Duration::from_secs(1));
+            // One retry after expiry; a single failure re-trips (probation).
+            fb.synth("retry").unwrap();
+            expected = (expected * 2).min(COOLDOWN_MAX);
+            assert_eq!(
+                fb.state.lock().unwrap().last_cooldown,
+                Some(expected),
+                "cooldown after retry {step} should double up to the cap"
+            );
+            assert_eq!(
+                primary.call_count(),
+                3 + step,
+                "exactly one primary attempt per cooldown window"
+            );
+        }
+        assert_eq!(expected, COOLDOWN_MAX, "growth saturates at the 10 min cap");
+        assert_eq!(
+            status.events(),
+            vec![true],
+            "still degraded throughout: no repeat transitions"
+        );
     }
 
     // When BOTH providers fail, the error propagates (the Speaker logs it); the
     // utterance is only dropped if neither backend can synthesize it.
     #[test]
     fn both_failing_propagates_error() {
-        let primary = FakeProvider::new("primary", vec![false]);
-        let fallback = FakeProvider::new("fallback", vec![false]);
-        let fb =
-            FallbackTts::with_threshold(Box::new(primary.clone()), Box::new(fallback.clone()), 2);
+        let (fb, primary, fallback, _clock, _status) = harness(vec![false], vec![false], 2);
         assert!(fb.synth("x").is_err(), "no backend could synthesize");
         assert_eq!(primary.call_count(), 1);
         assert_eq!(fallback.call_count(), 1);
+    }
+
+    // The status hub only fires its listener on the values it is given, and
+    // `degraded()` reflects the latest one (the polled-state path for a UI that
+    // mounts after the transition).
+    #[test]
+    fn status_hub_tracks_state_and_notifies() {
+        let hub = TtsStatusHub::new();
+        let seen: Arc<Mutex<Vec<bool>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        hub.set_listener(Box::new(move |degraded| {
+            sink.lock().unwrap().push(degraded)
+        }));
+        assert!(!hub.degraded());
+        hub.set_degraded(true);
+        assert!(hub.degraded());
+        hub.set_degraded(false);
+        assert!(!hub.degraded());
+        assert_eq!(*seen.lock().unwrap(), vec![true, false]);
     }
 
     #[test]

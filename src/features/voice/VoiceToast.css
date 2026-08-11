@@ -120,6 +120,31 @@
   outline-offset: 1px;
 }
 
+/* --- Quiet degraded-voice pill (v6 S9) ------------------------------------ */
+.voice-pill {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-3);
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+}
+
+.voice-pill-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.voice-pill-text {
+  line-height: 1.4;
+}
+
 /* --- Status-driven mic indicators (data-status / .voice-mic hooks) -------- */
 [data-status="live"] {
   color: var(--signal-success);
