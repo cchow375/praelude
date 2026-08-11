@@ -668,6 +668,37 @@ function CurrentContextStrip({ context }: { context: PracticeBrainContext }) {
   );
 }
 
+/**
+ * Honest one-line account of where the retrieved book excerpts went. The
+ * backend names the cause, so "nothing matched" never reads as "the content is
+ * hidden from the assistant". Older payloads without a cause fall back to the
+ * boolean, which cannot tell those two apart.
+ */
+export function knowledgeShareLabel(
+  grounding: BrainGroundingSummary,
+  provider: BrainProvider,
+): string {
+  if (provider === "offline") {
+    return "Answered on this Mac — nothing was sent";
+  }
+  switch (grounding.knowledge_share_cause) {
+    case "shared":
+      return "Retrieved excerpts shared with provider";
+    case "no_library":
+      return "No knowledge books are indexed yet";
+    case "no_matches":
+      return "No book excerpts matched this question";
+    case "sharing_disabled":
+      return "Book excerpts are kept on this Mac (sharing is off in Settings)";
+    case "offline":
+      return "Answered on this Mac — nothing was sent";
+    default:
+      return grounding.knowledge_shared_with_provider
+        ? "Retrieved excerpts shared with provider"
+        : "No book excerpts matched this question";
+  }
+}
+
 function GroundingReceipt({
   grounding,
   provider,
@@ -682,12 +713,7 @@ function GroundingReceipt({
       : grounding.musicxml_status === "not_requested"
         ? "MusicXML needs a selected section"
         : "MusicXML unavailable";
-  const sharingLabel =
-    provider === "offline"
-      ? "Stayed on this Mac"
-      : grounding.knowledge_shared_with_provider
-        ? "Retrieved excerpts shared with provider"
-        : "Book excerpts stayed on this Mac";
+  const sharingLabel = knowledgeShareLabel(grounding, provider);
   const answerLocation = [
     grounding.piece_title,
     grounding.region_name,

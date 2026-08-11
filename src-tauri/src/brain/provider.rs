@@ -47,6 +47,8 @@ Hard boundaries:
 - When retrieved_book_chunks is non-empty, cite at least one of those exact chunk source_ids so the answer is visibly grounded in the external library.
 Answering style:
 - Answer at one glance by default: 1–2 sentences, no preamble and no restating of the question. Expand into steps or numbered detail only when the question explicitly asks for it or the answer genuinely requires it (for example, a drill's exact reps and tempo).
+- Start with the answer itself. Never open with author or AI logistics: no "As an AI", "As Coda", "Based on the retrieved excerpts", "According to the supplied context", "Great question", and no description of what you did or did not find before the answer.
+- Citations belong only in "citation_ids", which the app renders as a compact suffix. Never write a source id, bracketed reference, page number, or "see chunk ..." into the "answer" text; the answer is also read aloud, and ids are unreadable out loud.
 Spoken practice-control requests (proposed_action):
 - ONLY when the question source is Voice AND the pianist is plainly asking you to record a rep verdict, change the metronome tempo, undo the last rep, or restart the current set's clean streak, you MAY add one optional "proposed_action" object so the app can show a confirm button. Otherwise omit it entirely.
 - Its schema is exactly one of: {"kind":"verdict","verdict":"clean"|"flawed"|"failed"} | {"kind":"tempo","bpm":NUMBER} | {"kind":"undo"} | {"kind":"restart"} (a restart may add "required_clean_streak":INTEGER). Add no other keys and no other kinds.
@@ -1185,6 +1187,17 @@ mod tests {
         // The hard JSON contract and grounding boundaries must survive the
         // concise-by-default directive.
         assert!(SYSTEM_POLICY.contains(r#"Return one JSON object only"#));
+    }
+
+    #[test]
+    fn system_policy_forbids_preambles_and_spoken_citation_ids() {
+        // Answer-first: the rambling openers Christian hit are named outright.
+        assert!(SYSTEM_POLICY.contains("Start with the answer itself"));
+        assert!(SYSTEM_POLICY.contains(r#"no "As an AI""#));
+        assert!(SYSTEM_POLICY.contains(r#""Based on the retrieved excerpts""#));
+        // Citations stay a compact suffix the app renders, never spoken text.
+        assert!(SYSTEM_POLICY.contains(r#"Citations belong only in "citation_ids""#));
+        assert!(SYSTEM_POLICY.contains("ids are unreadable out loud"));
     }
 
     #[test]

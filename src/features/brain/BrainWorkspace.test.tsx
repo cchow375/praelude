@@ -6,8 +6,8 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BrainWorkspace } from "./BrainWorkspace";
-import type { BrainAnswer, BrainApi } from "./types";
+import { BrainWorkspace, knowledgeShareLabel } from "./BrainWorkspace";
+import type { BrainAnswer, BrainApi, BrainGroundingSummary } from "./types";
 import type { PracticeBrainContext } from "./types";
 import type { CommandInvoker } from "../../services/command";
 
@@ -39,6 +39,7 @@ const groundedAnswer: BrainAnswer = {
     active_block_included: true,
     knowledge_status: "ready",
     knowledge_shared_with_provider: true,
+    knowledge_share_cause: "shared",
     knowledge_sources: [
       "Gebrian — Learn Faster",
       "Roskell — The Complete Pianist",
@@ -602,6 +603,56 @@ describe("BrainWorkspace", () => {
     await waitFor(() => expect(api.clearThread).toHaveBeenCalledWith(7));
     await waitFor(() =>
       expect(screen.queryByText("Old answer stays until cleared.")).toBeNull(),
+    );
+  });
+});
+
+// The grounding receipt used to collapse every non-shared state into "Book
+// excerpts stayed on this Mac", which read as "the content is hidden from the
+// assistant". These pin the exact copy for each cause the backend can report.
+describe("knowledgeShareLabel", () => {
+  const grounding = (
+    cause: BrainGroundingSummary["knowledge_share_cause"],
+    shared: boolean,
+  ): BrainGroundingSummary => ({
+    ...groundedAnswer.grounding!,
+    knowledge_shared_with_provider: shared,
+    knowledge_share_cause: cause,
+  });
+
+  it("names the shared case", () => {
+    expect(knowledgeShareLabel(grounding("shared", true), "claude")).toBe(
+      "Retrieved excerpts shared with provider",
+    );
+  });
+
+  it("says nothing matched rather than implying content was withheld", () => {
+    const label = knowledgeShareLabel(grounding("no_matches", false), "claude");
+    expect(label).toBe("No book excerpts matched this question");
+    expect(label).not.toMatch(/stayed|hidden|kept/i);
+  });
+
+  it("names the privacy setting when sharing is what held excerpts back", () => {
+    expect(
+      knowledgeShareLabel(grounding("sharing_disabled", false), "claude"),
+    ).toBe("Book excerpts are kept on this Mac (sharing is off in Settings)");
+  });
+
+  it("names an empty library and a fully local answer", () => {
+    expect(knowledgeShareLabel(grounding("no_library", false), "claude")).toBe(
+      "No knowledge books are indexed yet",
+    );
+    expect(knowledgeShareLabel(grounding("offline", false), "offline")).toBe(
+      "Answered on this Mac — nothing was sent",
+    );
+  });
+
+  it("falls back to the boolean when an older payload carries no cause", () => {
+    expect(knowledgeShareLabel(grounding(undefined, false), "claude")).toBe(
+      "No book excerpts matched this question",
+    );
+    expect(knowledgeShareLabel(grounding(undefined, true), "claude")).toBe(
+      "Retrieved excerpts shared with provider",
     );
   });
 });

@@ -1751,7 +1751,7 @@ async fn brain_ask(
     voice: State<'_, Arc<VoiceLoop>>,
     pending_reviews: State<'_, Arc<brain::PendingIntakeReviews>>,
 ) -> Result<brain::BrainAnswer, String> {
-    let should_speak = matches!(request.source, brain::QuestionSource::Voice);
+    let should_speak = brain::should_speak_answer(request.source);
     let store = store.inner().clone();
     let sessions = sessions.inner().clone();
     // Durable-memory targets captured before `request` moves into the worker.
@@ -1790,8 +1790,9 @@ async fn brain_ask(
     pending_reviews.register_answer(&answer);
     if should_speak {
         // Non-blocking queue into the existing gated TTS owner. A visual answer
-        // still returns if voice shut down while the provider was working.
-        let _ = voice.speak_brain_answer(&answer.answer);
+        // still returns if voice shut down while the provider was working, and
+        // citation ids never reach the speech path.
+        let _ = voice.speak_brain_answer(&brain::spoken_answer(&answer));
     }
     Ok(answer)
 }
