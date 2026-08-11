@@ -1675,6 +1675,22 @@ mod tests {
     fn rehearse_migration_on_real_database_copy() {
         let path = std::env::var("CODAKILLER_MIGRATION_COPY")
             .expect("set CODAKILLER_MIGRATION_COPY to a disposable database backup");
+
+        // Guard: never run against the live app-data database. This test
+        // MIGRATES what it is handed — pointing it at the real file would run an
+        // unreviewed schema step on the user's only copy. Reject any path that
+        // resolves inside the app's bundle-identifier data directory; the
+        // operator supplies a backup (`sqlite3 … .backup`).
+        let resolved = std::fs::canonicalize(&path)
+            .unwrap_or_else(|e| panic!("resolve CODAKILLER_MIGRATION_COPY '{path}': {e}"));
+        assert!(
+            !resolved
+                .components()
+                .any(|component| component.as_os_str() == "com.christian.codakiller"),
+            "refuse to run on the live app-data location ({}); copy the database first",
+            resolved.display()
+        );
+
         // `piece` is NOT in this list: the v12 Tanglewood split adds exactly one
         // row, and only on the database that still carries the merged piece. It
         // is asserted separately below. Everything else must be untouched —
@@ -1785,6 +1801,55 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
+
+        // ── post-split copies ────────────────────────────────────────────────
+        // Once the installed app has itself run v12, the merged row no longer
+        // exists and `merged_id` is 0 — but the merged -> Copland re-attribution
+        // it performed is still recorded in the ledger forever, and every later
+        // migration still has to be held to it. The split KEPT the merged row's
+        // id for the surviving Barber, so on such a copy the historical merged id
+        // is the `'Pas de Deux'` row's id. Resolve it only when the Copland the
+        // split creates is actually present, so a database that never carried the
+        // merged row (and a synthetic fixture that merely happens to own a Barber)
+        // keeps the strict `0` and the strict pre-split checks below.
+        let historical_merged_id: i64 = if merged_id != 0 {
+            merged_id
+        } else {
+            before_conn
+                .query_row(
+                    "SELECT COALESCE(MIN(barber.id), 0) FROM piece barber
+                     WHERE barber.title = 'Pas de Deux'
+                       AND EXISTS (SELECT 1 FROM piece copland
+                                   WHERE copland.title
+                                         = 'Cowboys with Lassos (Billy the Kid)')",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        // The size of that historical exception as it stands BEFORE this test
+        // migrates anything. The rest of the run asserts the very same number
+        // comes back out: v12 already moved these rows, so every later step must
+        // move exactly zero of them. Stays 0 (and unqueried) on a pre-split copy,
+        // where nothing has moved yet and the strict expectation is still "the
+        // split re-attributed exactly the merged row's ledgered events".
+        let before_reattributed: i64 = if merged_id == 0 && historical_merged_id != 0 {
+            before_conn
+                .query_row(
+                    "SELECT COUNT(*) FROM session_event_backfill ledger
+                     JOIN session_event source ON source.id = ledger.legacy_session_event_id
+                     JOIN event canonical ON canonical.id = ledger.canonical_event_id
+                     WHERE canonical.piece_id = (SELECT MIN(id) FROM piece
+                                                 WHERE title
+                                                   = 'Cowboys with Lassos (Billy the Kid)')
+                       AND CAST(json_extract(source.payload, '$.piece_id') AS INTEGER) = ?1",
+                    [historical_merged_id],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        } else {
+            0
+        };
 
         // Practice Notebook rows the copy already holds (0 on a pre-v11 copy,
         // where the tables do not exist yet). Migration must not change these.
@@ -2029,6 +2094,36 @@ mod tests {
                     .unwrap();
                 assert_eq!(left, 0, "{table} records practice work and must not stay");
             }
+        } else if historical_merged_id != 0 {
+            // The split is already history on this copy, so there is no before/
+            // after pair to compare — but its *result* is still load-bearing and
+            // migration must not quietly undo it. Note what cannot be asserted
+            // here: the Barber legitimately accumulates its own practice after
+            // the split, so "the Barber owns nothing" is only true at the moment
+            // v12 runs, never afterwards.
+            let copland_id = tanglewood_copland_id(&conn);
+            let (copland_regions, copland_blocks, copland_reps): (i64, i64, i64) = conn
+                .query_row(
+                    "SELECT
+                       (SELECT COUNT(*) FROM region WHERE piece_id = ?1),
+                       (SELECT COUNT(*) FROM rep_block WHERE piece_id = ?1),
+                       (SELECT COUNT(*) FROM rep
+                        JOIN rep_block ON rep_block.id = rep.block_id
+                        WHERE rep_block.piece_id = ?1)",
+                    [copland_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap();
+            assert!(
+                copland_regions > 0 && copland_blocks > 0 && copland_reps > 0,
+                "the Copland must still own the practice graph v12 moved to it, got \
+                 regions={copland_regions} blocks={copland_blocks} reps={copland_reps}"
+            );
+            println!(
+                "rehearsal: split already historic — Barber {historical_merged_id} kept the \
+                 merged row's id, Copland {copland_id} regions={copland_regions} \
+                 blocks={copland_blocks} reps={copland_reps}"
+            );
         }
 
         let after_events: i64 = conn
@@ -2069,6 +2164,10 @@ mod tests {
         // may move ONLY from the merged row to the Copland. Everything else must
         // still equal the piece the legacy payload named — and the exception set
         // must be exactly the merged row's ledgered events, no more, no fewer.
+        // On a copy where v12 already ran, `historical_merged_id` names the row
+        // that move started from (the id the surviving Barber inherited), so the
+        // one legitimate exception is recognised as such instead of counting as
+        // hundreds of violations.
         let (reattributed, wrongly_attributed): (i64, i64) = conn
             .query_row(
                 "SELECT
@@ -2083,7 +2182,7 @@ mod tests {
                  FROM session_event_backfill ledger
                  JOIN session_event source ON source.id=ledger.legacy_session_event_id
                  JOIN event canonical ON canonical.id=ledger.canonical_event_id",
-                rusqlite::params![merged_id, tanglewood_copland_id(&conn)],
+                rusqlite::params![historical_merged_id, tanglewood_copland_id(&conn)],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
@@ -2091,11 +2190,28 @@ mod tests {
             wrongly_attributed, 0,
             "no mapped row moved anywhere except merged -> Copland"
         );
-        assert_eq!(
-            reattributed, merged_ledgered_events,
-            "every ledgered event of the merged row was re-attributed to the Copland"
-        );
-        println!("rehearsal: {reattributed} ledgered events re-attributed merged -> Copland");
+        if merged_id != 0 {
+            // Pre-split copy: the split ran during THIS rehearsal, so exactly the
+            // merged row's ledgered events must have been re-attributed.
+            assert_eq!(
+                reattributed, merged_ledgered_events,
+                "every ledgered event of the merged row was re-attributed to the Copland"
+            );
+            println!("rehearsal: {reattributed} ledgered events re-attributed merged -> Copland");
+        } else {
+            // Post-split copy: the move is history. The exception set must come
+            // back out of migration exactly the size it went in — a later step
+            // that re-pointed even one more ledgered event would show up here.
+            assert_eq!(
+                reattributed, before_reattributed,
+                "migration must re-attribute nothing further; the merged -> Copland \
+                 exception set must be unchanged"
+            );
+            println!(
+                "rehearsal: split already historic — {reattributed} ledgered events stay \
+                 attributed merged({historical_merged_id}) -> Copland, unchanged by migration"
+            );
+        }
         assert_eq!(
             conn.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
                 .unwrap(),
@@ -2158,6 +2274,20 @@ mod tests {
                  Copland {copland_piece_id} focused={}s streak={}",
                 barber.focused_seconds, barber.streak, copland.focused_seconds, copland.streak
             );
+        } else if historical_merged_id != 0 {
+            // Post-split: the same end-to-end command, but only the half that
+            // stays true forever. The Copland keeps the practice time it earned;
+            // the Barber's own numbers are its own business by now, so the streak
+            // (which decays with idle days) is reported, not asserted.
+            let copland = crate::metrics::progress_summary(&store, copland_piece_id).unwrap();
+            assert!(
+                copland.focused_seconds > 0,
+                "the Copland must still report the practice time v12 moved to it"
+            );
+            println!(
+                "rehearsal: progress_summary Copland {copland_piece_id} focused={}s streak={}",
+                copland.focused_seconds, copland.streak
+            );
         }
         drop(store);
 
@@ -2205,6 +2335,15 @@ mod tests {
                 merged_events,
             );
             let _ = std::fs::remove_file(&stranded_path);
+        } else {
+            // The hazard needs the merged row present to strand anything, so on a
+            // copy where v12 has already run it is not reachable — and never will
+            // be again on this database. Say so out loud rather than silently
+            // skipping, so a green run is never mistaken for D2 coverage.
+            println!(
+                "rehearsal(stranded): skipped — the merged row is already split, \
+                 the v12 ordering hazard cannot recur on this database"
+            );
         }
     }
 
