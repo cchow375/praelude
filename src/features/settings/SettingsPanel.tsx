@@ -7,6 +7,10 @@ import type { CommandInvoker } from "../../services/command";
 import { BrainConnection } from "./BrainConnection";
 import { BooksPanel, type BooksApi } from "./BooksPanel";
 import {
+  TTS_DEGRADED_LABEL,
+  useTtsDegraded,
+} from "../voice/useTtsDegraded";
+import {
   AppearanceIcon,
   AssistantIcon,
   BooksIcon,
@@ -87,6 +91,9 @@ export function SettingsPanel({
   booksApi?: BooksApi;
 }) {
   const receipts = useReceipts();
+  // Live state, not a setting: the cloud voice is on cooldown and utterances are
+  // coming from the macOS voice. Clears itself when the cloud voice recovers.
+  const ttsDegraded = useTtsDegraded();
   const [value, setValue] = useState<SettingsSnapshot | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -429,6 +436,12 @@ export function SettingsPanel({
         }
       >
         <div className="settings-group">
+          {ttsDegraded && (
+            <p className="settings-pill" role="status">
+              <span className="settings-pill-dot" aria-hidden="true" />
+              {TTS_DEGRADED_LABEL}
+            </p>
+          )}
           <label className="settings-check">
             <input
               type="checkbox"

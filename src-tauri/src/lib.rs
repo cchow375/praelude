@@ -2012,6 +2012,14 @@ fn voice_state(voice: State<'_, Arc<VoiceLoop>>) -> VoiceStatus {
     voice.state()
 }
 
+/// `true` while the cloud voice is on cooldown and utterances are coming from
+/// the macOS `say` voice instead. Transitions also arrive live on `voice://tts`;
+/// this is the initial read for a UI that mounts mid-cooldown.
+#[tauri::command]
+fn tts_degraded() -> bool {
+    tts::status_hub().degraded()
+}
+
 /// Speak a bounded app-owned confirmation prompt through the same half-duplex
 /// TTS owner as Brain answers. This is presentation only: it cannot route an
 /// intent or mutate practice state.
@@ -2137,6 +2145,20 @@ pub fn run() {
             // it is torn down on exit. It gates itself; a missing `hear` binary or
             // disabled Dictation surfaces as a `voice://status` down event, never a
             // crash.
+            // v6 S9: publish cloud-voice degraded/recovered transitions to the UI
+            // (the "Voice degraded — using system voice" pill). The TTS provider
+            // is built on the voice action thread with no AppHandle in reach, so
+            // it reports through the process-global status hub and this listener
+            // turns each transition into a `voice://tts` event. Transitions only —
+            // never per failure.
+            let tts_app = app.handle().clone();
+            tts::status_hub().set_listener(Box::new(move |degraded| {
+                if let Err(e) = tts_app.emit("voice://tts", serde_json::json!({ "degraded": degraded }))
+                {
+                    eprintln!("app: failed to emit voice://tts: {e}");
+                }
+            }));
+
             let stt_config = resolve_stt_config(app);
             let voice = VoiceLoop::start(
                 &app.handle().clone(),
@@ -2349,6 +2371,7 @@ pub fn run() {
             metronome::metro_practice_close,
             voice_mute,
             voice_state,
+            tts_degraded,
             voice_speak,
         ])
         .build(tauri::generate_context!())

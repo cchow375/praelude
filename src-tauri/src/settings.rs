@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::keys::{api_key_status, ApiKeyProvider, ApiKeyStatus};
 use crate::store::Store;
+use crate::tts::gemini::DEFAULT_VOICE;
 
 const SOUNDS: &[&str] = &["beep", "clave", "cowbell", "rim", "tick", "woodblock"];
 const VOICES: &[&str] = &[
@@ -104,7 +105,7 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
         theme: choice(store, "theme", "auto", &["auto", "dark", "light"]),
         interface_scale: integer(store, "ui.interface_scale", 90, 75, 125) as u16,
         tts_provider: choice(store, "tts.provider", "auto", &["auto", "gemini", "say"]),
-        tts_voice: choice(store, "tts.voice", "Kore", VOICES),
+        tts_voice: choice(store, "tts.voice", DEFAULT_VOICE, VOICES),
         brain_provider: choice(
             store,
             "brain.provider",

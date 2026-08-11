@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { VoiceIntent, VoiceStatus } from "./useVoice";
 import type { VoiceDeliveryDisposition } from "./domain/delivery";
+import { TTS_DEGRADED_LABEL } from "./useTtsDegraded";
 import "./VoiceToast.css";
 
 // ---------------------------------------------------------------------------
-// Voice feedback surface. Two independent, non-pinned pieces:
+// Voice feedback surface. Three independent, non-pinned pieces:
 //
 //  1. A transient toast that appears when an intent is ACTIONED — i.e. every
 //     recognised command except "question"/"ignored" (which do nothing the user
@@ -19,7 +20,12 @@ import "./VoiceToast.css";
 //     guidance) re-shows the banner even if a previous one was dismissed, and a
 //     recovery (status leaves "down") resets dismissal so the next down re-shows.
 //
-// Both consume design tokens only and adapt to light/dark via the theme vars.
+//  3. A quiet, undismissable "voice degraded" pill while the cloud voice is on
+//     cooldown and utterances come from the macOS `say` voice instead. It is
+//     live state, not a notification: it appears on the degraded transition and
+//     disappears by itself when the cloud voice recovers (v6 S9).
+//
+// All three consume design tokens only and adapt to light/dark via the theme vars.
 // ---------------------------------------------------------------------------
 
 const TOAST_MS = 2500;
@@ -79,6 +85,8 @@ interface VoiceToastProps {
   downGuidance: string | null;
   /** Latest transport disposition; a new reference on every delivery. */
   deliveryDisposition?: VoiceDeliveryDisposition | null;
+  /** `true` while the cloud voice is on cooldown and `say` is speaking. */
+  ttsDegraded?: boolean;
 }
 
 export function VoiceToast({
@@ -86,12 +94,15 @@ export function VoiceToast({
   status,
   downGuidance,
   deliveryDisposition = null,
+  ttsDegraded = false,
 }: VoiceToastProps) {
   const [toast, setToast] = useState<VoiceIntent | null>(null);
   const [deliveryToast, setDeliveryToast] = useState<string | null>(null);
   // The guidance string the user has dismissed. The banner is hidden only while
   // this equals the CURRENT guidance, so a different down reason re-shows it.
-  const [dismissedGuidance, setDismissedGuidance] = useState<string | null>(null);
+  const [dismissedGuidance, setDismissedGuidance] = useState<string | null>(
+    null,
+  );
 
   // Show a transient toast whenever a NEW actionable intent lands. Each intent
   // event is a fresh object, so identical repeated commands still re-toast.
@@ -124,6 +135,14 @@ export function VoiceToast({
 
   return (
     <div className="voice-feedback" aria-live="polite">
+      {ttsDegraded && (
+        // Quiet, undismissable state — not a toast: it is true for as long as
+        // the cloud voice is on cooldown, and disappears by itself on recovery.
+        <div className="voice-pill" role="status">
+          <span className="voice-pill-dot" aria-hidden="true" />
+          <span className="voice-pill-text">{TTS_DEGRADED_LABEL}</span>
+        </div>
+      )}
       {bannerVisible && (
         <div className="voice-banner" role="status">
           <span className="voice-banner-dot" aria-hidden="true" />
@@ -140,7 +159,9 @@ export function VoiceToast({
       )}
       {toast && (
         <div className="voice-toast" role="status">
-          {toast.text && <span className="voice-toast-heard">{toast.text}</span>}
+          {toast.text && (
+            <span className="voice-toast-heard">{toast.text}</span>
+          )}
           <span className="voice-toast-label">{labelForIntent(toast)}</span>
         </div>
       )}
