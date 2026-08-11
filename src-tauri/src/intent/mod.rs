@@ -228,7 +228,11 @@ impl Router {
 
 /// Lowercase, turn every non-alphanumeric char into a space, and collapse runs of
 /// whitespace. Apostrophes are dropped (so "let's" → "lets").
-fn normalize(text: &str) -> String {
+///
+/// Public because the voice loop's fast path ([`crate::voice_loop`]) has to
+/// compare a *partial* hypothesis against its phrase allowlist using exactly the
+/// spelling the router will later see — two normalizers would drift.
+pub fn normalize(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         if c.is_ascii_alphanumeric() {

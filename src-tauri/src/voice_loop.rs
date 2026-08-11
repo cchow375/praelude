@@ -76,6 +76,41 @@
 //!
 //! the sliding window is safe ONLY because every ack closes the STT gate; if
 //! acks ever become silent, revisit
+//!
+//! # Fast path (S9)
+//!
+//! The settler holds a finished utterance for a 600 ms quiet gap before calling
+//! it final (`stt::supervisor`, `SttConfig::settle`). For a long dictation that
+//! wait is what makes the framing correct; for `"metronome off"` it is 600 ms of
+//! dead air on top of the ack's own gate cycle, and it is a third of Christian's
+//! reported "five second" delay.
+//!
+//! So a **short allowlist of complete-utterance commands** ([`FAST_PATH_PHRASES`])
+//! acts on the PARTIAL hypothesis, the moment the recognizer first emits exactly
+//! that phrase — no settle wait. Everything downstream is unchanged: the partial
+//! is forwarded to the same action thread, through the same [`Router`], with the
+//! same half-duplex gate ordering and the same speak-before-stop rule.
+//!
+//! The settled final for that utterance arrives ~600 ms later and must not act
+//! twice. Two things stop it, in order:
+//!
+//! 1. the ack closes the STT gate, so most re-sends are dropped at the reader;
+//! 2. [`ActionCtx::fast_path`] — a dedicated ledger, separate from the command
+//!    dedup ledger — suppresses any later final inside [`DEDUP_WINDOW`] whose
+//!    normalized text equals the fired phrase **or extends it** (`"metronome
+//!    off"` → `"metronome off please"`). The extension rule is what the plain
+//!    identical-text dedup cannot express.
+//!
+//! The marker is only armed when the fast path actually ACTED — a phrase that
+//! routed to [`Intent::Ignored`] (a bare `"stop"` with the metronome stopped, a
+//! `"done"` outside a rep block) leaves the later final free to route normally.
+//!
+//! **The accepted tradeoff, stated plainly:** a partial is a hypothesis about an
+//! utterance that may still be growing. `"stop"` is a genuine prefix of `"stop
+//! the car"`, so acting on it is a bet that the user stopped talking. The bet is
+//! only taken for phrases that are themselves complete commands, and only when
+//! live state (`metro_running`, `rep_block_active`) already makes them
+//! actionable — but it IS a bet, and it is the price of a sub-second metronome.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -101,6 +136,43 @@ use crate::tts::{Gate, PcmSink, Speaker, SpeakerConfig};
 /// staying below the gap that separates genuine repeated commands. Applies to
 /// ALL intents (see the module docs, "Dedup policy").
 const DEDUP_WINDOW: Duration = Duration::from_millis(2500);
+
+/// Phrases allowed to finalize on a PARTIAL hypothesis, skipping the settler's
+/// 600 ms quiet gap. See the module docs, "Fast path".
+///
+/// Membership rule: the phrase must be a **complete command on its own** — every
+/// entry here is an utterance a user says and then stops talking. Deliberately
+/// excluded:
+///
+/// * `"no"` — far too common mid-sentence ("no, the left hand"); the 600 ms
+///   settle is what makes it safe, so it keeps paying it.
+/// * anything carrying a number (`"metronome 96"`) — a partial `"metronome 90"`
+///   is routinely revised to `"metronome 96"` before the utterance ends, and
+///   acting on the first hypothesis would set the wrong tempo (see the
+///   `progressive_revision` case in the narrated-replay contract).
+/// * anything longer than a breath — a long phrase has no latency problem worth
+///   this tradeoff.
+///
+/// Entries must already be in normalized form ([`crate::intent::normalize`]).
+const FAST_PATH_PHRASES: &[&str] = &[
+    "metronome off",
+    "metronome stop",
+    "metronome on",
+    "stop",
+    "done",
+    "clean",
+    "miss",
+    "again",
+    "faster",
+    "slower",
+];
+
+/// The allowlisted phrase this partial is exactly, or `None`. Cheap enough for
+/// the settler thread: one normalize pass plus a walk of ten short strings.
+fn fast_path_phrase(text: &str) -> Option<&'static str> {
+    let norm = crate::intent::normalize(text);
+    FAST_PATH_PHRASES.iter().copied().find(|p| *p == norm)
+}
 
 // ---------------------------------------------------------------------------
 // Seams: emit + speak, abstracted so the action logic is unit-testable without a
@@ -190,16 +262,44 @@ struct ActionCtx {
     wake_word: Option<String>,
     muted: Arc<AtomicBool>,
     last: Option<(String, Instant)>,
+    /// The last fast-path phrase that actually acted, with the timestamp of the
+    /// partial that fired it. A later final that repeats or EXTENDS that phrase
+    /// inside [`DEDUP_WINDOW`] is the same utterance arriving late (the settler
+    /// finishing what the fast path already handled), never a new command. Kept
+    /// separate from `last` so the command dedup ledger's locked identical-text
+    /// rule stays exactly as it is.
+    fast_path: Option<(String, Instant)>,
 }
 
 enum ActionMessage {
     Transcript(Transcript),
+    /// A partial hypothesis that exactly matched [`FAST_PATH_PHRASES`], promoted
+    /// to a final so it acts now instead of after the settle wait.
+    FastPath(Transcript),
     SpeakBrain(String),
 }
 
 impl ActionCtx {
+    /// A settled final from the settler: route it and act.
     fn handle_final(&mut self, t: &Transcript) {
+        self.route_and_act(t, false);
+    }
+
+    /// A partial that matched [`FAST_PATH_PHRASES`], acting ahead of the settle
+    /// wait. Identical handling apart from arming the tail guard — same router,
+    /// same dedup, same gate ordering.
+    fn handle_fast_path(&mut self, t: &Transcript) {
+        self.route_and_act(t, true);
+    }
+
+    fn route_and_act(&mut self, t: &Transcript, via_fast_path: bool) {
         if self.muted.load(Ordering::Acquire) {
+            return;
+        }
+        // The settled tail of an utterance the fast path already acted on. Drop
+        // it before routing — silently, exactly like the dedup path below, so the
+        // frontend sees one final per utterance and not two.
+        if !via_fast_path && self.is_fast_path_tail(t) {
             return;
         }
         let mode = Mode {
@@ -251,6 +351,13 @@ impl ActionCtx {
             return;
         }
 
+        // Arm the fast-path tail guard only now: the phrase routed to a real
+        // intent AND survived dedup, so it is about to act and the settled final
+        // that follows is a duplicate of work already done.
+        if via_fast_path {
+            self.fast_path = Some((crate::intent::normalize(&t.text), t.at));
+        }
+
         // A routed command is authoritative. Emit its transcript carrying
         // `handled = true` BEFORE the action's state events, so a downstream
         // consumer sees transcript-before-state ordering and Lane B never drafts
@@ -273,6 +380,24 @@ impl ActionCtx {
             }
             Intent::Ignored => {}
         }
+    }
+
+    /// Whether this final is the settled tail of an utterance the fast path
+    /// already acted on: same normalized text, or that text plus trailing words
+    /// the recognizer appended after we committed ("metronome off" → "metronome
+    /// off please"), inside [`DEDUP_WINDOW`] of the partial that fired.
+    fn is_fast_path_tail(&self, t: &Transcript) -> bool {
+        let Some((phrase, at)) = self.fast_path.as_ref() else {
+            return false;
+        };
+        if t.at.saturating_duration_since(*at) >= DEDUP_WINDOW {
+            return false;
+        }
+        let norm = crate::intent::normalize(&t.text);
+        norm == *phrase
+            || norm
+                .strip_prefix(phrase.as_str())
+                .is_some_and(|r| r.starts_with(' '))
     }
 
     fn act_start(&self, bpm: Option<f64>, text: &str) {
@@ -836,6 +961,17 @@ impl VoiceLoop {
             SttEvent::Transcript(t) => {
                 if t.is_final {
                     let _ = fwd_tx.send(ActionMessage::Transcript(t));
+                } else if fast_path_phrase(&t.text).is_some() {
+                    // A complete command, spoken and finished — act now instead
+                    // of paying the settle wait (module docs, "Fast path"). It is
+                    // promoted to a final so the action thread treats it as the
+                    // one authoritative utterance; the settled final that follows
+                    // is dropped by the fast-path tail guard. No interim event is
+                    // emitted for it — `handle_final` emits the final instead.
+                    let _ = fwd_tx.send(ActionMessage::FastPath(Transcript {
+                        is_final: true,
+                        ..t
+                    }));
                 } else {
                     // Interim hypotheses are liveness only; nothing routes them.
                     ev_emitter.emit(
@@ -893,10 +1029,12 @@ impl VoiceLoop {
                     wake_word,
                     muted: action_muted,
                     last: None,
+                    fast_path: None,
                 };
                 for message in rx.iter() {
                     match message {
                         ActionMessage::Transcript(transcript) => ctx.handle_final(&transcript),
+                        ActionMessage::FastPath(transcript) => ctx.handle_fast_path(&transcript),
                         // Reuse the exact same Speaker → PCM sink → STT gate as
                         // command confirmations. A provider answer can never be
                         // played through an ungated WebView speech API.
@@ -1099,6 +1237,7 @@ mod tests {
             sessions,
             speaker: Box::new(RecConfirm(rec.clone())),
             emitter: Arc::new(RecEmitter(rec.clone())),
+            fast_path: None,
             wake_word: None,
             muted: Arc::new(AtomicBool::new(false)),
             last: None,
@@ -1190,6 +1329,155 @@ mod tests {
         );
     }
 
+    // ------------------------------------------------------------- FAST PATH
+    // See the module docs, "Fast path". These pin the three claims that make it
+    // safe: the allowlist is the whole surface, the settled final that follows a
+    // fired partial never acts twice, and a partial that routes to Ignored does
+    // not arm the tail guard.
+
+    /// The shipped allowlist, spelled out so a future edit is a deliberate one.
+    /// Every entry must be exactly what `intent::normalize` produces, or the
+    /// lookup silently never fires.
+    #[test]
+    fn fast_path_allowlist_is_the_whole_surface() {
+        for phrase in FAST_PATH_PHRASES {
+            assert_eq!(
+                crate::intent::normalize(phrase),
+                *phrase,
+                "allowlist entries must already be normalized"
+            );
+            assert_eq!(fast_path_phrase(phrase), Some(*phrase));
+        }
+        // Punctuation and casing as the recognizer may render them.
+        assert_eq!(fast_path_phrase("Metronome off."), Some("metronome off"));
+        assert_eq!(fast_path_phrase("  STOP  "), Some("stop"));
+
+        // Not on the fast path — these keep paying the settle wait.
+        for text in [
+            "no",                 // too common mid-sentence to bet on
+            "metronome 96",       // a partial tempo is routinely revised
+            "metronome",          // bare resume is not latency-critical
+            "stop the metronome", // longer explicit form; settles normally
+            "stop the car",       // a superset of an allowlisted phrase
+            "done with that",
+            "",
+        ] {
+            assert_eq!(fast_path_phrase(text), None, "must not fast-path {text:?}");
+        }
+    }
+
+    /// The core latency claim: a PARTIAL "metronome off" stops the metronome
+    /// without waiting for the settler, and the settled final that arrives
+    /// afterwards is dropped — one stop, not two.
+    #[test]
+    fn fast_path_partial_acts_and_its_settled_final_is_dropped() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+        ctx.handle_final(&final_at("metronome 120", at));
+        assert!(ctx.metro.snapshot().running);
+
+        // The partial fires immediately (no settle wait).
+        ctx.handle_fast_path(&final_at("metronome off", at + Duration::from_millis(10)));
+        assert!(
+            !ctx.metro.snapshot().running,
+            "partial stopped the metronome"
+        );
+
+        // The settler's final for the SAME utterance lands 600 ms later and must
+        // be inert. Restart first so a second stop would be observable.
+        ctx.handle_final(&final_at("metronome 120", at + Duration::from_millis(20)));
+        assert!(ctx.metro.snapshot().running);
+        ctx.handle_final(&final_at("metronome off", at + Duration::from_millis(610)));
+        assert!(
+            ctx.metro.snapshot().running,
+            "the settled final of a fast-pathed utterance must not act again"
+        );
+
+        // Only one final transcript reached the frontend for that utterance.
+        let offs = rec
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(e, p)| e == "voice://transcript" && p["text"] == json!("metronome off"))
+            .count();
+        assert_eq!(offs, 1, "one final per utterance, not two");
+    }
+
+    /// The extension rule the plain identical-text dedup cannot express: the
+    /// recognizer appended words after we already committed.
+    #[test]
+    fn fast_path_suppresses_a_final_that_extends_the_fired_phrase() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+        ctx.handle_final(&final_at("metronome 120", at));
+        ctx.handle_fast_path(&final_at("metronome off", at + Duration::from_millis(10)));
+        assert!(!ctx.metro.snapshot().running);
+
+        ctx.handle_final(&final_at("metronome 120", at + Duration::from_millis(20)));
+        ctx.handle_final(&final_at(
+            "metronome off please",
+            at + Duration::from_millis(700),
+        ));
+        assert!(
+            ctx.metro.snapshot().running,
+            "an extension of the fired phrase is the same utterance"
+        );
+    }
+
+    /// The guard expires with the dedup window: a genuine second command, spoken
+    /// later, still acts.
+    #[test]
+    fn fast_path_guard_expires_with_the_dedup_window() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+        ctx.handle_final(&final_at("metronome 120", at));
+        ctx.handle_fast_path(&final_at("metronome off", at + Duration::from_millis(10)));
+        ctx.handle_final(&final_at("metronome 120", at + Duration::from_millis(20)));
+
+        // Keyed on the PARTIAL's timestamp (at + 10 ms), so clear that instead.
+        ctx.handle_final(&final_at(
+            "metronome off",
+            at + DEDUP_WINDOW + Duration::from_millis(100),
+        ));
+        assert!(
+            !ctx.metro.snapshot().running,
+            "a genuine later stop must still act"
+        );
+    }
+
+    /// A fast-path phrase that live state makes inert ("stop" with the metronome
+    /// already stopped) takes no action, so it must NOT arm the tail guard — the
+    /// longer utterance it was a prefix of stays free to route.
+    #[test]
+    fn an_ignored_fast_path_partial_does_not_arm_the_guard() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+
+        ctx.handle_fast_path(&final_at("stop", at));
+        assert!(ctx.fast_path.is_none(), "an ignored partial arms nothing");
+        assert!(rec.said.lock().unwrap().is_empty());
+
+        // The same words as the start of a real later command still route.
+        ctx.handle_final(&final_at("metronome 120", at + Duration::from_millis(100)));
+        assert!(ctx.metro.snapshot().running);
+    }
+
+    /// Mute wins over the fast path exactly as it wins over a final.
+    #[test]
+    fn fast_path_is_inert_while_muted() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.handle_final(&final_t("metronome 120"));
+        ctx.muted.store(true, Ordering::Release);
+        ctx.handle_fast_path(&final_t("metronome off"));
+        assert!(ctx.metro.snapshot().running, "muted mic actions nothing");
+    }
+
     #[test]
     fn ambient_speech_is_silent() {
         let rec = Arc::new(Recorder::default());
@@ -1260,7 +1548,9 @@ mod tests {
             ActionMessage::SpeakBrain(answer) => {
                 assert_eq!(answer, "Use three silent landings.")
             }
-            ActionMessage::Transcript(_) => panic!("expected a brain speech message"),
+            ActionMessage::Transcript(_) | ActionMessage::FastPath(_) => {
+                panic!("expected a brain speech message")
+            }
         }
         assert!(voice.speak_brain_answer("").is_err());
         assert!(voice.speak_brain_answer(&"x".repeat(4_001)).is_err());
