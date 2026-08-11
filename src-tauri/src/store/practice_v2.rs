@@ -1814,7 +1814,21 @@ mod real_copy_tests {
     fn real_legacy_notes_zero_bpm_rows_project_to_none_without_source_rewrite() {
         let path = std::env::var("CODAKILLER_MIGRATION_COPY")
             .expect("CODAKILLER_MIGRATION_COPY must point to a disposable database copy");
-        let store = Store::open(path).expect("disposable copy migrates");
+
+        // Guard: never run against the live app-data database. `Store::open`
+        // migrates whatever it is given, so the same refusal the migration
+        // rehearsal and the pre-map injection carry applies here.
+        let resolved = std::fs::canonicalize(&path)
+            .unwrap_or_else(|e| panic!("resolve CODAKILLER_MIGRATION_COPY '{path}': {e}"));
+        assert!(
+            !resolved
+                .components()
+                .any(|component| component.as_os_str() == "com.christian.codakiller"),
+            "refuse to run on the live app-data location ({}); copy the database first",
+            resolved.display()
+        );
+
+        let store = Store::open(&path).expect("disposable copy migrates");
         let physical = store
             .test_scalar_i64(
                 "SELECT count(*) FROM rep r JOIN rep_block b ON b.id=r.block_id
