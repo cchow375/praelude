@@ -22,7 +22,7 @@ use crate::sessions::SessionService;
 use crate::store::model::{PieceFieldPatch, RepSnapshot};
 use crate::store::Store;
 
-pub use context::GroundingSummary;
+pub use context::{GroundingSummary, KnowledgeShareCause};
 pub use corpus::{BookExcerpt, BookKind, BookListing};
 pub use library::{Citation, MethodCard};
 use library::{EmbeddedLibrary, PracticeLibrary};
@@ -599,6 +599,41 @@ pub fn ask_native(
     )
 }
 
+/// Text-first delivery: every answer returns for rendering, and speech is an
+/// extra that fires only for a Voice-sourced ask. A typed question never speaks.
+pub fn should_speak_answer(source: QuestionSource) -> bool {
+    matches!(source, QuestionSource::Voice)
+}
+
+/// The spoken form of an answer. Citations are a separate `citations` field and
+/// the system policy forbids ids inside the answer text, so this is a backstop:
+/// if an id leaks through anyway it is stripped from speech only — the visible
+/// answer keeps exactly what the provider wrote.
+pub fn spoken_answer(answer: &BrainAnswer) -> String {
+    let mut spoken = answer.answer.clone();
+    for citation in &answer.citations {
+        let id = citation.source_id.as_str();
+        if id.is_empty() {
+            continue;
+        }
+        for bracketed in [format!("[{id}]"), format!("({id})")] {
+            spoken = spoken.replace(&bracketed, " ");
+        }
+        spoken = spoken.replace(id, " ");
+    }
+    // Collapse the gaps the removals left, including a space stranded before
+    // sentence punctuation.
+    let collapsed = spoken.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out = String::with_capacity(collapsed.len());
+    for part in collapsed.chars() {
+        if matches!(part, '.' | ',' | ';' | ':' | '!' | '?') && out.ends_with(' ') {
+            out.pop();
+        }
+        out.push(part);
+    }
+    out.trim().to_string()
+}
+
 /// Resolve the active knowledge directory: the `brain.knowledge_dir` setting
 /// when set to a non-empty value, otherwise the built-in default. Shared by
 /// retrieval and every book-library command so they agree on one folder.
@@ -938,6 +973,7 @@ fn offline_answer(
     // Context construction happens before provider selection. An offline
     // fallback transmits nothing, even when online sharing is enabled.
     grounding.knowledge_shared_with_provider = false;
+    grounding.knowledge_share_cause = KnowledgeShareCause::Offline;
     let citations = corpus_hits
         .iter()
         .take(3)
@@ -1622,6 +1658,207 @@ mod tests {
             .citations
             .iter()
             .any(|citation| citation.source_id == "source-1"));
+        assert_eq!(
+            answer.grounding.knowledge_share_cause,
+            KnowledgeShareCause::Offline,
+            "an offline answer transmits nothing at all"
+        );
+    }
+
+    /// A chain whose single Claude provider returns exactly `answer_json`.
+    fn claude_chain_returning(answer_json: String) -> (ProviderChain, FakeTransport) {
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Claude,
+            "secret-claude",
+            "claude-test",
+        )]);
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type": "text", "text": answer_json}]
+        }))]);
+        (chain, transport)
+    }
+
+    // The three grounding states the receipt must tell apart. Christian read the
+    // old single boolean as "the content is hidden from the AI"; the cause is
+    // what lets the copy say which of these actually happened.
+
+    #[test]
+    fn grounding_cause_is_shared_when_excerpts_cross_the_provider_boundary() {
+        let (store, sessions, _) = fixture();
+        let corpus_dir = external_corpus_fixture();
+        store
+            .set_setting("brain.knowledge_dir", corpus_dir.path().to_str().unwrap())
+            .unwrap();
+        let question = "Why does my memorized wrong version persist?";
+        let hit_id = corpus::search(corpus_dir.path(), question, 6).hits[0]
+            .id
+            .clone();
+        let (chain, transport) = claude_chain_returning(format!(
+            "{{\"answer\":\"Rebuild the passage from one verified unit.\",\"citation_ids\":[\"{hit_id}\"]}}"
+        ));
+        let answer = ask_with(
+            request(question),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap();
+        assert_eq!(answer.provider, ProviderName::Claude);
+        assert!(answer.grounding.knowledge_shared_with_provider);
+        assert_eq!(
+            answer.grounding.knowledge_share_cause,
+            KnowledgeShareCause::Shared
+        );
+        assert_eq!(
+            serde_json::to_value(answer.grounding.knowledge_share_cause).unwrap(),
+            json!("shared"),
+            "the frontend renders 'Retrieved excerpts shared with provider' for this exact tag"
+        );
+    }
+
+    #[test]
+    fn grounding_cause_is_no_matches_when_retrieval_finds_nothing() {
+        let (store, sessions, _) = fixture();
+        let corpus_dir = external_corpus_fixture();
+        store
+            .set_setting("brain.knowledge_dir", corpus_dir.path().to_str().unwrap())
+            .unwrap();
+        // Indexed library, sharing on, but nothing in it is about this.
+        let question = "Which airport terminal should I use tomorrow?";
+        let retrieved = corpus::search(corpus_dir.path(), question, 6);
+        assert!(retrieved.hits.is_empty(), "fixture question must not match");
+        assert!(!retrieved.indexed_sources.is_empty());
+        let (chain, transport) = claude_chain_returning(
+            "{\"answer\":\"Keep the leap rehearsal short and released.\",\"citation_ids\":[\"source-1\"]}"
+                .into(),
+        );
+        let answer = ask_with(
+            request(question),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap();
+        assert_eq!(answer.provider, ProviderName::Claude);
+        assert!(!answer.grounding.knowledge_shared_with_provider);
+        assert_eq!(
+            answer.grounding.knowledge_share_cause,
+            KnowledgeShareCause::NoMatches
+        );
+        assert_eq!(
+            serde_json::to_value(answer.grounding.knowledge_share_cause).unwrap(),
+            json!("no_matches"),
+            "the frontend renders 'No book excerpts matched this question' for this exact tag — nothing was withheld"
+        );
+    }
+
+    #[test]
+    fn grounding_cause_is_sharing_disabled_when_the_privacy_setting_holds_excerpts_back() {
+        let (store, sessions, _) = fixture();
+        let corpus_dir = external_corpus_fixture();
+        store
+            .set_setting("brain.knowledge_dir", corpus_dir.path().to_str().unwrap())
+            .unwrap();
+        store
+            .set_setting("brain.share_retrieved_knowledge", "false")
+            .unwrap();
+        let question = "Why does my memorized wrong version persist?";
+        assert!(
+            !corpus::search(corpus_dir.path(), question, 6)
+                .hits
+                .is_empty(),
+            "excerpts exist; only the setting keeps them home"
+        );
+        let (chain, transport) = claude_chain_returning(
+            "{\"answer\":\"Rebuild the passage from one verified unit.\",\"citation_ids\":[\"source-1\"]}"
+                .into(),
+        );
+        let answer = ask_with(
+            request(question),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap();
+        assert_eq!(answer.provider, ProviderName::Claude);
+        assert!(!answer.grounding.knowledge_shared_with_provider);
+        assert_eq!(
+            answer.grounding.knowledge_share_cause,
+            KnowledgeShareCause::SharingDisabled
+        );
+        assert_eq!(
+            serde_json::to_value(answer.grounding.knowledge_share_cause).unwrap(),
+            json!("sharing_disabled"),
+            "the frontend renders 'Book excerpts are kept on this Mac (sharing is off in Settings)' for this exact tag"
+        );
+        assert!(!transport.requests()[0]
+            .body
+            .to_string()
+            .contains("private-test phrase"));
+    }
+
+    #[test]
+    fn grounding_cause_is_no_library_when_nothing_is_indexed() {
+        let (store, sessions, _) = fixture();
+        let (chain, transport) = claude_chain_returning(
+            "{\"answer\":\"Place the arrival silently, then rebuild.\",\"citation_ids\":[\"source-1\"]}"
+                .into(),
+        );
+        let answer = ask_with(
+            request("How do I land this leap?"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            answer.grounding.knowledge_share_cause,
+            KnowledgeShareCause::NoLibrary
+        );
+    }
+
+    #[test]
+    fn speech_is_text_first_and_fires_only_for_voice_asks() {
+        assert!(!should_speak_answer(QuestionSource::Typed));
+        assert!(should_speak_answer(QuestionSource::Voice));
+    }
+
+    #[test]
+    fn spoken_answer_never_reads_citation_ids_aloud() {
+        let (store, sessions, _) = fixture();
+        let (chain, transport) = claude_chain_returning(
+            "{\"answer\":\"Place the arrival silently [source-1], then rebuild the leap (source-1).\",\"citation_ids\":[\"source-1\"]}"
+                .into(),
+        );
+        let answer = ask_with(
+            request("How do I land this leap?"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap();
+        assert!(
+            answer.answer.contains("source-1"),
+            "the visible answer keeps what the provider wrote"
+        );
+        let spoken = spoken_answer(&answer);
+        assert_eq!(spoken, "Place the arrival silently, then rebuild the leap.");
+        assert!(!spoken.contains("source-1"));
     }
 
     #[test]

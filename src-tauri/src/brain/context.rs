@@ -20,6 +20,27 @@ const MAX_RETENTION_CHECKS: usize = 8;
 const MAX_RECOVERY_ACTIONS: usize = 8;
 pub(super) const MAX_CONTEXT_BYTES: usize = 64_000;
 
+/// Why retrieved book excerpts did or did not cross the provider boundary.
+///
+/// `knowledge_shared_with_provider` alone cannot tell "nothing matched" apart
+/// from "sharing is switched off", so the receipt used to read as if content had
+/// been withheld whenever retrieval simply found nothing. The cause is resolved
+/// natively so the frontend never has to guess.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeShareCause {
+    /// Bounded excerpts were included in the provider request.
+    Shared,
+    /// No book is indexed, so there was nothing to retrieve from.
+    NoLibrary,
+    /// Retrieval ran against the indexed library and matched nothing.
+    NoMatches,
+    /// Excerpts matched but the privacy setting keeps them on this Mac.
+    SharingDisabled,
+    /// The answer was produced locally; nothing left this Mac at all.
+    Offline,
+}
+
 /// Visible, path-free record of which native evidence was available for an
 /// answer. This is deliberately a summary rather than the provider prompt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -31,6 +52,9 @@ pub struct GroundingSummary {
     pub active_block_included: bool,
     pub knowledge_status: String,
     pub knowledge_shared_with_provider: bool,
+    /// Kept alongside the boolean above (never replacing it) so the receipt copy
+    /// can name the real reason instead of implying content was withheld.
+    pub knowledge_share_cause: KnowledgeShareCause,
     pub knowledge_sources: Vec<String>,
     pub musicxml_status: String,
     pub warnings: Vec<String>,
@@ -360,11 +384,30 @@ pub(super) fn build(
         active_block_included: authoritative_active.is_some(),
         knowledge_status: format!("{:?}", corpus.status).to_ascii_lowercase(),
         knowledge_shared_with_provider: share_retrieved_knowledge && !corpus.hits.is_empty(),
+        knowledge_share_cause: knowledge_share_cause(corpus, share_retrieved_knowledge),
         knowledge_sources: corpus.indexed_sources.clone(),
         musicxml_status: format!("{:?}", score.status).to_ascii_lowercase(),
         warnings,
     };
     Ok((GroundedContext { json }, grounding))
+}
+
+/// Resolve why excerpts did or did not travel. "Nothing was found" outranks
+/// "sharing is off": when retrieval matched nothing there is no content to
+/// withhold, and saying otherwise is exactly the misleading receipt this fixes.
+fn knowledge_share_cause(
+    corpus: &CorpusSearch,
+    share_retrieved_knowledge: bool,
+) -> KnowledgeShareCause {
+    if corpus.indexed_sources.is_empty() {
+        KnowledgeShareCause::NoLibrary
+    } else if corpus.hits.is_empty() {
+        KnowledgeShareCause::NoMatches
+    } else if !share_retrieved_knowledge {
+        KnowledgeShareCause::SharingDisabled
+    } else {
+        KnowledgeShareCause::Shared
+    }
 }
 
 fn relevant_block_ids(
