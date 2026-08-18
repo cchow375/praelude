@@ -605,6 +605,43 @@ pub fn should_speak_answer(source: QuestionSource) -> bool {
     matches!(source, QuestionSource::Voice)
 }
 
+/// Remove `id` from `text` wherever it stands alone as a token — bounded on
+/// both sides by a non-alphanumeric character or the edge of the string — and
+/// leave every other occurrence untouched.
+///
+/// The scoping is not fussiness. A citation id is user-influenced
+/// (`local:{book.id}:{n}`, where `book.id` comes from an imported book's slug),
+/// so an id can be, or contain, an ordinary English word. An unscoped
+/// `replace` therefore shreds the prose it was meant to clean: id `"at"` turned
+/// "The cat sat on the mat" into "The c s on the m", and id `"120"` turned
+/// "not 12 or 1200" into "not 12 or 0" — spoken aloud, to a pianist, as the
+/// Brain's answer.
+fn strip_standalone(text: &str, id: &str) -> String {
+    if id.is_empty() {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(hit) = rest.find(id) {
+        let (before, tail) = rest.split_at(hit);
+        let after = &tail[id.len()..];
+        // The character to the left is the last one of this segment, or — when
+        // the match sits flush against the previous one — the last character
+        // already written out.
+        let left = before
+            .chars()
+            .next_back()
+            .or_else(|| out.chars().next_back());
+        let standalone = left.is_none_or(|c| !c.is_alphanumeric())
+            && after.chars().next().is_none_or(|c| !c.is_alphanumeric());
+        out.push_str(before);
+        out.push_str(if standalone { " " } else { id });
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The spoken form of an answer. Citations are a separate `citations` field and
 /// the system policy forbids ids inside the answer text, so this is a backstop:
 /// if an id leaks through anyway it is stripped from speech only — the visible
@@ -619,7 +656,7 @@ pub fn spoken_answer(answer: &BrainAnswer) -> String {
         for bracketed in [format!("[{id}]"), format!("({id})")] {
             spoken = spoken.replace(&bracketed, " ");
         }
-        spoken = spoken.replace(id, " ");
+        spoken = strip_standalone(&spoken, id);
     }
     // Collapse the gaps the removals left, including a space stranded before
     // sentence punctuation.
@@ -1833,6 +1870,89 @@ mod tests {
     fn speech_is_text_first_and_fires_only_for_voice_asks() {
         assert!(!should_speak_answer(QuestionSource::Typed));
         assert!(should_speak_answer(QuestionSource::Voice));
+    }
+
+    /// A citation id is user-influenced — `local:{book.id}:{n}` takes `book.id`
+    /// from an imported book's slug — so ids that are, or contain, ordinary
+    /// words are reachable. The strip must be a TOKEN strip: an id that appears
+    /// inside a word is not a citation and must survive.
+    #[test]
+    fn stripping_a_citation_id_never_shreds_the_prose_around_it() {
+        // The word-shaped ids, against sentences that contain them as
+        // substrings and never as citations. Not one character may change.
+        for (id, sentence) in [
+            ("at", "The cat sat on the mat"),
+            ("and", "Play hands separately, and then rebuild"),
+            ("chunk", "Practice this chunk by chunk, then rebuild"),
+            ("120", "Set the metronome to 120 bpm, not 12 or 1200."),
+        ] {
+            let stripped = strip_standalone(sentence, id);
+            // Every occurrence bounded by word characters survives untouched.
+            for word in sentence.split_whitespace() {
+                let bare = word.trim_matches(|c: char| !c.is_alphanumeric());
+                if bare != id {
+                    assert!(
+                        stripped.contains(bare),
+                        "id {id:?} destroyed {word:?} in {stripped:?}"
+                    );
+                }
+            }
+        }
+
+        // Concretely, the two failures that motivated the fix.
+        assert_eq!(
+            strip_standalone("The cat sat on the mat", "at"),
+            "The cat sat on the mat"
+        );
+        assert_eq!(
+            strip_standalone("Set the metronome to 120 bpm, not 12 or 1200.", "120"),
+            "Set the metronome to   bpm, not 12 or 1200."
+        );
+        assert_eq!(
+            strip_standalone("Practice this chunk by chunk, then rebuild", "chunk"),
+            "Practice this   by  , then rebuild"
+        );
+
+        // And the genuine standalone citation still goes, at every position.
+        assert_eq!(strip_standalone("at", "at"), " ");
+        assert_eq!(strip_standalone("see at.", "at"), "see  .");
+        assert_eq!(
+            strip_standalone("hands separately, and then", "and"),
+            "hands separately,   then"
+        );
+        // An empty id is a no-op rather than an infinite loop.
+        assert_eq!(strip_standalone("anything", ""), "anything");
+    }
+
+    /// The same thing through the public surface: a word-shaped id spoken over
+    /// real prose leaves the sentence sayable.
+    #[test]
+    fn spoken_answer_survives_a_word_shaped_citation_id() {
+        // Borrow a real answer's shape, then plant the word-shaped id in it —
+        // cheaper than hand-building a GroundingSummary, and it exercises the
+        // same struct the command path speaks from.
+        let (store, sessions, _) = fixture();
+        let mut answer = ask_with(
+            request("How do I land this leap?"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &ProviderChain::default(),
+            &FakeTransport::default(),
+            None,
+        )
+        .unwrap();
+        answer.answer = "The cat sat on the mat [at], and then rebuild.".into();
+        answer.citations = vec![Citation {
+            source_id: "at".into(),
+            label: "At".into(),
+            excerpt: String::new(),
+            url: String::new(),
+        }];
+        assert_eq!(
+            spoken_answer(&answer),
+            "The cat sat on the mat, and then rebuild."
+        );
     }
 
     #[test]
