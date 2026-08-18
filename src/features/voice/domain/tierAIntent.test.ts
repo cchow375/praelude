@@ -37,7 +37,12 @@ describe("Tier A curated replay fixtures", () => {
   for (const fixture of TIER_A_REPLAY_FIXTURES) {
     it(`${fixture.id}: ${fixture.raw_text}`, () => {
       const result = parseTierAIntent(
-        delivery(fixture.raw_text, { delivery_id: fixture.id }),
+        delivery(fixture.raw_text, {
+          delivery_id: fixture.id,
+          // Fixtures default to a final; the S9 complaint set replays a few as
+          // PARTIALS, which this parser must always ignore.
+          is_final: fixture.is_final ?? true,
+        }),
         fixture.state_before,
       );
 

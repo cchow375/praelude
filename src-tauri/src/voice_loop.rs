@@ -1609,6 +1609,63 @@ mod tests {
         }
     }
 
+    /// July 31, both complaints at once: the phrases reported as delayed, said
+    /// the way the recognizer actually spells them. The allowlist stays short and
+    /// exact — the manglings reach it because `intent::canonicalize` folds them
+    /// before the lookup (S9), not because they were added here.
+    #[test]
+    fn fast_path_accepts_the_asr_manglings_of_metronome() {
+        for text in [
+            "metranome off",
+            "metrodome off",
+            "metro gnome off",
+            "metro nome off",
+            "Metro-Gnome, off!",
+        ] {
+            assert_eq!(
+                fast_path_phrase(text),
+                Some("metronome off"),
+                "mangled 'metronome off' must still fast-path: {text:?}"
+            );
+        }
+        for text in ["metranome on", "metro nome on"] {
+            assert_eq!(fast_path_phrase(text), Some("metronome on"), "{text:?}");
+        }
+        for text in ["metranome stop", "metro gnome stop"] {
+            assert_eq!(fast_path_phrase(text), Some("metronome stop"), "{text:?}");
+        }
+        // A natural form is longer than a breath and deliberately NOT on the
+        // fast path — it routes normally, through the settle wait (S9).
+        for text in [
+            "can you stop the metronome",
+            "turn the metronome off",
+            "metronome please stop",
+        ] {
+            assert_eq!(
+                fast_path_phrase(text),
+                None,
+                "natural forms take the normal settle path: {text:?}"
+            );
+        }
+    }
+
+    /// A mangled partial does not just match the allowlist, it acts: the whole
+    /// point of the fold is that "metranome off" stops the metronome as fast as
+    /// "metronome off" does.
+    #[test]
+    fn a_mangled_partial_stops_the_metronome() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+        ctx.handle_final(&final_at("metronome 120", at));
+        assert!(ctx.metro.snapshot().running);
+        ctx.handle_fast_path(&final_at("metranome off", at + Duration::from_millis(10)));
+        assert!(
+            !ctx.metro.snapshot().running,
+            "a mangled partial stops the metronome on the fast path"
+        );
+    }
+
     /// The core latency claim: a PARTIAL "metronome off" stops the metronome
     /// without waiting for the settler, and the settled final that arrives
     /// afterwards is dropped — one stop, not two.
