@@ -350,3 +350,85 @@ describe("Tier A parser boundaries", () => {
     });
   });
 });
+
+// TWIN: `src-tauri/src/intent/mod.rs`, `router_parity_with_the_typescript_
+// metronome_grammar` / `PARITY_PHRASES`. The two routers are independent
+// implementations of one grammar — Rust owns the backend hot loop, this one
+// owns Tier A in the frontend — and they had silently diverged (courtesy scope,
+// contradictory directions). This list and its expectations are duplicated
+// verbatim on the other side; change one and you must change the other, or one
+// of the two tests fails.
+//
+// `true` = starts, `false` = stops, `null` = routes nowhere in either.
+const PARITY_PHRASES: readonly (readonly [string, boolean | null])[] = [
+  // --- courtesy scope: politeness does not widen the bare grammars, and a
+  // bare vocative is not a command.
+  ["okay stop", null],
+  ["hey stop", null],
+  ["can you stop", null],
+  ["okay faster", null],
+  ["hey slower", null],
+  ["hey metronome", null],
+  ["ok metronome", null],
+  // --- courtesy where the object IS named: the discount applies.
+  ["can you stop the metronome", false],
+  ["okay turn the metronome off", false],
+  ["please turn off the metronome", false],
+  ["can you start the metronome", true],
+  // --- exactly one direction.
+  ["turn the metronome on off", null],
+  ["metronome on off", null],
+  // --- the ASR manglings of "metronome".
+  ["metranome off", false],
+  ["metrodome off", false],
+  ["metro gnome off", false],
+  ["metro nome off", false],
+  ["metranome on", true],
+  ["metro gnome stop", false],
+  // --- natural forms.
+  ["metronome off", false],
+  ["metronome on", true],
+  ["turn the metronome off", false],
+  ["turn the metronome on", true],
+  ["stop the metronome", false],
+  ["kill the metronome", false],
+  ["metronome please stop", false],
+  ["start the metronome", true],
+  // --- ambient sentences that merely carry the tokens.
+  ["can you believe the metronome on that recording", null],
+  ["could you hear the metronome on the last take", null],
+  ["i turned the metronome off and went home", null],
+  ["okay so the metronome was off the whole time", null],
+  ["the metro is closed", null],
+];
+
+describe("router parity with the Rust metronome grammar", () => {
+  it("keeps the shared phrase list broad enough to be a contract", () => {
+    expect(PARITY_PHRASES.length).toBeGreaterThanOrEqual(25);
+  });
+
+  for (const [phrase, expected] of PARITY_PHRASES) {
+    it(`${phrase} → ${expected === null ? "nowhere" : expected ? "on" : "off"}`, () => {
+      // Both live metronome states, so nothing here depends on one of them.
+      for (const metronome_running of [true, false]) {
+        const result = parseTierAIntent(delivery(phrase), {
+          ...ACTIVE,
+          metronome_running,
+        });
+        const kind =
+          result.classification === "matched" ? result.intent.kind : null;
+        const actual =
+          kind === "metronome_on" ? true : kind === "metronome_off" ? false : null;
+        expect(actual, `${phrase} (running=${metronome_running})`).toBe(
+          expected,
+        );
+        if (expected === null) {
+          expect(
+            result.classification,
+            `${phrase} must not match anything at all`,
+          ).not.toBe("matched");
+        }
+      }
+    });
+  }
+});
