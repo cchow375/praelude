@@ -194,7 +194,9 @@ const DEDUP_WINDOW: Duration = Duration::from_millis(2500);
 /// * anything longer than a breath — a long phrase has no latency problem worth
 ///   this tradeoff.
 ///
-/// Entries must already be in normalized form ([`crate::intent::normalize`]).
+/// Entries must already be in canonical form ([`crate::intent::canonicalize`]) —
+/// which is also why `"metranome off"` reaches the fast path without appearing
+/// here: the mangle is folded before the lookup, exactly as the router folds it.
 const FAST_PATH_PHRASES: &[&str] = &[
     "metronome off",
     "metronome stop",
@@ -211,7 +213,7 @@ const FAST_PATH_PHRASES: &[&str] = &[
 /// The allowlisted phrase this partial is exactly, or `None`. Cheap enough for
 /// the settler thread: one normalize pass plus a walk of ten short strings.
 fn fast_path_phrase(text: &str) -> Option<&'static str> {
-    let norm = crate::intent::normalize(text);
+    let norm = crate::intent::canonicalize(text);
     FAST_PATH_PHRASES.iter().copied().find(|p| *p == norm)
 }
 
@@ -492,7 +494,7 @@ impl ActionCtx {
         // intent AND survived dedup, so it is about to act and the settled final
         // that follows is a duplicate of work already done.
         if via_fast_path {
-            self.fast_path = Some((crate::intent::normalize(&t.text), t.at));
+            self.fast_path = Some((crate::intent::canonicalize(&t.text), t.at));
         }
 
         // A routed command is authoritative. Emit its transcript carrying
@@ -530,7 +532,7 @@ impl ActionCtx {
         if t.at.saturating_duration_since(*at) >= DEDUP_WINDOW {
             return false;
         }
-        let norm = crate::intent::normalize(&t.text);
+        let norm = crate::intent::canonicalize(&t.text);
         norm == *phrase
             || norm
                 .strip_prefix(phrase.as_str())
@@ -1577,13 +1579,13 @@ mod tests {
     // not arm the tail guard.
 
     /// The shipped allowlist, spelled out so a future edit is a deliberate one.
-    /// Every entry must be exactly what `intent::normalize` produces, or the
+    /// Every entry must be exactly what `intent::canonicalize` produces, or the
     /// lookup silently never fires.
     #[test]
     fn fast_path_allowlist_is_the_whole_surface() {
         for phrase in FAST_PATH_PHRASES {
             assert_eq!(
-                crate::intent::normalize(phrase),
+                crate::intent::canonicalize(phrase),
                 *phrase,
                 "allowlist entries must already be normalized"
             );

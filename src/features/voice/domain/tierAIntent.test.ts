@@ -43,13 +43,13 @@ describe("Tier A curated replay fixtures", () => {
 
       expect(result.classification).toBe(fixture.expected.classification);
       if (
-        result.classification === "matched"
-        && fixture.expected.classification === "matched"
+        result.classification === "matched" &&
+        fixture.expected.classification === "matched"
       ) {
         expect(result.intent).toEqual(fixture.expected.intent);
       } else if (
-        result.classification !== "matched"
-        && fixture.expected.classification !== "matched"
+        result.classification !== "matched" &&
+        fixture.expected.classification !== "matched"
       ) {
         expect(result.reason).toBe(fixture.expected.reason);
       }
@@ -79,11 +79,14 @@ describe("Tier A parser boundaries", () => {
   });
 
   it("propagates delivery, source, confidence, raw text, and normalized text as evidence", () => {
-    const result = parseTierAIntent(delivery(" CLEAN! ", {
-      delivery_id: "speech-77",
-      revision: 4,
-      recognition: { source: "macos_speech", confidence: 0.61 },
-    }), ACTIVE);
+    const result = parseTierAIntent(
+      delivery(" CLEAN! ", {
+        delivery_id: "speech-77",
+        revision: 4,
+        recognition: { source: "macos_speech", confidence: 0.61 },
+      }),
+      ACTIVE,
+    );
 
     expect(result).toMatchObject({
       classification: "matched",
@@ -106,13 +109,77 @@ describe("Tier A parser boundaries", () => {
     "no thank you",
     "again like you have to recognize that",
     "faster because this is dragging",
-    "please turn off the metronome",
     "stop",
     "did you count four",
     "discount 4",
     "help me practice this",
   ])("keeps the near-miss or ambient sentence inert: %s", (text) => {
-    expect(parseTierAIntent(delivery(text), ACTIVE).classification).toBe("ignored");
+    expect(parseTierAIntent(delivery(text), ACTIVE).classification).toBe(
+      "ignored",
+    );
+  });
+
+  // "please turn off the metronome" used to sit in the list above — inert here
+  // while the Rust router routed it perfectly well. That divergence was the bug
+  // (S9, looser matching): the two routers now agree, and the vocabulary
+  // firewall, not a fixed sentence list, is what keeps ambient speech out.
+  it("routes a polite natural-form metronome command the Rust router already routed", () => {
+    expect(
+      parseTierAIntent(delivery("please turn off the metronome"), ACTIVE),
+    ).toMatchObject({
+      classification: "matched",
+      intent: { kind: "metronome_off" },
+    });
+  });
+
+  // S9 looser matching, kept in parity with `src-tauri/src/intent/mod.rs`.
+  it.each([
+    "metranome off",
+    "metrodome off",
+    "metro gnome off",
+    "metro nome off",
+    "turn the metronome off",
+    "can you stop the metronome",
+    "could you turn the metronome off",
+    "hey can you stop the metronome",
+    "metronome please stop",
+    "kill the metronome",
+  ])("routes an ASR mangle or natural form as metronome off: %s", (text) => {
+    expect(parseTierAIntent(delivery(text), ACTIVE)).toMatchObject({
+      classification: "matched",
+      intent: { kind: "metronome_off" },
+    });
+  });
+
+  it.each([
+    "metranome on",
+    "metro gnome on",
+    "turn the metronome on",
+    "start the metronome",
+    "okay start the metronome",
+  ])("routes an ASR mangle or natural form as metronome on: %s", (text) => {
+    expect(parseTierAIntent(delivery(text), ACTIVE)).toMatchObject({
+      classification: "matched",
+      intent: { kind: "metronome_on" },
+    });
+  });
+
+  // The other half of looser matching: the sentences that must stay inert even
+  // though they carry command words, courtesy openers, or both.
+  it.each([
+    "can you believe the metronome on that recording",
+    "i think the metronome off days are behind me",
+    "okay so the metronome was off the whole time",
+    // No context memory: a bare object never inherits "the metronome".
+    "turn it off",
+    "shut it off",
+    // Courtesy with nothing behind it is not a command.
+    "hey",
+    "can you",
+  ])("keeps a command-word-carrying ambient sentence inert: %s", (text) => {
+    expect(parseTierAIntent(delivery(text), ACTIVE).classification).toBe(
+      "ignored",
+    );
   });
 
   it("keeps the pianist's established exact done/again vocabulary while rejecting clauses", () => {
@@ -124,8 +191,13 @@ describe("Tier A parser boundaries", () => {
       classification: "matched",
       intent: { kind: "record_attempt", verdict: "miss" },
     });
-    expect(parseTierAIntent(delivery("done for today"), ACTIVE).classification).toBe("ignored");
-    expect(parseTierAIntent(delivery("again after this phrase"), ACTIVE).classification).toBe("ignored");
+    expect(
+      parseTierAIntent(delivery("done for today"), ACTIVE).classification,
+    ).toBe("ignored");
+    expect(
+      parseTierAIntent(delivery("again after this phrase"), ACTIVE)
+        .classification,
+    ).toBe("ignored");
   });
 
   it("distinguishes a same-set streak reset from a terminal set restart", () => {
@@ -205,17 +277,21 @@ describe("Tier A parser boundaries", () => {
       classification: "rejected",
       reason: "no_pending_attempt",
     });
-    expect(parseTierAIntent(delivery("count that"), {
-      ...ACTIVE,
-      pending_duplicate_attempt: true,
-    })).toMatchObject({
+    expect(
+      parseTierAIntent(delivery("count that"), {
+        ...ACTIVE,
+        pending_duplicate_attempt: true,
+      }),
+    ).toMatchObject({
       classification: "matched",
       intent: { kind: "confirm_pending_attempt" },
     });
-    expect(parseTierAIntent(delivery("correct last to miss"), {
-      ...ACTIVE,
-      last_attempt_available: false,
-    })).toMatchObject({
+    expect(
+      parseTierAIntent(delivery("correct last to miss"), {
+        ...ACTIVE,
+        last_attempt_available: false,
+      }),
+    ).toMatchObject({
       classification: "rejected",
       reason: "no_last_attempt",
     });
@@ -231,10 +307,12 @@ describe("Tier A parser boundaries", () => {
     ["reopen target", "reopen"],
     ["snooze retention", "snooze"],
   ] as const)("routes the explicit due action %s", (text, action) => {
-    expect(parseTierAIntent(delivery(text), {
-      ...ACTIVE,
-      retention_due: true,
-    })).toMatchObject({
+    expect(
+      parseTierAIntent(delivery(text), {
+        ...ACTIVE,
+        retention_due: true,
+      }),
+    ).toMatchObject({
       classification: "matched",
       intent: { kind: "retention", action },
     });
@@ -248,13 +326,20 @@ describe("Tier A parser boundaries", () => {
   });
 
   it("rejects invalid delivery metadata before returning an action", () => {
-    expect(parseTierAIntent(delivery("clean", { delivery_id: "" }), ACTIVE)).toMatchObject({
+    expect(
+      parseTierAIntent(delivery("clean", { delivery_id: "" }), ACTIVE),
+    ).toMatchObject({
       classification: "rejected",
       reason: "empty_delivery_id",
     });
-    expect(parseTierAIntent(delivery("clean", {
-      recognition: { source: "macos_speech", confidence: Number.NaN },
-    }), ACTIVE)).toMatchObject({
+    expect(
+      parseTierAIntent(
+        delivery("clean", {
+          recognition: { source: "macos_speech", confidence: Number.NaN },
+        }),
+        ACTIVE,
+      ),
+    ).toMatchObject({
       classification: "rejected",
       reason: "invalid_confidence",
     });
