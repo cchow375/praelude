@@ -67,26 +67,22 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**Installed is v5.0.0 (tag `v5.0.0`, 2026-07-31; merge `3de140c`) — paper redesign + the
-colour-depth perf fix + freehand pencil (schema 13).** Live DB: 7 pieces / 98 blocks /
-803 reps / 21 sessions, integrity ok. v5 gates: vitest 1643, cargo 668, tsc + clippy clean.
-Open from v5: Christian's at-piano + design acceptance (TCC re-grants first) and Flaws
-B47–B55.
+**Installed is v6.0.0 "Practice Core" (tag `v6.0.0`, 2026-08-18) — all four plans: A Practice
+Surfaces (dock/pause/sessions/plans/banner, schema v14), B Read Models (History timeline,
+Calendar planned-vs-done), C Score Intelligence (cloud-vision measure mapping + snap selection
++ sub-sections), D Voice & Brain (fast-path metronome commands, chime acks, looser matching
+with the firewall intact, heard-text pill, TTS cooldown + Aoede + degraded pill, honest
+Assistant grounding copy).** Schema 13→14, rehearsed on a fresh live copy immediately before
+install (B58 fixed first — the harness had misread the historic July chamber-split). Gates:
+vitest 2101/0, cargo 855/0, six corpus/firewall suites zero false mutations, tsc + clippy
+clean. TWO fresh-context adversarial verification passes: pass 1 refuted the fast path
+(prefix-partial phantom mutations on four corpus lines — fixed: multi-word metronome phrases
+only), pass 2 = SHIP. Open: Flaws B70 (prefix-keyed final suppression — "metronome on 96"
+loses its tempo; say "metronome 96"), B71–B73, B67 (no Anthropic key — Claude vision still
+never exercised). Rollbacks now live in `~/Library/CodaKiller-rollbacks/` (the release
+one-copy rule scans `~`). Pre-install backup `(C) pre-v6.0.0-install-2026-08-18-101647.db`
+SHA `c142f70a…`.
 
-**Active: v6.0.0 "Practice Core"** — spec approved 2026-08-05 from Christian's July 31
-feedback: `docs/superpowers/specs/2026-08-05-codakiller-v6-practice-core.md` (commit
-`ea388cc`). **Plan A "Practice Surfaces" MERGED to main 2026-08-06 (merge `d0bb001`)** —
-dock/pause/sessions/plans/banner + schema v14. **Plan B "Read Models" MERGED same day
-(merge `73b415d`)** — history_days/day_detail/day_sheets_range pure reads, History
-Days-timeline default, Calendar planned-vs-done; gates vitest 1886/0, cargo 727/0.
-**Plan C "Score Intelligence" MERGED 2026-08-08 (merge `9bae13f`)** — cloud-vision measure
-mapping (scan→reconcile→review/Apply), snap selection, sub-sections; acceptance: OCR flawless,
-barline counting weak → printed numbers became the structure (C6→C6d chain, docs/qa/
-plan-c-scherzo-acceptance.md); Claude vision untested (no Anthropic key — Flaws B67); gates
-vitest 1999/0, cargo 815/0. **Plan D (voice/Brain) is the LAST plan before v6.0.0 ships.** Measure mapping, sub-sections, floating Practice Dock, pause-across-days,
-day-scoped sessions, dated day sheets + time estimates, History timeline, Calendar
-planned-vs-done, score goals banner, voice/metronome overhaul (narrated-corpus gate
-binding), Brain quick fixes. Schema v13→v14 (rehearse on a copy first — never the live DB).
-v7.0 "Motivation Layer" (galaxy, streaks/photos, animations, dynamics checker, Brain
-usefulness) is scoped + deferred. **Next:** Christian reviews the spec → implementation
-plan → build in verified slices.
+**Next: v7.0 "Motivation Layer"** (living earned-only galaxy, streaks + photo calendar,
+completion animations, full dynamics checker, Assistant usefulness) — scoped in the v6 spec's
+non-goals, awaiting its own spec round.
