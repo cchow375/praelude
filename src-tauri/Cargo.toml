@@ -1,6 +1,6 @@
 [package]
 name = "codakiller"
-version = "5.0.0"
+version = "6.0.0"
 description = "Voice-first practice and rep tracker for pianists"
 authors = ["Christian Chow"]
 edition = "2021"

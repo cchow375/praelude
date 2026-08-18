@@ -2270,3 +2270,57 @@ pre-v5.0.0-session-2026-07-30-204238.db`, SHA-256
 - 720×520 visual QA (the dense-layout floor) was NOT manually screenshot-verified for this task
   — no live app run this session. `measureMapping.css` caps the panel at
   `min(90vw,520px) × min(90vh,480px)` with internal scroll, but this is unverified by eye.
+
+## v6 Plan D — voice/Brain overhaul + B58 diagnosis (2026-08-11 → 2026-08-17)
+
+- **B58 was a harness bug, not a data problem.** The 118 "wrongly attributed" rows on every
+  live-DB copy are exactly the July v12 merged→Copland move (100 rep_checkpoint + 14 rep +
+  2 rep_open + 2 rep_close, all 2026-07-27, payload piece 6 → canonical piece 7). The
+  rehearsal test resolved `merged_id` by looking for a piece titled
+  `'Chamber Pieces Tanglewood'` — which exists on NO post-split database (the split renamed
+  that row to 'Pas de Deux', keeping its id), so `merged_id=0`, the exception clause matched
+  nothing, and the legitimate historical move counted as a violation. Fix (`bb20f55`):
+  split-aware resolution ('Pas de Deux' id when the Copland row exists), pre-migration
+  snapshot of the exception count asserted UNCHANGED across v13→v14, plus the
+  `com.christian.codakiller` path guard both `CODAKILLER_MIGRATION_COPY` consumers had been
+  missing. Post-split copies deliberately do NOT assert "Barber owns nothing" — Christian has
+  practised the Barber since July (130 events on piece 6); that assertion is true only at the
+  instant v12 runs.
+- **The fast path acts on PARTIALS for multi-word metronome phrases ONLY** (`0e7e0cf`,
+  corrected in the fix wave `b07412c`): normalized partial must EQUAL "metronome off" /
+  "metronome stop" / "metronome on", and live state must make it actionable. The original
+  allowlist also carried bare single words ("stop", "done", "clean", "miss", "again",
+  "faster", "slower") — adversarial verification proved the recognizer's progressive prefix
+  partials fire them at the head of ORDINARY SENTENCES: four narrated-corpus lines
+  (scherzo1-0028/0050, scherzo3-0118/0157) produced phantom rep writes and a metronome stop,
+  with the tail guard then suppressing the real final so the error was invisible. A
+  finals-only replay gate is structurally blind to this; the partial-STREAM replay tests
+  added in the fix wave are the regression lock. Rule: no bare prefix word may ever join the
+  fast-path allowlist. The settled final after a legitimate multi-word fire is absorbed by
+  DEDUP_WINDOW. `intent::normalize` went pub so the fast path and router share one spelling.
+- **Chime acks ride the TTS PCM path, not a new stream** (`50ebb3c`): `audio/chime.rs`
+  renders a 120 ms two-partial (1200/1800 Hz) blip once via OnceLock; `AckPlayer` replicates
+  the full gate cycle (close → chunked enqueue with backpressure retry → drain → 300 ms tail
+  → RAII reopen), deadline-bounded on both phases. Speak-before-stop still holds — the chime
+  plays before `do_stop`. Honest limit: with no audio engine (`handle == None`,
+  metronome.rs:260) a rep chime is as silent as its spoken ack was before; making it audible
+  engine-down needs a second cpal output stream — deliberately not built in a lane.
+- **Chime-vs-speech split:** chime = metronome start/stop/tempo-set/delta and a clean rep
+  with no news. Speech = accent-every-N (only place that count is stated), flawed/failed
+  (streak reset is news), ladder steps, one-away, mastery/set complete, rep open/status/
+  close, session end, errors, questions. `rep::v2_progress` extracted so the ack policy and
+  `act_rep_status` share one progress model instead of two drifting copies.
+- **Looser matching stayed token-based, not fuzzy** (`4e4e132`): `fold_metronome` mangle
+  variants + `strip_courtesy` prefixes feed the SAME router; MAX_NOTE_WORDS, conversational
+  exclusions, and note fallback are byte-identical. TS `tierAIntent.ts` mirrors Rust — and
+  item 3 fixed a real divergence: `"please turn off the metronome"` had always routed in
+  Rust but was pinned INERT in a TS test. Parity is a contract; test both routers on the
+  same phrases.
+- **Worktree location is load-bearing:** the session-scratchpad worktrees under /private/tmp
+  were gutted by the macOS tmp cleaner during a 6-day stall (uncommitted item-2 work lost;
+  committed work survived in git). Lanes now live in `~/.ck-lanes/` like the v4-era lanes.
+  Commit per numbered item saved the fast path from the same fate.
+- **Pre-existing, surfaced by Plan D smoke QA:** BooksPanel's "Add a book" `<form>` nests
+  inside SettingsPanel's settings `<form>` (invalid HTML, React dev error) — present since
+  v5.0.0 (`v5.0.0:src/features/settings/SettingsPanel.tsx:189,421` + `BooksPanel.tsx:154`).
+  Not fixed in Plan D; logged in Flaws.
