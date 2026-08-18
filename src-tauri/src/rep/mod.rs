@@ -1370,6 +1370,31 @@ fn fmt_bpm(bpm: f64) -> String {
     }
 }
 
+/// How far along the block is, in the terms it is currently being judged by:
+/// the label to speak, the progress count, and what that count is out of.
+///
+/// A tempo block still climbing toward its target is measured in *rungs* (clean
+/// reps at the current tempo); anything else — a block at target, a notes block —
+/// is measured in the *streak* that earns mastery. Every consumer has to agree on
+/// which of those two it is looking at, so they all come through here:
+/// [`compose_v2_say`] to speak it, `voice_loop` to report status and to decide
+/// whether a rep outcome is routine enough for a chime.
+pub fn v2_progress(snap: &RepSnapshot) -> (&'static str, u32, u32) {
+    let below_tempo_target = snap.focus == "tempo"
+        && snap
+            .target_bpm
+            .is_some_and(|target| snap.bpm.is_some_and(|bpm| bpm + 0.000_001 < target));
+    if below_tempo_target {
+        ("Rung", snap.current_clean_streak, snap.rule.clean_needed)
+    } else {
+        (
+            "Streak",
+            snap.mastery_progress_streak,
+            snap.effective_required_clean_streak,
+        )
+    }
+}
+
 fn compose_v2_say(snap: &RepSnapshot, verdict: RepVerdict, new_bpm: Option<f64>) -> String {
     if snap.mastery_status == "satisfied" {
         return format!(
@@ -1378,19 +1403,7 @@ fn compose_v2_say(snap: &RepSnapshot, verdict: RepVerdict, new_bpm: Option<f64>)
         );
     }
     let verdict_text = verdict.as_str();
-    let below_tempo_target = snap.focus == "tempo"
-        && snap
-            .target_bpm
-            .is_some_and(|target| snap.bpm.is_some_and(|bpm| bpm + 0.000_001 < target));
-    let (progress_label, progress, required) = if below_tempo_target {
-        ("Rung", snap.current_clean_streak, snap.rule.clean_needed)
-    } else {
-        (
-            "Streak",
-            snap.mastery_progress_streak,
-            snap.effective_required_clean_streak,
-        )
-    };
+    let (progress_label, progress, required) = v2_progress(snap);
     let mut message = if matches!(verdict, RepVerdict::Clean) {
         format!(
             "Attempt {} saved — {}. {} {} of {}.",

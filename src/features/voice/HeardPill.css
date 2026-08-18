@@ -1,0 +1,61 @@
+/* ===========================================================================
+   Heard-text pill (v6 S9, "visible hearing"). Quiet by construction: it exists
+   to be glanced at mid-phrase and then forgotten, so it uses the same raised
+   surface / hairline / dim-ink tokens as the other voice pills and adds no
+   colour of its own. Tokens only — nothing here invents a value.
+   ========================================================================== */
+
+.heard-pill {
+  position: fixed;
+  left: var(--s-4);
+  bottom: calc(var(--s-4) + var(--s-6));
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  max-width: min(60vw, 24rem);
+  padding: var(--s-1) var(--s-3);
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  /* Never intercepts a click: it can appear over anything at any moment. */
+  pointer-events: none;
+  animation: heard-pill-in var(--dur-fast) var(--ease-out);
+}
+
+/* A small open circle: "listening", not a status light. Deliberately not the
+   filled dot the degraded-voice pill uses — that one means something is wrong. */
+.heard-pill-ear {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--ink-faint);
+  border-radius: 50%;
+}
+
+.heard-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes heard-pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heard-pill {
+    animation: none;
+  }
+}

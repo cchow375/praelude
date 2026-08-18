@@ -7,9 +7,18 @@ import type {
 
 export interface TierAReplayFixture {
   readonly id: string;
-  readonly source: "curated" | "ambient" | "asr_corruption";
+  readonly source:
+    "curated" | "ambient" | "asr_corruption" | "complaint_2026_07_31";
   readonly at_ms: number;
   readonly raw_text: string;
+  /**
+   * Defaults to `true`. Set `false` to replay a PARTIAL hypothesis: the Rust
+   * loop may act on one for a short allowlist (v6 S9 fast path), but this
+   * parser never does — a partial is `ignored: non_final`, full stop. Pinning
+   * that is what keeps the fast path from ever double-firing through the
+   * frontend.
+   */
+  readonly is_final?: boolean;
   readonly state_before: TierAContext;
   readonly expected:
     | {
@@ -351,5 +360,242 @@ export const TIER_A_REPLAY_FIXTURES: readonly TierAReplayFixture[] = [
     raw_text: "count 101",
     state_before: ACTIVE,
     expected: { classification: "rejected", reason: "count_out_of_range" },
+  },
+  // -------------------------------------------------------------------------
+  // Christian's July 31 complaints (v6 S9). Each phrase below is one he
+  // reported broken, or one that must stay broken so the others can be fixed.
+  // The Rust mirror of this table is
+  // `src-tauri/tests/voice_complaint_fixtures.rs`; the two must not diverge.
+  // -------------------------------------------------------------------------
+
+  // "metronome on is like delayed by 5 seconds" — the fast-path phrases. The
+  // Rust loop acts on these as PARTIALS; this parser must never do so, which is
+  // exactly what stops the same utterance firing twice.
+  {
+    id: "complaint-fastpath-partial-metronome-off",
+    source: "complaint_2026_07_31",
+    at_ms: 3000,
+    raw_text: "metronome off",
+    is_final: false,
+    state_before: ACTIVE,
+    expected: { classification: "ignored", reason: "non_final" },
+  },
+  {
+    id: "complaint-fastpath-partial-metronome-on",
+    source: "complaint_2026_07_31",
+    at_ms: 3010,
+    raw_text: "metronome on",
+    is_final: false,
+    state_before: ACTIVE,
+    expected: { classification: "ignored", reason: "non_final" },
+  },
+  {
+    id: "complaint-fastpath-partial-stop",
+    source: "complaint_2026_07_31",
+    at_ms: 3020,
+    raw_text: "stop",
+    is_final: false,
+    state_before: ACTIVE,
+    expected: { classification: "ignored", reason: "non_final" },
+  },
+  {
+    id: "complaint-fastpath-partial-done",
+    source: "complaint_2026_07_31",
+    at_ms: 3030,
+    raw_text: "done",
+    is_final: false,
+    state_before: ACTIVE,
+    expected: { classification: "ignored", reason: "non_final" },
+  },
+  // ...and as finals, where they do route.
+  {
+    id: "complaint-fastpath-final-metronome-off",
+    source: "complaint_2026_07_31",
+    at_ms: 3040,
+    raw_text: "metronome off",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_off" } },
+  },
+  {
+    id: "complaint-fastpath-final-metronome-on",
+    source: "complaint_2026_07_31",
+    at_ms: 3050,
+    raw_text: "metronome on",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_on" } },
+  },
+
+  // "'metronome off' barely works" — every ASR mangling of the word.
+  {
+    id: "complaint-mangle-metranome-off",
+    source: "complaint_2026_07_31",
+    at_ms: 3100,
+    raw_text: "metranome off",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_off" } },
+  },
+  {
+    id: "complaint-mangle-metrodome-off",
+    source: "complaint_2026_07_31",
+    at_ms: 3110,
+    raw_text: "metrodome off",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_off" } },
+  },
+  {
+    id: "complaint-mangle-metro-gnome-off",
+    source: "complaint_2026_07_31",
+    at_ms: 3120,
+    raw_text: "metro gnome off",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_off" } },
+  },
+  {
+    id: "complaint-mangle-metro-nome-off",
+    source: "complaint_2026_07_31",
+    at_ms: 3130,
+    raw_text: "metro nome off",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_off" } },
+  },
+  {
+    id: "complaint-mangle-punctuated",
+    source: "complaint_2026_07_31",
+    at_ms: 3140,
+    raw_text: "Metro-Gnome, off!",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_off" } },
+  },
+  {
+    id: "complaint-mangle-metranome-on",
+    source: "complaint_2026_07_31",
+    at_ms: 3150,
+    raw_text: "metranome on",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_on" } },
+  },
+  {
+    id: "complaint-mangle-metro-nome-on",
+    source: "complaint_2026_07_31",
+    at_ms: 3160,
+    raw_text: "metro nome on",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_on" } },
+  },
+
+  // "it's like Siri 2015" — the natural forms.
+  {
+    id: "complaint-natural-turn-the-metronome-off",
+    source: "complaint_2026_07_31",
+    at_ms: 3200,
+    raw_text: "turn the metronome off",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_off" } },
+  },
+  {
+    id: "complaint-natural-can-you-stop-the-metronome",
+    source: "complaint_2026_07_31",
+    at_ms: 3210,
+    raw_text: "can you stop the metronome",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_off" } },
+  },
+  {
+    id: "complaint-natural-could-you-turn-off",
+    source: "complaint_2026_07_31",
+    at_ms: 3220,
+    raw_text: "could you turn the metronome off",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_off" } },
+  },
+  {
+    id: "complaint-natural-hey-can-you-stop",
+    source: "complaint_2026_07_31",
+    at_ms: 3230,
+    raw_text: "hey can you stop the metronome",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_off" } },
+  },
+  {
+    id: "complaint-natural-metronome-please-stop",
+    source: "complaint_2026_07_31",
+    at_ms: 3240,
+    raw_text: "metronome please stop",
+    state_before: ACTIVE,
+    expected: { classification: "matched", intent: { kind: "metronome_off" } },
+  },
+  {
+    id: "complaint-natural-start-the-metronome",
+    source: "complaint_2026_07_31",
+    at_ms: 3250,
+    raw_text: "start the metronome",
+    state_before: IDLE,
+    expected: { classification: "matched", intent: { kind: "metronome_on" } },
+  },
+  {
+    id: "complaint-natural-turn-the-metronome-on",
+    source: "complaint_2026_07_31",
+    at_ms: 3260,
+    raw_text: "turn the metronome on",
+    state_before: IDLE,
+    expected: { classification: "matched", intent: { kind: "metronome_on" } },
+  },
+
+  // The firewall. Every loosening above is only acceptable because these hold.
+  {
+    id: "complaint-adversarial-metronome-off-days",
+    source: "complaint_2026_07_31",
+    at_ms: 3300,
+    raw_text: "I think the metronome off days are behind me",
+    state_before: ACTIVE,
+    expected: { classification: "ignored", reason: "not_exact_command" },
+  },
+  {
+    id: "complaint-adversarial-done-with-the-slow-section",
+    source: "complaint_2026_07_31",
+    at_ms: 3310,
+    raw_text: "we're done with the slow section, again from the top",
+    state_before: ACTIVE,
+    expected: { classification: "ignored", reason: "not_exact_command" },
+  },
+  {
+    id: "complaint-adversarial-believe-the-metronome-on",
+    source: "complaint_2026_07_31",
+    at_ms: 3320,
+    raw_text: "can you believe the metronome on that recording",
+    state_before: ACTIVE,
+    expected: { classification: "ignored", reason: "not_exact_command" },
+  },
+  {
+    id: "complaint-adversarial-mangle-in-ambient-speech",
+    source: "complaint_2026_07_31",
+    at_ms: 3330,
+    raw_text: "the metranome was off the whole time and I never noticed",
+    state_before: ACTIVE,
+    expected: { classification: "ignored", reason: "not_exact_command" },
+  },
+  {
+    id: "complaint-adversarial-reported-speech",
+    source: "complaint_2026_07_31",
+    at_ms: 3340,
+    raw_text: "I asked if you could stop the metronome",
+    state_before: ACTIVE,
+    expected: { classification: "ignored", reason: "not_exact_command" },
+  },
+  {
+    id: "complaint-adversarial-no-context-memory",
+    source: "complaint_2026_07_31",
+    at_ms: 3350,
+    raw_text: "turn it off",
+    state_before: ACTIVE,
+    expected: { classification: "ignored", reason: "not_exact_command" },
+  },
+  {
+    id: "complaint-adversarial-bare-courtesy",
+    source: "complaint_2026_07_31",
+    at_ms: 3360,
+    raw_text: "hey can you",
+    state_before: ACTIVE,
+    expected: { classification: "ignored", reason: "not_exact_command" },
   },
 ] as const;

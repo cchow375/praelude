@@ -161,8 +161,10 @@ impl Router {
         // remains supported.
         let has_numeric_colon = contains_numeric_colon(text);
 
-        // 1. Normalize: lowercase, punctuation & hyphens → spaces, collapse runs.
-        let norm = normalize(text);
+        // 1. Normalize: lowercase, punctuation & hyphens → spaces, collapse runs,
+        //    then fold the recognizer's spellings of "metronome" back onto the
+        //    word (see `canonicalize`).
+        let norm = canonicalize(text);
         if norm.is_empty() {
             return Intent::Ignored;
         }
@@ -228,7 +230,12 @@ impl Router {
 
 /// Lowercase, turn every non-alphanumeric char into a space, and collapse runs of
 /// whitespace. Apostrophes are dropped (so "let's" → "lets").
-fn normalize(text: &str) -> String {
+///
+/// Public as the first half of [`canonicalize`], which is what anything outside
+/// this module should compare against: the voice loop's fast path has to judge a
+/// *partial* hypothesis using exactly the spelling the router will later see, and
+/// two normalizers would drift.
+pub fn normalize(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         if c.is_ascii_alphanumeric() {
@@ -240,6 +247,47 @@ fn normalize(text: &str) -> String {
         }
     }
     out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// [`normalize`], plus the ASR-mangle fold ([`fold_metronome`]). This is the
+/// exact spelling the router's grammar sees, so anything that has to *predict*
+/// the router — the voice loop's fast-path allowlist, the TS mirror in
+/// `tierAIntent.ts` — compares against this, not against raw text.
+pub fn canonicalize(text: &str) -> String {
+    fold_metronome(&normalize(text))
+}
+
+/// Fold the on-device recognizer's renderings of "metronome" back onto the word.
+///
+/// The word is long, unusual, and the thing this app is mostly asked to do, and
+/// the recognizer mangles it in a small number of stable ways — the ones seen in
+/// Christian's sessions are `metranome`, `metrodome`, and the two-word splits
+/// `metro gnome` / `metro nome`. The single most-reported failure ("'metronome
+/// off' barely works") is partly this: the command was said correctly and
+/// transcribed into a word the router had never heard of.
+///
+/// This is the same shape as [`fold_verb`] on the delta path, and it is safe for
+/// the same reason: it can only ever produce a token the grammar *already*
+/// accepts, so no firewall is loosened. A sentence that merely contains a mangle
+/// still has to pass the all-in-vocabulary and length checks like any other.
+fn fold_metronome(norm: &str) -> String {
+    let words: Vec<&str> = norm.split_whitespace().collect();
+    let mut out: Vec<&str> = Vec::with_capacity(words.len());
+    let mut i = 0;
+    while i < words.len() {
+        // Two-word splits first — "metro gnome" is one mangled word, not two.
+        if words[i] == "metro" && matches!(words.get(i + 1), Some(&"gnome" | &"nome")) {
+            out.push("metronome");
+            i += 2;
+            continue;
+        }
+        out.push(match words[i] {
+            "metranome" | "metrodome" => "metronome",
+            other => other,
+        });
+        i += 1;
+    }
+    out.join(" ")
 }
 
 /// Whether the raw transcript contains an ASCII digit-colon-digit shape such
@@ -545,8 +593,53 @@ fn has(words: &[&str], w: &str) -> bool {
     words.contains(&w)
 }
 
+/// Leading courtesy that carries no instruction: `"can you stop the metronome"`
+/// is the same command as `"stop the metronome"`, and Christian's "Siri 2015"
+/// complaint is largely that the second worked and the first did not.
+///
+/// Stripped only from the HEAD of the utterance, only these exact forms, and at
+/// most twice ("hey can you stop the metronome"). That narrowness is the point:
+/// the metronome grammar's firewall is "short AND built entirely from command
+/// vocabulary", so the only way to admit a politeness without punching a hole in
+/// it is to remove the politeness *before* the shape is judged. Mid-sentence
+/// courtesy is untouched — "i asked if you could stop the metronome" still has
+/// out-of-vocabulary words and still routes nowhere.
+const COURTESY_PREFIXES: &[&[&str]] = &[
+    &["can", "you"],
+    &["could", "you"],
+    &["would", "you"],
+    &["will", "you"],
+    &["hey"],
+    &["ok"],
+    &["okay"],
+];
+
+/// Drop up to two leading [`COURTESY_PREFIXES`], never leaving an empty slice
+/// (a bare "hey" is not a command, and letting it fall through as an empty
+/// utterance would be a different bug).
+fn strip_courtesy<'a>(words: &'a [&'a str]) -> &'a [&'a str] {
+    let mut rest = words;
+    for _ in 0..2 {
+        let Some(stripped) = COURTESY_PREFIXES
+            .iter()
+            .find(|p| rest.starts_with(p) && rest.len() > p.len())
+            .map(|p| &rest[p.len()..])
+        else {
+            break;
+        };
+        rest = stripped;
+    }
+    rest
+}
+
 /// Core metronome grammar. Returns `None` if nothing matched (→ Ignored/Question).
 fn route_metronome(words: &[&str], mode: &Mode) -> Option<Intent> {
+    // Natural forms reach the same grammar as the terse ones: courtesy off the
+    // front, then every rule below is unchanged. The rules are already
+    // order-flexible (they test for tokens, not sequences), so "turn the
+    // metronome off", "metronome please stop" and "can you stop the metronome"
+    // are all the same command shape once the politeness is gone.
+    let words = strip_courtesy(words);
     let has_metro = has(words, "metronome");
 
     // --- STOP -------------------------------------------------------------
@@ -1444,6 +1537,107 @@ mod tests {
                 Intent::Ignored,
                 "rep vocab outside rep mode must be Ignored: {phrase:?}"
             );
+        }
+    }
+
+    // --------------------------------------------------- LOOSER MATCHING (S9)
+    // Christian, July 31: the router felt like "Siri 2015" — the exact phrase
+    // worked and everything a person actually says did not. Two narrow changes
+    // answer that (`fold_metronome`, `strip_courtesy`), and these tests pin both
+    // ends of them: the forms that must now route, and the ambient sentences
+    // that must still not.
+
+    #[test]
+    fn asr_mangles_of_metronome_route_like_the_word() {
+        for mangle in [
+            "metranome",
+            "metrodome",
+            "metro gnome",
+            "metro nome",
+        ] {
+            assert_eq!(
+                r(&format!("{mangle} off"), &running()),
+                Intent::MetroStop,
+                "{mangle:?} off"
+            );
+            assert_eq!(
+                r(&format!("{mangle} on"), &stopped()),
+                Intent::MetroStart(None),
+                "{mangle:?} on"
+            );
+            assert_eq!(
+                r(&format!("{mangle} 96"), &stopped()),
+                Intent::MetroStart(Some(96.0)),
+                "{mangle:?} 96"
+            );
+        }
+    }
+
+    #[test]
+    fn canonicalize_folds_only_the_mangle_and_leaves_the_rest_alone() {
+        assert_eq!(canonicalize("Metro-Gnome, off!"), "metronome off");
+        assert_eq!(canonicalize("metranome"), "metronome");
+        // Not a mangle: "metro" alone, and words that merely start the same way.
+        assert_eq!(canonicalize("the metro is closed"), "the metro is closed");
+        assert_eq!(canonicalize("metronomic playing"), "metronomic playing");
+    }
+
+    #[test]
+    fn natural_command_forms_route() {
+        for phrase in [
+            "turn the metronome off",
+            "turn metronome off",
+            "can you stop the metronome",
+            "could you turn the metronome off",
+            "hey can you stop the metronome",
+            "metronome please stop",
+            "kill the metronome",
+        ] {
+            assert_eq!(r(phrase, &running()), Intent::MetroStop, "{phrase:?}");
+        }
+        for phrase in [
+            "turn the metronome on",
+            "start the metronome",
+            "can you start the metronome",
+            "okay start the metronome",
+        ] {
+            assert_eq!(
+                r(phrase, &stopped()),
+                Intent::MetroStart(None),
+                "{phrase:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn courtesy_stripping_does_not_open_the_firewall() {
+        // Each of these carries command tokens AND a courtesy opener, and each
+        // is ambient. What rejects them is unchanged: too long, or built from
+        // words the command vocabulary does not contain.
+        for phrase in [
+            "can you believe the metronome on that recording",
+            "could you hear the metronome on the last take",
+            "hey the metronome off days are behind me",
+            "okay so the metronome was off the whole time",
+        ] {
+            assert_eq!(r(phrase, &running()), Intent::Ignored, "{phrase:?}");
+        }
+    }
+
+    #[test]
+    fn there_is_no_context_memory_for_a_bare_object() {
+        // "turn it off" has no object. The metronome may well be running and it
+        // may well be what the user meant — the router does not guess, because
+        // guessing is how an ambient "turn it off" stops a take.
+        for phrase in ["turn it off", "turn that off", "shut it off", "off"] {
+            assert_eq!(r(phrase, &running()), Intent::Ignored, "{phrase:?}");
+        }
+    }
+
+    #[test]
+    fn a_bare_courtesy_opener_is_not_a_command() {
+        for phrase in ["hey", "can you", "okay", "hey can you"] {
+            assert_eq!(r(phrase, &running()), Intent::Ignored, "{phrase:?}");
         }
     }
 }

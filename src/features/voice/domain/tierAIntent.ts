@@ -66,10 +66,7 @@ export interface TierAEvidence extends VoiceDeliveryIdentity {
 }
 
 export type TierAIgnoredReason =
-  | "non_final"
-  | "not_exact_command"
-  | "state_mismatch"
-  | "unsafe_characters";
+  "non_final" | "not_exact_command" | "state_mismatch" | "unsafe_characters";
 
 export type TierARejectionReason =
   | InvalidDeliveryReason
@@ -140,10 +137,7 @@ function evidenceFor(
   };
 }
 
-function match(
-  intent: TierAIntent,
-  evidence: TierAEvidence,
-): TierAParseResult {
+function match(intent: TierAIntent, evidence: TierAEvidence): TierAParseResult {
   return { classification: "matched", intent, evidence };
 }
 
@@ -162,7 +156,9 @@ function ignore(
 }
 
 function setAvailable(context: TierAContext): boolean {
-  return context.practice_state === "active" || context.practice_state === "paused";
+  return (
+    context.practice_state === "active" || context.practice_state === "paused"
+  );
 }
 
 function parseBoundedParameter(
@@ -196,7 +192,10 @@ function hasNegativeNumericLiteral(raw: string): boolean {
 function parseTempoCommand(
   text: string,
 ): { kind: "set_tempo" | "correct_tempo"; number_text: string } | null {
-  for (const prefix of ["correct last tempo to ", "correct tempo to "] as const) {
+  for (const prefix of [
+    "correct last tempo to ",
+    "correct tempo to ",
+  ] as const) {
     if (text.startsWith(prefix)) {
       return { kind: "correct_tempo", number_text: text.slice(prefix.length) };
     }
@@ -209,6 +208,112 @@ function parseTempoCommand(
   return null;
 }
 
+/**
+ * Fold the recognizer's manglings of "metronome" back onto the word. Mirror of
+ * the Rust router's `fold_metronome` (`src-tauri/src/intent/mod.rs`), and it has
+ * to stay a mirror: two routers that disagree about what the user said are worse
+ * than either one alone.
+ *
+ * The mangles are the ones observed in Christian's sessions. Folding them can
+ * only ever produce a token the grammar already accepts, so it loosens nothing —
+ * the command-shape checks below still have to pass.
+ */
+function foldMetronomeMangles(text: string): string {
+  const words = text.split(" ").filter((w) => w.length > 0);
+  const out: string[] = [];
+  for (let i = 0; i < words.length; i += 1) {
+    // Two-word splits first: "metro gnome" is one mangled word, not two.
+    if (
+      words[i] === "metro" &&
+      (words[i + 1] === "gnome" || words[i + 1] === "nome")
+    ) {
+      out.push("metronome");
+      i += 1;
+      continue;
+    }
+    out.push(
+      words[i] === "metranome" || words[i] === "metrodome"
+        ? "metronome"
+        : words[i],
+    );
+  }
+  return out.join(" ");
+}
+
+/**
+ * Leading courtesy that carries no instruction. Mirror of the Rust router's
+ * `COURTESY_PREFIXES` / `strip_courtesy`: head of the utterance only, these
+ * exact forms only, at most twice ("hey can you stop the metronome").
+ */
+const COURTESY_PREFIXES: readonly (readonly string[])[] = [
+  ["can", "you"],
+  ["could", "you"],
+  ["would", "you"],
+  ["will", "you"],
+  ["hey"],
+  ["ok"],
+  ["okay"],
+];
+
+function stripCourtesy(words: readonly string[]): readonly string[] {
+  let rest = words;
+  for (let round = 0; round < 2; round += 1) {
+    const prefix = COURTESY_PREFIXES.find(
+      (candidate) =>
+        rest.length > candidate.length &&
+        candidate.every((word, index) => rest[index] === word),
+    );
+    if (!prefix) break;
+    rest = rest.slice(prefix.length);
+  }
+  return rest;
+}
+
+/**
+ * The metronome on/off command, recognized by tokens rather than by a fixed list
+ * of sentences — "turn the metronome off", "can you stop the metronome" and
+ * "metronome please stop" are one command said three ways, and Christian's
+ * "Siri 2015" complaint was that only the shortest spelling worked.
+ *
+ * Order-flexible, but not free-form. The firewall is the same shape the Rust
+ * router uses (`is_explicit_metro_stop`): after courtesy is removed the
+ * utterance must name the metronome, carry exactly one direction cue, be at most
+ * five words, and be built ENTIRELY from this vocabulary. An ambient sentence
+ * that happens to contain the tokens — "can you believe the metronome on that
+ * recording" — carries words that are not in it, and never matches.
+ */
+function matchMetronomeCommand(text: string): "on" | "off" | null {
+  const VOCAB = new Set([
+    "metronome",
+    "on",
+    "off",
+    "start",
+    "stop",
+    "turn",
+    "kill",
+    "halt",
+    "the",
+    "please",
+    "it",
+    "now",
+  ]);
+  const words = stripCourtesy(
+    foldMetronomeMangles(text).split(" ").filter(Boolean),
+  );
+  if (words.length === 0 || words.length > 5) return null;
+  if (!words.includes("metronome")) return null;
+  if (!words.every((word) => VOCAB.has(word))) return null;
+
+  const off = words.some(
+    (word) =>
+      word === "off" || word === "stop" || word === "kill" || word === "halt",
+  );
+  const on = words.some((word) => word === "on" || word === "start");
+  // Exactly one direction. "turn the metronome on off" is not a command.
+  if (off === on) return null;
+  return off ? "off" : "on";
+}
+
 /** Parse one final transcript using exact, state-gated Tier A grammar. */
 export function parseTierAIntent(
   delivery: VoiceTranscriptDelivery,
@@ -219,24 +324,27 @@ export function parseTierAIntent(
   const invalidDelivery = validateVoiceDelivery(delivery);
   if (invalidDelivery) return reject(invalidDelivery, evidence);
   if (!delivery.is_final) return ignore("non_final", evidence);
-  if (normalized.has_unsafe_characters) return ignore("unsafe_characters", evidence);
+  if (normalized.has_unsafe_characters)
+    return ignore("unsafe_characters", evidence);
 
   const text = normalized.text;
 
   if (text === "help" || text === "voice help" || text === "practice help") {
     return match({ kind: "help" }, evidence);
   }
-  if ([
-    "safety stop",
-    "stop practice",
-    "it hurts",
-    "my hand hurts",
-    "it kind of hurts now",
-    "its kind of hurt now",
-    "i feel numb",
-    "my hand is numb",
-    "i feel weakness",
-  ].includes(text)) {
+  if (
+    [
+      "safety stop",
+      "stop practice",
+      "it hurts",
+      "my hand hurts",
+      "it kind of hurts now",
+      "its kind of hurt now",
+      "i feel numb",
+      "my hand is numb",
+      "i feel weakness",
+    ].includes(text)
+  ) {
     return match({ kind: "safety_stop" }, evidence);
   }
 
@@ -245,7 +353,10 @@ export function parseTierAIntent(
       ? "clean"
       : text === "flawed" || text === "sloppy"
         ? "flawed"
-        : text === "miss" || text === "missed" || text === "no" || text === "again"
+        : text === "miss" ||
+            text === "missed" ||
+            text === "no" ||
+            text === "again"
           ? "miss"
           : null
   ) satisfies SelfReportedVerdict | null;
@@ -261,11 +372,13 @@ export function parseTierAIntent(
   }
 
   if (text === "count that") {
-    if (!context.pending_duplicate_attempt) return reject("no_pending_attempt", evidence);
+    if (!context.pending_duplicate_attempt)
+      return reject("no_pending_attempt", evidence);
     return match({ kind: "confirm_pending_attempt" }, evidence);
   }
   if (text === "did that count") {
-    if (!context.last_attempt_available) return reject("no_last_attempt", evidence);
+    if (!context.last_attempt_available)
+      return reject("no_last_attempt", evidence);
     return match({ kind: "report_last_attempt" }, evidence);
   }
 
@@ -285,36 +398,58 @@ export function parseTierAIntent(
     );
     if (count.value === null) return reject("invalid_count", evidence);
     if (!count.valid) return reject("count_out_of_range", evidence);
-    if (context.practice_state === "paused") return reject("practice_paused", evidence);
-    if (context.practice_state !== "active") return reject("no_active_set", evidence);
-    return match({ kind: "report_attempt_count", count: count.value }, evidence);
+    if (context.practice_state === "paused")
+      return reject("practice_paused", evidence);
+    if (context.practice_state !== "active")
+      return reject("no_active_set", evidence);
+    return match(
+      { kind: "report_attempt_count", count: count.value },
+      evidence,
+    );
   }
 
   if (["undo", "undo that", "undo last", "undo last rep"].includes(text)) {
     if (!setAvailable(context)) return reject("no_active_set", evidence);
-    if (!context.last_attempt_available) return reject("no_last_attempt", evidence);
+    if (!context.last_attempt_available)
+      return reject("no_last_attempt", evidence);
     return match({ kind: "undo_last_attempt" }, evidence);
   }
 
-  const correction = /^(?:correct last|correct last rep) to (clean|flawed|miss)$/u.exec(text);
+  const correction =
+    /^(?:correct last|correct last rep) to (clean|flawed|miss)$/u.exec(text);
   if (correction) {
     if (!setAvailable(context)) return reject("no_active_set", evidence);
-    if (!context.last_attempt_available) return reject("no_last_attempt", evidence);
-    return match({
-      kind: "correct_last_attempt",
-      verdict: correction[1] as SelfReportedVerdict,
-    }, evidence);
+    if (!context.last_attempt_available)
+      return reject("no_last_attempt", evidence);
+    return match(
+      {
+        kind: "correct_last_attempt",
+        verdict: correction[1] as SelfReportedVerdict,
+      },
+      evidence,
+    );
   }
 
   if (["restart set", "restart the set"].includes(text)) {
     if (!setAvailable(context)) return reject("no_active_set", evidence);
     return match({ kind: "restart_set" }, evidence);
   }
-  if (["restart streak", "restart the streak", "reset streak", "reset the streak"].includes(text)) {
+  if (
+    [
+      "restart streak",
+      "restart the streak",
+      "reset streak",
+      "reset the streak",
+    ].includes(text)
+  ) {
     if (!setAvailable(context)) return reject("no_active_set", evidence);
     return match({ kind: "reset_clean_streak" }, evidence);
   }
-  if (["close set", "close the set", "finish set", "finish the set"].includes(text)) {
+  if (
+    ["close set", "close the set", "finish set", "finish the set"].includes(
+      text,
+    )
+  ) {
     if (!setAvailable(context)) return reject("no_active_set", evidence);
     return match({ kind: "close_set" }, evidence);
   }
@@ -325,28 +460,25 @@ export function parseTierAIntent(
   }
 
   if (text === "pause practice") {
-    if (context.practice_state === "paused") return reject("already_paused", evidence);
-    if (context.practice_state !== "active") return reject("no_active_set", evidence);
+    if (context.practice_state === "paused")
+      return reject("already_paused", evidence);
+    if (context.practice_state !== "active")
+      return reject("no_active_set", evidence);
     return match({ kind: "pause_practice" }, evidence);
   }
   if (text === "resume practice") {
-    if (context.practice_state === "active") return reject("already_active", evidence);
-    if (context.practice_state !== "paused") return reject("no_active_set", evidence);
+    if (context.practice_state === "active")
+      return reject("already_active", evidence);
+    if (context.practice_state !== "paused")
+      return reject("no_active_set", evidence);
     return match({ kind: "resume_practice" }, evidence);
   }
 
-  if (["metronome on", "turn metronome on", "turn the metronome on"].includes(text)) {
-    return match({ kind: "metronome_on" }, evidence);
-  }
-  if ([
-    "metronome off",
-    "metronome stop",
-    "stop the metronome",
-    "turn metronome off",
-    "turn the metronome off",
-  ].includes(text)) {
-    return match({ kind: "metronome_off" }, evidence);
-  }
+  // Token-based, order-flexible, and still firewalled — see
+  // `matchMetronomeCommand`. This replaced a fixed list of five sentences.
+  const metronome = matchMetronomeCommand(text);
+  if (metronome === "on") return match({ kind: "metronome_on" }, evidence);
+  if (metronome === "off") return match({ kind: "metronome_off" }, evidence);
   if (text === "faster" || text === "slower") {
     if (!context.metronome_running && !setAvailable(context)) {
       return ignore("state_mismatch", evidence);

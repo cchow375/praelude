@@ -6,10 +6,8 @@ import { Button, Disclosure } from "../../ui";
 import type { CommandInvoker } from "../../services/command";
 import { BrainConnection } from "./BrainConnection";
 import { BooksPanel, type BooksApi } from "./BooksPanel";
-import {
-  TTS_DEGRADED_LABEL,
-  useTtsDegraded,
-} from "../voice/useTtsDegraded";
+import { TTS_DEGRADED_LABEL, useTtsDegraded } from "../voice/useTtsDegraded";
+import { QUIET_SPEECH_NOTE } from "../voice/HeardPill";
 import {
   AppearanceIcon,
   AssistantIcon,
@@ -442,6 +440,13 @@ export function SettingsPanel({
               {TTS_DEGRADED_LABEL}
             </p>
           )}
+          {/* The honest limit (v6 S9). There is no sensitivity dial to offer:
+              recognition happens inside the macOS speech engine, and the app
+              only ever receives finished text. What it CAN do is show that
+              text, which is what the heard pill does. Saying so here is
+              cheaper than letting Christian hunt for a setting that cannot
+              exist. */}
+          <p className="settings-note">{QUIET_SPEECH_NOTE}</p>
           <label className="settings-check">
             <input
               type="checkbox"

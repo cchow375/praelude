@@ -41,6 +41,7 @@
 //! under-estimate — so `pcm_done` can never be falsely `true` while any TTS audio
 //! is buffered anywhere. If the push fails, the reservation is backed out.
 
+pub mod chime;
 pub mod clock;
 pub mod mixer;
 
