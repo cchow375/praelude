@@ -47,6 +47,14 @@ export interface BrainAnswer {
   proposed_action?: unknown;
 }
 
+/**
+ * Why retrieved book excerpts did or did not cross the provider boundary. The
+ * backend resolves this so the receipt can name the real cause instead of
+ * implying content was withheld whenever retrieval found nothing.
+ */
+export type BrainKnowledgeShareCause =
+  "shared" | "no_library" | "no_matches" | "sharing_disabled" | "offline";
+
 export interface BrainGroundingSummary {
   piece_title: string | null;
   region_name: string | null;
@@ -55,8 +63,11 @@ export interface BrainGroundingSummary {
   active_block_included: boolean;
   knowledge_status: "ready" | "partial" | "unavailable" | string;
   knowledge_shared_with_provider: boolean;
+  /** Kept alongside the boolean above, which stays for compatibility. */
+  knowledge_share_cause?: BrainKnowledgeShareCause;
   knowledge_sources: string[];
-  musicxml_status: "ready" | "missing" | "not_requested" | "unsupported" | string;
+  musicxml_status:
+    "ready" | "missing" | "not_requested" | "unsupported" | string;
   warnings: string[];
 }
 
@@ -129,7 +140,8 @@ export interface PracticeBrainContext {
     current_clean_streak: number | null;
     mastery_progress_streak: number | null;
     required_clean_streak: number | null;
-    mastery_status: "satisfied" | "not_satisfied" | "not_applicable" | "unverified_legacy";
+    mastery_status:
+      "satisfied" | "not_satisfied" | "not_applicable" | "unverified_legacy";
     mastery_verified: boolean;
     set_state: string;
   } | null;
@@ -171,7 +183,9 @@ export interface PlannerScheduleRequest {
 
 export interface BrainApi {
   ask: (request: BrainAskRequest) => Promise<BrainAnswer>;
-  applyIntakeReview: (request: BrainIntakeApplyRequest) => Promise<BrainIntakeApplyResult>;
+  applyIntakeReview: (
+    request: BrainIntakeApplyRequest,
+  ) => Promise<BrainIntakeApplyResult>;
   planPreview: (pieceId: number | null) => Promise<WorkSuggestion[]>;
   schedule: (request: PlannerScheduleRequest) => Promise<void>;
   /** Resume (or create) the piece's active durable Brain thread. */

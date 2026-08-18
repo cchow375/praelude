@@ -39,6 +39,7 @@ import { DockPillBar } from "../features/dock/DockPillBar";
 import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
 import { useVoice } from "../features/voice/useVoice";
+import { useTtsDegraded } from "../features/voice/useTtsDegraded";
 import { VoiceToast } from "../features/voice/VoiceToast";
 import {
   ActionDraftCard,
@@ -400,6 +401,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     };
   }, [metronome.state.running, rep.snap]);
   const voice = useVoice(tierAContext);
+  const ttsDegraded = useTtsDegraded();
   const session = useSession();
   const [ending, setEnding] = useState(false);
   const repFallbackContext = useMemo<PracticeBrainContext | null>(() => {
@@ -1142,6 +1144,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         status={voice.status}
         downGuidance={voice.downGuidance}
         deliveryDisposition={voice.deliveryDisposition}
+        ttsDegraded={ttsDegraded}
       />
       {rep.error && !rep.snap && (
         <p

@@ -26,8 +26,11 @@ use super::{Pcm, Result, TtsError, TtsProvider};
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 /// Default single-speaker TTS model (verified current 2026-07).
 pub const DEFAULT_MODEL: &str = "gemini-3.1-flash-tts-preview";
-/// Default prebuilt voice.
-pub const DEFAULT_VOICE: &str = "Kore";
+/// Default prebuilt voice. v6 S9: `Aoede` ("breezy") instead of `Kore` ("firm")
+/// — a practice coach that talks to you all session should sound relaxed and
+/// conversational, not like a firm announcer. An explicitly saved `tts.voice`
+/// still wins (see `settings::snapshot`); this only moves the default.
+pub const DEFAULT_VOICE: &str = "Aoede";
 /// Gemini TTS returns 24 kHz mono s16le PCM.
 const GEMINI_RATE: u32 = 24_000;
 /// Per-request timeout (whole request, including body read).

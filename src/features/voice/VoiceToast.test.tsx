@@ -100,6 +100,36 @@ describe("VoiceToast component", () => {
     expect(screen.queryByText("Heard that already.")).toBeNull();
   });
 
+  it("shows the quiet degraded-voice pill while ttsDegraded, and clears it on recovery", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(
+      <VoiceToast
+        lastIntent={null}
+        status="live"
+        downGuidance={null}
+        ttsDegraded
+      />,
+    );
+    const pill = screen.getByText("Voice degraded — using system voice");
+    expect(pill).toBeTruthy();
+    // Quiet state, not a toast: no dismiss control and it does not time out.
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(screen.getByText("Voice degraded — using system voice")).toBeTruthy();
+
+    rerender(
+      <VoiceToast
+        lastIntent={null}
+        status="live"
+        downGuidance={null}
+        ttsDegraded={false}
+      />,
+    );
+    expect(screen.queryByText("Voice degraded — using system voice")).toBeNull();
+  });
+
   it("does not toast an accepted delivery", () => {
     render(
       <VoiceToast

@@ -242,6 +242,28 @@
   line-height: 1.35;
 }
 
+/* Quiet live-state pill (v6 S9 degraded cloud voice). Not a setting: it reports
+   the running app's state and clears itself on recovery. */
+.settings-pill {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-3);
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+}
+
+.settings-pill-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
 .settings-scale {
   display: grid;
   gap: var(--s-1);
