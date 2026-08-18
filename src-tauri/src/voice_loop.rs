@@ -102,21 +102,50 @@
 //!    identical-text dedup cannot express.
 //!
 //! The marker is only armed when the fast path actually ACTED — a phrase that
-//! routed to [`Intent::Ignored`] (a bare `"stop"` with the metronome stopped, a
-//! `"done"` outside a rep block) leaves the later final free to route normally.
+//! routed to [`Intent::Ignored`] leaves the later final free to route normally.
+//! (No phrase currently on the allowlist can route Ignored; the rule is kept
+//! because it is what makes adding one safe.)
 //!
-//! **The accepted tradeoff, stated plainly:** a partial is a hypothesis about an
-//! utterance that may still be growing. `"stop"` is a genuine prefix of `"stop
-//! the car"`, so acting on it is a bet that the user stopped talking. The bet is
-//! only taken for phrases that are themselves complete commands, and only when
-//! live state (`metro_running`, `rep_block_active`) already makes them
-//! actionable — but it IS a bet, and it is the price of a sub-second metronome.
+//! **The bet, and how it turned out.** A partial is a hypothesis about an
+//! utterance that may still be growing, so acting on one is a bet that the user
+//! has stopped talking. S9 took that bet for ten phrases. It **lost on all seven
+//! single-word entries** and survives only on the three multi-word metronome
+//! phrases.
+//!
+//! It lost because the recognizer does not emit one partial per utterance — it
+//! emits a GROWING PREFIX, one line per word ("Natural" → "Metronome" →
+//! "Metronome 90" → "Metronome 96"; NOTES.md). So a single-word entry fires on
+//! the first word of any sentence that starts with it, and the tail guard then
+//! suppresses the real final, meaning the user is not even shown what they
+//! actually said. The narrated corpus proves the collision four times over:
+//!
+//! * `scherzo1-0028` — `" Again, that I might be on console roll,"` → phantom rep
+//! * `scherzo1-0050` — `" Stop if I need to."` → the metronome stopped
+//! * `scherzo3-0118` — `" Again, like, you have to recognize that"`
+//! * `scherzo3-0157` — `" again, just to double check"`
+//!
+//! Every one of those is asserted INERT by the finals-replay gate, which never
+//! saw the prefix partials and so never saw the bug. The fix was to remove all
+//! seven single words; they return to the normal 600 ms settle path, where they
+//! always worked — latency was only ever a complaint about the metronome.
+//!
+//! What survives: a sweep of all 1,309 corpus utterances found no sentence whose
+//! growing prefix passes through `"metronome off"`, `"metronome stop"` or
+//! `"metronome on"`. Two words of a rare noun is enough of a moat, and those
+//! three are the phrases the sub-second win was for.
 //!
 //! # Ack policy (S9): chime for routine, speech for information
 //!
-//! Every command still gets an audible acknowledgement — that is load-bearing,
-//! because the sliding-window dedup above is only safe while each ack closes the
-//! STT gate. What changed is the *shape* of the ack.
+//! Every command still gets an audible acknowledgement **whenever the audio
+//! engine is up** — that is load-bearing, because the sliding-window dedup above
+//! is only safe while each ack closes the STT gate. The exception is real and
+//! stated here rather than buried: with the metronome stopped there is no engine
+//! to play through, so [`Metronome::tts_enqueue`] drops the ack silently
+//! (`metronome.rs`) and a command in that state is acknowledged only on screen.
+//! Stop acks are unaffected (they fire while the engine is still alive) and a
+//! start ack follows the start that revives it, but a rep check-off in a
+//! metronome-off block is genuinely silent. What changed in S9 is the *shape* of
+//! the ack.
 //!
 //! The rule: **speech is for an ack that carries a word the user could not have
 //! predicted; everything else chimes.** A spoken "Ninety-six." after "metronome
@@ -181,12 +210,24 @@ const DEDUP_WINDOW: Duration = Duration::from_millis(2500);
 /// Phrases allowed to finalize on a PARTIAL hypothesis, skipping the settler's
 /// 600 ms quiet gap. See the module docs, "Fast path".
 ///
-/// Membership rule: the phrase must be a **complete command on its own** — every
-/// entry here is an utterance a user says and then stops talking. Deliberately
-/// excluded:
+/// Membership rule (tightened after the bet lost on single words — see the
+/// module docs, "Fast path"): the phrase must be a complete command on its own
+/// AND **must not be a prefix any English sentence walks through**. The
+/// recognizer emits growing prefix partials, one per word, so a single-word
+/// entry fires on the first word of every sentence that happens to start with
+/// it. That is not a hypothetical: the narrated corpus has `"Again, that I
+/// might be on console roll,"` and `"Stop if I need to."` in it.
 ///
-/// * `"no"` — far too common mid-sentence ("no, the left hand"); the 600 ms
-///   settle is what makes it safe, so it keeps paying it.
+/// Two words is what buys the safety. `"metronome off"` is not a prefix any
+/// sentence in the 1,309-utterance corpus passes through; `"stop"` is a prefix
+/// of an unbounded number of them.
+///
+/// Deliberately excluded:
+///
+/// * every **single word** (`"stop"`, `"done"`, `"clean"`, `"miss"`, `"again"`,
+///   `"faster"`, `"slower"`) — see above. They still work; they just pay the
+///   600 ms settle, which was never the latency complaint.
+/// * `"no"` — same reason, twice over ("no, the left hand").
 /// * anything carrying a number (`"metronome 96"`) — a partial `"metronome 90"`
 ///   is routinely revised to `"metronome 96"` before the utterance ends, and
 ///   acting on the first hypothesis would set the wrong tempo (see the
@@ -197,18 +238,7 @@ const DEDUP_WINDOW: Duration = Duration::from_millis(2500);
 /// Entries must already be in canonical form ([`crate::intent::canonicalize`]) —
 /// which is also why `"metranome off"` reaches the fast path without appearing
 /// here: the mangle is folded before the lookup, exactly as the router folds it.
-const FAST_PATH_PHRASES: &[&str] = &[
-    "metronome off",
-    "metronome stop",
-    "metronome on",
-    "stop",
-    "done",
-    "clean",
-    "miss",
-    "again",
-    "faster",
-    "slower",
-];
+const FAST_PATH_PHRASES: &[&str] = &["metronome off", "metronome stop", "metronome on"];
 
 /// The allowlisted phrase this partial is exactly, or `None`. Cheap enough for
 /// the settler thread: one normalize pass plus a walk of ten short strings.
@@ -1578,6 +1608,218 @@ mod tests {
     // fired partial never acts twice, and a partial that routes to Ignored does
     // not arm the tail guard.
 
+    /// Replay an utterance the way the recognizer actually delivers it: one
+    /// GROWING PREFIX partial per word ("Again" → "Again, that" → "Again, that
+    /// I" → …), each offered to the same `fast_path_phrase` filter the
+    /// `on_event` closure uses, and then the settled final 600 ms later.
+    ///
+    /// This shape is the whole point. A finals-only replay never shows the
+    /// recognizer emitting a bare first word, so it cannot see the fast path
+    /// firing on a prefix of a sentence that means nothing of the kind — which
+    /// is exactly how the single-word allowlist entries got through the corpus
+    /// gate and into a shipped build (NOTES.md, "Natural / Metronome /
+    /// Metronome 90 / Metronome 96").
+    fn replay_partial_stream(ctx: &mut ActionCtx, text: &str, at: Instant) {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        for i in 0..words.len() {
+            let partial = words[..=i].join(" ");
+            if fast_path_phrase(&partial).is_some() {
+                ctx.handle_fast_path(&final_at(
+                    &partial,
+                    at + Duration::from_millis(10 * i as u64),
+                ));
+            }
+        }
+        ctx.handle_final(&final_at(text, at + Duration::from_millis(600)));
+    }
+
+    /// Open a real rep block on the seeded piece, so rep-check vocabulary
+    /// ("done", "clean", "again") routes as a rep rather than as ambient noise.
+    fn open_test_block(ctx: &ActionCtx) {
+        ctx.rep
+            .open(crate::store::model::RepOpenArgs {
+                piece_id: 1,
+                region_id: None,
+                m_start: 1,
+                m_end: 4,
+                label: None,
+                start_bpm: 80.0,
+                target_bpm: None,
+                planned_reps: Some(30),
+                required_clean_streak: None,
+                increment: None,
+                variants: vec![],
+                focus: "tempo".into(),
+                use_metronome: true,
+            })
+            .unwrap();
+    }
+
+    /// The four utterances from the narrated corpus that a single-word fast-path
+    /// entry turns into commands. Every one of them is asserted INERT by the
+    /// shipped finals-replay gate — and every one of them begins with a bare
+    /// allowlisted word, so the recognizer's first prefix partial fired it
+    /// anyway. Worst case is silent: the fast-path tail guard then swallowed the
+    /// real final, so the user never even saw what they had said.
+    #[test]
+    fn corpus_prefix_collisions_replayed_as_partials_stay_inert() {
+        for line in [
+            // scherzo1-0028 — "Again" opened a phantom rep.
+            " Again, that I might be on console roll,",
+            // scherzo1-0050 — "Stop" killed the click mid-thought.
+            " Stop if I need to.",
+            // scherzo3-0118
+            " Again, like, you have to recognize that",
+            // scherzo3-0157
+            " again, just to double check",
+        ] {
+            let rec = Arc::new(Recorder::default());
+            let mut ctx = test_ctx(&rec);
+            open_test_block(&ctx);
+            let at = Instant::now();
+            ctx.handle_final(&final_at("metronome 120", at));
+            let before = ctx.metro.snapshot();
+            let acks_before = rec.acks();
+
+            replay_partial_stream(&mut ctx, line, at + Duration::from_millis(100));
+
+            let after = ctx.metro.snapshot();
+            assert_eq!(rec.acks(), acks_before, "{line:?} acknowledged something");
+            assert!(after.running, "{line:?} stopped the metronome");
+            assert_eq!(after.bpm, before.bpm, "{line:?} moved the tempo");
+            assert!(
+                !rec.events
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|(e, p)| e == "voice://intent" && p["text"] == json!(line)),
+                "{line:?} routed to an intent"
+            );
+        }
+    }
+
+    /// "Clean" as a prefix of a sentence about pedalling, with a block open: the
+    /// most expensive collision, because a phantom clean rep corrupts the
+    /// practice record rather than just annoying the user.
+    #[test]
+    fn a_clean_sentence_in_an_open_block_records_nothing() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        open_test_block(&ctx);
+        replay_partial_stream(
+            &mut ctx,
+            "Clean up the pedaling in that spot",
+            Instant::now(),
+        );
+        assert_eq!(rec.acks(), 0, "no rep was checked off: {:?}", rec.acks());
+    }
+
+    /// "Stop me if you have heard this one" — the click keeps running.
+    #[test]
+    fn a_stop_sentence_leaves_the_click_running() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+        ctx.handle_final(&final_at("metronome 120", at));
+        assert!(ctx.metro.snapshot().running);
+        replay_partial_stream(
+            &mut ctx,
+            "Stop me if you have heard this one",
+            at + Duration::from_millis(100),
+        );
+        assert!(
+            ctx.metro.snapshot().running,
+            "a sentence beginning 'stop' is not a stop command"
+        );
+    }
+
+    /// "Faster than yesterday for sure" — the tempo does not move.
+    #[test]
+    fn a_faster_sentence_leaves_the_tempo_alone() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+        ctx.handle_final(&final_at("metronome 120", at));
+        replay_partial_stream(
+            &mut ctx,
+            "Faster than yesterday for sure",
+            at + Duration::from_millis(100),
+        );
+        assert_eq!(
+            ctx.metro.snapshot().bpm,
+            120.0,
+            "a sentence beginning 'faster' is not a delta"
+        );
+    }
+
+    /// The other half of the bet, still paying: the multi-word metronome phrases
+    /// DO fire from a partial, so the sub-second stop Christian asked for is
+    /// retained. A full sweep of the 1,309-utterance corpus found no sentence
+    /// whose growing prefix passes through any of these three.
+    #[test]
+    fn metronome_phrases_still_fast_path_from_partials() {
+        for (phrase, expect_running) in [
+            ("Metronome off", false),
+            ("metronome stop", false),
+            ("metronome on", true),
+        ] {
+            let rec = Arc::new(Recorder::default());
+            let mut ctx = test_ctx(&rec);
+            let at = Instant::now();
+            ctx.handle_final(&final_at("metronome 120", at));
+
+            // The partial stream, WITHOUT the settled final: the fast path must
+            // have acted before it ever arrives.
+            let words: Vec<&str> = phrase.split_whitespace().collect();
+            for i in 0..words.len() {
+                let partial = words[..=i].join(" ");
+                if fast_path_phrase(&partial).is_some() {
+                    ctx.handle_fast_path(&final_at(
+                        &partial,
+                        at + Duration::from_millis(10 * i as u64),
+                    ));
+                }
+            }
+            assert_eq!(
+                ctx.metro.snapshot().running,
+                expect_running,
+                "{phrase:?} must still act on the partial"
+            );
+        }
+    }
+
+    /// And the settled final that follows a fired multi-word partial is still
+    /// suppressed — one stop per utterance, replayed through the real partial
+    /// stream rather than by hand.
+    #[test]
+    fn the_settled_final_after_a_multi_word_fire_is_still_suppressed() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+        ctx.handle_final(&final_at("metronome 120", at));
+
+        replay_partial_stream(&mut ctx, "metronome off", at + Duration::from_millis(50));
+        assert!(!ctx.metro.snapshot().running, "the partial stopped it");
+
+        // Restart, then let the settled final land again — it must be inert.
+        ctx.handle_final(&final_at("metronome 120", at + Duration::from_millis(700)));
+        assert!(ctx.metro.snapshot().running);
+        ctx.handle_final(&final_at("metronome off", at + Duration::from_millis(720)));
+        assert!(
+            ctx.metro.snapshot().running,
+            "the settled tail of a fast-pathed utterance must not act twice"
+        );
+
+        let offs = rec
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(e, p)| e == "voice://transcript" && p["text"] == json!("metronome off"))
+            .count();
+        assert_eq!(offs, 1, "one final per utterance, not two");
+    }
+
     /// The shipped allowlist, spelled out so a future edit is a deliberate one.
     /// Every entry must be exactly what `intent::canonicalize` produces, or the
     /// lookup silently never fires.
@@ -1593,19 +1835,42 @@ mod tests {
         }
         // Punctuation and casing as the recognizer may render them.
         assert_eq!(fast_path_phrase("Metronome off."), Some("metronome off"));
-        assert_eq!(fast_path_phrase("  STOP  "), Some("stop"));
+        assert_eq!(fast_path_phrase("  METRONOME OFF  "), Some("metronome off"));
 
         // Not on the fast path — these keep paying the settle wait.
         for text in [
+            // Every single word is off the list now: the recognizer's growing
+            // prefix makes each of them the first partial of any sentence that
+            // starts with it (module docs, "Fast path" — the bet that lost).
+            "stop",
+            "done",
+            "clean",
+            "miss",
+            "again",
+            "faster",
+            "slower",
             "no",                 // too common mid-sentence to bet on
             "metronome 96",       // a partial tempo is routinely revised
             "metronome",          // bare resume is not latency-critical
             "stop the metronome", // longer explicit form; settles normally
-            "stop the car",       // a superset of an allowlisted phrase
+            "stop the car",
             "done with that",
             "",
         ] {
             assert_eq!(fast_path_phrase(text), None, "must not fast-path {text:?}");
+        }
+    }
+
+    /// No allowlist entry may be a single word — the invariant the corpus
+    /// collisions bought. A future addition trips this before it ships.
+    #[test]
+    fn no_fast_path_phrase_is_a_bare_prefix_word() {
+        for phrase in FAST_PATH_PHRASES {
+            assert!(
+                phrase.split_whitespace().count() >= 2,
+                "{phrase:?} is a single word — it will fire on the first prefix \
+                 partial of every sentence starting with it"
+            );
         }
     }
 
@@ -1749,9 +2014,12 @@ mod tests {
         );
     }
 
-    /// A fast-path phrase that live state makes inert ("stop" with the metronome
-    /// already stopped) takes no action, so it must NOT arm the tail guard — the
-    /// longer utterance it was a prefix of stays free to route.
+    /// A partial that live state makes inert ("stop" with the metronome already
+    /// stopped) takes no action, so it must NOT arm the tail guard — the longer
+    /// utterance it was a prefix of stays free to route. No phrase on the
+    /// trimmed allowlist can reach this state any more, so the call below drives
+    /// `handle_fast_path` directly: the rule is what makes it safe to ever add a
+    /// state-gated phrase back, and it is worth keeping proven.
     #[test]
     fn an_ignored_fast_path_partial_does_not_arm_the_guard() {
         let rec = Arc::new(Recorder::default());
