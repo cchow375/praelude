@@ -111,6 +111,47 @@
 //! only taken for phrases that are themselves complete commands, and only when
 //! live state (`metro_running`, `rep_block_active`) already makes them
 //! actionable — but it IS a bet, and it is the price of a sub-second metronome.
+//!
+//! # Ack policy (S9): chime for routine, speech for information
+//!
+//! Every command still gets an audible acknowledgement — that is load-bearing,
+//! because the sliding-window dedup above is only safe while each ack closes the
+//! STT gate. What changed is the *shape* of the ack.
+//!
+//! The rule: **speech is for an ack that carries a word the user could not have
+//! predicted; everything else chimes.** A spoken "Ninety-six." after "metronome
+//! ninety six" tells the pianist what they just said, at the cost of a synthesis
+//! round trip, ~1.2 s of talking, and the 300 ms tail before the mic reopens —
+//! all while the number is already on screen. A 120 ms blip
+//! ([`crate::audio::chime`]) closes the same gate cycle far sooner and does not
+//! narrate the practice back at them.
+//!
+//! | Outcome | Ack |
+//! |---|---|
+//! | metronome start (success) | chime |
+//! | metronome stop | chime, still **before** `do_stop` (engine-alive rule) |
+//! | tempo set / delta (success) | chime |
+//! | `accent every N` | speech — names a number nothing else announces |
+//! | rep: clean, no ladder step, no milestone | chime |
+//! | rep: flawed / failed | speech — the streak reset is news |
+//! | rep: ladder step (`new_bpm`) | speech — "Up to 84." is the new tempo |
+//! | rep: one away from mastery | speech — the "three in a row" cue |
+//! | rep: mastery earned / set complete | speech |
+//! | rep-open, rep-status, rep-close, session-end | speech (all carry counts) |
+//! | errors, including "Busy — try again." | speech |
+//! | questions / assistant answers | speech |
+//!
+//! See [`ActionCtx::rep_ack_speaks`] for the rep half, which is the only part
+//! with any judgement in it.
+//!
+//! The chime rides the *same* PCM sink and gate as speech ([`AckPlayer`]), so the
+//! half-duplex ordering, the mute hardening, and the metronome's speak-before-stop
+//! rule all apply to it unchanged. One consequence is inherited rather than
+//! chosen: like speech, the chime is dropped when there is no audio engine (see
+//! [`Metronome::tts_enqueue`] — a stopped metronome has nowhere to play). Stop
+//! acks are unaffected because they still fire while the engine is alive, and a
+//! start ack follows the start; a rep check-off in a metronome-off block is
+//! silent, exactly as its spoken ack was before this change.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -193,15 +234,111 @@ impl VoiceEmitter for TauriEmitter {
     }
 }
 
-/// Blocking speech confirmation. The concrete impl is [`Speaker`]; tests record
+/// Blocking acknowledgement. The concrete impl is [`AckPlayer`]; tests record
 /// calls. Blocking so the gate cycle completes before the next command acts.
+///
+/// Two shapes, one contract (see "Ack policy" in the module docs): [`Self::say`]
+/// for an ack that carries words, [`Self::chime`] for one that only has to mean
+/// "heard you". Both close and reopen the half-duplex gate the same way, so from
+/// the loop's point of view they are interchangeable.
 trait Confirm: Send {
     fn say(&self, text: &str);
+    /// Play the ack chime ([`crate::audio::chime`]) through the same PCM sink and
+    /// gate cycle a spoken confirmation uses.
+    fn chime(&self);
 }
-impl Confirm for Speaker {
+
+/// The production [`Confirm`]: a [`Speaker`] for words, plus a direct PCM path to
+/// the same sink and gate for the chime.
+///
+/// The chime cannot go through the [`Speaker`] — its worker takes text and
+/// synthesizes it, and there is no provider that renders a blip. So the chime is
+/// played from *this* thread, straight into the sink, replicating the Speaker's
+/// gate ordering exactly (see [`Self::chime`]).
+///
+/// **Why that does not break the engine's single-producer contract**
+/// ([`crate::audio::EngineHandle::enqueue_pcm`]): both ack shapes are only ever
+/// called from the action thread, and [`Self::say`] blocks until the Speaker's
+/// worker has finished the whole utterance — enqueue, drain, tail, reopen. So the
+/// worker thread and this thread are never inside the sink at the same time; they
+/// hand off, they do not interleave.
+struct AckPlayer {
+    speaker: Speaker,
+    sink: Arc<dyn PcmSink>,
+    gate: Arc<dyn Gate>,
+    config: SpeakerConfig,
+}
+
+impl Confirm for AckPlayer {
     fn say(&self, text: &str) {
-        let _ = self.speak_blocking(text.to_string());
+        let _ = self.speaker.speak_blocking(text.to_string());
     }
+
+    fn chime(&self) {
+        play_pcm_gated(
+            &*self.sink,
+            &*self.gate,
+            &self.config,
+            crate::audio::chime::ack_chime(),
+            crate::audio::chime::CHIME_RATE,
+        );
+    }
+}
+
+/// Reopens the gate exactly once on drop — the same guarantee `tts`'s own
+/// `ReopenGuard` gives a spoken utterance, restated here because that type is
+/// private to the TTS worker. A stuck-closed gate is a deaf app; nothing on this
+/// path may be able to cause one, panic included.
+struct GateReopen<'a>(&'a dyn Gate);
+impl Drop for GateReopen<'_> {
+    fn drop(&mut self) {
+        self.0.set_gate(true);
+    }
+}
+
+/// Play a pre-rendered mono buffer through the TTS PCM path, driving the
+/// half-duplex gate in the same order [`crate::tts`] does for speech: close the
+/// gate before the first sample is enqueued, play, wait for the engine to drain,
+/// hold for the acoustic tail, and only then reopen.
+///
+/// Blocking, and bounded: a wedged sink can never hold the gate shut forever, so
+/// the enqueue and drain phases each carry a deadline generous enough that normal
+/// playback finishes long before it. On a deadline we give up on the audio, not on
+/// the mic.
+fn play_pcm_gated(
+    sink: &dyn PcmSink,
+    gate: &dyn Gate,
+    config: &SpeakerConfig,
+    samples: &[f32],
+    rate: u32,
+) {
+    if samples.is_empty() {
+        return;
+    }
+    gate.set_gate(false);
+    let _reopen = GateReopen(gate);
+
+    let dur = Duration::from_secs_f64(samples.len() as f64 / rate.max(1) as f64);
+    let deadline = Instant::now() + dur.mul_f64(2.0) + Duration::from_secs(2);
+    let chunk = config.chunk_samples.max(1);
+    'chunks: for piece in samples.chunks(chunk) {
+        while sink.enqueue(piece, rate).is_err() {
+            // Backpressure: the queue is momentarily full. Retry, never drop —
+            // half a chime is a click, which is precisely the sound we avoid.
+            if Instant::now() >= deadline {
+                break 'chunks;
+            }
+            std::thread::sleep(config.retry_delay);
+        }
+    }
+    while !sink.done() {
+        if Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(config.poll_interval);
+    }
+    // Acoustic-tail margin, then the guard reopens the gate as it drops.
+    std::thread::sleep(config.reopen_delay);
 }
 
 // ---------------------------------------------------------------------------
@@ -415,7 +552,9 @@ impl ActionCtx {
             Ok(()) => {
                 self.emit_intent("start", text, Some(state.bpm));
                 self.log_metro_action("start", text, &before, &state, Some(state.bpm));
-                self.speaker.say(&bpm_to_speech(state.bpm));
+                // Routine: the tempo the chime does not name is already on screen,
+                // and about to be audible as clicks. (Was `bpm_to_speech`.)
+                self.speaker.chime();
             }
             Err(e) => self.speak_error(&e, text),
         }
@@ -424,10 +563,12 @@ impl ActionCtx {
     fn act_stop(&self, text: &str) {
         let (before, state) = self.metro.serialized(|| {
             let before = self.metro.snapshot();
-            // Speak BEFORE stopping: the engine must still be alive to play the
+            // Ack BEFORE stopping: the engine must still be alive to play the
             // confirmation (stop drops it). The command boundary stays held so
-            // another source cannot change the engine between ack and stop.
-            self.speaker.say("Stopped.");
+            // another source cannot change the engine between ack and stop. This
+            // rule is why the chime goes through the PCM sink rather than the
+            // metronome's own click voice — the clicks stop with the engine.
+            self.speaker.chime();
             let _ = self.metro.do_stop();
             self.metro.claim_manual();
             let state = self.metro.snapshot();
@@ -484,7 +625,14 @@ impl ActionCtx {
             Ok(()) => {
                 self.emit_intent(kind, text, bpm_for_evt);
                 self.log_metro_action(kind, text, &snap, &state, bpm_for_evt);
-                self.speaker.say(&spoken);
+                // A tempo change is routine — the new number is on screen and in
+                // the click. An accent change is not: "Accent every three" is the
+                // only place that count is ever stated. (Ack policy, module docs.)
+                if kind == "accent" {
+                    self.speaker.say(&spoken);
+                } else {
+                    self.speaker.chime();
+                }
             }
             Err(e) => self.speak_error(&e, text),
         }
@@ -526,12 +674,49 @@ impl ActionCtx {
                     }
                 }
                 self.emit_intent("rep", text, outcome.new_bpm);
-                self.speaker.say(&outcome.say);
+                if Self::rep_ack_speaks(&outcome, verdict) {
+                    self.speaker.say(&outcome.say);
+                } else {
+                    self.speaker.chime();
+                }
             }
             // The router only produces RepCheck while a block is active, but a
             // block could close between routing and here — degrade quietly.
             Err(e) => eprintln!("voice: rep check ignored: {e}"),
         }
+    }
+
+    /// Whether this rep outcome has to be *spoken* rather than chimed — the only
+    /// part of the ack policy (module docs) with any judgement in it.
+    ///
+    /// A pianist mid-block does not need to be told "Attempt 4 saved — clean.
+    /// Streak 2 of 4." forty times an hour; they need to know they were heard, and
+    /// the panel already shows the count. So the ordinary clean rep chimes, and
+    /// speech is kept for the four things that are genuinely news:
+    ///
+    /// * **the block finished / mastery was earned** — the outcome the whole set
+    ///   was for;
+    /// * **the ladder stepped** (`new_bpm`) — a tempo the pianist has to play at
+    ///   next, which they cannot infer from a blip;
+    /// * **a non-clean verdict** — flawed and failed reset the streak, and silently
+    ///   losing progress is the one thing worse than being talked at;
+    /// * **one away from the requirement** — the "three in a row, one more" cue.
+    ///   Deliberately not every count: only the rep that makes the next one decisive.
+    ///
+    /// `verdict` is the verdict as recorded, passed in rather than re-derived from
+    /// the snapshot: `snap.last` is the same rep, but reading the outcome we just
+    /// produced is the honest source.
+    fn rep_ack_speaks(outcome: &crate::store::model::CheckOutcome, verdict: RepVerdict) -> bool {
+        if outcome.block_done
+            || outcome.new_bpm.is_some()
+            || outcome.snap.mastery_status == "satisfied"
+            || !matches!(verdict, RepVerdict::Clean)
+        {
+            return true;
+        }
+        let (_, progress, required) = crate::rep::v2_progress(&outcome.snap);
+        // One away, and there is a requirement to be one away from.
+        required > 0 && progress + 1 == required
     }
 
     /// Open a rep block from voice. Resolves the piece from `ui.current_piece`;
@@ -592,18 +777,10 @@ impl ActionCtx {
         match self.rep.snapshot() {
             Some(s) => {
                 self.emit_intent("rep_status", text, s.bpm);
-                let below_target = s.focus == "tempo"
-                    && s.target_bpm
-                        .is_some_and(|target| s.bpm.is_some_and(|bpm| bpm + 0.000_001 < target));
-                let (label, progress, required) = if below_target {
-                    ("Rung", s.current_clean_streak, s.rule.clean_needed)
-                } else {
-                    (
-                        "Streak",
-                        s.mastery_progress_streak,
-                        s.effective_required_clean_streak,
-                    )
-                };
+                // Same rung-vs-streak reading the engine speaks after a rep, from
+                // the one place that decides it (`rep::v2_progress`) — a second
+                // copy here is exactly how the two lines would drift apart.
+                let (label, progress, required) = crate::rep::v2_progress(&s);
                 let tempo = s
                     .bpm
                     .map(|bpm| format!(" At {}.", fmt_bpm(bpm)))
@@ -903,12 +1080,15 @@ impl VoiceLoop {
         let provider = crate::tts::select_provider(provider_override, None, voice);
         let sink: Arc<dyn PcmSink> = Arc::new(MetroSink(metro));
         let gate_seam: Arc<dyn Gate> = Arc::new(AtomicGate { gate, muted });
-        Box::new(Speaker::spawn(
-            provider,
+        let config = SpeakerConfig::default();
+        // The Speaker and the chime share the same sink and gate — one output
+        // path, one gate cycle, whichever shape the ack takes.
+        Box::new(AckPlayer {
+            speaker: Speaker::spawn(provider, sink.clone(), gate_seam.clone(), config.clone()),
             sink,
-            gate_seam,
-            SpeakerConfig::default(),
-        ))
+            gate: gate_seam,
+            config,
+        })
     }
 
     /// Core wiring, parameterized over the emitter and a speaker factory so tests
@@ -1147,12 +1327,28 @@ mod tests {
     #[derive(Default)]
     struct Recorder {
         said: Mutex<Vec<String>>,
+        /// Chime acks (ack policy, module docs). Counted, not compared: a chime
+        /// has no text, only a "the user was acknowledged" meaning.
+        chimed: Mutex<usize>,
         events: Mutex<Vec<(String, serde_json::Value)>>,
+    }
+    impl Recorder {
+        fn chimes(&self) -> usize {
+            *self.chimed.lock().unwrap()
+        }
+        /// Every acknowledgement, in either shape. What the dedup invariant
+        /// actually cares about is that a command produced exactly one ack.
+        fn acks(&self) -> usize {
+            self.said.lock().unwrap().len() + self.chimes()
+        }
     }
     struct RecConfirm(Arc<Recorder>);
     impl Confirm for RecConfirm {
         fn say(&self, text: &str) {
             self.0.said.lock().unwrap().push(text.to_string());
+        }
+        fn chime(&self) {
+            *self.0.chimed.lock().unwrap() += 1;
         }
     }
     struct RecEmitter(Arc<Recorder>);
@@ -1245,7 +1441,7 @@ mod tests {
     }
 
     #[test]
-    fn start_actions_metronome_and_confirms() {
+    fn start_actions_metronome_and_chimes() {
         let rec = Arc::new(Recorder::default());
         let mut ctx = test_ctx(&rec);
         ctx.handle_final(&final_t("metronome ninety six"));
@@ -1255,9 +1451,12 @@ mod tests {
             ctx.metro.snapshot().owner,
             Some(crate::metronome::MetroOwner::Manual)
         );
-        assert_eq!(
-            rec.said.lock().unwrap().as_slice(),
-            &["Ninety-six.".to_string()]
+        // A start is routine (ack policy, module docs): one chime, no speech.
+        assert_eq!(rec.chimes(), 1, "start acknowledged with a chime");
+        assert!(
+            rec.said.lock().unwrap().is_empty(),
+            "a routine start says nothing: {:?}",
+            rec.said.lock().unwrap()
         );
         // An intent event was emitted.
         assert!(rec
@@ -1269,9 +1468,40 @@ mod tests {
     }
 
     #[test]
-    fn stop_confirms_before_stopping() {
+    fn stop_acks_before_stopping() {
         let rec = Arc::new(Recorder::default());
         let mut ctx = test_ctx(&rec);
+        // Swap in a [`Confirm`] that reports whether the engine was still alive
+        // when the ack fired. The stop ack is a chime now, and a chime has no
+        // text to assert on — but the property that mattered was never the words,
+        // it was the ordering: `do_stop` drops the engine, so an ack issued after
+        // it would play into nothing.
+        let alive: Arc<Mutex<Vec<bool>>> = Arc::new(Mutex::new(Vec::new()));
+        struct EngineWitness {
+            metro: Arc<crate::metronome::Metronome>,
+            alive: Arc<Mutex<Vec<bool>>>,
+        }
+        impl EngineWitness {
+            fn note(&self) {
+                self.alive
+                    .lock()
+                    .unwrap()
+                    .push(self.metro.snapshot().running);
+            }
+        }
+        impl Confirm for EngineWitness {
+            fn say(&self, _text: &str) {
+                self.note();
+            }
+            fn chime(&self) {
+                self.note();
+            }
+        }
+        ctx.speaker = Box::new(EngineWitness {
+            metro: ctx.metro.clone(),
+            alive: alive.clone(),
+        });
+
         ctx.handle_final(&final_t("metronome 120")); // start first
         ctx.handle_final(&final_t("stop"));
         assert!(!ctx.metro.snapshot().running, "metronome stopped");
@@ -1279,7 +1509,12 @@ mod tests {
             ctx.metro.snapshot().owner,
             Some(crate::metronome::MetroOwner::Manual)
         );
-        assert_eq!(rec.said.lock().unwrap().last().unwrap(), "Stopped.");
+        let alive = alive.lock().unwrap();
+        assert_eq!(alive.len(), 2, "one ack for the start, one for the stop");
+        assert!(
+            alive[1],
+            "the stop ack must fire while the engine is still alive to play it"
+        );
     }
 
     #[test]
@@ -1323,9 +1558,15 @@ mod tests {
         assert!(ctx.metro.snapshot().running);
         assert_eq!(ctx.metro.snapshot().bpm, 96.0);
         assert_eq!(
-            rec.said.lock().unwrap().last().unwrap(),
-            "Ninety-six.",
-            "idempotent start must not hit the restart Busy path"
+            rec.chimes(),
+            2,
+            "both starts acked with a chime — the second must not hit the \
+             restart Busy path, which speaks"
+        );
+        assert!(
+            rec.said.lock().unwrap().is_empty(),
+            "no Busy error was spoken: {:?}",
+            rec.said.lock().unwrap()
         );
     }
 
@@ -1563,7 +1804,138 @@ mod tests {
         ctx.handle_final(&final_t("metronome 100"));
         ctx.handle_final(&final_t("metronome 100")); // spurious repeat
                                                      // Only one confirmation despite two identical finals.
-        assert_eq!(rec.said.lock().unwrap().len(), 1);
+        assert_eq!(rec.acks(), 1);
+    }
+
+    // -------------------------------------------------------- ACK POLICY (S9)
+    // See the module docs, "Ack policy". These pin the split itself — which
+    // outcome gets words and which gets a blip — and the chime's gate ordering.
+
+    /// The chime rides the same half-duplex cycle as speech: gate CLOSED before
+    /// the first sample is enqueued, gate reopened only after the buffer has
+    /// drained. This is the property that lets the sliding-window dedup stay
+    /// safe with a silent-ish ack (module docs, "Dedup policy").
+    #[test]
+    fn chime_closes_the_gate_before_playing_and_reopens_after_draining() {
+        #[derive(Default)]
+        struct Log(Mutex<Vec<String>>);
+        struct FakeSink(Arc<Log>);
+        impl PcmSink for FakeSink {
+            fn enqueue(&self, samples: &[f32], _rate: u32) -> Result<(), crate::audio::PcmError> {
+                self.0
+                     .0
+                    .lock()
+                    .unwrap()
+                    .push(format!("enqueue {}", samples.len()));
+                Ok(())
+            }
+            fn done(&self) -> bool {
+                true
+            }
+        }
+        struct FakeGate(Arc<Log>);
+        impl Gate for FakeGate {
+            fn set_gate(&self, open: bool) {
+                self.0 .0.lock().unwrap().push(format!("gate {open}"));
+            }
+        }
+
+        let log = Arc::new(Log::default());
+        let config = SpeakerConfig {
+            reopen_delay: Duration::from_millis(1),
+            poll_interval: Duration::from_millis(1),
+            retry_delay: Duration::from_millis(1),
+            chunk_samples: 4096,
+        };
+        let chime = crate::audio::chime::ack_chime();
+        play_pcm_gated(
+            &FakeSink(log.clone()),
+            &FakeGate(log.clone()),
+            &config,
+            chime,
+            crate::audio::chime::CHIME_RATE,
+        );
+
+        let log = log.0.lock().unwrap();
+        assert_eq!(log.first().map(String::as_str), Some("gate false"));
+        assert_eq!(log.last().map(String::as_str), Some("gate true"));
+        let enqueued: usize = log
+            .iter()
+            .filter_map(|line| line.strip_prefix("enqueue "))
+            .map(|n| n.parse::<usize>().unwrap())
+            .sum();
+        assert_eq!(
+            enqueued,
+            chime.len(),
+            "the whole chime was played, not part"
+        );
+        assert_eq!(
+            log.iter().filter(|l| l.starts_with("gate")).count(),
+            2,
+            "exactly one close and one reopen"
+        );
+    }
+
+    /// The rep half of the split, walked through one real block: routine cleans
+    /// chime, the one-away rep and the mastery rep speak, and a miss speaks
+    /// because a reset streak is news.
+    #[test]
+    fn rep_acks_chime_when_routine_and_speak_when_they_carry_information() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        // No target tempo => judged by the mastery streak, requirement 4.
+        ctx.rep
+            .open(crate::store::model::RepOpenArgs {
+                piece_id: 1,
+                region_id: None,
+                m_start: 1,
+                m_end: 4,
+                label: None,
+                start_bpm: 80.0,
+                target_bpm: None,
+                planned_reps: Some(30),
+                required_clean_streak: Some(4),
+                increment: None,
+                variants: vec![],
+                focus: "tempo".into(),
+                use_metronome: true,
+            })
+            .unwrap();
+
+        let mut at = Instant::now();
+        let mut rep = |ctx: &mut ActionCtx, text: &str| {
+            // Space the finals well past DEDUP_WINDOW: these are genuine reps.
+            at += Duration::from_millis(4000);
+            let mut t = final_t(text);
+            t.at = at;
+            ctx.handle_final(&t);
+        };
+
+        rep(&mut ctx, "done"); // streak 1 of 4 — routine
+        assert_eq!(rec.chimes(), 1, "first clean rep chimed");
+        assert!(rec.said.lock().unwrap().is_empty());
+
+        rep(&mut ctx, "again"); // a miss: streak reset — news
+        assert_eq!(rec.chimes(), 1, "a miss does not chime");
+        assert_eq!(
+            rec.said.lock().unwrap().len(),
+            1,
+            "a miss speaks the reset: {:?}",
+            rec.said.lock().unwrap()
+        );
+
+        rep(&mut ctx, "done"); // 1 of 4
+        rep(&mut ctx, "done"); // 2 of 4
+        assert_eq!(rec.chimes(), 3, "routine cleans keep chiming");
+        rep(&mut ctx, "done"); // 3 of 4 — one away, the "three in a row" cue
+        assert_eq!(rec.chimes(), 3, "the one-away rep speaks instead");
+        rep(&mut ctx, "done"); // 4 of 4 — mastery
+        let said = rec.said.lock().unwrap();
+        assert_eq!(said.len(), 3, "miss + one-away + mastery: {said:?}");
+        assert!(
+            said.last().unwrap().starts_with("Mastery earned"),
+            "said: {said:?}"
+        );
     }
 
     #[test]
@@ -1641,10 +2013,10 @@ mod tests {
             "fake-hear command started the metronome end-to-end"
         );
         assert_eq!(metro.snapshot().bpm, 96.0);
-        assert!(
-            rec.said.lock().unwrap().iter().any(|s| s == "Ninety-six."),
-            "spoke the confirmation: {:?}",
-            rec.said.lock().unwrap()
+        assert_eq!(
+            rec.chimes(),
+            1,
+            "chimed the confirmation (a start is routine — ack policy)"
         );
     }
 
@@ -1748,22 +2120,27 @@ mod tests {
         // Both reps persisted.
         assert_eq!(reps_done, 2, "two spaced 'done's persisted as two reps");
         assert_eq!(hist[0].verdicts.clean, 2);
-        // Spoken acks recorded end-to-end.
+        // Acks recorded end-to-end, in the shapes the ack policy calls for: the
+        // open speaks (it states the measures and the tempo), the first rep is
+        // routine and chimes, the second is one clean away from the rung
+        // requirement of 3 and therefore speaks.
         let said = rec.said.lock().unwrap();
         assert!(
             said.iter().any(|s| s == "Measures 40 to 56 at 80. Go."),
             "said: {said:?}"
         );
         assert!(
-            said.iter()
+            !said
+                .iter()
                 .any(|s| s == "Attempt 1 saved — clean. Rung 1 of 3."),
-            "said: {said:?}"
+            "a routine first rep chimes rather than narrating: {said:?}"
         );
         assert!(
             said.iter()
                 .any(|s| s == "Attempt 2 saved — clean. Rung 2 of 3."),
-            "said: {said:?}"
+            "the one-away rep still speaks: {said:?}"
         );
+        assert_eq!(rec.chimes(), 1, "exactly the routine rep chimed");
     }
 
     /// LIVE on-device smoke (needs an output device + `say`): fake `hear` →
@@ -1820,12 +2197,13 @@ mod tests {
                     Box::new(crate::tts::say::SayTts::new());
                 let sink: Arc<dyn PcmSink> = Arc::new(MetroSink(m));
                 let gate: Arc<dyn Gate> = Arc::new(AtomicGate { gate: g, muted: mu });
-                Box::new(Speaker::spawn(
-                    provider,
+                let config = SpeakerConfig::default();
+                Box::new(AckPlayer {
+                    speaker: Speaker::spawn(provider, sink.clone(), gate.clone(), config.clone()),
                     sink,
                     gate,
-                    SpeakerConfig::default(),
-                ))
+                    config,
+                })
             },
         );
 
@@ -1889,7 +2267,7 @@ mod tests {
             ctx.handle_final(&t);
         }
         assert_eq!(
-            rec.said.lock().unwrap().len(),
+            rec.acks(),
             1,
             "a re-send burst of identical reps within the window counts once"
         );
@@ -1900,7 +2278,7 @@ mod tests {
         t.at = base + Duration::from_millis(1900 + 3000);
         ctx.handle_final(&t);
         assert_eq!(
-            rec.said.lock().unwrap().len(),
+            rec.acks(),
             2,
             "a genuine rep after > 2.5 s fires as a distinct rep"
         );
@@ -1918,6 +2296,12 @@ mod tests {
         fn say(&self, text: &str) {
             std::thread::sleep(Duration::from_millis(2800));
             self.0.said.lock().unwrap().push(text.to_string());
+        }
+        fn chime(&self) {
+            // A chime is far shorter than an utterance, but it still blocks for
+            // its own gate cycle — the property under test here.
+            std::thread::sleep(Duration::from_millis(2800));
+            *self.0.chimed.lock().unwrap() += 1;
         }
     }
 
@@ -1952,7 +2336,7 @@ mod tests {
         ctx.handle_final(&t2); // processed well over 1.8s of *wall clock* later
 
         assert_eq!(
-            rec.said.lock().unwrap().len(),
+            rec.acks(),
             1,
             "second identical final (heard only 600ms after the first) must still be deduped, \
              even though processing it happened long after the first's blocking speak"
@@ -1974,7 +2358,7 @@ mod tests {
         ctx.handle_final(&t1);
         ctx.handle_final(&t2);
         assert_eq!(
-            rec.said.lock().unwrap().len(),
+            rec.acks(),
             1,
             "a re-sent identical delta within 2.5 s is suppressed (no phantom double-bump)"
         );
@@ -1984,7 +2368,7 @@ mod tests {
         t3.at = t1.at + Duration::from_millis(3000);
         ctx.handle_final(&t3);
         assert_eq!(
-            rec.said.lock().unwrap().len(),
+            rec.acks(),
             2,
             "an identical delta heard > 2.5 s later is a genuine new command"
         );
