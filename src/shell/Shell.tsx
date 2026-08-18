@@ -41,6 +41,7 @@ import { SessionBar } from "../features/session/SessionBar";
 import { useVoice } from "../features/voice/useVoice";
 import { useTtsDegraded } from "../features/voice/useTtsDegraded";
 import { VoiceToast } from "../features/voice/VoiceToast";
+import { HeardPill } from "../features/voice/HeardPill";
 import {
   ActionDraftCard,
   type ActionDraft,
@@ -1146,6 +1147,10 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         deliveryDisposition={voice.deliveryDisposition}
         ttsDegraded={ttsDegraded}
       />
+      {/* Visible hearing (v6 S9): every accepted final flashes here, including
+          the ambient ones the router ignored, so a miss is a sentence you can
+          read instead of silence you have to guess at. */}
+      <HeardPill delivery={voice.acceptedFinalDelivery} />
       {rep.error && !rep.snap && (
         <p
           className="shell-rep-error"
