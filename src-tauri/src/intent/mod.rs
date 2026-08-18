@@ -639,8 +639,41 @@ fn route_metronome(words: &[&str], mode: &Mode) -> Option<Intent> {
     // order-flexible (they test for tokens, not sequences), so "turn the
     // metronome off", "metronome please stop" and "can you stop the metronome"
     // are all the same command shape once the politeness is gone.
-    let words = strip_courtesy(words);
+    //
+    // SCOPED to utterances that NAME the metronome (folded mangles included —
+    // `canonicalize` ran upstream). Stripping courtesy unconditionally, ahead of
+    // every rule, silently widened the two grammars that are deliberately
+    // narrow: `is_bare_stop` allows three tokens of stop vocabulary, so "okay
+    // stop" was correctly ambient until the "okay" came off and left a bare
+    // "stop" that killed the click; likewise "okay faster" through `route_delta`.
+    // Naming the object is what earns the politeness discount — it is the case
+    // the loosening was for, and the only one where the extra latitude is paid
+    // for by an explicit reference to the thing being commanded.
+    //
+    // Requiring more than one word to survive the strip keeps a bare vocative
+    // out: "hey metronome" is someone addressing the app, not asking it to
+    // start, and there is no verb in it to say otherwise.
+    let words = match strip_courtesy(words) {
+        stripped if has(words, "metronome") && stripped.len() > 1 => stripped,
+        _ => words,
+    };
     let has_metro = has(words, "metronome");
+
+    // --- EXACTLY ONE DIRECTION -------------------------------------------
+    // "turn the metronome on off" is not a command — it is a recognizer artifact
+    // or a user changing their mind mid-breath, and guessing which half they
+    // meant is worse than doing nothing. Rust used to route it MetroStart
+    // because "on" is not in the stop vocabulary, so the stop rule declined and
+    // the start rule took it by default. The TS router has always refused it;
+    // this is the Rust half of that agreement (see the parity test).
+    if has_metro
+        && words.iter().any(|w| matches!(*w, "on" | "start"))
+        && words
+            .iter()
+            .any(|w| matches!(*w, "off" | "stop" | "kill" | "halt"))
+    {
+        return None;
+    }
 
     // --- STOP -------------------------------------------------------------
     // Explicit: a command-SHAPED metronome-stop phrase, not gated on running.
@@ -1549,12 +1582,7 @@ mod tests {
 
     #[test]
     fn asr_mangles_of_metronome_route_like_the_word() {
-        for mangle in [
-            "metranome",
-            "metrodome",
-            "metro gnome",
-            "metro nome",
-        ] {
+        for mangle in ["metranome", "metrodome", "metro gnome", "metro nome"] {
             assert_eq!(
                 r(&format!("{mangle} off"), &running()),
                 Intent::MetroStop,
@@ -1638,6 +1666,135 @@ mod tests {
     fn a_bare_courtesy_opener_is_not_a_command() {
         for phrase in ["hey", "can you", "okay", "hey can you"] {
             assert_eq!(r(phrase, &running()), Intent::Ignored, "{phrase:?}");
+        }
+    }
+
+    /// Courtesy stripping ran at the TOP of the metronome grammar, before every
+    /// rule — which quietly widened the two firewalls that are deliberately
+    /// narrow. `is_bare_stop` allows at most three tokens from a tiny stop
+    /// vocabulary, so "okay stop" was ambient noise; with the courtesy gone
+    /// first it became a bare "stop" and killed the click. Same for the delta
+    /// grammar and "okay faster". None of these are corpus-covered, so nothing
+    /// caught it.
+    ///
+    /// The scoping rule: courtesy comes off only when the utterance NAMES the
+    /// metronome. That is the case the loosening was for ("can you stop the
+    /// metronome"), and it leaves the bare-stop and bare-delta grammars exactly
+    /// as narrow as they were.
+    #[test]
+    fn courtesy_does_not_widen_the_bare_stop_and_delta_grammars() {
+        for phrase in [
+            // Bare stop, wearing a politeness — still ambient.
+            "okay stop",
+            "hey stop",
+            "can you stop",
+            // Bare delta, likewise.
+            "okay faster",
+            "hey slower",
+            // A vocative is not a command: the user said the app's name and
+            // nothing else. Starting the metronome on it is a guess.
+            "hey metronome",
+            "ok metronome",
+        ] {
+            assert_eq!(r(phrase, &running()), Intent::Ignored, "{phrase:?}");
+            assert_eq!(r(phrase, &stopped()), Intent::Ignored, "{phrase:?}");
+        }
+
+        // What the loosening was actually for keeps working: the object is
+        // named, so the politeness comes off and the ordinary grammar applies.
+        for phrase in [
+            "can you stop the metronome",
+            "okay turn the metronome off",
+            "please turn off the metronome",
+        ] {
+            assert_eq!(r(phrase, &running()), Intent::MetroStop, "{phrase:?}");
+        }
+    }
+
+    /// A phrase carrying both directions is not a command in either direction.
+    #[test]
+    fn a_contradictory_direction_routes_nowhere() {
+        for phrase in [
+            "turn the metronome on off",
+            "metronome on off",
+            "start the metronome stop",
+        ] {
+            assert_eq!(r(phrase, &running()), Intent::Ignored, "{phrase:?}");
+            assert_eq!(r(phrase, &stopped()), Intent::Ignored, "{phrase:?}");
+        }
+    }
+
+    // ------------------------------------------------------- ROUTER PARITY
+    // TWIN: `src/features/voice/domain/tierAIntent.test.ts`,
+    // "router parity with the Rust metronome grammar". The two routers are
+    // independent implementations of one grammar — the Rust one owns the
+    // backend hot loop, the TS one owns Tier A in the frontend — and they had
+    // silently diverged (courtesy scope, contradictory directions). This list
+    // and its expectations are duplicated verbatim on the other side; change
+    // one and you must change the other, or one of the two tests fails.
+
+    /// The shared phrase list. `Some(true)` = starts, `Some(false)` = stops,
+    /// `None` = routes nowhere in either implementation.
+    const PARITY_PHRASES: &[(&str, Option<bool>)] = &[
+        // --- courtesy scope (defect 3): politeness does not widen the bare
+        // grammars, and a bare vocative is not a command.
+        ("okay stop", None),
+        ("hey stop", None),
+        ("can you stop", None),
+        ("okay faster", None),
+        ("hey slower", None),
+        ("hey metronome", None),
+        ("ok metronome", None),
+        // --- courtesy where the object IS named: the discount applies.
+        ("can you stop the metronome", Some(false)),
+        ("okay turn the metronome off", Some(false)),
+        ("please turn off the metronome", Some(false)),
+        ("can you start the metronome", Some(true)),
+        // --- exactly one direction (defect 4).
+        ("turn the metronome on off", None),
+        ("metronome on off", None),
+        // --- the ASR manglings of "metronome".
+        ("metranome off", Some(false)),
+        ("metrodome off", Some(false)),
+        ("metro gnome off", Some(false)),
+        ("metro nome off", Some(false)),
+        ("metranome on", Some(true)),
+        ("metro gnome stop", Some(false)),
+        // --- natural forms.
+        ("metronome off", Some(false)),
+        ("metronome on", Some(true)),
+        ("turn the metronome off", Some(false)),
+        ("turn the metronome on", Some(true)),
+        ("stop the metronome", Some(false)),
+        ("kill the metronome", Some(false)),
+        ("metronome please stop", Some(false)),
+        ("start the metronome", Some(true)),
+        // --- ambient sentences that merely carry the tokens.
+        ("can you believe the metronome on that recording", None),
+        ("could you hear the metronome on the last take", None),
+        ("i turned the metronome off and went home", None),
+        ("okay so the metronome was off the whole time", None),
+        ("the metro is closed", None),
+    ];
+
+    #[test]
+    fn router_parity_with_the_typescript_metronome_grammar() {
+        assert!(
+            PARITY_PHRASES.len() >= 25,
+            "the parity list is the contract; keep it broad"
+        );
+        for (phrase, expected) in PARITY_PHRASES {
+            // Both live states, so nothing in the list depends on one of them.
+            for mode in [running(), stopped()] {
+                let got = r(phrase, &mode);
+                let actual = match got {
+                    Intent::MetroStart(_) => Some(true),
+                    Intent::MetroStop => Some(false),
+                    Intent::Ignored => None,
+                    other => panic!("{phrase:?} routed unexpectedly: {other:?}"),
+                };
+                assert_eq!(actual, *expected, "{phrase:?}");
+            }
         }
     }
 }
