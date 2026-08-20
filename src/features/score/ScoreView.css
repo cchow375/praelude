@@ -89,14 +89,20 @@
 
 .score-edition-group {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   align-items: center;
   gap: var(--space-2);
 }
 
+/* B76: `flex: 1` gave the label a 0% basis, so it collapsed far below its own
+   content and (with visible overflow) painted its <select> over the next
+   control. Now the group wraps, the label sizes to its content and only shrinks
+   as a last resort — and never paints outside its box. */
 .score-edition-group .score-edition {
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
+  overflow: hidden;
 }
 
 .score-toolbar .score-draw-target {
@@ -128,6 +134,7 @@
 /* Inline discoverability while target mode is armed but nothing is drawn yet —
    replaces the old empty floating panel so no control is ever occluded. */
 .score-atlas-draw-hint {
+  flex-basis: 100%;
   min-width: 0;
   overflow: hidden;
   color: var(--ink-secondary);
@@ -139,6 +146,7 @@
 .score-edition select {
   min-width: 0;
   max-width: 320px;
+  flex: 1 1 auto;
   padding: 0 var(--space-2);
 }
 
@@ -1072,12 +1080,15 @@
 
 @media (max-width: 900px) {
   .score-toolbar {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto 1fr;
+  }
+
+  .score-edition-group {
+    grid-column: 1 / -1;
   }
 
   .score-zoom {
-    grid-column: 1 / -1;
-    justify-content: center;
+    justify-content: flex-end;
   }
 
   .score-body {
