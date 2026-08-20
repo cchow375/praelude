@@ -2324,3 +2324,34 @@ pre-v5.0.0-session-2026-07-30-204238.db`, SHA-256
   inside SettingsPanel's settings `<form>` (invalid HTML, React dev error) — present since
   v5.0.0 (`v5.0.0:src/features/settings/SettingsPanel.tsx:189,421` + `BooksPanel.tsx:154`).
   Not fixed in Plan D; logged in Flaws.
+
+## Post-ship audit of the live database (2026-08-20)
+
+Read-only pass over `~/Library/Application Support/com.christian.codakiller/codakiller.db` two
+days after the v6.0.0 install, done as part of a documentation-accuracy sweep. Three engineering
+facts worth keeping:
+
+- **`measure_map` holds 0 rows.** The v6 headline feature has never produced a mapping on the
+  real vault — it is proven by the test suite and by the one branch-era Gemini acceptance run on
+  the Scherzo, and by nothing else. This is not evidence of a defect; it is evidence of a feature
+  that has never been exercised in production, which is a different risk and should be described
+  as such. Logged as Flaws B75. Combined with B67 (no Anthropic key in Keychain) the Claude
+  vision path — the intended primary provider — has still never executed a single time.
+- **`session.focused_seconds` is NULL on all 36 sessions ever recorded**, including both v6.0.0
+  sessions. The column was added by an `ALTER TABLE session ADD COLUMN focused_seconds INTEGER`
+  migration and is never written. Every focus figure the UI renders (History day timeline,
+  Calendar planned-vs-done, `progress_summary`, Universe) is derived at read time from `event`
+  rows via `metrics::focused_seconds`'s idle-gap heuristic. So the column is **dead schema**, not
+  a data-loss bug — but anyone reading the schema would reasonably assume it is authoritative,
+  and an "optimization" that started trusting it would silently read zeros for all of history.
+  Decide it: populate on session close, or drop it in the next migration. Logged as Flaws B74.
+- **Real usage since install:** two sessions — a 24-second launch poke (2026-08-18) and a genuine
+  37-minute / 20-rep session (2026-08-20 02:20→02:57Z). Live counts 9 pieces / 173 rep_blocks /
+  1,660 reps / 36 sessions, `user_version` 14, `PRAGMA integrity_check` ok.
+
+**Process note:** the v6.0.0 ship updated some living docs and missed others — `(C) Roadmap.md`
+was still describing v6 as unshipped eleven days later, and the vault `AGENTS.md` twin had been
+stranded at v3.2.0 since July while `CLAUDE.md` moved on without it. The update protocol's doc
+list is only as good as the sweep that runs it; the twins in particular drift silently because
+nothing reads both. Also corrected: v5.0.0's ship date is **2026-07-31** (the tag), not 07-30 as
+several docs said, and tag `v4.0.1` had never been documented anywhere at all.
