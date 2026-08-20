@@ -1078,7 +1078,13 @@
   color: var(--danger);
 }
 
-@media (max-width: 900px) {
+/* B76: the toolbar needs this reflow far earlier than the sidebar does. Keeping
+   both at 900px made the toolbar TALLER at 910px than at 900px (146px -> 174px),
+   because outside the query the base three-column grid squeezes the edition group
+   into a narrow 1fr column and it wraps to three rows. Measured crossover — where
+   the base grid first becomes the shorter of the two — is 1142px; the breakpoint
+   sits at 1200px to leave headroom for edition labels longer than the mock's. */
+@media (max-width: 1200px) {
   .score-toolbar {
     grid-template-columns: auto 1fr;
   }
@@ -1090,7 +1096,9 @@
   .score-zoom {
     justify-content: flex-end;
   }
+}
 
+@media (max-width: 900px) {
   .score-body {
     --score-sidebar-width: 340px;
   }
