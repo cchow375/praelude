@@ -431,13 +431,17 @@ struct ActionCtx {
     wake_word: Option<String>,
     muted: Arc<AtomicBool>,
     last: Option<(String, Instant)>,
-    /// The last fast-path phrase that actually acted, with the timestamp of the
-    /// partial that fired it. A later final that repeats or EXTENDS that phrase
-    /// inside [`DEDUP_WINDOW`] is the same utterance arriving late (the settler
-    /// finishing what the fast path already handled), never a new command. Kept
-    /// separate from `last` so the command dedup ledger's locked identical-text
-    /// rule stays exactly as it is.
-    fast_path: Option<(String, Instant)>,
+    /// The routed [`Intent`] the fast path actually acted on, with the timestamp
+    /// of the partial that fired it. A later final that routes to the SAME
+    /// intent inside [`DEDUP_WINDOW`] is the same utterance arriving late (the
+    /// settler finishing what the fast path already handled), never a new
+    /// command — matched on the routed meaning, not on text prefix (B70: a text
+    /// prefix match either swallowed a final that revised the intent, e.g.
+    /// "metronome on ninety six" losing its tempo, or swallowed an unrelated
+    /// ambient sentence that merely started with the same words). Kept separate
+    /// from `last` so the command dedup ledger's locked identical-text rule
+    /// stays exactly as it is.
+    fast_path: Option<(Intent, Instant)>,
 }
 
 enum ActionMessage {
@@ -465,12 +469,6 @@ impl ActionCtx {
         if self.muted.load(Ordering::Acquire) {
             return;
         }
-        // The settled tail of an utterance the fast path already acted on. Drop
-        // it before routing — silently, exactly like the dedup path below, so the
-        // frontend sees one final per utterance and not two.
-        if !via_fast_path && self.is_fast_path_tail(t) {
-            return;
-        }
         let mode = Mode {
             // Live from the engine — a block opened by voice or by the UI makes
             // rep-check phrases route as reps immediately.
@@ -483,6 +481,23 @@ impl ActionCtx {
             .then(|| crate::settings::custom_verdict(&self.store, &t.text))
             .flatten();
         let intent = Router::route(routed.unwrap_or(&t.text), &mode);
+
+        // The settled tail of an utterance the fast path already acted on: this
+        // final routes to the SAME intent as the partial that fired, inside
+        // DEDUP_WINDOW. Drop it — silently, exactly like the dedup path below,
+        // so the frontend sees one final per utterance and not two. Matched on
+        // the routed intent, not a text prefix (B70): a final that revises the
+        // fired partial into a DIFFERENT intent (e.g. "metronome on" firing a
+        // bare resume, then "metronome on ninety six" settling to an explicit
+        // tempo) must still reach the router, and an unrelated ambient sentence
+        // that merely starts with the same words must not be swallowed.
+        if !via_fast_path {
+            if let Some((fired, at)) = &self.fast_path {
+                if t.at.saturating_duration_since(*at) < DEDUP_WINDOW && intent == *fired {
+                    return;
+                }
+            }
+        }
 
         // Ambient speech takes no action, but its transcript still reaches the
         // frontend marked `handled = false` so Lane B may draft it. Ambient is
@@ -522,9 +537,10 @@ impl ActionCtx {
 
         // Arm the fast-path tail guard only now: the phrase routed to a real
         // intent AND survived dedup, so it is about to act and the settled final
-        // that follows is a duplicate of work already done.
+        // that follows is a duplicate of work already done. Store the routed
+        // intent itself (not the text) — the guard above compares intents.
         if via_fast_path {
-            self.fast_path = Some((crate::intent::canonicalize(&t.text), t.at));
+            self.fast_path = Some((intent.clone(), t.at));
         }
 
         // A routed command is authoritative. Emit its transcript carrying
@@ -549,24 +565,6 @@ impl ActionCtx {
             }
             Intent::Ignored => {}
         }
-    }
-
-    /// Whether this final is the settled tail of an utterance the fast path
-    /// already acted on: same normalized text, or that text plus trailing words
-    /// the recognizer appended after we committed ("metronome off" → "metronome
-    /// off please"), inside [`DEDUP_WINDOW`] of the partial that fired.
-    fn is_fast_path_tail(&self, t: &Transcript) -> bool {
-        let Some((phrase, at)) = self.fast_path.as_ref() else {
-            return false;
-        };
-        if t.at.saturating_duration_since(*at) >= DEDUP_WINDOW {
-            return false;
-        }
-        let norm = crate::intent::canonicalize(&t.text);
-        norm == *phrase
-            || norm
-                .strip_prefix(phrase.as_str())
-                .is_some_and(|r| r.starts_with(' '))
     }
 
     fn act_start(&self, bpm: Option<f64>, text: &str) {
@@ -2033,6 +2031,69 @@ mod tests {
         // The same words as the start of a real later command still route.
         ctx.handle_final(&final_at("metronome 120", at + Duration::from_millis(100)));
         assert!(ctx.metro.snapshot().running);
+    }
+
+    /// B70(a): the tail guard used to key on a TEXT PREFIX match, so a settled
+    /// final that only shares its opening words with the fired partial — but
+    /// routes to a genuinely different intent — was swallowed. "metronome on"
+    /// fires `MetroStart(None)` (a bare resume) on the partial; the settled
+    /// final "metronome on ninety six" routes to `MetroStart(Some(96))`, a
+    /// different intent, and MUST reach the router so the tempo actually lands.
+    #[test]
+    fn a_final_with_a_different_intent_is_not_swallowed_by_the_tail_guard() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+
+        replay_partial_stream(&mut ctx, "metronome on ninety six", at);
+
+        assert!(ctx.metro.snapshot().running, "click should be running");
+        assert_eq!(
+            ctx.metro.snapshot().bpm,
+            96.0,
+            "the settled final must set 96, not keep the resumed tempo"
+        );
+    }
+
+    /// B70(b): the mirror bug — an ambient final that merely happens to START
+    /// with the fired phrase's words, but routes to `Ignored`, used to be
+    /// dropped by the old prefix match: silently, without ever reaching the
+    /// frontend. It must surface in the transcript like any other ambient
+    /// speech, and — since a real routed action already restarted the click in
+    /// between — it must not phantom-stop it.
+    #[test]
+    fn an_ambient_final_routing_to_ignored_does_not_phantom_act() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+        ctx.handle_final(&final_at("metronome 120", at));
+
+        replay_partial_stream(&mut ctx, "metronome off", at + Duration::from_millis(50));
+        assert!(!ctx.metro.snapshot().running);
+
+        // Click deliberately restarted by a later, genuine command.
+        ctx.handle_final(&final_at("metronome 120", at + Duration::from_millis(700)));
+        assert!(ctx.metro.snapshot().running);
+
+        // An unrelated ambient sentence that merely starts with "metronome off",
+        // inside the dedup window of the fired partial, but routes to Ignored.
+        ctx.handle_final(&final_at(
+            "metronome off the whole time honestly",
+            at + Duration::from_millis(1200),
+        ));
+        assert!(
+            ctx.metro.snapshot().running,
+            "an Ignored-routing ambient sentence must not phantom-stop"
+        );
+        assert!(
+            rec.events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(e, p)| e == "voice://transcript"
+                    && p["text"] == json!("metronome off the whole time honestly")),
+            "the ambient final must surface, not be swallowed"
+        );
     }
 
     /// Mute wins over the fast path exactly as it wins over a final.
