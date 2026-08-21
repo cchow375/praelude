@@ -11,8 +11,10 @@ import {
   clampPanelWidth,
   clampPosition,
   dockPanelMaxHeight,
+  dockPanelZIndex,
   pillStackIndex,
   resolveCollision,
+  DOCK_PANEL_FALLBACK_SIZE,
   MIN_VISIBLE_ON_OPEN_PX,
   PILL_STACK_STEP_PX,
   type Size,
@@ -42,7 +44,12 @@ const DEFAULT_PANEL_WIDTH = 320;
 
 // Fallback panel footprint used for clamp math before the panel has ever
 // been laid out (first paint) or in jsdom, which reports a zero-size rect.
-const FALLBACK_SIZE: Size = { width: 260, height: 200 };
+// This is the ONLY place that reads `DOCK_PANEL_FALLBACK_SIZE` — DockProvider's
+// `ensurePanel` (DockProvider.tsx, not dockState.ts) deliberately does NOT use
+// it; see that constant's doc comment in dockState.ts for why (round 2 fix:
+// a shared fallback there corrupted wide panels' legitimately-dragged
+// positions).
+const FALLBACK_SIZE: Size = DOCK_PANEL_FALLBACK_SIZE;
 
 type Drag = {
   startX: number;
@@ -70,13 +77,18 @@ export function DockPanel({
   const drag = useRef<Drag | null>(null);
 
   useEffect(() => {
-    ctx.ensurePanel(id, defaultPosition);
+    ctx.ensurePanel(id, defaultPosition, width);
     // Only register once per (id, defaultPosition) pair — re-registering on
     // every render would fight a user's drag/keyboard moves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const panel = ctx.getPanel(id, defaultPosition);
+  // NOT `panel.z` — that is the relative focus rank, which starts at 0/1 and
+  // would render this panel BEHIND ordinary page content until an unrelated
+  // click bumped it. `dockPanelZIndex` lifts the rank into the dock's
+  // reserved stacking window; see the stacking contract in dockState.ts.
+  const zIndex = dockPanelZIndex(ctx.state, id);
 
   const panelSize = useCallback((): Size => {
     const rect = panelRef.current?.getBoundingClientRect();
@@ -238,7 +250,7 @@ export function DockPanel({
         <button
           type="button"
           className={className}
-          style={{ zIndex: panel.z }}
+          style={{ zIndex }}
           onClick={dock.open}
           aria-label={`Restore ${title}`}
         >
@@ -256,7 +268,7 @@ export function DockPanel({
         type="button"
         className={`${className} dock-pill--fixed-fallback`}
         style={{
-          zIndex: panel.z,
+          zIndex,
           bottom: `calc(var(--s-3) + ${stackIndex * PILL_STACK_STEP_PX}px)`,
         }}
         onClick={dock.open}
@@ -282,7 +294,7 @@ export function DockPanel({
       className="dock-panel"
       style={{
         transform: `translate(${panel.x}px, ${panel.y}px)`,
-        zIndex: panel.z,
+        zIndex,
         width: `${effectiveWidth}px`,
         maxHeight: `${dockPanelMaxHeight(window.innerHeight, panel.y)}px`,
       }}

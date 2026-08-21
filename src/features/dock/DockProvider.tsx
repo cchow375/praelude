@@ -9,22 +9,43 @@ import {
   type ReactNode,
 } from "react";
 import {
+  clampPanelWidth,
   defaultPanelState,
+  dockPanelMaxHeight,
   loadDockState,
   raiseZ,
+  reclampPanel,
   saveDockState,
   withPanel,
   type DockPanelState,
   type DockState,
   type Rect,
+  type Size,
 } from "./dockState";
 
 interface DockContextValue {
   state: DockState;
   /** Registers panel `id` with its default position the first time it
-   * mounts. A no-op if the panel already exists (e.g. restored from
-   * localStorage, or already registered by an earlier mount). */
-  ensurePanel: (id: string, defaultPosition: { x: number; y: number }) => void;
+   * mounts. If the panel already exists AND is currently open+visible (e.g.
+   * restored from localStorage, or already registered by an earlier mount),
+   * its position is re-clamped against the current viewport using ITS OWN
+   * configured `width` — never a shared constant — instead of being reused
+   * verbatim: a persisted position can predate a resize or display change,
+   * and for a panel that mounts already `open` this is the ONLY seam that
+   * ever gets a chance to catch that (DockPanel's become-visible clamp
+   * effect only fires on a false->true transition — see `reclampPanel` in
+   * dockState.ts for the full argument). Closed/minimized panels are left
+   * alone here (round 2, finding 2): they have no on-screen rect to
+   * protect, and if they later become visible that same become-visible
+   * effect re-clamps them anyway with a real measured size + collision
+   * resolution, making a mount-time pass here redundant. Never fights an
+   * active drag/keyboard move — this only runs once per mount, same as the
+   * old no-op did. */
+  ensurePanel: (
+    id: string,
+    defaultPosition: { x: number; y: number },
+    width: number,
+  ) => void;
   getPanel: (
     id: string,
     defaultPosition: { x: number; y: number },
@@ -82,14 +103,82 @@ export function DockProvider({ children }: { children: ReactNode }) {
     saveDockState(state);
   }, [state]);
 
+  // Real-use fix wave (item 4): each panel's own default position, captured
+  // the moment it registers (DockPanel's mount effect calls `ensurePanel`
+  // with it) so "Reset panel layout" (SettingsPanel.tsx) has something to
+  // reset EACH panel back to — this provider has no other record of what a
+  // panel's default was once it has been dragged away from it. A plain ref,
+  // not `state`: it is derived purely from mount-time registration, never
+  // itself drives a render.
+  const defaultPositionsRef = useRef<Record<string, { x: number; y: number }>>(
+    {},
+  );
+
   const ensurePanel = useCallback(
-    (id: string, defaultPosition: { x: number; y: number }) => {
-      setState((prev) =>
-        prev[id] ? prev : withPanel(prev, id, {}, { ...defaultPosition, z: 0 }),
-      );
+    (id: string, defaultPosition: { x: number; y: number }, width: number) => {
+      defaultPositionsRef.current[id] = defaultPosition;
+      setState((prev) => {
+        const existing = prev[id];
+        if (!existing) {
+          return withPanel(prev, id, {}, { ...defaultPosition, z: 0 });
+        }
+        // Round 2, finding 2: a closed/minimized panel is a pill — no
+        // on-screen rect to protect, and DockPanel's become-visible effect
+        // re-clamps it (with a real measured size + collision resolution)
+        // the moment it next becomes visible, so re-clamping it here too
+        // would just be a redundant extra state write on every mount.
+        if (!existing.open || existing.minimized) {
+          return prev;
+        }
+        // Round 2, finding 1: this provider has no DOM ref to measure a
+        // real rendered size from at mount time, but it does NOT need one —
+        // a panel's rendered width is *entirely* determined by its `width`
+        // prop (clamped exactly the way DockPanel's own render does, see
+        // `effectiveWidth` there), and its rendered height is bounded by
+        // the same y-aware `dockPanelMaxHeight` DockPanel uses for its CSS
+        // `maxHeight`. Using a shared constant here (260x200, RepPanel's
+        // real 440-wide) previously judged perfectly-legal dragged
+        // positions out-of-range and silently corrupted them on every
+        // mount — this derives the SAME size DockPanel itself renders at,
+        // per-panel, so mount-time and render-time agree exactly.
+        const viewport: Size = {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        };
+        const size: Size = {
+          width: clampPanelWidth(width, viewport.width),
+          height: dockPanelMaxHeight(viewport.height, existing.y),
+        };
+        const reclamped = reclampPanel(existing, size, viewport);
+        return reclamped === existing ? prev : { ...prev, [id]: reclamped };
+      });
     },
     [],
   );
+
+  // Real-use fix wave (item 4): "Reset panel layout" (SettingsPanel.tsx)
+  // calls `resetDockLayout()` (dockState.ts), which clears the persisted
+  // blob and dispatches this event — every mounted DockProvider snaps each
+  // panel it has ever registered back to its own default position AND its
+  // initial open/minimized/z flags (defaultPanelState's fallback, same as a
+  // panel that has never been touched). A reset that left a panel stuck
+  // minimized would not actually be a reset, so this rebuilds full panel
+  // state, not just x/y.
+  useEffect(() => {
+    function handleReset() {
+      setState(() => {
+        const next: DockState = {};
+        for (const [id, defaultPosition] of Object.entries(
+          defaultPositionsRef.current,
+        )) {
+          next[id] = defaultPanelState({ ...defaultPosition, z: 0 });
+        }
+        return next;
+      });
+    }
+    window.addEventListener("ck:dock-reset", handleReset);
+    return () => window.removeEventListener("ck:dock-reset", handleReset);
+  }, []);
 
   const getPanel = useCallback(
     (id: string, defaultPosition: { x: number; y: number }): DockPanelState =>

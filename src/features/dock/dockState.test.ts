@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DOCK_PANEL_MIN_HEIGHT_PX,
   DOCK_STORAGE_KEY,
@@ -12,6 +12,7 @@ import {
   loadDockState,
   raiseZ,
   rectsIntersect,
+  resetDockLayout,
   resolveCollision,
   saveDockState,
   withPanel,
@@ -271,6 +272,33 @@ describe("persistence round-trip", () => {
 describe("defaultPanelState", () => {
   it("starts with flashing false", () => {
     expect(defaultPanelState().flashing).toBe(false);
+  });
+});
+
+describe("resetDockLayout (real-use fix wave item 4)", () => {
+  it("removes the persisted blob under DOCK_STORAGE_KEY", () => {
+    saveDockState({ rep: defaultPanelState({ x: 999, y: 999 }) });
+    expect(window.localStorage.getItem(DOCK_STORAGE_KEY)).not.toBeNull();
+
+    resetDockLayout();
+
+    expect(window.localStorage.getItem(DOCK_STORAGE_KEY)).toBeNull();
+  });
+
+  it("dispatches a ck:dock-reset window event", () => {
+    const handler = vi.fn();
+    window.addEventListener("ck:dock-reset", handler);
+
+    resetDockLayout();
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    window.removeEventListener("ck:dock-reset", handler);
+  });
+
+  it("is a no-op-safe when localStorage is unavailable (best-effort, same as the rest of this module)", () => {
+    // @ts-expect-error -- simulating an environment with no localStorage
+    delete window.localStorage;
+    expect(() => resetDockLayout()).not.toThrow();
   });
 });
 

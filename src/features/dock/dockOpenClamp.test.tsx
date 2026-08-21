@@ -12,6 +12,7 @@ import { DockPillBar } from "./DockPillBar";
 import {
   DOCK_STORAGE_KEY,
   MIN_VISIBLE_ON_OPEN_PX,
+  MIN_VISIBLE_PX,
   rectsIntersect,
   type Rect,
 } from "./dockState";
@@ -326,6 +327,209 @@ function readDialogRect(
   };
 }
 
+describe("v6.0.1 — persisted off-viewport position is re-clamped on ensurePanel", () => {
+  it("clamps a panel that mounts already open at a position persisted from a larger/different viewport back into view", () => {
+    // No prior "restore" click, no visibility transition at all — this
+    // panel is ALREADY `open` in the persisted blob, so DockPanel's
+    // become-visible effect (which only fires on a false->true transition)
+    // never runs for it. `ensurePanel` itself is the only seam that ever
+    // sees this panel on this mount, so it is the only place that can catch
+    // a position like this one that predates a resize/display change.
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        clock: {
+          x: 5000,
+          y: 5000,
+          minimized: false,
+          open: true,
+          z: 1,
+          flashing: false,
+        },
+      }),
+    );
+
+    render(
+      <DockProvider>
+        <DockPanel id="clock" title="Clock" defaultPosition={{ x: 24, y: 464 }}>
+          <div>clock body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Clock" });
+    const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(
+      dialog.style.transform,
+    );
+    expect(match).not.toBeNull();
+    const x = Number(match![1]);
+    const y = Number(match![2]);
+
+    // At least MIN_VISIBLE_PX must remain on screen in both axes — the
+    // persisted 5000,5000 (from a larger window or a different display)
+    // must never be reused verbatim.
+    expect(x).toBeLessThanOrEqual(VIEWPORT.width - MIN_VISIBLE_PX);
+    expect(y).toBeLessThanOrEqual(VIEWPORT.height - MIN_VISIBLE_PX);
+    expect(x).toBeLessThan(5000);
+    expect(y).toBeLessThan(5000);
+  });
+
+  it("leaves an already-on-screen persisted position untouched", () => {
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        clock: {
+          x: 24,
+          y: 64,
+          minimized: false,
+          open: true,
+          z: 1,
+          flashing: false,
+        },
+      }),
+    );
+
+    render(
+      <DockProvider>
+        <DockPanel id="clock" title="Clock" defaultPosition={{ x: 24, y: 464 }}>
+          <div>clock body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Clock" });
+    const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(
+      dialog.style.transform,
+    );
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBe(24);
+    expect(Number(match![2])).toBe(64);
+  });
+
+  it("round 2 (finding 1, HIGH): a WIDE panel's legitimately-dragged position, legal under its own real width but not under the 260px fallback, is left EXACTLY untouched", () => {
+    // RepPanel's real width is 440 (RepPanel.tsx). At the 720px viewport
+    // here, clampPanelWidth(440, 720) === 440, so a dragged x of -392 is
+    // perfectly legal (minX = MIN_VISIBLE_PX - 440 = -392) — the panel's
+    // title bar/controls are still MIN_VISIBLE_PX reachable on the right
+    // edge. Under the WRONG 260px fallback, minX would be 48 - 260 = -212,
+    // so -392 reads as out-of-range and gets shifted 180px on every single
+    // mount — this must never happen.
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        rep: {
+          x: -392,
+          y: 16,
+          minimized: false,
+          open: true,
+          z: 1,
+          flashing: false,
+        },
+      }),
+    );
+
+    render(
+      <DockProvider>
+        <DockPanel
+          id="rep"
+          title="Rep Counter"
+          defaultPosition={{ x: 160, y: 16 }}
+          width={440}
+        >
+          <div>rep body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Rep Counter" });
+    const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(
+      dialog.style.transform,
+    );
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBe(-392);
+    expect(Number(match![2])).toBe(16);
+  });
+
+  it("round 2 (finding 1): a WIDE panel's genuinely off-viewport persisted position is still corrected, using its OWN real width", () => {
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        rep: {
+          x: 5000,
+          y: 5000,
+          minimized: false,
+          open: true,
+          z: 1,
+          flashing: false,
+        },
+      }),
+    );
+
+    render(
+      <DockProvider>
+        <DockPanel
+          id="rep"
+          title="Rep Counter"
+          defaultPosition={{ x: 160, y: 16 }}
+          width={440}
+        >
+          <div>rep body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Rep Counter" });
+    const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(
+      dialog.style.transform,
+    );
+    expect(match).not.toBeNull();
+    const x = Number(match![1]);
+    const y = Number(match![2]);
+    // clampPanelWidth(440, 720) === 440, so maxX = 720 - MIN_VISIBLE_PX.
+    expect(x).toBeLessThanOrEqual(VIEWPORT.width - MIN_VISIBLE_PX);
+    expect(y).toBeLessThanOrEqual(VIEWPORT.height - MIN_VISIBLE_PX);
+    expect(x).toBeLessThan(5000);
+    expect(y).toBeLessThan(5000);
+  });
+
+  it("round 2 (finding 2, LOW): a minimized (pill-form) panel is left untouched on mount — no rect to protect, and the become-visible effect will re-clamp it for real once it opens", () => {
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        clock: {
+          x: 5000,
+          y: 5000,
+          minimized: true,
+          open: true,
+          z: 1,
+          flashing: false,
+        },
+      }),
+    );
+
+    render(
+      <DockProvider>
+        <DockPanel id="clock" title="Clock" defaultPosition={{ x: 24, y: 464 }}>
+          <div>clock body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    // Renders as a pill (minimized), never a dialog with a position at all.
+    expect(
+      screen.getByRole("button", { name: "Restore Clock" }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Clock" })).toBeNull();
+
+    // And the persisted position itself was never rewritten by ensurePanel
+    // — no state change means no `saveDockState` write.
+    const raw = window.localStorage.getItem(DOCK_STORAGE_KEY);
+    const stored = JSON.parse(raw ?? "{}");
+    expect(stored.clock.x).toBe(5000);
+    expect(stored.clock.y).toBe(5000);
+  });
+});
+
 describe("DockPillBar (residuals fix wave, defect 4: pill occludes page content)", () => {
   // A live-QA reproduction at 720x520 showed a day sheet's carry-forward
   // button sitting under the fixed pill stack on the very FIRST (unscrolled)
@@ -437,5 +641,80 @@ describe("DockPillBar (residuals fix wave, defect 4: pill occludes page content)
     );
     const pill = screen.getByRole("button", { name: "Restore Rep Counter" });
     expect(pill.className).toMatch(/dock-pill--fixed-fallback/);
+  });
+});
+
+describe("DockProvider — ck:dock-reset (real-use fix wave item 4: Reset panel layout)", () => {
+  it("snaps a dragged-away, minimized panel back to its default position and initial open/minimized flags", async () => {
+    // Simulates the exact failure mode the brief calls out: a panel dragged
+    // somewhere silly AND left minimized (a "lost" pill) — a reset that only
+    // fixed position and left it stuck minimized would not be a real reset.
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        rep: {
+          x: 999,
+          y: 999,
+          minimized: true,
+          open: true,
+          z: 7,
+          flashing: true,
+        },
+      }),
+    );
+
+    render(
+      <DockProvider>
+        <DockPanel
+          id="rep"
+          title="Rep Counter"
+          defaultPosition={{ x: 160, y: 300 }}
+          width={440}
+        >
+          <div>rep body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    // Still dragged-away and minimized before the reset.
+    expect(
+      screen.getByRole("button", { name: "Restore Rep Counter" }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("ck:dock-reset"));
+    });
+
+    // Pill vs. panel looks identical whether the panel is "closed" or
+    // "minimized" (both render the same Restore pill) — inspect the
+    // persisted state directly to prove the reset didn't just fix position
+    // but ALSO cleared the minimized flag (a reset that left it stuck
+    // minimized would not be a real reset) back to the same open:false,
+    // minimized:false a never-touched panel starts at.
+    const persisted = JSON.parse(
+      window.localStorage.getItem(DOCK_STORAGE_KEY) ?? "{}",
+    );
+    expect(persisted.rep).toMatchObject({
+      x: 160,
+      y: 300,
+      open: false,
+      minimized: false,
+    });
+
+    // Open it back up and confirm it now renders at the real default
+    // position, not the dragged-away one.
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Restore Rep Counter" }),
+      );
+    });
+    await flushClampFrame();
+    const dialog = screen.getByRole("dialog", { name: "Rep Counter" });
+    const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(
+      dialog.style.transform,
+    );
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBe(160);
+    expect(Number(match![2])).toBe(300);
   });
 });

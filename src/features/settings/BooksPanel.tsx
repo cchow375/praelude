@@ -1,4 +1,4 @@
-import { useEffect, useState, type DragEvent, type FormEvent } from "react";
+import { useEffect, useState, type DragEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useReceipts } from "../receipts/ReceiptCenter";
 import { commandErrorMessage } from "../../services/command";
@@ -79,8 +79,10 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
     };
   }, [api]);
 
-  const add = async (event: FormEvent) => {
-    event.preventDefault();
+  // `add` fires from a click, an Enter keypress, or (defensively) a future
+  // form submit — all it needs from the event is preventDefault.
+  const add = async (event: { preventDefault?: () => void }) => {
+    event.preventDefault?.();
     if (adding) return;
     setAddError(null);
     setAddReceipt(null);
@@ -124,6 +126,17 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
     }
   };
 
+  // Enter-to-submit on every plain text input in the "Add a book" group — the
+  // <form> this group used to be gave every text input this for free; wire it
+  // back explicitly now that the group is a <div role="group">. (Kind is a
+  // <select>, which browsers never Enter-submit, so it's excluded on purpose.)
+  const onEnterSubmit = (event: { key: string; preventDefault: () => void }) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      add(event);
+    }
+  };
+
   const confirmRemove = async () => {
     if (!removing) return;
     const target = removing;
@@ -151,7 +164,7 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
     <div className="settings-group books-panel">
       <BookList books={books} loadError={loadError} onRemove={setRemoving} />
 
-      <form className="books-add" aria-label="Add a book" onSubmit={add}>
+      <div className="books-add" role="group" aria-label="Add a book">
         <div
           className={`books-drop${dragging ? " is-dragging" : ""}`}
           onDragOver={(event) => {
@@ -168,6 +181,7 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
               placeholder="Drop a .md file here, or paste its full path"
               value={path}
               onChange={(event) => setPath(event.target.value)}
+              onKeyDown={onEnterSubmit}
             />
           </label>
         </div>
@@ -177,6 +191,7 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
             aria-label="Book title"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
+            onKeyDown={onEnterSubmit}
           />
         </label>
         <label className="settings-row settings-wide">
@@ -185,6 +200,7 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
             aria-label="Book author"
             value={author}
             onChange={(event) => setAuthor(event.target.value)}
+            onKeyDown={onEnterSubmit}
           />
         </label>
         <label className="settings-row">
@@ -202,7 +218,12 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
           </select>
         </label>
         <div className="books-add-actions">
-          <Button variant="primary" type="submit" disabled={adding}>
+          <Button
+            variant="primary"
+            type="button"
+            disabled={adding}
+            onClick={(event) => void add(event)}
+          >
             {adding ? "Adding…" : "Add book"}
           </Button>
         </div>
@@ -216,7 +237,7 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
             {addReceipt}
           </p>
         )}
-      </form>
+      </div>
 
       <RemoveDialog
         book={removing}

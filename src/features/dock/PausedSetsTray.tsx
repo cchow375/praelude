@@ -10,11 +10,8 @@ import { commandErrorMessage } from "../../services/command";
 import { useReceipts, type MutationReceipt } from "../receipts/ReceiptCenter";
 import type { RepSnapshot } from "../rep/useRep";
 import { Button } from "../../ui";
-import { NAV_RAIL_WIDTH } from "./dockState";
-import {
-  ASSUMED_MAX_HEIGHT as REP_ASSUMED_MAX_HEIGHT,
-  DEFAULT_POSITION as REP_DEFAULT_POSITION,
-} from "./RepPanel";
+import { DOCK_CHAIN_BASE_Y, NAV_RAIL_WIDTH } from "./dockState";
+import { ASSUMED_MAX_HEIGHT as REP_ASSUMED_MAX_HEIGHT } from "./RepPanel";
 import "./dock.css";
 
 /** Mirrors `useRetention.ts`'s `receiptError` — a rejected receipt carries its
@@ -27,14 +24,19 @@ function receiptError(receipt: MutationReceipt): string {
   );
 }
 
-/** Fix wave item 9: derived from the rep panel's own default position + its
- * documented assumed-max-height ceiling (RepPanel.tsx), plus a gap, so an
- * auto-opened rep panel and a manually-opened tray never start stacked on
- * top of each other at the 720x520 floor — see dockDefaultLayout.test.ts.
- * `x` clears the nav rail the same way the rep panel's own default does. */
+/** Fix wave item 9: a rep-panel-sized budget (its documented
+ * assumed-max-height ceiling, RepPanel.tsx) plus a gap below the chain's
+ * origin, so the tray and the clock below it start at distinct spots that
+ * both still fit inside the 720x520 floor — see dockDefaultLayout.test.ts.
+ * `x` clears the nav rail the same way the rep panel's own default does.
+ *
+ * Round 4: the origin is `DOCK_CHAIN_BASE_Y` (dockState.ts), NOT
+ * `RepPanel.DEFAULT_POSITION.y`. Tying it to rep's own default meant tuning
+ * rep against the shell topbar pushed the clock off the bottom of the floor
+ * — see that constant's comment for the measurements. */
 export const DEFAULT_POSITION = {
   x: NAV_RAIL_WIDTH + 12,
-  y: REP_DEFAULT_POSITION.y + REP_ASSUMED_MAX_HEIGHT + 24,
+  y: DOCK_CHAIN_BASE_Y + REP_ASSUMED_MAX_HEIGHT + 24,
 };
 
 /** Fix wave item 9: same spirit as RepPanel's `ASSUMED_MAX_HEIGHT` — a

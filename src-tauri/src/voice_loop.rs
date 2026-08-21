@@ -96,10 +96,19 @@
 //!
 //! 1. the ack closes the STT gate, so most re-sends are dropped at the reader;
 //! 2. [`ActionCtx::fast_path`] — a dedicated ledger, separate from the command
-//!    dedup ledger — suppresses any later final inside [`DEDUP_WINDOW`] whose
-//!    normalized text equals the fired phrase **or extends it** (`"metronome
-//!    off"` → `"metronome off please"`). The extension rule is what the plain
-//!    identical-text dedup cannot express.
+//!    dedup ledger — suppresses AT MOST ONE later final inside [`DEDUP_WINDOW`]
+//!    whose ROUTED INTENT equals the intent the fast path acted on (B70: not a
+//!    text-prefix match — a settled final that revises the fired partial into
+//!    a different intent, e.g. `"metronome on"` → `"metronome on ninety six"`,
+//!    must still reach the router, and an unrelated ambient sentence that
+//!    merely starts with the same words must not be silently swallowed; it
+//!    surfaces normally as a `handled = false` ambient final instead).
+//!
+//! The guard is consumed the instant it suppresses a final, and is also
+//! cleared the instant any OTHER genuine (non-fast-path) command dispatches —
+//! whichever comes first ends the fired utterance's context, so a later,
+//! differently-worded final with the same intent is judged as a fresh command,
+//! never swallowed against a fire that is now history.
 //!
 //! The marker is only armed when the fast path actually ACTED — a phrase that
 //! routed to [`Intent::Ignored`] leaves the later final free to route normally.
@@ -431,13 +440,17 @@ struct ActionCtx {
     wake_word: Option<String>,
     muted: Arc<AtomicBool>,
     last: Option<(String, Instant)>,
-    /// The last fast-path phrase that actually acted, with the timestamp of the
-    /// partial that fired it. A later final that repeats or EXTENDS that phrase
-    /// inside [`DEDUP_WINDOW`] is the same utterance arriving late (the settler
-    /// finishing what the fast path already handled), never a new command. Kept
-    /// separate from `last` so the command dedup ledger's locked identical-text
-    /// rule stays exactly as it is.
-    fast_path: Option<(String, Instant)>,
+    /// The routed [`Intent`] the fast path actually acted on, with the timestamp
+    /// of the partial that fired it. A later final that routes to the SAME
+    /// intent inside [`DEDUP_WINDOW`] is the same utterance arriving late (the
+    /// settler finishing what the fast path already handled), never a new
+    /// command — matched on the routed meaning, not on text prefix (B70: a text
+    /// prefix match either swallowed a final that revised the intent, e.g.
+    /// "metronome on ninety six" losing its tempo, or swallowed an unrelated
+    /// ambient sentence that merely started with the same words). Kept separate
+    /// from `last` so the command dedup ledger's locked identical-text rule
+    /// stays exactly as it is.
+    fast_path: Option<(Intent, Instant)>,
 }
 
 enum ActionMessage {
@@ -465,12 +478,6 @@ impl ActionCtx {
         if self.muted.load(Ordering::Acquire) {
             return;
         }
-        // The settled tail of an utterance the fast path already acted on. Drop
-        // it before routing — silently, exactly like the dedup path below, so the
-        // frontend sees one final per utterance and not two.
-        if !via_fast_path && self.is_fast_path_tail(t) {
-            return;
-        }
         let mode = Mode {
             // Live from the engine — a block opened by voice or by the UI makes
             // rep-check phrases route as reps immediately.
@@ -483,6 +490,29 @@ impl ActionCtx {
             .then(|| crate::settings::custom_verdict(&self.store, &t.text))
             .flatten();
         let intent = Router::route(routed.unwrap_or(&t.text), &mode);
+
+        // The settled tail of an utterance the fast path already acted on: this
+        // final routes to the SAME intent as the partial that fired, inside
+        // DEDUP_WINDOW. Drop it — silently, exactly like the dedup path below,
+        // so the frontend sees AT MOST ONE ACTED final per utterance, not two.
+        // Matched on the routed intent, not a text prefix (B70): a final that
+        // revises the fired partial into a DIFFERENT intent (e.g. "metronome
+        // on" firing a bare resume, then "metronome on ninety six" settling to
+        // an explicit tempo) must still reach the router. An out-of-vocabulary
+        // tail that routes to `Ignored` is NOT suppressed here either — it
+        // falls through to the ambient branch below and surfaces honestly as a
+        // second `handled = false` final (hiding heard speech is the recorded
+        // anti-lesson; see the module docs). Consumed on use: the guard
+        // suppresses AT MOST ONE final, so it is cleared the moment it fires
+        // (below) rather than staying armed for the rest of the window.
+        if !via_fast_path {
+            if let Some((fired, at)) = &self.fast_path {
+                if t.at.saturating_duration_since(*at) < DEDUP_WINDOW && intent == *fired {
+                    self.fast_path = None;
+                    return;
+                }
+            }
+        }
 
         // Ambient speech takes no action, but its transcript still reaches the
         // frontend marked `handled = false` so Lane B may draft it. Ambient is
@@ -522,9 +552,23 @@ impl ActionCtx {
 
         // Arm the fast-path tail guard only now: the phrase routed to a real
         // intent AND survived dedup, so it is about to act and the settled final
-        // that follows is a duplicate of work already done.
+        // that follows is a duplicate of work already done. Store the routed
+        // intent itself (not the text) — the guard above compares intents.
+        // Overwriting on consecutive fires is intended: only the most recent
+        // fired intent is ever guarded against.
+        //
+        // A genuine (non-fast-path) command reaching this point has already
+        // survived the tail-guard check and dedup above, so it is about to act
+        // in its own right — the fired utterance's context is over. Clear any
+        // stale guard so a LATER final with the same intent (a real repeat,
+        // not the settled tail of the original fire) is judged fresh rather
+        // than swallowed against a fire that is now history (reviewer PROBE-A
+        // / PROBE-B: "metronome off" fires, a restart intervenes, then a later
+        // genuine "turn the metronome off" must still stop the click).
         if via_fast_path {
-            self.fast_path = Some((crate::intent::canonicalize(&t.text), t.at));
+            self.fast_path = Some((intent.clone(), t.at));
+        } else {
+            self.fast_path = None;
         }
 
         // A routed command is authoritative. Emit its transcript carrying
@@ -549,24 +593,6 @@ impl ActionCtx {
             }
             Intent::Ignored => {}
         }
-    }
-
-    /// Whether this final is the settled tail of an utterance the fast path
-    /// already acted on: same normalized text, or that text plus trailing words
-    /// the recognizer appended after we committed ("metronome off" → "metronome
-    /// off please"), inside [`DEDUP_WINDOW`] of the partial that fired.
-    fn is_fast_path_tail(&self, t: &Transcript) -> bool {
-        let Some((phrase, at)) = self.fast_path.as_ref() else {
-            return false;
-        };
-        if t.at.saturating_duration_since(*at) >= DEDUP_WINDOW {
-            return false;
-        }
-        let norm = crate::intent::canonicalize(&t.text);
-        norm == *phrase
-            || norm
-                .strip_prefix(phrase.as_str())
-                .is_some_and(|r| r.starts_with(' '))
     }
 
     fn act_start(&self, bpm: Option<f64>, text: &str) {
@@ -1790,7 +1816,14 @@ mod tests {
 
     /// And the settled final that follows a fired multi-word partial is still
     /// suppressed — one stop per utterance, replayed through the real partial
-    /// stream rather than by hand.
+    /// stream rather than by hand. `replay_partial_stream` appends that
+    /// settled tail itself (see its doc comment); no OTHER command intervenes
+    /// between the fire and the tail here, which is the case the guard
+    /// protects (review finding 1: an intervening genuine command now clears
+    /// the guard instead — see
+    /// `a_genuine_command_between_the_fire_and_a_later_same_intent_final_clears_the_guard`
+    /// — so this test no longer restarts in between; that scenario is covered
+    /// separately).
     #[test]
     fn the_settled_final_after_a_multi_word_fire_is_still_suppressed() {
         let rec = Arc::new(Recorder::default());
@@ -1801,13 +1834,16 @@ mod tests {
         replay_partial_stream(&mut ctx, "metronome off", at + Duration::from_millis(50));
         assert!(!ctx.metro.snapshot().running, "the partial stopped it");
 
-        // Restart, then let the settled final land again — it must be inert.
-        ctx.handle_final(&final_at("metronome 120", at + Duration::from_millis(700)));
-        assert!(ctx.metro.snapshot().running);
-        ctx.handle_final(&final_at("metronome off", at + Duration::from_millis(720)));
-        assert!(
-            ctx.metro.snapshot().running,
-            "the settled tail of a fast-pathed utterance must not act twice"
+        let stops = rec
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(e, p)| e == "voice://intent" && p["kind"] == json!("stop"))
+            .count();
+        assert_eq!(
+            stops, 1,
+            "one stop action, from the partial — its own settled tail must be inert"
         );
 
         let offs = rec
@@ -1933,7 +1969,12 @@ mod tests {
 
     /// The core latency claim: a PARTIAL "metronome off" stops the metronome
     /// without waiting for the settler, and the settled final that arrives
-    /// afterwards is dropped — one stop, not two.
+    /// afterwards — with nothing else dispatched in between — is dropped: one
+    /// stop, not two. (Review finding 1: an intervening genuine command now
+    /// clears the guard instead of leaving this inert; that case is covered
+    /// separately, so this test no longer restarts in between — it observes
+    /// "not acted again" via the stop-event count rather than via toggling
+    /// `running`, since the click is already stopped either way.)
     #[test]
     fn fast_path_partial_acts_and_its_settled_final_is_dropped() {
         let rec = Arc::new(Recorder::default());
@@ -1949,13 +1990,20 @@ mod tests {
             "partial stopped the metronome"
         );
 
-        // The settler's final for the SAME utterance lands 600 ms later and must
-        // be inert. Restart first so a second stop would be observable.
-        ctx.handle_final(&final_at("metronome 120", at + Duration::from_millis(20)));
-        assert!(ctx.metro.snapshot().running);
+        // The settler's final for the SAME utterance lands 600 ms later, with
+        // nothing intervening, and must be inert.
         ctx.handle_final(&final_at("metronome off", at + Duration::from_millis(610)));
-        assert!(
-            ctx.metro.snapshot().running,
+        assert!(!ctx.metro.snapshot().running, "still stopped");
+
+        let stops = rec
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(e, p)| e == "voice://intent" && p["kind"] == json!("stop"))
+            .count();
+        assert_eq!(
+            stops, 1,
             "the settled final of a fast-pathed utterance must not act again"
         );
 
@@ -1971,7 +2019,13 @@ mod tests {
     }
 
     /// The extension rule the plain identical-text dedup cannot express: the
-    /// recognizer appended words after we already committed.
+    /// recognizer appended words after we already committed — and, since the
+    /// extension still routes to the same intent, the intent-match guard
+    /// catches it too. (Review finding 1: an intervening genuine command
+    /// would clear the guard — covered separately — so this test has nothing
+    /// intervene between the fire and the extended tail. The click is already
+    /// stopped either way, so "not acted again" is observed via the stop-event
+    /// count.)
     #[test]
     fn fast_path_suppresses_a_final_that_extends_the_fired_phrase() {
         let rec = Arc::new(Recorder::default());
@@ -1981,14 +2035,21 @@ mod tests {
         ctx.handle_fast_path(&final_at("metronome off", at + Duration::from_millis(10)));
         assert!(!ctx.metro.snapshot().running);
 
-        ctx.handle_final(&final_at("metronome 120", at + Duration::from_millis(20)));
         ctx.handle_final(&final_at(
             "metronome off please",
             at + Duration::from_millis(700),
         ));
-        assert!(
-            ctx.metro.snapshot().running,
-            "an extension of the fired phrase is the same utterance"
+
+        let stops = rec
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(e, p)| e == "voice://intent" && p["kind"] == json!("stop"))
+            .count();
+        assert_eq!(
+            stops, 1,
+            "an extension of the fired phrase, with nothing intervening, must not act again"
         );
     }
 
@@ -2033,6 +2094,237 @@ mod tests {
         // The same words as the start of a real later command still route.
         ctx.handle_final(&final_at("metronome 120", at + Duration::from_millis(100)));
         assert!(ctx.metro.snapshot().running);
+    }
+
+    /// B70(a): the tail guard used to key on a TEXT PREFIX match, so a settled
+    /// final that only shares its opening words with the fired partial — but
+    /// routes to a genuinely different intent — was swallowed. "metronome on"
+    /// fires `MetroStart(None)` (a bare resume) on the partial; the settled
+    /// final "metronome on ninety six" routes to `MetroStart(Some(96))`, a
+    /// different intent, and MUST reach the router so the tempo actually lands.
+    #[test]
+    fn a_final_with_a_different_intent_is_not_swallowed_by_the_tail_guard() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+
+        replay_partial_stream(&mut ctx, "metronome on ninety six", at);
+
+        assert!(ctx.metro.snapshot().running, "click should be running");
+        assert_eq!(
+            ctx.metro.snapshot().bpm,
+            96.0,
+            "the settled final must set 96, not keep the resumed tempo"
+        );
+    }
+
+    /// B70(b): the mirror bug — an ambient final that merely happens to START
+    /// with the fired phrase's words, but routes to `Ignored`, used to be
+    /// dropped by the old prefix match: silently, without ever reaching the
+    /// frontend. It must surface in the transcript like any other ambient
+    /// speech, and — since a real routed action already restarted the click in
+    /// between — it must not phantom-stop it.
+    #[test]
+    fn an_ambient_final_routing_to_ignored_does_not_phantom_act() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+        ctx.handle_final(&final_at("metronome 120", at));
+
+        replay_partial_stream(&mut ctx, "metronome off", at + Duration::from_millis(50));
+        assert!(!ctx.metro.snapshot().running);
+
+        // Click deliberately restarted by a later, genuine command.
+        ctx.handle_final(&final_at("metronome 120", at + Duration::from_millis(700)));
+        assert!(ctx.metro.snapshot().running);
+
+        // An unrelated ambient sentence that merely starts with "metronome off",
+        // inside the dedup window of the fired partial, but routes to Ignored.
+        ctx.handle_final(&final_at(
+            "metronome off the whole time honestly",
+            at + Duration::from_millis(1200),
+        ));
+        assert!(
+            ctx.metro.snapshot().running,
+            "an Ignored-routing ambient sentence must not phantom-stop"
+        );
+        assert!(
+            rec.events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(e, p)| e == "voice://transcript"
+                    && p["text"] == json!("metronome off the whole time honestly")),
+            "the ambient final must surface, not be swallowed"
+        );
+    }
+
+    /// Review finding 1, PROBE-A: the guard used to stay armed for the whole
+    /// window even after an unrelated genuine command dispatched in between,
+    /// so a LATER final that happens to share the fired intent was wrongly
+    /// judged against a fire that was already history. Sequence: fast-path
+    /// "metronome off" fires (guard = MetroStop); a genuine "metronome 132"
+    /// restarts the click (a different intent — does not consume the guard by
+    /// matching, but MUST clear it because it is itself a dispatched command);
+    /// then, still inside the ORIGINAL fire's dedup window, a genuine
+    /// out-of-allowlist "turn the metronome off" arrives. It must stop the
+    /// click — the stale guard must not have swallowed it.
+    #[test]
+    fn a_genuine_command_between_the_fire_and_a_later_same_intent_final_clears_the_guard() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+
+        ctx.handle_final(&final_at("metronome 120", at));
+        assert!(ctx.metro.snapshot().running);
+
+        ctx.handle_fast_path(&final_at("metronome off", at + Duration::from_millis(10)));
+        assert!(!ctx.metro.snapshot().running, "the fast path stopped it");
+
+        // An intervening genuine command — a different intent, so it is not
+        // suppressed by the guard, but it dispatches and must clear it.
+        ctx.handle_final(&final_at("metronome 132", at + Duration::from_millis(20)));
+        assert!(ctx.metro.snapshot().running, "the restart must act");
+        assert_eq!(ctx.metro.snapshot().bpm, 132.0);
+
+        // Still well inside DEDUP_WINDOW of the ORIGINAL "metronome off" fire
+        // (10ms + 1600ms = 1610ms < 2500ms), a genuine later stop, spoken in a
+        // form outside the fast-path allowlist, must still act.
+        ctx.handle_final(&final_at(
+            "turn the metronome off",
+            at + Duration::from_millis(1600),
+        ));
+        assert!(
+            !ctx.metro.snapshot().running,
+            "a genuine later stop must not be swallowed by a stale, already-superseded guard"
+        );
+    }
+
+    /// Review finding 1, PROBE-B: the mirror of PROBE-A with `MetroStart(None)`
+    /// as the fired intent. Fast-path "metronome on" fires (bare resume); a
+    /// genuine "metronome off" intervenes and must clear the guard; a later
+    /// genuine "start the metronome" (also a bare resume — same intent as the
+    /// original fire) must still act rather than being swallowed against the
+    /// now-superseded fire.
+    #[test]
+    fn a_genuine_command_between_the_fire_and_a_later_same_intent_final_clears_the_guard_for_start(
+    ) {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+
+        ctx.handle_final(&final_at("metronome 120", at));
+        ctx.handle_final(&final_at("metronome off", at + Duration::from_millis(5)));
+        assert!(!ctx.metro.snapshot().running);
+
+        ctx.handle_fast_path(&final_at("metronome on", at + Duration::from_millis(10)));
+        assert!(ctx.metro.snapshot().running, "the fast path resumed it");
+
+        // An intervening genuine command — a different intent — dispatches and
+        // must clear the guard.
+        ctx.handle_final(&final_at("metronome off", at + Duration::from_millis(20)));
+        assert!(!ctx.metro.snapshot().running, "the intervening stop must act");
+
+        // Still well inside DEDUP_WINDOW of the ORIGINAL "metronome on" fire, a
+        // genuine later resume, spoken outside the fast-path allowlist, must
+        // still act rather than being swallowed against the superseded fire.
+        ctx.handle_final(&final_at(
+            "start the metronome",
+            at + Duration::from_millis(1600),
+        ));
+        assert!(
+            ctx.metro.snapshot().running,
+            "a genuine later start must not be swallowed by a stale, already-superseded guard"
+        );
+    }
+
+    /// Review finding 1: the guard suppresses AT MOST ONE final. Once it has
+    /// consumed itself by suppressing the settled tail, a SECOND final that
+    /// happens to share the same routed intent — still inside the original
+    /// fire's window, with no new fast-path fire in between — must NOT be
+    /// suppressed again: it surfaces its own transcript like any other routed
+    /// command (the click is already stopped, so the stop action itself is
+    /// idempotent, but the final itself must not be silently eaten).
+    #[test]
+    fn the_tail_guard_suppresses_at_most_one_final() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+        ctx.handle_final(&final_at("metronome 120", at));
+        ctx.handle_fast_path(&final_at("metronome off", at + Duration::from_millis(10)));
+        assert!(!ctx.metro.snapshot().running);
+
+        let events_before = rec.events.lock().unwrap().len();
+
+        // The settled tail of the SAME utterance: same intent, inside the
+        // window — suppressed, and fully silent (no event at all), exactly as
+        // before. The guard is consumed here.
+        ctx.handle_final(&final_at("metronome off", at + Duration::from_millis(50)));
+        assert_eq!(
+            rec.events.lock().unwrap().len(),
+            events_before,
+            "the first tail final must still be fully silent"
+        );
+
+        // A second, differently-worded but same-intent final, still inside the
+        // ORIGINAL fire's window, and with no new fast-path fire re-arming the
+        // guard: must NOT be suppressed a second time.
+        ctx.handle_final(&final_at(
+            "turn the metronome off",
+            at + Duration::from_millis(200),
+        ));
+        assert!(
+            rec.events.lock().unwrap().iter().any(|(e, p)| e
+                == "voice://transcript"
+                && p["text"] == json!("turn the metronome off")),
+            "a second same-intent final must not be swallowed by an already-consumed guard"
+        );
+    }
+
+    /// Review finding 2 (ruled accepted-as-designed, pinned by regression
+    /// test): an out-of-vocabulary settled tail — the fast path fired on
+    /// "metronome off", but the settler's full utterance carries trailing
+    /// words that make it route to `Ignored`, not `MetroStop` — is NOT
+    /// suppressed by the tail guard (which only matches on routed INTENT). It
+    /// surfaces honestly as a second `handled = false` final, exactly the
+    /// intended consequence of routed-intent suppression: hiding heard speech
+    /// from the user is the recorded anti-lesson, worse than a duplicate pill.
+    /// Pinned here: exactly one stop action fires (from the partial), the
+    /// out-of-vocab tail does not touch metronome state, and it surfaces as
+    /// its own ambient transcript.
+    #[test]
+    fn an_out_of_vocab_tail_surfaces_honestly_and_does_not_touch_state() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let at = Instant::now();
+        ctx.handle_final(&final_at("metronome 120", at));
+
+        ctx.handle_fast_path(&final_at("metronome off", at + Duration::from_millis(10)));
+        assert!(!ctx.metro.snapshot().running, "the fast path stopped it");
+
+        ctx.handle_final(&final_at(
+            "metronome off now ok",
+            at + Duration::from_millis(600),
+        ));
+
+        assert!(
+            !ctx.metro.snapshot().running,
+            "the out-of-vocab tail must not touch metronome state"
+        );
+
+        let events = rec.events.lock().unwrap();
+        let stops = events
+            .iter()
+            .filter(|(e, p)| e == "voice://intent" && p["kind"] == json!("stop"))
+            .count();
+        assert_eq!(stops, 1, "exactly one stop action, from the partial");
+
+        assert!(
+            events.iter().any(|(e, p)| e == "voice://transcript"
+                && p["text"] == json!("metronome off now ok")
+                && p["handled"] == json!(false)),
+            "the out-of-vocab tail must surface as its own ambient final"
+        );
     }
 
     /// Mute wins over the fast path exactly as it wins over a final.

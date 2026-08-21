@@ -122,6 +122,61 @@ describe("BooksPanel", () => {
     expect(within(list).getByText("On Focus")).toBeTruthy();
   });
 
+  // B72: the removed <form> gave every text input in the group Enter-to-submit
+  // for free (path, title, author — Kind is a <select>, browsers don't
+  // Enter-submit those, so it's excluded). Cover all three explicitly so none
+  // silently regress to a no-op Enter.
+  it.each([
+    "Markdown file path",
+    "Book title",
+    "Book author",
+  ])(
+    "submits on Enter in the %s field (B72 de-nest kept this working)",
+    async (fieldLabel) => {
+      const added: BookRecord = {
+        id: "added-2",
+        file_name: "focus.md",
+        title: "On Focus",
+        author: "A. Writer",
+        kind: "practice-method",
+        visual_dependency: false,
+        available: true,
+      };
+      const books = api({ add: vi.fn().mockResolvedValue(added) });
+      render(<BooksPanel api={books} />);
+      await screen.findByRole("list", { name: "Books" });
+
+      fireEvent.change(screen.getByLabelText("Markdown file path"), {
+        target: { value: "/vault/Knowledge/focus.md" },
+      });
+      fireEvent.change(screen.getByLabelText("Book title"), {
+        target: { value: "On Focus" },
+      });
+      fireEvent.change(screen.getByLabelText("Book author"), {
+        target: { value: "A. Writer" },
+      });
+
+      fireEvent.keyDown(screen.getByLabelText(fieldLabel), { key: "Enter" });
+
+      await waitFor(() =>
+        expect(books.add).toHaveBeenCalledWith({
+          path: "/vault/Knowledge/focus.md",
+          title: "On Focus",
+          author: "A. Writer",
+          kind: "practice-method",
+        }),
+      );
+    },
+  );
+
+  it("has no <form> in its tree (B72: the add group is a div/role=group)", async () => {
+    const books = api();
+    const { container } = render(<BooksPanel api={books} />);
+    await screen.findByRole("list", { name: "Books" });
+    expect(container.querySelector("form")).toBeNull();
+    expect(screen.getByRole("group", { name: "Add a book" })).toBeTruthy();
+  });
+
   it("validates before invoking: title required, then .md required", async () => {
     const books = api({ add: vi.fn() });
     render(<BooksPanel api={books} />);

@@ -89,14 +89,21 @@
 
 .score-edition-group {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   align-items: center;
   gap: var(--space-2);
 }
 
+/* B76: `flex: 1` gave the label a 0% basis, so it collapsed far below its own
+   content and painted its <select> over the next control. `flex: 0 1 auto` sizes
+   the label to its content instead, and the group wraps rather than squeezing —
+   which is enough on its own to keep the select inside its box. Deliberately NOT
+   `overflow: hidden` here: this is the focusable select's ancestor, and clipping
+   it cuts the select's focus ring off on three sides (WCAG 2.4.7). */
 .score-edition-group .score-edition {
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
 }
 
 .score-toolbar .score-draw-target {
@@ -128,6 +135,7 @@
 /* Inline discoverability while target mode is armed but nothing is drawn yet —
    replaces the old empty floating panel so no control is ever occluded. */
 .score-atlas-draw-hint {
+  flex-basis: 100%;
   min-width: 0;
   overflow: hidden;
   color: var(--ink-secondary);
@@ -139,6 +147,7 @@
 .score-edition select {
   min-width: 0;
   max-width: 320px;
+  flex: 1 1 auto;
   padding: 0 var(--space-2);
 }
 
@@ -1070,16 +1079,24 @@
   color: var(--danger);
 }
 
-@media (max-width: 900px) {
+/* B76: the toolbar needs this reflow far earlier than the sidebar does. Keeping
+   both at 900px made the toolbar TALLER at 910px than at 900px (146px -> 174px),
+   because outside the query the base three-column grid squeezes the edition group
+   into a narrow 1fr column and it wraps to three rows. Measured crossover — where
+   the base grid first becomes the shorter of the two — is 1145px (85px steady at
+   1141/1142/1143px, nothing observable happens exactly at 1142); the breakpoint
+   sits at 1200px to leave headroom for edition labels longer than the mock's. */
+@media (max-width: 1200px) {
   .score-toolbar {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto 1fr;
   }
 
-  .score-zoom {
+  .score-edition-group {
     grid-column: 1 / -1;
-    justify-content: center;
   }
+}
 
+@media (max-width: 900px) {
   .score-body {
     --score-sidebar-width: 340px;
   }

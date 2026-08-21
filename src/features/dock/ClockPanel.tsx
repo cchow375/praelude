@@ -1,12 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DockPanel } from "./DockPanel";
 import { useDock } from "./DockProvider";
 import { Button } from "../../ui";
-import { NAV_RAIL_WIDTH } from "./dockState";
+import {
+  NAV_RAIL_WIDTH,
+  PANEL_STACK_GAP_PX,
+  PANEL_WIDTH_EDGE_MARGIN,
+} from "./dockState";
 import {
   ASSUMED_MAX_HEIGHT as PAUSED_ASSUMED_MAX_HEIGHT,
   DEFAULT_POSITION as PAUSED_DEFAULT_POSITION,
 } from "./PausedSetsTray";
+import { PANEL_WIDTH as REP_PANEL_WIDTH } from "./RepPanel";
 import {
   MAX_CUSTOM_MINUTES,
   MIN_CUSTOM_MINUTES,
@@ -18,14 +23,56 @@ import {
 } from "./timerMachine";
 import "./dock.css";
 
-/** Fix wave item 9: below the paused-sets tray's own (rep-derived) default
+/** Fix wave item 9: below the paused-sets tray's own (chain-derived) default
  * spot, clear of the nav rail — see RepPanel.tsx/PausedSetsTray.tsx for the
  * same reasoning. All three panels default CLOSED (a pill, per item 7), so
- * this position is only ever used once a panel is actually opened. */
+ * this position is only ever used once a panel is actually opened.
+ *
+ * Round 4: `y` is back to its pre-task, live-measured-good 504 (the chain now
+ * hangs off `DOCK_CHAIN_BASE_Y`, not RepPanel's own y — rounds 2-3 had pushed
+ * it to 596, off the 720x520 floor). `x` here is the FIRST column, used
+ * whenever a second column would not fit; `clockDefaultX` below picks. */
 export const DEFAULT_POSITION = {
   x: NAV_RAIL_WIDTH + 12,
   y: PAUSED_DEFAULT_POSITION.y + PAUSED_ASSUMED_MAX_HEIGHT + 24,
 };
+
+/** Stated explicitly rather than inherited from DockPanel's own default, so
+ * `clockDefaultX`'s "does a second column fit?" math and the width actually
+ * rendered can never disagree. Same value DockPanel would have used. */
+export const PANEL_WIDTH = 320;
+
+/** Round 4. At a realistic ~1440x900 window the rep panel's real box is
+ * live-measured at 108-583.5 — i.e. it reaches PAST the clock's own default
+ * `y` (504). Both panels default to the same x column, so `resolveCollision`
+ * (dockState.ts) pushes the clock down to `rep.bottom + 8` = 591.5 on open,
+ * which leaves it a `dockPanelMaxHeight` budget of 292.5px for 338px of
+ * content: the timer's Start/Reset row falls off the bottom and needs an
+ * inner scroll to reach. That is a REGRESSION against the pre-task baseline
+ * (live-measured at 2514aa6: clock opens at 504, both Start/Reset rows
+ * visible, no inner scroll) — and it is not fixable by tuning `y`, because
+ * any `y` that clears the shell topbar puts rep's real bottom below 504.
+ *
+ * So the clock takes a SECOND column beside the rep panel when — and only
+ * when — the whole panel fits there. No horizontal intersection means
+ * `resolveCollision` has nothing to push, and the clock opens at its
+ * measured-good default. At the 720x520 floor a second column would hang
+ * half off the right edge (`clampPosition`'s x clamp only guarantees
+ * `MIN_VISIBLE_ON_OPEN_PX` of it stays on screen), so the floor keeps the
+ * original single column and its pre-existing viewport-clamped landing.
+ *
+ * Deliberately NOT the round-3-style "model the page's own element edges"
+ * approach that was refuted: this is one boolean about the dock's own two
+ * panels, built from constants the dock already owns, with no measurement of
+ * page content anywhere in it. */
+export function clockDefaultX(viewportWidth: number | undefined): number {
+  const firstColumn = DEFAULT_POSITION.x;
+  if (viewportWidth === undefined) return firstColumn;
+  const secondColumn = firstColumn + REP_PANEL_WIDTH + PANEL_STACK_GAP_PX;
+  const fitsFully =
+    secondColumn + PANEL_WIDTH + PANEL_WIDTH_EDGE_MARGIN <= viewportWidth;
+  return fitsFully ? secondColumn : firstColumn;
+}
 
 /** How often the display re-renders. Purely cosmetic — the underlying
  * `timerMachine` is time-based (tick(now) diffs against an anchor
@@ -161,8 +208,24 @@ export function ClockPanel({
     recompute(Date.now());
   }
 
+  // Computed once per mount (empty deps), the same way RepPanel freezes its
+  // own default: `ensurePanel` only ever registers a NEW panel's position
+  // once, so recomputing on every render would just be a discarded value.
+  // `window` always exists in this Tauri/browser app; the `typeof` guard is
+  // for `clockDefaultX`'s own unit tests, which pass `undefined` on purpose.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const defaultX = useMemo(
+    () => clockDefaultX(typeof window === "undefined" ? undefined : window.innerWidth),
+    [],
+  );
+
   return (
-    <DockPanel id="clock" title="Clock" defaultPosition={DEFAULT_POSITION}>
+    <DockPanel
+      id="clock"
+      title="Clock"
+      width={PANEL_WIDTH}
+      defaultPosition={{ x: defaultX, y: DEFAULT_POSITION.y }}
+    >
       <div className="clock-panel-time" aria-label="Current time">
         {new Date(now).toLocaleTimeString([], {
           hour: "numeric",

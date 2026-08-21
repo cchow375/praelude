@@ -404,7 +404,7 @@ dependencies = [
 
 [[package]]
 name = "codakiller"
-version = "6.0.0"
+version = "6.0.1"
 dependencies = [
  "base64 0.22.1",
  "cpal",
