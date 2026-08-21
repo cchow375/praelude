@@ -122,69 +122,52 @@ describe("BooksPanel", () => {
     expect(within(list).getByText("On Focus")).toBeTruthy();
   });
 
-  it("submits on Enter in the path field (B72 de-nest kept this working)", async () => {
-    const added: BookRecord = {
-      id: "added-2",
-      file_name: "focus.md",
-      title: "On Focus",
-      author: "",
-      kind: "practice-method",
-      visual_dependency: false,
-      available: true,
-    };
-    const books = api({ add: vi.fn().mockResolvedValue(added) });
-    render(<BooksPanel api={books} />);
-    await screen.findByRole("list", { name: "Books" });
-
-    fireEvent.change(screen.getByLabelText("Book title"), {
-      target: { value: "On Focus" },
-    });
-    const pathInput = screen.getByLabelText("Markdown file path");
-    fireEvent.change(pathInput, {
-      target: { value: "/vault/Knowledge/focus.md" },
-    });
-    fireEvent.keyDown(pathInput, { key: "Enter" });
-
-    await waitFor(() =>
-      expect(books.add).toHaveBeenCalledWith({
-        path: "/vault/Knowledge/focus.md",
+  // B72: the removed <form> gave every text input in the group Enter-to-submit
+  // for free (path, title, author — Kind is a <select>, browsers don't
+  // Enter-submit those, so it's excluded). Cover all three explicitly so none
+  // silently regress to a no-op Enter.
+  it.each([
+    "Markdown file path",
+    "Book title",
+    "Book author",
+  ])(
+    "submits on Enter in the %s field (B72 de-nest kept this working)",
+    async (fieldLabel) => {
+      const added: BookRecord = {
+        id: "added-2",
+        file_name: "focus.md",
         title: "On Focus",
-        author: "",
+        author: "A. Writer",
         kind: "practice-method",
-      }),
-    );
-  });
+        visual_dependency: false,
+        available: true,
+      };
+      const books = api({ add: vi.fn().mockResolvedValue(added) });
+      render(<BooksPanel api={books} />);
+      await screen.findByRole("list", { name: "Books" });
 
-  it("submits on Enter in the title field (B72 de-nest kept this working)", async () => {
-    const added: BookRecord = {
-      id: "added-3",
-      file_name: "focus.md",
-      title: "On Focus",
-      author: "",
-      kind: "practice-method",
-      visual_dependency: false,
-      available: true,
-    };
-    const books = api({ add: vi.fn().mockResolvedValue(added) });
-    render(<BooksPanel api={books} />);
-    await screen.findByRole("list", { name: "Books" });
+      fireEvent.change(screen.getByLabelText("Markdown file path"), {
+        target: { value: "/vault/Knowledge/focus.md" },
+      });
+      fireEvent.change(screen.getByLabelText("Book title"), {
+        target: { value: "On Focus" },
+      });
+      fireEvent.change(screen.getByLabelText("Book author"), {
+        target: { value: "A. Writer" },
+      });
 
-    fireEvent.change(screen.getByLabelText("Markdown file path"), {
-      target: { value: "/vault/Knowledge/focus.md" },
-    });
-    const titleInput = screen.getByLabelText("Book title");
-    fireEvent.change(titleInput, { target: { value: "On Focus" } });
-    fireEvent.keyDown(titleInput, { key: "Enter" });
+      fireEvent.keyDown(screen.getByLabelText(fieldLabel), { key: "Enter" });
 
-    await waitFor(() =>
-      expect(books.add).toHaveBeenCalledWith({
-        path: "/vault/Knowledge/focus.md",
-        title: "On Focus",
-        author: "",
-        kind: "practice-method",
-      }),
-    );
-  });
+      await waitFor(() =>
+        expect(books.add).toHaveBeenCalledWith({
+          path: "/vault/Knowledge/focus.md",
+          title: "On Focus",
+          author: "A. Writer",
+          kind: "practice-method",
+        }),
+      );
+    },
+  );
 
   it("has no <form> in its tree (B72: the add group is a div/role=group)", async () => {
     const books = api();

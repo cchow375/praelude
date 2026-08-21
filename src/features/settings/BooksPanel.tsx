@@ -126,6 +126,17 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
     }
   };
 
+  // Enter-to-submit on every plain text input in the "Add a book" group — the
+  // <form> this group used to be gave every text input this for free; wire it
+  // back explicitly now that the group is a <div role="group">. (Kind is a
+  // <select>, which browsers never Enter-submit, so it's excluded on purpose.)
+  const onEnterSubmit = (event: { key: string; preventDefault: () => void }) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      add(event);
+    }
+  };
+
   const confirmRemove = async () => {
     if (!removing) return;
     const target = removing;
@@ -170,12 +181,7 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
               placeholder="Drop a .md file here, or paste its full path"
               value={path}
               onChange={(event) => setPath(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  add(event);
-                }
-              }}
+              onKeyDown={onEnterSubmit}
             />
           </label>
         </div>
@@ -185,12 +191,7 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
             aria-label="Book title"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                add(event);
-              }
-            }}
+            onKeyDown={onEnterSubmit}
           />
         </label>
         <label className="settings-row settings-wide">
@@ -199,6 +200,7 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
             aria-label="Book author"
             value={author}
             onChange={(event) => setAuthor(event.target.value)}
+            onKeyDown={onEnterSubmit}
           />
         </label>
         <label className="settings-row">
