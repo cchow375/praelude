@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { DENSE_LAYOUT_FLOOR, NAV_RAIL_WIDTH } from "./dockState";
+import { DENSE_LAYOUT_FLOOR, MIN_PANEL_WIDTH, NAV_RAIL_WIDTH } from "./dockState";
 import {
   ASSUMED_MAX_HEIGHT as REP_ASSUMED_MAX_HEIGHT,
   DEFAULT_POSITION as REP_DEFAULT_POSITION,
   PANEL_WIDTH as REP_PANEL_WIDTH,
+  TODAY_NAV_CARD_RIGHT_INTERCEPT,
+  TODAY_NAV_CARD_RIGHT_SLOPE,
+  WIDE_VIEWPORT_BREAKPOINT,
+  WIDE_Y,
+  repDefaultLayout,
 } from "./RepPanel";
 import {
   ASSUMED_MAX_HEIGHT as PAUSED_ASSUMED_MAX_HEIGHT,
@@ -116,5 +121,91 @@ describe("dock default positions at the 720x520 floor (fix wave item 9)", () => 
 
   it("sanity: DENSE_LAYOUT_FLOOR matches this file's own VIEWPORT constant", () => {
     expect(DENSE_LAYOUT_FLOOR).toEqual(VIEWPORT);
+  });
+});
+
+// Real-use fix wave (item 4), round 3: round 2's FIXED default (x:160,
+// y:108) still landed the rep panel's box on top of the Score tab's own
+// head (title/tabs/piece-picker/metronome — always rendered, spans nearly
+// the full content width) at a realistic ~1440x900 window, because y:108
+// only ever cleared the shell topbar, not that. `repDefaultLayout` makes
+// the default a pure function of the viewport (+ requested width) instead
+// of a single constant, so it can lean right and drop lower once there is
+// real room to do so — see RepPanel.tsx's doc comments for the full
+// measurement-backed reasoning (`WIDE_VIEWPORT_BREAKPOINT`, `WIDE_Y`,
+// `TODAY_NAV_CARD_RIGHT_SLOPE`/`_INTERCEPT`). These are the pure-function
+// unit tests (no DOM); the live, rendered verification (both viewport
+// sizes, every named element) lives in task-4-report.md.
+describe("repDefaultLayout (real-use fix wave item 4, round 3 — viewport-aware default)", () => {
+  it("falls back to DEFAULT_POSITION (+ the requested width, unclamped) when the viewport is unknown", () => {
+    expect(repDefaultLayout(undefined, REP_PANEL_WIDTH)).toEqual({
+      x: REP_DEFAULT_POSITION.x,
+      y: REP_DEFAULT_POSITION.y,
+      width: REP_PANEL_WIDTH,
+    });
+  });
+
+  it("narrow viewport (below WIDE_VIEWPORT_BREAKPOINT, e.g. the 720x520 floor): identical to round 2 — DEFAULT_POSITION untouched", () => {
+    expect(
+      repDefaultLayout(VIEWPORT, REP_PANEL_WIDTH),
+    ).toEqual({
+      x: REP_DEFAULT_POSITION.x,
+      y: REP_DEFAULT_POSITION.y,
+      width: REP_PANEL_WIDTH,
+    });
+    // Exercise the exact boundary too — one px below the breakpoint must
+    // still be the narrow behavior.
+    const justNarrow = {
+      width: WIDE_VIEWPORT_BREAKPOINT - 1,
+      height: 900,
+    };
+    expect(repDefaultLayout(justNarrow, REP_PANEL_WIDTH).y).toBe(
+      REP_DEFAULT_POSITION.y,
+    );
+  });
+
+  it("wide viewport (a realistic ~1440x900 window): squeezes right of the Today nav card's estimated right edge, and drops to WIDE_Y", () => {
+    const wide = { width: 1440, height: 900 };
+    const result = repDefaultLayout(wide, REP_PANEL_WIDTH);
+
+    expect(result.y).toBe(WIDE_Y);
+
+    // The panel's own left edge must clear the nav card's estimated right
+    // edge (with the standard edge-margin gap) — this is the whole point
+    // of the squeeze, asserted directly against the same formula
+    // RepPanel.tsx uses (not a hardcoded pixel, so this can't silently
+    // drift out of sync with the implementation).
+    const navCardRightEstimate =
+      TODAY_NAV_CARD_RIGHT_SLOPE * wide.width + TODAY_NAV_CARD_RIGHT_INTERCEPT;
+    expect(result.x).toBeGreaterThanOrEqual(navCardRightEstimate);
+
+    // Squeezed narrower than the requested width, but never below the
+    // framework's own MIN_PANEL_WIDTH floor.
+    expect(result.width).toBeLessThan(REP_PANEL_WIDTH);
+    expect(result.width).toBeGreaterThanOrEqual(MIN_PANEL_WIDTH);
+
+    // Still fits inside the viewport with the standard edge margin on the
+    // right — the squeeze must not just move the overflow problem instead
+    // of solving it.
+    expect(result.x + result.width).toBeLessThanOrEqual(wide.width);
+  });
+
+  it("wide-but-narrow-for-squeezing viewport (e.g. 900px wide): not enough room right of the nav card for MIN_PANEL_WIDTH — falls back to a plain right-align, still at WIDE_Y", () => {
+    const narrowWide = { width: 900, height: 900 };
+    const result = repDefaultLayout(narrowWide, REP_PANEL_WIDTH);
+
+    expect(result.y).toBe(WIDE_Y);
+    // Falls back to the FULL requested width (no squeeze attempted) —
+    // still right-leaning and still inside the viewport.
+    expect(result.width).toBe(REP_PANEL_WIDTH);
+    expect(result.x + result.width).toBeLessThanOrEqual(narrowWide.width);
+    expect(result.x).toBeGreaterThanOrEqual(NAV_RAIL_WIDTH);
+  });
+
+  it("the wide tier's y clears score-workspace-head's live-measured worst case (277.95px at 820-1100px width) with margin", () => {
+    // Documented in RepPanel.tsx's WIDE_Y comment — asserted here so a
+    // future change to WIDE_Y can't silently regress below the measured
+    // number without a test failing.
+    expect(WIDE_Y).toBeGreaterThan(277.953125);
   });
 });
