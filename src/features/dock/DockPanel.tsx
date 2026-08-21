@@ -44,8 +44,11 @@ const DEFAULT_PANEL_WIDTH = 320;
 
 // Fallback panel footprint used for clamp math before the panel has ever
 // been laid out (first paint) or in jsdom, which reports a zero-size rect.
-// Shared with DockProvider's `ensurePanel` (dockState.ts) so both use the
-// same number.
+// This is the ONLY place that reads `DOCK_PANEL_FALLBACK_SIZE` — DockProvider's
+// `ensurePanel` (DockProvider.tsx, not dockState.ts) deliberately does NOT use
+// it; see that constant's doc comment in dockState.ts for why (round 2 fix:
+// a shared fallback there corrupted wide panels' legitimately-dragged
+// positions).
 const FALLBACK_SIZE: Size = DOCK_PANEL_FALLBACK_SIZE;
 
 type Drag = {

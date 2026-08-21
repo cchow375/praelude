@@ -44,12 +44,16 @@ import { RepHud, type RepHudProps } from "../rep/RepHud";
  *   - Clock's fixed 360-520 landing when opened alongside rep: rep's box
  *     (108-374) overlaps it by 14px (title bar only) — a small, PROVABLY
  *     UNAVOIDABLE side effect of clearing the topbar at this exact floor:
- *     rep's own real height saturates at 300px for any y <= 204 (see
- *     `dockPanelMaxHeight`), so its bottom edge is `y + 300`; Clock's
- *     landing is fixed at `520 - MIN_VISIBLE_ON_OPEN_PX(160) = 360`
- *     regardless of rep's position (confirmed identical — y:360 — across
- *     y:16/108/340 live tests). Zero overlap needs `y <= 60`; clearing the
- *     topbar needs `y >= ~100`. No y satisfies both at this floor.
+ *     rep's real, live-measured box is 108-374 (height ~266px). Note this is
+ *     BELOW `dockPanelMaxHeight`'s 300px ceiling for any y <= 204 — 300 is
+ *     the CEILING the CSS enforces, not what RepHud's real content reaches,
+ *     so its bottom edge is `y + 266`, not `y + 300`. Clock's landing is
+ *     fixed at `520 - MIN_VISIBLE_ON_OPEN_PX(160) = 360` regardless of rep's
+ *     position (confirmed identical — y:360 — across y:16/108/340 live
+ *     tests). Zero overlap needs `y <= 94` (360 - 266); clearing the topbar
+ *     needs `y >= ~100`. No y satisfies both at this floor — but by a ~6px
+ *     margin, not the 40px an earlier (300px-height) version of this
+ *     comment claimed.
  *   - `.score-workspace-head`/`.score-toolbar` on the Score tab (123.5-330,
  *     360.75-517.75) are NOT cleared by y:108 either — round 1's attempt to
  *     clear them was what caused the regressions above, and even a y that

@@ -295,9 +295,23 @@ export const DENSE_LAYOUT_FLOOR: Size = { width: 720, height: 520 };
  * to 108, which pushed `ClockPanel.DEFAULT_POSITION.y` from a measured-good
  * 504 (inside the 720x520 floor, Start/Reset reachable without inner
  * scrolling) to 596 (past the floor entirely, Start/Reset off-screen at a
- * ~1440x900 window). Pinning the chain's origin here decouples the two: rep's
- * default is tuned against the shell topbar, the chain is tuned against the
- * dense-layout floor, and neither can silently regress the other.
+ * ~1440x900 window). Pinning the chain's origin here decouples the STARTING
+ * point of the two — rep's default is tuned against the shell topbar, the
+ * chain is tuned against the dense-layout floor, and moving `DOCK_CHAIN_BASE_Y`
+ * no longer moves RepPanel's own `y`, nor vice versa.
+ *
+ * The decoupling is NOT total, though: `RepPanel.ASSUMED_MAX_HEIGHT =
+ * dockPanelMaxHeight(520, RepPanel.DEFAULT_POSITION.y)` still feeds the
+ * chain through that second argument, because a taller/shorter rep panel
+ * genuinely does need more/less room reserved above the tray. This is
+ * benign for RepPanel's current `y: 108` (chain stays 340/504), but is not
+ * inert in general — e.g. `y: 340` would shrink `ASSUMED_MAX_HEIGHT` to 164
+ * and shift the chain to 204/368. What actually prevents a SILENT
+ * regression is `dockDefaultLayout.test.ts`'s "keeps both chained defaults
+ * (tray and clock) inside the 520px floor" test, which pins
+ * `PAUSED_DEFAULT_POSITION.y === 340` and `CLOCK_DEFAULT_POSITION.y === 504`
+ * — any future change to RepPanel's `y` that shifts the chain fails that
+ * assertion instead of shipping unnoticed.
  * 16 is the value the chain was measured good at. */
 export const DOCK_CHAIN_BASE_Y = 16;
 
@@ -366,7 +380,17 @@ export const DOCK_Z_BASE = 10;
 
 /** One below the lowest global-overlay layer (40). With `DOCK_Z_BASE` this
  * gives 30 distinct panel slots — the dock has 3 panels, so the cap is pure
- * defence against a future dock growing past the window. */
+ * defence against a future dock growing past the window.
+ *
+ * That defence is not free past 30 panels, though: `dockPanelZIndex` clamps
+ * with `Math.min(DOCK_Z_BASE + rank, DOCK_Z_CEILING)`, so once the panel
+ * count exceeds the 30 available slots, the excess panels all tie at the
+ * ceiling instead of getting a distinct rank — e.g. with 40 panels open, the
+ * 11 highest-ranked ones (ranks 29-39) all render at z-index 39, and
+ * strict top-to-bottom focus ordering among THAT group is lost (ties
+ * resolve by id, not by focus recency). Unreachable at the dock's current
+ * size (3 panels, nowhere near 30), so this is a note for whoever adds
+ * panel #31, not a live bug. */
 export const DOCK_Z_CEILING = 39;
 
 /** The CSS z-index a panel actually renders at: its rank among all panels'
