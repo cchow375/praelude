@@ -1,4 +1,4 @@
-import { useEffect, useState, type DragEvent, type FormEvent } from "react";
+import { useEffect, useState, type DragEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useReceipts } from "../receipts/ReceiptCenter";
 import { commandErrorMessage } from "../../services/command";
@@ -79,8 +79,10 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
     };
   }, [api]);
 
-  const add = async (event: FormEvent) => {
-    event.preventDefault();
+  // `add` fires from a click, an Enter keypress, or (defensively) a future
+  // form submit — all it needs from the event is preventDefault.
+  const add = async (event: { preventDefault?: () => void }) => {
+    event.preventDefault?.();
     if (adding) return;
     setAddError(null);
     setAddReceipt(null);
@@ -151,7 +153,7 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
     <div className="settings-group books-panel">
       <BookList books={books} loadError={loadError} onRemove={setRemoving} />
 
-      <form className="books-add" aria-label="Add a book" onSubmit={add}>
+      <div className="books-add" role="group" aria-label="Add a book">
         <div
           className={`books-drop${dragging ? " is-dragging" : ""}`}
           onDragOver={(event) => {
@@ -168,6 +170,12 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
               placeholder="Drop a .md file here, or paste its full path"
               value={path}
               onChange={(event) => setPath(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  add(event);
+                }
+              }}
             />
           </label>
         </div>
@@ -177,6 +185,12 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
             aria-label="Book title"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                add(event);
+              }
+            }}
           />
         </label>
         <label className="settings-row settings-wide">
@@ -202,7 +216,12 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
           </select>
         </label>
         <div className="books-add-actions">
-          <Button variant="primary" type="submit" disabled={adding}>
+          <Button
+            variant="primary"
+            type="button"
+            disabled={adding}
+            onClick={(event) => void add(event)}
+          >
             {adding ? "Adding…" : "Add book"}
           </Button>
         </div>
@@ -216,7 +235,7 @@ export function BooksPanel({ api = defaultBooksApi }: { api?: BooksApi }) {
             {addReceipt}
           </p>
         )}
-      </form>
+      </div>
 
       <RemoveDialog
         book={removing}

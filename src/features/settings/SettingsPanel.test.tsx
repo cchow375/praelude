@@ -14,6 +14,7 @@ import {
   type SettingsSnapshot,
 } from "./SettingsPanel";
 import { ReceiptCenterProvider } from "../receipts/ReceiptCenter";
+import type { BooksApi, BookRecord } from "./BooksPanel";
 
 // The voice section reflects live degraded-TTS state pushed over `voice://tts`.
 // Only the event module is mocked (so a test can emit the backend's transition);
@@ -240,5 +241,53 @@ describe("SettingsPanel", () => {
     expect(
       screen.queryByText("Voice degraded — using system voice"),
     ).toBeNull();
+  });
+
+  // B72: the "Add a book" group used to be a nested <form>, invalid HTML
+  // inside the settings <form> and browser-defined submit semantics.
+  it("keeps the Books add group out of the settings form (no nested form, B72)", async () => {
+    const added: BookRecord = {
+      id: "added-1",
+      file_name: "focus.md",
+      title: "On Focus",
+      author: "",
+      kind: "practice-method",
+      visual_dependency: false,
+      available: true,
+    };
+    const booksApi: BooksApi = {
+      list: vi.fn().mockResolvedValue([]),
+      add: vi.fn().mockResolvedValue(added),
+      remove: vi.fn().mockResolvedValue(undefined),
+    };
+    const { container } = render(
+      <SettingsPanel api={api()} booksApi={booksApi} />,
+    );
+    await screen.findByText(/dark practice-room interface/i);
+
+    // Open the Books disclosure.
+    fireEvent.click(screen.getByText("Books"));
+    await screen.findByText("No books yet.");
+
+    // Structural regression check: no <form> nested inside another <form>.
+    expect(container.querySelectorAll("form form").length).toBe(0);
+
+    // The add flow still works end-to-end from outside the settings form.
+    fireEvent.change(screen.getByLabelText("Markdown file path"), {
+      target: { value: "/vault/Knowledge/focus.md" },
+    });
+    fireEvent.change(screen.getByLabelText("Book title"), {
+      target: { value: "On Focus" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add book" }));
+
+    await waitFor(() =>
+      expect(booksApi.add).toHaveBeenCalledWith({
+        path: "/vault/Knowledge/focus.md",
+        title: "On Focus",
+        author: "",
+        kind: "practice-method",
+      }),
+    );
   });
 });

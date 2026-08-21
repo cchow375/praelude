@@ -122,6 +122,78 @@ describe("BooksPanel", () => {
     expect(within(list).getByText("On Focus")).toBeTruthy();
   });
 
+  it("submits on Enter in the path field (B72 de-nest kept this working)", async () => {
+    const added: BookRecord = {
+      id: "added-2",
+      file_name: "focus.md",
+      title: "On Focus",
+      author: "",
+      kind: "practice-method",
+      visual_dependency: false,
+      available: true,
+    };
+    const books = api({ add: vi.fn().mockResolvedValue(added) });
+    render(<BooksPanel api={books} />);
+    await screen.findByRole("list", { name: "Books" });
+
+    fireEvent.change(screen.getByLabelText("Book title"), {
+      target: { value: "On Focus" },
+    });
+    const pathInput = screen.getByLabelText("Markdown file path");
+    fireEvent.change(pathInput, {
+      target: { value: "/vault/Knowledge/focus.md" },
+    });
+    fireEvent.keyDown(pathInput, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(books.add).toHaveBeenCalledWith({
+        path: "/vault/Knowledge/focus.md",
+        title: "On Focus",
+        author: "",
+        kind: "practice-method",
+      }),
+    );
+  });
+
+  it("submits on Enter in the title field (B72 de-nest kept this working)", async () => {
+    const added: BookRecord = {
+      id: "added-3",
+      file_name: "focus.md",
+      title: "On Focus",
+      author: "",
+      kind: "practice-method",
+      visual_dependency: false,
+      available: true,
+    };
+    const books = api({ add: vi.fn().mockResolvedValue(added) });
+    render(<BooksPanel api={books} />);
+    await screen.findByRole("list", { name: "Books" });
+
+    fireEvent.change(screen.getByLabelText("Markdown file path"), {
+      target: { value: "/vault/Knowledge/focus.md" },
+    });
+    const titleInput = screen.getByLabelText("Book title");
+    fireEvent.change(titleInput, { target: { value: "On Focus" } });
+    fireEvent.keyDown(titleInput, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(books.add).toHaveBeenCalledWith({
+        path: "/vault/Knowledge/focus.md",
+        title: "On Focus",
+        author: "",
+        kind: "practice-method",
+      }),
+    );
+  });
+
+  it("has no <form> in its tree (B72: the add group is a div/role=group)", async () => {
+    const books = api();
+    const { container } = render(<BooksPanel api={books} />);
+    await screen.findByRole("list", { name: "Books" });
+    expect(container.querySelector("form")).toBeNull();
+    expect(screen.getByRole("group", { name: "Add a book" })).toBeTruthy();
+  });
+
   it("validates before invoking: title required, then .md required", async () => {
     const books = api({ add: vi.fn() });
     render(<BooksPanel api={books} />);
