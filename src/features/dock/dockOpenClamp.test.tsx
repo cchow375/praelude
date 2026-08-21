@@ -12,6 +12,7 @@ import { DockPillBar } from "./DockPillBar";
 import {
   DOCK_STORAGE_KEY,
   MIN_VISIBLE_ON_OPEN_PX,
+  MIN_VISIBLE_PX,
   rectsIntersect,
   type Rect,
 } from "./dockState";
@@ -325,6 +326,86 @@ function readDialogRect(
     height: size.height,
   };
 }
+
+describe("v6.0.1 — persisted off-viewport position is re-clamped on ensurePanel", () => {
+  it("clamps a panel that mounts already open at a position persisted from a larger/different viewport back into view", () => {
+    // No prior "restore" click, no visibility transition at all — this
+    // panel is ALREADY `open` in the persisted blob, so DockPanel's
+    // become-visible effect (which only fires on a false->true transition)
+    // never runs for it. `ensurePanel` itself is the only seam that ever
+    // sees this panel on this mount, so it is the only place that can catch
+    // a position like this one that predates a resize/display change.
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        clock: {
+          x: 5000,
+          y: 5000,
+          minimized: false,
+          open: true,
+          z: 1,
+          flashing: false,
+        },
+      }),
+    );
+
+    render(
+      <DockProvider>
+        <DockPanel id="clock" title="Clock" defaultPosition={{ x: 24, y: 464 }}>
+          <div>clock body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Clock" });
+    const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(
+      dialog.style.transform,
+    );
+    expect(match).not.toBeNull();
+    const x = Number(match![1]);
+    const y = Number(match![2]);
+
+    // At least MIN_VISIBLE_PX must remain on screen in both axes — the
+    // persisted 5000,5000 (from a larger window or a different display)
+    // must never be reused verbatim.
+    expect(x).toBeLessThanOrEqual(VIEWPORT.width - MIN_VISIBLE_PX);
+    expect(y).toBeLessThanOrEqual(VIEWPORT.height - MIN_VISIBLE_PX);
+    expect(x).toBeLessThan(5000);
+    expect(y).toBeLessThan(5000);
+  });
+
+  it("leaves an already-on-screen persisted position untouched", () => {
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        clock: {
+          x: 24,
+          y: 64,
+          minimized: false,
+          open: true,
+          z: 1,
+          flashing: false,
+        },
+      }),
+    );
+
+    render(
+      <DockProvider>
+        <DockPanel id="clock" title="Clock" defaultPosition={{ x: 24, y: 464 }}>
+          <div>clock body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Clock" });
+    const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(
+      dialog.style.transform,
+    );
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBe(24);
+    expect(Number(match![2])).toBe(64);
+  });
+});
 
 describe("DockPillBar (residuals fix wave, defect 4: pill occludes page content)", () => {
   // A live-QA reproduction at 720x520 showed a day sheet's carry-forward

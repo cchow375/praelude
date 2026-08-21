@@ -13,6 +13,7 @@ import {
   dockPanelMaxHeight,
   pillStackIndex,
   resolveCollision,
+  DOCK_PANEL_FALLBACK_SIZE,
   MIN_VISIBLE_ON_OPEN_PX,
   PILL_STACK_STEP_PX,
   type Size,
@@ -42,7 +43,9 @@ const DEFAULT_PANEL_WIDTH = 320;
 
 // Fallback panel footprint used for clamp math before the panel has ever
 // been laid out (first paint) or in jsdom, which reports a zero-size rect.
-const FALLBACK_SIZE: Size = { width: 260, height: 200 };
+// Shared with DockProvider's `ensurePanel` (dockState.ts) so both use the
+// same number.
+const FALLBACK_SIZE: Size = DOCK_PANEL_FALLBACK_SIZE;
 
 type Drag = {
   startX: number;

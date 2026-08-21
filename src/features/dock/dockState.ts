@@ -24,6 +24,14 @@ export interface Size {
   height: number;
 }
 
+/** Fallback panel footprint used for clamp math before a panel's real
+ * rendered size is known — first paint (DockPanel.tsx), or `ensurePanel`
+ * (DockProvider.tsx), which never has a DOM ref to measure at all. Also
+ * what jsdom always falls back to, since it reports a zero-size rect.
+ * Shared here so both call sites use the exact same number rather than
+ * each guessing their own. */
+export const DOCK_PANEL_FALLBACK_SIZE: Size = { width: 260, height: 200 };
+
 export const DOCK_STORAGE_KEY = "ck.dock.v1";
 
 // A dragged/keyboard-moved panel is never allowed to leave less than this
@@ -99,6 +107,23 @@ export function clampPosition(
     x: Math.min(Math.max(x, minX), Math.max(minX, maxX)),
     y: Math.min(Math.max(y, minY), Math.max(minY, maxY)),
   };
+}
+
+/** Persisted positions can predate a resize or display change; never trust
+ * them past the current viewport. Unlike the become-visible clamp effect
+ * (DockPanel.tsx), which only runs on a false->true `open` transition, this
+ * covers a case that effect never sees: a panel that mounts ALREADY open
+ * (restored from localStorage as `open: true`) fires no such transition, so
+ * `ensurePanel` (DockProvider.tsx) is the only seam that ever gets a chance
+ * to catch a stale off-viewport position for it. Pure — same spirit as
+ * `clampPosition`: the caller supplies size/viewport. */
+export function reclampPanel(
+  p: DockPanelState,
+  size: Size,
+  viewport: Size,
+): DockPanelState {
+  const { x, y } = clampPosition(p.x, p.y, size, viewport, MIN_VISIBLE_PX);
+  return x === p.x && y === p.y ? p : { ...p, x, y };
 }
 
 /** Residuals fix wave round 2 (defect 1 REFUTED on first pass — see below):

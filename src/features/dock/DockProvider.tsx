@@ -12,8 +12,10 @@ import {
   defaultPanelState,
   loadDockState,
   raiseZ,
+  reclampPanel,
   saveDockState,
   withPanel,
+  DOCK_PANEL_FALLBACK_SIZE,
   type DockPanelState,
   type DockState,
   type Rect,
@@ -22,8 +24,15 @@ import {
 interface DockContextValue {
   state: DockState;
   /** Registers panel `id` with its default position the first time it
-   * mounts. A no-op if the panel already exists (e.g. restored from
-   * localStorage, or already registered by an earlier mount). */
+   * mounts. If the panel already exists (e.g. restored from localStorage, or
+   * already registered by an earlier mount), its position is re-clamped
+   * against the current viewport instead of being reused verbatim — a
+   * persisted position can predate a resize or display change, and for a
+   * panel that mounts already `open` this is the ONLY seam that ever gets a
+   * chance to catch that (DockPanel's become-visible clamp effect only
+   * fires on a false->true transition — see `reclampPanel` in dockState.ts
+   * for the full argument). Never fights an active drag/keyboard move —
+   * this only runs once per mount, same as the old no-op did. */
   ensurePanel: (id: string, defaultPosition: { x: number; y: number }) => void;
   getPanel: (
     id: string,
@@ -84,9 +93,20 @@ export function DockProvider({ children }: { children: ReactNode }) {
 
   const ensurePanel = useCallback(
     (id: string, defaultPosition: { x: number; y: number }) => {
-      setState((prev) =>
-        prev[id] ? prev : withPanel(prev, id, {}, { ...defaultPosition, z: 0 }),
-      );
+      setState((prev) => {
+        const existing = prev[id];
+        if (!existing) {
+          return withPanel(prev, id, {}, { ...defaultPosition, z: 0 });
+        }
+        // Same size/viewport accessors DockPanel.tsx's own become-visible
+        // clamp effect uses (DOCK_PANEL_FALLBACK_SIZE, window.inner*) — this
+        // provider has no DOM ref to measure a real size from here.
+        const reclamped = reclampPanel(existing, DOCK_PANEL_FALLBACK_SIZE, {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        });
+        return reclamped === existing ? prev : { ...prev, [id]: reclamped };
+      });
     },
     [],
   );
