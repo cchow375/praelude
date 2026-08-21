@@ -96,13 +96,14 @@
 }
 
 /* B76: `flex: 1` gave the label a 0% basis, so it collapsed far below its own
-   content and (with visible overflow) painted its <select> over the next
-   control. Now the group wraps, the label sizes to its content and only shrinks
-   as a last resort — and never paints outside its box. */
+   content and painted its <select> over the next control. `flex: 0 1 auto` sizes
+   the label to its content instead, and the group wraps rather than squeezing —
+   which is enough on its own to keep the select inside its box. Deliberately NOT
+   `overflow: hidden` here: this is the focusable select's ancestor, and clipping
+   it cuts the select's focus ring off on three sides (WCAG 2.4.7). */
 .score-edition-group .score-edition {
   min-width: 0;
   flex: 0 1 auto;
-  overflow: hidden;
 }
 
 .score-toolbar .score-draw-target {
@@ -1091,10 +1092,6 @@
 
   .score-edition-group {
     grid-column: 1 / -1;
-  }
-
-  .score-zoom {
-    justify-content: flex-end;
   }
 }
 
