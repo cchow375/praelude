@@ -15,6 +15,7 @@ import {
 } from "./SettingsPanel";
 import { ReceiptCenterProvider } from "../receipts/ReceiptCenter";
 import type { BooksApi, BookRecord } from "./BooksPanel";
+import { resetDockLayout } from "../dock/dockState";
 
 // The voice section reflects live degraded-TTS state pushed over `voice://tts`.
 // Only the event module is mocked (so a test can emit the backend's transition);
@@ -27,6 +28,13 @@ vi.mock("@tauri-apps/api/event", () => ({
     listeners[event] = cb;
     return () => undefined;
   }),
+}));
+
+// Real-use fix wave (item 4): "Reset panel layout" only needs to call
+// resetDockLayout() — the dock's own tests (dockState.test.ts,
+// dockOpenClamp.test.tsx) cover what that function actually does.
+vi.mock("../dock/dockState", () => ({
+  resetDockLayout: vi.fn(),
 }));
 
 const snapshot: SettingsSnapshot = {
@@ -74,6 +82,15 @@ function api(): SettingsApi {
 afterEach(cleanup);
 
 describe("SettingsPanel", () => {
+  it("renders a Reset panel layout control in Appearance that calls resetDockLayout", async () => {
+    render(<SettingsPanel api={api()} />);
+    await screen.findByText(/dark practice-room interface/i);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset panel layout" }));
+
+    expect(resetDockLayout).toHaveBeenCalledTimes(1);
+  });
+
   it("opens with a truthful, accessible practice guide", async () => {
     render(<SettingsPanel api={api()} />);
 

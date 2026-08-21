@@ -6,6 +6,7 @@ import { Button, Disclosure } from "../../ui";
 import type { CommandInvoker } from "../../services/command";
 import { BrainConnection } from "./BrainConnection";
 import { BooksPanel, type BooksApi } from "./BooksPanel";
+import { resetDockLayout } from "../dock/dockState";
 import { TTS_DEGRADED_LABEL, useTtsDegraded } from "../voice/useTtsDegraded";
 import { QUIET_SPEECH_NOTE } from "../voice/HeardPill";
 import {
@@ -672,6 +673,16 @@ export function SettingsPanel({
               }
             />
           </label>
+          {/* Real-use fix wave (item 4): the dock's freely-draggable panels
+              have no other recovery path for "I dragged this somewhere
+              silly" or "this got stuck minimized" — a plain button, not a
+              nested <form>, per the removal of BooksPanel's nested form. */}
+          <div className="settings-row">
+            <span>Floating panels</span>
+            <Button type="button" onClick={() => resetDockLayout()}>
+              Reset panel layout
+            </Button>
+          </div>
         </div>
       </Disclosure>
     </form>

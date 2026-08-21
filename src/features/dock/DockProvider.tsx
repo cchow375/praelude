@@ -103,8 +103,20 @@ export function DockProvider({ children }: { children: ReactNode }) {
     saveDockState(state);
   }, [state]);
 
+  // Real-use fix wave (item 4): each panel's own default position, captured
+  // the moment it registers (DockPanel's mount effect calls `ensurePanel`
+  // with it) so "Reset panel layout" (SettingsPanel.tsx) has something to
+  // reset EACH panel back to — this provider has no other record of what a
+  // panel's default was once it has been dragged away from it. A plain ref,
+  // not `state`: it is derived purely from mount-time registration, never
+  // itself drives a render.
+  const defaultPositionsRef = useRef<Record<string, { x: number; y: number }>>(
+    {},
+  );
+
   const ensurePanel = useCallback(
     (id: string, defaultPosition: { x: number; y: number }, width: number) => {
+      defaultPositionsRef.current[id] = defaultPosition;
       setState((prev) => {
         const existing = prev[id];
         if (!existing) {
@@ -143,6 +155,30 @@ export function DockProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  // Real-use fix wave (item 4): "Reset panel layout" (SettingsPanel.tsx)
+  // calls `resetDockLayout()` (dockState.ts), which clears the persisted
+  // blob and dispatches this event — every mounted DockProvider snaps each
+  // panel it has ever registered back to its own default position AND its
+  // initial open/minimized/z flags (defaultPanelState's fallback, same as a
+  // panel that has never been touched). A reset that left a panel stuck
+  // minimized would not actually be a reset, so this rebuilds full panel
+  // state, not just x/y.
+  useEffect(() => {
+    function handleReset() {
+      setState(() => {
+        const next: DockState = {};
+        for (const [id, defaultPosition] of Object.entries(
+          defaultPositionsRef.current,
+        )) {
+          next[id] = defaultPanelState({ ...defaultPosition, z: 0 });
+        }
+        return next;
+      });
+    }
+    window.addEventListener("ck:dock-reset", handleReset);
+    return () => window.removeEventListener("ck:dock-reset", handleReset);
+  }, []);
 
   const getPanel = useCallback(
     (id: string, defaultPosition: { x: number; y: number }): DockPanelState =>

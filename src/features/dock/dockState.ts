@@ -345,3 +345,21 @@ export function saveDockState(state: DockState): void {
     // is best-effort, never load-bearing for correctness within a session.
   }
 }
+
+/** Real-use fix wave (item 4): the user-invoked "Reset panel layout" escape
+ * hatch (SettingsPanel.tsx, Appearance section) for a dragged-into-a-corner
+ * dock. Clears the persisted blob (best-effort, same as every other storage
+ * access in this module — jsdom/private-browsing have no `localStorage`) and
+ * dispatches `"ck:dock-reset"` so any mounted `DockProvider` can snap every
+ * registered panel back to its own default position AND its initial
+ * open/minimized flags — a reset that leaves a panel lost-minimized is not a
+ * reset. Pure side effect, no return value: the provider owns re-deriving
+ * state from the event, this module only owns the storage half. */
+export function resetDockLayout(): void {
+  try {
+    window.localStorage?.removeItem(DOCK_STORAGE_KEY);
+  } catch {
+    /* storage is best-effort everywhere in this module */
+  }
+  window.dispatchEvent(new Event("ck:dock-reset"));
+}

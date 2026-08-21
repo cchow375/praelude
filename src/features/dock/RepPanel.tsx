@@ -10,11 +10,34 @@ import { RepHud, type RepHudProps } from "../rep/RepHud";
 
 /** Fix wave item 9: the previous `x: 24` sat INSIDE the 148px-wide nav rail
  * (shell.css), so an auto-opened rep panel covered it. `NAV_RAIL_WIDTH + s-3`
- * clears the rail with a small gap; `y: 16` keeps it near the top, clear of
- * the header band. Exported so the default-layout test (dockDefaultLayout.
- * test.ts) can check it against the other panels' defaults without
- * duplicating the numbers. */
-export const DEFAULT_POSITION = { x: NAV_RAIL_WIDTH + 12, y: 16 };
+ * clears the rail with a small gap. Exported so the default-layout test
+ * (dockDefaultLayout.test.ts) can check it against the other panels'
+ * defaults without duplicating the numbers.
+ *
+ * Real-use fix wave (item 4): `y` was `16` — near the top, "clear of the
+ * header band" per the comment above, but that was never actually measured
+ * against a real render. `docs/qa/final-02-overlap-check.png` (a 720x520
+ * capture, same as this fix's dense-layout floor) shows the exact defect:
+ * the rep panel's title bar landing on top of the session header's "End my
+ * day" button. Live-rendered measurements (dev:mock, 720px viewport,
+ * `getBoundingClientRect`) of what a default position must clear:
+ *   - `.shell-topbar` (session bar, incl. "End my day"): 0 - 99.5px.
+ *   - `.day-sheet-nav-head` (Today's Practice day-nav header): 196.5 - 221px.
+ *   - `.score-workspace-head` (Score tab: title/Score-Plan tabs/piece
+ *     picker/metronome — ALWAYS rendered, ScoreWorkspace.tsx has no
+ *     narrow-width collapse for it): 123.5 - 330px.
+ * `y: 340` clears all three with margin. It does NOT fully clear
+ * `.score-toolbar` below the Score tab's head (measured 360.75 - 517.75px
+ * at this same floor) — at 720x520 that toolbar's own bottom edge sits at
+ * 517.75 of a 520px-tall viewport, leaving no y a floating panel could
+ * start at and still render a usable box above the viewport's bottom edge.
+ * That is a structural property of ScoreWorkspace's always-rendered head
+ * (piece picker + metronome, independent of this fix), not something a
+ * default-position offset can solve; the panel is still freely draggable
+ * and, as of this fix wave, resettable (SettingsPanel's "Reset panel
+ * layout") if it ends up somewhere unhelpful. See dockDefaultLayout.test.ts
+ * for the assertion against the header stack this DOES clear. */
+export const DEFAULT_POSITION = { x: NAV_RAIL_WIDTH + 12, y: 340 };
 
 /** RepHud is denser than the framework's 320px default (three full-width
  * verdict buttons, a streak line, a metrics grid, a drawer of secondary

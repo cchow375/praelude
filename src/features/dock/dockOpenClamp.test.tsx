@@ -643,3 +643,78 @@ describe("DockPillBar (residuals fix wave, defect 4: pill occludes page content)
     expect(pill.className).toMatch(/dock-pill--fixed-fallback/);
   });
 });
+
+describe("DockProvider — ck:dock-reset (real-use fix wave item 4: Reset panel layout)", () => {
+  it("snaps a dragged-away, minimized panel back to its default position and initial open/minimized flags", async () => {
+    // Simulates the exact failure mode the brief calls out: a panel dragged
+    // somewhere silly AND left minimized (a "lost" pill) — a reset that only
+    // fixed position and left it stuck minimized would not be a real reset.
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        rep: {
+          x: 999,
+          y: 999,
+          minimized: true,
+          open: true,
+          z: 7,
+          flashing: true,
+        },
+      }),
+    );
+
+    render(
+      <DockProvider>
+        <DockPanel
+          id="rep"
+          title="Rep Counter"
+          defaultPosition={{ x: 160, y: 300 }}
+          width={440}
+        >
+          <div>rep body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    // Still dragged-away and minimized before the reset.
+    expect(
+      screen.getByRole("button", { name: "Restore Rep Counter" }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("ck:dock-reset"));
+    });
+
+    // Pill vs. panel looks identical whether the panel is "closed" or
+    // "minimized" (both render the same Restore pill) — inspect the
+    // persisted state directly to prove the reset didn't just fix position
+    // but ALSO cleared the minimized flag (a reset that left it stuck
+    // minimized would not be a real reset) back to the same open:false,
+    // minimized:false a never-touched panel starts at.
+    const persisted = JSON.parse(
+      window.localStorage.getItem(DOCK_STORAGE_KEY) ?? "{}",
+    );
+    expect(persisted.rep).toMatchObject({
+      x: 160,
+      y: 300,
+      open: false,
+      minimized: false,
+    });
+
+    // Open it back up and confirm it now renders at the real default
+    // position, not the dragged-away one.
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Restore Rep Counter" }),
+      );
+    });
+    await flushClampFrame();
+    const dialog = screen.getByRole("dialog", { name: "Rep Counter" });
+    const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(
+      dialog.style.transform,
+    );
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBe(160);
+    expect(Number(match![2])).toBe(300);
+  });
+});

@@ -53,4 +53,25 @@ describe("dock default positions at the 720x520 floor (fix wave item 9)", () => 
     expect(REP_DEFAULT_POSITION.y).toBeGreaterThanOrEqual(0);
     expect(REP_DEFAULT_POSITION.y).toBeLessThan(VIEWPORT.height);
   });
+
+  // Real-use fix wave (item 4): docs/qa/final-02-overlap-check.png (a real
+  // 720x520 screenshot of the running app) shows the Rep Counter panel's OLD
+  // default (y: 16) sitting directly on top of the session header bar,
+  // including "End my day". Live-rendered measurements at this same 720px
+  // floor (dev:mock, getBoundingClientRect) of the header stack a default
+  // position must clear: `.shell-topbar` (session bar) 0-99.5px,
+  // `.day-sheet-nav-head` (Today's Practice day nav) 196.5-221px, and
+  // `.score-workspace-head` (Score tab title/tabs/piece-picker/metronome —
+  // ALWAYS rendered, no narrow-width collapse) 123.5-330px. 320 is the
+  // conservative floor for "clears all three, with margin" — NOT the
+  // brief's original 64 (that assumed only the score toolbar's single-row
+  // 46px min-height; the real page has substantially more chrome above the
+  // toolbar than that on every tab that matters here). See RepPanel.tsx's
+  // DEFAULT_POSITION comment for why the score-toolbar ITSELF (which starts
+  // below score-workspace-head, at 360.75px, and runs to 517.75px of the
+  // 520px-tall floor) can't also be fully cleared — there is no y left that
+  // leaves both a usable panel and space under it at this exact floor.
+  it("keeps the rep panel's default y clear of the real header stack at the 720x520 floor", () => {
+    expect(REP_DEFAULT_POSITION.y).toBeGreaterThanOrEqual(320);
+  });
 });
