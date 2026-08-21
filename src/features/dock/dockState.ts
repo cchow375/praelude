@@ -25,11 +25,12 @@ export interface Size {
 }
 
 /** Fallback panel footprint used for clamp math before a panel's real
- * rendered size is known — first paint (DockPanel.tsx), or `ensurePanel`
- * (DockProvider.tsx), which never has a DOM ref to measure at all. Also
- * what jsdom always falls back to, since it reports a zero-size rect.
- * Shared here so both call sites use the exact same number rather than
- * each guessing their own. */
+ * rendered size is known — before first paint (DockPanel.tsx's `panelSize`),
+ * or in jsdom, which always reports a zero-size rect. `ensurePanel`
+ * (DockProvider.tsx) does NOT use this — it derives each panel's real
+ * per-panel size from its own `width` prop + `dockPanelMaxHeight` instead
+ * (round 2 fix: a shared constant here silently corrupted wide panels'
+ * legitimately-dragged positions, see `reclampPanel`'s doc comment). */
 export const DOCK_PANEL_FALLBACK_SIZE: Size = { width: 260, height: 200 };
 
 export const DOCK_STORAGE_KEY = "ck.dock.v1";
@@ -116,7 +117,17 @@ export function clampPosition(
  * (restored from localStorage as `open: true`) fires no such transition, so
  * `ensurePanel` (DockProvider.tsx) is the only seam that ever gets a chance
  * to catch a stale off-viewport position for it. Pure — same spirit as
- * `clampPosition`: the caller supplies size/viewport. */
+ * `clampPosition`: the caller supplies size/viewport.
+ *
+ * Round 2 fix: `size` MUST be the panel's own real configured size (its
+ * `width` prop run through `clampPanelWidth`, its height from the y-aware
+ * `dockPanelMaxHeight` — exactly what DockPanel renders at), never a shared
+ * fallback constant. The first pass here used `DOCK_PANEL_FALLBACK_SIZE`
+ * (260x200) for every panel; RepPanel renders at 440px wide, so a
+ * legitimately-dragged position well within its real 440px footprint could
+ * measure as out-of-range under the narrower fallback and get silently
+ * shifted — corrupting a good drag with no resize or display change
+ * involved, then persisting the wrong position via `saveDockState`. */
 export function reclampPanel(
   p: DockPanelState,
   size: Size,

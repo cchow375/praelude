@@ -405,6 +405,129 @@ describe("v6.0.1 — persisted off-viewport position is re-clamped on ensurePane
     expect(Number(match![1])).toBe(24);
     expect(Number(match![2])).toBe(64);
   });
+
+  it("round 2 (finding 1, HIGH): a WIDE panel's legitimately-dragged position, legal under its own real width but not under the 260px fallback, is left EXACTLY untouched", () => {
+    // RepPanel's real width is 440 (RepPanel.tsx). At the 720px viewport
+    // here, clampPanelWidth(440, 720) === 440, so a dragged x of -392 is
+    // perfectly legal (minX = MIN_VISIBLE_PX - 440 = -392) — the panel's
+    // title bar/controls are still MIN_VISIBLE_PX reachable on the right
+    // edge. Under the WRONG 260px fallback, minX would be 48 - 260 = -212,
+    // so -392 reads as out-of-range and gets shifted 180px on every single
+    // mount — this must never happen.
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        rep: {
+          x: -392,
+          y: 16,
+          minimized: false,
+          open: true,
+          z: 1,
+          flashing: false,
+        },
+      }),
+    );
+
+    render(
+      <DockProvider>
+        <DockPanel
+          id="rep"
+          title="Rep Counter"
+          defaultPosition={{ x: 160, y: 16 }}
+          width={440}
+        >
+          <div>rep body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Rep Counter" });
+    const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(
+      dialog.style.transform,
+    );
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBe(-392);
+    expect(Number(match![2])).toBe(16);
+  });
+
+  it("round 2 (finding 1): a WIDE panel's genuinely off-viewport persisted position is still corrected, using its OWN real width", () => {
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        rep: {
+          x: 5000,
+          y: 5000,
+          minimized: false,
+          open: true,
+          z: 1,
+          flashing: false,
+        },
+      }),
+    );
+
+    render(
+      <DockProvider>
+        <DockPanel
+          id="rep"
+          title="Rep Counter"
+          defaultPosition={{ x: 160, y: 16 }}
+          width={440}
+        >
+          <div>rep body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Rep Counter" });
+    const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(
+      dialog.style.transform,
+    );
+    expect(match).not.toBeNull();
+    const x = Number(match![1]);
+    const y = Number(match![2]);
+    // clampPanelWidth(440, 720) === 440, so maxX = 720 - MIN_VISIBLE_PX.
+    expect(x).toBeLessThanOrEqual(VIEWPORT.width - MIN_VISIBLE_PX);
+    expect(y).toBeLessThanOrEqual(VIEWPORT.height - MIN_VISIBLE_PX);
+    expect(x).toBeLessThan(5000);
+    expect(y).toBeLessThan(5000);
+  });
+
+  it("round 2 (finding 2, LOW): a minimized (pill-form) panel is left untouched on mount — no rect to protect, and the become-visible effect will re-clamp it for real once it opens", () => {
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        clock: {
+          x: 5000,
+          y: 5000,
+          minimized: true,
+          open: true,
+          z: 1,
+          flashing: false,
+        },
+      }),
+    );
+
+    render(
+      <DockProvider>
+        <DockPanel id="clock" title="Clock" defaultPosition={{ x: 24, y: 464 }}>
+          <div>clock body</div>
+        </DockPanel>
+      </DockProvider>,
+    );
+
+    // Renders as a pill (minimized), never a dialog with a position at all.
+    expect(
+      screen.getByRole("button", { name: "Restore Clock" }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Clock" })).toBeNull();
+
+    // And the persisted position itself was never rewritten by ensurePanel
+    // — no state change means no `saveDockState` write.
+    const raw = window.localStorage.getItem(DOCK_STORAGE_KEY);
+    const stored = JSON.parse(raw ?? "{}");
+    expect(stored.clock.x).toBe(5000);
+    expect(stored.clock.y).toBe(5000);
+  });
 });
 
 describe("DockPillBar (residuals fix wave, defect 4: pill occludes page content)", () => {

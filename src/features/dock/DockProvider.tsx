@@ -9,31 +9,43 @@ import {
   type ReactNode,
 } from "react";
 import {
+  clampPanelWidth,
   defaultPanelState,
+  dockPanelMaxHeight,
   loadDockState,
   raiseZ,
   reclampPanel,
   saveDockState,
   withPanel,
-  DOCK_PANEL_FALLBACK_SIZE,
   type DockPanelState,
   type DockState,
   type Rect,
+  type Size,
 } from "./dockState";
 
 interface DockContextValue {
   state: DockState;
   /** Registers panel `id` with its default position the first time it
-   * mounts. If the panel already exists (e.g. restored from localStorage, or
-   * already registered by an earlier mount), its position is re-clamped
-   * against the current viewport instead of being reused verbatim — a
-   * persisted position can predate a resize or display change, and for a
-   * panel that mounts already `open` this is the ONLY seam that ever gets a
-   * chance to catch that (DockPanel's become-visible clamp effect only
-   * fires on a false->true transition — see `reclampPanel` in dockState.ts
-   * for the full argument). Never fights an active drag/keyboard move —
-   * this only runs once per mount, same as the old no-op did. */
-  ensurePanel: (id: string, defaultPosition: { x: number; y: number }) => void;
+   * mounts. If the panel already exists AND is currently open+visible (e.g.
+   * restored from localStorage, or already registered by an earlier mount),
+   * its position is re-clamped against the current viewport using ITS OWN
+   * configured `width` — never a shared constant — instead of being reused
+   * verbatim: a persisted position can predate a resize or display change,
+   * and for a panel that mounts already `open` this is the ONLY seam that
+   * ever gets a chance to catch that (DockPanel's become-visible clamp
+   * effect only fires on a false->true transition — see `reclampPanel` in
+   * dockState.ts for the full argument). Closed/minimized panels are left
+   * alone here (round 2, finding 2): they have no on-screen rect to
+   * protect, and if they later become visible that same become-visible
+   * effect re-clamps them anyway with a real measured size + collision
+   * resolution, making a mount-time pass here redundant. Never fights an
+   * active drag/keyboard move — this only runs once per mount, same as the
+   * old no-op did. */
+  ensurePanel: (
+    id: string,
+    defaultPosition: { x: number; y: number },
+    width: number,
+  ) => void;
   getPanel: (
     id: string,
     defaultPosition: { x: number; y: number },
@@ -92,19 +104,40 @@ export function DockProvider({ children }: { children: ReactNode }) {
   }, [state]);
 
   const ensurePanel = useCallback(
-    (id: string, defaultPosition: { x: number; y: number }) => {
+    (id: string, defaultPosition: { x: number; y: number }, width: number) => {
       setState((prev) => {
         const existing = prev[id];
         if (!existing) {
           return withPanel(prev, id, {}, { ...defaultPosition, z: 0 });
         }
-        // Same size/viewport accessors DockPanel.tsx's own become-visible
-        // clamp effect uses (DOCK_PANEL_FALLBACK_SIZE, window.inner*) — this
-        // provider has no DOM ref to measure a real size from here.
-        const reclamped = reclampPanel(existing, DOCK_PANEL_FALLBACK_SIZE, {
+        // Round 2, finding 2: a closed/minimized panel is a pill — no
+        // on-screen rect to protect, and DockPanel's become-visible effect
+        // re-clamps it (with a real measured size + collision resolution)
+        // the moment it next becomes visible, so re-clamping it here too
+        // would just be a redundant extra state write on every mount.
+        if (!existing.open || existing.minimized) {
+          return prev;
+        }
+        // Round 2, finding 1: this provider has no DOM ref to measure a
+        // real rendered size from at mount time, but it does NOT need one —
+        // a panel's rendered width is *entirely* determined by its `width`
+        // prop (clamped exactly the way DockPanel's own render does, see
+        // `effectiveWidth` there), and its rendered height is bounded by
+        // the same y-aware `dockPanelMaxHeight` DockPanel uses for its CSS
+        // `maxHeight`. Using a shared constant here (260x200, RepPanel's
+        // real 440-wide) previously judged perfectly-legal dragged
+        // positions out-of-range and silently corrupted them on every
+        // mount — this derives the SAME size DockPanel itself renders at,
+        // per-panel, so mount-time and render-time agree exactly.
+        const viewport: Size = {
           width: window.innerWidth,
           height: window.innerHeight,
-        });
+        };
+        const size: Size = {
+          width: clampPanelWidth(width, viewport.width),
+          height: dockPanelMaxHeight(viewport.height, existing.y),
+        };
+        const reclamped = reclampPanel(existing, size, viewport);
         return reclamped === existing ? prev : { ...prev, [id]: reclamped };
       });
     },

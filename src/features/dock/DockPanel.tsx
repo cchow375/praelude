@@ -73,7 +73,7 @@ export function DockPanel({
   const drag = useRef<Drag | null>(null);
 
   useEffect(() => {
-    ctx.ensurePanel(id, defaultPosition);
+    ctx.ensurePanel(id, defaultPosition, width);
     // Only register once per (id, defaultPosition) pair — re-registering on
     // every render would fight a user's drag/keyboard moves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
