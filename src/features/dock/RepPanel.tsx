@@ -1,14 +1,10 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { DockPanel } from "./DockPanel";
 import { useDock } from "./DockProvider";
 import {
   DENSE_LAYOUT_FLOOR,
-  MIN_PANEL_WIDTH,
-  NAV_RAIL_WIDTH,
-  PANEL_WIDTH_EDGE_MARGIN,
-  clampPanelWidth,
   dockPanelMaxHeight,
-  type Size,
+  NAV_RAIL_WIDTH,
 } from "./dockState";
 import { RepHud, type RepHudProps } from "../rep/RepHud";
 
@@ -63,6 +59,29 @@ import { RepHud, type RepHudProps } from "../rep/RepHud";
  *     structural property of ScoreWorkspace's always-rendered head (piece
  *     picker + metronome, independent of this fix), not something a
  *     default-position offset can solve at this floor.
+ * Round 3 tried to escape the remaining overlaps with a viewport-aware
+ * right-lean (`repDefaultLayout`, `WIDE_Y`, a linear model of the Today nav
+ * card's right edge). It was REFUTED by live measurement at 1440x900: the
+ * panel's ENTIRE title bar landed inside `.score-toolbar`'s band and
+ * `elementFromPoint` returned toolbar buttons at all three of its controls —
+ * the panel rendered visually headless and unreachable from mount — and it
+ * covered three `button.score-region-row` controls, one of which misfired
+ * onto a `.rep-verdict` button (a click there would have RECORDED PRACTICE
+ * DATA). Reverted in round 4.
+ *
+ * Round 4's ruling: the root defect was never the coordinates, it was the
+ * STACKING ORDER — dock panels rendered at their raw focus rank (0/1), i.e.
+ * BEHIND page content, so NO position was safe. That is fixed in
+ * dockState.ts (`DOCK_Z_BASE`/`dockPanelZIndex`, see the stacking contract
+ * comment there and dockStacking.test.ts). With panels reliably painted on
+ * top, a default that overlaps the score page is an ordinary draggable,
+ * resettable HUD — so this stays at the simplest value that clears the shell
+ * topbar, which is round 2's `y: 108` at the original left `x`.
+ *
+ * The tray/clock chain no longer derives from this `y` (see
+ * `DOCK_CHAIN_BASE_Y` in dockState.ts) — rounds 2-3 had pushed the clock's
+ * default off the 720x520 floor as a side effect of moving rep.
+ *
  * The panel is still freely draggable and, as of this fix wave, resettable
  * (SettingsPanel's "Reset panel layout") wherever it lands. See
  * dockDefaultLayout.test.ts for the assertions and the full pre/post
@@ -75,130 +94,6 @@ export const DEFAULT_POSITION = { x: NAV_RAIL_WIDTH + 12, y: 108 };
  * clamped to the viewport by DockPanel/clampPanelWidth, so this holds at the
  * 720x520 dense-layout floor: 720 - 2*24 = 672px available, well above 440. */
 export const PANEL_WIDTH = 440;
-
-/** Real-use fix wave (item 4), round 3 (round 2's fixed `x: NAV_RAIL_WIDTH +
- * 12` was found insufficient on further review): at a realistic ~1440x900
- * window, a LEFT-aligned rep panel — even at round 2's topbar-clearing
- * `y: 108` — still covers the Score tab's own head (title, Score/Plan tabs,
- * piece picker, metronome), because `.score-workspace-head` spans nearly
- * the FULL content width there, so no horizontal shift alone clears it.
- * `nav[aria-label="Main menu"]` (the Today tab's own nav card), by
- * contrast, is a CENTERED, narrower element (live-measured x 208-660 at
- * 720px, x 554-1034 at 1440px) — a right-aligned x clears it at wide
- * viewports, where there's real room to shift into.
- *
- * Below `WIDE_VIEWPORT_BREAKPOINT` there isn't enough width to escape
- * either blocker this way (round 2's report already proved no y clears the
- * 720x520 floor's score toolbar without regressing elsewhere) — so this
- * tier keeps round 2's y (`DEFAULT_POSITION.y`, 108) and only makes x lean
- * right by however much room a 440px-wide panel actually has, via the SAME
- * `clampPanelWidth` DockPanel's own render and drag-clamp already use (so
- * default, mount re-clamp, and drag can never disagree on what fits).
- *
- * A `viewport: undefined` falls back to `DEFAULT_POSITION` outright — pure,
- * no guessing, and exactly what a test with no real window should get. */
-export const WIDE_VIEWPORT_BREAKPOINT = 820;
-
-/** Live-measured (dev:mock, 900px-tall viewport, `getBoundingClientRect`)
- * `.score-workspace-head` (title/tabs/piece-picker/metronome — the "score
- * head" this tier is built to clear) bottom edge across the WIDE tier:
- * 277.95px at 820-1100px width, 217.8px at >=1120px. `WIDE_Y` clears the
- * TALLER (820-1100px) case with the same `--s-2`-ish margin
- * `DEFAULT_POSITION.y` uses for the topbar.
- *
- * Deliberately does NOT also try to clear `.score-toolbar` right below the
- * head (live-measured 330.8px at >=1250px up to 467.9px at the WIDE tier's
- * own narrow edge, 820px) — a `y` tall enough for THAT (~488) pushes a
- * squeezed-width panel's real content (live-measured ~507px tall at the
- * narrowed 358px width the nav-card escape produces at 1440px) past the
- * dock pill bar's top edge (857px at a 900px-tall viewport) — the ONE
- * clearance this fix is explicitly required to guarantee, since the pill
- * bar is real, always-present shell chrome (unlike the toolbar, which
- * scrolls out of view with the rest of the score page). `WIDE_Y: 288`
- * keeps the panel's real content comfortably above the pill bar
- * (live-confirmed bottom 795px vs pill-bar top 857px, 1440x900) at the cost
- * of a small residual overlap with `.score-toolbar` alone — see
- * task-4-report.md for the full enumeration and why this is the accepted
- * tradeoff, not an oversight. */
-export const WIDE_Y = 288;
-
-/** Round 3, part 2: `WIDE_Y` alone still lands the panel's full x-range on
- * top of the Today tab's own nav card at a realistic width — live-measured
- * (dev:mock, 900px-tall viewport) `nav[aria-label="Main menu"]`'s right
- * edge is a near-PERFECT linear function of viewport width once its column
- * hits its `max-width: 30rem` (480px) cap (verified exactly at 7 widths:
- * 820/900/1000/1100/1200/1300/1440 -> right edges 724/764/814/864/914/964/
- * 1034 — every single one matches `0.5 * width + 314` to sub-pixel
- * precision). Below `WIDE_VIEWPORT_BREAKPOINT` the column isn't at its cap
- * yet (measured 720px -> 452px column, narrower than 480), so this formula
- * is only valid at/above that breakpoint — exactly where it's used below. */
-export const TODAY_NAV_CARD_RIGHT_SLOPE = 0.5;
-export const TODAY_NAV_CARD_RIGHT_INTERCEPT = 314;
-
-/** Pure function of the viewport (+ requested panel width) — no DOM access,
- * so it stays unit-testable (dockDefaultLayout.test.ts) exactly like
- * `clampPanelWidth`/`dockPanelMaxHeight` it's built from. `RepPanel` below
- * calls this with the real `window.innerWidth/innerHeight` at mount time;
- * every other caller (tests, the tray/clock chain) can pass an explicit
- * viewport or omit it for the `DEFAULT_POSITION` fallback.
- *
- * Returns `width` alongside `x`/`y` (round 3): at a realistic wide window
- * (e.g. 1440x900), simply right-aligning the FULL `requestedWidth` still
- * doesn't clear the Today nav card (its right edge, ~1034px at 1440, is
- * still well inside a 440-wide panel's right-aligned x-range) — the panel
- * only clears it by fitting entirely to nav card's right, which needs a
- * NARROWER box (~358px at 1440, still `>= MIN_PANEL_WIDTH`). This mirrors
- * `defaultPosition` itself: chosen once at mount from the real viewport,
- * not reactive to a later resize — a user dragging the panel afterward is
- * unaffected (drag only ever changes x/y, never width, in this framework).
- * If there genuinely isn't room to squeeze past the nav card without
- * dropping below `MIN_PANEL_WIDTH` (viewports narrower than
- * `WIDE_VIEWPORT_BREAKPOINT` roughly up to ~1124px), this falls back to a
- * plain right-align at the requested width — grazing the nav card there is
- * the same, already-documented, structural tradeoff as round 2's floor. */
-export function repDefaultLayout(
-  viewport: Size | undefined,
-  requestedWidth: number = PANEL_WIDTH,
-): { x: number; y: number; width: number } {
-  if (!viewport) {
-    return { ...DEFAULT_POSITION, width: requestedWidth };
-  }
-
-  if (viewport.width < WIDE_VIEWPORT_BREAKPOINT) {
-    // Unchanged from round 2 (x: NAV_RAIL_WIDTH + 12, y: DEFAULT_POSITION.y)
-    // — deliberately NOT applying a right-lean here too: it wouldn't help
-    // (the Today nav card already spans this whole x-range regardless of
-    // where in it the panel sits at this width) and would only add an
-    // unnecessary behavior change on top of round 2's already-verified
-    // "no worse than before" floor. `width` is left as `requestedWidth`
-    // unclamped — DockPanel's own render already reclamps it against the
-    // live viewport width on every render (`clampPanelWidth` again,
-    // internally), so there is nothing this function needs to pre-clamp
-    // for a value that gets reclamped downstream anyway.
-    return { x: DEFAULT_POSITION.x, y: DEFAULT_POSITION.y, width: requestedWidth };
-  }
-
-  const navCardRight =
-    TODAY_NAV_CARD_RIGHT_SLOPE * viewport.width + TODAY_NAV_CARD_RIGHT_INTERCEPT;
-  const minX = navCardRight + PANEL_WIDTH_EDGE_MARGIN;
-  const maxRight = viewport.width - PANEL_WIDTH_EDGE_MARGIN;
-  const squeezeAvailable = maxRight - minX;
-
-  if (squeezeAvailable >= MIN_PANEL_WIDTH) {
-    const width = Math.min(requestedWidth, squeezeAvailable);
-    return { x: minX, y: WIDE_Y, width };
-  }
-
-  // Not enough room right of the nav card at this width without breaking
-  // MIN_PANEL_WIDTH — fall back to a plain right-align at the requested
-  // width. Still clears the topbar and (via WIDE_Y) the score-tab head.
-  const width = clampPanelWidth(requestedWidth, viewport.width);
-  const x = Math.max(
-    NAV_RAIL_WIDTH + 12,
-    viewport.width - width - PANEL_WIDTH_EDGE_MARGIN,
-  );
-  return { x, y: WIDE_Y, width };
-}
 
 /** Residuals fix wave (defect 2, "rep panel overlaps tray"): this used to be
  * a documented GUESS at RepHud's real rendered height (260px) — live QA
@@ -241,31 +136,13 @@ export function RepPanel(props: RepHudProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.snap?.set_state]);
 
-  // Computed once per mount (empty deps) — DockPanel's own `ensurePanel`
-  // effect only ever registers a NEW panel's position once too (its `[id]`
-  // dependency), so recomputing this on every render would just be a
-  // discarded value; freezing it here makes that explicit instead of
-  // relying on the callee's own guard. `window` always exists in this
-  // Tauri/browser app; the `typeof` guard only matters for
-  // `repDefaultLayout`'s own unit tests, which pass `undefined` on purpose
-  // to exercise the fallback. `width` (not just x/y) comes from the same
-  // computation at a wide viewport (see `repDefaultLayout`'s doc comment) —
-  // a later window resize doesn't reactively re-narrow it, same as
-  // `defaultPosition` itself; both are "how this panel starts", not a
-  // live-tracked value.
-  const { x, y, width } = useMemo(
-    () =>
-      repDefaultLayout(
-        typeof window === "undefined"
-          ? undefined
-          : { width: window.innerWidth, height: window.innerHeight },
-        PANEL_WIDTH,
-      ),
-    [],
-  );
-
   return (
-    <DockPanel id="rep" title="Rep Counter" defaultPosition={{ x, y }} width={width}>
+    <DockPanel
+      id="rep"
+      title="Rep Counter"
+      defaultPosition={DEFAULT_POSITION}
+      width={PANEL_WIDTH}
+    >
       {props.snap ? (
         <RepHud {...props} />
       ) : (

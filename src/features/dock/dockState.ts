@@ -285,6 +285,22 @@ export const NAV_RAIL_WIDTH = 148;
  * the number instead of several modules hardcoding `720`/`520` separately. */
 export const DENSE_LAYOUT_FLOOR: Size = { width: 720, height: 520 };
 
+/** The origin the tray -> clock default-position chain stacks down from
+ * (PausedSetsTray.tsx / ClockPanel.tsx), deliberately INDEPENDENT of
+ * RepPanel's own default `y`.
+ *
+ * Real-use fix wave (item 4, round 4): the chain used to start at RepPanel's
+ * `DEFAULT_POSITION.y`, so every tweak to where the rep panel starts shoved
+ * the tray and clock down by the same amount. Rounds 2-3 moved rep from 16
+ * to 108, which pushed `ClockPanel.DEFAULT_POSITION.y` from a measured-good
+ * 504 (inside the 720x520 floor, Start/Reset reachable without inner
+ * scrolling) to 596 (past the floor entirely, Start/Reset off-screen at a
+ * ~1440x900 window). Pinning the chain's origin here decouples the two: rep's
+ * default is tuned against the shell topbar, the chain is tuned against the
+ * dense-layout floor, and neither can silently regress the other.
+ * 16 is the value the chain was measured good at. */
+export const DOCK_CHAIN_BASE_Y = 16;
+
 /** Fix wave item 6: minimized/closed panels used to all pin to the exact
  * same fixed bottom-right coordinates (dock.css) — with more than one pill
  * up, only the topmost was clickable. Each currently-pill-form panel (closed
@@ -312,6 +328,63 @@ export function pillStackIndex(state: DockState, id: string): number {
 export function nextZ(state: DockState): number {
   const zs = Object.values(state).map((p) => p.z);
   return (zs.length ? Math.max(...zs) : 0) + 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * The stacking contract (real-use fix wave, item 4, round 4)
+ * ---------------------------------------------------------------------------
+ * `panel.z` above is a *relative focus rank*, not a CSS z-index. Rendering it
+ * directly (DockPanel.tsx used to do exactly that) started every panel at
+ * `z: 0`/`1` — BELOW ordinary page content, which in this app routinely uses
+ * z-index 1-8 (`.score-toolbar` is 4, `.score-atlas-draft-dock` is 8; see the
+ * survey in task-4-report.md). The result: a "floating" panel rendered
+ * BEHIND the page from mount, its own title bar (drag handle, minimize,
+ * close) unclickable until an unrelated body click happened to bump
+ * `nextZ` past the page. No default POSITION can fix that — the panel is
+ * painted over wherever it sits — which is why three rounds of coordinate
+ * tuning failed before this.
+ *
+ * The contract, in one place:
+ *
+ *   ordinary page content (1-8)  <  DOCK PANELS (10-39)  <  everything that
+ *   is a genuinely global transient overlay:
+ *     40  `.ck-ns-picker-scrim` (DaySheet.css), `.measure-map-panel-backdrop`
+ *     50  `.heard-pill` (HeardPill.css), `.voice-feedback` (VoiceToast.css)
+ *     60  `.day-sheet-overlay`        80  `.reader-overlay`
+ *     90  shell rep-error             95  shell voice draft
+ *    100  `.ck-dialog-backdrop` (ui.css), `.popover-panel`
+ *    120  `.receipt-center`
+ *
+ * A dock panel is chrome the user parks over the page on purpose, so it must
+ * beat page content unconditionally. It is NOT a modal, an alert, or a
+ * dialog, so it must lose to every one of those. `dockPanelZIndex` maps the
+ * unbounded focus rank into that window by RANK, not by raw value, so the
+ * range can never be escaped no matter how many times a user clicks around
+ * (raw `panel.z` grows without bound; the rendered index does not).
+ * `dockStacking.test.ts` pins this contract. */
+export const DOCK_Z_BASE = 10;
+
+/** One below the lowest global-overlay layer (40). With `DOCK_Z_BASE` this
+ * gives 30 distinct panel slots — the dock has 3 panels, so the cap is pure
+ * defence against a future dock growing past the window. */
+export const DOCK_Z_CEILING = 39;
+
+/** The CSS z-index a panel actually renders at: its rank among all panels'
+ * focus ranks (`panel.z`), lifted into the [DOCK_Z_BASE, DOCK_Z_CEILING]
+ * window. Ties (e.g. every panel still at the initial `z: 0`) break by id so
+ * the order is stable rather than dependent on object key order. Pure — same
+ * spirit as `clampPosition`/`pillStackIndex`: the caller supplies the state.
+ *
+ * Relative focus ordering is preserved exactly: `raiseZ` gives the focused
+ * panel the strictly-largest `panel.z`, so it also gets the strictly-largest
+ * rank, so it renders on top of its siblings. */
+export function dockPanelZIndex(state: DockState, id: string): number {
+  const ranked = Object.keys(state).sort((a, b) => {
+    const dz = state[a].z - state[b].z;
+    return dz !== 0 ? dz : a < b ? -1 : a > b ? 1 : 0;
+  });
+  const rank = ranked.indexOf(id);
+  return Math.min(DOCK_Z_BASE + (rank < 0 ? 0 : rank), DOCK_Z_CEILING);
 }
 
 /** Raise panel `id` to the top of the z-order (max z + 1). */

@@ -11,6 +11,7 @@ import {
   clampPanelWidth,
   clampPosition,
   dockPanelMaxHeight,
+  dockPanelZIndex,
   pillStackIndex,
   resolveCollision,
   DOCK_PANEL_FALLBACK_SIZE,
@@ -80,6 +81,11 @@ export function DockPanel({
   }, [id]);
 
   const panel = ctx.getPanel(id, defaultPosition);
+  // NOT `panel.z` — that is the relative focus rank, which starts at 0/1 and
+  // would render this panel BEHIND ordinary page content until an unrelated
+  // click bumped it. `dockPanelZIndex` lifts the rank into the dock's
+  // reserved stacking window; see the stacking contract in dockState.ts.
+  const zIndex = dockPanelZIndex(ctx.state, id);
 
   const panelSize = useCallback((): Size => {
     const rect = panelRef.current?.getBoundingClientRect();
@@ -241,7 +247,7 @@ export function DockPanel({
         <button
           type="button"
           className={className}
-          style={{ zIndex: panel.z }}
+          style={{ zIndex }}
           onClick={dock.open}
           aria-label={`Restore ${title}`}
         >
@@ -259,7 +265,7 @@ export function DockPanel({
         type="button"
         className={`${className} dock-pill--fixed-fallback`}
         style={{
-          zIndex: panel.z,
+          zIndex,
           bottom: `calc(var(--s-3) + ${stackIndex * PILL_STACK_STEP_PX}px)`,
         }}
         onClick={dock.open}
@@ -285,7 +291,7 @@ export function DockPanel({
       className="dock-panel"
       style={{
         transform: `translate(${panel.x}px, ${panel.y}px)`,
-        zIndex: panel.z,
+        zIndex,
         width: `${effectiveWidth}px`,
         maxHeight: `${dockPanelMaxHeight(window.innerHeight, panel.y)}px`,
       }}
