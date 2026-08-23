@@ -67,22 +67,23 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**Installed is v6.0.0 "Practice Core" (tag `v6.0.0`, 2026-08-18) — all four plans: A Practice
-Surfaces (dock/pause/sessions/plans/banner, schema v14), B Read Models (History timeline,
-Calendar planned-vs-done), C Score Intelligence (cloud-vision measure mapping + snap selection
-+ sub-sections), D Voice & Brain (fast-path metronome commands, chime acks, looser matching
-with the firewall intact, heard-text pill, TTS cooldown + Aoede + degraded pill, honest
-Assistant grounding copy).** Schema 13→14, rehearsed on a fresh live copy immediately before
-install (B58 fixed first — the harness had misread the historic July chamber-split). Gates:
-vitest 2101/0, cargo 855/0, six corpus/firewall suites zero false mutations, tsc + clippy
-clean. TWO fresh-context adversarial verification passes: pass 1 refuted the fast path
-(prefix-partial phantom mutations on four corpus lines — fixed: multi-word metronome phrases
-only), pass 2 = SHIP. Open: Flaws B70 (prefix-keyed final suppression — "metronome on 96"
-loses its tempo; say "metronome 96"), B71–B73, B67 (no Anthropic key — Claude vision still
-never exercised). Rollbacks now live in `~/Library/CodaKiller-rollbacks/` (the release
-one-copy rule scans `~`). Pre-install backup `(C) pre-v6.0.0-install-2026-08-18-101647.db`
-SHA `c142f70a…`.
+**Installed is v6.0.1 "Real-Use Fixes" (tag `v6.0.1`, merge `d9fa0fe`, installed 2026-08-21)**
+on top of v6.0.0 "Practice Core" (2026-08-18, schema 14). The patch closed B70 (fast-path
+suppression by routed intent), B76 (score toolbar top-row overlap), B72 (BooksPanel nested
+form), and the dock stacking-floor/defaults/Reset-layout ergonomics. Gates at ship: vitest
+2125/0, cargo 898/0, clippy + tsc clean, six corpus/firewall suites zero false mutations.
+v6.0.0 acceptance verdict recorded 2026-08-20: **accepted with issues**. Off-disk backup
+resolved 2026-08-23 — private remote `https://github.com/cchow375/codakiller`. Open flaws:
+B67 (no Anthropic key — Claude vision never exercised), B71/B73 (minor), B75 (measure
+mapping: 0 rows on the live DB), B77 (measure-map dialog focus trap), B78/B79 (dock
+residuals). Rollbacks live in `~/Library/CodaKiller-rollbacks/`; latest pre-install backup
+`(C) pre-v6.0.1-install-2026-08-21-121450.db` SHA `02461039…`.
 
-**Next: v7.0 "Motivation Layer"** (living earned-only galaxy, streaks + photo calendar,
-completion animations, full dynamics checker, Assistant usefulness) — scoped in the v6 spec's
-non-goals, awaiting its own spec round.
+**Active: v7.0.0 "Motivation Layer" — BUILDING (started 2026-08-23).** Spec approved
+2026-08-20 (`docs/superpowers/specs/2026-08-20-codakiller-v6.0.1-fixes-v7-motivation-layer.md`);
+Christian cleared the spec-review gate 2026-08-23 ("push to v7"). Implementation plans
+written 2026-08-23: `docs/superpowers/plans/2026-08-23-codakiller-v7-foundations.md` (B0
+mic-coexistence spike + schema v15), `…-v7-plan-a-galaxy-ritual.md`, `…-v7-plan-b-dynamics.md`
+(on hold until B0 verdict), `…-v7-plan-c-assistant.md`. Build order: Foundations → A → B → C,
+lanes in `~/.ck-lanes/`, requirements ledger at `.workflow/LEDGER.md`. Schema v14→v15 (drop
+`session.focused_seconds` (B74), add `day_photo` + dynamics calibration tables).
