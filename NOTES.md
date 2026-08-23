@@ -2355,3 +2355,20 @@ stranded at v3.2.0 since July while `CLAUDE.md` moved on without it. The update 
 list is only as good as the sweep that runs it; the twins in particular drift silently because
 nothing reads both. Also corrected: v5.0.0's ship date is **2026-07-31** (the tag), not 07-30 as
 several docs said, and tag `v4.0.1` had never been documented anywhere at all.
+
+## B0 mic-coexistence spike — PASS (2026-08-23)
+
+Ran on branch `v7/foundations` as the gating spike for v7 Plan B (Dynamics Checker): can a
+`cpal` input stream and the vendored `hear` STT binary read the default mic concurrently on
+the 8 GB M2 Air without device-steal or a resource footprint that would compete with the
+realtime audio output callback? Run autonomously (no human at the piano) — audio was driven
+into the room mic by looping `say` through the Mac speakers instead of a live voice.
+
+**Verdict: PASS.** Both processes ran the full 60s+ concurrently on `MacBook Air Microphone`
+with continuous live output and no device-steal or permission dialog. `cpal` spike: avg 0.01%
+CPU / ~17 MB RSS, dBFS visibly tracking the `say` loop's speech bursts for all 60 printed
+lines. `hear -d -l en-US`: avg 0.52% CPU / ~38 MB RSS, transcript growing continuously across
+217 stdout lines for the whole run. Combined footprint is negligible against both the realtime
+audio budget and the 8 GB memory ceiling. Full numbers and procedure in
+`.workflow/scratch/b0-spike-verdict.md`. Plan B's live-meter design (B1 streams input alongside
+STT) proceeds as scoped — no push-to-measure fallback required on this evidence.
