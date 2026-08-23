@@ -8,7 +8,7 @@
 use rusqlite::{Connection, OptionalExtension};
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 14;
+pub const SCHEMA_VERSION: i32 = 15;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -1435,6 +1435,77 @@ pub(crate) fn split_chamber_pieces_tanglewood(conn: &Connection) -> rusqlite::Re
     Ok(true)
 }
 
+/// Refuse the v15 step on a bundled SQLite that predates `ALTER TABLE ... DROP COLUMN`
+/// support (added in SQLite 3.35.0). Confirmed today: `rusqlite = { version = "0.40.1",
+/// features = ["bundled"] }` ships well past 3.35, so this is expected to always pass — it
+/// exists so a future dependency change fails loudly at migration time instead of silently
+/// corrupting the schema step.
+fn assert_sqlite_version_supports_drop_column(conn: &Connection) {
+    let version: String = conn
+        .query_row("SELECT sqlite_version()", [], |row| row.get(0))
+        .expect("read sqlite_version()");
+    let mut parts = version.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    let major = parts.next().unwrap_or(0);
+    let minor = parts.next().unwrap_or(0);
+    assert!(
+        (major, minor) >= (3, 35),
+        "bundled SQLite {version} predates 3.35 — ALTER TABLE DROP COLUMN is unsupported; \
+         do not ship schema v15 on this build"
+    );
+}
+
+/// Refuse the v15 step if any index, view, or trigger still references
+/// `session.focused_seconds` (B74: verified today that nothing does — every runtime reader
+/// computes the value fresh via `metrics::focused_seconds`, never from the column). Runs
+/// against the real `sqlite_master` rather than trusting the static check, since this guard
+/// is the only thing standing between an irreversible DROP COLUMN and a broken dependent
+/// object.
+fn assert_no_references_to_session_focused_seconds(conn: &Connection) {
+    let mut stmt = conn
+        .prepare(
+            "SELECT type, name FROM sqlite_master \
+             WHERE type IN ('index','view','trigger') AND sql LIKE '%focused_seconds%'",
+        )
+        .expect("prepare sqlite_master scan");
+    let hits: Vec<(String, String)> = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .expect("query sqlite_master")
+        .collect::<Result<_, _>>()
+        .expect("collect sqlite_master rows");
+    assert!(
+        hits.is_empty(),
+        "refusing schema v15: {} object(s) still reference focused_seconds: {hits:?}",
+        hits.len()
+    );
+}
+
+pub(crate) const SCHEMA_V15: &str = "\
+ALTER TABLE session DROP COLUMN focused_seconds;
+CREATE TABLE day_photo (
+  day TEXT PRIMARY KEY CHECK (day GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+  rel_path TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE dynamics_profile (
+  id INTEGER PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 0 CHECK (active IN (0,1)),
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX dynamics_profile_one_active_idx ON dynamics_profile(active) WHERE active=1;
+CREATE TABLE dynamics_calibration_point (
+  profile_id INTEGER NOT NULL REFERENCES dynamics_profile(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL,
+  dynamic_label TEXT NOT NULL CHECK (dynamic_label IN ('pp','p','mf','f','ff')),
+  measured_db REAL NOT NULL,
+  PRIMARY KEY (profile_id, ordinal)
+);
+";
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
@@ -1681,6 +1752,22 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             Ok(())
         })();
         if let Err(error) = v14 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
+    if version < 15 {
+        let v15 = (|| -> rusqlite::Result<()> {
+            assert_sqlite_version_supports_drop_column(conn);
+            assert_no_references_to_session_focused_seconds(conn);
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            conn.execute_batch(SCHEMA_V15)?;
+            conn.execute_batch("PRAGMA user_version = 15;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v15 {
             let _ = conn.execute_batch("ROLLBACK;");
             return Err(error);
         }
@@ -3153,15 +3240,26 @@ mod v3_tests {
         assert_eq!(focus, "tempo");
         assert_eq!(use_metro, 1);
 
-        // session gained focused_seconds
+        // session gained focused_seconds at v3, but a full migrate() call from v2 now
+        // cascades all the way to SCHEMA_VERSION, which since v15 (B74) has dropped that
+        // column again — never written, always computed fresh from events by
+        // metrics::focused_seconds. Assert the column is gone rather than checking its
+        // (now nonexistent) default.
         c.execute("INSERT INTO session (id) VALUES (1)", [])
             .unwrap();
-        let fs: Option<i64> = c
-            .query_row("SELECT focused_seconds FROM session WHERE id=1", [], |r| {
-                r.get(0)
-            })
+        let mut stmt = c
+            .prepare("SELECT name FROM pragma_table_info('session')")
             .unwrap();
-        assert_eq!(fs, None);
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(
+            !cols.contains(&"focused_seconds".to_string()),
+            "focused_seconds must be dropped by the time a full migrate() reaches \
+             SCHEMA_VERSION, found columns: {cols:?}"
+        );
 
         // back-fill: blocks 1&2 overlap → one section region; block 3 → another; + 1 hard_spot region
         let sections: i64 = c
@@ -4297,7 +4395,11 @@ mod v3_tests {
                 .unwrap(),
             SCHEMA_VERSION
         );
-        assert_eq!(SCHEMA_VERSION, 14);
+        // A full migrate() call from v13 cascades past v14 to whatever SCHEMA_VERSION
+        // currently is (v15 as of B74/day_photo/dynamics tables) — this test only
+        // isolates the v13→v14 *content* (measure_map + the two columns below), not the
+        // version number itself, which the pragma assertion above already anchors.
+        assert_eq!(SCHEMA_VERSION, 15);
 
         // measure_map insert/select round-trips (piece id=1, "Etude", already
         // exists from seed_v11()).
@@ -4404,6 +4506,189 @@ mod v3_tests {
             .unwrap(),
             1
         );
+    }
+
+    /// Build a v14 database by chaining every prior step manually (mirrors seed_v13's own
+    /// pattern), so v15's step can be exercised in isolation.
+    fn seed_v14() -> Connection {
+        let c = seed_v13();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        c.execute_batch(SCHEMA_V14).unwrap();
+        c.execute_batch("PRAGMA user_version = 14; COMMIT;")
+            .unwrap();
+        c
+    }
+
+    /// v14 -> v15 drops session.focused_seconds (B74: never written, always computed fresh
+    /// from events by metrics::focused_seconds) and adds the three v7 motivation-layer
+    /// tables. Nothing else changes.
+    #[test]
+    fn migrate_v14_to_v15_drops_focused_seconds_and_adds_motivation_tables() {
+        let c = seed_v14();
+        // id=1 is already taken by a session row inserted deep in the seed_v13 chain
+        // (seed_v4, chained through seed_v11/seed_v13/seed_v14) — use a fresh id here so
+        // this insert doesn't collide with that fixture data.
+        c.execute(
+            "INSERT INTO session (id, started_at, ended_at, summary_md, focused_seconds)
+             VALUES (101, '2026-08-01T10:00:00Z', '2026-08-01T10:30:00Z', 'warmup', 900)",
+            [],
+        )
+        .unwrap();
+        let sessions_before = c
+            .query_row("SELECT count(*) FROM session", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap();
+
+        migrate(&c).unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+        assert_eq!(SCHEMA_VERSION, 15);
+
+        // session row survives; only the column is gone.
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM session", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            sessions_before,
+            "dropping the column must not touch existing rows"
+        );
+        let mut stmt = c
+            .prepare("SELECT name FROM pragma_table_info('session')")
+            .unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(
+            !cols.contains(&"focused_seconds".to_string()),
+            "session.focused_seconds must be dropped by v15, found columns: {cols:?}"
+        );
+
+        // day_photo exists and enforces its day-key CHECK.
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name='day_photo'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
+        );
+        c.execute(
+            "INSERT INTO day_photo (day, rel_path, content_hash, created_at)
+             VALUES ('2026-08-23', 'day-photos/2026-08-23.jpg', 'abc123', '2026-08-23T10:00:00Z')",
+            [],
+        )
+        .unwrap();
+        assert!(c
+            .execute(
+                "INSERT INTO day_photo (day, rel_path, content_hash, created_at)
+                 VALUES ('not-a-day', 'x', 'y', 'z')",
+                [],
+            )
+            .is_err());
+
+        // dynamics_profile + dynamics_calibration_point exist with their CHECKs.
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name IN ('dynamics_profile','dynamics_calibration_point')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            2
+        );
+        c.execute(
+            "INSERT INTO dynamics_profile (id, device_id, label, active, created_at)
+             VALUES (1, 'steinway-living-room', 'Steinway, living room, lid half', 1, '2026-08-23T10:00:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO dynamics_calibration_point (profile_id, ordinal, dynamic_label, measured_db)
+             VALUES (1, 0, 'pp', -42.0)",
+            [],
+        )
+        .unwrap();
+        assert!(c
+            .execute(
+                "INSERT INTO dynamics_calibration_point (profile_id, ordinal, dynamic_label, measured_db)
+                 VALUES (1, 1, 'mezzo', -30.0)",
+                [],
+            )
+            .is_err());
+
+        // one-active enforcement: a second active profile is rejected.
+        assert!(c
+            .execute(
+                "INSERT INTO dynamics_profile (id, device_id, label, active, created_at)
+                 VALUES (2, 'steinway-studio', 'Steinway, studio', 1, '2026-08-23T10:05:00Z')",
+                [],
+            )
+            .is_err());
+        // a second INACTIVE profile is fine.
+        c.execute(
+            "INSERT INTO dynamics_profile (id, device_id, label, active, created_at)
+             VALUES (3, 'steinway-studio', 'Steinway, studio', 0, '2026-08-23T10:05:00Z')",
+            [],
+        )
+        .unwrap();
+    }
+
+    /// A second migrate() call at v15 changes nothing.
+    #[test]
+    fn migrate_is_idempotent_at_v15() {
+        let c = seed_v14();
+        migrate(&c).unwrap();
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+    }
+
+    /// A fresh (user_version 0) database migrates straight to v15 with the same guarantees.
+    #[test]
+    fn fresh_database_migrates_to_v15() {
+        let c = Connection::open_in_memory().unwrap();
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            15
+        );
+        let mut stmt = c
+            .prepare("SELECT name FROM pragma_table_info('session')")
+            .unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(!cols.contains(&"focused_seconds".to_string()));
+        for table in [
+            "day_photo",
+            "dynamics_profile",
+            "dynamics_calibration_point",
+        ] {
+            assert_eq!(
+                c.query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE name=?1",
+                    [table],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+                1,
+                "{table} must exist on a fresh v15 database"
+            );
+        }
     }
 
     #[test]

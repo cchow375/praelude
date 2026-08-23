@@ -1,0 +1,25 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.50s
+     Running unittests src/lib.rs (target/debug/deps/codakiller_lib-9e3a2b913de04942)
+
+running 1 test
+rehearsal: region unchanged at 74
+rehearsal: rep_block unchanged at 179
+rehearsal: rep unchanged at 1710
+rehearsal: goal unchanged at 30
+rehearsal: session unchanged at 37
+rehearsal: session_event unchanged at 6977
+rehearsal: piece 9 -> 9
+rehearsal: split already historic — Barber 6 kept the merged row's id, Copland 7 regions=7 blocks=18 reps=204
+rehearsal: split already historic — 118 ledgered events stay attributed merged(6) -> Copland, unchanged by migration
+rehearsal: progress_summary Copland 7 focused=4707s streak=3
+rehearsal(stranded): skipped — the merged row is already split, the v12 ordering hazard cannot recur on this database
+test store::tests::rehearse_migration_on_real_database_copy ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 880 filtered out; finished in 0.33s
+
+== post-migration probe ==
+15
+ok
+3
+0
+9/179/1710/37
