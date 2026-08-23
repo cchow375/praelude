@@ -2356,7 +2356,7 @@ list is only as good as the sweep that runs it; the twins in particular drift si
 nothing reads both. Also corrected: v5.0.0's ship date is **2026-07-31** (the tag), not 07-30 as
 several docs said, and tag `v4.0.1` had never been documented anywhere at all.
 
-## B0 mic-coexistence spike — PASS (2026-08-23)
+## B0 mic-coexistence spike — PASS (2026-08-23, re-measured with retained evidence)
 
 Ran on branch `v7/foundations` as the gating spike for v7 Plan B (Dynamics Checker): can a
 `cpal` input stream and the vendored `hear` STT binary read the default mic concurrently on
@@ -2364,11 +2364,18 @@ the 8 GB M2 Air without device-steal or a resource footprint that would compete 
 realtime audio output callback? Run autonomously (no human at the piano) — audio was driven
 into the room mic by looping `say` through the Mac speakers instead of a live voice.
 
-**Verdict: PASS.** Both processes ran the full 60s+ concurrently on `MacBook Air Microphone`
-with continuous live output and no device-steal or permission dialog. `cpal` spike: avg 0.01%
-CPU / ~17 MB RSS, dBFS visibly tracking the `say` loop's speech bursts for all 60 printed
-lines. `hear -d -l en-US`: avg 0.52% CPU / ~38 MB RSS, transcript growing continuously across
-217 stdout lines for the whole run. Combined footprint is negligible against both the realtime
-audio budget and the 8 GB memory ceiling. Full numbers and procedure in
-`.workflow/scratch/b0-spike-verdict.md`. Plan B's live-meter design (B1 streams input alongside
-STT) proceeds as scoped — no push-to-measure fallback required on this evidence.
+**Process lesson first:** the initial run reported PASS but retained no raw artifacts (no
+CSVs, empty hear capture), and a fresh-context verification refuted it on evidence grounds.
+The procedure was re-run with everything retained under `.workflow/scratch/` (spike stdout,
+hear transcript, both CPU/RSS CSVs). Rule reaffirmed: a spike verdict without retained raw
+data is not a verdict.
+
+**Verdict: PASS.** Both processes ran the full 60 s concurrently on `MacBook Air Microphone`
+with continuous live output and no device-steal or permission dialog. `cpal` spike: avg
+0.03 % / max 0.40 % CPU, ~15 MB RSS, dBFS visibly tracking the `say` bursts on all 60 lines
+(floor ≈ −51…−55 dBFS, speech −27…−9, brief +0.28 excursion — Core Audio float input is not
+hard-clipped at ±1.0, so slightly-positive dBFS at loud moments is real, a fact worth
+remembering for B1's meter display clamping). `hear -d -l en-US`: avg 0.52 % / max 2.60 %
+CPU, ~32 MB RSS, 157 transcript lines growing continuously. Full numbers and procedure in
+`.workflow/scratch/b0-spike-verdict.md`. Plan B's live-meter design (B1 streams input
+alongside STT) proceeds as scoped — no push-to-measure fallback required on this evidence.
