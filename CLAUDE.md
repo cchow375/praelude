@@ -87,3 +87,13 @@ mic-coexistence spike + schema v15), `…-v7-plan-a-galaxy-ritual.md`, `…-v7-p
 (on hold until B0 verdict), `…-v7-plan-c-assistant.md`. Build order: Foundations → A → B → C,
 lanes in `~/.ck-lanes/`, requirements ledger at `.workflow/LEDGER.md`. Schema v14→v15 (drop
 `session.focused_seconds` (B74), add `day_photo` + dynamics calibration tables).
+
+**2026-08-24 progress:** Foundations merged (`45070c9`), **A1 living galaxy + A2 day streak
+merged** (`a1e74e5`), **B1–B4 dynamics checker merged** (`d126c3f`). Integrated main green:
+vitest 2235 passed / 1 skipped, cargo 904 passed / 0 failed, clippy + tsc clean; pushed to the
+private remote. Fresh-context verification REFUTED the galaxy twice before merge (earned-only
+violation — a never-practised piece rendered a glowing star tagged with a zero-valued evidence
+field; and orbits escaping the 720×520 dense floor at 4+ mastered regions) and killed five
+surviving mutants, one of which would have shown a long-dead streak as current. **Still owed:**
+A3 photo calendar, A4 completion animations, Plan C (Assistant) in full, 720×520 live QA,
+B75's one real measure-mapping run, and the ship. Ledger: 14 of 28 closed.
