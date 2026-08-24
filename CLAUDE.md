@@ -79,21 +79,24 @@ mapping: 0 rows on the live DB), B77 (measure-map dialog focus trap), B78/B79 (d
 residuals). Rollbacks live in `~/Library/CodaKiller-rollbacks/`; latest pre-install backup
 `(C) pre-v6.0.1-install-2026-08-21-121450.db` SHA `02461039…`.
 
-**Active: v7.0.0 "Motivation Layer" — BUILDING (started 2026-08-23).** Spec approved
-2026-08-20 (`docs/superpowers/specs/2026-08-20-codakiller-v6.0.1-fixes-v7-motivation-layer.md`);
-Christian cleared the spec-review gate 2026-08-23 ("push to v7"). Implementation plans
-written 2026-08-23: `docs/superpowers/plans/2026-08-23-codakiller-v7-foundations.md` (B0
-mic-coexistence spike + schema v15), `…-v7-plan-a-galaxy-ritual.md`, `…-v7-plan-b-dynamics.md`
-(on hold until B0 verdict), `…-v7-plan-c-assistant.md`. Build order: Foundations → A → B → C,
-lanes in `~/.ck-lanes/`, requirements ledger at `.workflow/LEDGER.md`. Schema v14→v15 (drop
-`session.focused_seconds` (B74), add `day_photo` + dynamics calibration tables).
+**Installed: v7.0.0 "Motivation Layer" — SHIPPED + INSTALLED 2026-08-24** (tag `v7.0.0`).
+Schema **14 → 15**, rehearsed on a copy of the SAME DAY's live database then verified in place:
+integrity ok, counts identical — 10 pieces / 193 blocks / 1,814 reps / 40 sessions. Gates at ship:
+vitest 2285 passed / 1 skipped, cargo 949 passed / 0 failed, clippy `--all-targets --all-features`
+clean, tsc clean, all eight release-script gates PASS.
 
-**2026-08-24 progress:** Foundations merged (`45070c9`), **A1 living galaxy + A2 day streak
-merged** (`a1e74e5`), **B1–B4 dynamics checker merged** (`d126c3f`). Integrated main green:
-vitest 2235 passed / 1 skipped, cargo 904 passed / 0 failed, clippy + tsc clean; pushed to the
-private remote. Fresh-context verification REFUTED the galaxy twice before merge (earned-only
-violation — a never-practised piece rendered a glowing star tagged with a zero-valued evidence
-field; and orbits escaping the 720×520 dense floor at 4+ mastered regions) and killed five
-surviving mutants, one of which would have shown a long-dead streak as current. **Still owed:**
-A3 photo calendar, A4 completion animations, Plan C (Assistant) in full, 720×520 live QA,
-B75's one real measure-mapping run, and the ship. Ledger: 14 of 28 closed.
+Shipped: the living earned-only galaxy; day streaks; the end-of-day photo ritual; completion
+animations; the complete loudness-only dynamics checker; the B81 silent-`say` fix; and a Settings
+switch that fully disables the Assistant.
+
+**⚠️ THE ASSISTANT SHIPS OFF BY DEFAULT** (Christian's request: "it's just getting in the way and
+it is very extra and is a whole different project"). Off means off — the refusal is enforced in
+Rust on every provider-reaching command, spy-proven to make zero network calls. **The voice→LLM
+fallback lives in `Shell.tsx`, NOT `voice_loop.rs`** — read that before touching either.
+
+**Plan C (the Assistant overhaul) is ON HOLD**, unmerged on branch `v7/plan-c` (pushed to the
+remote). Its "no figure without a tool row" guarantee was REFUTED twice — a fabricated answer
+shipped WITH a provenance chip — and C2/C3/C4 were never built. Resume only on Christian's word.
+
+**Owed:** an at-piano acceptance verdict, live 720×520 QA of the new surfaces, B75 (one real
+measure-mapping run), B67 (no Anthropic key).
