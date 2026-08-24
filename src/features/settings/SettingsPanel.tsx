@@ -55,6 +55,7 @@ export interface SettingsSnapshot {
   practice_default_clean_streak: number;
   ladder_bpm_step: number;
   calendar_capacity_minutes: number;
+  streak_threshold_minutes: number;
   vault_pieces_dir: string;
   verdict_aliases: VerdictAliases;
   api_keys: ApiKeyStatus[];
@@ -159,6 +160,7 @@ export function SettingsPanel({
         practice_default_clean_streak: value.practice_default_clean_streak,
         ladder_bpm_step: value.ladder_bpm_step,
         calendar_capacity_minutes: value.calendar_capacity_minutes,
+        streak_threshold_minutes: value.streak_threshold_minutes,
         vault_pieces_dir: value.vault_pieces_dir,
         verdict_aliases: {
           clean: parseAliases(aliasDrafts.clean),
@@ -598,6 +600,15 @@ export function SettingsPanel({
             max={1440}
             onChange={(calendar_capacity_minutes) =>
               setValue({ ...value, calendar_capacity_minutes })
+            }
+          />
+          <NumberField
+            label="Streak threshold (minutes)"
+            value={value.streak_threshold_minutes}
+            min={1}
+            max={240}
+            onChange={(streak_threshold_minutes) =>
+              setValue({ ...value, streak_threshold_minutes })
             }
           />
         </div>
