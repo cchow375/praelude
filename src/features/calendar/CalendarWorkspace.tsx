@@ -478,8 +478,10 @@ function CalendarDay({
           {used}/{capacity} min
         </span>
       </header>
-      {!photo &&
-        progress &&
+      {/* F1 fix wave: a photo is ADDITIVE, never destructive — the bars
+          render on their own merits (same condition as before photos
+          existed), independent of whether this day also has a photo. */}
+      {progress &&
         (progress.plannedMinutes > 0 || progress.doneMinutes > 0) && (
           <div className="calendar-day-progress">
             {/* Fix round 1: two STACKED single-metric tracks (planned above
@@ -520,22 +522,18 @@ function CalendarDay({
           </div>
         )}
       {photo ? (
-        // Liftoff-style: the day IS the picture. The planned-vs-done numbers
-        // survive as one caption line over the image rather than as bars, so a
-        // photographed day still reports its practice truth.
+        // Liftoff-style thumbnail, alongside (never instead of) the bars
+        // above — a photographed day still carries its own full
+        // planned/done evidence in the DOM, exactly as an unphotographed
+        // day does. The photo adds a picture; it may never subtract a
+        // number.
         <div
           className="calendar-day-photo"
           data-evidence="day_photo"
           role="img"
           aria-label={`Practice photo for ${label.weekday} ${label.date}`}
           style={{ backgroundImage: `url(data:image/jpeg;base64,${photo})` }}
-        >
-          {progress && progress.doneMinutes > 0 && (
-            <span className="calendar-day-photo-caption">
-              {progress.doneMinutes} done
-            </span>
-          )}
-        </div>
+        />
       ) : null}
       {milestones.length > 0 && (
         <div

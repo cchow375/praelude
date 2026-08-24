@@ -587,6 +587,14 @@ describe("CalendarWorkspace — photo thumbnails (Task A3)", () => {
     };
   }
 
+  function daySheet(date: string, minutes: number): DaySheet {
+    return {
+      date,
+      body: [{ type: "block", minutes, piece_id: 1 }],
+      updated_at: "2026-07-15T00:00:00Z",
+    };
+  }
+
   it("fetches the week's photo thumbnails in ONE call, not one per cell", async () => {
     const api = makeApi();
     render(<CalendarWorkspace api={api} initialToday={TODAY} />);
@@ -619,6 +627,58 @@ describe("CalendarWorkspace — photo thumbnails (Task A3)", () => {
       "data:image/jpeg;base64,THUMB64",
     );
     expect(photo.getAttribute("data-evidence")).toBe("day_photo");
+  });
+
+  it("F1: a photographed day with progress keeps BOTH the planned and done evidence in the DOM — a photo is additive, never destructive", async () => {
+    const api = makeApi({
+      dayPhotoThumbs: vi
+        .fn()
+        .mockResolvedValue([{ day: TODAY, thumb_base64: "THUMB64" }]),
+      historyDays: vi.fn().mockResolvedValue([daySummary(TODAY, 38 * 60, 12)]),
+      daySheetsRange: vi.fn().mockResolvedValue([daySheet(TODAY, 45)]),
+    });
+    const { container } = render(
+      <CalendarWorkspace api={api} initialToday={TODAY} />,
+    );
+    const cell = await waitFor(() => {
+      const found = container.querySelector(
+        `.calendar-day[data-date="${TODAY}"]`,
+      ) as HTMLElement | null;
+      if (!found?.querySelector(".calendar-day-photo")) {
+        throw new Error("photo not rendered yet");
+      }
+      return found;
+    });
+    // The photo renders...
+    expect(cell.querySelector(".calendar-day-photo")).toBeTruthy();
+    // ...AND the bars, with BOTH numbers, survive untouched.
+    expect(cell.querySelector(".calendar-day-progress-bars")).toBeTruthy();
+    expect(cell.textContent).toContain("45 planned");
+    expect(cell.textContent).toContain("38 done");
+  });
+
+  it("F1: a photographed day with ONLY planned minutes (no done work yet) still shows the planned bar — not silently erased", async () => {
+    const api = makeApi({
+      dayPhotoThumbs: vi
+        .fn()
+        .mockResolvedValue([{ day: TODAY, thumb_base64: "THUMB64" }]),
+      historyDays: vi.fn().mockResolvedValue([]),
+      daySheetsRange: vi.fn().mockResolvedValue([daySheet(TODAY, 45)]),
+    });
+    const { container } = render(
+      <CalendarWorkspace api={api} initialToday={TODAY} />,
+    );
+    const cell = await waitFor(() => {
+      const found = container.querySelector(
+        `.calendar-day[data-date="${TODAY}"]`,
+      ) as HTMLElement | null;
+      if (!found?.querySelector(".calendar-day-photo")) {
+        throw new Error("photo not rendered yet");
+      }
+      return found;
+    });
+    expect(cell.textContent).toContain("45 planned");
+    expect(cell.textContent).toContain("0 done");
   });
 
   it("leaves a practice day WITHOUT a photo exactly as it was — bars unchanged", async () => {
