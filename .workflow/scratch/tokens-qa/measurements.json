@@ -1,0 +1,272 @@
+{
+  "capturedAt": "2026-07-30T22:15:00-07:00",
+  "browser": "Chromium via chrome-devtools MCP, 1440x960, http://localhost:1420 (npm run dev:mock)",
+  "theme": "paper (document.documentElement[data-theme])",
+  "method": "getComputedStyle + WCAG 2.1 relative luminance; effective background composited up the ancestor chain; element opacity folded in",
+  "D1_workspace_panels": {
+    "history_ledger": {
+      "panelSelector": ".ledger-piece-index",
+      "before_HEAD_dark": {
+        "bg": "#2a2a30",
+        "fg": "#f4f4f5",
+        "contrast": 12.98
+      },
+      "before_this_fix_paper": {
+        "bg": "#2a2a30",
+        "fg": "#1a1714",
+        "contrast": 1.25
+      },
+      "after": { "bg": "#ffffff", "fg": "#1a1714", "contrast": 17.85 },
+      "children": [
+        {
+          "label": "REPERTOIRE head",
+          "fg": "#1a1714",
+          "bg": "#ffffff",
+          "contrast": 17.85
+        },
+        {
+          "label": "unselected piece title (serif)",
+          "fg": "#57514a",
+          "bg": "#ffffff",
+          "contrast": 7.83
+        },
+        {
+          "label": "unselected composer",
+          "fg": "#716a61",
+          "bg": "#ffffff",
+          "contrast": 5.33
+        },
+        {
+          "label": "unselected index numeral",
+          "fg": "#716a61",
+          "bg": "#ffffff",
+          "contrast": 5.33
+        },
+        {
+          "label": "selected row + title",
+          "fg": "#faf8f3",
+          "bg": "#2c4a6e",
+          "contrast": 8.56
+        },
+        {
+          "label": "selected composer/numeral",
+          "fg": "#d1d5d8",
+          "bg": "#2c4a6e",
+          "contrast": 6.16
+        },
+        {
+          "label": "History masthead h1",
+          "fg": "#1a1714",
+          "bg": "#faf8f3",
+          "contrast": 16.82
+        }
+      ],
+      "sweep": {
+        "textElementsChecked": 98,
+        "belowAA": 1,
+        "belowAAItems": [
+          ".anomalies-badge-warning 4.47 (AnomaliesPanel.css:98 — outside this lane's scope)"
+        ]
+      }
+    },
+    "calendar": {
+      "workspaceSelector": ".calendar-workspace",
+      "after": { "bg": "#faf8f3", "fg": "#1a1714", "contrast": 16.82 },
+      "children": [
+        {
+          "label": "calendar h1 (serif)",
+          "fg": "#1a1714",
+          "bg": "#faf8f3",
+          "contrast": 16.82
+        },
+        {
+          "label": "primary button (accent fill, !important; was 1.25:1)",
+          "fg": "#faf8f3",
+          "bg": "#2c4a6e",
+          "contrast": 8.56
+        },
+        {
+          "label": "day card",
+          "fg": "#1a1714",
+          "bg": "#ffffff",
+          "contrast": 17.85
+        },
+        {
+          "label": "day label",
+          "fg": "#716a61",
+          "bg": "#ffffff",
+          "contrast": 5.33
+        },
+        {
+          "label": "secondary button",
+          "fg": "#57514a",
+          "bg": "#ffffff",
+          "contrast": 7.83
+        },
+        {
+          "label": "goal milestone small (fixed 4.43 -> 6.5)",
+          "fg": "#57514a",
+          "bg": "#eaeae8",
+          "contrast": 6.5
+        }
+      ],
+      "sweep": { "textElementsChecked": 70, "belowAA": 0 }
+    },
+    "pieces": {
+      "workspaceSelector": ".pieces-view",
+      "after": { "bg": "#faf8f3", "fg": "#1a1714", "contrast": 16.82 },
+      "children": [
+        {
+          "label": "Score map h1 (serif, 100.8px)",
+          "fg": "#1a1714",
+          "bg": "#faf8f3",
+          "contrast": 16.82
+        },
+        {
+          "label": "subheading (serif)",
+          "fg": "#57514a",
+          "bg": "#faf8f3",
+          "contrast": 7.38
+        },
+        {
+          "label": "Scan button (ink fill)",
+          "fg": "#faf8f3",
+          "bg": "#1a1714",
+          "contrast": 16.82
+        },
+        {
+          "label": "atlas accent arrow",
+          "fg": "#2c4a6e",
+          "bg": "#faf8f3",
+          "contrast": 8.56
+        },
+        {
+          "label": "needs-setup badge (--warning wash)",
+          "fg": "#8a5a12",
+          "bg": "#ede5d8",
+          "contrast": 4.73
+        }
+      ],
+      "sweep": { "textElementsChecked": 27, "belowAA": 0 }
+    },
+    "tokensResolvedInAllThreeScopes": {
+      "--accent": "#2c4a6e",
+      "--accent-contrast": "#faf8f3",
+      "--ink-on-dark": "#faf8f3",
+      "--surface-ink": "#1a1714",
+      "--font-display": "\"New York\" (serif restored)",
+      "--warning": "#8a5a12",
+      "--info": "#2c4a6e",
+      "--surface-hover": "rgba(26, 23, 20, 0.045)",
+      "--radius-xs": "2px"
+    }
+  },
+  "D4_paper_ruled_baseline": {
+    "before": {
+      "ruleTopInBand": 27,
+      "baselineInBand_at_text_read_17px": 20.5,
+      "textFloatsAboveRulePx": 6.5
+    },
+    "after": {
+      "formula": "--paper-rule-baseline: calc(var(--paper-rule-gap) / 2 + 0.36em)",
+      "worstAbsErrorPx": 0.4,
+      "samples": [
+        {
+          "font": "--font-sans",
+          "px": 13,
+          "baseline": 19.0,
+          "ruleTop": 18.68,
+          "delta": -0.32
+        },
+        {
+          "font": "--font-sans",
+          "px": 15,
+          "baseline": 19.5,
+          "ruleTop": 19.4,
+          "delta": -0.1
+        },
+        {
+          "font": "--font-sans",
+          "px": 17,
+          "baseline": 20.5,
+          "ruleTop": 20.12,
+          "delta": -0.38
+        },
+        {
+          "font": "--font-sans",
+          "px": 19,
+          "baseline": 21.0,
+          "ruleTop": 20.84,
+          "delta": -0.16
+        },
+        {
+          "font": "--font-display",
+          "px": 13,
+          "baseline": 18.5,
+          "ruleTop": 18.68,
+          "delta": 0.18
+        },
+        {
+          "font": "--font-display",
+          "px": 15,
+          "baseline": 19.0,
+          "ruleTop": 19.4,
+          "delta": 0.4
+        },
+        {
+          "font": "--font-display",
+          "px": 17,
+          "baseline": 20.0,
+          "ruleTop": 20.12,
+          "delta": 0.12
+        },
+        {
+          "font": "--font-display",
+          "px": 19,
+          "baseline": 20.5,
+          "ruleTop": 20.84,
+          "delta": 0.34
+        },
+        {
+          "font": "--font-mono",
+          "px": 13,
+          "baseline": 18.5,
+          "ruleTop": 18.68,
+          "delta": 0.18
+        },
+        {
+          "font": "--font-mono",
+          "px": 15,
+          "baseline": 19.0,
+          "ruleTop": 19.4,
+          "delta": 0.4
+        },
+        {
+          "font": "--font-mono",
+          "px": 17,
+          "baseline": 20.0,
+          "ruleTop": 20.12,
+          "delta": 0.12
+        },
+        {
+          "font": "--font-mono",
+          "px": 19,
+          "baseline": 20.5,
+          "ruleTop": 20.84,
+          "delta": 0.34
+        }
+      ]
+    }
+  },
+  "screenshots": [
+    "01-history-fixed.png",
+    "02-history-repertoire-panel.png",
+    "03-calendar-fixed.png",
+    "04-pieces-fixed.png",
+    "05-pieces-detail.png",
+    "06-paper-ruled-baseline.png",
+    "07-calendar-final.png",
+    "08-history-anomalies-badge-4.47.png"
+  ],
+  "consoleErrors": 0
+}

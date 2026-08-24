@@ -19,10 +19,10 @@ Spec: docs/superpowers/specs/2026-08-20-codakiller-v6.0.1-fixes-v7-motivation-la
 - [x] 12. B3 live readout: floating dock panel (v6 dock family: draggable, minimizable, clamped) mapping level onto calibrated pp→ff band
 - [x] 13. B4 target mode: user-triggered only; pick dynamic or crescendo range; shows zone + where playing landed; NO verdict writes, NO streak effects
 ## Plan C — Assistant Usefulness
-- [ ] 14. C1 practice-data tools: read-only, confirm-gated, over deterministic read models (history days/detail, progress summary, per-piece/per-block stats, streaks); numeric claims ONLY from tool rows
-- [ ] 15. C2 book-grounded coaching: 4-book corpus (Roskell, Gebrian, Breth, Gieseking/Leimer) retrieved against current situation, cited; suggestion-only
-- [ ] 16. C3 planning help: on request, draft day plan from carry-forward + pass_seconds estimates + break science; user applies or ignores, never auto-imposed
-- [ ] 17. C4 piece knowledge: grounded in open piece's actual metadata (edition, composer, regions, goals banner)
+- [~] 14. DEFERRED to v7.1 (Christian's direction 2026-08-24: "put that on hold until I tell you to resume"). Original item: C1 practice-data tools: read-only, confirm-gated, over deterministic read models (history days/detail, progress summary, per-piece/per-block stats, streaks); numeric claims ONLY from tool rows
+- [~] 15. DEFERRED to v7.1 (Christian's direction 2026-08-24: "put that on hold until I tell you to resume"). Original item: C2 book-grounded coaching: 4-book corpus (Roskell, Gebrian, Breth, Gieseking/Leimer) retrieved against current situation, cited; suggestion-only
+- [~] 16. DEFERRED to v7.1 (Christian's direction 2026-08-24: "put that on hold until I tell you to resume"). Original item: C3 planning help: on request, draft day plan from carry-forward + pass_seconds estimates + break science; user applies or ignores, never auto-imposed
+- [~] 17. DEFERRED to v7.1 (Christian's direction 2026-08-24: "put that on hold until I tell you to resume"). Original item: C4 piece knowledge: grounded in open piece's actual metadata (edition, composer, regions, goals banner)
 ## Binding constraints
 - [x] 18. Loudness only, forever: no pitch/onset/note detection, no transcription, no grading anywhere in Plan B
 - [x] 19. Earned-only: nothing in galaxy/streak/photo grantable, bought, backfilled, faked; no points/coins/levels; no social; no separate OS windows
@@ -36,3 +36,10 @@ Spec: docs/superpowers/specs/2026-08-20-codakiller-v6.0.1-fixes-v7-motivation-la
 - [ ] 26. B75: v7 QA runs measure mapping once on a real score (live datapoint)
 - [ ] 27. Ship mechanics: version bump, tag v7.0.0, DMG, pre-install live-DB backup (SHA recorded), rollback tar.gz one-copy rule, install + re-sign, push to GitHub remote
 - [ ] 28. Update protocol after ship: vault Changelog, CodaKiller.md, Roadmap, Flaws, Command Center, How To Use (+ Matches line), version record, repo NOTES.md, memory file
+
+## Added 2026-08-24 (Christian's direction, mid-build)
+- [ ] 29. Settings toggle to fully DISABLE the Assistant: hides its tab, stops voice questions
+      routing to it, hides assistant-suggest surfaces, makes zero API calls. "It's getting in the
+      way and it is very extra and is a whole different project."
+- [~] 30. DEFERRED: Plan C (Assistant) resumes only on Christian's word. Branch `v7/plan-c` holds
+      the tool loop + numbers policy, unmerged, REFUTED twice; C2/C3/C4 never built.
