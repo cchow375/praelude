@@ -9,6 +9,8 @@ mod corpus;
 mod library;
 mod provider;
 mod score_context;
+mod tool_exec;
+mod tools;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -23,6 +25,7 @@ use crate::store::model::{PieceFieldPatch, RepSnapshot};
 use crate::store::Store;
 
 pub use context::{GroundingSummary, KnowledgeShareCause};
+pub use tool_exec::ToolProvenance;
 pub use corpus::{BookExcerpt, BookKind, BookListing};
 pub use library::{Citation, MethodCard};
 use library::{EmbeddedLibrary, PracticeLibrary};
