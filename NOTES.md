@@ -2427,3 +2427,39 @@ Integrated main green: vitest 2235/1 skipped, cargo 904/0, clippy + tsc clean.
   four common files (lib.rs, store/mod.rs, tauriDevMock.ts, Shell.tsx), all additively, and
   both merges went in with zero conflicts. Briefing each lane with an explicit
   stay-out-of-these-paths list is what made that work.
+
+## v7.0.0 ship — what the release taught (2026-08-24)
+
+Shipped tag `v7.0.0`, schema 14→15, counts preserved. Gates: vitest 2285/1 skipped, cargo 949/0,
+clippy `--all-targets --all-features` clean, tsc clean.
+
+- **The Assistant kill-switch had to be gated in FIVE places the tab does not cover, and the one
+  that mattered was not where anyone would look.** The voice→LLM fallback lives in
+  `Shell.tsx` (the `voice.lastIntent.kind === "question"` effect and the
+  `parseAssistantDirectedQuestion` path), **not** in `voice_loop.rs` — the Rust router marks an
+  unmatched utterance `Ignored` and never calls the brain. Gate only the backend and a hidden tab
+  still lets a spoken question reach the model; gate only the tab and the same is true. The other
+  non-obvious surfaces: `PassageHelper` (mounted in the Score Plan tab AND under day-sheet piece
+  headings, nothing to do with the Assistant tab), `BrainConnection` in Settings, and Today's own
+  Assistant entry. Rule: for any "disable X" feature, enumerate every *mount point* and every
+  *route*, not just the nav item.
+- **Gate the refusal where the network call happens.** IPC commands are callable regardless of
+  which React view is mounted, so the Rust-side `require_assistant_enabled` check is the real
+  guarantee and the UI hiding is a convenience. The tests assert `transport.requests().is_empty()`
+  against a FakeTransport wired with a real success response — proving zero calls, not merely that
+  an `Err` came back. An `Err` assertion would have passed even if the request had gone out.
+- **`npx tsc` is NOT the TypeScript compiler.** In a worktree without `node_modules`, bare
+  `npx tsc` resolves to an unrelated `tsc@2.0.4` package and exits 0 — a vacuous gate that
+  "passes" forever. Always `./node_modules/.bin/tsc --noEmit`.
+- **A filtered test run is not a gate.** One lane reported "929 passed; 0 failed" from a run with
+  `1 filtered out`; unfiltered it was 929 passed, **1 failed**. Always run unfiltered and check the
+  `filtered out` count is 0.
+- **The release script installs.** `scripts/(C) release-macos.sh` steps 4–5 build AND replace
+  `/Applications/CodaKiller.app`, deleting the previous bundle after a successful swap — so the
+  outgoing version must be tar.gz'd into `~/Library/CodaKiller-rollbacks/` BEFORE running it.
+  Check `pgrep -fl CodaKiller` and the live DB for an open session first: quitting the app
+  mid-session is a real interruption, and step 5 quits it unconditionally.
+- **Rehearse the migration on a copy of the CURRENT database, not the last backup.** Between the
+  2026-08-21 backup and this ship Christian added a piece and practised twice (9→10 pieces,
+  1,710→1,814 reps). Rehearsing against the stale copy would have proven nothing about the data
+  actually being migrated.
