@@ -40,6 +40,9 @@ import { DynamicsPanel } from "../features/dock/DynamicsPanel";
 import { DockPillBar } from "../features/dock/DockPillBar";
 import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
+import { DayPhotoCapture } from "../features/ritual/DayPhotoCapture";
+import { dayPhotoPrompt, dayPhotoPromptDismiss } from "../features/ritual/api";
+import { detectMoment, useCompletionFx } from "../features/ritual/completionFx";
 import { useVoice } from "../features/voice/useVoice";
 import { useTtsDegraded } from "../features/voice/useTtsDegraded";
 import { VoiceToast } from "../features/voice/VoiceToast";
@@ -410,6 +413,19 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   const ttsDegraded = useTtsDegraded();
   const session = useSession();
   const [ending, setEnding] = useState(false);
+  // A3: the day-close photo ritual. Set by a session that just ended, or by
+  // the next-launch rollover prompt below — either way it names the LOCAL
+  // day the capture card is offered for.
+  const [photoDay, setPhotoDay] = useState<string | null>(null);
+  // A4: completion flourishes — set complete, mastery landing, day close.
+  const { fire: fireCompletionFx, overlay: completionOverlay } =
+    useCompletionFx();
+  const previousRepSnapRef = useRef<RepSnapshot | null>(null);
+  useEffect(() => {
+    const moment = detectMoment(previousRepSnapRef.current, rep.snap);
+    if (moment) fireCompletionFx(moment);
+    previousRepSnapRef.current = rep.snap;
+  }, [rep.snap, fireCompletionFx]);
   const repFallbackContext = useMemo<PracticeBrainContext | null>(() => {
     if (!rep.snap) return null;
     return {
@@ -830,12 +846,38 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     setEnding(true);
     try {
       await session.endSession();
+      // The ritual (and its flourish) only follow a day that actually
+      // closed. A failed end throws above this line and never reaches here.
+      setPhotoDay(todayLocal());
+      fireCompletionFx("day_close");
     } catch {
       // useSession preserves the live session and publishes the receipt.
     } finally {
       setEnding(false);
     }
-  }, [session]);
+  }, [session, fireCompletionFx]);
+
+  // A3: a midnight auto-close skips the ritual live, but queues which day(s)
+  // it skipped it for — offer the oldest one on the next launch. F4 fix
+  // wave: dayPhotoPrompt() is a non-destructive PEEK, so this effect can run
+  // twice (React.StrictMode's dev-only mount->unmount->remount) with zero
+  // risk of losing a day — the old read-and-clear command let the discarded
+  // first call silently consume the day. Best-effort: no Tauri backend
+  // (browser dev) or a bare fetch failure just means no prompt, never a
+  // startup error.
+  useEffect(() => {
+    let alive = true;
+    void dayPhotoPrompt()
+      .then((day) => {
+        if (alive && day) setPhotoDay(day);
+      })
+      .catch(() => {
+        // No backend, or nothing pending — either way, nothing to offer.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const focusTab = (id: WorkspaceId) => {
     setView(id);
@@ -1157,6 +1199,27 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
           the ambient ones the router ignored, so a miss is a sentence you can
           read instead of silence you have to guess at. */}
       <HeardPill delivery={voice.acceptedFinalDelivery} />
+      {/* A3: the day-close photo ritual. Shell-level, not SessionBar-level —
+          the bar is a slim strip and must not grow a modal. */}
+      {photoDay && (
+        <DayPhotoCapture
+          day={photoDay}
+          onDone={() => {
+            // F4 fix wave: clear this specific day from the pending
+            // rollover queue now that the user has actually acted on it
+            // (photographed or skipped) — never merely from having peeked
+            // it. A day that was never in the queue (the common live,
+            // same-day case) dismisses as a harmless no-op.
+            void dayPhotoPromptDismiss(photoDay).catch(() => {
+              // Best-effort: worst case the day is offered again next
+              // launch, which is the safe direction to fail in.
+            });
+            setPhotoDay(null);
+          }}
+        />
+      )}
+      {/* A4: completion flourishes — pointer-events: none, self-removing. */}
+      {completionOverlay}
       {rep.error && !rep.snap && (
         <p
           className="shell-rep-error"

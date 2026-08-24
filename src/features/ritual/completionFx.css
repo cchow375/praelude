@@ -1,0 +1,63 @@
+.completion-fx {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  /* The non-negotiable line: this layer can never intercept a press. */
+  pointer-events: none;
+  z-index: 45;
+}
+
+.completion-fx-mark {
+  width: 4rem;
+  height: 4rem;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  opacity: 0;
+  animation: completion-bloom 1.1s ease-out 1 forwards;
+}
+
+.completion-fx[data-moment="mastery_landing"] .completion-fx-mark {
+  border-color: var(--accent);
+  width: 5.5rem;
+  height: 5.5rem;
+}
+
+.completion-fx[data-moment="day_close"] .completion-fx-mark {
+  border-style: dashed;
+}
+
+@keyframes completion-bloom {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  35% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+@keyframes completion-fade {
+  0% {
+    opacity: 0;
+  }
+  30%,
+  70% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* One static fade, no scale, no travel. */
+@media (prefers-reduced-motion: reduce) {
+  .completion-fx-mark {
+    animation: completion-fade 1.1s linear 1 forwards !important;
+    transform: none !important;
+  }
+}

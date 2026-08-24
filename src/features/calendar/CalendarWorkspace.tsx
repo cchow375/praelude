@@ -59,6 +59,9 @@ export function CalendarWorkspace({
   const [plannedVsDone, setPlannedVsDone] = useState<
     Record<string, PlannedVsDoneDay>
   >({});
+  // Task A3: photographed days in the visible week, keyed by date — a day
+  // with no entry here renders exactly as it does today (the bars unchanged).
+  const [dayPhotos, setDayPhotos] = useState<Record<string, string>>({});
   const weekEnd = addDays(weekStart, 6);
   // Task B3: bar widths are proportional against the WEEK's max(planned,
   // done) minutes, not each cell's own max — so a light Tuesday and a heavy
@@ -82,6 +85,7 @@ export function CalendarWorkspace({
   const mountedRef = useRef(false);
   const weekRequestGenerationRef = useRef(0);
   const plannedVsDoneGenerationRef = useRef(0);
+  const dayPhotosGenerationRef = useRef(0);
   const currentWeekRef = useRef({ from: weekStart, to: weekEnd });
 
   useLayoutEffect(() => {
@@ -155,12 +159,38 @@ export function CalendarWorkspace({
     }
   }, [api, dates]);
 
+  // Task A3: one `day_photo_thumbs` call per visible week, never one per
+  // cell. Same alive-guard/generation-token shape as `loadPlannedVsDone`. A
+  // failed fetch (e.g. the day-photos dir unavailable) just leaves the week
+  // with no photo layer — the bars underneath are untouched either way.
+  const loadDayPhotos = useCallback(async () => {
+    if (!mountedRef.current) return;
+    const generation = ++dayPhotosGenerationRef.current;
+    const { from, to } = currentWeekRef.current;
+    const ownsState = () =>
+      mountedRef.current &&
+      generation === dayPhotosGenerationRef.current &&
+      currentWeekRef.current.from === from &&
+      currentWeekRef.current.to === to;
+    try {
+      const thumbs = await api.dayPhotoThumbs(from, to);
+      if (ownsState()) {
+        setDayPhotos(
+          Object.fromEntries(thumbs.map((t) => [t.day, t.thumb_base64])),
+        );
+      }
+    } catch {
+      // Best-effort: no photo layer this week, bars render unaffected.
+    }
+  }, [api]);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       weekRequestGenerationRef.current += 1;
       plannedVsDoneGenerationRef.current += 1;
+      dayPhotosGenerationRef.current += 1;
     };
   }, []);
   useEffect(() => {
@@ -169,6 +199,9 @@ export function CalendarWorkspace({
   useEffect(() => {
     void loadPlannedVsDone();
   }, [loadPlannedVsDone, weekEnd, weekStart]);
+  useEffect(() => {
+    void loadDayPhotos();
+  }, [loadDayPhotos, weekEnd, weekStart]);
   useEffect(() => {
     void loadPreview();
   }, [loadPreview]);
@@ -367,6 +400,7 @@ export function CalendarWorkspace({
                 onOpenSheet={() => setSheetDate(date)}
                 progress={plannedVsDone[date]}
                 weekMaxMinutes={weekMaxMinutes}
+                photo={dayPhotos[date] ?? null}
               />
             );
           })}
@@ -401,6 +435,7 @@ function CalendarDay({
   onOpenSheet,
   progress,
   weekMaxMinutes,
+  photo,
 }: {
   date: string;
   today: string;
@@ -413,6 +448,9 @@ function CalendarDay({
   onOpenSheet: () => void;
   progress: PlannedVsDoneDay | undefined;
   weekMaxMinutes: number;
+  /** Task A3: this day's photo thumbnail (base64 JPEG, no data: prefix), or
+   * null if none was taken. */
+  photo: string | null;
 }) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
@@ -424,6 +462,7 @@ function CalendarDay({
     <section
       className={`calendar-day ${date === today ? "is-today" : ""}`}
       aria-label={`${label.weekday} ${label.date}`}
+      data-date={date}
     >
       <header>
         <button
@@ -439,6 +478,9 @@ function CalendarDay({
           {used}/{capacity} min
         </span>
       </header>
+      {/* F1 fix wave: a photo is ADDITIVE, never destructive — the bars
+          render on their own merits (same condition as before photos
+          existed), independent of whether this day also has a photo. */}
       {progress &&
         (progress.plannedMinutes > 0 || progress.doneMinutes > 0) && (
           <div className="calendar-day-progress">
@@ -479,7 +521,20 @@ function CalendarDay({
             </p>
           </div>
         )}
-      {/* v7: streak/photo layer slots here */}
+      {photo ? (
+        // Liftoff-style thumbnail, alongside (never instead of) the bars
+        // above — a photographed day still carries its own full
+        // planned/done evidence in the DOM, exactly as an unphotographed
+        // day does. The photo adds a picture; it may never subtract a
+        // number.
+        <div
+          className="calendar-day-photo"
+          data-evidence="day_photo"
+          role="img"
+          aria-label={`Practice photo for ${label.weekday} ${label.date}`}
+          style={{ backgroundImage: `url(data:image/jpeg;base64,${photo})` }}
+        />
+      ) : null}
       {milestones.length > 0 && (
         <div
           className="calendar-goal-milestones"
