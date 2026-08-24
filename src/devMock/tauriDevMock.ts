@@ -2427,6 +2427,51 @@ function staleMarkCount(args: Record<string, unknown>): number {
 const DAY_SHEETS = new Map<string, DaySheet>();
 const PIECE_PLANS = new Map<number, PiecePlan>();
 
+// --- Day photos (Plan A, task A3) -------------------------------------------
+//
+// The ritual's artefact. Keyed by LOCAL day, holding both base64 sizes exactly
+// as the real `day_photo_save` command receives them — no image ever touches
+// disk in this harness. Cleared on each install so tests never bleed a photo
+// from one suite into the next.
+
+interface MockDayPhoto {
+  day: string;
+  jpegBase64: string;
+  thumbBase64: string;
+}
+
+const DAY_PHOTOS = new Map<string, MockDayPhoto>();
+
+/** F4/F7: mirrors the real backend's capped, deduped pending-rollover-day
+ * queue. Cleared on every install. There is no simulated midnight rollover
+ * in this harness, so it starts empty exactly as before — seed it with
+ * `setMockPendingRolloverDays` for a test that needs to exercise the
+ * peek/dismiss contract through the real invoke seam. */
+let MOCK_PENDING_ROLLOVER_DAYS: string[] = [];
+
+/** Test-only seam, same idiom as `mockLastOpenedPassSeconds` /
+ * `setMockResumeRejects` above: seeds the pending-rollover-day queue as if
+ * one or more unattended midnight rollovers had already happened. */
+export function setMockPendingRolloverDays(days: string[]): void {
+  MOCK_PENDING_ROLLOVER_DAYS = [...days];
+}
+
+/** Mirrors the real backend's `date::is_valid` grammar closely enough for
+ * mock-layer validation (F7 fix wave: `day_photo_save` used to accept any
+ * string; the real command rejects anything that isn't a real
+ * `YYYY-MM-DD` calendar date). */
+function isValidLocalDayString(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  if (month < 1 || month > 12 || day < 1) return false;
+  const date = new Date(year, month - 1, day);
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+}
+
 // --- History day-timeline (Task B2) ----------------------------------------
 //
 // Deterministic, read-only fixtures for `history_days`/`history_day_detail`/
@@ -2718,7 +2763,8 @@ function streakSummaryMock(): StreakSummary {
     best_days: longestRun(qualifying),
     threshold_minutes: STREAK_THRESHOLD_MINUTES,
     today_focused_seconds:
-      HISTORY_DAY_SUMMARIES.find((day) => day.date === today)?.focused_seconds ?? 0,
+      HISTORY_DAY_SUMMARIES.find((day) => day.date === today)
+        ?.focused_seconds ?? 0,
   };
 }
 
@@ -3357,6 +3403,60 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "streak_summary":
       return streakSummaryMock();
 
+    // Day photos (Task A3) — one row per LOCAL day, both base64 sizes kept
+    // in memory only. Mirrors the real command contract: an unphotographed
+    // day rejects `day_photo_read` with a plain string, and a range with no
+    // photos returns an empty array rather than erroring.
+    case "day_photo_save": {
+      const record = argsRecord(args);
+      const day = String(record.day ?? "").trim();
+      if (!isValidLocalDayString(day)) {
+        return Promise.reject("day must be a valid YYYY-MM-DD local date");
+      }
+      DAY_PHOTOS.set(day, {
+        day,
+        jpegBase64: String(record.jpegBase64 ?? ""),
+        thumbBase64: String(record.thumbBase64 ?? ""),
+      });
+      return null;
+    }
+    case "day_photo_thumbs": {
+      const record = argsRecord(args);
+      const from = String(record.from ?? "");
+      const to = String(record.to ?? "");
+      return Array.from(DAY_PHOTOS.values())
+        .filter((photo) => photo.day >= from && photo.day <= to)
+        .sort((a, b) => a.day.localeCompare(b.day))
+        .map((photo) => ({ day: photo.day, thumb_base64: photo.thumbBase64 }));
+    }
+    case "day_photo_read": {
+      const day = String(argsRecord(args).day ?? "");
+      const photo = DAY_PHOTOS.get(day);
+      if (!photo) return Promise.reject(`no photo recorded for ${day}`);
+      return photo.jpegBase64;
+    }
+    case "day_photo_delete": {
+      const day = String(argsRecord(args).day ?? "");
+      DAY_PHOTOS.delete(day);
+      return null;
+    }
+    // F4/F7: a non-destructive PEEK over the pending-rollover-day queue —
+    // never mutates. The oldest pending day that has not already been
+    // photographed through the normal end-of-day flow, or null.
+    case "day_photo_prompt":
+      return (
+        MOCK_PENDING_ROLLOVER_DAYS.find((day) => !DAY_PHOTOS.has(day)) ?? null
+      );
+    // Consumes exactly one pending day — idempotent, mirrors the real
+    // command's "dismissing a day that was never pending is a no-op".
+    case "day_photo_prompt_dismiss": {
+      const day = String(argsRecord(args).day ?? "");
+      MOCK_PENDING_ROLLOVER_DAYS = MOCK_PENDING_ROLLOVER_DAYS.filter(
+        (pending) => pending !== day,
+      );
+      return null;
+    }
+
     // Calendar / composer.
     case "daily_work_list":
       return dailyWork();
@@ -3484,6 +3584,10 @@ export function installTauriDevMock(
   // bleed state into one another.
   DAY_SHEETS.clear();
   PIECE_PLANS.clear();
+  // Task A3: no photo survives across installs either.
+  DAY_PHOTOS.clear();
+  // F4/F7: nor does a pending rollover-day queue.
+  MOCK_PENDING_ROLLOVER_DAYS = [];
   if (options.seedQaFixtures) seedQaFixtures();
   // Reset runtime-created goals so promotion tests start from the seeded set.
   CREATED_GOALS.clear();

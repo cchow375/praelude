@@ -1454,6 +1454,380 @@ fn streak_summary(store: State<'_, Arc<Store>>) -> Result<store::StreakSummary, 
     store.streak_summary(threshold).map_err(|e| e.to_string())
 }
 
+// ── Day photos (Plan A, task A3) ───────────────────────────────────────────
+//
+// The ritual's artefact. Bytes go to `app_data_dir()/day-photos/`; the database
+// stores only the day key, the relative path and a content hash (schema v15).
+// The thumbnail is produced by the FRONTEND canvas and arrives in the same call,
+// so no image codec enters the Rust build.
+
+/// Where day photos live. Created on first save.
+fn day_photos_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("resolve app data dir: {e}"))?
+        .join("day-photos");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create day-photos dir: {e}"))?;
+    Ok(dir)
+}
+
+/// The on-disk path for one day's photo file (`.jpg` or `.thumb.jpg`),
+/// validated FIRST — before anything touches the filesystem — and checked a
+/// SECOND, independent way (F3 fix wave, path-traversal): `date::is_valid`
+/// already forbids `/`, `\`, and `..` by grammar (an exact 10-char
+/// YYYY-MM-DD), but a delete command is exactly the place to never trust a
+/// single validation layer, so this also asserts the joined path's parent is
+/// still literally the day-photos dir before returning it. An absolute-path
+/// or `..`-bearing `day` is rejected by BOTH checks independently.
+fn day_photo_path(
+    dir: &std::path::Path,
+    day: &str,
+    suffix: &str,
+) -> Result<std::path::PathBuf, String> {
+    if !date::is_valid(day) {
+        return Err("day must be a valid YYYY-MM-DD local date".into());
+    }
+    let path = dir.join(format!("{day}{suffix}"));
+    match path.parent() {
+        Some(parent) if parent == dir => Ok(path),
+        _ => Err("day photo path escaped the day-photos directory".into()),
+    }
+}
+
+fn decode_jpeg(field: &str, value: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD
+        .decode(value.trim())
+        .map_err(|e| format!("{field} is not valid base64: {e}"))
+}
+
+/// Write both file sizes for `day` under `dir` (the day-photos dir) and
+/// return the content hash of the FULL bytes — the single source of truth
+/// the DB row's `content_hash` column mirrors. Extracted as a plain,
+/// AppHandle-free helper (F6 fix wave) so both the write and the read-side
+/// verification below are directly unit-testable: `content_hash` used to be
+/// write-only — nothing ever read it back — so a mutation that replaced the
+/// real hash computation with a constant left the whole suite green.
+fn day_photo_write_files(
+    dir: &std::path::Path,
+    day: &str,
+    full: &[u8],
+    thumb: &[u8],
+) -> Result<String, String> {
+    let full_path = day_photo_path(dir, day, ".jpg")?;
+    let thumb_path = day_photo_path(dir, day, ".thumb.jpg")?;
+    std::fs::write(&full_path, full).map_err(|e| format!("write day photo: {e}"))?;
+    std::fs::write(&thumb_path, thumb).map_err(|e| format!("write day photo thumbnail: {e}"))?;
+    Ok(store::sha256_hex(full))
+}
+
+/// Read and integrity-check one day's photo bytes — F6 fix wave. Resolves
+/// via the row's STORED `rel_path` (never a path reconstructed from the day
+/// key — `rel_path` was a second write-only field until now), then verifies
+/// the bytes against the row's `content_hash`. A mismatch is treated the
+/// same way a missing file already is: an error, never corrupt or
+/// substituted bytes served as if they were the real photo.
+fn day_photo_read_verified(
+    app_data_dir: &std::path::Path,
+    row: &store::DayPhotoRow,
+) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(app_data_dir.join(&row.rel_path))
+        .map_err(|e| format!("read day photo: {e}"))?;
+    let actual_hash = store::sha256_hex(&bytes);
+    if actual_hash != row.content_hash {
+        return Err(format!(
+            "day photo for {} failed its integrity check (content hash mismatch)",
+            row.day
+        ));
+    }
+    Ok(bytes)
+}
+
+#[cfg(test)]
+mod day_photo_integrity_tests {
+    use super::*;
+
+    /// F6 fix wave, on a real temp filesystem: proves content_hash is
+    /// LOAD-BEARING, not decorative. If `day_photo_write_files`'s hash
+    /// computation were replaced with a constant (the exact mutant that
+    /// left the whole suite green before this fix wave — M5), this would
+    /// fail: the constant would not match the real hash of `full`.
+    #[test]
+    fn a_written_photo_round_trips_through_the_verified_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let full = b"pretend full-resolution jpeg bytes";
+        let thumb = b"pretend thumbnail jpeg bytes";
+        let content_hash =
+            day_photo_write_files(dir.path(), "2026-08-22", full, thumb).unwrap();
+
+        let row = store::DayPhotoRow {
+            day: "2026-08-22".to_string(),
+            rel_path: "2026-08-22.jpg".to_string(),
+            content_hash,
+            created_at: "2026-08-22T00:00:00Z".to_string(),
+        };
+        let read_back = day_photo_read_verified(dir.path(), &row).unwrap();
+        assert_eq!(read_back, full);
+    }
+
+    /// The kill shot for M5: resolves via the STORED rel_path (a filename
+    /// that does NOT match a day-based reconstruction), so this only
+    /// passes if rel_path is genuinely being read, not ignored.
+    #[test]
+    fn resolves_via_the_stored_rel_path_not_a_reconstructed_day_filename() {
+        let dir = tempfile::tempdir().unwrap();
+        let full = b"bytes under a non-day-shaped filename";
+        std::fs::write(dir.path().join("custom-name.jpg"), full).unwrap();
+        let row = store::DayPhotoRow {
+            day: "2026-08-22".to_string(),
+            rel_path: "custom-name.jpg".to_string(),
+            content_hash: store::sha256_hex(full),
+            created_at: "2026-08-22T00:00:00Z".to_string(),
+        };
+        // A day-based reconstruction (dir/2026-08-22.jpg) does not exist —
+        // this only succeeds by honouring rel_path.
+        let read_back = day_photo_read_verified(dir.path(), &row).unwrap();
+        assert_eq!(read_back, full);
+    }
+
+    /// The other half of the kill shot: a file that has been tampered with
+    /// (or truncated, or corrupted) on disk is REJECTED, never served as if
+    /// it were the real photo.
+    #[test]
+    fn a_tampered_file_fails_the_integrity_check_instead_of_being_served() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = b"the real photo bytes";
+        let content_hash =
+            day_photo_write_files(dir.path(), "2026-08-22", original, b"thumb").unwrap();
+        // Tamper with the file directly, bypassing day_photo_save entirely.
+        std::fs::write(dir.path().join("2026-08-22.jpg"), b"corrupted bytes").unwrap();
+
+        let row = store::DayPhotoRow {
+            day: "2026-08-22".to_string(),
+            rel_path: "2026-08-22.jpg".to_string(),
+            content_hash,
+            created_at: "2026-08-22T00:00:00Z".to_string(),
+        };
+        let err = day_photo_read_verified(dir.path(), &row).unwrap_err();
+        assert!(err.contains("integrity"), "error should say why: {err}");
+    }
+
+    /// A missing file is still just a missing file — the ordinary,
+    /// pre-existing "no evidence, no visual" fallback, not treated as a
+    /// hash-mismatch/corruption case.
+    #[test]
+    fn a_missing_file_errors_as_missing_not_as_a_hash_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let row = store::DayPhotoRow {
+            day: "2026-08-22".to_string(),
+            rel_path: "2026-08-22.jpg".to_string(),
+            content_hash: "irrelevant".to_string(),
+            created_at: "2026-08-22T00:00:00Z".to_string(),
+        };
+        let err = day_photo_read_verified(dir.path(), &row).unwrap_err();
+        assert!(err.contains("read day photo"), "got: {err}");
+    }
+}
+
+#[cfg(test)]
+mod day_photo_path_tests {
+    use super::*;
+
+    fn dir() -> std::path::PathBuf {
+        std::path::PathBuf::from("/tmp/day-photos-test/day-photos")
+    }
+
+    #[test]
+    fn a_valid_day_resolves_inside_the_dir() {
+        let path = day_photo_path(&dir(), "2026-08-22", ".jpg").unwrap();
+        assert_eq!(path, dir().join("2026-08-22.jpg"));
+    }
+
+    #[test]
+    fn a_parent_traversal_is_rejected_and_never_reaches_a_path() {
+        assert!(day_photo_path(&dir(), "../important-backup", ".jpg").is_err());
+    }
+
+    #[test]
+    fn a_bare_double_dot_is_rejected() {
+        assert!(day_photo_path(&dir(), "..", ".jpg").is_err());
+    }
+
+    #[test]
+    fn an_absolute_path_is_rejected() {
+        assert!(day_photo_path(&dir(), "/etc/passwd", ".jpg").is_err());
+    }
+
+    #[test]
+    fn an_empty_day_is_rejected() {
+        assert!(day_photo_path(&dir(), "", ".jpg").is_err());
+    }
+
+    #[test]
+    fn a_url_encoded_traversal_is_rejected() {
+        // `date::is_valid` never decodes percent-escapes, so this fails the
+        // grammar check outright rather than becoming a live ".." after some
+        // later decode step this command never performs.
+        assert!(day_photo_path(&dir(), "%2e%2e%2fimportant-backup", ".jpg").is_err());
+    }
+
+    /// F3 regression, on a real temp filesystem: reproduces the verifier's
+    /// exact probe. A victim file sits one level ABOVE a real day-photos
+    /// dir; `day_photo_delete`'s body (validate-then-path, never
+    /// path-then-validate) must refuse before ever calling `remove_file`, so
+    /// the victim survives untouched.
+    #[test]
+    fn day_photo_delete_never_touches_a_file_outside_day_photos() {
+        let root = std::env::temp_dir().join(format!(
+            "codakiller-f3-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let photos_dir = root.join("day-photos");
+        std::fs::create_dir_all(&photos_dir).unwrap();
+        let victim = root.join("important-backup.jpg");
+        std::fs::write(&victim, b"do not delete me").unwrap();
+
+        // The exact shape of day_photo_delete's body: resolve BOTH paths
+        // through day_photo_path before touching the filesystem at all.
+        let attempt = (|| -> Result<(), String> {
+            let full_path = day_photo_path(&photos_dir, "../important-backup", ".jpg")?;
+            let _ = std::fs::remove_file(full_path);
+            Ok(())
+        })();
+
+        assert!(attempt.is_err(), "the traversal must be rejected");
+        assert!(victim.exists(), "the victim file must survive untouched");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+/// Write one day's full photo and its thumbnail, and record the row.
+#[tauri::command]
+fn day_photo_save(
+    day: String,
+    jpeg_base64: String,
+    thumb_base64: String,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let day = day.trim().to_string();
+    let full = decode_jpeg("jpeg_base64", &jpeg_base64)?;
+    let thumb = decode_jpeg("thumb_base64", &thumb_base64)?;
+    let dir = day_photos_dir(&app)?;
+    let content_hash = day_photo_write_files(&dir, &day, &full, &thumb)?;
+    store
+        .day_photo_upsert(&day, &format!("day-photos/{day}.jpg"), &content_hash)
+        .map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+struct DayPhotoThumb {
+    day: String,
+    thumb_base64: String,
+}
+
+/// Every photographed day in `[from,to]`, thumbnails only — one call per
+/// visible Calendar week, never one per cell.
+#[tauri::command]
+fn day_photo_thumbs(
+    from: String,
+    to: String,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<Vec<DayPhotoThumb>, String> {
+    use base64::Engine as _;
+    let dir = day_photos_dir(&app)?;
+    let rows = store
+        .day_photo_rows(from.trim(), to.trim())
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            // A row whose file has gone missing renders as no photo, not as a
+            // broken cell — the bars fall back automatically. A row whose
+            // `day` somehow fails the path-safety check (it was validated at
+            // insert time, so this should be unreachable) falls back the
+            // same way rather than erroring the whole week.
+            let path = day_photo_path(&dir, &row.day, ".thumb.jpg").ok()?;
+            let bytes = std::fs::read(path).ok()?;
+            Some(DayPhotoThumb {
+                day: row.day,
+                thumb_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+            })
+        })
+        .collect())
+}
+
+/// One day's full-resolution photo.
+#[tauri::command]
+fn day_photo_read(
+    day: String,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<String, String> {
+    use base64::Engine as _;
+    let row = store
+        .day_photo_row(day.trim())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("no photo recorded for {}", day.trim()))?;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("resolve app data dir: {e}"))?;
+    let bytes = day_photo_read_verified(&app_data_dir, &row)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// Remove a day's photo — both files and the row.
+#[tauri::command]
+fn day_photo_delete(
+    day: String,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let day = day.trim().to_string();
+    let dir = day_photos_dir(&app)?;
+    // F3 fix wave: validate (and path-contain) BEFORE any filesystem
+    // operation. The old code trimmed the day, joined it straight into a
+    // path with no `date::is_valid` check at all, and deleted — a
+    // `day = "../important-backup"` deleted a file outside day-photos/
+    // before the (unreached) row-delete's own validation ever ran.
+    let full_path = day_photo_path(&dir, &day, ".jpg")?;
+    let thumb_path = day_photo_path(&dir, &day, ".thumb.jpg")?;
+    // Missing files are fine; the row is the record that matters.
+    let _ = std::fs::remove_file(full_path);
+    let _ = std::fs::remove_file(thumb_path);
+    store.day_photo_delete_row(&day).map_err(|e| e.to_string())
+}
+
+/// The next-launch rollover prompt: the oldest LOCAL day a midnight
+/// auto-close skipped the ritual for that has not yet been photographed, or
+/// `None`. F4 fix wave: a non-destructive PEEK, not a read-and-clear — call
+/// it as many times as you like (Shell mount, a StrictMode double-invoke,
+/// a retry) with zero risk of losing a day. Pair with `day_photo_prompt_dismiss`
+/// once the user has actually acted on the day it returns.
+#[tauri::command]
+fn day_photo_prompt(store: State<'_, Arc<Store>>) -> Result<Option<String>, String> {
+    store.day_photo_prompt_peek().map_err(|e| e.to_string())
+}
+
+/// Consume exactly one pending rollover day — called once the user has
+/// actually acted on it (photographed via `day_photo_save`, or skipped).
+/// Idempotent: dismissing a day that was never pending (the common case —
+/// a live, same-day end-of-session photo) is a harmless no-op.
+#[tauri::command]
+fn day_photo_prompt_dismiss(day: String, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    store
+        .day_photo_prompt_dismiss(day.trim())
+        .map_err(|e| e.to_string())
+}
+
 fn rejected_plan(
     command_id: &str,
     error: String,
@@ -2376,6 +2750,12 @@ pub fn run() {
             piece_plan_save,
             history_days,
             streak_summary,
+            day_photo_save,
+            day_photo_thumbs,
+            day_photo_read,
+            day_photo_delete,
+            day_photo_prompt,
+            day_photo_prompt_dismiss,
             history_day_detail,
             day_sheets_range,
             session_plan_start,

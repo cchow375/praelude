@@ -237,6 +237,22 @@ impl SessionService {
         ) {
             eprintln!("session: failed to append SESSION_END event: {e}");
         }
+        // A3/A5: the day closed while nobody was here. Remember WHICH day, so
+        // the next launch can offer its photo — the ritual should not be lost
+        // just because the rollover happened at 00:00. F4 fix wave: added to
+        // a capped, deduped PENDING QUEUE, not a single setting slot — a
+        // second rollover before the next launch used to silently clobber
+        // the first day.
+        match self.store.local_day_of(last_ts) {
+            Ok(day) => {
+                if let Err(e) = self.store.day_photo_prompt_add_pending(&day) {
+                    eprintln!("session: failed to record rollover day for the photo prompt: {e}");
+                }
+            }
+            Err(e) => {
+                eprintln!("session: failed to resolve rollover day for the photo prompt: {e}")
+            }
+        }
     }
 
     /// Append an event to the current session and emit it. Auto-opens a session
