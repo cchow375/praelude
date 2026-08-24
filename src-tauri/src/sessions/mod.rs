@@ -239,10 +239,13 @@ impl SessionService {
         }
         // A3/A5: the day closed while nobody was here. Remember WHICH day, so
         // the next launch can offer its photo — the ritual should not be lost
-        // just because the rollover happened at 00:00.
+        // just because the rollover happened at 00:00. F4 fix wave: added to
+        // a capped, deduped PENDING QUEUE, not a single setting slot — a
+        // second rollover before the next launch used to silently clobber
+        // the first day.
         match self.store.local_day_of(last_ts) {
             Ok(day) => {
-                if let Err(e) = self.store.set_setting("ritual.unphotographed_day", &day) {
+                if let Err(e) = self.store.day_photo_prompt_add_pending(&day) {
                     eprintln!("session: failed to record rollover day for the photo prompt: {e}");
                 }
             }

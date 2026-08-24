@@ -29,8 +29,20 @@ export function dayPhotoDelete(day: string): Promise<void> {
   return invoke<void>("day_photo_delete", { day });
 }
 
-/** The next-launch rollover prompt (Task A3): the LOCAL day a midnight
- * auto-close skipped the ritual for, or null once it has been offered. */
+/** The next-launch rollover prompt (Task A3): the oldest LOCAL day a
+ * midnight auto-close skipped the ritual for that has not yet been
+ * photographed, or null. F4 fix wave: a non-destructive PEEK — call it as
+ * often as you like (including a React StrictMode double mount) with zero
+ * risk of losing a day. Pair with `dayPhotoPromptDismiss` once the user has
+ * actually acted on the day it returns. */
 export function dayPhotoPrompt(): Promise<string | null> {
   return invoke<string | null>("day_photo_prompt");
+}
+
+/** Consume exactly one pending rollover day — call once the user has
+ * actually acted on it (photographed or skipped). Idempotent: dismissing a
+ * day that was never pending (the common case — a live, same-day
+ * end-of-session photo) is a harmless no-op. */
+export function dayPhotoPromptDismiss(day: string): Promise<void> {
+  return invoke<void>("day_photo_prompt_dismiss", { day });
 }

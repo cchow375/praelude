@@ -41,7 +41,7 @@ import { DockPillBar } from "../features/dock/DockPillBar";
 import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
 import { DayPhotoCapture } from "../features/ritual/DayPhotoCapture";
-import { dayPhotoPrompt } from "../features/ritual/api";
+import { dayPhotoPrompt, dayPhotoPromptDismiss } from "../features/ritual/api";
 import { detectMoment, useCompletionFx } from "../features/ritual/completionFx";
 import { useVoice } from "../features/voice/useVoice";
 import { useTtsDegraded } from "../features/voice/useTtsDegraded";
@@ -857,10 +857,14 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     }
   }, [session, fireCompletionFx]);
 
-  // A3: a midnight auto-close skips the ritual live, but records which day
-  // it skipped it for — offer that day's photo once, on the next launch.
-  // Best-effort: no Tauri backend (browser dev) or a bare fetch failure just
-  // means no prompt, never a startup error.
+  // A3: a midnight auto-close skips the ritual live, but queues which day(s)
+  // it skipped it for — offer the oldest one on the next launch. F4 fix
+  // wave: dayPhotoPrompt() is a non-destructive PEEK, so this effect can run
+  // twice (React.StrictMode's dev-only mount->unmount->remount) with zero
+  // risk of losing a day — the old read-and-clear command let the discarded
+  // first call silently consume the day. Best-effort: no Tauri backend
+  // (browser dev) or a bare fetch failure just means no prompt, never a
+  // startup error.
   useEffect(() => {
     let alive = true;
     void dayPhotoPrompt()
@@ -1198,7 +1202,21 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       {/* A3: the day-close photo ritual. Shell-level, not SessionBar-level —
           the bar is a slim strip and must not grow a modal. */}
       {photoDay && (
-        <DayPhotoCapture day={photoDay} onDone={() => setPhotoDay(null)} />
+        <DayPhotoCapture
+          day={photoDay}
+          onDone={() => {
+            // F4 fix wave: clear this specific day from the pending
+            // rollover queue now that the user has actually acted on it
+            // (photographed or skipped) — never merely from having peeked
+            // it. A day that was never in the queue (the common live,
+            // same-day case) dismisses as a harmless no-op.
+            void dayPhotoPromptDismiss(photoDay).catch(() => {
+              // Best-effort: worst case the day is offered again next
+              // launch, which is the safe direction to fail in.
+            });
+            setPhotoDay(null);
+          }}
+        />
       )}
       {/* A4: completion flourishes — pointer-events: none, self-removing. */}
       {completionOverlay}

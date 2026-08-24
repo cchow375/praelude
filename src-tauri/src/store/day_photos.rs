@@ -19,6 +19,18 @@ use sha2::{Digest, Sha256};
 use super::practice_v2::invalid;
 use super::Store;
 
+/// Pending rollover-photo days live under this setting key as a JSON array
+/// of `YYYY-MM-DD` strings, oldest first (F4 fix wave — was a single-slot
+/// setting keyed `ritual.unphotographed_day` that a second rollover before
+/// the next launch would silently clobber; this feature has never shipped,
+/// so there is no old-shape value in the wild to migrate).
+const RITUAL_PENDING_DAYS_SETTING: &str = "ritual.unphotographed_days";
+
+/// A device left uncharged/unlaunched for months should not grow this
+/// setting without bound. 14 days is generous for "how long could you
+/// plausibly go without opening the app".
+const MAX_PENDING_ROLLOVER_DAYS: usize = 14;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DayPhotoRow {
     /// `YYYY-MM-DD`, local.
@@ -133,32 +145,77 @@ impl Store {
         Ok(())
     }
 
-    /// Read-and-clear the next-launch rollover prompt (Task A3). Called at
-    /// most once per launch (Shell mount on `day_photo_prompt`), so the
-    /// setting doubles as its own one-shot marker: whether the day ends up
-    /// photographed or skipped, this call has already consumed it, so a
-    /// later launch never re-offers the same day.
-    pub(crate) fn day_photo_prompt_take(&self) -> rusqlite::Result<Option<String>> {
-        let Some(day) = self.get_setting("ritual.unphotographed_day")? else {
-            return Ok(None);
+    // ── Rollover-photo prompt queue (F4 fix wave) ───────────────────────
+    //
+    // Originally a single setting SLOT holding one pending day, read-and-
+    // cleared in one shot. Two defects, both real:
+    //   (a) a second midnight rollover before the next launch overwrote the
+    //       first day's slot — that day's ritual was gone for good.
+    //   (b) the read-and-clear was DESTRUCTIVE at read time, so a crash (or
+    //       React StrictMode's mount->unmount->remount double-invoke of the
+    //       Shell mount effect in `npm run tauri dev`) could consume the
+    //       setting on a call whose result was then discarded — again gone
+    //       for good.
+    // Fix: pending days are a capped, deduped JSON array, and the read is a
+    // non-destructive PEEK. A day is cleared only by an explicit dismiss,
+    // called once the user has actually acted on it (photographed or
+    // skipped) — never merely by having been offered.
+
+    /// The raw pending list, oldest first. Corrupt/missing JSON reads as
+    /// empty rather than erroring — a malformed setting must never brick the
+    /// app on launch.
+    fn day_photo_pending_days(&self) -> rusqlite::Result<Vec<String>> {
+        let Some(raw) = self.get_setting(RITUAL_PENDING_DAYS_SETTING)? else {
+            return Ok(Vec::new());
         };
-        {
-            let conn = self
-                .conn
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            conn.execute(
-                "DELETE FROM setting WHERE key='ritual.unphotographed_day'",
-                [],
-            )?;
+        Ok(serde_json::from_str(&raw).unwrap_or_default())
+    }
+
+    fn day_photo_write_pending_days(&self, days: &[String]) -> rusqlite::Result<()> {
+        let raw = serde_json::to_string(days).unwrap_or_else(|_| "[]".to_string());
+        self.set_setting(RITUAL_PENDING_DAYS_SETTING, &raw)
+    }
+
+    /// Record `day` as skipped-live by an unattended midnight rollover.
+    /// Deduped; capped at `MAX_PENDING_ROLLOVER_DAYS` (oldest dropped first)
+    /// so a device left idle for months can't grow this without bound.
+    pub(crate) fn day_photo_prompt_add_pending(&self, day: &str) -> rusqlite::Result<()> {
+        let day = checked_day(day)?.to_string();
+        let mut days = self.day_photo_pending_days()?;
+        if !days.iter().any(|existing| existing == &day) {
+            days.push(day);
         }
-        // Already photographed through the normal end-of-day flow (rather
-        // than the unattended-rollover path this setting exists for) — no
-        // evidence gap to fill, so nothing to prompt for.
-        if self.day_photo_row(&day)?.is_some() {
-            return Ok(None);
+        if days.len() > MAX_PENDING_ROLLOVER_DAYS {
+            let overflow = days.len() - MAX_PENDING_ROLLOVER_DAYS;
+            days.drain(0..overflow);
         }
-        Ok(Some(day))
+        self.day_photo_write_pending_days(&days)
+    }
+
+    /// PEEK, non-destructive: the oldest pending day that has not already
+    /// been photographed through the normal end-of-day flow, or `None`.
+    /// Never mutates anything — callable any number of times with no risk
+    /// of losing a day.
+    pub(crate) fn day_photo_prompt_peek(&self) -> rusqlite::Result<Option<String>> {
+        for day in self.day_photo_pending_days()? {
+            // Already photographed some other way — no evidence gap to
+            // fill, so skip it rather than re-offering it.
+            if self.day_photo_row(&day)?.is_none() {
+                return Ok(Some(day));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Consume exactly one pending day. Called once the user has actually
+    /// acted on it (photographed or skipped) — idempotent, so dismissing a
+    /// day that was never pending (e.g. a live, same-day end-of-session
+    /// photo) is a harmless no-op.
+    pub(crate) fn day_photo_prompt_dismiss(&self, day: &str) -> rusqlite::Result<()> {
+        let day = checked_day(day)?.to_string();
+        let mut days = self.day_photo_pending_days()?;
+        days.retain(|existing| existing != &day);
+        self.day_photo_write_pending_days(&days)
     }
 }
 
@@ -270,32 +327,112 @@ mod tests {
     #[test]
     fn no_pending_rollover_day_prompts_for_nothing() {
         let store = Store::open(":memory:").expect("store");
-        assert_eq!(store.day_photo_prompt_take().unwrap(), None);
+        assert_eq!(store.day_photo_prompt_peek().unwrap(), None);
     }
 
     #[test]
-    fn a_pending_rollover_day_prompts_once_then_never_again() {
+    fn f4_two_rollovers_before_a_launch_offer_both_days_in_order() {
+        // Regression: the old single-slot setting meant the SECOND
+        // add_pending clobbered the first day's slot, losing it for good.
         let store = Store::open(":memory:").expect("store");
-        store
-            .set_setting("ritual.unphotographed_day", "2026-08-22")
-            .expect("set");
+        store.day_photo_prompt_add_pending("2026-08-21").unwrap();
+        store.day_photo_prompt_add_pending("2026-08-22").unwrap();
         assert_eq!(
-            store.day_photo_prompt_take().unwrap(),
+            store.day_photo_prompt_peek().unwrap(),
+            Some("2026-08-21".to_string()),
+            "the older day is offered first"
+        );
+        store.day_photo_prompt_dismiss("2026-08-21").unwrap();
+        assert_eq!(
+            store.day_photo_prompt_peek().unwrap(),
+            Some("2026-08-22".to_string()),
+            "the second day was never lost"
+        );
+    }
+
+    #[test]
+    fn f4_a_peek_that_is_never_acted_on_still_offers_the_day_next_launch() {
+        // Regression: the old day_photo_prompt_take cleared the setting at
+        // READ time, so a crash (or React StrictMode's mount/unmount/remount
+        // double-invoke) between the read and the UI actually showing the
+        // card could lose the day even though nothing was ever dismissed.
+        let store = Store::open(":memory:").expect("store");
+        store.day_photo_prompt_add_pending("2026-08-22").unwrap();
+        // Peek as many times as a flaky mount effect likes — never mutates.
+        for _ in 0..5 {
+            assert_eq!(
+                store.day_photo_prompt_peek().unwrap(),
+                Some("2026-08-22".to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn f4_skip_and_photograph_each_clear_exactly_one_day() {
+        let store = Store::open(":memory:").expect("store");
+        store.day_photo_prompt_add_pending("2026-08-21").unwrap();
+        store.day_photo_prompt_add_pending("2026-08-22").unwrap();
+
+        // "Skip": the frontend calls dismiss with no photo taken.
+        store.day_photo_prompt_dismiss("2026-08-21").unwrap();
+        assert_eq!(
+            store.day_photo_prompt_peek().unwrap(),
             Some("2026-08-22".to_string())
         );
-        // Consumed: a second launch does not re-offer the same day.
-        assert_eq!(store.day_photo_prompt_take().unwrap(), None);
+
+        // "Photograph": a row now exists AND the frontend dismisses it.
+        store
+            .day_photo_upsert("2026-08-22", "day-photos/2026-08-22.jpg", "h")
+            .unwrap();
+        store.day_photo_prompt_dismiss("2026-08-22").unwrap();
+        assert_eq!(store.day_photo_prompt_peek().unwrap(), None);
     }
 
     #[test]
     fn a_day_already_photographed_through_the_normal_flow_is_not_prompted() {
         let store = Store::open(":memory:").expect("store");
-        store
-            .set_setting("ritual.unphotographed_day", "2026-08-22")
-            .expect("set");
+        store.day_photo_prompt_add_pending("2026-08-22").unwrap();
         store
             .day_photo_upsert("2026-08-22", "day-photos/2026-08-22.jpg", "h")
             .expect("upsert");
-        assert_eq!(store.day_photo_prompt_take().unwrap(), None);
+        assert_eq!(store.day_photo_prompt_peek().unwrap(), None);
+    }
+
+    #[test]
+    fn adding_the_same_pending_day_twice_does_not_duplicate_it() {
+        let store = Store::open(":memory:").expect("store");
+        store.day_photo_prompt_add_pending("2026-08-22").unwrap();
+        store.day_photo_prompt_add_pending("2026-08-22").unwrap();
+        store.day_photo_prompt_dismiss("2026-08-22").unwrap();
+        // If it had been duplicated, one dismiss would leave one behind.
+        assert_eq!(store.day_photo_prompt_peek().unwrap(), None);
+    }
+
+    #[test]
+    fn the_pending_queue_is_capped_dropping_the_oldest_day_first() {
+        let store = Store::open(":memory:").expect("store");
+        for day in 1..=16u32 {
+            store
+                .day_photo_prompt_add_pending(&format!("2026-01-{day:02}"))
+                .unwrap();
+        }
+        // 16 added, capped at 14 -> the oldest two (01, 02) are gone.
+        assert_eq!(
+            store.day_photo_prompt_peek().unwrap(),
+            Some("2026-01-03".to_string())
+        );
+    }
+
+    #[test]
+    fn dismissing_a_day_that_was_never_pending_is_a_harmless_no_op() {
+        let store = Store::open(":memory:").expect("store");
+        store.day_photo_prompt_add_pending("2026-08-22").unwrap();
+        // A live, same-day end-of-session photo dismisses a day that was
+        // never in the rollover queue at all.
+        store.day_photo_prompt_dismiss("2026-08-23").unwrap();
+        assert_eq!(
+            store.day_photo_prompt_peek().unwrap(),
+            Some("2026-08-22".to_string())
+        );
     }
 }

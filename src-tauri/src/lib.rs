@@ -1684,13 +1684,26 @@ fn day_photo_delete(
     store.day_photo_delete_row(&day).map_err(|e| e.to_string())
 }
 
-/// The next-launch rollover prompt: the LOCAL day a midnight auto-close
-/// skipped the ritual for, or `None` once it has been offered (photographed
-/// or skipped — either way this is a read-and-clear, called once per launch
-/// from Shell mount).
+/// The next-launch rollover prompt: the oldest LOCAL day a midnight
+/// auto-close skipped the ritual for that has not yet been photographed, or
+/// `None`. F4 fix wave: a non-destructive PEEK, not a read-and-clear — call
+/// it as many times as you like (Shell mount, a StrictMode double-invoke,
+/// a retry) with zero risk of losing a day. Pair with `day_photo_prompt_dismiss`
+/// once the user has actually acted on the day it returns.
 #[tauri::command]
 fn day_photo_prompt(store: State<'_, Arc<Store>>) -> Result<Option<String>, String> {
-    store.day_photo_prompt_take().map_err(|e| e.to_string())
+    store.day_photo_prompt_peek().map_err(|e| e.to_string())
+}
+
+/// Consume exactly one pending rollover day — called once the user has
+/// actually acted on it (photographed via `day_photo_save`, or skipped).
+/// Idempotent: dismissing a day that was never pending (the common case —
+/// a live, same-day end-of-session photo) is a harmless no-op.
+#[tauri::command]
+fn day_photo_prompt_dismiss(day: String, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    store
+        .day_photo_prompt_dismiss(day.trim())
+        .map_err(|e| e.to_string())
 }
 
 fn rejected_plan(
@@ -2620,6 +2633,7 @@ pub fn run() {
             day_photo_read,
             day_photo_delete,
             day_photo_prompt,
+            day_photo_prompt_dismiss,
             history_day_detail,
             day_sheets_range,
             session_plan_start,
