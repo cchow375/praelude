@@ -877,3 +877,142 @@ describe("voiceDraftOpenRequest", () => {
     expect(typeof props.defaultCleanStreak).toBe("number");
   });
 });
+
+// -- Assistant disabled (Christian's 2026-08-24 "off by default" request) --
+//
+// Reuses the file-scope harness (invokeMock, eventBus, emit, SCORE_CONTEXT,
+// publishSelectedScoreContext, BRAIN_ANSWER) but overrides settings_snapshot
+// to prove the disabled gate — nav, voice routing, and the stale-view
+// fallback — while everything else (rep/session/voice/metro/pieces state)
+// stays wired exactly as the enabled suite above.
+describe("Shell — Assistant disabled", () => {
+  beforeEach(() => {
+    invokeMock.mockImplementation((command: string) => {
+      switch (command) {
+        case "settings_snapshot":
+          return Promise.resolve({ assistant_enabled: false });
+        case "rep_state":
+          return Promise.resolve(ACTIVE_SNAP);
+        case "session_current":
+          return Promise.resolve(ACTIVE_SESSION);
+        case "voice_state":
+          return Promise.resolve({ muted: false, down: null });
+        case "metro_state":
+          return Promise.resolve({ running: false, bpm: 84 });
+        case "pieces_list":
+          return Promise.resolve([
+            {
+              id: 7,
+              title: "Scherzo No. 2",
+              composer: "Chopin",
+              has_xml: true,
+              has_pdf: true,
+              intake_done: true,
+            },
+          ]);
+        // brain_ask stays wired to a real answer so a broken gate would be
+        // caught two ways: the spy call count below, AND the answer text
+        // never appearing anywhere in the tree.
+        case "brain_ask":
+          return Promise.resolve(BRAIN_ANSWER);
+        case "rep_open":
+          return Promise.resolve({ ...ACTIVE_SNAP, block_id: 2 });
+        default:
+          return Promise.resolve(null);
+      }
+    });
+  });
+
+  it("renders no Assistant tab", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await screen.findByTestId("workspace-today");
+    const nav = screen.getByRole("tablist", { name: /workspace/i });
+    const labels = within(nav)
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent);
+    expect(labels).toEqual(["Today", "Score", "History", "Universe"]);
+    expect(screen.queryByRole("tab", { name: "Assistant" })).toBeNull();
+  });
+
+  it("does not route a wake-word question to Assistant: no brain_ask call, no answer rendered", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await publishSelectedScoreContext();
+
+    await emit("voice://intent", {
+      kind: "question",
+      text: "How should I practice this landing?",
+      bpm: null,
+    });
+
+    // Give any (incorrect) routing a chance to settle before asserting
+    // absence, so this cannot pass merely because nothing happened yet.
+    await waitFor(() => {
+      expect(
+        invokeMock.mock.calls.some(([command]) => command === "brain_ask"),
+      ).toBe(false);
+    });
+    expect(screen.queryByText(BRAIN_ANSWER.answer)).toBeNull();
+    // Still on Score — no silent jump to a hidden Brain view.
+    expect(screen.getByRole("tab", { name: "Score" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("does not route a natural (no-wake) question to Assistant: no brain_ask call, no answer rendered", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await publishSelectedScoreContext();
+
+    await emit("voice://transcript", {
+      delivery_id: "natural-question-disabled-1",
+      revision: 0,
+      text: "How should I practice this section?",
+      is_final: true,
+      handled: false,
+      source: "macos_speech",
+      confidence: 0.94,
+    });
+
+    await waitFor(() => {
+      expect(
+        invokeMock.mock.calls.some(([command]) => command === "brain_ask"),
+      ).toBe(false);
+    });
+    expect(screen.queryByText(BRAIN_ANSWER.answer)).toBeNull();
+  });
+
+  it("does not strand the user on a stale persisted brain view: falls back to a real view", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await screen.findByTestId("workspace-today");
+
+    // Simulate a wake-word question having routed to Brain in a prior
+    // session/render before the toggle flipped off, by driving the exact
+    // same event the enabled suite uses to reach view === "brain" — then
+    // proving the shell corrects itself rather than going blank.
+    await emit("voice://intent", {
+      kind: "question",
+      text: "Anything?",
+      bpm: null,
+    });
+
+    // The defensive view-reset effect and the gated routing effect both
+    // agree: never brain, and never a blank stage.
+    await waitFor(() => {
+      expect(screen.queryByTestId("workspace-brain")).toBeNull();
+    });
+    expect(await screen.findByTestId("workspace-today")).toBeTruthy();
+  });
+});

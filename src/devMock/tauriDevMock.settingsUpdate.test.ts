@@ -51,3 +51,35 @@ describe("dev-mock settings_update handler", () => {
     expect(snapshot.theme).toBe("dark");
   });
 });
+
+// Christian's 2026-08-24 request flipped the REAL backend's assistant_enabled
+// default to off. The dev-mock harness deliberately keeps exercising the
+// Assistant surfaces by default (installTauriDevMock() with no options), but
+// the field must be present and honored so a test can opt into the disabled
+// path through the real invoke seam (see PassageHelper.test.tsx's
+// "hidden when the Assistant is disabled" suite for a full sibling example).
+describe("dev-mock settings_snapshot assistant_enabled field", () => {
+  afterEach(() => uninstallTauriDevMock());
+
+  it("defaults to true (the dev-mock harness's own default, not the real backend's)", async () => {
+    installTauriDevMock();
+    const snapshot =
+      await seamInvoke<MockSettingsSnapshot>("settings_snapshot");
+    expect(snapshot.assistant_enabled).toBe(true);
+  });
+
+  it("honors installTauriDevMock({ assistantEnabled: false }) through the real invoke seam", async () => {
+    installTauriDevMock({ assistantEnabled: false });
+    const snapshot =
+      await seamInvoke<MockSettingsSnapshot>("settings_snapshot");
+    expect(snapshot.assistant_enabled).toBe(false);
+  });
+
+  it("settings_update can also flip it, same as any other field", async () => {
+    installTauriDevMock({ assistantEnabled: false });
+    const updated = await seamInvoke<MockSettingsSnapshot>("settings_update", {
+      patch: { assistant_enabled: true },
+    });
+    expect(updated.assistant_enabled).toBe(true);
+  });
+});
