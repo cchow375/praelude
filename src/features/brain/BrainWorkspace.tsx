@@ -154,6 +154,28 @@ function pieceContext(piece: PieceSummary | null): PracticeBrainContext | null {
   };
 }
 
+/**
+ * Session-scoped Assistant-tools consent (Plan C1's Flag #1 resolution): the
+ * composer asks once, before the FIRST question of the app session — not
+ * per-question, which the frontend cannot predict ahead of asking — and the
+ * choice is echoed on every subsequent `BrainAskRequest` for the rest of the
+ * session. Module scope (not component state) so it survives a remount of
+ * this component within the same app session, and resets only on reload.
+ */
+type ToolsConsent = "unset" | "allowed" | "declined";
+let sessionToolsConsent: ToolsConsent = "unset";
+
+/**
+ * Test-only escape hatch: module-scope state does not reset between `it()`
+ * blocks the way component state would, so a test suite that exercises the
+ * consent card must be able to put it back to "unset" between tests, or
+ * every test after the first one to click Allow/Decline would silently
+ * inherit that earlier choice instead of exercising a fresh session.
+ */
+export function __resetAssistantToolsConsentForTests(): void {
+  sessionToolsConsent = "unset";
+}
+
 export function BrainWorkspace({
   api = brainApi,
   invoker,
@@ -185,6 +207,9 @@ export function BrainWorkspace({
   const externalPieceId = useRef(practiceContext?.piece_id ?? null);
   const conversationGeneration = useRef(0);
   const activeAskId = useRef(0);
+  const [, forceToolsConsentRerender] = useState(0);
+  const rerenderForToolsConsent = () =>
+    forceToolsConsentRerender((generation) => generation + 1);
 
   const selectedPiece = pieces.find((piece) => piece.id === pieceId) ?? null;
   const selectedPieceContext = pieceContext(selectedPiece);
@@ -333,6 +358,7 @@ export function BrainWorkspace({
           thread_id: threadId,
           history: boundedHistory(thread),
           context,
+          tools_consent: sessionToolsConsent === "allowed",
         });
         if (!isBrainAnswer(answer)) {
           throw new Error("The Assistant returned an invalid response.");
@@ -505,6 +531,24 @@ export function BrainWorkspace({
                   ))}
                 </ul>
               )}
+              {entry.answer.tool_provenance &&
+                entry.answer.tool_provenance.length > 0 && (
+                  <ul
+                    className="brain-chips brain-tool-chips"
+                    aria-label="Tools consulted"
+                  >
+                    {entry.answer.tool_provenance.map((tool) => (
+                      <li
+                        className="brain-chip"
+                        key={tool.tool}
+                        title={tool.summary}
+                      >
+                        {tool.tool}
+                        {tool.args_human ? ` · ${tool.args_human}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               <span className="brain-provider">
                 {PROVIDER_LABELS[entry.answer.provider]}
               </span>
@@ -566,6 +610,34 @@ export function BrainWorkspace({
         )}
         <div ref={threadEnd} />
       </section>
+
+      {sessionToolsConsent === "unset" && (
+        <div className="brain-consent-card" role="note">
+          <p>Assistant may read practice data this session?</p>
+          <div className="brain-consent-actions">
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => {
+                sessionToolsConsent = "allowed";
+                rerenderForToolsConsent();
+              }}
+            >
+              Allow
+            </Button>
+            <Button
+              type="button"
+              variant="text"
+              onClick={() => {
+                sessionToolsConsent = "declined";
+                rerenderForToolsConsent();
+              }}
+            >
+              Just answer without it
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="brain-composer-wrap">
         {error && (

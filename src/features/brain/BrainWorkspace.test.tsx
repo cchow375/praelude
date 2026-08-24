@@ -5,8 +5,12 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { BrainWorkspace, knowledgeShareLabel } from "./BrainWorkspace";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  BrainWorkspace,
+  __resetAssistantToolsConsentForTests,
+  knowledgeShareLabel,
+} from "./BrainWorkspace";
 import type { BrainAnswer, BrainApi, BrainGroundingSummary } from "./types";
 import type { PracticeBrainContext } from "./types";
 import type { CommandInvoker } from "../../services/command";
@@ -149,6 +153,8 @@ function makeInvoker(
 afterEach(cleanup);
 
 describe("BrainWorkspace", () => {
+  beforeEach(() => __resetAssistantToolsConsentForTests());
+
   it("sends each wake question once as Voice with the exact shell context", async () => {
     const answer = {
       ...groundedAnswer,
@@ -252,6 +258,7 @@ describe("BrainWorkspace", () => {
       thread_id: null,
       history: [],
       context: null,
+      tools_consent: false,
     });
     // Citation chips.
     const chips = screen.getByLabelText("Citations");
@@ -604,6 +611,104 @@ describe("BrainWorkspace", () => {
     await waitFor(() =>
       expect(screen.queryByText("Old answer stays until cleared.")).toBeNull(),
     );
+  });
+
+  it("shows the consent card before the first question of the session, not after", async () => {
+    const api = makeApi();
+    render(<BrainWorkspace api={api} invoker={makeInvoker()} />);
+
+    expect(
+      await screen.findByText(
+        /Assistant may read practice data this session/i,
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Allow"));
+    expect(
+      screen.queryByText(/Assistant may read practice data this session/i),
+    ).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Ask Coda"), {
+      target: { value: "what's stalling?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await screen.findByText(groundedAnswer.answer);
+
+    expect(api.ask).toHaveBeenCalledWith(
+      expect.objectContaining({ tools_consent: true }),
+    );
+  });
+
+  it("never re-shows the consent card for a second question in the same session", async () => {
+    const api = makeApi();
+    render(<BrainWorkspace api={api} invoker={makeInvoker()} />);
+
+    fireEvent.click(
+      await screen.findByText("Just answer without it"),
+    );
+    expect(
+      screen.queryByText(/Assistant may read practice data this session/i),
+    ).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Ask Coda"), {
+      target: { value: "how do I fix this passage?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await screen.findByText(groundedAnswer.answer);
+    expect(
+      screen.queryByText(/Assistant may read practice data this session/i),
+    ).toBeNull();
+    expect(api.ask).toHaveBeenCalledWith(
+      expect.objectContaining({ tools_consent: false }),
+    );
+
+    // Asking again does not resurrect the card either — consent is
+    // session-scoped, not per-question.
+    fireEvent.change(screen.getByLabelText("Ask Coda"), {
+      target: { value: "one more question" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(api.ask).toHaveBeenCalledTimes(2));
+    expect(
+      screen.queryByText(/Assistant may read practice data this session/i),
+    ).toBeNull();
+  });
+
+  it("renders a provenance chip for each tool consulted in a tool-grounded answer", async () => {
+    const api = makeApi({
+      ...groundedAnswer,
+      tool_provenance: [
+        {
+          tool: "streak_summary",
+          args_human: "",
+          summary: "current streak 3 day(s), best 7",
+        },
+      ],
+    });
+    render(<BrainWorkspace api={api} invoker={makeInvoker()} />);
+    fireEvent.click(screen.getByText("Allow"));
+
+    fireEvent.change(screen.getByLabelText("Ask Coda"), {
+      target: { value: "what's my streak?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await screen.findByText(groundedAnswer.answer);
+
+    expect(screen.getByText("streak_summary")).toBeTruthy();
+  });
+
+  it("renders no provenance chips when an answer carries no tool receipts", async () => {
+    const api = makeApi(groundedAnswer);
+    render(<BrainWorkspace api={api} invoker={makeInvoker()} />);
+    fireEvent.click(screen.getByText("Allow"));
+
+    fireEvent.change(screen.getByLabelText("Ask Coda"), {
+      target: { value: "How should I practice the coda leap?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await screen.findByText(groundedAnswer.answer);
+
+    expect(screen.queryByLabelText("Tools consulted")).toBeNull();
   });
 });
 

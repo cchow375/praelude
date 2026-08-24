@@ -32,6 +32,18 @@ export interface BrainIntakeReview {
   fields: IntakeReviewField[];
 }
 
+/**
+ * A deterministic receipt for one read-only Assistant tool consulted this
+ * round (Plan C1). Never provider text — built entirely by the backend's
+ * `tool_exec::execute`, so the chip is trustworthy even if the model never
+ * mentions the tool result at all.
+ */
+export interface ToolProvenance {
+  tool: string;
+  args_human: string;
+  summary: string;
+}
+
 export interface BrainAnswer {
   id: string;
   answer: string;
@@ -40,6 +52,8 @@ export interface BrainAnswer {
   methods: BrainMethod[];
   intake_review?: BrainIntakeReview | null;
   grounding?: BrainGroundingSummary;
+  /** Empty unless this answer is tool-grounded (Plan C1). */
+  tool_provenance?: ToolProvenance[];
   /**
    * Confirm-gated spoken-request action. Backend emits it only for voice
    * questions and only when well-formed; the frontend re-narrows it before use.
@@ -82,6 +96,15 @@ export interface BrainAskRequest {
   history: BrainConversationTurn[];
   /** Exact visible practice state, or null when no piece is active in the UI. */
   context: PracticeBrainContext | null;
+  /**
+   * Session-scoped consent (Plan C1's Flag #1 resolution): whether the
+   * Assistant may execute read-only practice-data tools this session. The
+   * composer asks once, before the first question, and echoes the answer on
+   * every subsequent request for the rest of the session. Optional (like the
+   * backend's `#[serde(default)]`) so existing callers/fixtures that predate
+   * the tool loop keep compiling; an omitted value means no consent.
+   */
+  tools_consent?: boolean;
 }
 
 export interface BrainConversationTurn {

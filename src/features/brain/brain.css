@@ -282,6 +282,27 @@
   resize: vertical;
 }
 
+/* --- Assistant-tools consent card (Plan C1) ------------------------------ */
+.brain-consent-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+  padding: var(--s-3) var(--s-4);
+}
+.brain-consent-card p {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 0.875rem;
+}
+.brain-consent-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
 /* --- Composer (the ONE primary action) ----------------------------------- */
 .brain-composer-wrap {
   display: flex;
