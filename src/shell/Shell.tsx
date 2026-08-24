@@ -15,6 +15,7 @@ import { WorkspaceStub } from "./WorkspaceStub";
 import { ASSISTANT, HISTORY } from "./terms";
 import { TodayWorkspace } from "../features/today/TodayWorkspace";
 import { TodaySheetProvider } from "../features/notebook/DaySheetStore";
+import { useStreak } from "../features/streak/useStreak";
 import { todayLocal } from "../features/calendar/dates";
 import {
   readTodayPlan,
@@ -373,6 +374,9 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   const [repHudCollapsed, setRepHudCollapsed] = useState(
     () => window.innerWidth <= 800 || window.innerHeight <= 620,
   );
+  // A2: the galaxy's glow gets its evidence from the same streak the Today
+  // menu and Calendar header render.
+  const streak = useStreak();
   const [scorePracticeContext, setScorePracticeContext] =
     useState<PracticeBrainContext | null>(null);
   const [ledgerPracticeContext, setLedgerPracticeContext] =
@@ -1042,6 +1046,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                   <UniverseWorkspace
                     onOpenPractice={openFromUniverse}
                     onOpenLedger={openLedgerForPiece}
+                    streak={streak}
                   />
                 </div>
               )}

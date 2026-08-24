@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { universeSnapshot } from "./api";
 import { DetailPanel } from "./DetailPanel";
 import { formatDuration, formatSince } from "./format";
+import {
+  fnv1a32,
+  galaxyLayout,
+  GLOW_RADIUS_GAP,
+  ORBIT_BODY_RADIUS,
+  type GalaxyLayout,
+} from "./galaxy";
 import {
   attentionList,
   blockState,
@@ -25,7 +33,16 @@ interface UniverseWorkspaceProps {
   onOpenPractice: (piece: PracticePieceContext | null) => void;
   /** Optional jump to the History workspace for a piece. */
   onOpenLedger?: (piece: PracticePieceContext) => void;
+  /**
+   * A2's day-streak read model. The ONLY thing it may change is whether stars
+   * glow; it can never add, move or resize one. Null = no streak known yet,
+   * which renders un-glowed rather than optimistically lit.
+   */
+  streak?: { current_days: number } | null;
 }
+
+/** The galaxy is laid out for the dense floor and scaled by the SVG viewBox. */
+const GALAXY_VIEWPORT = { width: 720, height: 520 };
 
 /** How many pieces the "Wants work" band names before it summarises the rest. */
 const ATTENTION_BAND_LIMIT = 6;
@@ -38,21 +55,24 @@ function messageOf(error: unknown): string {
 }
 
 /**
- * The Practice Universe — a still map of the repertoire.
+ * The Practice Universe — an earned-only living galaxy.
  *
  * This screen used to be a live d3-force galaxy: drifting bodies, a
- * requestAnimationFrame tick loop, pan/zoom and eight glowing palettes. It is
- * now a laid-out index on paper. Every piece is a card under its composer,
- * every region is one pencil mark on that card, and the order is derived only
- * from names and ids — so a piece keeps its place between visits and the marks,
- * not the layout, are what change when you practise.
- *
- * There is no animation of any kind here, ambient or otherwise: no simulation,
- * no rAF, no keyframes. Interaction gets a colour change and nothing more.
+ * requestAnimationFrame tick loop, pan/zoom and eight glowing palettes. v5
+ * removed all of that and left a still index on paper. v7 A1 brings motion
+ * back, but only as a pure function of recorded practice evidence: every
+ * piece renders as a star system whose size, brightness, growth ring and
+ * orbiting bodies are computed once by `galaxyLayout` (a pure, deterministic
+ * function of the snapshot) and animated only by CSS `@keyframes` in
+ * universe.css. There is still no simulation, no requestAnimationFrame loop
+ * and no per-frame JS of any kind — the property that killed the v5 galaxy
+ * stays dead. The composer index below the galaxy is unchanged: it is still
+ * the place you can learn a piece's name, not just look at its star.
  */
 export function UniverseWorkspace({
   onOpenPractice,
   onOpenLedger,
+  streak = null,
 }: UniverseWorkspaceProps) {
   const [snapshot, setSnapshot] = useState<UniverseSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,6 +119,11 @@ export function UniverseWorkspace({
   const openScore = useCallback(
     (piece: PracticePieceContext) => onOpenPractice(piece),
     [onOpenPractice],
+  );
+
+  const galaxy = useMemo<GalaxyLayout | null>(
+    () => (snapshot ? galaxyLayout(snapshot, GALAXY_VIEWPORT, streak ?? null) : null),
+    [snapshot, streak],
   );
 
   return (
@@ -232,6 +257,127 @@ export function UniverseWorkspace({
             </div>
 
             <div className="universe-map-and-detail">
+              {galaxy && galaxy.stars.length > 0 && (
+                <svg
+                  className="universe-galaxy"
+                  data-testid="universe-galaxy"
+                  viewBox={`0 0 ${GALAXY_VIEWPORT.width} ${galaxyHeight(galaxy)}`}
+                  role="img"
+                  aria-label={`${galaxy.stars.length} pieces as star systems`}
+                >
+                  {/* One parallax layer: a still field of tick marks derived from the star
+                      grid itself, drifting a few pixels. It carries no data — it is the
+                      page, not a signal — which is why it has no data-evidence attribute
+                      and no piece/region id. */}
+                  <g className="universe-galaxy-field" aria-hidden="true">
+                    {galaxy.stars.map((star) => (
+                      <circle
+                        key={`field-${star.piece_id}`}
+                        cx={star.cx + 46}
+                        cy={star.cy - 38}
+                        r={1}
+                      />
+                    ))}
+                  </g>
+                  {galaxy.stars.map((star) => (
+                    <g
+                      key={star.piece_id}
+                      className={
+                        star.earned ? "universe-star" : "universe-star is-unlit"
+                      }
+                      data-piece-id={star.piece_id}
+                      data-evidence={star.evidence}
+                      style={
+                        {
+                          "--star-brightness": star.brightness,
+                          "--star-phase": `${fnv1a32(`piece:${star.piece_id}`) % 4000}ms`,
+                        } as CSSProperties
+                      }
+                    >
+                      {/* The click target renders FIRST and every decorative element
+                          after it gets pointer-events:none (universe.css), so hover/
+                          focus always lands on this hit circle regardless of what
+                          draws on top of it — fix-wave U1. It is a real <circle> with
+                          a title, not a bare <g>: SVG hit areas need geometry, and the
+                          composer index below still carries the accessible <button>
+                          for every piece. */}
+                      <circle
+                        className="universe-star-hit"
+                        cx={star.cx}
+                        cy={star.cy}
+                        r={Math.max(star.radius + 10, 18)}
+                        onClick={() => setSelection({ kind: "piece", pieceId: star.piece_id })}
+                      >
+                        <title>{star.title}</title>
+                      </circle>
+                      {star.earned ? (
+                        <>
+                          {star.glow && (
+                            <circle
+                              className="universe-star-glow"
+                              data-evidence="streak.current_days"
+                              cx={star.cx}
+                              cy={star.cy}
+                              r={star.radius + GLOW_RADIUS_GAP}
+                            />
+                          )}
+                          {star.ring > 0 && (
+                            <circle
+                              className="universe-star-ring"
+                              data-evidence="earned_maturity"
+                              cx={star.cx}
+                              cy={star.cy}
+                              r={star.radius + 3}
+                              style={{ strokeWidth: 1 + 3 * star.ring }}
+                            />
+                          )}
+                          <circle
+                            className="universe-star-disc"
+                            cx={star.cx}
+                            cy={star.cy}
+                            r={star.radius}
+                          />
+                          {star.orbits.map((orbit) => (
+                            <g
+                              key={orbit.region_id}
+                              className="universe-orbit"
+                              style={
+                                {
+                                  "--orbit-period": `${orbit.period}s`,
+                                  "--orbit-phase": `${orbit.phase}deg`,
+                                  transformOrigin: `${star.cx}px ${star.cy}px`,
+                                } as CSSProperties
+                              }
+                            >
+                              <circle
+                                className="universe-orbit-body"
+                                data-region-id={orbit.region_id}
+                                data-evidence="mastery_contracts_completed"
+                                cx={star.cx + orbit.radius}
+                                cy={star.cy}
+                                r={ORBIT_BODY_RADIUS}
+                              />
+                            </g>
+                          ))}
+                        </>
+                      ) : (
+                        /* Earned-only law (fix-wave F1): zero practice evidence gets
+                           no star — not even a dim one. A hollow, non-animated marker
+                           keeps the piece discoverable without granting it unearned
+                           growth (no fill, no twinkle, no glow, no ring, no orbits). */
+                        <circle
+                          className="universe-star-unlit"
+                          data-evidence="none"
+                          aria-label="not yet practised"
+                          cx={star.cx}
+                          cy={star.cy}
+                          r={star.radius}
+                        />
+                      )}
+                    </g>
+                  ))}
+                </svg>
+              )}
               <div className="universe-index">
                 {groups.map((group) => (
                   <ComposerSection
@@ -280,6 +426,15 @@ export function UniverseWorkspace({
       ) : null}
     </main>
   );
+}
+
+/** Tall enough for the last row of stars, so nothing is clipped. */
+function galaxyHeight(galaxy: GalaxyLayout): number {
+  const lowest = galaxy.stars.reduce(
+    (max, star) => Math.max(max, star.cy + star.radius + 24),
+    0,
+  );
+  return Math.max(galaxy.viewport.height, lowest);
 }
 
 function ComposerSection({

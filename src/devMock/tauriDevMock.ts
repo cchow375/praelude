@@ -50,6 +50,7 @@ import type { MutationReceipt } from "../features/receipts/ReceiptCenter";
 import type { PausedSetRow } from "../features/rep/pausedSets";
 import type { SessionView } from "../features/session/useSession";
 import type { UniverseSnapshot } from "../features/universe/types";
+import type { StreakSummary } from "../features/streak/api";
 import {
   assertPiecePlanText,
   parseBodyJson,
@@ -1616,6 +1617,7 @@ const SETTINGS_SNAPSHOT = {
   practice_default_clean_streak: 5,
   ladder_bpm_step: 4,
   calendar_capacity_minutes: 60,
+  streak_threshold_minutes: 10,
   vault_pieces_dir: "/dev-mock/Pieces",
   verdict_aliases: { clean: [], flawed: [], failed: [] },
   api_keys: [
@@ -2651,6 +2653,69 @@ function historyDaysMock(args: unknown): HistoryDaySummary[] {
   ).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 }
 
+// Day streak (Task A2) — derived from the SAME `HISTORY_DAY_SUMMARIES` fixture
+// `history_days` serves, so the mock can never show a streak the mock history
+// does not support. Mirrors `src-tauri/src/store/streaks.rs`: a day joins the
+// streak once its focused seconds clear the threshold; `current_days` is the
+// consecutive run ending today (or yesterday, so a streak in progress is not
+// declared dead before today has had its chance); `best_days` is the longest
+// run anywhere in the fixture.
+const STREAK_THRESHOLD_MINUTES = 10;
+
+/** The longest run of consecutive calendar days in an unsorted day list. */
+function longestRun(days: string[]): number {
+  const ordinals = [...new Set(days)]
+    .map((day) => Date.parse(`${day}T00:00:00Z`) / 86_400_000)
+    .sort((a, b) => a - b);
+  let best = 0;
+  let run = 0;
+  let previous: number | null = null;
+  for (const ordinal of ordinals) {
+    run = previous !== null && ordinal === previous + 1 ? run + 1 : 1;
+    best = Math.max(best, run);
+    previous = ordinal;
+  }
+  return best;
+}
+
+/** The run of consecutive qualifying days ending at `today` (or `today - 1`,
+ * so a streak in progress is not declared dead before today has had its
+ * chance). Zero when the most recent qualifying day is older than that. */
+function trailingRun(days: string[], today: string): number {
+  const ordinals = new Set(
+    days.map((day) => Date.parse(`${day}T00:00:00Z`) / 86_400_000),
+  );
+  const todayOrdinal = Date.parse(`${today}T00:00:00Z`) / 86_400_000;
+  let anchor = todayOrdinal;
+  if (!ordinals.has(anchor)) {
+    anchor -= 1;
+    if (!ordinals.has(anchor)) return 0;
+  }
+  let run = 0;
+  let cursor = anchor;
+  while (ordinals.has(cursor)) {
+    run += 1;
+    cursor -= 1;
+  }
+  return run;
+}
+
+function streakSummaryMock(): StreakSummary {
+  const qualifying = HISTORY_DAY_SUMMARIES.filter(
+    (day) => day.focused_seconds >= STREAK_THRESHOLD_MINUTES * 60,
+  )
+    .map((day) => day.date)
+    .sort();
+  const today = todayLocal();
+  return {
+    current_days: trailingRun(qualifying, today),
+    best_days: longestRun(qualifying),
+    threshold_minutes: STREAK_THRESHOLD_MINUTES,
+    today_focused_seconds:
+      HISTORY_DAY_SUMMARIES.find((day) => day.date === today)?.focused_seconds ?? 0,
+  };
+}
+
 function historyDayDetailMock(args: unknown): HistoryDayDetail {
   const date = String(argsRecord(args).date ?? "");
   return HISTORY_DAY_DETAILS.get(date) ?? { date, sessions: [], sets: [] };
@@ -3138,6 +3203,12 @@ function routeCommand(cmd: string, args: unknown): unknown {
     // Today / Universe.
     case "universe_snapshot":
       return universeSnapshot();
+
+    // Day streak (Task A2) — derived from the same fixture days history_days
+    // serves, so the mock can never show a streak the mock history does not
+    // support.
+    case "streak_summary":
+      return streakSummaryMock();
 
     // Calendar / composer.
     case "daily_work_list":

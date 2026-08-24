@@ -1,0 +1,26 @@
+/*
+ * NOTE: the plan's original snippet referenced `--fs-sm` and `--ink-soft` and
+ * `--rule`, none of which exist in src/design/tokens.css (the real names are
+ * `--text-sm`, `--ink-dim` and `--hairline`). Fixed to the tokens that
+ * actually exist there, in keeping with the "existing paper tokens only, no
+ * hex" rule — see UniverseWorkspace.css's identical fix for the galaxy block.
+ */
+.streak-line {
+  display: flex;
+  gap: var(--s-3);
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-dim);
+}
+
+.streak-current {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.streak-best::before {
+  content: "·";
+  margin-right: var(--s-3);
+  color: var(--hairline);
+}

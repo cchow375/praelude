@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   cleanup,
   fireEvent,
@@ -6,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { galaxyLayout } from "./galaxy";
 import type { UniversePiece, UniverseSnapshot } from "./types";
 
 const invokeMock = vi.fn();
@@ -126,6 +129,43 @@ const STALE_PIECE: UniversePiece = {
   ],
 };
 
+/** On the shelf, never opened: zero focused seconds, zero mastered targets,
+ * zero practice_events anywhere. The earned-only law (fix-wave F1) says this
+ * piece gets no star at all — used ONLY in the tests that opt into it below,
+ * never mixed into the shared SNAPSHOT default (which every other test in
+ * this file also renders). */
+const UNTOUCHED_PIECE: UniversePiece = {
+  piece_id: 3,
+  title: "Prelude in C",
+  composer: "Bach",
+  focused_seconds: 0,
+  active_days_28: 0,
+  regions_total: 1,
+  regions_practiced: 0,
+  regions_revisited: 0,
+  mastered_targets: 0,
+  practice_sessions: 0,
+  quality_brightness: 0.96,
+  last_practiced: null,
+  region_signals: [
+    {
+      region_id: 31,
+      name: "Whole piece",
+      kind: "section",
+      focused_seconds: 0,
+      active_days_28: 0,
+      practiced: false,
+      revisited: false,
+      quality_brightness: 0.96,
+      last_practiced: null,
+      practice_events: 0,
+      rated_rep_events: 0,
+      clean_rep_events: 0,
+      distinct_practice_dates: 0,
+    },
+  ],
+};
+
 const SNAPSHOT: UniverseSnapshot = {
   generated_at: GENERATED_AT,
   definitions: [
@@ -201,15 +241,268 @@ describe("UniverseWorkspace repertoire map", () => {
     expect(card.textContent).toContain("Practiced yesterday");
   });
 
-  it("runs no simulation, no animation frame loop and no keyframes", async () => {
+  // (a) The v5 lesson still holds: declarative motion only, never a loop.
+  it("runs no simulation and no animation frame loop", async () => {
     const raf = vi.spyOn(window, "requestAnimationFrame");
     const { container } = await renderMap();
-
     expect(raf).not.toHaveBeenCalled();
-    // The old galaxy drew itself into an <svg> canvas; nothing does now.
-    expect(container.querySelector("svg")).toBeNull();
+    // The galaxy IS an <svg> now — but a static one, drawn once from a layout.
     expect(container.querySelector(".universe-canvas")).toBeNull();
+    expect(container.querySelectorAll("svg.universe-galaxy")).toHaveLength(1);
     raf.mockRestore();
+  });
+
+  // (b) Property: identical event history => identical galaxy.
+  it("lays the galaxy out deterministically for the same snapshot", () => {
+    const viewport = { width: 720, height: 520 };
+    const once = galaxyLayout(SNAPSHOT, viewport, { current_days: 2 });
+    const twice = galaxyLayout(SNAPSHOT, viewport, { current_days: 2 });
+    expect(once).toEqual(twice);
+  });
+
+  // (c) Earned-only: every rendered visual traces back to a snapshot field.
+  it("renders no visual that is not backed by snapshot evidence", async () => {
+    const { container } = await renderMap();
+    const galaxy = container.querySelector(".universe-galaxy") as SVGElement;
+
+    const pieceIds = new Set(SNAPSHOT.pieces.map((p) => String(p.piece_id)));
+    const masteredRegionIds = new Set(
+      SNAPSHOT.pieces.flatMap((p) =>
+        p.region_signals
+          .filter((r) => (r.mastery_contracts_completed ?? 0) > 0)
+          .map((r) => String(r.region_id)),
+      ),
+    );
+
+    const stars = [...galaxy.querySelectorAll(".universe-star")];
+    expect(stars).toHaveLength(SNAPSHOT.pieces.length);
+    for (const star of stars) {
+      expect(pieceIds.has(star.getAttribute("data-piece-id") ?? "")).toBe(true);
+    }
+
+    const bodies = [...galaxy.querySelectorAll(".universe-orbit-body")];
+    expect(bodies.length).toBe(masteredRegionIds.size);
+    for (const body of bodies) {
+      expect(
+        masteredRegionIds.has(body.getAttribute("data-region-id") ?? ""),
+      ).toBe(true);
+      expect(body.getAttribute("data-evidence")).toBe(
+        "mastery_contracts_completed",
+      );
+    }
+
+    // A ring only exists where earned_maturity does.
+    const ringed = [...galaxy.querySelectorAll(".universe-star-ring")].map(
+      (node) => node.closest(".universe-star")!.getAttribute("data-piece-id"),
+    );
+    const withMaturity = SNAPSHOT.pieces
+      .filter((p) => (p.earned_maturity ?? 0) > 0)
+      .map((p) => String(p.piece_id));
+    expect(ringed.sort()).toEqual(withMaturity.sort());
+
+    // No streak was supplied, so nothing may glow.
+    expect(galaxy.querySelectorAll(".universe-star-glow")).toHaveLength(0);
+  });
+
+  // fix-wave F1: a piece with zero recorded practice evidence must never get
+  // a filled, twinkling, glowing star — that is granted, unearned growth.
+  it("renders an unearned piece (zero practice evidence) as a hollow, unlit marker — no glow even under a live streak", async () => {
+    invokeMock.mockResolvedValue({
+      ...SNAPSHOT,
+      pieces: [PIECE, UNTOUCHED_PIECE],
+    });
+    const { container } = render(
+      <UniverseWorkspace
+        onOpenPractice={vi.fn()}
+        streak={{ current_days: 6 }} // a LIVE global streak
+      />,
+    );
+    await screen.findByRole("heading", { name: "Your repertoire" });
+    const galaxy = container.querySelector(".universe-galaxy") as SVGElement;
+
+    const untouchedStar = galaxy.querySelector(
+      '.universe-star[data-piece-id="3"]',
+    ) as SVGGElement;
+    expect(untouchedStar).toBeTruthy();
+    expect(untouchedStar.getAttribute("data-evidence")).toBe("none");
+    expect(untouchedStar.classList.contains("is-unlit")).toBe(true);
+
+    // No filled disc, no glow, no ring, no orbits — only the hollow marker.
+    expect(untouchedStar.querySelector(".universe-star-disc")).toBeNull();
+    expect(untouchedStar.querySelector(".universe-star-glow")).toBeNull();
+    expect(untouchedStar.querySelector(".universe-star-ring")).toBeNull();
+    expect(untouchedStar.querySelectorAll(".universe-orbit-body")).toHaveLength(0);
+
+    const marker = untouchedStar.querySelector(
+      ".universe-star-unlit",
+    ) as SVGCircleElement;
+    expect(marker).toBeTruthy();
+    expect(marker.getAttribute("r")).toBe("4");
+    expect(marker.getAttribute("data-evidence")).toBe("none");
+    expect(marker.getAttribute("aria-label")).toBe("not yet practised");
+
+    // The earned piece in the SAME render still glows: the streak withholds
+    // evidence from the unearned piece, it never leaks onto it.
+    const earnedStar = galaxy.querySelector(
+      '.universe-star[data-piece-id="7"]',
+    ) as SVGGElement;
+    expect(earnedStar.querySelector(".universe-star-glow")).toBeTruthy();
+  });
+
+  // fix-wave F1(d): a rendered data-evidence attribute must never name a
+  // field whose value is 0 — checked directly against the DOM, not just the
+  // pure layout (galaxy.test.ts already covers the layout in isolation).
+  it("law: no rendered data-evidence attribute names a zero-valued field", async () => {
+    invokeMock.mockResolvedValue({
+      ...SNAPSHOT,
+      pieces: [PIECE, STALE_PIECE, UNTOUCHED_PIECE],
+    });
+    const { container } = render(
+      <UniverseWorkspace
+        onOpenPractice={vi.fn()}
+        streak={{ current_days: 2 }}
+      />,
+    );
+    await screen.findByRole("heading", { name: "Your repertoire" });
+    const galaxy = container.querySelector(".universe-galaxy") as SVGElement;
+    const byId: Record<string, UniversePiece> = {
+      "7": PIECE,
+      "9": STALE_PIECE,
+      "3": UNTOUCHED_PIECE,
+    };
+    for (const star of [...galaxy.querySelectorAll(".universe-star")]) {
+      const piece = byId[star.getAttribute("data-piece-id") ?? ""];
+      const evidence = star.getAttribute("data-evidence");
+      if (evidence === "focused_seconds") {
+        expect(piece.focused_seconds).toBeGreaterThan(0);
+      } else if (evidence === "mastered_targets") {
+        expect(piece.mastered_targets ?? 0).toBeGreaterThan(0);
+      } else if (evidence === "region_signals") {
+        expect(
+          piece.region_signals.some((r) => (r.practice_events ?? 0) > 0),
+        ).toBe(true);
+      } else {
+        expect(evidence).toBe("none");
+      }
+    }
+  });
+
+  it("glows every star only when a live streak is passed in", async () => {
+    const { container } = render(
+      <UniverseWorkspace
+        onOpenPractice={vi.fn()}
+        streak={{ current_days: 4 }}
+      />,
+    );
+    await screen.findByRole("heading", { name: "Your repertoire" });
+    expect(container.querySelectorAll(".universe-star-glow")).toHaveLength(
+      SNAPSHOT.pieces.length,
+    );
+  });
+
+  it("draws nothing at all when there is no practice evidence", async () => {
+    invokeMock.mockResolvedValue({ ...SNAPSHOT, pieces: [] });
+    const { container } = render(
+      <UniverseWorkspace
+        onOpenPractice={vi.fn()}
+        streak={{ current_days: 9 }}
+      />,
+    );
+    await screen.findByRole("heading", {
+      name: "Your universe is quiet for now.",
+    });
+    expect(container.querySelector(".universe-galaxy")).toBeNull();
+  });
+
+  // (d) Reduced motion collapses the galaxy to a fully static render, CSS-only.
+  it("wraps every keyframe animation in a prefers-reduced-motion escape", () => {
+    // NOTE: the plan's original snippet used
+    // `fileURLToPath(new URL("./universe.css", import.meta.url))`, which
+    // throws "The URL must be of scheme file" under this project's vitest/vite
+    // transform (import.meta.url does not resolve to a file: URL here).
+    // Fixed to the same `resolve("src/...")` pattern every sibling CSS-reading
+    // test in this repo already uses (e.g. shellOverlap.test.tsx,
+    // RepHudDensity.test.tsx, dockStacking.test.ts).
+    const css = readFileSync(
+      resolve("src/features/universe/universe.css"),
+      "utf8",
+    );
+    const animated = [
+      ".universe-star-disc",
+      ".universe-orbit-body",
+      ".universe-galaxy-field",
+    ];
+    for (const selector of animated) {
+      expect(css).toContain(selector);
+    }
+    expect(css).toMatch(/@keyframes universe-twinkle/);
+    expect(css).toMatch(/@keyframes universe-orbit/);
+    expect(css).toMatch(/@keyframes universe-parallax/);
+
+    const reduced = css.slice(
+      css.indexOf("@media (prefers-reduced-motion: reduce)"),
+    );
+    expect(reduced).not.toBe("");
+    expect(reduced).toContain("animation: none !important");
+    // fix-wave F4: the original assertion only checked that the reduce block
+    // CONTAINS the string once — it would still pass if three of the four
+    // animated selectors were silently dropped from the reset rule. Assert
+    // each of the four is actually part of the selector list feeding
+    // `animation: none !important`, not merely present somewhere in the file.
+    const resetRuleMatch = reduced.match(
+      /([^{}]+)\{\s*animation: none !important;/,
+    );
+    expect(resetRuleMatch).not.toBeNull();
+    const resetSelectors = resetRuleMatch![1];
+    for (const selector of [
+      ".universe-galaxy-field circle",
+      ".universe-star-disc",
+      ".universe-star-glow",
+      ".universe-orbit",
+    ]) {
+      expect(resetSelectors).toContain(selector);
+    }
+    // And no JS ever reads the media query — the app has zero matchMedia calls.
+    expect(css).not.toContain("matchMedia");
+  });
+
+  // fix-wave U1: `.universe-star-hit:hover ~ .universe-star-disc` is a
+  // subsequent-sibling combinator — it only matches an element that comes
+  // AFTER `.universe-star-hit` in DOM order. The hit circle must render
+  // FIRST inside `.universe-star`, or hovering a star silently does nothing.
+  it("renders the hit circle first, so the hover/focus CSS combinator can reach the disc behind it", async () => {
+    await renderMap();
+    const star = screen
+      .getByTestId("universe-galaxy")
+      .querySelector('.universe-star[data-piece-id="7"]') as SVGGElement;
+    const first = star.firstElementChild as SVGElement;
+    expect(first.classList.contains("universe-star-hit")).toBe(true);
+    // Every decorative element that follows must not intercept pointer
+    // events, or the hit circle beneath it can never receive :hover/:focus.
+    const css = readFileSync(
+      resolve("src/features/universe/universe.css"),
+      "utf8",
+    );
+    for (const selector of [".universe-star-disc", ".universe-star-glow", ".universe-orbit"]) {
+      const rule = css.slice(css.indexOf(`${selector} {`));
+      expect(rule.slice(0, rule.indexOf("}"))).toContain("pointer-events: none");
+    }
+  });
+
+  it("selects a piece by clicking its star, same as clicking its card", async () => {
+    await renderMap();
+    fireEvent.click(
+      screen
+        .getByTestId("universe-galaxy")
+        .querySelector(
+          '.universe-star[data-piece-id="7"] .universe-star-hit',
+        ) as Element,
+    );
+    expect(
+      await screen.findByRole("complementary", {
+        name: "Nocturne Op. 9 No. 2",
+      }),
+    ).toBeTruthy();
   });
 
   it("draws one mark per region, in snapshot order, with its earned state", async () => {

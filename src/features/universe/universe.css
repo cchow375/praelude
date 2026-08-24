@@ -1,10 +1,19 @@
 /*
- * Practice Universe — a still map of the repertoire, drawn on paper.
+ * Practice Universe — a still map of the repertoire, drawn on paper, with an
+ * earned-only living galaxy above it.
  *
  * Rules this stylesheet keeps:
  *   - every colour comes from src/design/tokens.css; no hex lives here.
- *   - NO ambient animation. No @keyframes, no infinite anything. The only
- *     motion is a --dur-fast colour/border change under the pointer or focus.
+ *   - AMBIENT MOTION IS ALLOWED IN THE GALAXY BLOCK ONLY, and only as CSS
+ *     @keyframes: twinkle, slow orbit, parallax drift. v5 removed a d3-force
+ *     SIMULATION with a requestAnimationFrame tick loop, and that stays
+ *     removed — there is still no JS animation of any kind on this screen.
+ *     v7 A1 deliberately retires the older "no @keyframes" wording (see
+ *     docs/superpowers/plans/2026-08-23-codakiller-v7-plan-a-galaxy-ritual.md).
+ *     Every animation below must collapse to a fully static render under
+ *     @media (prefers-reduced-motion: reduce) at the bottom of this file.
+ *   - outside the galaxy block, the only motion is a --dur-fast colour/border
+ *     change under the pointer or focus.
  *   - the ink ramp carries the meaning (a region's mark gets taller and darker
  *     as it earns more); the one saturated colour on the screen is the warning
  *     red that marks recovery debt and the notebook's margin rule.
@@ -659,5 +668,116 @@
     position: static;
     flex-basis: auto;
     width: 100%;
+  }
+}
+
+.universe-galaxy {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-bottom: var(--s-4);
+  overflow: visible;
+}
+
+.universe-galaxy-field circle {
+  fill: var(--hairline-strong);
+  opacity: 0.5;
+  animation: universe-parallax 90s linear infinite;
+}
+
+.universe-star-disc {
+  fill: var(--ink);
+  opacity: var(--star-brightness, 0.96);
+  animation: universe-twinkle 6s ease-in-out infinite;
+  animation-delay: var(--star-phase, 0ms);
+  /* The hit circle draws FIRST and this disc paints over it (fix-wave U1);
+     pointer-events:none lets a hover/click always fall through to the hit
+     circle underneath instead of stopping on this decorative shape. */
+  pointer-events: none;
+}
+
+.universe-star-ring {
+  fill: none;
+  stroke: var(--ink-dim);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.universe-star-glow {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1;
+  opacity: 0.45;
+  animation: universe-twinkle 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.universe-orbit {
+  animation: universe-orbit var(--orbit-period, 42s) linear infinite;
+  animation-delay: calc(var(--orbit-period, 42s) * -1 * (var(--orbit-phase, 0deg) / 360deg));
+  pointer-events: none;
+}
+
+.universe-orbit-body {
+  fill: var(--ink-dim);
+}
+
+/* Earned-only law (fix-wave F1): a piece with zero practice evidence draws
+   as a hollow, non-animated marker — no fill, no twinkle, deliberately not
+   listed among the animated selectors above or under reduced-motion below. */
+.universe-star-unlit {
+  fill: none;
+  stroke: var(--ink-dim);
+  pointer-events: none;
+}
+
+.universe-star-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+/* The hit circle is now the FIRST child of .universe-star (fix-wave U1), so
+   the general sibling combinator correctly matches every decorative element
+   that follows it — disc, ring, glow, unlit marker. */
+.universe-star-hit:hover ~ .universe-star-disc,
+.universe-star-hit:focus-visible ~ .universe-star-disc {
+  fill: var(--accent);
+}
+
+/* Hover/focus affordance for an unlit (never-practised) marker changes its
+   OUTLINE, never its fill — filling it would read as earned growth it does
+   not have. */
+.universe-star-hit:hover ~ .universe-star-unlit,
+.universe-star-hit:focus-visible ~ .universe-star-unlit {
+  stroke: var(--accent);
+}
+
+@keyframes universe-twinkle {
+  0%, 100% { opacity: var(--star-brightness, 0.96); }
+  50% { opacity: calc(var(--star-brightness, 0.96) * 0.72); }
+}
+
+@keyframes universe-orbit {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes universe-parallax {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(6px, -4px, 0); }
+}
+
+/* The static render. Not a slower galaxy — a still one. */
+@media (prefers-reduced-motion: reduce) {
+  .universe-galaxy-field circle,
+  .universe-star-disc,
+  .universe-star-glow,
+  .universe-orbit {
+    animation: none !important;
+  }
+  /* Bodies keep their hashed resting angle, so the picture is still the
+     earned one — it simply stops moving. */
+  .universe-orbit {
+    transform: rotate(var(--orbit-phase, 0deg));
   }
 }

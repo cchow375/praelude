@@ -21,6 +21,8 @@ import type {
 } from "./types";
 import { RetentionQueue } from "../retention";
 import { DaySheetWindow } from "../notebook/DaySheetWindow";
+import { StreakLine } from "../streak/StreakLine";
+import { useStreak } from "../streak/useStreak";
 import "./CalendarWorkspace.css";
 
 export interface CalendarWorkspaceProps {
@@ -47,6 +49,7 @@ export function CalendarWorkspace({
   });
   const [capacity, setCapacity] = useState(60);
   const [capacityDraft, setCapacityDraft] = useState("60");
+  const streak = useStreak();
   const [preview, setPreview] = useState<RecoveryPreview | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [retentionOpen, setRetentionOpen] = useState(false);
@@ -235,6 +238,7 @@ export function CalendarWorkspace({
             attempts, or mastery.
           </p>
         </div>
+        <StreakLine summary={streak} />
         <div className="calendar-capacity">
           <label htmlFor="calendar-capacity">Daily capacity</label>
           <div>

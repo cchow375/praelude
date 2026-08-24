@@ -5,6 +5,8 @@ import { ReaderWindow } from "../reader/ReaderWindow";
 import { clampToWords } from "./quoteRotation";
 import { useHomeQuote, useQuoteSignals } from "./quoteSignals";
 import { compactDuration, todayLabel } from "./format";
+import { StreakLine } from "../streak/StreakLine";
+import { useStreak } from "../streak/useStreak";
 import {
   CodaMark,
   ListIcon,
@@ -53,6 +55,7 @@ export function TodayWorkspace({
   // CONNECTOR, though, is re-derived from live signals on every render and is
   // never carried over from the state the pick was made in (see useHomeQuote).
   const { quote, connector } = useHomeQuote(useQuoteSignals());
+  const streak = useStreak();
   const [readerOpen, setReaderOpen] = useState(false);
 
   // The practice page REPLACES the menu rather than floating over it, so the
@@ -92,6 +95,7 @@ export function TodayWorkspace({
         </div>
 
         <p className="today-date today-menu-date">{todayLabel()}</p>
+        <StreakLine summary={streak} />
         {/* The slot keeps its height while the signals resolve, so the menu
             below it never jumps when the quote arrives. */}
         <div className="today-menu-quote-slot">
