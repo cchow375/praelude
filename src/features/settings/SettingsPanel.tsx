@@ -46,6 +46,7 @@ export interface SettingsSnapshot {
   brain_provider: "auto" | "claude" | "gemini" | "offline";
   knowledge_dir: string;
   share_retrieved_knowledge: boolean;
+  assistant_enabled: boolean;
   wake_word_enabled: boolean;
   wake_word: string;
   metronome_sound: string;
@@ -118,6 +119,7 @@ export function SettingsPanel({
               : 90,
             knowledge_dir: next.knowledge_dir || DEFAULT_KNOWLEDGE_DIR,
             share_retrieved_knowledge: next.share_retrieved_knowledge ?? true,
+            assistant_enabled: next.assistant_enabled ?? false,
             practice_default_clean_streak:
               Number.isInteger(next.practice_default_clean_streak) &&
               next.practice_default_clean_streak >= 1 &&
@@ -152,6 +154,7 @@ export function SettingsPanel({
         brain_provider: value.brain_provider,
         knowledge_dir: value.knowledge_dir,
         share_retrieved_knowledge: value.share_retrieved_knowledge,
+        assistant_enabled: value.assistant_enabled,
         wake_word_enabled: value.wake_word_enabled,
         wake_word: value.wake_word,
         metronome_sound: value.metronome_sound,
@@ -353,6 +356,26 @@ export function SettingsPanel({
         defaultOpen
       >
         <div className="settings-group">
+          <label className="settings-check settings-wide">
+            <input
+              type="checkbox"
+              checked={value.assistant_enabled}
+              onChange={(event) =>
+                setValue({
+                  ...value,
+                  assistant_enabled: event.target.checked,
+                })
+              }
+            />
+            <span>
+              <strong>{ASSISTANT}</strong>
+              <small>
+                Answer open questions using an AI model. Off by default; the
+                deterministic voice commands, metronome and rep tracking never
+                use it.
+              </small>
+            </span>
+          </label>
           <BrainConnection invoker={brainInvoker} />
           <Row label={`${ASSISTANT} provider`}>
             <select

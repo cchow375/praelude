@@ -45,6 +45,7 @@ const snapshot: SettingsSnapshot = {
   brain_provider: "auto",
   knowledge_dir: "/vault/Knowledge and Resources",
   share_retrieved_knowledge: true,
+  assistant_enabled: true,
   wake_word_enabled: false,
   wake_word: "coda",
   metronome_sound: "woodblock",
