@@ -736,12 +736,21 @@ pub fn select_provider(
             let primary = Box::new(gemini::GeminiTts::new(
                 key.expect("key present for gemini"),
                 model,
-                voice,
+                voice.clone(),
             ));
-            let fallback = Box::new(say::SayTts::new());
+            // The configured voice must also reach the `say` fallback — otherwise
+            // a user's `tts.voice` setting silently stops applying the moment
+            // Gemini fails mid-session and `say` takes over.
+            let fallback: Box<dyn TtsProvider> = match voice.clone() {
+                Some(v) => Box::new(say::SayTts::with_voice(v)),
+                None => Box::new(say::SayTts::new()),
+            };
             Box::new(FallbackTts::new(primary, fallback))
         }
-        ProviderKind::Say => Box::new(say::SayTts::new()),
+        ProviderKind::Say => match voice {
+            Some(v) => Box::new(say::SayTts::with_voice(v)),
+            None => Box::new(say::SayTts::new()),
+        },
     }
 }
 
