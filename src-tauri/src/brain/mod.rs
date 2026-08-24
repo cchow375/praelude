@@ -44,6 +44,28 @@ const DEFAULT_KNOWLEDGE_DIR: &str =
 const INTAKE_REVIEW_TTL: Duration = Duration::from_secs(15 * 60);
 static ANSWER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
+/// THE real gate. Christian asked for a Settings toggle that fully disables
+/// the Assistant (default: off — see `settings::snapshot`'s
+/// `assistant_enabled`). Every IPC command that can reach an LLM provider
+/// (`brain_ask`, `assistant_suggest`, `brain_plan_preview`,
+/// `brain_intake_apply`, `brain_test_connection`) must call this and return
+/// its error BEFORE doing any provider/HTTP work or building a transport.
+/// `brain_status` is exempt: it is local-only (key/setting presence, no
+/// network) and Settings needs it to describe state regardless of the toggle.
+pub fn require_assistant_enabled(store: &Store) -> Result<(), BrainError> {
+    let enabled = store
+        .get_setting("assistant.enabled")
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some("true");
+    if enabled {
+        Ok(())
+    } else {
+        Err(BrainError::AssistantDisabled)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum QuestionSource {
@@ -343,6 +365,10 @@ pub enum BrainError {
     ProviderUnavailable(OfflineCause),
     ProviderResponse,
     PolicyViolation,
+    /// Christian switched the Assistant off in Settings (default: off). Every
+    /// command that can reach a provider must return this BEFORE doing any
+    /// provider/HTTP work — see `require_assistant_enabled`.
+    AssistantDisabled,
 }
 
 impl BrainError {
@@ -359,6 +385,7 @@ impl BrainError {
             Self::ProviderResponse => "provider returned an unusable response".to_string(),
             Self::InvalidQuestion(message) | Self::Context(message) => message.clone(),
             Self::PolicyViolation => "the brain response crossed a safety boundary".to_string(),
+            Self::AssistantDisabled => "the Assistant is switched off in Settings".to_string(),
         }
     }
 }
@@ -373,6 +400,7 @@ impl std::fmt::Display for BrainError {
             }
             Self::ProviderResponse => write!(f, "The brain provider returned an invalid response"),
             Self::PolicyViolation => write!(f, "The brain response crossed a safety boundary"),
+            Self::AssistantDisabled => write!(f, "the Assistant is switched off in Settings"),
         }
     }
 }
@@ -461,6 +489,7 @@ fn suggest_with(
     chain: &ProviderChain,
     transport: &dyn Transport,
 ) -> Result<AssistantSuggestions, BrainError> {
+    require_assistant_enabled(store)?;
     let description = request.description.trim();
     if description.is_empty() {
         return Err(BrainError::InvalidQuestion(
@@ -798,7 +827,20 @@ pub fn score_xml_measure_facts(store: &Store, piece_id: i64) -> Result<XmlMeasur
 
 /// Pure round-trip mapping: run one minimal question through the chain and map
 /// the outcome to a `BrainTestResult`. Unit-tested with a fake transport.
-fn test_connection_with(chain: &ProviderChain, transport: &dyn Transport) -> BrainTestResult {
+fn test_connection_with(
+    store: &Store,
+    chain: &ProviderChain,
+    transport: &dyn Transport,
+) -> BrainTestResult {
+    if let Err(error) = require_assistant_enabled(store) {
+        return BrainTestResult {
+            ok: false,
+            provider: None,
+            model: None,
+            latency_ms: None,
+            error: Some(error.reason()),
+        };
+    }
     if chain.is_empty() {
         return BrainTestResult {
             ok: false,
@@ -840,7 +882,7 @@ fn test_connection_with(chain: &ProviderChain, transport: &dyn Transport) -> Bra
 pub fn test_connection_native(store: &Store) -> BrainTestResult {
     let preference = store.get_setting("brain.provider").ok().flatten();
     let chain = ProviderChain::from_native_config_with_preference(preference.as_deref());
-    test_connection_with(&chain, &NativeTransport::new())
+    test_connection_with(store, &chain, &NativeTransport::new())
 }
 
 fn ask_with(
@@ -852,6 +894,7 @@ fn ask_with(
     transport: &dyn Transport,
     active_rep: Option<&RepSnapshot>,
 ) -> Result<BrainAnswer, BrainError> {
+    require_assistant_enabled(store)?;
     let question = request.question.trim();
     if question.is_empty() {
         return Err(BrainError::InvalidQuestion(
@@ -1200,6 +1243,7 @@ pub fn apply_intake_review(
     store: &Store,
     pending_reviews: &PendingIntakeReviews,
 ) -> Result<BrainIntakeApplyResult, BrainError> {
+    require_assistant_enabled(store)?;
     if request.changes.is_empty()
         || request.changes.len() > 4
         || store
@@ -1634,6 +1678,11 @@ mod tests {
         store
             .set_setting("brain.knowledge_dir", "/codakiller-test-missing")
             .unwrap();
+        // The Assistant defaults to OFF in Settings (Christian's 2026-08-24
+        // request). This module's tests exercise the assistant's *behavior*,
+        // so the shared fixture opts it in; the disabled-gate tests below
+        // explicitly flip it back to "false" to prove the refusal.
+        store.set_setting("assistant.enabled", "true").unwrap();
         let store = Arc::new(store);
         let sessions = SessionService::new(store.clone());
         (store, sessions, piece_id)
@@ -2030,6 +2079,44 @@ mod tests {
         assert_eq!(piece.current_state.as_deref(), Some("hands together"));
         assert_eq!(piece.deadline.as_deref(), Some("2026-08-01"));
         assert_eq!(piece.target_tempo, Some(144.0));
+    }
+
+    #[test]
+    fn intake_apply_refuses_when_assistant_disabled() {
+        let (store, sessions, piece_id) = fixture();
+        let answer = ask_with(
+            request("Review my intake: current state to hands together"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &ProviderChain::default(),
+            &FakeTransport::default(),
+            None,
+        )
+        .unwrap();
+        let pending = PendingIntakeReviews::default();
+        pending.register_answer(&answer);
+        // fixture() opts the module's tests into the assistant; flip it back
+        // off here to prove apply also refuses once disabled.
+        store.set_setting("assistant.enabled", "false").unwrap();
+        let result = apply_intake_review(
+            BrainIntakeApplyRequest {
+                answer_id: answer.id,
+                piece_id,
+                changes: vec![IntakeChange {
+                    field: "current_state".into(),
+                    value: Some("hands together".into()),
+                }],
+            },
+            store.as_ref(),
+            &pending,
+        );
+        assert!(matches!(result, Err(BrainError::AssistantDisabled)));
+        assert_eq!(
+            store.get_piece(piece_id).unwrap().unwrap().current_state,
+            None,
+            "the piece must be untouched when the Assistant is disabled"
+        );
     }
 
     #[test]
@@ -2540,6 +2627,8 @@ mod tests {
 
     #[test]
     fn test_connection_ok_maps_provider_model_and_latency() {
+        let (store, _sessions, _) = fixture();
+        store.set_setting("assistant.enabled", "true").unwrap();
         let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
             ProviderPreference::Gemini,
             "gemini-secret",
@@ -2550,7 +2639,7 @@ mod tests {
                 "text": "{\"answer\":\"reachable\",\"citation_ids\":[]}"
             }]}}]
         }))]);
-        let result = test_connection_with(&chain, &transport);
+        let result = test_connection_with(&store, &chain, &transport);
         assert!(result.ok);
         assert_eq!(result.provider.as_deref(), Some("gemini"));
         assert_eq!(result.model.as_deref(), Some("gemini-flash-latest"));
@@ -2560,6 +2649,8 @@ mod tests {
 
     #[test]
     fn test_connection_error_maps_reason_to_error_string() {
+        let (store, _sessions, _) = fixture();
+        store.set_setting("assistant.enabled", "true").unwrap();
         let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
             ProviderPreference::Gemini,
             "gemini-secret",
@@ -2576,7 +2667,7 @@ mod tests {
                 body: b"overloaded".to_vec(),
             },
         ]);
-        let result = test_connection_with(&chain, &transport);
+        let result = test_connection_with(&store, &chain, &transport);
         assert!(!result.ok);
         assert_eq!(result.error.as_deref(), Some("provider error: HTTP 503"));
         assert!(result.provider.is_none());
@@ -2586,9 +2677,40 @@ mod tests {
 
     #[test]
     fn test_connection_empty_chain_reports_no_key() {
-        let result = test_connection_with(&ProviderChain::default(), &FakeTransport::default());
+        let (store, _sessions, _) = fixture();
+        store.set_setting("assistant.enabled", "true").unwrap();
+        let result =
+            test_connection_with(&store, &ProviderChain::default(), &FakeTransport::default());
         assert!(!result.ok);
         assert_eq!(result.error.as_deref(), Some("no key configured"));
+    }
+
+    #[test]
+    fn test_connection_refuses_and_calls_provider_zero_times_when_assistant_disabled() {
+        let (store, _sessions, _) = fixture();
+        // fixture() opts the module's tests into the assistant; flip it back
+        // off here to prove the real disabled default.
+        store.set_setting("assistant.enabled", "false").unwrap();
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Gemini,
+            "gemini-secret",
+            "gemini-flash-latest",
+        )]);
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "candidates": [{"content": {"parts": [{
+                "text": "{\"answer\":\"reachable\",\"citation_ids\":[]}"
+            }]}}]
+        }))]);
+        let result = test_connection_with(&store, &chain, &transport);
+        assert!(!result.ok);
+        assert_eq!(
+            result.error.as_deref(),
+            Some("the Assistant is switched off in Settings")
+        );
+        assert!(
+            transport.requests().is_empty(),
+            "the provider must never be called when the Assistant is disabled"
+        );
     }
 
     #[test]
@@ -2606,6 +2728,35 @@ mod tests {
         );
         assert!(matches!(result, Err(BrainError::InvalidQuestion(_))));
         assert!(transport.requests().is_empty());
+    }
+
+    #[test]
+    fn ask_with_refuses_and_calls_provider_zero_times_when_assistant_disabled() {
+        let (store, sessions, _) = fixture();
+        // fixture() opts the module's tests into the assistant; flip it back
+        // off here to prove the real disabled default refuses BEFORE any
+        // provider/HTTP call, not merely that some error came back.
+        store.set_setting("assistant.enabled", "false").unwrap();
+        let (chain, transport) =
+            claude_chain_returning(json!({"answer": "hi", "citation_ids": []}).to_string());
+        let result = ask_with(
+            request("What should I practice next?"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        );
+        assert!(matches!(result, Err(BrainError::AssistantDisabled)));
+        assert_eq!(
+            result.unwrap_err().reason(),
+            "the Assistant is switched off in Settings"
+        );
+        assert!(
+            transport.requests().is_empty(),
+            "the provider must never be called when the Assistant is disabled"
+        );
     }
 
     // -- C4 passage-helper coverage ---------------------------------------
@@ -2791,5 +2942,34 @@ mod tests {
         );
         assert!(matches!(result, Err(BrainError::InvalidQuestion(_))));
         assert!(transport.requests().is_empty());
+    }
+
+    #[test]
+    fn suggest_with_refuses_and_calls_provider_zero_times_when_assistant_disabled() {
+        let (store, sessions, _) = fixture();
+        // fixture() opts the module's tests into the assistant; flip it back
+        // off here to prove the real disabled default refuses BEFORE any
+        // provider/HTTP call, not merely that some error came back.
+        store.set_setting("assistant.enabled", "false").unwrap();
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type": "text", "text": "{\"suggestions\":[]}"}]
+        }))]);
+        let result = suggest_with(
+            suggest_request("Legato leaps in the coda"),
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &claude_chain(),
+            &transport,
+        );
+        assert!(matches!(result, Err(BrainError::AssistantDisabled)));
+        assert_eq!(
+            result.unwrap_err().reason(),
+            "the Assistant is switched off in Settings"
+        );
+        assert!(
+            transport.requests().is_empty(),
+            "the provider must never be called when the Assistant is disabled"
+        );
     }
 }

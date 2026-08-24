@@ -2164,6 +2164,7 @@ fn brain_plan_preview(
     piece_id: Option<i64>,
     store: State<'_, Arc<Store>>,
 ) -> Result<Vec<planner::WorkSuggestion>, String> {
+    brain::require_assistant_enabled(&store).map_err(|error| error.reason())?;
     let id =
         piece_id.ok_or_else(|| "Pick a piece before asking what to practice next".to_string())?;
     planner::preview_for_piece(&store, id).map_err(|error| error.to_string())
