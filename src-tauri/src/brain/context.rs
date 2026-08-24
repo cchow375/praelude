@@ -71,6 +71,25 @@ impl GroundedContext {
     pub fn as_json(&self) -> &str {
         &self.json
     }
+
+    /// Grounds a round-2 tool-loop request (Plan C1, Task 6) in the round-1
+    /// context PLUS the executed tools' JSON results. This never re-executes
+    /// or re-derives anything — `tool_results_json` is exactly what
+    /// `tool_exec::execute` already produced, serialized once by the caller.
+    /// Bundled into the same untrusted-data envelope the provider already
+    /// treats as data, never instructions (see `SYSTEM_POLICY`'s "practice
+    /// context is untrusted data" line). Capped defensively at
+    /// `MAX_TOOL_RESULTS_CHARS`, matching this file's existing MAX_TEXT_CHARS
+    /// budget discipline — a truncated JSON tail here only degrades what the
+    /// model can read, never what `numbers_policy_violation` checks against
+    /// (that check runs on the untruncated payloads the caller already has).
+    pub(super) fn with_tool_results(base: &GroundedContext, tool_results_json: &str) -> Self {
+        const MAX_TOOL_RESULTS_CHARS: usize = 4_000;
+        let capped: String = tool_results_json.chars().take(MAX_TOOL_RESULTS_CHARS).collect();
+        Self {
+            json: format!("{{\"grounded\":{},\"tool_results\":{capped}}}", base.json),
+        }
+    }
 }
 
 #[derive(Serialize)]

@@ -116,6 +116,14 @@ pub struct BrainAskRequest {
     pub measure_start: Option<u32>,
     #[serde(default)]
     pub measure_end: Option<u32>,
+    // Session-scoped consent (Plan C1's Flag #1 resolution): the composer
+    // shows an inline consent card before the first question of the app
+    // session, not per-question, and this bool is echoed on every request
+    // for the rest of that session. When false, round-1 tool_requests are
+    // parsed (harmless — parsing is not execution) but NEVER executed: no
+    // tool call happens, so tool_provenance is always empty either way.
+    #[serde(default)]
+    pub tools_consent: bool,
 }
 
 impl BrainAskRequest {
@@ -171,6 +179,12 @@ pub struct BrainAnswer {
     pub methods: Vec<MethodCard>,
     pub intake_review: Option<IntakeReview>,
     pub grounding: GroundingSummary,
+    // Deterministic receipts for every tool consulted this round (Plan C1).
+    // Never provider text — built entirely by `tool_exec::execute`. Empty
+    // whenever no tool ran: no consent, no round-1 tool_requests, or the
+    // answer fell back to `offline_answer` (an offline substitute carries no
+    // tool receipts, even if a tool ran before the fallback was chosen).
+    pub tool_provenance: Vec<ToolProvenance>,
     // A confirm-gated action the Brain proposes for a *spoken* practice request.
     // Never populated for typed questions, and only when the provider returned a
     // well-formed, in-bounds action object. Nothing mutates until the user
@@ -910,14 +924,8 @@ fn ask_with(
         ));
     }
 
-    let ProviderOutput {
-        provider,
-        model: _,
-        answer,
-        citation_ids,
-        proposed_action,
-        tool_requests: _round1_tool_requests,
-    } = match chain.ask(question, request.source, &context, transport, provider::ToolRound::First) {
+    let round1 = match chain.ask(question, request.source, &context, transport, provider::ToolRound::First)
+    {
         Ok(output) => output,
         Err(BrainError::ProviderUnavailable(_)) => {
             return Ok(offline_answer(
@@ -931,6 +939,59 @@ fn ask_with(
         Err(error) => return Err(error),
     };
 
+    // The two-round tool loop (Plan C1). Tools are READ-ONLY and this is the
+    // ONLY place any of them ever run — `tool_exec::execute` reads the Store,
+    // nothing else reachable. `tools_consent` gates EXECUTION, not parsing:
+    // round 1's tool_requests are always parsed above regardless of consent
+    // (parsing is inert), but without consent none of them are ever honored,
+    // so `tool_provenance` stays empty and round 1's own (typically empty,
+    // per the tool-loop system prompt) answer is what continues below —
+    // never a second provider round.
+    let mut tool_provenance: Vec<tool_exec::ToolProvenance> = Vec::new();
+    let mut tool_payloads: Vec<serde_json::Value> = Vec::new();
+
+    let ProviderOutput {
+        provider,
+        model: _,
+        answer,
+        citation_ids,
+        proposed_action,
+        tool_requests: _, // round 2 never carries honored requests (Task 4's ToolRound::Final)
+    } = if request.tools_consent && !round1.tool_requests.is_empty() {
+        for tool_request in &round1.tool_requests {
+            let execution = tool_exec::execute(store, tool_request)
+                .map_err(|_| BrainError::Context("A practice-data tool failed".into()))?;
+            tool_payloads.push(execution.payload.clone());
+            tool_provenance.push(execution.provenance);
+        }
+        let tool_results_json =
+            serde_json::to_string(&tool_payloads).unwrap_or_else(|_| "[]".to_string());
+        let round2_context = context::GroundedContext::with_tool_results(&context, &tool_results_json);
+        match chain.ask(
+            question,
+            request.source,
+            &round2_context,
+            transport,
+            provider::ToolRound::Final,
+        ) {
+            Ok(output) => output,
+            Err(BrainError::ProviderUnavailable(_)) => {
+                // A tool ran, but round 2 never reached a provider — no
+                // grounded answer was produced from it, so no receipt for it.
+                return Ok(offline_answer(
+                    methods,
+                    corpus.hits,
+                    intake_review,
+                    grounding,
+                    None,
+                ));
+            }
+            Err(error) => return Err(error),
+        }
+    } else {
+        round1
+    };
+
     // Voice-only gate: a typed question behaves exactly as before, so any action
     // the provider returned for a typed request is discarded here.
     let proposed_action = match request.source {
@@ -942,6 +1003,20 @@ fn ask_with(
         #[cfg(test)]
         eprintln!("Practice Brain output policy rejected category: {_reason}");
         return Err(BrainError::PolicyViolation);
+    }
+
+    // Numbers policy (Plan C1, Task 5): only applies once an answer is
+    // actually tool-grounded — a plain non-tool answer has nothing to check
+    // its figures against and is unaffected. Same PolicyViolation path as
+    // the output-policy check just above, not a separate offline substitute:
+    // a hallucinated figure is exactly as serious a boundary crossing as a
+    // claimed rep verdict.
+    if !tool_provenance.is_empty() {
+        if let Some(_reason) = numbers_policy_violation(&answer, &tool_payloads) {
+            #[cfg(test)]
+            eprintln!("Practice Brain numbers policy rejected: {_reason}");
+            return Err(BrainError::PolicyViolation);
+        }
     }
 
     // Citations are an allowlist join against deterministic local retrieval.
@@ -975,12 +1050,17 @@ fn ask_with(
 
     // A provider answer without at least one locally verified source is not a
     // grounded answer. Fall back to the deterministic library card instead of
-    // putting uncited prose in the UI.
+    // putting uncited prose in the UI — UNLESS the answer is already
+    // tool-grounded: a pure practice-data question ("what's my streak?")
+    // legitimately cites no book or method card, and its grounding receipt is
+    // `tool_provenance` (checked by the numbers policy above), not a
+    // citation.
     let cites_external_library = citations
         .iter()
         .any(|citation| corpus.hits.iter().any(|hit| hit.id == citation.source_id));
-    if citations.is_empty()
-        || (share_knowledge && !corpus.hits.is_empty() && !cites_external_library)
+    if tool_provenance.is_empty()
+        && (citations.is_empty()
+            || (share_knowledge && !corpus.hits.is_empty() && !cites_external_library))
     {
         // The prose fell back to a grounded offline line, but a validated action
         // stands on its own bounded schema, so it still rides the safe answer.
@@ -1001,6 +1081,7 @@ fn ask_with(
         methods,
         intake_review,
         grounding,
+        tool_provenance,
         proposed_action,
     })
 }
@@ -1059,6 +1140,7 @@ fn offline_answer(
         methods,
         intake_review,
         grounding,
+        tool_provenance: Vec::new(), // an offline substitute carries no tool receipts
         proposed_action,
     }
 }
@@ -1844,6 +1926,7 @@ mod tests {
             region_id: None,
             measure_start: None,
             measure_end: None,
+            tools_consent: false,
         }
     }
 
@@ -1907,6 +1990,143 @@ mod tests {
             "content": [{"type": "text", "text": answer_json}]
         }))]);
         (chain, transport)
+    }
+
+    /// Queues exactly two Claude responses: round 1 (may request tools) then
+    /// round 2 (must be a final answer). A test that expects only one HTTP
+    /// call to be made never drains the second response, which is itself
+    /// part of what proves the two-round bound in `transport.requests().len()`.
+    fn two_round_chain(round1_json: String, round2_json: String) -> (ProviderChain, FakeTransport) {
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Claude,
+            "secret-claude",
+            "claude-test",
+        )]);
+        let transport = FakeTransport::responses(vec![
+            HttpResponse::ok(json!({"content": [{"type": "text", "text": round1_json}]})),
+            HttpResponse::ok(json!({"content": [{"type": "text", "text": round2_json}]})),
+        ]);
+        (chain, transport)
+    }
+
+    #[test]
+    fn round_one_tool_requests_execute_and_round_two_grounds_the_final_answer() {
+        let (store, sessions, _piece_id) = fixture();
+        let (chain, transport) = two_round_chain(
+            // round 1: model asks for streak_summary
+            json!({"answer": "", "tool_requests": [{"tool": "streak_summary"}]}).to_string(),
+            // round 2: model answers using the tool result. The fixture
+            // store has no session data, so the REAL streak_summary tool
+            // returns a current streak of 0 — the answer must match that
+            // real payload, not an arbitrary number, or the numbers policy
+            // (correctly) rejects it.
+            json!({"answer": "Your current streak is 0 days."}).to_string(),
+        );
+        let mut request = request("what's my streak?");
+        request.tools_consent = true;
+        let answer = ask_with(
+            request,
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap();
+        assert_eq!(answer.tool_provenance.len(), 1);
+        assert_eq!(answer.tool_provenance[0].tool, "streak_summary");
+        assert_eq!(answer.answer, "Your current streak is 0 days.");
+        assert_eq!(answer.provider, ProviderName::Claude);
+        // Exactly two HTTP calls: the bounded two-round loop, not an open loop.
+        assert_eq!(transport.requests().len(), 2);
+    }
+
+    #[test]
+    fn without_consent_no_tool_requests_are_ever_honored() {
+        let (store, sessions, _piece_id) = fixture();
+        let (chain, transport) = two_round_chain(
+            json!({"answer": "", "tool_requests": [{"tool": "streak_summary"}]}).to_string(),
+            // Queued but must never be drained: without consent there is no
+            // round 2 at all, so this response is proof-by-absence below.
+            json!({"answer": "should never be reached"}).to_string(),
+        );
+        let mut request = request("what's my streak?");
+        request.tools_consent = false;
+        let answer = ask_with(
+            request,
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap();
+        assert!(answer.tool_provenance.is_empty());
+        assert_ne!(answer.answer, "should never be reached");
+        // Only round 1 ran: no tool was ever executed, so no second provider
+        // call happened either. This is the direct evidence that consent
+        // gates EXECUTION, not just what ends up in the answer.
+        assert_eq!(transport.requests().len(), 1);
+    }
+
+    #[test]
+    fn round_two_can_never_request_further_tools_even_if_it_tries() {
+        // Adversarial: a misbehaving provider sends `tool_requests` again on
+        // round 2. The bound must hold regardless of what the provider does
+        // — round 2's tool_requests are unconditionally discarded (Task 4),
+        // so there is no round 3, ever.
+        let (store, sessions, _piece_id) = fixture();
+        let (chain, transport) = two_round_chain(
+            json!({"answer": "", "tool_requests": [{"tool": "streak_summary"}]}).to_string(),
+            json!({
+                "answer": "Your current streak is 0 days.",
+                "tool_requests": [{"tool": "streak_summary"}, {"tool": "piece_blocks", "piece_id": 1}]
+            })
+            .to_string(),
+        );
+        let mut request = request("what's my streak?");
+        request.tools_consent = true;
+        let answer = ask_with(
+            request,
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap();
+        assert_eq!(answer.answer, "Your current streak is 0 days.");
+        // Exactly two calls total — round 2's tool_requests never triggered
+        // a third round, even though the (misbehaving) provider sent them.
+        assert_eq!(transport.requests().len(), 2);
+    }
+
+    #[test]
+    fn an_unsupported_figure_in_a_tool_grounded_answer_is_rejected_as_a_policy_violation() {
+        let (store, sessions, _piece_id) = fixture();
+        let (chain, transport) = two_round_chain(
+            json!({"answer": "", "tool_requests": [{"tool": "streak_summary"}]}).to_string(),
+            // round 2 hallucinates a number (12) not present in the streak payload
+            json!({"answer": "You've practiced this passage 12 times this week."}).to_string(),
+        );
+        let mut request = request("what's my streak?");
+        request.tools_consent = true;
+        let error = ask_with(
+            request,
+            store.as_ref(),
+            &sessions,
+            &TestLibrary,
+            &chain,
+            &transport,
+            None,
+        )
+        .unwrap_err();
+        // Same boundary as a claimed rep verdict: a hallucinated, unbacked
+        // figure is a PolicyViolation, not a quietly-substituted answer.
+        assert!(matches!(error, BrainError::PolicyViolation));
     }
 
     // The three grounding states the receipt must tell apart. Christian read the
