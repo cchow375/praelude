@@ -404,10 +404,22 @@ impl TtsProvider for FallbackTts {
                 }
             }
         }
-        // Fallback path (primary just failed, or is on cooldown). If the fallback
-        // also fails, that error propagates to the Speaker, which logs it — the
-        // utterance is dropped only when BOTH providers fail.
-        self.fallback.synth(text)
+        // Fallback path (primary just failed, or is on cooldown).
+        match self.fallback.synth(text) {
+            Ok(pcm) => Ok(pcm),
+            Err(e) => {
+                // BOTH providers failed: the app cannot speak at all right now.
+                // That is strictly worse than "degraded to the system voice", so
+                // the user must see it rather than face silence behind a
+                // healthy-looking UI. Flaw B81 made this reachable in a way that
+                // was invisible: a hollow `say` returned success and emitted
+                // nothing, so the app believed it had spoken. `say` now reports
+                // a hollow synth as an error, and this is where that error
+                // becomes something the user can actually observe.
+                self.status.set_degraded(true);
+                Err(e)
+            }
+        }
     }
 }
 
@@ -736,12 +748,21 @@ pub fn select_provider(
             let primary = Box::new(gemini::GeminiTts::new(
                 key.expect("key present for gemini"),
                 model,
-                voice,
+                voice.clone(),
             ));
-            let fallback = Box::new(say::SayTts::new());
+            // The configured voice must also reach the `say` fallback — otherwise
+            // a user's `tts.voice` setting silently stops applying the moment
+            // Gemini fails mid-session and `say` takes over.
+            let fallback: Box<dyn TtsProvider> = match voice.clone() {
+                Some(v) => Box::new(say::SayTts::with_voice(v)),
+                None => Box::new(say::SayTts::new()),
+            };
             Box::new(FallbackTts::new(primary, fallback))
         }
-        ProviderKind::Say => Box::new(say::SayTts::new()),
+        ProviderKind::Say => match voice {
+            Some(v) => Box::new(say::SayTts::with_voice(v)),
+            None => Box::new(say::SayTts::new()),
+        },
     }
 }
 
@@ -1056,10 +1077,20 @@ mod tests {
     // utterance is only dropped if neither backend can synthesize it.
     #[test]
     fn both_failing_propagates_error() {
-        let (fb, primary, fallback, _clock, _status) = harness(vec![false], vec![false], 2);
+        let (fb, primary, fallback, _clock, status) = harness(vec![false], vec![false], 2);
         assert!(fb.synth("x").is_err(), "no backend could synthesize");
         assert_eq!(primary.call_count(), 1);
         assert_eq!(fallback.call_count(), 1);
+        // B81: when BOTH providers fail the app cannot speak at all, which the
+        // user must be able to observe. Before this, a failing fallback only
+        // reached an eprintln! and the UI still looked healthy — and a HOLLOW
+        // `say` did not even error, so the app believed it had spoken while
+        // emitting nothing.
+        assert_eq!(
+            status.events(),
+            vec![true],
+            "both providers failing must surface as degraded, not silent failure"
+        );
     }
 
     // The status hub only fires its listener on the values it is given, and
