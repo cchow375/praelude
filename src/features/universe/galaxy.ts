@@ -12,12 +12,16 @@ import type { RegionSignal, UniversePiece, UniverseSnapshot } from "./types";
  *
  * Everything here is derived from snapshot fields the Rust `universe::snapshot`
  * already earns from recorded practice events:
+ *   focused_seconds/mastered_targets/region practice_events -> whether a piece
+ *                                 is earned at all, and which field proves it
  *   focused_seconds            -> star radius (log-scaled)
  *   quality_brightness         -> star/body brightness
  *   earned_maturity            -> growth-ring thickness
  *   mastery_contracts_completed-> whether a region orbits at all
- *   streak.current_days        -> whether the star glows
- * There is no sixth input. If a visual cannot name its field, it does not ship.
+ *   streak.current_days        -> whether an EARNED star glows
+ * There is no other input. If a visual cannot name its field, it does not ship
+ * — and a `data-evidence` attribute may never name a field whose value is 0
+ * (see `isEarned`/`evidenceField` below; a fix-wave finding, F1(d)).
  */
 
 export interface GalaxyViewport {
@@ -43,7 +47,15 @@ export interface GalaxyOrbit {
   evidence: "mastery_contracts_completed";
 }
 
-/** One piece, as a star system. */
+/** The specific snapshot field that proves a star is earned. `"none"` means
+ * the piece has zero practice evidence and renders unlit — see `isEarned`. */
+export type GalaxyEvidence =
+  | "focused_seconds"
+  | "mastered_targets"
+  | "region_signals"
+  | "none";
+
+/** One piece, as a star system — or, with no practice evidence, an unlit marker. */
 export interface GalaxyStar {
   piece_id: number;
   title: string;
@@ -55,6 +67,12 @@ export interface GalaxyStar {
   ring: number;
   glow: boolean;
   orbits: GalaxyOrbit[];
+  /** False for a piece with zero recorded practice evidence — see `isEarned`.
+   * An unearned piece stays present (so it is discoverable) but renders as a
+   * hollow, non-animated marker: no disc, no glow, no ring, no orbits. */
+  earned: boolean;
+  /** The field that proves `earned`, or `"none"` when it is not earned. */
+  evidence: GalaxyEvidence;
 }
 
 export interface GalaxyLayout {
@@ -62,9 +80,12 @@ export interface GalaxyLayout {
   stars: GalaxyStar[];
 }
 
-/** Smallest and largest a star may draw, in px. */
+/** Smallest and largest an EARNED star may draw, in px. */
 export const STAR_MIN_RADIUS = 6;
 export const STAR_MAX_RADIUS = 34;
+/** An unearned piece renders this small a hollow marker — never a filled
+ * disc, never grown by a global streak or a neutral default brightness. */
+export const STAR_UNLIT_RADIUS = 4;
 /**
  * Twenty focused hours saturate the star, matching the `earned_maturity` time
  * term in `src-tauri/src/universe.rs` (`ln_1p(minutes) / ln_1p(1200)`), so the
@@ -75,12 +96,33 @@ const FOCUS_SATURATION_MINUTES = 1_200;
 /** One grid cell per piece; sized so 720px fits five columns at the dense floor. */
 const CELL_WIDTH = 132;
 const CELL_HEIGHT = 132;
-const GUTTER = 8;
 
-/** Orbit geometry, all deterministic. */
+/**
+ * Orbit geometry. Orbits are bounded to `MAX_ORBIT_RADIUS` (fix-wave F2): a
+ * well-worked piece can easily carry 4+ mastered regions, and an unbounded
+ * `radius + ORBIT_GAP * (index + 1)` walked bodies straight off the 720x520
+ * canvas and into the neighbouring star's cell. The gap between orbits
+ * shrinks (down to `ORBIT_MIN_GAP`) so every body still fits; bodies may sit
+ * visually tight past ~13 mastered regions on a max-size star, which is
+ * accepted as honest — hiding earned data is not.
+ */
+const ORBIT_INNER_GAP = 4;
 const ORBIT_GAP = 11;
+const ORBIT_MIN_GAP = 2;
+/** Half a cell, minus a few px of margin so a fully-clamped orbit never
+ * touches the neighbouring star's cell (cell half-width is 66). */
+export const MAX_ORBIT_RADIUS = CELL_WIDTH / 2 - 6;
 const ORBIT_BASE_PERIOD_SECONDS = 42;
 const ORBIT_PERIOD_STEP_SECONDS = 9;
+/** Drawn radius of one orbiting body (UniverseWorkspace.tsx renders this
+ * literally) — exported so tests can compute an orbit's full swept-circle
+ * extent without duplicating the number. */
+export const ORBIT_BODY_RADIUS = 2.5;
+/** How far the glow ring sits outside the star disc (UniverseWorkspace.tsx
+ * renders this literally) — exported for the same reason. This bound also
+ * covers the growth ring, whose outer edge (`radius + 3 + strokeWidth / 2`,
+ * strokeWidth <= 4) never exceeds `radius + 5`. */
+export const GLOW_RADIUS_GAP = 6;
 
 /**
  * FNV-1a, 32-bit. Chosen for the orbit phase because it is a TOTAL function of
@@ -104,6 +146,34 @@ function starRadius(focusedSeconds: number): number {
   return STAR_MIN_RADIUS + (STAR_MAX_RADIUS - STAR_MIN_RADIUS) * bounded;
 }
 
+/**
+ * Earned-only law (fix-wave F1): a piece with zero recorded practice gets no
+ * star. `focused_seconds` alone under-claims — it sums the GAPS between
+ * consecutive practice events, so a piece with exactly one recorded event
+ * still reads `focused_seconds === 0` even though something real happened.
+ * The three clauses below are OR'd so under-claiming (missing a real event)
+ * is impossible without over-claiming (crediting a piece with no evidence at
+ * all); either signal alone is enough to earn a star.
+ */
+export function isEarned(piece: UniversePiece): boolean {
+  return (
+    piece.focused_seconds > 0 ||
+    (piece.mastered_targets ?? 0) > 0 ||
+    piece.region_signals.some((region) => (region.practice_events ?? 0) > 0)
+  );
+}
+
+/** The specific field that proves `isEarned`, so a `data-evidence` attribute
+ * never names a field whose value is 0 (fix-wave F1(d)). */
+function evidenceField(piece: UniversePiece): GalaxyEvidence {
+  if (piece.focused_seconds > 0) return "focused_seconds";
+  if ((piece.mastered_targets ?? 0) > 0) return "mastered_targets";
+  if (piece.region_signals.some((region) => (region.practice_events ?? 0) > 0)) {
+    return "region_signals";
+  }
+  return "none";
+}
+
 /** A region orbits only once it has a completed mastery contract on record. */
 function orbiting(regions: RegionSignal[]): RegionSignal[] {
   return regions.filter(
@@ -111,16 +181,34 @@ function orbiting(regions: RegionSignal[]): RegionSignal[] {
   );
 }
 
-function orbitsFor(piece: UniversePiece, radius: number): GalaxyOrbit[] {
-  return orbiting(piece.region_signals).map((region, index) => ({
-    region_id: region.region_id,
-    name: region.name,
-    radius: radius + ORBIT_GAP * (index + 1),
-    phase: fnv1a32(`region:${region.region_id}`) % 360,
-    period: ORBIT_BASE_PERIOD_SECONDS + ORBIT_PERIOD_STEP_SECONDS * index,
-    brightness: region.quality_brightness,
-    evidence: "mastery_contracts_completed",
-  }));
+/**
+ * Orbit radii, bounded to `MAX_ORBIT_RADIUS` so the outermost body's full
+ * swept circle never leaves the star's own cell (fix-wave F2). The gap
+ * shrinks to fit `n` orbits in the available space, floored at
+ * `ORBIT_MIN_GAP`; if even the floor overflows, every radius clamps to
+ * `MAX_ORBIT_RADIUS` (bodies may sit tight or overlap — still honest, unlike
+ * hiding the region). Radii are non-decreasing by construction: `raw` grows
+ * monotonically with `index` (gap > 0), and clamping an increasing sequence
+ * to a constant ceiling can only flatten it, never reverse it.
+ */
+function orbitsFor(piece: UniversePiece, starRadiusPx: number): GalaxyOrbit[] {
+  const regions = orbiting(piece.region_signals);
+  const n = regions.length;
+  if (n === 0) return [];
+  const available = MAX_ORBIT_RADIUS - starRadiusPx - ORBIT_INNER_GAP;
+  const gap = Math.max(ORBIT_MIN_GAP, Math.min(ORBIT_GAP, available / n));
+  return regions.map((region, index) => {
+    const raw = starRadiusPx + ORBIT_INNER_GAP + gap * (index + 1);
+    return {
+      region_id: region.region_id,
+      name: region.name,
+      radius: Math.min(raw, MAX_ORBIT_RADIUS),
+      phase: fnv1a32(`region:${region.region_id}`) % 360,
+      period: ORBIT_BASE_PERIOD_SECONDS + ORBIT_PERIOD_STEP_SECONDS * index,
+      brightness: region.quality_brightness,
+      evidence: "mastery_contracts_completed",
+    };
+  });
 }
 
 /** Composer sort key, then piece id — the order the paper index already uses. */
@@ -138,10 +226,11 @@ export function galaxyLayout(
   viewport: GalaxyViewport,
   streak: GalaxyStreak | null,
 ): GalaxyLayout {
-  const glow = (streak?.current_days ?? 0) > 0;
+  const streakLive = (streak?.current_days ?? 0) > 0;
   const columns = Math.max(1, Math.floor(viewport.width / CELL_WIDTH));
   const stars = stableOrder(snapshot.pieces).map((piece, index) => {
-    const radius = starRadius(piece.focused_seconds);
+    const earned = isEarned(piece);
+    const radius = earned ? starRadius(piece.focused_seconds) : STAR_UNLIT_RADIUS;
     const column = index % columns;
     const row = Math.floor(index / columns);
     return {
@@ -153,18 +242,16 @@ export function galaxyLayout(
       radius,
       brightness: piece.quality_brightness,
       // No maturity on the wire means no ring. An absent signal is never a
-      // guessed one.
-      ring: piece.earned_maturity ?? 0,
-      glow,
-      orbits: orbitsFor(piece, radius),
+      // guessed one. An unearned piece never gets a ring either way.
+      ring: earned ? (piece.earned_maturity ?? 0) : 0,
+      // A never-practised piece does not glow just because the USER has a
+      // global streak — that would attribute someone else's practice to this
+      // piece. Glow requires the piece itself to be earned (fix-wave F1(c)).
+      glow: earned && streakLive,
+      orbits: earned ? orbitsFor(piece, radius) : [],
+      earned,
+      evidence: earned ? evidenceField(piece) : "none",
     };
   });
-  // Nothing may be drawn outside the viewport at the dense floor: the widest
-  // thing in a cell is the star plus its outermost orbit, and GUTTER keeps that
-  // off the edge.
-  const maxExtent = CELL_WIDTH / 2 - GUTTER;
-  for (const star of stars) {
-    star.radius = Math.min(star.radius, maxExtent);
-  }
   return { viewport, stars };
 }
