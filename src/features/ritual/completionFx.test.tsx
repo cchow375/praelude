@@ -56,6 +56,37 @@ describe("detectMoment", () => {
       ),
     ).toBeNull();
   });
+
+  it("F2: mastered-but-not-satisfied fires nothing — set_state must never contradict mastery_status (earned-only)", () => {
+    // A real, intentional backend state: a mastered set keeps its terminal
+    // set_state even when a repaired ledger ceases to satisfy mastery
+    // (store/practice_v2.rs:1329-1332). A visual may never fire off
+    // set_state alone while mastery_status disagrees.
+    const mastered = snap({ set_state: "mastered", mastery_status: "not_satisfied" });
+    expect(detectMoment(mastered, mastered)).toBeNull();
+    expect(
+      detectMoment(
+        mastered,
+        snap({ set_state: "mastered", mastery_status: "not_satisfied" }),
+      ),
+    ).toBeNull();
+  });
+
+  it("F2: an identical repeated snapshot fires nothing", () => {
+    const identical = snap({ set_state: "mastered", mastery_status: "not_satisfied" });
+    expect(detectMoment(identical, { ...identical })).toBeNull();
+  });
+
+  it("F2: ten identical polls fire zero times (regression for the every-refetch celebration bug)", () => {
+    let previous: RepSnapshot | null = null;
+    let fired = 0;
+    for (let i = 0; i < 10; i++) {
+      const next = snap({ set_state: "mastered", mastery_status: "not_satisfied" });
+      if (detectMoment(previous, next)) fired++;
+      previous = next;
+    }
+    expect(fired).toBe(0);
+  });
 });
 
 describe("useCompletionFx", () => {

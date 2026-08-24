@@ -39,11 +39,16 @@ export function detectMoment(
   // A different set replacing this one is a switch, not a completion.
   if (next && next.block_id !== previous.block_id) return null;
   // Mastery outranks set-completion: you land mastery once, and that is the
-  // moment worth marking.
-  if (
-    !satisfied(previous) &&
-    (satisfied(next) || next?.set_state === "mastered")
-  ) {
+  // moment worth marking. mastery_status is the ONLY authoritative signal
+  // here — set_state === "mastered" is a real, intentional, non-satisfied
+  // state (a mastered set keeps its terminal lineage even when a repaired
+  // ledger would cease to satisfy mastery; store/practice_v2.rs:1329-1332,
+  // rep/mod.rs:4614). Firing on set_state alone, without edge detection,
+  // used to re-fire a full celebration on every identical rep_state poll —
+  // exactly the earned-only violation ("a visual may never cite a field
+  // whose value is zero/false") that got the galaxy refuted. Edge-detected
+  // on mastery_status alone: fires only the instant it flips to satisfied.
+  if (!satisfied(previous) && satisfied(next)) {
     return "mastery_landing";
   }
   if (previous.set_state === "active" && next?.set_state !== "active") {
