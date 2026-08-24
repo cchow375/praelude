@@ -2427,6 +2427,21 @@ function staleMarkCount(args: Record<string, unknown>): number {
 const DAY_SHEETS = new Map<string, DaySheet>();
 const PIECE_PLANS = new Map<number, PiecePlan>();
 
+// --- Day photos (Plan A, task A3) -------------------------------------------
+//
+// The ritual's artefact. Keyed by LOCAL day, holding both base64 sizes exactly
+// as the real `day_photo_save` command receives them — no image ever touches
+// disk in this harness. Cleared on each install so tests never bleed a photo
+// from one suite into the next.
+
+interface MockDayPhoto {
+  day: string;
+  jpegBase64: string;
+  thumbBase64: string;
+}
+
+const DAY_PHOTOS = new Map<string, MockDayPhoto>();
+
 // --- History day-timeline (Task B2) ----------------------------------------
 //
 // Deterministic, read-only fixtures for `history_days`/`history_day_detail`/
@@ -2718,7 +2733,8 @@ function streakSummaryMock(): StreakSummary {
     best_days: longestRun(qualifying),
     threshold_minutes: STREAK_THRESHOLD_MINUTES,
     today_focused_seconds:
-      HISTORY_DAY_SUMMARIES.find((day) => day.date === today)?.focused_seconds ?? 0,
+      HISTORY_DAY_SUMMARIES.find((day) => day.date === today)
+        ?.focused_seconds ?? 0,
   };
 }
 
@@ -3357,6 +3373,41 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "streak_summary":
       return streakSummaryMock();
 
+    // Day photos (Task A3) — one row per LOCAL day, both base64 sizes kept
+    // in memory only. Mirrors the real command contract: an unphotographed
+    // day rejects `day_photo_read` with a plain string, and a range with no
+    // photos returns an empty array rather than erroring.
+    case "day_photo_save": {
+      const record = argsRecord(args);
+      const day = String(record.day ?? "");
+      DAY_PHOTOS.set(day, {
+        day,
+        jpegBase64: String(record.jpegBase64 ?? ""),
+        thumbBase64: String(record.thumbBase64 ?? ""),
+      });
+      return null;
+    }
+    case "day_photo_thumbs": {
+      const record = argsRecord(args);
+      const from = String(record.from ?? "");
+      const to = String(record.to ?? "");
+      return Array.from(DAY_PHOTOS.values())
+        .filter((photo) => photo.day >= from && photo.day <= to)
+        .sort((a, b) => a.day.localeCompare(b.day))
+        .map((photo) => ({ day: photo.day, thumb_base64: photo.thumbBase64 }));
+    }
+    case "day_photo_read": {
+      const day = String(argsRecord(args).day ?? "");
+      const photo = DAY_PHOTOS.get(day);
+      if (!photo) return Promise.reject(`no photo recorded for ${day}`);
+      return photo.jpegBase64;
+    }
+    case "day_photo_delete": {
+      const day = String(argsRecord(args).day ?? "");
+      DAY_PHOTOS.delete(day);
+      return null;
+    }
+
     // Calendar / composer.
     case "daily_work_list":
       return dailyWork();
@@ -3484,6 +3535,8 @@ export function installTauriDevMock(
   // bleed state into one another.
   DAY_SHEETS.clear();
   PIECE_PLANS.clear();
+  // Task A3: no photo survives across installs either.
+  DAY_PHOTOS.clear();
   if (options.seedQaFixtures) seedQaFixtures();
   // Reset runtime-created goals so promotion tests start from the seeded set.
   CREATED_GOALS.clear();

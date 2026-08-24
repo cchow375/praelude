@@ -1454,6 +1454,126 @@ fn streak_summary(store: State<'_, Arc<Store>>) -> Result<store::StreakSummary, 
     store.streak_summary(threshold).map_err(|e| e.to_string())
 }
 
+// ── Day photos (Plan A, task A3) ───────────────────────────────────────────
+//
+// The ritual's artefact. Bytes go to `app_data_dir()/day-photos/`; the database
+// stores only the day key, the relative path and a content hash (schema v15).
+// The thumbnail is produced by the FRONTEND canvas and arrives in the same call,
+// so no image codec enters the Rust build.
+
+/// Where day photos live. Created on first save.
+fn day_photos_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("resolve app data dir: {e}"))?
+        .join("day-photos");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create day-photos dir: {e}"))?;
+    Ok(dir)
+}
+
+fn decode_jpeg(field: &str, value: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD
+        .decode(value.trim())
+        .map_err(|e| format!("{field} is not valid base64: {e}"))
+}
+
+/// Write one day's full photo and its thumbnail, and record the row.
+#[tauri::command]
+fn day_photo_save(
+    day: String,
+    jpeg_base64: String,
+    thumb_base64: String,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<(), String> {
+    if !date::is_valid(day.trim()) {
+        return Err("day must be a valid YYYY-MM-DD local date".into());
+    }
+    let day = day.trim().to_string();
+    let full = decode_jpeg("jpeg_base64", &jpeg_base64)?;
+    let thumb = decode_jpeg("thumb_base64", &thumb_base64)?;
+    let dir = day_photos_dir(&app)?;
+    std::fs::write(dir.join(format!("{day}.jpg")), &full)
+        .map_err(|e| format!("write day photo: {e}"))?;
+    std::fs::write(dir.join(format!("{day}.thumb.jpg")), &thumb)
+        .map_err(|e| format!("write day photo thumbnail: {e}"))?;
+    store
+        .day_photo_upsert(
+            &day,
+            &format!("day-photos/{day}.jpg"),
+            &store::sha256_hex(&full),
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+struct DayPhotoThumb {
+    day: String,
+    thumb_base64: String,
+}
+
+/// Every photographed day in `[from,to]`, thumbnails only — one call per
+/// visible Calendar week, never one per cell.
+#[tauri::command]
+fn day_photo_thumbs(
+    from: String,
+    to: String,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<Vec<DayPhotoThumb>, String> {
+    use base64::Engine as _;
+    let dir = day_photos_dir(&app)?;
+    let rows = store
+        .day_photo_rows(from.trim(), to.trim())
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            // A row whose file has gone missing renders as no photo, not as a
+            // broken cell — the bars fall back automatically.
+            let bytes = std::fs::read(dir.join(format!("{}.thumb.jpg", row.day))).ok()?;
+            Some(DayPhotoThumb {
+                day: row.day,
+                thumb_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+            })
+        })
+        .collect())
+}
+
+/// One day's full-resolution photo.
+#[tauri::command]
+fn day_photo_read(
+    day: String,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<String, String> {
+    use base64::Engine as _;
+    let row = store
+        .day_photo_row(day.trim())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("no photo recorded for {}", day.trim()))?;
+    let bytes = std::fs::read(day_photos_dir(&app)?.join(format!("{}.jpg", row.day)))
+        .map_err(|e| format!("read day photo: {e}"))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// Remove a day's photo — both files and the row.
+#[tauri::command]
+fn day_photo_delete(
+    day: String,
+    store: State<'_, Arc<Store>>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let day = day.trim().to_string();
+    let dir = day_photos_dir(&app)?;
+    // Missing files are fine; the row is the record that matters.
+    let _ = std::fs::remove_file(dir.join(format!("{day}.jpg")));
+    let _ = std::fs::remove_file(dir.join(format!("{day}.thumb.jpg")));
+    store.day_photo_delete_row(&day).map_err(|e| e.to_string())
+}
+
 fn rejected_plan(
     command_id: &str,
     error: String,
@@ -2376,6 +2496,10 @@ pub fn run() {
             piece_plan_save,
             history_days,
             streak_summary,
+            day_photo_save,
+            day_photo_thumbs,
+            day_photo_read,
+            day_photo_delete,
             history_day_detail,
             day_sheets_range,
             session_plan_start,
