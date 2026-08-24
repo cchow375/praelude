@@ -35,6 +35,29 @@ const MAX_SOURCE_ID_CHARS: usize = 128;
 // budget above; still far below either vendor's hard ceiling.
 const MAX_VISION_TOKENS: u32 = 4_096;
 
+/// Which round of the bounded two-round tool loop (Plan C1) this request is.
+/// Round 1 tells the model it MAY return `tool_requests` instead of an
+/// answer; round 2 tells it tool requests are ignored and a final answer is
+/// required. Never more than two rounds — this is not an agent loop, it's one
+/// bounded detour, and the LLM never runs anything itself either way: tools
+/// only ever execute read-only, back in `tool_exec::execute`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolRound {
+    First,
+    Final,
+}
+
+const TOOL_REGISTRY_PROMPT: &str = r#"You may answer directly, OR — only if the question needs practice-history numbers you don't already have — return "tool_requests" instead of "answer": up to 3 objects from {tool:"history_days",from,to}, {tool:"history_day_detail",date}, {tool:"piece_blocks",piece_id}, {tool:"progress_summary",piece_id}, {tool:"streak_summary"}. Dates are YYYY-MM-DD. If you request tools, leave "answer" empty; you will be asked again with the results."#;
+
+const TOOL_RESULTS_PROMPT: &str = r#"Tool results are attached below as grounded JSON. Answer now — do not request further tools; any "tool_requests" in this reply are ignored. Every number in your answer must come from these tool results."#;
+
+fn round_prompt(round: ToolRound) -> &'static str {
+    match round {
+        ToolRound::First => TOOL_REGISTRY_PROMPT,
+        ToolRound::Final => TOOL_RESULTS_PROMPT,
+    }
+}
+
 const SYSTEM_POLICY: &str = r#"You are Coda, a grounded, conversational piano-practice explainer.
 Hard boundaries:
 - Use only the supplied practice context, MusicXML facts, retrieved_book_chunks, and retrieved_methods. If they are insufficient, say so and ask one useful follow-up.
@@ -261,22 +284,33 @@ impl ProviderChain {
         Err(BrainError::ProviderUnavailable(last_cause))
     }
 
-    pub fn ask(
+    pub(crate) fn ask(
         &self,
         question: &str,
         source: QuestionSource,
         context: &GroundedContext,
         transport: &dyn Transport,
+        round: ToolRound,
     ) -> Result<ProviderOutput, BrainError> {
         let run = self.run(
             transport,
             |config| match config.provider {
-                ProviderName::Claude => {
-                    claude_request(config, question, source, context, SYSTEM_POLICY)
-                }
-                ProviderName::Gemini => {
-                    gemini_request(config, question, source, context, SYSTEM_POLICY)
-                }
+                ProviderName::Claude => claude_request_for_round(
+                    config,
+                    question,
+                    source,
+                    context,
+                    SYSTEM_POLICY,
+                    round,
+                ),
+                ProviderName::Gemini => gemini_request_for_round(
+                    config,
+                    question,
+                    source,
+                    context,
+                    SYSTEM_POLICY,
+                    round,
+                ),
                 ProviderName::Offline => unreachable!(),
             },
             |provider, body| match provider {
@@ -291,12 +325,24 @@ impl ProviderChain {
             value: raw,
         } = run;
         let proposed_action = parse_proposed_action(raw.proposed_action);
+        let tool_requests = if round == ToolRound::Final {
+            // Final round NEVER honors further requests, even if the model
+            // returned some anyway — this is what makes the loop bounded.
+            Vec::new()
+        } else {
+            raw.tool_requests
+                .into_iter()
+                .filter_map(super::tools::ToolRequestInput::validate)
+                .take(super::tools::MAX_TOOL_REQUESTS_PER_ROUND)
+                .collect()
+        };
         Ok(ProviderOutput {
             provider,
             model,
             answer: raw.answer,
             citation_ids: raw.citation_ids,
             proposed_action,
+            tool_requests,
         })
     }
 
@@ -581,6 +627,35 @@ fn gemini_request(
     }
 }
 
+/// Wraps `claude_request`/`gemini_request` for the `ask()` tool loop only:
+/// appends the round's tool-registry-or-results instruction to the system
+/// prompt. `suggest`/`expand` (passage-helper, C4) deliberately keep calling
+/// the plain builders above unchanged — they never offer or honor tool
+/// requests, so there's nothing to append.
+fn claude_request_for_round(
+    config: &ProviderConfig,
+    question: &str,
+    source: QuestionSource,
+    context: &GroundedContext,
+    system: &str,
+    round: ToolRound,
+) -> HttpRequest {
+    let system = format!("{system}\n\n{}", round_prompt(round));
+    claude_request(config, question, source, context, &system)
+}
+
+fn gemini_request_for_round(
+    config: &ProviderConfig,
+    question: &str,
+    source: QuestionSource,
+    context: &GroundedContext,
+    system: &str,
+    round: ToolRound,
+) -> HttpRequest {
+    let system = format!("{system}\n\n{}", round_prompt(round));
+    gemini_request(config, question, source, context, &system)
+}
+
 /// Claude image request (Plan C, C2 — additive; the text `claude_request`
 /// above is untouched). Content is an ordered array: the page image block
 /// first, the text prompt second — matching the vendor's documented
@@ -660,6 +735,13 @@ struct RawAnswer {
     // answer parse. It is parsed into the closed type and dropped on any error.
     #[serde(default)]
     proposed_action: Option<Value>,
+    // Round-1 tool loop (Plan C1): each entry is validated by
+    // `ToolRequestInput::validate` in `ask()` below, same discipline as
+    // `proposed_action` — an unknown or malformed entry is dropped, never an
+    // error. Always empty in a well-formed round-2 reply; `ask()` forces it
+    // empty regardless of what the model sends back on `ToolRound::Final`.
+    #[serde(default)]
+    tool_requests: Vec<super::tools::ToolRequestInput>,
 }
 
 /// One validated passage-helper strategy the caller turns into a card row. The
@@ -785,7 +867,13 @@ impl ProposedActionInput {
 
 fn validate_raw(raw: RawAnswer) -> Result<RawAnswer, BrainError> {
     let answer = raw.answer.trim();
-    if answer.is_empty() || answer.chars().count() > MAX_ANSWER_CHARS {
+    // Round-1 tool-loop replies legitimately carry an empty "answer" — the
+    // model is asking for tool results instead of answering yet (per the
+    // TOOL_REGISTRY_PROMPT contract: "leave answer empty" when requesting
+    // tools). Only an answer that is both empty AND requests no tools is a
+    // malformed reply.
+    let requesting_tools = !raw.tool_requests.is_empty();
+    if (answer.is_empty() && !requesting_tools) || answer.chars().count() > MAX_ANSWER_CHARS {
         return Err(BrainError::ProviderResponse);
     }
     if raw.citation_ids.len() > 12
@@ -800,6 +888,7 @@ fn validate_raw(raw: RawAnswer) -> Result<RawAnswer, BrainError> {
         answer: answer.to_string(),
         citation_ids: raw.citation_ids,
         proposed_action: raw.proposed_action,
+        tool_requests: raw.tool_requests,
     })
 }
 
@@ -980,6 +1069,11 @@ pub struct ProviderOutput {
     pub answer: String,
     pub citation_ids: Vec<String>,
     pub proposed_action: Option<ProposedAction>,
+    /// Validated round-1 tool requests, capped at
+    /// `tools::MAX_TOOL_REQUESTS_PER_ROUND`. Always empty when `ask()` was
+    /// called with `ToolRound::Final` — round 2 never honors further tool
+    /// requests, per the plan's bounded-two-rounds rule.
+    pub tool_requests: Vec<super::tools::ToolRequest>,
 }
 
 #[cfg(test)]
@@ -1062,9 +1156,73 @@ mod tests {
         ]);
         let context = GroundedContext { json: "{}".into() };
         let err = chain
-            .ask("q", QuestionSource::Typed, &context, &transport)
+            .ask(
+                "q",
+                QuestionSource::Typed,
+                &context,
+                &transport,
+                ToolRound::First,
+            )
             .unwrap_err();
         assert_eq!(err.reason(), "provider error: HTTP 503");
+    }
+
+    #[test]
+    fn round_one_tool_requests_are_parsed_and_validated() {
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Claude,
+            "secret-claude",
+            "claude-test",
+        )]);
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type": "text", "text": json!({
+                "answer": "",
+                "tool_requests": [
+                    {"tool": "streak_summary"},
+                    {"tool": "piece_blocks", "piece_id": 7},
+                    {"tool": "not_a_real_tool"} // dropped, not an error
+                ]
+            }).to_string()}]
+        }))]);
+        let context = GroundedContext { json: "{}".into() };
+        let output = chain
+            .ask(
+                "what's stalling?",
+                QuestionSource::Typed,
+                &context,
+                &transport,
+                ToolRound::First,
+            )
+            .unwrap();
+        assert_eq!(output.tool_requests.len(), 2);
+        assert_eq!(output.tool_requests[0].name(), "streak_summary");
+        assert_eq!(output.tool_requests[1].name(), "piece_blocks");
+    }
+
+    #[test]
+    fn final_round_never_returns_tool_requests_even_if_the_model_sent_them() {
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Claude,
+            "secret-claude",
+            "claude-test",
+        )]);
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type": "text", "text": json!({
+                "answer": "You've stalled on the Chopin.",
+                "tool_requests": [{"tool": "streak_summary"}]
+            }).to_string()}]
+        }))]);
+        let context = GroundedContext { json: "{}".into() };
+        let output = chain
+            .ask(
+                "what's stalling?",
+                QuestionSource::Typed,
+                &context,
+                &transport,
+                ToolRound::Final,
+            )
+            .unwrap();
+        assert!(output.tool_requests.is_empty());
     }
 
     #[test]
@@ -1087,7 +1245,13 @@ mod tests {
         ]);
         let context = GroundedContext { json: "{}".into() };
         let answer = chain
-            .ask("how?", QuestionSource::Typed, &context, &transport)
+            .ask(
+                "how?",
+                QuestionSource::Typed,
+                &context,
+                &transport,
+                ToolRound::First,
+            )
             .unwrap();
         assert_eq!(answer.provider, ProviderName::Gemini);
         assert_eq!(transport.requests().len(), 2); // retried the same provider
@@ -1475,6 +1639,7 @@ mod tests {
             answer: over,
             citation_ids: vec![],
             proposed_action: None,
+            tool_requests: vec![],
         });
         assert!(matches!(result, Err(BrainError::ProviderResponse)));
         // At the ceiling is still accepted; one-glance is a default, not the cap.
@@ -1483,8 +1648,23 @@ mod tests {
             answer: at,
             citation_ids: vec![],
             proposed_action: None,
+            tool_requests: vec![],
         })
         .is_ok());
+    }
+
+    #[test]
+    fn empty_answer_without_tool_requests_is_still_rejected() {
+        // The empty-answer allowance exists ONLY for round-1 tool-request
+        // replies. A provider that returns an empty answer and asks for
+        // nothing is still a malformed reply, never a free pass.
+        let result = validate_raw(RawAnswer {
+            answer: "".to_string(),
+            citation_ids: vec![],
+            proposed_action: None,
+            tool_requests: vec![],
+        });
+        assert!(matches!(result, Err(BrainError::ProviderResponse)));
     }
 
     #[test]
@@ -1527,6 +1707,7 @@ mod tests {
                 QuestionSource::Typed,
                 &context,
                 &transport,
+                ToolRound::First,
             )
             .unwrap();
         assert_eq!(answer.provider, ProviderName::Gemini);

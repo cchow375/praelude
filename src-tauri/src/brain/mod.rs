@@ -25,11 +25,11 @@ use crate::store::model::{PieceFieldPatch, RepSnapshot};
 use crate::store::Store;
 
 pub use context::{GroundingSummary, KnowledgeShareCause};
-pub use tool_exec::ToolProvenance;
 pub use corpus::{BookExcerpt, BookKind, BookListing};
 pub use library::{Citation, MethodCard};
 use library::{EmbeddedLibrary, PracticeLibrary};
 use provider::{ProviderOutput, SuggestionDraft};
+pub use tool_exec::ToolProvenance;
 // Re-exported crate-wide (not just within `brain`): `score::measure_scan`
 // (Plan C, C2) drives the same Claude-primary/Gemini-fallback vision chain
 // through `ProviderChain::vision_texts`, so it needs these names too.
@@ -820,6 +820,7 @@ fn test_connection_with(chain: &ProviderChain, transport: &dyn Transport) -> Bra
         QuestionSource::Typed,
         &context,
         transport,
+        provider::ToolRound::Final,
     ) {
         Ok(output) => BrainTestResult {
             ok: true,
@@ -915,7 +916,8 @@ fn ask_with(
         answer,
         citation_ids,
         proposed_action,
-    } = match chain.ask(question, request.source, &context, transport) {
+        tool_requests: _round1_tool_requests,
+    } = match chain.ask(question, request.source, &context, transport, provider::ToolRound::First) {
         Ok(output) => output,
         Err(BrainError::ProviderUnavailable(_)) => {
             return Ok(offline_answer(
