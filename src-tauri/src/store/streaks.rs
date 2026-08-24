@@ -281,4 +281,65 @@ mod tests {
             1_440
         );
     }
+
+    // --- Fix-wave F3: three mutants survived the original suite. -------------
+    //
+    // T1 (streaks.rs's `(0..=1)` anchor window): flipping it to `(0..=0)`
+    // still passed every test above because none of them left today's day
+    // unseeded while yesterday still qualified — the exact shape of the
+    // grace-day rule this module exists to get right.
+    //
+    // T2/T3 (`best_days`/`current_days` swapped for each other, or for
+    // `metrics::streak`/`longest_run`): survived because no test above ever
+    // has a BEST run that is not also the TRAILING run. One scenario with a
+    // gap between an older, longer run and a newer, shorter current one kills
+    // both mutants in a single assertion.
+
+    #[test]
+    fn the_grace_day_accepts_yesterday_as_a_live_anchor_before_today_has_a_chance() {
+        // T1: mutating the anchor window from `(0..=1)` to `(0..=0)` turns
+        // this into a false "the streak is dead" — the exact bug the
+        // grace-day rule (streak_summary's comment: "not declared dead at
+        // 00:01 before the day has had a chance") exists to prevent.
+        let store = Store::open(":memory:").expect("store");
+        let today = Date::parse(&store.today_local().unwrap()).unwrap();
+        // Three consecutive qualifying days ending YESTERDAY — nothing
+        // recorded for today yet (today is still in progress).
+        for back in 1..=3 {
+            seed_day(&store, &today.add_days(-back).unwrap().to_string(), 11);
+        }
+        let out = store.streak_summary(10).expect("summary");
+        assert_eq!(out.current_days, 3, "yesterday is accepted as a live anchor");
+        assert_eq!(out.today_focused_seconds, 0, "today has no session yet");
+    }
+
+    #[test]
+    fn a_gap_breaks_the_current_run_but_the_best_run_survives_untouched() {
+        // T2: swapping `best_days` for `metrics::streak` (the TRAILING run)
+        // would report best_days == 2 here, not 5 — silently losing the
+        // user's actual best.
+        //
+        // T3 (the most important of the three): swapping `current_days` for
+        // `longest_run` (the BEST run, wherever it fell) would report
+        // current_days == 5 here, not 2 — showing "5 day streak" today for a
+        // run that in fact died days ago. That is exactly the fake progress
+        // the earned-only law forbids: a streak number that does not trace
+        // back to a run actually still running.
+        let store = Store::open(":memory:").expect("store");
+        let today = Date::parse(&store.today_local().unwrap()).unwrap();
+        // A five-day BEST run, well in the past — does not touch today at all.
+        for back in 6..=10 {
+            seed_day(&store, &today.add_days(-back).unwrap().to_string(), 11);
+        }
+        // A separate, smaller CURRENT run: yesterday + today.
+        seed_day(&store, &today.add_days(-1).unwrap().to_string(), 11);
+        seed_day(&store, &today.to_string(), 11);
+
+        let out = store.streak_summary(10).expect("summary");
+        assert_eq!(out.current_days, 2, "the live run is only yesterday + today");
+        assert_eq!(
+            out.best_days, 5,
+            "the best run is the older 5-day stretch, not the trailing one"
+        );
+    }
 }
