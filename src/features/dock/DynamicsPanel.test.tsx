@@ -211,6 +211,71 @@ describe("DynamicsPanel", () => {
     expect(calls).not.toContain("dynamics_meter_start");
   });
 
+  it("highlights the target zone the active profile maps a chosen dynamic onto", async () => {
+    profiles = [PROFILE];
+    seedDynamicsPanel({ open: true, minimized: false });
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId("dynamics-band")).toBeTruthy());
+
+    expect(screen.queryByTestId("dynamics-target-zone")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /target mode/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^mf$/ }));
+
+    const zone = await screen.findByTestId("dynamics-target-zone");
+    // mf's zone is -33..-23 dB, i.e. a quarter band either side of the mf tick.
+    expect(zone.getAttribute("data-low")).toBe("0.3750");
+    expect(zone.getAttribute("data-high")).toBe("0.6250");
+  });
+
+  it("lands a marker per three-second trace and tags it under/in/over", async () => {
+    profiles = [PROFILE];
+    seedDynamicsPanel({ open: true, minimized: false });
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId("dynamics-band")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /target mode/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^mf$/ }));
+
+    for (let i = 0; i < 24; i++) emitLevel(-28, -22);
+    await waitFor(() =>
+      expect(screen.getAllByTestId("landed-marker")).toHaveLength(1),
+    );
+    expect(
+      screen.getAllByTestId("landed-marker")[0].getAttribute("data-landing"),
+    ).toBe("in");
+
+    for (let i = 0; i < 24; i++) emitLevel(-44, -40);
+    await waitFor(() =>
+      expect(screen.getAllByTestId("landed-marker")).toHaveLength(2),
+    );
+    expect(
+      screen.getAllByTestId("landed-marker")[1].getAttribute("data-landing"),
+    ).toBe("under");
+  });
+
+  it("clears markers and the zone when target mode is turned off", async () => {
+    profiles = [PROFILE];
+    seedDynamicsPanel({ open: true, minimized: false });
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId("dynamics-band")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /target mode/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^ff$/ }));
+    for (let i = 0; i < 24; i++) emitLevel(-9, -5);
+    await waitFor(() =>
+      expect(screen.getAllByTestId("landed-marker")).toHaveLength(1),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /target mode/i }));
+    expect(screen.queryAllByTestId("landed-marker")).toHaveLength(0);
+    expect(screen.queryByTestId("dynamics-target-zone")).toBeNull();
+  });
+
+  it("offers no target mode until a profile exists — there is no band to aim at", async () => {
+    seedDynamicsPanel({ open: true, minimized: false });
+    renderPanel();
+    await waitFor(() => expect(listeners.has("dynamics://level")).toBe(true));
+    expect(screen.queryByRole("button", { name: /target mode/i })).toBeNull();
+  });
+
   it("minimizes to a pill and stops the meter while pilled", async () => {
     seedDynamicsPanel({ open: true, minimized: false });
     renderPanel();

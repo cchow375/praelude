@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { DockPanel } from "./DockPanel";
 import { useDock } from "./DockProvider";
 import { Button } from "../../ui";
@@ -15,7 +15,13 @@ import {
   DYNAMIC_LABELS,
   bandFraction,
   type CalibrationPoint,
+  type DynamicLabel,
 } from "./calibration";
+import {
+  INITIAL_TARGET_MODE,
+  reduceTargetMode,
+  targetZone,
+} from "./targetMode";
 import { useDynamics } from "./useDynamics";
 import "./dock.css";
 
@@ -105,6 +111,18 @@ export function DynamicsPanel() {
   const [calibrating, setCalibrating] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Target mode is PURE UI STATE. `useReducer` over a pure reducer, and not one
+  // line of persistence: no invoke, no localStorage, no event append. See
+  // targetMode.ts's header and dynamicsNoWrites.test.tsx.
+  const [target, dispatchTarget] = useReducer(
+    reduceTargetMode,
+    INITIAL_TARGET_MODE,
+  );
+  /** Set once "Crescendo" is pressed: the next two dynamic presses are its
+   * `from` and `to`. */
+  const [crescendoFrom, setCrescendoFrom] = useState<DynamicLabel | null>(null);
+  const [pickingCrescendo, setPickingCrescendo] = useState(false);
+
   // Computed ONCE, like ClockPanel's: `ensurePanel` only ever registers a new
   // panel's position once, so recomputing per render would be discarded.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,6 +146,52 @@ export function DynamicsPanel() {
 
   const needleFraction = profile && level ? bandFraction(level.rms_db, profile) : 0;
   const peakFraction = profile && level ? bandFraction(level.peak_db, profile) : 0;
+
+  // Feed each level event into the (pure) target-mode reducer exactly once.
+  // Guarded on the event's own identity so a re-render cannot double-count a
+  // sample into the trace.
+  const lastLevelRef = useRef<unknown>(null);
+  useEffect(() => {
+    if (!level || !profile) return;
+    if (lastLevelRef.current === level) return;
+    lastLevelRef.current = level;
+    dispatchTarget({
+      type: "level",
+      rmsDb: level.rms_db,
+      tsMs: level.ts_ms,
+      profile,
+    });
+  }, [level, profile]);
+
+  const zone = profile && target.target ? targetZone(target.target, profile) : null;
+  const zoneLow = zone && profile ? bandFraction(zone.lowDb, profile) : 0;
+  const zoneHigh = zone && profile ? bandFraction(zone.highDb, profile) : 0;
+
+  const pickDynamic = useCallback(
+    (dynamic: DynamicLabel) => {
+      if (!pickingCrescendo) {
+        dispatchTarget({ type: "setTarget", target: { kind: "single", dynamic } });
+        return;
+      }
+      if (crescendoFrom === null) {
+        setCrescendoFrom(dynamic);
+        return;
+      }
+      dispatchTarget({
+        type: "setTarget",
+        target: { kind: "crescendo", from: crescendoFrom, to: dynamic },
+      });
+      setCrescendoFrom(null);
+      setPickingCrescendo(false);
+    },
+    [crescendoFrom, pickingCrescendo],
+  );
+
+  const toggleTargetMode = useCallback(() => {
+    setPickingCrescendo(false);
+    setCrescendoFrom(null);
+    dispatchTarget({ type: "toggle" });
+  }, []);
 
   return (
     <DockPanel
@@ -175,6 +239,30 @@ export function DynamicsPanel() {
                   </div>
                 );
               })}
+              {zone && (
+                <div
+                  className="dynamics-target-zone"
+                  data-testid="dynamics-target-zone"
+                  data-low={zoneLow.toFixed(4)}
+                  data-high={zoneHigh.toFixed(4)}
+                  style={{
+                    bottom: `${zoneLow * 100}%`,
+                    height: `${Math.max(zoneHigh - zoneLow, 0) * 100}%`,
+                  }}
+                />
+              )}
+              {target.markers.map((marker) => (
+                <div
+                  key={marker.id}
+                  className={`dynamics-landed-marker dynamics-landed-marker--${marker.landing}`}
+                  data-testid="landed-marker"
+                  data-landing={marker.landing}
+                  style={{
+                    bottom: `${bandFraction(marker.medianDb, profile) * 100}%`,
+                  }}
+                  title={`${marker.medianDb.toFixed(1)} dB — ${marker.landing}`}
+                />
+              ))}
               <div
                 className="dynamics-panel-peak"
                 data-testid="dynamics-peak"
@@ -214,6 +302,16 @@ export function DynamicsPanel() {
           )}
 
           <div className="dynamics-panel-controls">
+            {profile && (
+              <Button
+                type="button"
+                variant={target.on ? "primary" : "text"}
+                aria-pressed={target.on}
+                onClick={toggleTargetMode}
+              >
+                Target mode
+              </Button>
+            )}
             <Button
               type="button"
               variant={profile ? "text" : "primary"}
@@ -222,6 +320,45 @@ export function DynamicsPanel() {
               {profile ? "Recalibrate" : "Calibrate"}
             </Button>
           </div>
+
+          {profile && target.on && (
+            <div className="dynamics-target-controls">
+              <p className="dynamics-target-prompt">
+                {pickingCrescendo
+                  ? crescendoFrom === null
+                    ? "Crescendo from…"
+                    : `Crescendo from ${crescendoFrom} to…`
+                  : "Aim for"}
+              </p>
+              <div className="dynamics-target-choices">
+                {DYNAMIC_LABELS.map((dynamic) => (
+                  <Button
+                    key={dynamic}
+                    type="button"
+                    variant="text"
+                    onClick={() => pickDynamic(dynamic)}
+                  >
+                    {dynamic}
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  variant="text"
+                  aria-pressed={pickingCrescendo}
+                  onClick={() => {
+                    setPickingCrescendo(true);
+                    setCrescendoFrom(null);
+                  }}
+                >
+                  Crescendo
+                </Button>
+              </div>
+              <p className="dynamics-target-note">
+                Markers show where each three seconds sat. They are not a grade,
+                they are not saved, and they are gone on reload.
+              </p>
+            </div>
+          )}
         </div>
       )}
     </DockPanel>
