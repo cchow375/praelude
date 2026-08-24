@@ -1472,11 +1472,111 @@ fn day_photos_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(dir)
 }
 
+/// The on-disk path for one day's photo file (`.jpg` or `.thumb.jpg`),
+/// validated FIRST — before anything touches the filesystem — and checked a
+/// SECOND, independent way (F3 fix wave, path-traversal): `date::is_valid`
+/// already forbids `/`, `\`, and `..` by grammar (an exact 10-char
+/// YYYY-MM-DD), but a delete command is exactly the place to never trust a
+/// single validation layer, so this also asserts the joined path's parent is
+/// still literally the day-photos dir before returning it. An absolute-path
+/// or `..`-bearing `day` is rejected by BOTH checks independently.
+fn day_photo_path(
+    dir: &std::path::Path,
+    day: &str,
+    suffix: &str,
+) -> Result<std::path::PathBuf, String> {
+    if !date::is_valid(day) {
+        return Err("day must be a valid YYYY-MM-DD local date".into());
+    }
+    let path = dir.join(format!("{day}{suffix}"));
+    match path.parent() {
+        Some(parent) if parent == dir => Ok(path),
+        _ => Err("day photo path escaped the day-photos directory".into()),
+    }
+}
+
 fn decode_jpeg(field: &str, value: &str) -> Result<Vec<u8>, String> {
     use base64::Engine as _;
     base64::engine::general_purpose::STANDARD
         .decode(value.trim())
         .map_err(|e| format!("{field} is not valid base64: {e}"))
+}
+
+#[cfg(test)]
+mod day_photo_path_tests {
+    use super::*;
+
+    fn dir() -> std::path::PathBuf {
+        std::path::PathBuf::from("/tmp/day-photos-test/day-photos")
+    }
+
+    #[test]
+    fn a_valid_day_resolves_inside_the_dir() {
+        let path = day_photo_path(&dir(), "2026-08-22", ".jpg").unwrap();
+        assert_eq!(path, dir().join("2026-08-22.jpg"));
+    }
+
+    #[test]
+    fn a_parent_traversal_is_rejected_and_never_reaches_a_path() {
+        assert!(day_photo_path(&dir(), "../important-backup", ".jpg").is_err());
+    }
+
+    #[test]
+    fn a_bare_double_dot_is_rejected() {
+        assert!(day_photo_path(&dir(), "..", ".jpg").is_err());
+    }
+
+    #[test]
+    fn an_absolute_path_is_rejected() {
+        assert!(day_photo_path(&dir(), "/etc/passwd", ".jpg").is_err());
+    }
+
+    #[test]
+    fn an_empty_day_is_rejected() {
+        assert!(day_photo_path(&dir(), "", ".jpg").is_err());
+    }
+
+    #[test]
+    fn a_url_encoded_traversal_is_rejected() {
+        // `date::is_valid` never decodes percent-escapes, so this fails the
+        // grammar check outright rather than becoming a live ".." after some
+        // later decode step this command never performs.
+        assert!(day_photo_path(&dir(), "%2e%2e%2fimportant-backup", ".jpg").is_err());
+    }
+
+    /// F3 regression, on a real temp filesystem: reproduces the verifier's
+    /// exact probe. A victim file sits one level ABOVE a real day-photos
+    /// dir; `day_photo_delete`'s body (validate-then-path, never
+    /// path-then-validate) must refuse before ever calling `remove_file`, so
+    /// the victim survives untouched.
+    #[test]
+    fn day_photo_delete_never_touches_a_file_outside_day_photos() {
+        let root = std::env::temp_dir().join(format!(
+            "codakiller-f3-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let photos_dir = root.join("day-photos");
+        std::fs::create_dir_all(&photos_dir).unwrap();
+        let victim = root.join("important-backup.jpg");
+        std::fs::write(&victim, b"do not delete me").unwrap();
+
+        // The exact shape of day_photo_delete's body: resolve BOTH paths
+        // through day_photo_path before touching the filesystem at all.
+        let attempt = (|| -> Result<(), String> {
+            let full_path = day_photo_path(&photos_dir, "../important-backup", ".jpg")?;
+            let _ = std::fs::remove_file(full_path);
+            Ok(())
+        })();
+
+        assert!(attempt.is_err(), "the traversal must be rejected");
+        assert!(victim.exists(), "the victim file must survive untouched");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
 
 /// Write one day's full photo and its thumbnail, and record the row.
@@ -1488,16 +1588,14 @@ fn day_photo_save(
     store: State<'_, Arc<Store>>,
     app: AppHandle,
 ) -> Result<(), String> {
-    if !date::is_valid(day.trim()) {
-        return Err("day must be a valid YYYY-MM-DD local date".into());
-    }
     let day = day.trim().to_string();
     let full = decode_jpeg("jpeg_base64", &jpeg_base64)?;
     let thumb = decode_jpeg("thumb_base64", &thumb_base64)?;
     let dir = day_photos_dir(&app)?;
-    std::fs::write(dir.join(format!("{day}.jpg")), &full)
-        .map_err(|e| format!("write day photo: {e}"))?;
-    std::fs::write(dir.join(format!("{day}.thumb.jpg")), &thumb)
+    let full_path = day_photo_path(&dir, &day, ".jpg")?;
+    let thumb_path = day_photo_path(&dir, &day, ".thumb.jpg")?;
+    std::fs::write(&full_path, &full).map_err(|e| format!("write day photo: {e}"))?;
+    std::fs::write(&thumb_path, &thumb)
         .map_err(|e| format!("write day photo thumbnail: {e}"))?;
     store
         .day_photo_upsert(
@@ -1532,8 +1630,12 @@ fn day_photo_thumbs(
         .into_iter()
         .filter_map(|row| {
             // A row whose file has gone missing renders as no photo, not as a
-            // broken cell — the bars fall back automatically.
-            let bytes = std::fs::read(dir.join(format!("{}.thumb.jpg", row.day))).ok()?;
+            // broken cell — the bars fall back automatically. A row whose
+            // `day` somehow fails the path-safety check (it was validated at
+            // insert time, so this should be unreachable) falls back the
+            // same way rather than erroring the whole week.
+            let path = day_photo_path(&dir, &row.day, ".thumb.jpg").ok()?;
+            let bytes = std::fs::read(path).ok()?;
             Some(DayPhotoThumb {
                 day: row.day,
                 thumb_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
@@ -1554,8 +1656,9 @@ fn day_photo_read(
         .day_photo_row(day.trim())
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("no photo recorded for {}", day.trim()))?;
-    let bytes = std::fs::read(day_photos_dir(&app)?.join(format!("{}.jpg", row.day)))
-        .map_err(|e| format!("read day photo: {e}"))?;
+    let dir = day_photos_dir(&app)?;
+    let path = day_photo_path(&dir, &row.day, ".jpg")?;
+    let bytes = std::fs::read(path).map_err(|e| format!("read day photo: {e}"))?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
@@ -1568,9 +1671,16 @@ fn day_photo_delete(
 ) -> Result<(), String> {
     let day = day.trim().to_string();
     let dir = day_photos_dir(&app)?;
+    // F3 fix wave: validate (and path-contain) BEFORE any filesystem
+    // operation. The old code trimmed the day, joined it straight into a
+    // path with no `date::is_valid` check at all, and deleted — a
+    // `day = "../important-backup"` deleted a file outside day-photos/
+    // before the (unreached) row-delete's own validation ever ran.
+    let full_path = day_photo_path(&dir, &day, ".jpg")?;
+    let thumb_path = day_photo_path(&dir, &day, ".thumb.jpg")?;
     // Missing files are fine; the row is the record that matters.
-    let _ = std::fs::remove_file(dir.join(format!("{day}.jpg")));
-    let _ = std::fs::remove_file(dir.join(format!("{day}.thumb.jpg")));
+    let _ = std::fs::remove_file(full_path);
+    let _ = std::fs::remove_file(thumb_path);
     store.day_photo_delete_row(&day).map_err(|e| e.to_string())
 }
 
