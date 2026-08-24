@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { dayPhotoSave } from "./api";
 import { toFullBase64, toThumbnailBase64 } from "./thumbnail";
 import "./ritual.css";
@@ -96,6 +90,23 @@ export function DayPhotoCapture({
     rootRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    // F8 fix wave: the card is a fixed corner panel, not a focus-trapping
+    // modal — one click anywhere else on the page used to move focus
+    // outside it and silently disable the Esc key path (Skip was always
+    // still one click away, so this was never a toll, just a caveat).
+    // Listening at the document level while the card is mounted means
+    // Escape skips it no matter where focus currently is.
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onDone();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onDone]);
+
   const saveCapture = useCallback(
     async (source: HTMLVideoElement | HTMLImageElement) => {
       setBusy(true);
@@ -136,22 +147,11 @@ export function DayPhotoCapture({
     [saveCapture],
   );
 
-  const onKeyDown = useCallback(
-    (event: ReactKeyboardEvent<HTMLDivElement>) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onDone();
-      }
-    },
-    [onDone],
-  );
-
   return (
     <div
       ref={rootRef}
       className="day-photo-card"
       tabIndex={-1}
-      onKeyDown={onKeyDown}
       role="dialog"
       aria-label="Today's practice photo"
     >

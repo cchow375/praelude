@@ -70,6 +70,29 @@ describe("DayPhotoCapture", () => {
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
+  it("F8: Escape still skips even when focus has moved elsewhere on the page — the card is not a focus trap", async () => {
+    const onDone = vi.fn();
+    render(
+      <DayPhotoCapture
+        day={DAY}
+        onDone={onDone}
+        getMedia={() => Promise.resolve(stream())}
+      />,
+    );
+    await screen.findByRole("button", { name: "Take today's photo" });
+    // Move focus somewhere outside the card entirely.
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(invokeMock).not.toHaveBeenCalled();
+
+    outside.remove();
+  });
+
   it("skips in one button press too — never a two-step toll", async () => {
     const onDone = vi.fn();
     render(
