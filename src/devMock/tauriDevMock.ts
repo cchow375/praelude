@@ -22,6 +22,12 @@
 // are byte-for-byte unaffected.
 // ---------------------------------------------------------------------------
 
+import {
+  validateLabel as validateDynamicsLabel,
+  validateMonotonic as validateDynamicsCurve,
+  type CalibrationPoint as DynamicsCalibrationPoint,
+  type DynamicsProfile as MockDynamicsProfile,
+} from "../features/dock/calibration";
 import type { AnomalyReport } from "../features/ledger/AnomaliesPanel";
 import type {
   HistoryDayDetail,
@@ -2761,8 +2767,149 @@ function piecePlanSave(args: unknown): PiecePlan {
  * mutation or a not-yet-exercised read) returns `null`: the read paths guard
  * `?? []`/`?? null`, and mutations are out of scope for this static harness.
  */
+// ---------------------------------------------------------------------------
+// Plan B (dynamics): mock meter + calibration profiles, and the event seam the
+// level ticker needs.
+//
+// THE LAW here too: the mock moves dB figures and nothing else.
+// ---------------------------------------------------------------------------
+
+/** Handlers registered through `transformCallback`, keyed by callback id.
+ *
+ * Purely ADDITIVE to the historical seam: the map is only ever READ by
+ * `emitMockEvent`, which only ever runs while the dynamics ticker is running.
+ * With no ticker, no callback is invoked and every pre-existing suite behaves
+ * exactly as it did before. */
+const MOCK_EVENT_CALLBACKS = new Map<number, (payload: unknown) => void>();
+/** event name -> the subscription ids currently listening to it. */
+const MOCK_EVENT_LISTENERS = new Map<string, Map<number, number>>();
+
+function emitMockEvent(name: string, payload: unknown): void {
+  const subscriptions = MOCK_EVENT_LISTENERS.get(name);
+  if (!subscriptions) return;
+  for (const [id, callbackId] of subscriptions) {
+    const handler = MOCK_EVENT_CALLBACKS.get(callbackId);
+    if (handler) handler({ event: name, id, payload });
+  }
+}
+
+interface MockMeterState {
+  running: boolean;
+  has_input_device: boolean;
+}
+
+let MOCK_DYNAMICS_PROFILES: MockDynamicsProfile[] = [];
+let mockDynamicsProfileSeq = 700;
+let mockDynamicsRunning = false;
+let mockDynamicsTicker: ReturnType<typeof setInterval> | null = null;
+let mockDynamicsSweepIndex = 0;
+
+/** A fixed 40-step ramp from -55 dB to -8 dB and back — index-driven, never
+ * `Math.random()`, so a live QA screenshot at frame N always looks the same. */
+const MOCK_DYNAMICS_SWEEP: number[] = (() => {
+  const steps = 40;
+  const up: number[] = [];
+  for (let i = 0; i < steps; i += 1) {
+    up.push(-55 + (47 * i) / (steps - 1));
+  }
+  return [...up, ...up.slice(1, -1).reverse()];
+})();
+
+const MOCK_DYNAMICS_TICK_MS = 125;
+
+function mockDynamicsMeterState(): MockMeterState {
+  return { running: mockDynamicsRunning, has_input_device: true };
+}
+
+function startMockDynamicsTicker(): void {
+  if (mockDynamicsTicker !== null) return;
+  mockDynamicsTicker = setInterval(() => {
+    const rms = MOCK_DYNAMICS_SWEEP[mockDynamicsSweepIndex];
+    mockDynamicsSweepIndex =
+      (mockDynamicsSweepIndex + 1) % MOCK_DYNAMICS_SWEEP.length;
+    emitMockEvent("dynamics://level", {
+      rms_db: Number(rms.toFixed(2)),
+      peak_db: Number((rms + 6).toFixed(2)),
+      ts_ms: Date.now(),
+    });
+  }, MOCK_DYNAMICS_TICK_MS);
+}
+
+function stopMockDynamicsTicker(): void {
+  if (mockDynamicsTicker === null) return;
+  clearInterval(mockDynamicsTicker);
+  mockDynamicsTicker = null;
+}
+
+function mockDynamicsProfileSave(args: unknown): MockDynamicsProfile {
+  const a = (args ?? {}) as {
+    deviceId?: string;
+    device_id?: string;
+    label?: string;
+    points?: DynamicsCalibrationPoint[];
+  };
+  const label = (a.label ?? "").trim();
+  // Plain-string rejects, the backend's error convention.
+  const labelProblem = validateDynamicsLabel(label);
+  if (labelProblem) throw labelProblem;
+  const points = a.points ?? [];
+  const curveProblem = validateDynamicsCurve(points);
+  if (curveProblem) throw curveProblem;
+
+  for (const profile of MOCK_DYNAMICS_PROFILES) profile.active = false;
+  const saved: MockDynamicsProfile = {
+    id: ++mockDynamicsProfileSeq,
+    device_id: a.deviceId ?? a.device_id ?? "default-input",
+    label,
+    active: true,
+    created_at: new Date().toISOString(),
+    points: points.map((point) => ({ ...point })),
+  };
+  MOCK_DYNAMICS_PROFILES = [saved, ...MOCK_DYNAMICS_PROFILES];
+  return saved;
+}
+
+function mockDynamicsProfileActivate(args: unknown): MockDynamicsProfile {
+  const id = ((args ?? {}) as { id?: number }).id;
+  const target = MOCK_DYNAMICS_PROFILES.find((p) => p.id === id);
+  if (!target) throw `no calibration profile with id ${id}`;
+  for (const profile of MOCK_DYNAMICS_PROFILES) profile.active = false;
+  target.active = true;
+  return target;
+}
+
 function routeCommand(cmd: string, args: unknown): unknown {
   switch (cmd) {
+    // Plan B: the dynamics meter + calibration profiles. dB figures only.
+    case "dynamics_meter_start":
+      mockDynamicsRunning = true;
+      startMockDynamicsTicker();
+      return mockDynamicsMeterState();
+    case "dynamics_meter_stop":
+      mockDynamicsRunning = false;
+      stopMockDynamicsTicker();
+      return mockDynamicsMeterState();
+    case "dynamics_meter_state":
+      return mockDynamicsMeterState();
+    case "dynamics_profile_list":
+      return MOCK_DYNAMICS_PROFILES.map((profile) => ({
+        ...profile,
+        points: profile.points.map((point) => ({ ...point })),
+      }));
+    case "dynamics_profile_save":
+      // Validation failures arrive as rejected promises carrying a plain
+      // string, exactly as the native command does.
+      try {
+        return mockDynamicsProfileSave(args);
+      } catch (reason) {
+        return Promise.reject(reason);
+      }
+    case "dynamics_profile_activate":
+      try {
+        return mockDynamicsProfileActivate(args);
+      } catch (reason) {
+        return Promise.reject(reason);
+      }
     // Shell-level mounts.
     case "settings_snapshot":
       return SETTINGS_SNAPSHOT;
@@ -3293,6 +3440,16 @@ export function installTauriDevMock(
     Region[]
   >;
   mockRegionNextId = 100;
+  // Plan B: fresh dynamics meter + calibration state per install, and a fresh
+  // event registry — a leftover ticker or listener must never bleed into the
+  // next suite.
+  stopMockDynamicsTicker();
+  MOCK_DYNAMICS_PROFILES = [];
+  mockDynamicsProfileSeq = 700;
+  mockDynamicsRunning = false;
+  mockDynamicsSweepIndex = 0;
+  MOCK_EVENT_CALLBACKS.clear();
+  MOCK_EVENT_LISTENERS.clear();
 
   let callbackId = 0;
   let subscriptionId = 0;
@@ -3303,9 +3460,26 @@ export function installTauriDevMock(
     // fn), but no callback is ever fired — the initial render comes entirely from
     // the invoke load calls above.
     invoke(cmd: string, args?: unknown): Promise<unknown> {
-      if (cmd === "plugin:event|listen")
-        return Promise.resolve(++subscriptionId);
-      if (cmd === "plugin:event|unlisten") return Promise.resolve(null);
+      if (cmd === "plugin:event|listen") {
+        const id = ++subscriptionId;
+        // Additive: remember which callback belongs to which event so a mock
+        // ticker (currently only the dynamics level stream) can actually
+        // deliver payloads. Nothing fires unless a ticker calls emitMockEvent.
+        const a = (args ?? {}) as { event?: string; handler?: number };
+        if (typeof a.event === "string" && typeof a.handler === "number") {
+          const existing = MOCK_EVENT_LISTENERS.get(a.event) ?? new Map();
+          existing.set(id, a.handler);
+          MOCK_EVENT_LISTENERS.set(a.event, existing);
+        }
+        return Promise.resolve(id);
+      }
+      if (cmd === "plugin:event|unlisten") {
+        const a = (args ?? {}) as { event?: string; eventId?: number };
+        if (typeof a.event === "string" && typeof a.eventId === "number") {
+          MOCK_EVENT_LISTENERS.get(a.event)?.delete(a.eventId);
+        }
+        return Promise.resolve(null);
+      }
       // A handler that throws (e.g. notebook validation) rejects the promise
       // with a plain string, matching the real backend's error convention.
       try {
@@ -3314,11 +3488,21 @@ export function installTauriDevMock(
         return Promise.reject(cause);
       }
     },
-    // Returns a callback id; the registered handler is intentionally never invoked.
-    transformCallback(_callback?: unknown, _once?: boolean): number {
-      return ++callbackId;
+    // Returns a callback id. Historically the handler was discarded and no
+    // listener was ever fired; it is now REMEMBERED so a mock ticker can
+    // deliver events. Purely additive — with no ticker running, nothing here
+    // is ever invoked and existing suites are unchanged.
+    transformCallback(callback?: unknown, _once?: boolean): number {
+      const id = ++callbackId;
+      if (typeof callback === "function") {
+        MOCK_EVENT_CALLBACKS.set(id, callback as (payload: unknown) => void);
+      }
+      return id;
     },
-    unregisterCallback(_id: number): void {},
+
+    unregisterCallback(id: number): void {
+      MOCK_EVENT_CALLBACKS.delete(id);
+    },
     convertFileSrc(filePath: string): string {
       return filePath;
     },
@@ -3339,13 +3523,20 @@ export function installTauriDevMock(
       };
     }
   ).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
-    unregisterListener() {},
+    unregisterListener(event: string, id: number) {
+      MOCK_EVENT_LISTENERS.get(event)?.delete(id);
+    },
   };
 }
 
 /** Test helper: remove the seam so unrelated suites see a backend-free window. */
 export function uninstallTauriDevMock(): void {
   installed = false;
+  // A live interval would keep firing into a torn-down window.
+  stopMockDynamicsTicker();
+  mockDynamicsRunning = false;
+  MOCK_EVENT_CALLBACKS.clear();
+  MOCK_EVENT_LISTENERS.clear();
   delete (window as unknown as { __TAURI_INTERNALS__?: unknown })
     .__TAURI_INTERNALS__;
   delete (window as unknown as { __TAURI_EVENT_PLUGIN_INTERNALS__?: unknown })

@@ -110,3 +110,32 @@ export function activeProfile(
 ): DynamicsProfile | null {
   return profiles.find((p) => p.active) ?? null;
 }
+
+/**
+ * Where `db` sits on the calibrated band: 0 at the pp tick (bottom), 1 at the
+ * ff tick (top), piecewise-linear between the five measured points.
+ *
+ * The clamp to 0..1 is a DISPLAY concern and nothing else. Core Audio float
+ * input is not hard-clipped at ±1.0 — readings above 0 dBFS are real and were
+ * measured on the target machine — and playing louder than the calibrated `ff`
+ * is entirely normal. Neither is an error; both simply pin the needle to the
+ * top of the band.
+ */
+export function bandFraction(db: number, profile: DynamicsProfile): number {
+  const points = profile.points;
+  if (points.length < 2) return 0;
+  if (!Number.isFinite(db)) return 0;
+  const step = 1 / (points.length - 1);
+  if (db <= points[0].measured_db) return 0;
+  const last = points[points.length - 1];
+  if (db >= last.measured_db) return 1;
+  for (let i = 1; i < points.length; i += 1) {
+    const low = points[i - 1].measured_db;
+    const high = points[i].measured_db;
+    if (db <= high) {
+      const t = high === low ? 0 : (db - low) / (high - low);
+      return (i - 1 + t) * step;
+    }
+  }
+  return 1;
+}
