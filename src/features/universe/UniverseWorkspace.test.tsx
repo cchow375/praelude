@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   cleanup,
   fireEvent,
@@ -6,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { galaxyLayout } from "./galaxy";
 import type { UniversePiece, UniverseSnapshot } from "./types";
 
 const invokeMock = vi.fn();
@@ -201,15 +204,144 @@ describe("UniverseWorkspace repertoire map", () => {
     expect(card.textContent).toContain("Practiced yesterday");
   });
 
-  it("runs no simulation, no animation frame loop and no keyframes", async () => {
+  // (a) The v5 lesson still holds: declarative motion only, never a loop.
+  it("runs no simulation and no animation frame loop", async () => {
     const raf = vi.spyOn(window, "requestAnimationFrame");
     const { container } = await renderMap();
-
     expect(raf).not.toHaveBeenCalled();
-    // The old galaxy drew itself into an <svg> canvas; nothing does now.
-    expect(container.querySelector("svg")).toBeNull();
+    // The galaxy IS an <svg> now — but a static one, drawn once from a layout.
     expect(container.querySelector(".universe-canvas")).toBeNull();
+    expect(container.querySelectorAll("svg.universe-galaxy")).toHaveLength(1);
     raf.mockRestore();
+  });
+
+  // (b) Property: identical event history => identical galaxy.
+  it("lays the galaxy out deterministically for the same snapshot", () => {
+    const viewport = { width: 720, height: 520 };
+    const once = galaxyLayout(SNAPSHOT, viewport, { current_days: 2 });
+    const twice = galaxyLayout(SNAPSHOT, viewport, { current_days: 2 });
+    expect(once).toEqual(twice);
+  });
+
+  // (c) Earned-only: every rendered visual traces back to a snapshot field.
+  it("renders no visual that is not backed by snapshot evidence", async () => {
+    const { container } = await renderMap();
+    const galaxy = container.querySelector(".universe-galaxy") as SVGElement;
+
+    const pieceIds = new Set(SNAPSHOT.pieces.map((p) => String(p.piece_id)));
+    const masteredRegionIds = new Set(
+      SNAPSHOT.pieces.flatMap((p) =>
+        p.region_signals
+          .filter((r) => (r.mastery_contracts_completed ?? 0) > 0)
+          .map((r) => String(r.region_id)),
+      ),
+    );
+
+    const stars = [...galaxy.querySelectorAll(".universe-star")];
+    expect(stars).toHaveLength(SNAPSHOT.pieces.length);
+    for (const star of stars) {
+      expect(pieceIds.has(star.getAttribute("data-piece-id") ?? "")).toBe(true);
+    }
+
+    const bodies = [...galaxy.querySelectorAll(".universe-orbit-body")];
+    expect(bodies.length).toBe(masteredRegionIds.size);
+    for (const body of bodies) {
+      expect(
+        masteredRegionIds.has(body.getAttribute("data-region-id") ?? ""),
+      ).toBe(true);
+      expect(body.getAttribute("data-evidence")).toBe(
+        "mastery_contracts_completed",
+      );
+    }
+
+    // A ring only exists where earned_maturity does.
+    const ringed = [...galaxy.querySelectorAll(".universe-star-ring")].map(
+      (node) => node.closest(".universe-star")!.getAttribute("data-piece-id"),
+    );
+    const withMaturity = SNAPSHOT.pieces
+      .filter((p) => (p.earned_maturity ?? 0) > 0)
+      .map((p) => String(p.piece_id));
+    expect(ringed.sort()).toEqual(withMaturity.sort());
+
+    // No streak was supplied, so nothing may glow.
+    expect(galaxy.querySelectorAll(".universe-star-glow")).toHaveLength(0);
+  });
+
+  it("glows every star only when a live streak is passed in", async () => {
+    const { container } = render(
+      <UniverseWorkspace
+        onOpenPractice={vi.fn()}
+        streak={{ current_days: 4 }}
+      />,
+    );
+    await screen.findByRole("heading", { name: "Your repertoire" });
+    expect(container.querySelectorAll(".universe-star-glow")).toHaveLength(
+      SNAPSHOT.pieces.length,
+    );
+  });
+
+  it("draws nothing at all when there is no practice evidence", async () => {
+    invokeMock.mockResolvedValue({ ...SNAPSHOT, pieces: [] });
+    const { container } = render(
+      <UniverseWorkspace
+        onOpenPractice={vi.fn()}
+        streak={{ current_days: 9 }}
+      />,
+    );
+    await screen.findByRole("heading", {
+      name: "Your universe is quiet for now.",
+    });
+    expect(container.querySelector(".universe-galaxy")).toBeNull();
+  });
+
+  // (d) Reduced motion collapses the galaxy to a fully static render, CSS-only.
+  it("wraps every keyframe animation in a prefers-reduced-motion escape", () => {
+    // NOTE: the plan's original snippet used
+    // `fileURLToPath(new URL("./universe.css", import.meta.url))`, which
+    // throws "The URL must be of scheme file" under this project's vitest/vite
+    // transform (import.meta.url does not resolve to a file: URL here).
+    // Fixed to the same `resolve("src/...")` pattern every sibling CSS-reading
+    // test in this repo already uses (e.g. shellOverlap.test.tsx,
+    // RepHudDensity.test.tsx, dockStacking.test.ts).
+    const css = readFileSync(
+      resolve("src/features/universe/universe.css"),
+      "utf8",
+    );
+    const animated = [
+      ".universe-star-disc",
+      ".universe-orbit-body",
+      ".universe-galaxy-field",
+    ];
+    for (const selector of animated) {
+      expect(css).toContain(selector);
+    }
+    expect(css).toMatch(/@keyframes universe-twinkle/);
+    expect(css).toMatch(/@keyframes universe-orbit/);
+    expect(css).toMatch(/@keyframes universe-parallax/);
+
+    const reduced = css.slice(
+      css.indexOf("@media (prefers-reduced-motion: reduce)"),
+    );
+    expect(reduced).not.toBe("");
+    expect(reduced).toContain("animation: none !important");
+    // And no JS ever reads the media query — the app has zero matchMedia calls.
+    expect(css).not.toContain("matchMedia");
+  });
+
+  it("selects a piece by clicking its star, same as clicking its card", async () => {
+    await renderMap();
+    fireEvent.click(
+      screen
+        .getByTestId("universe-galaxy")
+        .querySelector(
+          '.universe-star[data-piece-id="7"] .universe-star-hit',
+        ) as Element,
+    );
+    expect(
+      await screen.findByRole("complementary", {
+        name: "Nocturne Op. 9 No. 2",
+      }),
+    ).toBeTruthy();
   });
 
   it("draws one mark per region, in snapshot order, with its earned state", async () => {

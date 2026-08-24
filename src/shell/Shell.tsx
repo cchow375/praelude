@@ -373,6 +373,10 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   const [repHudCollapsed, setRepHudCollapsed] = useState(
     () => window.innerWidth <= 800 || window.innerHeight <= 620,
   );
+  // Placeholder for A1: Task 4 replaces this with `useStreak()` once the
+  // Rust streak_summary read model exists. Null renders un-glowed, which is
+  // the honest default until the real evidence is wired in.
+  const streak = null;
   const [scorePracticeContext, setScorePracticeContext] =
     useState<PracticeBrainContext | null>(null);
   const [ledgerPracticeContext, setLedgerPracticeContext] =
@@ -1042,6 +1046,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                   <UniverseWorkspace
                     onOpenPractice={openFromUniverse}
                     onOpenLedger={openLedgerForPiece}
+                    streak={streak}
                   />
                 </div>
               )}
