@@ -25,6 +25,16 @@ use crate::metrics;
 /// (spec A2). Mirrored by `settings::snapshot`'s `streak.threshold_minutes`.
 pub const DEFAULT_STREAK_THRESHOLD_MINUTES: i64 = 10;
 
+/// The defensive ceiling `streak_summary` clamps ANY threshold to — a full
+/// calendar day, minutes-wise — regardless of caller. This is deliberately
+/// wider than `settings.rs`'s user-facing bound (1..=240, "what's a sane
+/// daily bar"): this module is a read model that must stay safe even if
+/// invoked with a threshold that never passed through settings validation.
+/// `settings.rs`'s own test (`streak_threshold_minutes_bounds_are_documented_
+/// and_consistent`) asserts the UI bound never exceeds this ceiling, so the
+/// two ranges cannot silently drift apart (fix-wave S1).
+pub const STREAK_THRESHOLD_DEFENSIVE_MAX_MINUTES: i64 = 1_440;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct StreakSummary {
     /// Consecutive qualifying LOCAL days ending today (or yesterday, while
@@ -86,7 +96,8 @@ impl Store {
     /// Consecutive LOCAL days whose event-derived focused time cleared
     /// `threshold_minutes`, plus the best such run and today's raw seconds.
     pub(crate) fn streak_summary(&self, threshold_minutes: i64) -> rusqlite::Result<StreakSummary> {
-        let threshold_minutes = threshold_minutes.clamp(1, 1_440);
+        let threshold_minutes =
+            threshold_minutes.clamp(1, STREAK_THRESHOLD_DEFENSIVE_MAX_MINUTES);
         let threshold_seconds = threshold_minutes.saturating_mul(60);
         let today = self.today_local()?;
 

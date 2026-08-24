@@ -41,7 +41,9 @@ pub(crate) use practice_v2::{command_id as v2_command_id, validate_open as v2_va
 pub use score_atlas::{AtomicTargetSavePayload, CalibrationPoint, CalibrationView};
 pub use score_marks::{ScoreMark, ScorePageMarks};
 pub use session_plan::{SessionPlanStartOutcome, SessionPlanStartPayload};
-pub use streaks::{StreakSummary, DEFAULT_STREAK_THRESHOLD_MINUTES};
+pub use streaks::{
+    StreakSummary, DEFAULT_STREAK_THRESHOLD_MINUTES, STREAK_THRESHOLD_DEFENSIVE_MAX_MINUTES,
+};
 
 use std::path::Path;
 use std::sync::Mutex;
