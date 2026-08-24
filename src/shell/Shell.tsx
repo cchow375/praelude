@@ -385,6 +385,15 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     () => WORKSPACES.filter((w) => w.id !== "brain" || assistantEnabled),
     [assistantEnabled],
   );
+  // Defensive: if `view` is ever restored/left as "brain" (a previous
+  // session, or the toggle flipping off mid-session) while the Assistant is
+  // disabled, fall back to the normal home view instead of stranding the
+  // user on a hidden/blank workspace.
+  useEffect(() => {
+    if (view === "brain" && !assistantEnabled) {
+      setView("today");
+    }
+  }, [view, assistantEnabled]);
   const [settingsReturnView, setSettingsReturnView] =
     useState<WorkspaceId>("today");
   const [requestedScorePiece, setRequestedScorePiece] = useState({
@@ -1100,6 +1109,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                     onOpenCalendar={openCalendar}
                     onOpenPiecePlan={openPiecePlan}
                     onOpenBrain={() => setView("brain")}
+                    assistantEnabled={assistantEnabled}
                     onOpenLedger={openLedgerHistory}
                     onOpenUniverse={() => setView("universe")}
                     onOpenSettings={openSettings}
@@ -1127,7 +1137,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                   onPracticeContextChange={setLedgerPracticeContext}
                 />
               )}
-              {view === "brain" && (
+              {view === "brain" && assistantEnabled && (
                 <BrainWorkspace
                   wakeQuestion={wakeQuestion}
                   practiceContext={groundedBrainContext ?? undefined}
