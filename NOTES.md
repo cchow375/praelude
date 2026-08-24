@@ -2379,3 +2379,51 @@ remembering for B1's meter display clamping). `hear -d -l en-US`: avg 0.52 % / m
 CPU, ~32 MB RSS, 157 transcript lines growing continuously. Full numbers and procedure in
 `.workflow/scratch/b0-spike-verdict.md`. Plan B's live-meter design (B1 streams input
 alongside STT) proceeds as scoped — no push-to-measure fallback required on this evidence.
+
+## v7 Plans A+B — what adversarial verification caught this round (2026-08-24)
+
+Merged: A1 living galaxy + A2 day streak (`a1e74e5`), B1–B4 dynamics checker (`d126c3f`).
+Integrated main green: vitest 2235/1 skipped, cargo 904/0, clippy + tsc clean.
+
+- **`cargo test` green does NOT imply `cargo clippy --all-targets -- -D warnings` green.**
+  A commit that passed the full 875-test Rust suite failed clippy on two counts: a `pub use`
+  re-export that only tests consumed (`unused_imports`) and an `assert!` comparing two
+  constants (`assertions_on_constants`). Run clippy before calling a Rust task done. The fix
+  is the interesting part: instead of suppressing, make the constant load-bearing in
+  production code — the Settings UI bound became a named `STREAK_THRESHOLD_MAX_MINUTES` used
+  at both call sites, with `const _: () = assert!(MAX as i64 <= DEFENSIVE_CEILING)` pinning
+  the relationship. Widening the bound now fails the BUILD (`E0080: evaluation panicked`),
+  which is strictly stronger than the runtime test it replaced.
+- **Tests written alongside an implementation inherit its blind spots.** Five mutants survived
+  a fully green suite. The worst: swapping `current_days` for `longest_run` in the streak read
+  model passed everything — a user whose 30-day run died last month would have been shown
+  "30 day streak" today, the exact fake progress the earned-only law forbids. Two others
+  (grace-day window, best-vs-trailing run) were equally invisible. Only an independent
+  adversary doing mutation testing found them. Mutation-test the product-visible decisions,
+  not just the arithmetic.
+- **A "dense floor" assertion that cannot fail from data is not a guard.** The 720×520 test
+  checked star discs, whose radius is structurally smaller than half a cell — so no snapshot
+  could ever violate it — while never inspecting `star.orbits`, which grew unbounded and swept
+  full circles. Setting `ORBIT_GAP = 400`, flinging every body hundreds of px off-canvas, left
+  the suite green. The clamp that appeared to guard this was dead code: deleting it changed
+  nothing. Ask of every geometric assertion: what input would make this fail?
+- **The earned-only class of defect is a THREE-source conspiracy, not one bug.** A
+  never-practised piece rendered a full glowing star because (1) `universe::snapshot` lists
+  every piece with no practice filter, (2) a zero-practice piece gets `quality_brightness`
+  0.96 — a neutral default, not 0 — and (3) the layout floored radius at `STAR_MIN_RADIUS`.
+  Each is individually defensible; together they fabricate progress. Worse, the glow came from
+  the GLOBAL streak, so one piece borrowed credit for activity on another. Rules now encoded:
+  an explicit `isEarned` predicate, unearned pieces render a hollow unlit marker, glow requires
+  the piece itself to be earned, and **a `data-evidence` attribute may never name a field whose
+  value is 0**.
+- **cpal 0.18.1 API drift bit both lanes independently:** `SampleRate`/`sample_rate()` is a
+  bare `u32` (not a tuple struct), `Device` has no `.name()` (it implements `Display`), and
+  `build_input_stream` takes an owned `StreamConfig`. Any plan-pasted cpal code needs fixing.
+- **SQLite `GLOB` vs `LIKE` wildcards:** `_` is a single-char wildcard in LIKE but a LITERAL in
+  GLOB. A `CHECK (day GLOB '____-__-__')` matches nothing and would have rejected every insert.
+  Date checks need explicit `[0-9]` classes — the convention already used elsewhere in
+  `migrations.rs`.
+- **Isolation held under parallel lanes.** Three worktrees under `~/.ck-lanes/` touched only
+  four common files (lib.rs, store/mod.rs, tauriDevMock.ts, Shell.tsx), all additively, and
+  both merges went in with zero conflicts. Briefing each lane with an explicit
+  stay-out-of-these-paths list is what made that work.
