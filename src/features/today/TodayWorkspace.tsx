@@ -29,6 +29,9 @@ interface TodayWorkspaceProps {
   onOpenLedger: () => void;
   onOpenUniverse: () => void;
   onOpenSettings: () => void;
+  /** Christian's 2026-08-24 request: the Assistant is off by default and can
+   *  be fully disabled in Settings. Hides this menu entry when it is. */
+  assistantEnabled?: boolean;
 }
 
 /**
@@ -45,6 +48,7 @@ export function TodayWorkspace({
   onOpenLedger,
   onOpenUniverse,
   onOpenSettings,
+  assistantEnabled = false,
 }: TodayWorkspaceProps) {
   const [practiceOpen, setPracticeOpen] = useState(false);
   const practiceTriggerRef = useRef<HTMLButtonElement>(null);
@@ -142,14 +146,16 @@ export function TodayWorkspace({
             <NoteIcon className="today-menu-icon" />
             <span>Score</span>
           </button>
-          <button
-            type="button"
-            className="today-menu-item"
-            onClick={onOpenBrain}
-          >
-            <SparkIcon className="today-menu-icon" />
-            <span>{ASSISTANT}</span>
-          </button>
+          {assistantEnabled && (
+            <button
+              type="button"
+              className="today-menu-item"
+              onClick={onOpenBrain}
+            >
+              <SparkIcon className="today-menu-icon" />
+              <span>{ASSISTANT}</span>
+            </button>
+          )}
           <button
             type="button"
             className="today-menu-item"

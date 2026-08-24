@@ -1606,6 +1606,8 @@ const METRO_STATE = {
 
 // A complete settings snapshot so the v3 Settings workspace renders (and its
 // Brain/keys/aliases rows resolve) under `npm run dev:mock`.
+let CURRENT_SETTINGS_SNAPSHOT: Record<string, unknown>;
+
 const SETTINGS_SNAPSHOT = {
   theme: "dark" as const,
   interface_scale: 90,
@@ -1614,6 +1616,10 @@ const SETTINGS_SNAPSHOT = {
   brain_provider: "auto" as const,
   knowledge_dir: "/dev-mock/Knowledge and Resources",
   share_retrieved_knowledge: true,
+  // The dev-mock harness exercises the Assistant surfaces by default (unlike
+  // the real backend, whose default flipped to off — Christian's 2026-08-24
+  // request). settings_update's generic merge already honors a patch here.
+  assistant_enabled: true,
   wake_word_enabled: false,
   wake_word: "coda",
   metronome_sound: "woodblock",
@@ -3023,11 +3029,11 @@ function routeCommand(cmd: string, args: unknown): unknown {
       }
     // Shell-level mounts.
     case "settings_snapshot":
-      return SETTINGS_SNAPSHOT;
+      return CURRENT_SETTINGS_SNAPSHOT;
     case "settings_update": {
       const patch =
         ((args ?? {}) as { patch?: Record<string, unknown> }).patch ?? {};
-      return { ...SETTINGS_SNAPSHOT, ...patch };
+      return { ...CURRENT_SETTINGS_SNAPSHOT, ...patch };
     }
     case "brain_status":
       return BRAIN_STATUS;
@@ -3569,6 +3575,12 @@ export interface InstallTauriDevMockOptions {
    * the genuinely-empty notebook backend it always has — only `main.tsx`
    * (the actual `npm run dev:mock` entry point) opts in. */
   seedQaFixtures?: boolean;
+  /** Assistant-toggle coverage: defaults to `true` so the dev-mock harness
+   * and every existing suite keep exercising the Assistant surfaces exactly
+   * as before Christian's 2026-08-24 "off by default" request flipped the
+   * REAL backend's default. Pass `false` to test the disabled-gate paths
+   * through the real invoke seam. */
+  assistantEnabled?: boolean;
 }
 
 /**
@@ -3580,6 +3592,10 @@ export function installTauriDevMock(
 ): void {
   if (installed) return;
   installed = true;
+  CURRENT_SETTINGS_SNAPSHOT = {
+    ...SETTINGS_SNAPSHOT,
+    assistant_enabled: options.assistantEnabled ?? true,
+  };
   // Fresh, empty notebook backend per install so date/piece-keyed tests do not
   // bleed state into one another.
   DAY_SHEETS.clear();

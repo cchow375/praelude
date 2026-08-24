@@ -6,15 +6,30 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Christian's 2026-08-24 request flipped assistant_enabled's real default to
+// off; this suite exercises the full five-tab nav, so it explicitly opts
+// back in. Every other command resolves null (this file otherwise runs with
+// no backend, as before).
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn((command: string) => {
+    if (command === "settings_snapshot") {
+      return Promise.resolve({ assistant_enabled: true });
+    }
+    return Promise.resolve(null);
+  }),
+}));
+
 import { Shell } from "./Shell";
 
 afterEach(cleanup);
 
 describe("Shell", () => {
-  it("renders exactly five workspace nav targets", () => {
+  it("renders exactly five workspace nav targets", async () => {
     render(<Shell />);
     const nav = screen.getByRole("tablist", { name: /workspace/i });
+    await screen.findByRole("tab", { name: "Assistant" });
     const tabs = within(nav).getAllByRole("tab");
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Today",

@@ -76,6 +76,7 @@ pub struct SettingsSnapshot {
     pub brain_provider: String,
     pub knowledge_dir: String,
     pub share_retrieved_knowledge: bool,
+    pub assistant_enabled: bool,
     pub wake_word_enabled: bool,
     pub wake_word: String,
     pub metronome_sound: String,
@@ -100,6 +101,7 @@ pub struct SettingsPatch {
     pub brain_provider: Option<String>,
     pub knowledge_dir: Option<String>,
     pub share_retrieved_knowledge: Option<bool>,
+    pub assistant_enabled: Option<bool>,
     pub wake_word_enabled: Option<bool>,
     pub wake_word: Option<String>,
     pub metronome_sound: Option<String>,
@@ -132,6 +134,11 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
         // ground Claude/Gemini. Only the retrieved, bounded excerpts cross the
         // provider boundary; the corpus itself is never uploaded or bundled.
         share_retrieved_knowledge: boolean(store, "brain.share_retrieved_knowledge", true),
+        // Christian explicitly asked for the Assistant OFF by default (2026-08-24):
+        // it's "getting in the way" and is a separate project on hold indefinitely.
+        // This is a deliberate default flip, not a regression — shipping it on would
+        // mean he installs the app and immediately has to go switch it off.
+        assistant_enabled: boolean(store, "assistant.enabled", false),
         wake_word_enabled: boolean(store, "voice.wake_word_enabled", false),
         wake_word,
         metronome_sound: choice(store, "metronome.sound", "woodblock", SOUNDS),
@@ -198,6 +205,9 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
     }
     if let Some(value) = patch.share_retrieved_knowledge {
         writes.push(("brain.share_retrieved_knowledge", value.to_string()));
+    }
+    if let Some(value) = patch.assistant_enabled {
+        writes.push(("assistant.enabled", value.to_string()));
     }
     if let Some(value) = patch.wake_word_enabled {
         writes.push(("voice.wake_word_enabled", value.to_string()));

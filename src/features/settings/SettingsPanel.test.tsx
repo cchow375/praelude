@@ -45,6 +45,7 @@ const snapshot: SettingsSnapshot = {
   brain_provider: "auto",
   knowledge_dir: "/vault/Knowledge and Resources",
   share_retrieved_knowledge: true,
+  assistant_enabled: true,
   wake_word_enabled: false,
   wake_word: "coda",
   metronome_sound: "woodblock",
@@ -61,12 +62,13 @@ const snapshot: SettingsSnapshot = {
     { provider: "gemini", configured: true, source: "keychain" },
   ],
 };
-function api(): SettingsApi {
+function api(overrides: Partial<SettingsSnapshot> = {}): SettingsApi {
+  const base = { ...snapshot, ...overrides };
   return {
-    snapshot: vi.fn().mockResolvedValue(snapshot),
+    snapshot: vi.fn().mockResolvedValue(base),
     update: vi
       .fn()
-      .mockImplementation(async (patch) => ({ ...snapshot, ...patch })),
+      .mockImplementation(async (patch) => ({ ...base, ...patch })),
     saveKey: vi.fn().mockResolvedValue({
       provider: "claude",
       configured: true,
@@ -306,5 +308,51 @@ describe("SettingsPanel", () => {
         kind: "practice-method",
       }),
     );
+  });
+
+
+  // -- Assistant toggle (Christian's 2026-08-24 "off by default" request) --
+
+  it("shows the Assistant checkbox plus BrainConnection and its other controls when enabled", async () => {
+    render(<SettingsPanel api={api({ assistant_enabled: true })} />);
+    await screen.findByText(/dark practice-room interface/i);
+
+    expect(
+      screen.getByRole("checkbox", { name: /^Assistant$/ }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Test connection" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("checkbox", { name: /Share retrieved knowledge/ }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: "Assistant provider" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("region", { name: "Claude API key" }),
+    ).toBeTruthy();
+  });
+
+  it("hides BrainConnection and every other Assistant control when disabled, leaving only the toggle", async () => {
+    render(<SettingsPanel api={api({ assistant_enabled: false })} />);
+    await screen.findByText(/dark practice-room interface/i);
+
+    const toggle = screen.getByRole("checkbox", { name: /^Assistant$/ });
+    expect(toggle).toBeTruthy();
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(
+      screen.queryByRole("button", { name: "Test connection" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("checkbox", { name: /Share retrieved knowledge/ }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("combobox", { name: "Assistant provider" }),
+    ).toBeNull();
+    expect(screen.queryByLabelText("Knowledge folder")).toBeNull();
+    expect(
+      screen.queryByRole("region", { name: "Claude API key" }),
+    ).toBeNull();
   });
 });

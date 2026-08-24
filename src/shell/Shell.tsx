@@ -363,6 +363,37 @@ const ACTIVE_SET_DRAFT_UNAVAILABLE =
 
 export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   const [view, setView] = useState<View>("today");
+  // Christian's 2026-08-24 request: the Assistant ("Brain") can be fully
+  // switched off in Settings, default off. When it is, the nav tab, the
+  // workspace render branch, and every question-routing path all gate on
+  // this. Fetched once on mount; Settings itself owns the toggle UI.
+  const [assistantEnabled, setAssistantEnabled] = useState(false);
+  useEffect(() => {
+    let active = true;
+    invoke<{ assistant_enabled?: boolean }>("settings_snapshot")
+      .then((snapshot) => {
+        if (active) setAssistantEnabled(Boolean(snapshot?.assistant_enabled));
+      })
+      .catch(() => {
+        // Honest default: if settings can't be read, the Assistant stays off.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const workspaces = useMemo(
+    () => WORKSPACES.filter((w) => w.id !== "brain" || assistantEnabled),
+    [assistantEnabled],
+  );
+  // Defensive: if `view` is ever restored/left as "brain" (a previous
+  // session, or the toggle flipping off mid-session) while the Assistant is
+  // disabled, fall back to the normal home view instead of stranding the
+  // user on a hidden/blank workspace.
+  useEffect(() => {
+    if (view === "brain" && !assistantEnabled) {
+      setView("today");
+    }
+  }, [view, assistantEnabled]);
   const [settingsReturnView, setSettingsReturnView] =
     useState<WorkspaceId>("today");
   const [requestedScorePiece, setRequestedScorePiece] = useState({
@@ -514,6 +545,12 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   }, [today]);
 
   useEffect(() => {
+    // Christian's 2026-08-24 request: with the Assistant disabled (the
+    // default), a spoken question must be treated exactly like any other
+    // unhandled/unrecognized utterance — no Brain routing, no brain_ask,
+    // no new spoken line. The heard-text pill (driven by voice.lastIntent
+    // elsewhere) still shows what was heard.
+    if (!assistantEnabled) return;
     if (voice.lastIntent?.kind !== "question") return;
     wakeQuestionId.current += 1;
     setWakeQuestion({
@@ -521,7 +558,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       text: voice.lastIntent.text,
     });
     setView("brain");
-  }, [voice.lastIntent]);
+  }, [voice.lastIntent, assistantEnabled]);
 
   const suppressVoiceDraft = useCallback((deliveryKey: string) => {
     suppressedVoiceDrafts.current.add(deliveryKey);
@@ -579,6 +616,12 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
 
     // No-wake questions enter Brain only after the bounded set parser declines
     // them. This never sees a final the native hot loop already handled.
+    // Christian's 2026-08-24 request: with the Assistant disabled (the
+    // default), a natural-language question is left exactly where an
+    // unhandled/unrecognized utterance already lands today — no Brain
+    // routing, no brain_ask. Skipping the parse itself (rather than just
+    // discarding its result) keeps this identical to "the parser declined".
+    if (!assistantEnabled) return;
     const question = parseAssistantDirectedQuestion(delivery.text);
     if (!question || routedNaturalQuestions.current.has(deliveryKey)) return;
     routedNaturalQuestions.current.add(deliveryKey);
@@ -590,6 +633,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     setWakeQuestion({ id: wakeQuestionId.current, text: question });
     setView("brain");
   }, [
+    assistantEnabled,
     defaultCleanStreak,
     pendingBrainAction,
     pendingVoiceDraft,
@@ -917,20 +961,20 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     event: KeyboardEvent<HTMLButtonElement>,
     id: WorkspaceId,
   ) => {
-    const index = WORKSPACES.findIndex((w) => w.id === id);
+    const index = workspaces.findIndex((w) => w.id === id);
     let next: number | null = null;
     if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-      next = (index + 1) % WORKSPACES.length;
+      next = (index + 1) % workspaces.length;
     } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-      next = (index - 1 + WORKSPACES.length) % WORKSPACES.length;
+      next = (index - 1 + workspaces.length) % workspaces.length;
     } else if (event.key === "Home") {
       next = 0;
     } else if (event.key === "End") {
-      next = WORKSPACES.length - 1;
+      next = workspaces.length - 1;
     }
     if (next === null) return;
     event.preventDefault();
-    focusTab(WORKSPACES[next].id);
+    focusTab(workspaces[next].id);
   };
 
   const openPiece = useCallback(
@@ -983,7 +1027,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
           aria-label="Workspace"
           aria-orientation="vertical"
         >
-          {WORKSPACES.map((workspace, index) => {
+          {workspaces.map((workspace, index) => {
             const selected = view === workspace.id;
             return (
               <button
@@ -1078,6 +1122,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                     onOpenCalendar={openCalendar}
                     onOpenPiecePlan={openPiecePlan}
                     onOpenBrain={() => setView("brain")}
+                    assistantEnabled={assistantEnabled}
                     onOpenLedger={openLedgerHistory}
                     onOpenUniverse={() => setView("universe")}
                     onOpenSettings={openSettings}
@@ -1105,7 +1150,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                   onPracticeContextChange={setLedgerPracticeContext}
                 />
               )}
-              {view === "brain" && (
+              {view === "brain" && assistantEnabled && (
                 <BrainWorkspace
                   wakeQuestion={wakeQuestion}
                   practiceContext={groundedBrainContext ?? undefined}

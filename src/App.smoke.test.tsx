@@ -10,8 +10,17 @@ import {
 
 const setZoomMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
+// Otherwise fully offline ("no backend"), but settings_snapshot must resolve
+// so the shell can read assistant_enabled: true — this smoke suite predates
+// Christian's 2026-08-24 "off by default" request and still exercises the
+// Assistant nav tab/workspace, so it explicitly opts back in here.
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn().mockRejectedValue(new Error("no backend")),
+  invoke: vi.fn((command: string) => {
+    if (command === "settings_snapshot") {
+      return Promise.resolve({ assistant_enabled: true });
+    }
+    return Promise.reject(new Error("no backend"));
+  }),
 }));
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({ setZoom: setZoomMock }),
@@ -27,6 +36,9 @@ describe("App shell smoke (v3)", () => {
   it("renders the five-workspace shell with Today mounted by default", async () => {
     render(<App />);
     const nav = screen.getByRole("tablist", { name: /workspace/i });
+    // assistant_enabled is read async (settings_snapshot); wait for the
+    // Assistant tab to actually appear before asserting the full nav order.
+    await screen.findByRole("tab", { name: "Assistant" });
     expect(
       within(nav)
         .getAllByRole("tab")

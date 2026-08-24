@@ -74,6 +74,10 @@ function renderToday(
           onOpenLedger={vi.fn()}
           onOpenUniverse={vi.fn()}
           onOpenSettings={vi.fn()}
+          // This suite exercises the full main menu, including the Assistant
+          // entry; Christian's 2026-08-24 request flipped its real default
+          // to off, so tests that need it explicitly opt back in.
+          assistantEnabled
           {...props}
         />
       </TodaySheetProvider>
