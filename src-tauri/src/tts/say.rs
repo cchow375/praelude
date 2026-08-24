@@ -20,7 +20,6 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::OnceLock;
 
 use super::{Pcm, Result, TtsError, TtsProvider};
 
@@ -156,10 +155,16 @@ pub struct SayTts {
     /// automatically" — see [`resolve_voice`].
     configured: Option<String>,
     /// Resolved once per instance and cached — `say -v '?'` is not re-shelled
-    /// per utterance. `Some(None)` means resolution ran and found nothing
-    /// installed (caller then omits `-v`); the outer `Option` from `OnceLock`
-    /// tracks "has resolution run yet".
-    resolved: OnceLock<Option<String>>,
+    /// per utterance. `Some(None)` means resolution ran against a real voice
+    /// list and found nothing usable (caller then omits `-v`).
+    ///
+    /// Only a resolution derived from a NON-EMPTY list is cached. If `say -v '?'`
+    /// fails or returns nothing — a transient fork/exec failure, sandboxing,
+    /// resource pressure — caching that would pin `None` for the whole session,
+    /// and with the hollow-synth check below every later utterance would then
+    /// error: the app would go mute until relaunch with no retry path. So an
+    /// empty list is treated as "not resolved yet" and re-probed next utterance.
+    resolved: std::sync::Mutex<Option<Option<String>>>,
     lister: Box<dyn VoiceLister>,
 }
 
@@ -178,16 +183,32 @@ impl SayTts {
     fn with_seams(configured: Option<String>, lister: Box<dyn VoiceLister>) -> SayTts {
         SayTts {
             configured,
-            resolved: OnceLock::new(),
+            resolved: std::sync::Mutex::new(None),
             lister,
         }
     }
 
     /// The voice to pass to `say`, resolving (and caching) on first call.
+    ///
+    /// A resolution computed from an EMPTY voice list is deliberately not
+    /// cached — see the `resolved` field comment. Everything else is cached, so
+    /// `say -v '?'` is not re-shelled per utterance.
     fn resolved_voice(&self) -> Option<String> {
-        self.resolved
-            .get_or_init(|| resolve_voice(self.configured.as_deref(), &self.lister.list()))
-            .clone()
+        let mut slot = match self.resolved.lock() {
+            Ok(slot) => slot,
+            // A poisoned lock must not take the voice down with it: fall back to
+            // resolving fresh rather than panicking inside the speech path.
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(cached) = slot.as_ref() {
+            return cached.clone();
+        }
+        let voices = self.lister.list();
+        let resolved = resolve_voice(self.configured.as_deref(), &voices);
+        if !voices.is_empty() {
+            *slot = Some(resolved.clone());
+        }
+        resolved
     }
 }
 
@@ -241,12 +262,21 @@ impl TtsProvider for SayTts {
             )));
         }
 
-        let pcm = decode_wav(&path)?;
-        if let Some(reason) = hollow_synth_reason(text, &pcm) {
-            return Err(TtsError::Say(reason));
-        }
-        Ok(pcm)
+        finish_synth(text, decode_wav(&path)?)
     }
+}
+
+/// The post-decode tail of [`SayTts::synth`], split out so the wiring itself is
+/// testable: `synth` shells out to the real `say`, but this is pure. A previous
+/// revision guarded the wiring with a source-inspection test, which a verifier
+/// defeated by leaving the call in place and discarding its result
+/// (`let _dead = hollow_synth_reason(..)`) — the check was dead and the guard
+/// still passed. A behavioural test on this function cannot be fooled that way.
+fn finish_synth(text: &str, pcm: Pcm) -> Result<Pcm> {
+    if let Some(reason) = hollow_synth_reason(text, &pcm) {
+        return Err(TtsError::Say(reason));
+    }
+    Ok(pcm)
 }
 
 /// A synth that returns far less audio than the text could possibly produce is
@@ -276,7 +306,7 @@ fn hollow_synth_reason(text: &str, pcm: &Pcm) -> Option<String> {
     let got = pcm.mono_f32.len();
     if (got as f32) < expected {
         return Some(format!(
-            "`say` produced {got} samples ({:.3}s) for {chars} characters — expected at least              {} samples ({:.3}s). The system voice is not synthesizing audibly (flaw B81);              reporting this as a failure rather than \"speaking\" silence.",
+            "`say` produced {got} samples ({:.3}s) for {chars} characters — expected at least {} samples ({:.3}s). The system voice is not synthesizing audibly (flaw B81); reporting a failure rather than \"speaking\" silence.",
             got as f32 / rate,
             expected as usize,
             expected / rate,
@@ -348,23 +378,59 @@ mod tests {
     }
 
     #[test]
-    fn synth_actually_calls_the_hollow_check() {
-        // The classifier is tested directly above, which would NOT catch someone
-        // deleting its call from `synth`. `synth` shells out to the real `say`,
-        // so it cannot be driven hollow on a healthy machine — a source-level
-        // assertion is the honest guard here (the same idiom this repo already
-        // uses for CSS invariants). If `synth` is ever refactored to take an
-        // injectable command runner, replace this with a behavioural test.
-        let src = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tts/say.rs"),
-        )
-        .expect("read say.rs");
-        let body_start = src.find("fn synth(&self, text: &str)").expect("synth exists");
-        let body = &src[body_start..body_start + 1200];
-        assert!(
-            body.contains("hollow_synth_reason("),
-            "synth must run the hollow-synth check before returning audio (flaw B81)"
+    fn a_failed_voice_probe_is_not_cached_forever() {
+        // If `say -v '?'` fails once (transient fork/exec failure, sandboxing,
+        // resource pressure) the old OnceLock cached `None` for the entire
+        // session. Combined with the hollow-synth check that made the app mute
+        // until relaunch, with no retry. An empty list must mean "unresolved",
+        // not "resolved to nothing".
+        struct FlakyLister {
+            calls: std::sync::atomic::AtomicUsize,
+        }
+        impl VoiceLister for FlakyLister {
+            fn list(&self) -> Vec<(String, String)> {
+                let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if n == 0 {
+                    Vec::new() // the probe failed this time
+                } else {
+                    vec![("Samantha".to_string(), "en_US".to_string())]
+                }
+            }
+        }
+        let tts = SayTts::with_seams(
+            None,
+            Box::new(FlakyLister {
+                calls: std::sync::atomic::AtomicUsize::new(0),
+            }),
         );
+        assert_eq!(tts.resolved_voice(), None, "first probe failed -> no voice yet");
+        assert_eq!(
+            tts.resolved_voice(),
+            Some("Samantha".to_string()),
+            "a failed probe must be retried, not cached as a permanent None"
+        );
+    }
+
+    #[test]
+    fn the_synth_tail_actually_enforces_the_hollow_check() {
+        // Behavioural, not source-inspection. A previous revision grepped say.rs
+        // for "hollow_synth_reason(" — a verifier defeated it by leaving the call
+        // in place and discarding the result (`let _dead = ...`), which disabled
+        // the entire B81 backstop while the guard still passed. It also
+        // false-alarmed when `synth` merely grew past a byte window. finish_synth
+        // is the real tail `synth` calls, so testing it cannot be fooled either way.
+        let hollow = Pcm {
+            rate: SAY_RATE,
+            mono_f32: vec![0.0; 118],
+        };
+        assert!(
+            finish_synth("test one two", hollow).is_err(),
+            "the synth tail must reject a hollow synth, not return it as speech"
+        );
+        let healthy = pcm_of(0.94);
+        let out = finish_synth("test one two", healthy).expect("healthy synth passes through");
+        assert_eq!(out.rate, SAY_RATE);
+        assert_eq!(out.mono_f32.len(), (SAY_RATE as f32 * 0.94) as usize);
     }
 
     #[test]
