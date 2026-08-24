@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DENSE_LAYOUT_FLOOR,
   DOCK_CHAIN_BASE_Y,
+  MIN_PANEL_WIDTH,
   NAV_RAIL_WIDTH,
 } from "./dockState";
 import {
@@ -18,6 +19,14 @@ import {
   PANEL_WIDTH as CLOCK_PANEL_WIDTH,
   clockDefaultX,
 } from "./ClockPanel";
+import {
+  DEFAULT_POSITION as DYNAMICS_DEFAULT_POSITION,
+  FLOOR_FALLBACK_Y as DYNAMICS_FLOOR_FALLBACK_Y,
+  PANEL_WIDTH as DYNAMICS_PANEL_WIDTH,
+  SECOND_COLUMN_Y as DYNAMICS_SECOND_COLUMN_Y,
+  dynamicsDefaultX,
+  dynamicsDefaultY,
+} from "./DynamicsPanel";
 
 // Fix wave item 9 (live-QA REFUTED finding): at the 720x520 dense-layout
 // floor the rep panel's OLD default (x:24, y:88, 440w) both covered the
@@ -152,6 +161,47 @@ describe("dock default positions at the 720x520 floor (fix wave item 9)", () => 
     );
     // ...and entirely on screen (this is what the floor cannot satisfy).
     expect(wide + CLOCK_PANEL_WIDTH).toBeLessThanOrEqual(1440);
+  });
+
+  // Plan B (task B3): the dynamics panel. The dock chain's first column is
+  // already FULL at this floor — rep(108) -> tray(340) -> clock(504) reaches
+  // it — so the dynamics panel takes a SECOND column beside the rep panel
+  // whenever the whole panel fits there, and otherwise falls back to the first
+  // column at the clock's own measured-good y. Both panels default CLOSED, so
+  // the fallback overlap only ever matters once the user opens both at the
+  // floor, where `resolveCollision` + the open-time viewport clamp settle it.
+  it("keeps the dynamics panel's default position clear of the nav rail and the shell topbar", () => {
+    expect(DYNAMICS_DEFAULT_POSITION.x).toBeGreaterThanOrEqual(NAV_RAIL_WIDTH);
+    expect(DYNAMICS_DEFAULT_POSITION.y).toBeGreaterThanOrEqual(
+      SHELL_TOPBAR_BOTTOM,
+    );
+    expect(DYNAMICS_SECOND_COLUMN_Y).toBeGreaterThanOrEqual(
+      SHELL_TOPBAR_BOTTOM,
+    );
+  });
+
+  it("fits the dynamics panel inside the 720px floor from whatever x it picks there", () => {
+    expect(dynamicsDefaultX(VIEWPORT.width) + DYNAMICS_PANEL_WIDTH).toBeLessThanOrEqual(
+      VIEWPORT.width,
+    );
+    expect(DYNAMICS_PANEL_WIDTH).toBeGreaterThanOrEqual(MIN_PANEL_WIDTH);
+  });
+
+  it("puts the dynamics panel in a second column only when the whole panel fits there", () => {
+    // No viewport (jsdom / SSR) and the dense floor: the safe first column.
+    expect(dynamicsDefaultX(undefined)).toBe(DYNAMICS_DEFAULT_POSITION.x);
+    expect(dynamicsDefaultX(VIEWPORT.width)).toBe(DYNAMICS_DEFAULT_POSITION.x);
+    expect(dynamicsDefaultY(VIEWPORT.width)).toBe(DYNAMICS_FLOOR_FALLBACK_Y);
+
+    // Realistic window: a second column clear of the rep panel's own box...
+    const wide = dynamicsDefaultX(1440);
+    expect(wide).toBeGreaterThanOrEqual(
+      REP_DEFAULT_POSITION.x + REP_PANEL_WIDTH,
+    );
+    // ...entirely on screen...
+    expect(wide + DYNAMICS_PANEL_WIDTH).toBeLessThanOrEqual(1440);
+    // ...and at the topbar-clearing y, not the chain's bottom.
+    expect(dynamicsDefaultY(1440)).toBe(DYNAMICS_SECOND_COLUMN_Y);
   });
 
   it("sanity: DENSE_LAYOUT_FLOOR matches this file's own VIEWPORT constant", () => {

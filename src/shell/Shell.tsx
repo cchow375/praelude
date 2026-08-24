@@ -36,6 +36,7 @@ import { DockProvider } from "../features/dock/DockProvider";
 import { RepPanel } from "../features/dock/RepPanel";
 import { PausedSetsTray } from "../features/dock/PausedSetsTray";
 import { ClockPanel } from "../features/dock/ClockPanel";
+import { DynamicsPanel } from "../features/dock/DynamicsPanel";
 import { DockPillBar } from "../features/dock/DockPillBar";
 import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
@@ -1204,6 +1205,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         applyExternalReceipt={rep.applyExternalReceipt}
       />
       <ClockPanel />
+      <DynamicsPanel />
     </DockProvider>
   );
 }

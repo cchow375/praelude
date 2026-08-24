@@ -3,7 +3,13 @@ import type { CSSProperties } from "react";
 import { universeSnapshot } from "./api";
 import { DetailPanel } from "./DetailPanel";
 import { formatDuration, formatSince } from "./format";
-import { fnv1a32, galaxyLayout, type GalaxyLayout } from "./galaxy";
+import {
+  fnv1a32,
+  galaxyLayout,
+  GLOW_RADIUS_GAP,
+  ORBIT_BODY_RADIUS,
+  type GalaxyLayout,
+} from "./galaxy";
 import {
   attentionList,
   blockState,
@@ -276,9 +282,11 @@ export function UniverseWorkspace({
                   {galaxy.stars.map((star) => (
                     <g
                       key={star.piece_id}
-                      className="universe-star"
+                      className={
+                        star.earned ? "universe-star" : "universe-star is-unlit"
+                      }
                       data-piece-id={star.piece_id}
-                      data-evidence="focused_seconds"
+                      data-evidence={star.evidence}
                       style={
                         {
                           "--star-brightness": star.brightness,
@@ -286,56 +294,13 @@ export function UniverseWorkspace({
                         } as CSSProperties
                       }
                     >
-                      {star.glow && (
-                        <circle
-                          className="universe-star-glow"
-                          data-evidence="streak"
-                          cx={star.cx}
-                          cy={star.cy}
-                          r={star.radius + 6}
-                        />
-                      )}
-                      {star.ring > 0 && (
-                        <circle
-                          className="universe-star-ring"
-                          data-evidence="earned_maturity"
-                          cx={star.cx}
-                          cy={star.cy}
-                          r={star.radius + 3}
-                          style={{ strokeWidth: 1 + 3 * star.ring }}
-                        />
-                      )}
-                      <circle
-                        className="universe-star-disc"
-                        cx={star.cx}
-                        cy={star.cy}
-                        r={star.radius}
-                      />
-                      {star.orbits.map((orbit) => (
-                        <g
-                          key={orbit.region_id}
-                          className="universe-orbit"
-                          style={
-                            {
-                              "--orbit-period": `${orbit.period}s`,
-                              "--orbit-phase": `${orbit.phase}deg`,
-                              transformOrigin: `${star.cx}px ${star.cy}px`,
-                            } as CSSProperties
-                          }
-                        >
-                          <circle
-                            className="universe-orbit-body"
-                            data-region-id={orbit.region_id}
-                            data-evidence="mastery_contracts_completed"
-                            cx={star.cx + orbit.radius}
-                            cy={star.cy}
-                            r={2.5}
-                          />
-                        </g>
-                      ))}
-                      {/* The click target is a real <circle> with a title, not a bare <g>:
-                          SVG hit areas need geometry, and the composer index below still
-                          carries the accessible <button> for every piece. */}
+                      {/* The click target renders FIRST and every decorative element
+                          after it gets pointer-events:none (universe.css), so hover/
+                          focus always lands on this hit circle regardless of what
+                          draws on top of it — fix-wave U1. It is a real <circle> with
+                          a title, not a bare <g>: SVG hit areas need geometry, and the
+                          composer index below still carries the accessible <button>
+                          for every piece. */}
                       <circle
                         className="universe-star-hit"
                         cx={star.cx}
@@ -345,6 +310,70 @@ export function UniverseWorkspace({
                       >
                         <title>{star.title}</title>
                       </circle>
+                      {star.earned ? (
+                        <>
+                          {star.glow && (
+                            <circle
+                              className="universe-star-glow"
+                              data-evidence="streak.current_days"
+                              cx={star.cx}
+                              cy={star.cy}
+                              r={star.radius + GLOW_RADIUS_GAP}
+                            />
+                          )}
+                          {star.ring > 0 && (
+                            <circle
+                              className="universe-star-ring"
+                              data-evidence="earned_maturity"
+                              cx={star.cx}
+                              cy={star.cy}
+                              r={star.radius + 3}
+                              style={{ strokeWidth: 1 + 3 * star.ring }}
+                            />
+                          )}
+                          <circle
+                            className="universe-star-disc"
+                            cx={star.cx}
+                            cy={star.cy}
+                            r={star.radius}
+                          />
+                          {star.orbits.map((orbit) => (
+                            <g
+                              key={orbit.region_id}
+                              className="universe-orbit"
+                              style={
+                                {
+                                  "--orbit-period": `${orbit.period}s`,
+                                  "--orbit-phase": `${orbit.phase}deg`,
+                                  transformOrigin: `${star.cx}px ${star.cy}px`,
+                                } as CSSProperties
+                              }
+                            >
+                              <circle
+                                className="universe-orbit-body"
+                                data-region-id={orbit.region_id}
+                                data-evidence="mastery_contracts_completed"
+                                cx={star.cx + orbit.radius}
+                                cy={star.cy}
+                                r={ORBIT_BODY_RADIUS}
+                              />
+                            </g>
+                          ))}
+                        </>
+                      ) : (
+                        /* Earned-only law (fix-wave F1): zero practice evidence gets
+                           no star — not even a dim one. A hollow, non-animated marker
+                           keeps the piece discoverable without granting it unearned
+                           growth (no fill, no twinkle, no glow, no ring, no orbits). */
+                        <circle
+                          className="universe-star-unlit"
+                          data-evidence="none"
+                          aria-label="not yet practised"
+                          cx={star.cx}
+                          cy={star.cy}
+                          r={star.radius}
+                        />
+                      )}
                     </g>
                   ))}
                 </svg>

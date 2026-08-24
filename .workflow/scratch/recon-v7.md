@@ -45,3 +45,17 @@
 - Book corpus: brain/corpus.rs:240-468 — BM25+TF-IDF, heading bonus, max 2 hits/source, chunked by heading/paragraph, cached lexical index, 12MB total/5MB per book. Books: roskell-complete-pianist, gebrian-learn-faster, breth-effective-practicing, gieseking-leimer-technique (markdown files).
 - Read models available as tools: history_days(from,to) + history_day_detail(date) store/history_days.rs:299-350; BlockHistory store/model.rs:144-183 (attempts/tries/current+best clean streak/mastery_status/contract fields); store.rep_blocks_for_piece(piece_id); metrics progress_summary (piece-scoped, incl streak); pass_seconds set_contract via practice_v2.rs:1613-1627 + open_set_in_tx :947-960. No carry_forward_seconds field exists in v6 (session planned_seconds in session_plan.rs:289-292).
 - Piece metadata (PieceDetail): id,title,composer,folder_path,xml_path,pdf_path,goals[],deadline,target_tempo,hard_spots,current_state,notes,banner_text (v14, ≤140 chars, crud.rs:2820); client context edition_id/edition_label (untrusted, ≤500 chars); brain context.rs:208-219 ui_score_location{surface,current_page,edition_id,edition_label,today_plan}.
+
+## Ship-time facts (checked 2026-08-23)
+- Keychain (service `codakiller`): **gemini key PRESENT, claude key ABSENT** (confirms B67).
+  Consequences: ledger item 26 (B75 — run measure mapping once on a real score for a live
+  datapoint) IS achievable at ship QA via the Gemini vision path; Plan C's live acceptance
+  question set also runs on Gemini. The Claude vision path still cannot be exercised at all.
+- Release path: `scripts/(C) release-macos.sh` — 8-step gate; step 1 asserts version agreement
+  across package.json + src-tauri/Cargo.toml + src-tauri/tauri.conf.json (all three must be
+  bumped to 7.0.0 together, currently 6.0.1); then npm test, npm run build, cargo test, clippy,
+  bundle, sign, DMG + sha256 into releases/v7.0.0/, staged install to /Applications with
+  .CodaKiller.previous.app backup.
+- True v7 baseline on main (b39df48, verified post-merge): vitest **2132 passed / 1 skipped
+  (172 files)**, cargo **864 lib + 37 across 12 further suites, 0 failed**, tsc clean.
+  NOTE: the earlier 2125 figure predates adopting 3 orphaned devMock tests (+7).

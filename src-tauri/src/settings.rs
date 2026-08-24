@@ -54,6 +54,19 @@ pub struct VerdictAliases {
     pub failed: Vec<String>,
 }
 
+/// The user-facing bound for `streak.threshold_minutes`: a sane "what is a
+/// reasonable daily bar" range. Deliberately NARROWER than
+/// [`crate::store::STREAK_THRESHOLD_DEFENSIVE_MAX_MINUTES`], which is the read
+/// model's own defensive clamp for callers that never passed through this
+/// validation. The two differ for different reasons, so the relationship is
+/// pinned at COMPILE time below rather than asserted at runtime (fix-wave S1).
+pub const STREAK_THRESHOLD_MAX_MINUTES: u32 = 240;
+
+const _: () = assert!(
+    STREAK_THRESHOLD_MAX_MINUTES as i64 <= crate::store::STREAK_THRESHOLD_DEFENSIVE_MAX_MINUTES,
+    "the Settings UI bound must never exceed streak_summary's defensive clamp ceiling",
+);
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SettingsSnapshot {
     pub theme: String,
@@ -133,7 +146,7 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
             "streak.threshold_minutes",
             DEFAULT_STREAK_THRESHOLD_MINUTES as u32,
             1,
-            240,
+            STREAK_THRESHOLD_MAX_MINUTES,
         ),
         vault_pieces_dir: string(
             store,
@@ -231,7 +244,7 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
     if let Some(value) = patch.streak_threshold_minutes {
         writes.push((
             "streak.threshold_minutes",
-            bounded(value, 1, 240, "Streak threshold")?.to_string(),
+            bounded(value, 1, STREAK_THRESHOLD_MAX_MINUTES, "Streak threshold")?.to_string(),
         ));
     }
     if let Some(value) = patch.vault_pieces_dir {
@@ -397,6 +410,59 @@ pub fn custom_verdict(store: &Store, transcript: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // fix-wave S1: `streak_threshold_minutes` had zero test coverage end to
+    // end — the SettingsPanel.tsx submit-patch fix (added alongside the
+    // Rust field itself) is correct today but was entirely unguarded:
+    // deleting that one line would silently reintroduce an unsavable field
+    // and every existing test, Rust and frontend, would stay green.
+
+    #[test]
+    fn streak_threshold_minutes_persists_and_reads_back() {
+        let store = Store::open(":memory:").unwrap();
+        assert_eq!(snapshot(&store).streak_threshold_minutes, 10, "default");
+        let saved = update(
+            &store,
+            SettingsPatch {
+                streak_threshold_minutes: Some(25),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(saved.streak_threshold_minutes, 25);
+        // Re-reading from a FRESH snapshot call (not the `update` return
+        // value) proves the value actually persisted to the setting table
+        // rather than only echoing back the patch.
+        assert_eq!(snapshot(&store).streak_threshold_minutes, 25);
+    }
+
+    #[test]
+    fn streak_threshold_minutes_bounds_are_documented_and_consistent() {
+        // `settings.rs` bounds the user-facing field to 1..=240 (a sane
+        // "what's a reasonable daily bar" UI range); `store::streaks::
+        // streak_summary` separately, defensively clamps ANY threshold it is
+        // given to 1..=1_440 (a full calendar day) regardless of caller —
+        // it is a read model that must stay safe even if invoked with a
+        // value that never passed through this settings validation. The two
+        // ranges deliberately differ for different reasons; this assertion
+        // is the "document why they differ" contract fix-wave S1 asked for:
+        // if the UI bound is ever widened past the defensive ceiling, this
+        // test catches the drift immediately.
+        // The UI-bound-vs-defensive-ceiling relationship is now enforced at
+        // COMPILE time by the `const _: () = assert!(..)` beside
+        // STREAK_THRESHOLD_MAX_MINUTES, so drift cannot even build. What this
+        // test still owns is the runtime half: that the bound is actually
+        // applied to a real update() call.
+        let store = Store::open(":memory:").unwrap();
+        let rejected = update(
+            &store,
+            SettingsPatch {
+                streak_threshold_minutes: Some(241),
+                ..Default::default()
+            },
+        );
+        assert!(rejected.is_err(), "241 minutes is outside the UI bound");
+    }
 
     #[test]
     fn defaults_and_invalid_stored_values_are_bounded() {
