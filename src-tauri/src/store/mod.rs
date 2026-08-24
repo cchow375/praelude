@@ -9,6 +9,7 @@ mod backfill;
 pub(crate) mod calendar;
 mod crud;
 mod day_sheet;
+pub(crate) mod dynamics_profiles;
 mod events;
 mod history_backfill;
 mod history_days;
