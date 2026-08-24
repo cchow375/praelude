@@ -26,19 +26,19 @@ Spec: docs/superpowers/specs/2026-08-20-codakiller-v6.0.1-fixes-v7-motivation-la
 ## Binding constraints
 - [x] 18. Loudness only, forever: no pitch/onset/note detection, no transcription, no grading anywhere in Plan B
 - [x] 19. Earned-only: nothing in galaxy/streak/photo grantable, bought, backfilled, faked; no points/coins/levels; no social; no separate OS windows
-- [ ] 20. 8GB M2 Air: no local ML runtimes, no FFT pipeline (weighting filter + RMS only); deterministic hot loop, LLM never in rep/metronome path; Assistant tools read-only + confirm-gated
-- [ ] 21. Any voice-router/fast-path touchpoint re-passes narrated corpus (finals AND partial-stream) zero false mutations; no bare prefix word joins fast-path allowlist
+- [~] 20. DEFERRED: the Assistant half rides with Plan C (on hold); the 8GB/no-ML/no-FFT half SHIPPED and was verified in Plan B. Original item: 8GB M2 Air: no local ML runtimes, no FFT pipeline (weighting filter + RMS only); deterministic hot loop, LLM never in rep/metronome path; Assistant tools read-only + confirm-gated
+- [~] 21. DEFERRED: no voice-router or fast-path file was touched in v7 — isolation proven by diff on every lane, so the corpus gate never applied. Original item: Any voice-router/fast-path touchpoint re-passes narrated corpus (finals AND partial-stream) zero false mutations; no bare prefix word joins fast-path allowlist
 - [x] 22. All 85+ legacy CSS token names preserved; paper design language throughout
 ## Process / verification
 - [x] 23. Implementation plans written first (writing-plans format), one per subsystem + shared foundations
-- [ ] 24. Per-slice fresh-context adversarial verification before anything counts done; vitest/cargo/tsc/clippy green at merge; commit per numbered item; lanes in ~/.ck-lanes/ (never session scratchpad)
-- [ ] 25. 720×520 screenshot QA for every new surface (+ real window size)
-- [ ] 26. B75: v7 QA runs measure mapping once on a real score (live datapoint)
-- [ ] 27. Ship mechanics: version bump, tag v7.0.0, DMG, pre-install live-DB backup (SHA recorded), rollback tar.gz one-copy rule, install + re-sign, push to GitHub remote
-- [ ] 28. Update protocol after ship: vault Changelog, CodaKiller.md, Roadmap, Flaws, Command Center, How To Use (+ Matches line), version record, repo NOTES.md, memory file
+- [x] 24. Per-slice fresh-context adversarial verification before anything counts done; vitest/cargo/tsc/clippy green at merge; commit per numbered item; lanes in ~/.ck-lanes/ (never session scratchpad)
+- [~] 25. DEFERRED: 720x520 live screenshot QA NOT done — automated coverage only; owed before the acceptance verdict. Original item: 720×520 screenshot QA for every new surface (+ real window size)
+- [~] 26. DEFERRED: B75 measure-mapping live run NOT done — owed at at-piano QA; the Gemini vision path is available. Original item: B75: v7 QA runs measure mapping once on a real score (live datapoint)
+- [x] 27. Ship mechanics: version bump, tag v7.0.0, DMG, pre-install live-DB backup (SHA recorded), rollback tar.gz one-copy rule, install + re-sign, push to GitHub remote
+- [x] 28. Update protocol after ship: vault Changelog, CodaKiller.md, Roadmap, Flaws, Command Center, How To Use (+ Matches line), version record, repo NOTES.md, memory file
 
 ## Added 2026-08-24 (Christian's direction, mid-build)
-- [ ] 29. Settings toggle to fully DISABLE the Assistant: hides its tab, stops voice questions
+- [x] 29. Settings toggle to fully DISABLE the Assistant: hides its tab, stops voice questions
       routing to it, hides assistant-suggest surfaces, makes zero API calls. "It's getting in the
       way and it is very extra and is a whole different project."
 - [~] 30. DEFERRED: Plan C (Assistant) resumes only on Christian's word. Branch `v7/plan-c` holds
