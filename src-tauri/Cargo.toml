@@ -47,6 +47,11 @@ base64 = "0.22"
 # external DTD declarations present in the real KernScores files, so score
 # context cannot cause a network fetch or entity expansion.
 quick-xml = "0.41"
+# Numbers policy (Plan C1, Task 5): matches numeric tokens in the Assistant's
+# answer text against tool-result payloads. Both already in Cargo.lock
+# transitively via tauri/reqwest, so this adds no new compilation.
+once_cell = "1"
+regex = "1"
 
 # ── Screen-resolution page images (score::page_image) ──────────────────────────
 # Nine of Christian's eleven editions are scans whose page is ONE giant image:

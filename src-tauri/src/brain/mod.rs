@@ -1314,6 +1314,100 @@ fn output_crosses_policy(answer: &str) -> bool {
     output_policy_violation_reason(answer).is_some()
 }
 
+/// Collects every numeric leaf value reachable from a tool result payload,
+/// as f64. Walks arrays/objects recursively; also pulls embedded numbers out
+/// of string leaves (e.g. a formatted date component is harmless noise, but
+/// a string like "27 min" in a future tool's summary field still counts).
+fn collect_tool_numbers(payloads: &[serde_json::Value]) -> Vec<f64> {
+    fn walk(value: &serde_json::Value, out: &mut Vec<f64>) {
+        match value {
+            serde_json::Value::Number(n) => {
+                if let Some(f) = n.as_f64() {
+                    out.push(f);
+                }
+            }
+            serde_json::Value::String(s) => {
+                for token in NUMBER_RE.find_iter(s) {
+                    if let Ok(f) = token.as_str().replace(',', "").parse::<f64>() {
+                        out.push(f);
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|v| walk(v, out)),
+            serde_json::Value::Object(map) => map.values().for_each(|v| walk(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    payloads.iter().for_each(|v| walk(v, &mut out));
+    out
+}
+
+static NUMBER_RE: once_cell::sync::Lazy<regex::Regex> =
+    once_cell::sync::Lazy::new(|| regex::Regex::new(r"\d[\d,]*(?:\.\d+)?").unwrap());
+
+/// The numbers policy: once an answer is tool-grounded (`tool_provenance` is
+/// non-empty), every figure the answer states must trace to a tool result —
+/// exactly, as a formatted variant (comma grouping), or as an honest
+/// minutes<->seconds rounding (tools mostly return seconds; answers mostly
+/// say minutes). This is deliberately narrower than "any number anywhere
+/// near a plausible value" — an unbacked figure is a `PolicyViolation`, same
+/// as a claimed rep verdict.
+fn numbers_policy_violation(
+    answer: &str,
+    tool_payloads: &[serde_json::Value],
+) -> Option<&'static str> {
+    let tool_numbers = collect_tool_numbers(tool_payloads);
+    if tool_numbers.is_empty() {
+        // No tool actually returned numeric data — nothing to check against,
+        // and nothing in the answer can claim tool backing either. Any
+        // digit in the answer text in this state is unsupported.
+        if NUMBER_RE.is_match(answer) {
+            return Some("unsupported_figure");
+        }
+        return None;
+    }
+
+    for token in NUMBER_RE.find_iter(answer) {
+        let Ok(claimed) = token.as_str().replace(',', "").parse::<f64>() else {
+            continue;
+        };
+        // A TIGHT epsilon on purpose: this is a safety boundary, not a
+        // display convenience. A loose tolerance (e.g. "within half a unit
+        // of any tool number") would let an unrelated but nearby figure
+        // (say, a streak of 3 backing a claimed "3.4") slip through as
+        // "close enough". The only slack allowed is the three honest,
+        // exact roundings of a seconds<->minutes unit conversion — floor,
+        // round, and ceil — because `history_days`/`streak_summary` report
+        // seconds while answers naturally speak in minutes, and a
+        // fractional minute count is legitimately reported either
+        // truncated or rounded (e.g. 1,660s = 27.67min, honestly either
+        // "27 min" or "28 min").
+        const EPSILON: f64 = 1e-9;
+        let backed = tool_numbers.iter().any(|&tool_value| {
+            (claimed - tool_value).abs() < EPSILON // verbatim / formatted variant
+                || [
+                    (tool_value / 60.0).floor(),
+                    (tool_value / 60.0).round(),
+                    (tool_value / 60.0).ceil(),
+                ]
+                .iter()
+                .any(|&minutes| (claimed - minutes).abs() < EPSILON) // seconds -> minutes
+                || [
+                    (tool_value * 60.0).floor(),
+                    (tool_value * 60.0).round(),
+                    (tool_value * 60.0).ceil(),
+                ]
+                .iter()
+                .any(|&seconds| (claimed - seconds).abs() < EPSILON) // minutes -> seconds
+        });
+        if !backed {
+            return Some("unsupported_figure");
+        }
+    }
+    None
+}
+
 fn output_policy_violation_reason(answer: &str) -> Option<&'static str> {
     let normalized = answer.to_ascii_lowercase();
     if [
@@ -1598,6 +1692,101 @@ mod tests {
     use serde_json::json;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn numbers_policy_allows_a_figure_present_verbatim_in_a_tool_payload() {
+        let payloads = vec![json!({"current_streak": 3, "best_streak": 7})];
+        assert_eq!(
+            numbers_policy_violation("Your current streak is 3 days; your best is 7.", &payloads),
+            None
+        );
+    }
+
+    #[test]
+    fn numbers_policy_allows_seconds_reported_as_rounded_minutes() {
+        let payloads = vec![json!([{"date": "2026-08-20", "focused_seconds": 1_660}])];
+        // 1660 seconds = 27.67 min, rounds to 27 or 28 — either is an honest rounding.
+        assert_eq!(
+            numbers_policy_violation("You focused 27 min on 2026-08-20.", &payloads),
+            None
+        );
+        assert_eq!(
+            numbers_policy_violation("You focused 28 min on 2026-08-20.", &payloads),
+            None
+        );
+    }
+
+    #[test]
+    fn numbers_policy_allows_comma_formatted_variants() {
+        let payloads = vec![json!({"total_seconds": 5000})];
+        assert_eq!(
+            numbers_policy_violation("That's 5,000 seconds on record.", &payloads),
+            None
+        );
+    }
+
+    #[test]
+    fn numbers_policy_rejects_a_figure_with_no_backing_tool_row() {
+        let payloads = vec![json!({"current_streak": 3})];
+        assert_eq!(
+            numbers_policy_violation("You've practiced this passage 12 times.", &payloads),
+            Some("unsupported_figure")
+        );
+    }
+
+    #[test]
+    fn numbers_policy_rejects_a_number_one_unit_off_the_true_rounding() {
+        // Adversarial: a claim adjacent to (but not equal to) an honest
+        // rounding must NOT slip through on a loose tolerance. 1660s = 27.67
+        // min — 27 and 28 are honest, but 26 and 29 are not backed by
+        // anything in the payload and must be rejected.
+        let payloads = vec![json!([{"date": "2026-08-20", "focused_seconds": 1_660}])];
+        assert_eq!(
+            numbers_policy_violation("You focused 26 min on 2026-08-20.", &payloads),
+            Some("unsupported_figure")
+        );
+        assert_eq!(
+            numbers_policy_violation("You focused 29 min on 2026-08-20.", &payloads),
+            Some("unsupported_figure")
+        );
+    }
+
+    #[test]
+    fn numbers_policy_rejects_a_figure_near_but_not_equal_to_a_verbatim_tool_number() {
+        // Adversarial: a claim close to a raw tool number (not a unit
+        // conversion of it) must still be rejected — "close" is not a
+        // policy the numbers check honors outside the three named seconds
+        // <-> minutes roundings.
+        let payloads = vec![json!({"current_streak": 3})];
+        assert_eq!(
+            numbers_policy_violation("Your streak is 4 days.", &payloads),
+            Some("unsupported_figure")
+        );
+        assert_eq!(
+            numbers_policy_violation("Your streak is 2.6 days.", &payloads),
+            Some("unsupported_figure")
+        );
+    }
+
+    #[test]
+    fn numbers_policy_rejects_any_figure_when_no_tool_returned_numeric_data() {
+        // A tool payload with no numeric leaves at all (e.g. an empty array
+        // result) backs nothing — any digit in the answer is unsupported.
+        let payloads: Vec<serde_json::Value> = vec![json!([])];
+        assert_eq!(
+            numbers_policy_violation("You've had 5 sessions.", &payloads),
+            Some("unsupported_figure")
+        );
+    }
+
+    #[test]
+    fn numbers_policy_allows_an_answer_with_no_digits_regardless_of_payload() {
+        let payloads = vec![json!({"current_streak": 3})];
+        assert_eq!(
+            numbers_policy_violation("Keep going, you're on a nice streak.", &payloads),
+            None
+        );
+    }
 
     #[derive(Default)]
     struct TestLibrary;
