@@ -45,7 +45,9 @@ const twoRows = suggestions(
 );
 
 async function ask(description = "the leap keeps missing") {
-  fireEvent.change(screen.getByLabelText("Describe the passage"), {
+  // The Assistant toggle gate is fetched async (settings_snapshot); wait for
+  // the card to actually mount before interacting with it.
+  fireEvent.change(await screen.findByLabelText("Describe the passage"), {
     target: { value: description },
   });
   fireEvent.click(screen.getByRole("button", { name: "Ask" }));
@@ -273,7 +275,7 @@ describe("PassageHelper — host integration (spec C4)", () => {
     expect(within(plan).getByTestId("score-plan-empty")).toBeTruthy();
 
     // Ask (through the dev-mock's canned assistant_suggest) inside the Plan tab.
-    const helper = within(plan).getByTestId("passage-helper");
+    const helper = await within(plan).findByTestId("passage-helper");
     fireEvent.change(within(helper).getByLabelText("Describe the passage"), {
       target: { value: "the leap keeps missing" },
     });
@@ -320,7 +322,7 @@ describe("PassageHelper — host integration (spec C4)", () => {
     const plan = await screen.findByRole("region", {
       name: "Today's plan for this piece",
     });
-    const helper = within(plan).getByTestId("passage-helper");
+    const helper = await within(plan).findByTestId("passage-helper");
     fireEvent.change(within(helper).getByLabelText("Describe the passage"), {
       target: { value: "the leap keeps missing" },
     });
@@ -341,5 +343,45 @@ describe("PassageHelper — host integration (spec C4)", () => {
     );
     // The piece still has no plan items.
     expect(within(plan).getByTestId("score-plan-empty")).toBeTruthy();
+  });
+});
+
+// -- assistant-disabled gate (Christian's 2026-08-24 "off by default" request)
+// --------------------------------------------------------------------------
+
+describe("PassageHelper — hidden when the Assistant is disabled", () => {
+  beforeEach(() => {
+    uninstallTauriDevMock();
+    installTauriDevMock({ assistantEnabled: false });
+  });
+
+  it("never mounts in the Score Plan tab host", async () => {
+    await seedSheet([{ type: "piece", piece_id: 1 }]);
+    render(<ScorePlanTab pieceId={1} />, { wrapper: Harness });
+
+    const plan = await screen.findByRole("region", {
+      name: "Today's plan for this piece",
+    });
+    // Give the async settings gate a chance to resolve before asserting
+    // absence, so this cannot pass merely because the fetch hasn't settled.
+    await waitFor(() =>
+      expect(within(plan).queryByTestId("passage-helper")).toBeNull(),
+    );
+    expect(screen.queryByPlaceholderText("Stuck? Describe the passage.")).toBeNull();
+  });
+
+  it("never mounts in the day-sheet host, even under a focused piece heading", async () => {
+    await seedSheet([{ type: "piece", piece_id: 1 }]);
+    render(<TodayDaySheet />, { wrapper: Harness });
+
+    await waitFor(() => expect(screen.getByText("Scherzo No. 2")).toBeTruthy());
+    fireEvent.focus(screen.getByRole("button", { name: /Scherzo No\. 2/ }));
+
+    // Focusing the heading would normally reveal the card (see the enabled
+    // host-integration test above); it must stay absent here.
+    await waitFor(() =>
+      expect(screen.queryByTestId("passage-helper")).toBeNull(),
+    );
+    expect(screen.queryByPlaceholderText("Stuck? Describe the passage.")).toBeNull();
   });
 });

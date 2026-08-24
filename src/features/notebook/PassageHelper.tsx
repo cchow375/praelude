@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { defineCommand, executeCommand } from "../../services/command";
 import { ASSISTANT } from "../../shell/terms";
+import { useAssistantEnabled } from "../settings/useAssistantEnabled";
 import {
   ReaderWindow,
   type ExcerptFetcher,
@@ -75,6 +76,12 @@ export function PassageHelper({
   suggest = nativeSuggest,
   fetchExcerpt,
 }: PassageHelperProps) {
+  // Christian's 2026-08-24 request: the Assistant is off by default and can
+  // be fully disabled in Settings. This card's whole purpose is an Assistant
+  // action (assistant_suggest), so it mounts nothing at all while disabled —
+  // hiding the Brain nav tab does not reach this surface (Score Plan tab and
+  // day-sheet piece headings), so it needs its own gate.
+  const assistantEnabled = useAssistantEnabled();
   const [draft, setDraft] = useState("");
   const [rows, setRows] = useState<AssistantSuggestion[]>([]);
   const [busy, setBusy] = useState(false);
@@ -159,6 +166,8 @@ export function PassageHelper({
       heading: row.source_heading,
     });
   };
+
+  if (!assistantEnabled) return null;
 
   return (
     <section
