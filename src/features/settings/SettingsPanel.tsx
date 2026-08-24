@@ -359,6 +359,7 @@ export function SettingsPanel({
           <label className="settings-check settings-wide">
             <input
               type="checkbox"
+              aria-label={ASSISTANT}
               checked={value.assistant_enabled}
               onChange={(event) =>
                 setValue({
@@ -376,73 +377,78 @@ export function SettingsPanel({
               </small>
             </span>
           </label>
-          <BrainConnection invoker={brainInvoker} />
-          <Row label={`${ASSISTANT} provider`}>
-            <select
-              aria-label={`${ASSISTANT} provider`}
-              value={value.brain_provider}
-              onChange={(event) =>
-                setValue({
-                  ...value,
-                  brain_provider: event.target
-                    .value as SettingsSnapshot["brain_provider"],
-                })
-              }
-            >
-              <option value="auto">Auto (Claude → Gemini → offline)</option>
-              <option value="claude">Prefer Claude</option>
-              <option value="gemini">Gemini only</option>
-              <option value="offline">Offline library only</option>
-            </select>
-          </Row>
-          <Row label="Knowledge folder" wide>
-            <input
-              aria-label="Knowledge folder"
-              value={value.knowledge_dir}
-              onChange={(event) =>
-                setValue({ ...value, knowledge_dir: event.target.value })
-              }
-            />
-          </Row>
-          <label className="settings-check settings-wide">
-            <input
-              type="checkbox"
-              checked={value.share_retrieved_knowledge}
-              onChange={(event) =>
-                setValue({
-                  ...value,
-                  share_retrieved_knowledge: event.target.checked,
-                })
-              }
-            />
-            <span>
-              <strong>Share retrieved knowledge with Claude/Gemini</strong>
-              <small>
-                Only the retrieved passages, your question, and selected
-                practice facts may be sent. The full folder is never uploaded.
-              </small>
-            </span>
-          </label>
-          <div className="settings-keys" aria-label="API keys">
-            {(["claude", "gemini"] as Provider[]).map((provider) => (
-              <KeyControl
-                key={provider}
-                provider={provider}
-                status={value.api_keys.find(
-                  (item) => item.provider === provider,
-                )!}
-                api={api}
-                onStatus={(status) =>
-                  setValue({
-                    ...value,
-                    api_keys: value.api_keys.map((item) =>
-                      item.provider === provider ? status : item,
-                    ),
-                  })
-                }
-              />
-            ))}
-          </div>
+          {value.assistant_enabled && (
+            <>
+              <BrainConnection invoker={brainInvoker} />
+              <Row label={`${ASSISTANT} provider`}>
+                <select
+                  aria-label={`${ASSISTANT} provider`}
+                  value={value.brain_provider}
+                  onChange={(event) =>
+                    setValue({
+                      ...value,
+                      brain_provider: event.target
+                        .value as SettingsSnapshot["brain_provider"],
+                    })
+                  }
+                >
+                  <option value="auto">Auto (Claude → Gemini → offline)</option>
+                  <option value="claude">Prefer Claude</option>
+                  <option value="gemini">Gemini only</option>
+                  <option value="offline">Offline library only</option>
+                </select>
+              </Row>
+              <Row label="Knowledge folder" wide>
+                <input
+                  aria-label="Knowledge folder"
+                  value={value.knowledge_dir}
+                  onChange={(event) =>
+                    setValue({ ...value, knowledge_dir: event.target.value })
+                  }
+                />
+              </Row>
+              <label className="settings-check settings-wide">
+                <input
+                  type="checkbox"
+                  checked={value.share_retrieved_knowledge}
+                  onChange={(event) =>
+                    setValue({
+                      ...value,
+                      share_retrieved_knowledge: event.target.checked,
+                    })
+                  }
+                />
+                <span>
+                  <strong>Share retrieved knowledge with Claude/Gemini</strong>
+                  <small>
+                    Only the retrieved passages, your question, and selected
+                    practice facts may be sent. The full folder is never
+                    uploaded.
+                  </small>
+                </span>
+              </label>
+              <div className="settings-keys" aria-label="API keys">
+                {(["claude", "gemini"] as Provider[]).map((provider) => (
+                  <KeyControl
+                    key={provider}
+                    provider={provider}
+                    status={value.api_keys.find(
+                      (item) => item.provider === provider,
+                    )!}
+                    api={api}
+                    onStatus={(status) =>
+                      setValue({
+                        ...value,
+                        api_keys: value.api_keys.map((item) =>
+                          item.provider === provider ? status : item,
+                        ),
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </Disclosure>
 
