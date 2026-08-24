@@ -2,6 +2,7 @@ mod anomalies;
 pub mod audio;
 mod brain;
 mod date;
+mod dynamics;
 pub mod imslp;
 pub mod intent;
 mod keys;
@@ -29,6 +30,7 @@ mod voice_loop;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use dynamics::DynamicsMeter;
 use metronome::Metronome;
 use rep::{RepEngine, RepVerdict};
 use sessions::{SessionService, StateEmitter};
@@ -1338,6 +1340,46 @@ fn day_sheet_save(
         .map_err(|e| e.to_string())
 }
 
+// ── Dynamics calibration profiles (Plan B, task B2) ──────────────────────
+//
+// THE LAW: loudness only. These three commands move five dB figures and a
+// free-text label in and out of the two `dynamics_*` tables. They write to no
+// practice table and append no event.
+
+/// Save a new pp→ff calibration profile and make it the sole active one.
+///
+/// A save ALWAYS creates a new row: recalibrating never mutates an existing
+/// profile, so the previous curve stays inspectable. A non-increasing capture is
+/// rejected with a message naming the offending step and both dB figures.
+#[tauri::command]
+fn dynamics_profile_save(
+    device_id: String,
+    label: String,
+    points: Vec<store::dynamics_profiles::CalibrationPoint>,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::dynamics_profiles::DynamicsProfile, String> {
+    store
+        .dynamics_profile_save(&device_id, &label, &points)
+        .map_err(|e| e.to_string())
+}
+
+/// Every saved calibration profile, newest first.
+#[tauri::command]
+fn dynamics_profile_list(
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<store::dynamics_profiles::DynamicsProfile>, String> {
+    store.dynamics_profile_list().map_err(|e| e.to_string())
+}
+
+/// Move the active flag to `id`. Creates and deletes nothing.
+#[tauri::command]
+fn dynamics_profile_activate(
+    id: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::dynamics_profiles::DynamicsProfile, String> {
+    store.dynamics_profile_activate(id).map_err(|e| e.to_string())
+}
+
 /// Read one piece's long-term "arch" plan, or `null` when it has none yet.
 #[tauri::command]
 fn piece_plan_get(
@@ -2150,6 +2192,9 @@ pub fn run() {
             sessions.set_rollover_pause_hook(rep.clone());
 
             app.manage(metro.clone());
+            // The dynamics meter owns its own cpal INPUT stream; it is created
+            // stopped and never opens the mic until the dock panel asks.
+            app.manage(Arc::new(DynamicsMeter::new()));
             app.manage(store.clone());
             app.manage(sessions.clone());
             app.manage(rep.clone());
@@ -2248,6 +2293,10 @@ pub fn run() {
                 }
                 if let Some(metro) = window.try_state::<Arc<Metronome>>() {
                     metro.shutdown();
+                }
+                // The mic must never outlive the window.
+                if let Some(meter) = window.try_state::<Arc<DynamicsMeter>>() {
+                    meter.shutdown();
                 }
             }
         })
@@ -2385,6 +2434,12 @@ pub fn run() {
             metronome::metro_practice_resume,
             metronome::metro_practice_retune,
             metronome::metro_practice_close,
+            dynamics::dynamics_meter_start,
+            dynamics::dynamics_meter_stop,
+            dynamics::dynamics_meter_state,
+            dynamics_profile_save,
+            dynamics_profile_list,
+            dynamics_profile_activate,
             voice_mute,
             voice_state,
             tts_degraded,
