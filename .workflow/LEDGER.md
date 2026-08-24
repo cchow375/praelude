@@ -10,8 +10,8 @@ Spec: docs/superpowers/specs/2026-08-20-codakiller-v6.0.1-fixes-v7-motivation-la
 ## Plan A — Galaxy & Ritual
 - [x] 5. A1 earned-only living galaxy: piece=star system (focused time→star size, mastered sections orbit, streak glow); deterministic ambient motion; NO physics sim; pure function of events; property test (identical event history ⇒ identical galaxy); replaces static Universe in place (same route + deep links)
 - [x] 6. A2 day streak: day counts at ≥10 focused minutes (event-derived, configurable in Settings); current+best in Today AND Calendar; localtime day boundary per v6 convention
-- [ ] 7. A3 photo calendar: at day close ("end my day" or midnight auto-close prompt at next launch) offer webcam capture (getUserMedia) + file-drop fallback; skippable in one keypress; Liftoff-style thumbnails in Calendar cells; practice-day-without-photo renders existing planned-vs-done bars unchanged
-- [ ] 8. A4 completion animations: set complete, mastery landing, day close; <1.5s, deterministic, paper/ink language, never input-blocking, prefers-reduced-motion → static flourish; paired with existing chime/speech ack policy, no new audio path
+- [x] 7. A3 photo calendar: at day close ("end my day" or midnight auto-close prompt at next launch) offer webcam capture (getUserMedia) + file-drop fallback; skippable in one keypress; Liftoff-style thumbnails in Calendar cells; practice-day-without-photo renders existing planned-vs-done bars unchanged
+- [x] 8. A4 completion animations: set complete, mastery landing, day close; <1.5s, deterministic, paper/ink language, never input-blocking, prefers-reduced-motion → static flourish; paired with existing chime/speech ack policy, no new audio path
 ## Plan B — Dynamics Checker
 - [x] 9. B0 throwaway spike FIRST: cpal input + hear-CLI STT sharing one mic on M2 Air, both live; measure CPU/RSS of meter loop; if coexistence fails → push-to-measure fallback, Christian decides
 - [x] 10. B1 level meter core (Rust): cpal → A-weighting filter → short-window RMS+peak streamed at panel rate; exposes dB figures and NOTHING else
@@ -25,7 +25,7 @@ Spec: docs/superpowers/specs/2026-08-20-codakiller-v6.0.1-fixes-v7-motivation-la
 - [ ] 17. C4 piece knowledge: grounded in open piece's actual metadata (edition, composer, regions, goals banner)
 ## Binding constraints
 - [x] 18. Loudness only, forever: no pitch/onset/note detection, no transcription, no grading anywhere in Plan B
-- [ ] 19. Earned-only: nothing in galaxy/streak/photo grantable, bought, backfilled, faked; no points/coins/levels; no social; no separate OS windows
+- [x] 19. Earned-only: nothing in galaxy/streak/photo grantable, bought, backfilled, faked; no points/coins/levels; no social; no separate OS windows
 - [ ] 20. 8GB M2 Air: no local ML runtimes, no FFT pipeline (weighting filter + RMS only); deterministic hot loop, LLM never in rep/metronome path; Assistant tools read-only + confirm-gated
 - [ ] 21. Any voice-router/fast-path touchpoint re-passes narrated corpus (finals AND partial-stream) zero false mutations; no bare prefix word joins fast-path allowlist
 - [x] 22. All 85+ legacy CSS token names preserved; paper design language throughout
