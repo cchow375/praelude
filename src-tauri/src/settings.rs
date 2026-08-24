@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::keys::{api_key_status, ApiKeyProvider, ApiKeyStatus};
-use crate::store::Store;
+use crate::store::{Store, DEFAULT_STREAK_THRESHOLD_MINUTES};
 use crate::tts::gemini::DEFAULT_VOICE;
 
 const SOUNDS: &[&str] = &["beep", "clave", "cowbell", "rim", "tick", "woodblock"];
@@ -72,6 +72,7 @@ pub struct SettingsSnapshot {
     pub practice_default_clean_streak: u32,
     pub ladder_bpm_step: u32,
     pub calendar_capacity_minutes: u32,
+    pub streak_threshold_minutes: u32,
     pub vault_pieces_dir: String,
     pub verdict_aliases: VerdictAliases,
     pub api_keys: Vec<ApiKeyStatus>,
@@ -95,6 +96,7 @@ pub struct SettingsPatch {
     pub practice_default_clean_streak: Option<u32>,
     pub ladder_bpm_step: Option<u32>,
     pub calendar_capacity_minutes: Option<u32>,
+    pub streak_threshold_minutes: Option<u32>,
     pub vault_pieces_dir: Option<String>,
     pub verdict_aliases: Option<VerdictAliases>,
 }
@@ -126,6 +128,13 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
         practice_default_clean_streak: integer(store, "practice.default_clean_streak", 5, 1, 100),
         ladder_bpm_step: integer(store, "rep.bpm_step", 4, 1, 24),
         calendar_capacity_minutes: integer(store, "calendar.daily_capacity_minutes", 60, 1, 1_440),
+        streak_threshold_minutes: integer(
+            store,
+            "streak.threshold_minutes",
+            DEFAULT_STREAK_THRESHOLD_MINUTES as u32,
+            1,
+            240,
+        ),
         vault_pieces_dir: string(
             store,
             "vault.pieces_dir",
@@ -217,6 +226,12 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
         writes.push((
             "calendar.daily_capacity_minutes",
             bounded(value, 1, 1_440, "Calendar capacity")?.to_string(),
+        ));
+    }
+    if let Some(value) = patch.streak_threshold_minutes {
+        writes.push((
+            "streak.threshold_minutes",
+            bounded(value, 1, 240, "Streak threshold")?.to_string(),
         ));
     }
     if let Some(value) = patch.vault_pieces_dir {

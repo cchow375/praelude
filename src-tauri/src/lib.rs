@@ -1398,6 +1398,20 @@ fn day_sheets_range(
         .map_err(|e| e.to_string())
 }
 
+// ── Day streak (Plan A, task A2) ───────────────────────────────────────────
+//
+// A pure read over the event log. There is no streak table and no streak write
+// path anywhere in the app: a streak is a fact about practice that already
+// happened, so it cannot be granted, bought or backfilled.
+
+/// Consecutive LOCAL days whose event-derived focused time cleared the
+/// configured `streak.threshold_minutes` bar, plus the best run on record.
+#[tauri::command]
+fn streak_summary(store: State<'_, Arc<Store>>) -> Result<store::StreakSummary, String> {
+    let threshold = i64::from(settings::snapshot(&store).streak_threshold_minutes);
+    store.streak_summary(threshold).map_err(|e| e.to_string())
+}
+
 fn rejected_plan(
     command_id: &str,
     error: String,
@@ -2312,6 +2326,7 @@ pub fn run() {
             piece_plan_get,
             piece_plan_save,
             history_days,
+            streak_summary,
             history_day_detail,
             day_sheets_range,
             session_plan_start,
