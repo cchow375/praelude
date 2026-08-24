@@ -1,5 +1,18 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Christian's 2026-08-24 request flipped assistant_enabled's real default to
+// off; this suite exercises the full five-tab nav, so it explicitly opts
+// back in.
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn((command: string) => {
+    if (command === "settings_snapshot") {
+      return Promise.resolve({ assistant_enabled: true });
+    }
+    return Promise.resolve(null);
+  }),
+}));
+
 import { Shell } from "./Shell";
 
 // B4 shell-scale contract: the rail nav is now icon + short label. Each target
@@ -10,9 +23,10 @@ import { Shell } from "./Shell";
 afterEach(cleanup);
 
 describe("Shell rail scale (B4)", () => {
-  it("gives every workspace target a decorative inline-SVG glyph beside its label", () => {
+  it("gives every workspace target a decorative inline-SVG glyph beside its label", async () => {
     render(<Shell />);
     const nav = screen.getByRole("tablist", { name: /workspace/i });
+    await screen.findByRole("tab", { name: "Assistant" });
     const tabs = within(nav).getAllByRole("tab");
 
     expect(tabs).toHaveLength(5);

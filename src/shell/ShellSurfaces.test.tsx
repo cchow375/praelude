@@ -193,6 +193,11 @@ beforeEach(() => {
   invokeMock.mockReset();
   invokeMock.mockImplementation((command: string) => {
     switch (command) {
+      // Christian's 2026-08-24 request flipped assistant_enabled's real
+      // default to off; this suite exercises Brain routing, so it
+      // explicitly opts back in.
+      case "settings_snapshot":
+        return Promise.resolve({ assistant_enabled: true });
       case "rep_state":
         return Promise.resolve(ACTIVE_SNAP);
       case "session_current":

@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockImplementation((command: string) => {
     switch (command) {
+      // Christian's 2026-08-24 request flipped the real default to off; this
+      // suite exercises the Brain workspace, so it explicitly opts back in.
+      case "settings_snapshot":
+        return Promise.resolve({ assistant_enabled: true });
       case "brain_status":
         return Promise.resolve({
           online: true,
@@ -39,7 +43,7 @@ afterEach(cleanup);
 describe("Brain navigation (v3 shell)", () => {
   it("navigates to the Brain workspace from the shell nav", async () => {
     render(<Shell />);
-    fireEvent.click(screen.getByRole("tab", { name: "Assistant" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Assistant" }));
     expect(await screen.findByTestId("workspace-brain")).toBeTruthy();
     // Today is no longer mounted once Brain is the active tab.
     expect(screen.queryByTestId("workspace-today")).toBeNull();
@@ -47,7 +51,7 @@ describe("Brain navigation (v3 shell)", () => {
 
   it("answers a typed question inside the Brain workspace", async () => {
     render(<Shell />);
-    fireEvent.click(screen.getByRole("tab", { name: "Assistant" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Assistant" }));
 
     fireEvent.change(await screen.findByLabelText("Ask Coda"), {
       target: { value: "How do I land this leap?" },
@@ -58,7 +62,7 @@ describe("Brain navigation (v3 shell)", () => {
 
   it("shows the persistent Brain status line", async () => {
     render(<Shell />);
-    fireEvent.click(screen.getByRole("tab", { name: "Assistant" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Assistant" }));
     expect(await screen.findByText("● configured — gemini")).toBeTruthy();
   });
 });
