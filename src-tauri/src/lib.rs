@@ -2,6 +2,7 @@ mod anomalies;
 pub mod audio;
 mod brain;
 mod date;
+mod dynamics;
 pub mod imslp;
 pub mod intent;
 mod keys;
@@ -29,6 +30,7 @@ mod voice_loop;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use dynamics::DynamicsMeter;
 use metronome::Metronome;
 use rep::{RepEngine, RepVerdict};
 use sessions::{SessionService, StateEmitter};
@@ -2136,6 +2138,9 @@ pub fn run() {
             sessions.set_rollover_pause_hook(rep.clone());
 
             app.manage(metro.clone());
+            // The dynamics meter owns its own cpal INPUT stream; it is created
+            // stopped and never opens the mic until the dock panel asks.
+            app.manage(Arc::new(DynamicsMeter::new()));
             app.manage(store.clone());
             app.manage(sessions.clone());
             app.manage(rep.clone());
@@ -2234,6 +2239,10 @@ pub fn run() {
                 }
                 if let Some(metro) = window.try_state::<Arc<Metronome>>() {
                     metro.shutdown();
+                }
+                // The mic must never outlive the window.
+                if let Some(meter) = window.try_state::<Arc<DynamicsMeter>>() {
+                    meter.shutdown();
                 }
             }
         })
@@ -2370,6 +2379,9 @@ pub fn run() {
             metronome::metro_practice_resume,
             metronome::metro_practice_retune,
             metronome::metro_practice_close,
+            dynamics::dynamics_meter_start,
+            dynamics::dynamics_meter_stop,
+            dynamics::dynamics_meter_state,
             voice_mute,
             voice_state,
             tts_degraded,
