@@ -40,6 +40,8 @@ import { DynamicsPanel } from "../features/dock/DynamicsPanel";
 import { DockPillBar } from "../features/dock/DockPillBar";
 import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
+import { DayPhotoCapture } from "../features/ritual/DayPhotoCapture";
+import { dayPhotoPrompt } from "../features/ritual/api";
 import { useVoice } from "../features/voice/useVoice";
 import { useTtsDegraded } from "../features/voice/useTtsDegraded";
 import { VoiceToast } from "../features/voice/VoiceToast";
@@ -410,6 +412,10 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   const ttsDegraded = useTtsDegraded();
   const session = useSession();
   const [ending, setEnding] = useState(false);
+  // A3: the day-close photo ritual. Set by a session that just ended, or by
+  // the next-launch rollover prompt below — either way it names the LOCAL
+  // day the capture card is offered for.
+  const [photoDay, setPhotoDay] = useState<string | null>(null);
   const repFallbackContext = useMemo<PracticeBrainContext | null>(() => {
     if (!rep.snap) return null;
     return {
@@ -830,12 +836,33 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     setEnding(true);
     try {
       await session.endSession();
+      // The ritual only follows a day that actually closed. A failed end
+      // throws above this line and never reaches the card.
+      setPhotoDay(todayLocal());
     } catch {
       // useSession preserves the live session and publishes the receipt.
     } finally {
       setEnding(false);
     }
   }, [session]);
+
+  // A3: a midnight auto-close skips the ritual live, but records which day
+  // it skipped it for — offer that day's photo once, on the next launch.
+  // Best-effort: no Tauri backend (browser dev) or a bare fetch failure just
+  // means no prompt, never a startup error.
+  useEffect(() => {
+    let alive = true;
+    void dayPhotoPrompt()
+      .then((day) => {
+        if (alive && day) setPhotoDay(day);
+      })
+      .catch(() => {
+        // No backend, or nothing pending — either way, nothing to offer.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const focusTab = (id: WorkspaceId) => {
     setView(id);
@@ -1157,6 +1184,11 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
           the ambient ones the router ignored, so a miss is a sentence you can
           read instead of silence you have to guess at. */}
       <HeardPill delivery={voice.acceptedFinalDelivery} />
+      {/* A3: the day-close photo ritual. Shell-level, not SessionBar-level —
+          the bar is a slim strip and must not grow a modal. */}
+      {photoDay && (
+        <DayPhotoCapture day={photoDay} onDone={() => setPhotoDay(null)} />
+      )}
       {rep.error && !rep.snap && (
         <p
           className="shell-rep-error"

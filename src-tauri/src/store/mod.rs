@@ -151,6 +151,15 @@ impl Store {
         conn.query_row("SELECT date('now', 'localtime')", [], |row| row.get(0))
     }
 
+    /// The LOCAL calendar day a raw timestamp falls on, via the same
+    /// `date(ts,'localtime')` conversion `history_days.rs` and
+    /// `session_last_event_and_same_local_day` already use. Used by the A3
+    /// rollover-photo prompt to turn a session's `last_ts` into a day key.
+    pub(crate) fn local_day_of(&self, ts: &str) -> rusqlite::Result<String> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row("SELECT date(?1, 'localtime')", [ts], |row| row.get(0))
+    }
+
     pub fn now_rfc3339(&self) -> rusqlite::Result<String> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let value: String = conn.query_row("SELECT datetime('now')", [], |row| row.get(0))?;

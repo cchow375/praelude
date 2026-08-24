@@ -1,0 +1,95 @@
+/* A3: the day-close photo ritual. Paper tokens only, dense-floor safe
+   (720x520) — width-capped in CSS, never by an inline pixel size. */
+
+.day-photo-card {
+  position: fixed;
+  inset-inline-end: var(--s-4);
+  inset-block-end: var(--s-4);
+  z-index: 50;
+  width: min(20rem, calc(100vw - var(--s-4) * 2));
+  max-height: calc(100vh - var(--s-4) * 2);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-topbar, none);
+}
+
+.day-photo-card:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.day-photo-ask {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+
+.day-photo-camera,
+.day-photo-dropzone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.day-photo-video {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+  background: var(--paper-sunken);
+}
+
+.day-photo-take {
+  height: 30px;
+  padding: 0 var(--s-3);
+  font-size: var(--text-sm);
+  color: var(--accent-invert-ink);
+  background: var(--accent-invert-bg);
+  border: 0;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.day-photo-take:active {
+  transform: translateY(1px);
+}
+.day-photo-take:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.day-photo-take:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.day-photo-dropzone {
+  padding: var(--s-3);
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius-sm);
+}
+
+.day-photo-dropzone-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-dim);
+}
+
+.day-photo-skip {
+  align-self: flex-start;
+  border: 0;
+  background: none;
+  padding: 0 var(--s-1);
+  font-size: var(--text-sm);
+  color: var(--ink-dim);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.day-photo-skip:hover,
+.day-photo-skip:focus-visible {
+  color: var(--ink);
+}

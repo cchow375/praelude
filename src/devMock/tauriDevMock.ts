@@ -3407,6 +3407,10 @@ function routeCommand(cmd: string, args: unknown): unknown {
       DAY_PHOTOS.delete(day);
       return null;
     }
+    // The next-launch rollover prompt: the mock harness never simulates an
+    // unattended midnight close, so there is never a pending day to offer.
+    case "day_photo_prompt":
+      return null;
 
     // Calendar / composer.
     case "daily_work_list":

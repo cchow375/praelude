@@ -132,6 +132,34 @@ impl Store {
         conn.execute("DELETE FROM day_photo WHERE day=?1", [day])?;
         Ok(())
     }
+
+    /// Read-and-clear the next-launch rollover prompt (Task A3). Called at
+    /// most once per launch (Shell mount on `day_photo_prompt`), so the
+    /// setting doubles as its own one-shot marker: whether the day ends up
+    /// photographed or skipped, this call has already consumed it, so a
+    /// later launch never re-offers the same day.
+    pub(crate) fn day_photo_prompt_take(&self) -> rusqlite::Result<Option<String>> {
+        let Some(day) = self.get_setting("ritual.unphotographed_day")? else {
+            return Ok(None);
+        };
+        {
+            let conn = self
+                .conn
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            conn.execute(
+                "DELETE FROM setting WHERE key='ritual.unphotographed_day'",
+                [],
+            )?;
+        }
+        // Already photographed through the normal end-of-day flow (rather
+        // than the unattended-rollover path this setting exists for) — no
+        // evidence gap to fill, so nothing to prompt for.
+        if self.day_photo_row(&day)?.is_some() {
+            return Ok(None);
+        }
+        Ok(Some(day))
+    }
 }
 
 #[cfg(test)]
@@ -237,5 +265,37 @@ mod tests {
         assert_eq!(sha256_hex(b"hello"), sha256_hex(b"hello"));
         assert_ne!(sha256_hex(b"hello"), sha256_hex(b"hello!"));
         assert_eq!(sha256_hex(b"hello").len(), 64);
+    }
+
+    #[test]
+    fn no_pending_rollover_day_prompts_for_nothing() {
+        let store = Store::open(":memory:").expect("store");
+        assert_eq!(store.day_photo_prompt_take().unwrap(), None);
+    }
+
+    #[test]
+    fn a_pending_rollover_day_prompts_once_then_never_again() {
+        let store = Store::open(":memory:").expect("store");
+        store
+            .set_setting("ritual.unphotographed_day", "2026-08-22")
+            .expect("set");
+        assert_eq!(
+            store.day_photo_prompt_take().unwrap(),
+            Some("2026-08-22".to_string())
+        );
+        // Consumed: a second launch does not re-offer the same day.
+        assert_eq!(store.day_photo_prompt_take().unwrap(), None);
+    }
+
+    #[test]
+    fn a_day_already_photographed_through_the_normal_flow_is_not_prompted() {
+        let store = Store::open(":memory:").expect("store");
+        store
+            .set_setting("ritual.unphotographed_day", "2026-08-22")
+            .expect("set");
+        store
+            .day_photo_upsert("2026-08-22", "day-photos/2026-08-22.jpg", "h")
+            .expect("upsert");
+        assert_eq!(store.day_photo_prompt_take().unwrap(), None);
     }
 }

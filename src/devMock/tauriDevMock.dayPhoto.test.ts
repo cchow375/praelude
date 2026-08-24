@@ -70,4 +70,8 @@ describe("dev-mock day_photo handlers", () => {
       await seamInvoke("day_photo_thumbs", { from: today, to: today }),
     ).toEqual([]);
   });
+
+  it("never offers a rollover prompt — the mock harness has no unattended midnight close", async () => {
+    expect(await seamInvoke("day_photo_prompt")).toBeNull();
+  });
 });

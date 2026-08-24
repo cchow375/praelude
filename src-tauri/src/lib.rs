@@ -1574,6 +1574,15 @@ fn day_photo_delete(
     store.day_photo_delete_row(&day).map_err(|e| e.to_string())
 }
 
+/// The next-launch rollover prompt: the LOCAL day a midnight auto-close
+/// skipped the ritual for, or `None` once it has been offered (photographed
+/// or skipped — either way this is a read-and-clear, called once per launch
+/// from Shell mount).
+#[tauri::command]
+fn day_photo_prompt(store: State<'_, Arc<Store>>) -> Result<Option<String>, String> {
+    store.day_photo_prompt_take().map_err(|e| e.to_string())
+}
+
 fn rejected_plan(
     command_id: &str,
     error: String,
@@ -2500,6 +2509,7 @@ pub fn run() {
             day_photo_thumbs,
             day_photo_read,
             day_photo_delete,
+            day_photo_prompt,
             history_day_detail,
             day_sheets_range,
             session_plan_start,
