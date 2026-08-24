@@ -6,6 +6,7 @@ import type {
   DailyWork,
   DailyWorkCreateArgs,
   DailyWorkPatch,
+  DayPhotoThumb,
   RecoveryApplyResult,
   RecoveryDecision,
   RecoveryPreview,
@@ -30,4 +31,6 @@ export const calendarApi: CalendarApi = {
   listGoals: (pieceId: number) => invoke<Goal[]>("goal_list", { pieceId }),
   historyDays: (from, to) => historyDays(from, to),
   daySheetsRange: (from, to) => daySheetsRange(from, to),
+  dayPhotoThumbs: (from, to) =>
+    invoke<DayPhotoThumb[]>("day_photo_thumbs", { from, to }),
 };

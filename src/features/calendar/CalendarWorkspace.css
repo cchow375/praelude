@@ -533,3 +533,27 @@
     flex-direction: column;
   }
 }
+
+/* Task A3: Liftoff-style photo cell — the day IS the picture. Replaces the
+   planned-vs-done bars (never sits alongside them; see CalendarDay's
+   `!photo && progress` gate). */
+.calendar-day-photo {
+  position: relative;
+  min-height: 3.5rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background-size: cover;
+  background-position: center;
+  margin-block: var(--s-2);
+}
+
+.calendar-day-photo-caption {
+  position: absolute;
+  inset-inline-start: var(--s-2);
+  inset-block-end: var(--s-2);
+  padding: 0 var(--s-2);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+}

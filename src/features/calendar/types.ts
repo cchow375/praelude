@@ -106,4 +106,13 @@ export interface CalendarApi {
   /** Task B3: one call per visible week — existing day sheets in range, the
    * "planned" side of each day cell. */
   daySheetsRange: (from: string, to: string) => Promise<DaySheet[]>;
+  /** Task A3: one call per visible week — every photographed day's thumbnail
+   * in range, Liftoff-style background for its cell. */
+  dayPhotoThumbs: (from: string, to: string) => Promise<DayPhotoThumb[]>;
+}
+
+/** Task A3: one photographed day's thumbnail, base64 JPEG, no data: prefix. */
+export interface DayPhotoThumb {
+  day: string;
+  thumb_base64: string;
 }
