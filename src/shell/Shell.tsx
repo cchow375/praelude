@@ -545,6 +545,12 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   }, [today]);
 
   useEffect(() => {
+    // Christian's 2026-08-24 request: with the Assistant disabled (the
+    // default), a spoken question must be treated exactly like any other
+    // unhandled/unrecognized utterance — no Brain routing, no brain_ask,
+    // no new spoken line. The heard-text pill (driven by voice.lastIntent
+    // elsewhere) still shows what was heard.
+    if (!assistantEnabled) return;
     if (voice.lastIntent?.kind !== "question") return;
     wakeQuestionId.current += 1;
     setWakeQuestion({
@@ -552,7 +558,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       text: voice.lastIntent.text,
     });
     setView("brain");
-  }, [voice.lastIntent]);
+  }, [voice.lastIntent, assistantEnabled]);
 
   const suppressVoiceDraft = useCallback((deliveryKey: string) => {
     suppressedVoiceDrafts.current.add(deliveryKey);
@@ -610,6 +616,12 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
 
     // No-wake questions enter Brain only after the bounded set parser declines
     // them. This never sees a final the native hot loop already handled.
+    // Christian's 2026-08-24 request: with the Assistant disabled (the
+    // default), a natural-language question is left exactly where an
+    // unhandled/unrecognized utterance already lands today — no Brain
+    // routing, no brain_ask. Skipping the parse itself (rather than just
+    // discarding its result) keeps this identical to "the parser declined".
+    if (!assistantEnabled) return;
     const question = parseAssistantDirectedQuestion(delivery.text);
     if (!question || routedNaturalQuestions.current.has(deliveryKey)) return;
     routedNaturalQuestions.current.add(deliveryKey);
@@ -621,6 +633,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     setWakeQuestion({ id: wakeQuestionId.current, text: question });
     setView("brain");
   }, [
+    assistantEnabled,
     defaultCleanStreak,
     pendingBrainAction,
     pendingVoiceDraft,
