@@ -57,6 +57,10 @@ export function DayPhotoCapture({
 }: DayPhotoCaptureProps) {
   const [mode, setMode] = useState<Mode>("pending");
   const [busy, setBusy] = useState(false);
+  // F5 fix wave: a failed save used to be silent — an unhandled rejection,
+  // no feedback, a card that just sat there with the ritual lost. Skip
+  // always stays available regardless of this state.
+  const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -95,6 +99,7 @@ export function DayPhotoCapture({
   const saveCapture = useCallback(
     async (source: HTMLVideoElement | HTMLImageElement) => {
       setBusy(true);
+      setError(null);
       try {
         const [jpegBase64, thumbBase64] = await Promise.all([
           toFullBase64(source),
@@ -102,6 +107,16 @@ export function DayPhotoCapture({
         ]);
         await dayPhotoSave(day, jpegBase64, thumbBase64);
         onDone();
+      } catch (cause) {
+        // Honest, inline, and non-blocking — Skip is still one press away
+        // (it is rendered unconditionally below, not gated on this state).
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : typeof cause === "string"
+              ? cause
+              : "Could not save today's photo.",
+        );
       } finally {
         setBusy(false);
       }
@@ -188,6 +203,12 @@ export function DayPhotoCapture({
             }}
           />
         </div>
+      )}
+
+      {error && (
+        <p className="day-photo-error" role="alert">
+          {error} You can Skip and try again later.
+        </p>
       )}
 
       <button type="button" className="day-photo-skip" onClick={onDone}>

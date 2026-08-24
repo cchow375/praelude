@@ -136,6 +136,25 @@ describe("DayPhotoCapture", () => {
     expect(stop).toHaveBeenCalled();
   });
 
+  it("F5: a failed save shows an honest inline error and keeps Skip available", async () => {
+    invokeMock.mockRejectedValueOnce("day-photos dir unavailable (disk full)");
+    const onDone = vi.fn();
+    render(
+      <DayPhotoCapture day={DAY} onDone={onDone} getMedia={() => Promise.resolve(stream())} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Take today's photo" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("day-photos dir unavailable (disk full)");
+    // onDone was NOT called — the ritual is not silently lost, the user sees
+    // the failure and can act on it.
+    expect(onDone).not.toHaveBeenCalled();
+
+    // Skip is still one press away, exactly as always.
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
   it("fits the 720x520 dense floor", async () => {
     const { container } = render(
       <DayPhotoCapture

@@ -93,3 +93,10 @@
 .day-photo-skip:focus-visible {
   color: var(--ink);
 }
+
+/* F5 fix wave: a failed save is now honest, not silent. */
+.day-photo-error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--signal-error);
+}
