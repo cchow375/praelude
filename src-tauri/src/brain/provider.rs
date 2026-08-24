@@ -49,7 +49,7 @@ pub(crate) enum ToolRound {
 
 const TOOL_REGISTRY_PROMPT: &str = r#"You may answer directly, OR — only if the question needs practice-history numbers you don't already have — return "tool_requests" instead of "answer": up to 3 objects from {tool:"history_days",from,to}, {tool:"history_day_detail",date}, {tool:"piece_blocks",piece_id}, {tool:"progress_summary",piece_id}, {tool:"streak_summary"}. Dates are YYYY-MM-DD. If you request tools, leave "answer" empty; you will be asked again with the results."#;
 
-const TOOL_RESULTS_PROMPT: &str = r#"Tool results are attached below as grounded JSON. Answer now — do not request further tools; any "tool_requests" in this reply are ignored. Every number in your answer must come from these tool results."#;
+const TOOL_RESULTS_PROMPT: &str = r#"Tool results are attached below as grounded JSON under "tool_results" (one entry per tool, same order as your earlier "tool_requests"). Answer now — do not request further tools; any "tool_requests" in this reply are ignored. If your answer states ANY number derived from those results, you MUST also return "figures": an array of {"shown": exact substring as it appears in your answer, "tool": the tool name it came from, "field": a dotted path into that tool JSON result, e.g. "current_days" or "0.focused_seconds"}. A number with no matching figures[] entry is rejected — never state a figure you cannot name a real field for."#;
 
 fn round_prompt(round: ToolRound) -> &'static str {
     match round {
@@ -314,8 +314,8 @@ impl ProviderChain {
                 ProviderName::Offline => unreachable!(),
             },
             |provider, body| match provider {
-                ProviderName::Claude => parse_claude(body),
-                ProviderName::Gemini => parse_gemini(body),
+                ProviderName::Claude => parse_claude(body, round),
+                ProviderName::Gemini => parse_gemini(body, round),
                 ProviderName::Offline => unreachable!(),
             },
         )?;
@@ -343,6 +343,7 @@ impl ProviderChain {
             citation_ids: raw.citation_ids,
             proposed_action,
             tool_requests,
+            figures: raw.figures,
         })
     }
 
@@ -742,6 +743,30 @@ struct RawAnswer {
     // empty regardless of what the model sends back on `ToolRound::Final`.
     #[serde(default)]
     tool_requests: Vec<super::tools::ToolRequestInput>,
+    // Round-2 numbers-policy contract (Plan C1, Task 5 v2 — redesigned after
+    // the flat/free-text numbers policy was proven fabricatable seven
+    // distinct ways). A tool-grounded final answer must name, for every
+    // rendered figure, exactly which consulted tool and which dotted JSON
+    // field backs it. Nothing here is trusted directly — `numbers::
+    // numbers_policy_violation` re-resolves every entry against the REAL
+    // executed tool payloads, never the provider's own claim about them.
+    #[serde(default)]
+    figures: Vec<FigureInput>,
+}
+
+/// One claimed figure in a round-2 answer: `shown` is the exact substring as
+/// it appears in `answer` ("27 min", "1,660", "twelve"); `tool` must name a
+/// tool actually consulted this turn; `field` is a dotted/bracketed path into
+/// THAT tool's real JSON payload (e.g. "current_days", "0.focused_seconds").
+/// `deny_unknown_fields` closes the schema the same way `ToolRequestInput`
+/// and `ProposedActionInput` do — a provider cannot smuggle extra intent
+/// through an unused slot here either.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FigureInput {
+    pub(crate) shown: String,
+    pub(crate) tool: String,
+    pub(crate) field: String,
 }
 
 /// One validated passage-helper strategy the caller turns into a card row. The
@@ -865,14 +890,19 @@ impl ProposedActionInput {
     }
 }
 
-fn validate_raw(raw: RawAnswer) -> Result<RawAnswer, BrainError> {
+fn validate_raw(raw: RawAnswer, round: ToolRound) -> Result<RawAnswer, BrainError> {
     let answer = raw.answer.trim();
     // Round-1 tool-loop replies legitimately carry an empty "answer" — the
     // model is asking for tool results instead of answering yet (per the
     // TOOL_REGISTRY_PROMPT contract: "leave answer empty" when requesting
-    // tools). Only an answer that is both empty AND requests no tools is a
-    // malformed reply.
-    let requesting_tools = !raw.tool_requests.is_empty();
+    // tools). This relaxation is ROUND-AWARE, not merely "the wire field is
+    // non-empty": round 2 (`ToolRound::Final`) must always be a final
+    // answer, so an empty answer is rejected there even if the raw
+    // `tool_requests` field happens to be populated (a misbehaving reply
+    // that both answers nothing AND asks for more tools on round 2 is
+    // exactly as malformed as an answer-less round-1 reply that asks for
+    // nothing).
+    let requesting_tools = round == ToolRound::First && !raw.tool_requests.is_empty();
     if (answer.is_empty() && !requesting_tools) || answer.chars().count() > MAX_ANSWER_CHARS {
         return Err(BrainError::ProviderResponse);
     }
@@ -889,6 +919,7 @@ fn validate_raw(raw: RawAnswer) -> Result<RawAnswer, BrainError> {
         citation_ids: raw.citation_ids,
         proposed_action: raw.proposed_action,
         tool_requests: raw.tool_requests,
+        figures: raw.figures,
     })
 }
 
@@ -900,10 +931,10 @@ fn parse_proposed_action(value: Option<Value>) -> Option<ProposedAction> {
         .and_then(ProposedActionInput::validate)
 }
 
-fn parse_json_answer(text: &str) -> Result<RawAnswer, BrainError> {
+fn parse_json_answer(text: &str, round: ToolRound) -> Result<RawAnswer, BrainError> {
     serde_json::from_str::<RawAnswer>(text)
         .map_err(|_| BrainError::ProviderResponse)
-        .and_then(validate_raw)
+        .and_then(|raw| validate_raw(raw, round))
 }
 
 /// The first `type:"text"` content part of a Claude response body, decoded.
@@ -953,18 +984,18 @@ fn provider_texts(provider: ProviderName, body: &[u8]) -> Result<Vec<String>, Br
     }
 }
 
-fn parse_claude(body: &[u8]) -> Result<RawAnswer, BrainError> {
-    parse_json_answer(&claude_text(body)?)
+fn parse_claude(body: &[u8], round: ToolRound) -> Result<RawAnswer, BrainError> {
+    parse_json_answer(&claude_text(body)?, round)
 }
 
-fn parse_gemini(body: &[u8]) -> Result<RawAnswer, BrainError> {
+fn parse_gemini(body: &[u8], round: ToolRound) -> Result<RawAnswer, BrainError> {
     let value: Value = serde_json::from_slice(body).map_err(|_| BrainError::ProviderResponse)?;
     // Gemini 3.5 may prepend a reasoning/thought part. Find the first text part
     // that actually satisfies our strict JSON contract instead of assuming
     // `parts[0]` is the user-visible answer.
     let parsed = gemini_texts(body)
         .iter()
-        .find_map(|text| parse_json_answer(text).ok());
+        .find_map(|text| parse_json_answer(text, round).ok());
     if parsed.is_none() {
         let shapes = value
             .pointer("/candidates/0/content/parts")
@@ -1074,6 +1105,12 @@ pub struct ProviderOutput {
     /// called with `ToolRound::Final` — round 2 never honors further tool
     /// requests, per the plan's bounded-two-rounds rule.
     pub tool_requests: Vec<super::tools::ToolRequest>,
+    /// Round-2 numbers-policy claims — un-re-resolved, exactly as the
+    /// provider sent them. `numbers::numbers_policy_violation` (in the
+    /// caller) is the ONLY thing allowed to treat these as trustworthy, and
+    /// only after re-deriving each one from the real tool payloads this
+    /// backend itself executed.
+    pub figures: Vec<FigureInput>,
 }
 
 #[cfg(test)]
@@ -1200,6 +1237,49 @@ mod tests {
     }
 
     #[test]
+    fn round_one_request_body_carries_the_tool_registry_prompt_not_the_results_prompt() {
+        // Defect #7: the round-prompt wiring was completely untested — a
+        // flipped `round_prompt` match, or deleting the `_for_round` append
+        // outright, both left the whole suite green because nothing ever
+        // inspected the actual HTTP request body. This asserts the body
+        // directly, so either mutation fails it.
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Claude,
+            "secret-claude",
+            "claude-test",
+        )]);
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type": "text", "text": json!({"answer": "ok"}).to_string()}]
+        }))]);
+        let context = GroundedContext { json: "{}".into() };
+        let _ = chain
+            .ask("q", QuestionSource::Typed, &context, &transport, ToolRound::First)
+            .unwrap();
+        let body = transport.requests()[0].body.to_string();
+        assert!(body.contains("You may answer directly, OR"));
+        assert!(!body.contains("Tool results are attached below"));
+    }
+
+    #[test]
+    fn round_final_request_body_carries_the_tool_results_prompt_not_the_registry_prompt() {
+        let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
+            ProviderPreference::Claude,
+            "secret-claude",
+            "claude-test",
+        )]);
+        let transport = FakeTransport::responses(vec![HttpResponse::ok(json!({
+            "content": [{"type": "text", "text": json!({"answer": "ok"}).to_string()}]
+        }))]);
+        let context = GroundedContext { json: "{}".into() };
+        let _ = chain
+            .ask("q", QuestionSource::Typed, &context, &transport, ToolRound::Final)
+            .unwrap();
+        let body = transport.requests()[0].body.to_string();
+        assert!(body.contains("Tool results are attached below"));
+        assert!(!body.contains("You may answer directly, OR"));
+    }
+
+    #[test]
     fn final_round_never_returns_tool_requests_even_if_the_model_sent_them() {
         let chain = ProviderChain::from_configs(vec![ProviderConfig::test(
             ProviderPreference::Claude,
@@ -1268,7 +1348,7 @@ mod tests {
             }]
         }))
         .unwrap();
-        let answer = parse_gemini(&body).unwrap();
+        let answer = parse_gemini(&body, ToolRound::First).unwrap();
         assert_eq!(answer.answer, "Use blocking.");
         assert_eq!(answer.citation_ids, ["sandor_1981"]);
     }
@@ -1635,21 +1715,29 @@ mod tests {
     #[test]
     fn answer_cap_rejects_over_ceiling_provider_text() {
         let over = "a".repeat(MAX_ANSWER_CHARS + 1);
-        let result = validate_raw(RawAnswer {
-            answer: over,
-            citation_ids: vec![],
-            proposed_action: None,
-            tool_requests: vec![],
-        });
+        let result = validate_raw(
+            RawAnswer {
+                answer: over,
+                citation_ids: vec![],
+                proposed_action: None,
+                tool_requests: vec![],
+                figures: vec![],
+            },
+            ToolRound::First,
+        );
         assert!(matches!(result, Err(BrainError::ProviderResponse)));
         // At the ceiling is still accepted; one-glance is a default, not the cap.
         let at = "a".repeat(MAX_ANSWER_CHARS);
-        assert!(validate_raw(RawAnswer {
-            answer: at,
-            citation_ids: vec![],
-            proposed_action: None,
-            tool_requests: vec![],
-        })
+        assert!(validate_raw(
+            RawAnswer {
+                answer: at,
+                citation_ids: vec![],
+                proposed_action: None,
+                tool_requests: vec![],
+                figures: vec![],
+            },
+            ToolRound::First,
+        )
         .is_ok());
     }
 
@@ -1658,12 +1746,44 @@ mod tests {
         // The empty-answer allowance exists ONLY for round-1 tool-request
         // replies. A provider that returns an empty answer and asks for
         // nothing is still a malformed reply, never a free pass.
-        let result = validate_raw(RawAnswer {
-            answer: "".to_string(),
-            citation_ids: vec![],
-            proposed_action: None,
-            tool_requests: vec![],
-        });
+        let result = validate_raw(
+            RawAnswer {
+                answer: "".to_string(),
+                citation_ids: vec![],
+                proposed_action: None,
+                tool_requests: vec![],
+                figures: vec![],
+            },
+            ToolRound::First,
+        );
+        assert!(matches!(result, Err(BrainError::ProviderResponse)));
+    }
+
+    #[test]
+    fn empty_answer_on_final_round_is_rejected_even_with_tool_requests_present() {
+        // Fix for defect #6 (round-prompt/relaxation drift): the empty-answer
+        // relaxation is for round 1 ONLY. A round-2 reply that answers
+        // nothing but still carries a (meaningless, ignored) `tool_requests`
+        // field must be rejected exactly like any other empty final answer —
+        // before this fix, `validate_raw` tested only "is `tool_requests`
+        // non-empty on the wire", which stayed true on Final too and let an
+        // empty, ungrounded round-2 reply through as `Ok(answer = "")`.
+        let result = validate_raw(
+            RawAnswer {
+                answer: "".to_string(),
+                citation_ids: vec![],
+                proposed_action: None,
+                tool_requests: vec![crate::brain::tools::ToolRequestInput {
+                    tool: "streak_summary".to_string(),
+                    from: None,
+                    to: None,
+                    date: None,
+                    piece_id: None,
+                }],
+                figures: vec![],
+            },
+            ToolRound::Final,
+        );
         assert!(matches!(result, Err(BrainError::ProviderResponse)));
     }
 
