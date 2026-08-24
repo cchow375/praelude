@@ -42,6 +42,7 @@ import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
 import { DayPhotoCapture } from "../features/ritual/DayPhotoCapture";
 import { dayPhotoPrompt } from "../features/ritual/api";
+import { detectMoment, useCompletionFx } from "../features/ritual/completionFx";
 import { useVoice } from "../features/voice/useVoice";
 import { useTtsDegraded } from "../features/voice/useTtsDegraded";
 import { VoiceToast } from "../features/voice/VoiceToast";
@@ -416,6 +417,15 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   // the next-launch rollover prompt below — either way it names the LOCAL
   // day the capture card is offered for.
   const [photoDay, setPhotoDay] = useState<string | null>(null);
+  // A4: completion flourishes — set complete, mastery landing, day close.
+  const { fire: fireCompletionFx, overlay: completionOverlay } =
+    useCompletionFx();
+  const previousRepSnapRef = useRef<RepSnapshot | null>(null);
+  useEffect(() => {
+    const moment = detectMoment(previousRepSnapRef.current, rep.snap);
+    if (moment) fireCompletionFx(moment);
+    previousRepSnapRef.current = rep.snap;
+  }, [rep.snap, fireCompletionFx]);
   const repFallbackContext = useMemo<PracticeBrainContext | null>(() => {
     if (!rep.snap) return null;
     return {
@@ -836,15 +846,16 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     setEnding(true);
     try {
       await session.endSession();
-      // The ritual only follows a day that actually closed. A failed end
-      // throws above this line and never reaches the card.
+      // The ritual (and its flourish) only follow a day that actually
+      // closed. A failed end throws above this line and never reaches here.
       setPhotoDay(todayLocal());
+      fireCompletionFx("day_close");
     } catch {
       // useSession preserves the live session and publishes the receipt.
     } finally {
       setEnding(false);
     }
-  }, [session]);
+  }, [session, fireCompletionFx]);
 
   // A3: a midnight auto-close skips the ritual live, but records which day
   // it skipped it for — offer that day's photo once, on the next launch.
@@ -1189,6 +1200,8 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       {photoDay && (
         <DayPhotoCapture day={photoDay} onDone={() => setPhotoDay(null)} />
       )}
+      {/* A4: completion flourishes — pointer-events: none, self-removing. */}
+      {completionOverlay}
       {rep.error && !rep.snap && (
         <p
           className="shell-rep-error"
