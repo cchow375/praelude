@@ -26,7 +26,7 @@ mod streaks;
 mod tutorials;
 mod v8_backfill;
 
-pub use day_photos::sha256_hex;
+pub use day_photos::{sha256_hex, DayPhotoRow};
 pub use day_sheet::{DaySheet, PiecePlan};
 pub use events::EventKind;
 pub use history_days::{HistoryDayDetail, HistoryDaySummary};

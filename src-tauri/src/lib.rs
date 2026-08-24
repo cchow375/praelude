@@ -1502,6 +1502,134 @@ fn decode_jpeg(field: &str, value: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("{field} is not valid base64: {e}"))
 }
 
+/// Write both file sizes for `day` under `dir` (the day-photos dir) and
+/// return the content hash of the FULL bytes — the single source of truth
+/// the DB row's `content_hash` column mirrors. Extracted as a plain,
+/// AppHandle-free helper (F6 fix wave) so both the write and the read-side
+/// verification below are directly unit-testable: `content_hash` used to be
+/// write-only — nothing ever read it back — so a mutation that replaced the
+/// real hash computation with a constant left the whole suite green.
+fn day_photo_write_files(
+    dir: &std::path::Path,
+    day: &str,
+    full: &[u8],
+    thumb: &[u8],
+) -> Result<String, String> {
+    let full_path = day_photo_path(dir, day, ".jpg")?;
+    let thumb_path = day_photo_path(dir, day, ".thumb.jpg")?;
+    std::fs::write(&full_path, full).map_err(|e| format!("write day photo: {e}"))?;
+    std::fs::write(&thumb_path, thumb).map_err(|e| format!("write day photo thumbnail: {e}"))?;
+    Ok(store::sha256_hex(full))
+}
+
+/// Read and integrity-check one day's photo bytes — F6 fix wave. Resolves
+/// via the row's STORED `rel_path` (never a path reconstructed from the day
+/// key — `rel_path` was a second write-only field until now), then verifies
+/// the bytes against the row's `content_hash`. A mismatch is treated the
+/// same way a missing file already is: an error, never corrupt or
+/// substituted bytes served as if they were the real photo.
+fn day_photo_read_verified(
+    app_data_dir: &std::path::Path,
+    row: &store::DayPhotoRow,
+) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(app_data_dir.join(&row.rel_path))
+        .map_err(|e| format!("read day photo: {e}"))?;
+    let actual_hash = store::sha256_hex(&bytes);
+    if actual_hash != row.content_hash {
+        return Err(format!(
+            "day photo for {} failed its integrity check (content hash mismatch)",
+            row.day
+        ));
+    }
+    Ok(bytes)
+}
+
+#[cfg(test)]
+mod day_photo_integrity_tests {
+    use super::*;
+
+    /// F6 fix wave, on a real temp filesystem: proves content_hash is
+    /// LOAD-BEARING, not decorative. If `day_photo_write_files`'s hash
+    /// computation were replaced with a constant (the exact mutant that
+    /// left the whole suite green before this fix wave — M5), this would
+    /// fail: the constant would not match the real hash of `full`.
+    #[test]
+    fn a_written_photo_round_trips_through_the_verified_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let full = b"pretend full-resolution jpeg bytes";
+        let thumb = b"pretend thumbnail jpeg bytes";
+        let content_hash =
+            day_photo_write_files(dir.path(), "2026-08-22", full, thumb).unwrap();
+
+        let row = store::DayPhotoRow {
+            day: "2026-08-22".to_string(),
+            rel_path: "2026-08-22.jpg".to_string(),
+            content_hash,
+            created_at: "2026-08-22T00:00:00Z".to_string(),
+        };
+        let read_back = day_photo_read_verified(dir.path(), &row).unwrap();
+        assert_eq!(read_back, full);
+    }
+
+    /// The kill shot for M5: resolves via the STORED rel_path (a filename
+    /// that does NOT match a day-based reconstruction), so this only
+    /// passes if rel_path is genuinely being read, not ignored.
+    #[test]
+    fn resolves_via_the_stored_rel_path_not_a_reconstructed_day_filename() {
+        let dir = tempfile::tempdir().unwrap();
+        let full = b"bytes under a non-day-shaped filename";
+        std::fs::write(dir.path().join("custom-name.jpg"), full).unwrap();
+        let row = store::DayPhotoRow {
+            day: "2026-08-22".to_string(),
+            rel_path: "custom-name.jpg".to_string(),
+            content_hash: store::sha256_hex(full),
+            created_at: "2026-08-22T00:00:00Z".to_string(),
+        };
+        // A day-based reconstruction (dir/2026-08-22.jpg) does not exist —
+        // this only succeeds by honouring rel_path.
+        let read_back = day_photo_read_verified(dir.path(), &row).unwrap();
+        assert_eq!(read_back, full);
+    }
+
+    /// The other half of the kill shot: a file that has been tampered with
+    /// (or truncated, or corrupted) on disk is REJECTED, never served as if
+    /// it were the real photo.
+    #[test]
+    fn a_tampered_file_fails_the_integrity_check_instead_of_being_served() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = b"the real photo bytes";
+        let content_hash =
+            day_photo_write_files(dir.path(), "2026-08-22", original, b"thumb").unwrap();
+        // Tamper with the file directly, bypassing day_photo_save entirely.
+        std::fs::write(dir.path().join("2026-08-22.jpg"), b"corrupted bytes").unwrap();
+
+        let row = store::DayPhotoRow {
+            day: "2026-08-22".to_string(),
+            rel_path: "2026-08-22.jpg".to_string(),
+            content_hash,
+            created_at: "2026-08-22T00:00:00Z".to_string(),
+        };
+        let err = day_photo_read_verified(dir.path(), &row).unwrap_err();
+        assert!(err.contains("integrity"), "error should say why: {err}");
+    }
+
+    /// A missing file is still just a missing file — the ordinary,
+    /// pre-existing "no evidence, no visual" fallback, not treated as a
+    /// hash-mismatch/corruption case.
+    #[test]
+    fn a_missing_file_errors_as_missing_not_as_a_hash_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let row = store::DayPhotoRow {
+            day: "2026-08-22".to_string(),
+            rel_path: "2026-08-22.jpg".to_string(),
+            content_hash: "irrelevant".to_string(),
+            created_at: "2026-08-22T00:00:00Z".to_string(),
+        };
+        let err = day_photo_read_verified(dir.path(), &row).unwrap_err();
+        assert!(err.contains("read day photo"), "got: {err}");
+    }
+}
+
 #[cfg(test)]
 mod day_photo_path_tests {
     use super::*;
@@ -1592,17 +1720,9 @@ fn day_photo_save(
     let full = decode_jpeg("jpeg_base64", &jpeg_base64)?;
     let thumb = decode_jpeg("thumb_base64", &thumb_base64)?;
     let dir = day_photos_dir(&app)?;
-    let full_path = day_photo_path(&dir, &day, ".jpg")?;
-    let thumb_path = day_photo_path(&dir, &day, ".thumb.jpg")?;
-    std::fs::write(&full_path, &full).map_err(|e| format!("write day photo: {e}"))?;
-    std::fs::write(&thumb_path, &thumb)
-        .map_err(|e| format!("write day photo thumbnail: {e}"))?;
+    let content_hash = day_photo_write_files(&dir, &day, &full, &thumb)?;
     store
-        .day_photo_upsert(
-            &day,
-            &format!("day-photos/{day}.jpg"),
-            &store::sha256_hex(&full),
-        )
+        .day_photo_upsert(&day, &format!("day-photos/{day}.jpg"), &content_hash)
         .map_err(|e| e.to_string())
 }
 
@@ -1656,9 +1776,11 @@ fn day_photo_read(
         .day_photo_row(day.trim())
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("no photo recorded for {}", day.trim()))?;
-    let dir = day_photos_dir(&app)?;
-    let path = day_photo_path(&dir, &row.day, ".jpg")?;
-    let bytes = std::fs::read(path).map_err(|e| format!("read day photo: {e}"))?;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("resolve app data dir: {e}"))?;
+    let bytes = day_photo_read_verified(&app_data_dir, &row)?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
