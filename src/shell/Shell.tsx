@@ -363,6 +363,28 @@ const ACTIVE_SET_DRAFT_UNAVAILABLE =
 
 export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   const [view, setView] = useState<View>("today");
+  // Christian's 2026-08-24 request: the Assistant ("Brain") can be fully
+  // switched off in Settings, default off. When it is, the nav tab, the
+  // workspace render branch, and every question-routing path all gate on
+  // this. Fetched once on mount; Settings itself owns the toggle UI.
+  const [assistantEnabled, setAssistantEnabled] = useState(false);
+  useEffect(() => {
+    let active = true;
+    invoke<{ assistant_enabled?: boolean }>("settings_snapshot")
+      .then((snapshot) => {
+        if (active) setAssistantEnabled(Boolean(snapshot?.assistant_enabled));
+      })
+      .catch(() => {
+        // Honest default: if settings can't be read, the Assistant stays off.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const workspaces = useMemo(
+    () => WORKSPACES.filter((w) => w.id !== "brain" || assistantEnabled),
+    [assistantEnabled],
+  );
   const [settingsReturnView, setSettingsReturnView] =
     useState<WorkspaceId>("today");
   const [requestedScorePiece, setRequestedScorePiece] = useState({
@@ -917,20 +939,20 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     event: KeyboardEvent<HTMLButtonElement>,
     id: WorkspaceId,
   ) => {
-    const index = WORKSPACES.findIndex((w) => w.id === id);
+    const index = workspaces.findIndex((w) => w.id === id);
     let next: number | null = null;
     if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-      next = (index + 1) % WORKSPACES.length;
+      next = (index + 1) % workspaces.length;
     } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-      next = (index - 1 + WORKSPACES.length) % WORKSPACES.length;
+      next = (index - 1 + workspaces.length) % workspaces.length;
     } else if (event.key === "Home") {
       next = 0;
     } else if (event.key === "End") {
-      next = WORKSPACES.length - 1;
+      next = workspaces.length - 1;
     }
     if (next === null) return;
     event.preventDefault();
-    focusTab(WORKSPACES[next].id);
+    focusTab(workspaces[next].id);
   };
 
   const openPiece = useCallback(
@@ -983,7 +1005,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
           aria-label="Workspace"
           aria-orientation="vertical"
         >
-          {WORKSPACES.map((workspace, index) => {
+          {workspaces.map((workspace, index) => {
             const selected = view === workspace.id;
             return (
               <button
