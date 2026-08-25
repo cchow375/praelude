@@ -100,3 +100,35 @@ shipped WITH a provenance chip — and C2/C3/C4 were never built. Resume only on
 
 **Owed:** an at-piano acceptance verdict, live 720×520 QA of the new surfaces, B75 (one real
 measure-mapping run), B67 (no Anthropic key).
+
+**Installed: v7.0.1 "Stabilize & Reveal" — SHIPPED + INSTALLED 2026-08-25** (tag `v7.0.1`, DMG
+`releases/v7.0.1/CodaKiller-7.0.1.dmg` SHA `95d534bb…`). **P0 of the approved Aug 8 overhaul
+train** (`docs/superpowers/specs/2026-08-24-aug8-practice-overhaul-design.md`, rev 2, approved by
+Christian 2026-08-25; plan at `docs/superpowers/plans/2026-08-25-p0-v7.0.1-stabilize-and-reveal.md`).
+**No schema change — `SCHEMA_VERSION` stays 15, so no migration and no rehearsal was run.** Live DB
+verified after install: integrity ok, `user_version` 15, counts identical — 10 pieces / 208 blocks
+/ 1,915 reps / 43 sessions. Pre-install backup `(C) pre-v7.0.1-install-2026-08-25-162832.db`
+SHA `ee91bba3…`; v7.0.0 rollback tarballed to `~/Library/CodaKiller-rollbacks/`.
+Gates at ship: vitest **2322 passed / 1 skipped**, cargo **959 passed / 0 failed** with
+`filtered out: 0`, clippy `--all-targets --all-features` clean, `tsc` clean, five narrated corpus
+suites zero false mutations, **all eight release-script gates PASS**.
+
+Fixed: E5/B56 (end-session race — **narrowed, NOT closed**, see NOTES), B4 (editor overlap at the
+floor), B77 (measure-map dialog focus trap), **B82** (new: the verdict buttons were not rendered at
+the app's own 720×520 minimum), **B83** (new: two banned `window.confirm` survivors, one of which
+could trap the user in a dialog). Revealed: C3 mic mute button, B1 sub-section unlock (**the drag
+gesture was broken, not just unlabelled**), the §4b default-visibility pass. Added: the D1
+app-side voice-latency instrument and `npm run qa:shots` (720×520 screenshot harness).
+
+**⚠️ B56 is narrowed, not resolved.** The exporter-side TOCTOU is closed; a smaller opener-side
+window remains at `rep/mod.rs:277-278`. Closing it means holding `lifecycle` across
+`[resolve session → mutate active]` for all five rep mutations — a refactor of the hot path that
+already produced three deadlock classes — so it is scheduled as its own design pass in v7.1.0.
+
+**Next: P1 — v7.1.0 "Practice Set Core"** (A1 tempo demotion · A2 variant chains · A3 composer
+overhaul · A5 beat value · A6 verdict hotkeys · A7 ± reps), plus the B56 residual.
+Christian's answers to the spec's open questions, recorded 2026-08-25: Assistant stays OFF
+(zero assistant work); gamification deferred until he has lived with v7; warmup visuals =
+keyboard figures + text, no VexFlow; demotion counts **sloppy only**; pieces get archive +
+recent-first sort, no folders; unkept recordings deleted at session end; hotkeys Space /
+Right-Shift / Return confirmed; **no Anthropic key** — build the rest of P4 and leave B75 open.

@@ -2,6 +2,79 @@
 
 ## Decisions
 
+- **B82 (v7.0.1, 2026-08-25) — the app did not render its verdict buttons at its own minimum
+  window size, and no gate could have caught it.** `Shell.tsx` seeded `repHudCollapsed` from
+  `window.innerWidth <= 800 || window.innerHeight <= 620`, and `RepHud.css:125-128` hides every
+  direct child of a collapsed HUD that is not `.rep-hud-context`, not `.rep-hud-main` and not
+  `[data-compact-visible]` — which included `.rep-hud-entry`, the row holding Clean/Sloppy/Again.
+  `tauri.conf.json` sets `minWidth: 720, minHeight: 520`, so **every** window at or near the
+  supported minimum satisfied the collapse condition. Measured live: the three buttons were
+  `0×0`; after a manual "Expand set" they were 131×52 / 117×52 / 117×52 with `bottom: 365` in a
+  520 px viewport — **155 px of headroom**, so the collapse was not buying space it needed. The
+  seed was computed once in `useState(() => …)` and never re-evaluated, so a window grown after
+  launch stayed collapsed. Fix: `data-compact-visible` on the verdict row, and the auto-collapse
+  deleted outright — the OS enforces a 520 px floor and the expanded HUD fits there, so the only
+  honest collapse is the one the user asks for. **The lesson is about the gate, not the bug:**
+  1,787→2,300 passing tests never saw it because jsdom applies no CSS and has no layout. It was
+  found within minutes of pointing a real browser at 720×520, which is why `npm run qa:shots`
+  (`scripts/qa-shots.sh`) now exists and why §4b requires the affordance to appear in the shot.
+  A screenshot at the supported floor is a gate that unit tests structurally cannot replace.
+
+- **B83 (v7.0.1, 2026-08-25) — `window.confirm` was banned, and two live call sites survived the
+  ban.** `NOTES` recorded the ban (wry/WKWebView may silently return falsy) and claimed "grep
+  stays clean"; it was not. `MeasureMapPanel.tsx` guarded discarding a dirty measure-map review —
+  a falsy return made `discardReview` early-return, so ×, Cancel **and** Escape all no-op and the
+  user was **trapped in a dialog they could not close**. `ScoreWorkspace.tsx` guarded a piece
+  switch — a falsy return made choosing another piece do nothing, the `<select>` snapping back
+  with no explanation. Both are plausible contributors to B75 (`measure_map` still 0 rows). Both
+  now use the inline two-step confirm idiom. **The process lesson: a prose claim that a grep is
+  clean is not a gate.** If a rule matters, a test or a CI grep must enforce it, or it rots.
+
+- **B1 was not merely undiscoverable — the intuitive gesture did not work (v7.0.1, 2026-08-25).**
+  `RegionOverlay.tsx` called `event.stopPropagation()` on every box's `onPointerDown`
+  unconditionally, so a drag STARTING INSIDE a selected section's box never reached the overlay
+  handler that arms the create-drag. Sub-sections could only be made by dragging somewhere _not_
+  covered by any box while a parent happened to be selected — i.e. the documented mental model
+  and the only working gesture were different things. That is the likeliest reason the live DB
+  shows zero sub-sections ever created. Now propagation stops only for unselected boxes.
+  Separately, `handleCreateDragResolve` set `newRegionParentId = selectedRegionId`
+  unconditionally, so a drag anywhere on the page while a section was selected silently produced
+  a child; since this release ships a hint reading "Drag inside <name>…", that made the app's own
+  instruction untrue. Now judged on the drag's centre against the section's marks via the pure
+  `rectCentreIsInsideAnchor()` in `anchors.ts` (pure so it is testable — jsdom has no layout).
+
+- **Adversarial verification refuted my own D1 fix (v7.0.1, 2026-08-25) — worth recording because
+  the reasoning was plausible and wrong.** The first fix cleared the tracked utterance start on
+  mute and aged out stale starts, and argued the two dedup early-returns were safe "because a
+  dropped final is a re-send whose ORIGINAL final already cleared the start". False: the STT
+  engine keeps streaming interim partials after a fast-path fire, one of them sees `None` and
+  re-arms `utterance_start`, and the swallowed tail final then returned **before** `take_app_ms`,
+  leaving that stray start to be charged to the user's next command — the exact fabricated-latency
+  failure D1 exists to prevent. Both dedup returns now clear unconditionally. **The regression
+  test was run against the unfixed code and confirmed to fail there** before being accepted; a
+  test that has never failed has proved nothing. Standing rule reaffirmed: self-written code gets
+  the same fresh-context adversarial pass as delegated code, and it fails it about as often.
+
+- **A release gate that fails randomly is worse than no gate (v7.0.1, 2026-08-25).** The release
+  script's gate 2 failed on `DaySheet.test.tsx`'s "re-totals when a block is edited" while that
+  file passed 5/5 in isolation. Cause: Testing Library's default `waitFor` ceiling is 1000 ms and
+  several suites assert on state that settles only after an async devMock round-trip, which fits
+  inside 1000 ms idle and does not while a production build runs alongside. Raised to 5000 ms via
+  `src/testSetup.ts` (`vitest.config.ts` `setupFiles`). This weakens nothing — `waitFor` still
+  fails if the state never arrives; it stops the machine's load, rather than the code, deciding
+  the outcome. Left unfixed, the habit it teaches is "re-run until green", which is how a real
+  failure eventually gets waved through.
+
+- **Two release-mechanics gotchas (2026-08-25).** (a) The one-copy gate (7/8) polls `mdfind` for
+  ~5 s, which a freshly-`ditto`'d bundle can lose: Spotlight had not indexed the new app, so the
+  gate reported "resolves to none" **after** a successful install. `mdimport -i
+/Applications/CodaKiller.app` then a re-run passes all eight; the substantive rule was
+  separately confirmed with `find` (exactly one bundle on disk). Not a code fault — do not
+  "fix" it by weakening the gate. (b) Bumping the version by rewriting `tauri.conf.json` with
+  Python's `json.dump(indent=2)` reformats inline arrays to multi-line — semantically identical
+  and it builds fine, but it puts gratuitous churn in a release diff. Use a targeted regex on
+  that file, as with `Cargo.toml`.
+
 - **B56 (task 1, v7.0.1, 2026-08-25) — the exporter-side race is closed; the flaw is NARROWED,
   NOT RESOLVED.** `RepEngine::end_session_and_export` used to peek `self.active`, drop the guard,
   then call `sessions.end_and_export` — a TOCTOU window in which a concurrent `open`/`checkpoint`
