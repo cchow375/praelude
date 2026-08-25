@@ -471,7 +471,7 @@ export function MeasureMapPanel({
             </span>
             <button
               type="button"
-              className="measure-map-discard-confirm-action"
+              className="measure-map-discard-confirm-action is-danger"
               data-testid="measure-map-discard-confirm-yes"
               onClick={confirmDiscard}
             >
@@ -479,7 +479,7 @@ export function MeasureMapPanel({
             </button>
             <button
               type="button"
-              className="measure-map-discard-confirm-action"
+              className="measure-map-discard-confirm-action is-safe"
               aria-label="Keep this review"
               data-testid="measure-map-discard-confirm-no"
               onClick={cancelDiscardConfirm}

@@ -113,6 +113,70 @@
   border-color: var(--hairline-strong);
 }
 
+/* B83: the inline "Discard the measure-map review?" confirm that replaced
+   `window.confirm` on the piece picker — same idiom as
+   mapping/measureMapping.css's .measure-map-discard-confirm (which itself
+   follows SessionBar.css's .session-end-day-confirm), so it reads as an
+   active question rather than page furniture. `flex-basis: 100%` puts it on
+   its own row under the tools cluster rather than fighting the picker for
+   space — this must still fit cleanly at the app's 720×520 minimum window
+   size, so it wraps instead of taking a fixed width. */
+.score-workspace-piece-switch-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  flex-basis: 100%;
+  padding: var(--s-1) var(--s-2);
+  background: var(--signal-warning-wash, rgba(184, 134, 11, 0.12));
+  border: 1px solid var(--signal-warning, #8a5a12);
+  border-radius: var(--r-sm);
+}
+
+.score-workspace-piece-switch-confirm-ask {
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
+.score-workspace-piece-switch-confirm-action {
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+/* The destructive choice: plain underlined text, low visual weight — never
+   the easy target. */
+.score-workspace-piece-switch-confirm-action.is-danger {
+  border: 0;
+  background: none;
+  padding: 0 var(--s-1);
+  color: var(--signal-warning, #8a5a12);
+  text-decoration: underline;
+}
+.score-workspace-piece-switch-confirm-action.is-danger:hover,
+.score-workspace-piece-switch-confirm-action.is-danger:focus-visible {
+  color: var(--ink);
+}
+
+/* The safe choice: a filled button, so it is the obviously easy thing to
+   hit — matches the accent-invert treatment used for primary actions
+   elsewhere (e.g. SessionBar.css's .session-end). */
+.score-workspace-piece-switch-confirm-action.is-safe {
+  border: 0;
+  padding: var(--s-1) var(--s-2);
+  color: var(--accent-invert-ink);
+  background: var(--accent-invert-bg);
+}
+.score-workspace-piece-switch-confirm-action.is-safe:hover {
+  opacity: 0.9;
+}
+
+.score-workspace-piece-switch-confirm-action:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
 .score-workspace-body {
   flex: 1;
   min-height: 0;

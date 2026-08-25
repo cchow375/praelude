@@ -306,7 +306,7 @@ export function ScoreWorkspace({
               </span>
               <button
                 type="button"
-                className="score-workspace-piece-switch-confirm-action"
+                className="score-workspace-piece-switch-confirm-action is-danger"
                 data-testid="score-workspace-piece-switch-confirm-yes"
                 onClick={() => {
                   measureMapDirtyRef.current = false;
@@ -320,7 +320,7 @@ export function ScoreWorkspace({
               </button>
               <button
                 type="button"
-                className="score-workspace-piece-switch-confirm-action"
+                className="score-workspace-piece-switch-confirm-action is-safe"
                 aria-label="Keep the measure-map review"
                 data-testid="score-workspace-piece-switch-confirm-no"
                 onClick={() => setPendingPieceSwitch(null)}

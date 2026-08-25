@@ -207,6 +207,43 @@ describe("ScoreWorkspace", () => {
     ).toBeTruthy();
   });
 
+  // B83 follow-up: the styling hook itself is load-bearing (an invisible
+  // confirm reads to the user as "I clicked the thing and nothing
+  // happened" — the same symptom as the window.confirm bug this replaced),
+  // so pin that the confirm container carries its class only while pending.
+  it("renders the piece-switch confirm banner with its styling class only while a switch is pending", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      return Promise.resolve(undefined);
+    });
+
+    render(<ScoreWorkspace />);
+    const picker = (await screen.findByLabelText(
+      "Choose a piece",
+    )) as HTMLSelectElement;
+    expect(
+      screen.queryByTestId("score-workspace-piece-switch-confirm"),
+    ).toBeNull();
+
+    const props = scoreViewProps.current as ScoreViewProps;
+    props.onMeasureMapDirtyChange?.(true);
+    fireEvent.change(picker, { target: { value: "2" } });
+
+    const confirm = await screen.findByTestId(
+      "score-workspace-piece-switch-confirm",
+    );
+    expect(confirm.className).toContain("score-workspace-piece-switch-confirm");
+    const yes = screen.getByTestId("score-workspace-piece-switch-confirm-yes");
+    const no = screen.getByTestId("score-workspace-piece-switch-confirm-no");
+    expect(yes.className).toContain("is-danger");
+    expect(no.className).toContain("is-safe");
+
+    fireEvent.click(no);
+    expect(
+      screen.queryByTestId("score-workspace-piece-switch-confirm"),
+    ).toBeNull();
+  });
+
   it("shows the requested no-PDF piece instead of substituting another score", async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === "pieces_list") {

@@ -228,6 +228,67 @@ button.measure-map-number {
   color: inherit;
 }
 
+/* B83: the inline "Discard this review?" confirm that replaced
+   `window.confirm` in the dialog header — same idiom as SessionBar.css's
+   .session-end-day-confirm, but styled to read as an active question rather
+   than page furniture (a control the user cannot see is a control that does
+   not exist). Wraps rather than carrying a fixed width, so it never pushes
+   anything off-screen at the app's 720×520 minimum window size. */
+.measure-map-discard-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-2);
+  background: var(--signal-warning-wash, rgba(184, 134, 11, 0.12));
+  border: 1px solid var(--signal-warning, #8a5a12);
+  border-radius: var(--r-sm);
+}
+
+.measure-map-discard-confirm-ask {
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
+.measure-map-discard-confirm-action {
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+/* The destructive choice: plain underlined text, low visual weight — never
+   the easy target. */
+.measure-map-discard-confirm-action.is-danger {
+  border: 0;
+  background: none;
+  padding: 0 var(--s-1);
+  color: var(--signal-warning, #8a5a12);
+  text-decoration: underline;
+}
+.measure-map-discard-confirm-action.is-danger:hover,
+.measure-map-discard-confirm-action.is-danger:focus-visible {
+  color: var(--ink);
+}
+
+/* The safe choice: a filled button — same treatment as the primary action
+   elsewhere in this dialog (.measure-map-actions button[data-testid=
+   "measure-map-apply"]), so it is the obviously easy thing to hit. */
+.measure-map-discard-confirm-action.is-safe {
+  border: 0;
+  padding: var(--s-1) var(--s-2);
+  color: var(--accent-invert-ink);
+  background: var(--accent-invert-bg);
+}
+.measure-map-discard-confirm-action.is-safe:hover {
+  opacity: 0.9;
+}
+
+.measure-map-discard-confirm-action:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
 /* ── Score toolbar entry points ──────────────────────────────────────────── */
 
 .score-map-measures,

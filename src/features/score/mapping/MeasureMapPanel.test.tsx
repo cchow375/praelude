@@ -453,6 +453,39 @@ describe("MeasureMapPanel", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  // B83 follow-up: the styling hook itself is load-bearing (an invisible
+  // confirm reads to the user as "I clicked the thing and nothing
+  // happened" — the same symptom as the window.confirm bug this replaced),
+  // so pin that the confirm container carries its class only while pending.
+  it("renders the discard-confirm banner with its styling class only while a discard is pending", async () => {
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={makeApi()}
+      />,
+    );
+    expect(screen.queryByTestId("measure-map-discard-confirm")).toBeNull();
+
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-no-conflicts");
+    fireEvent.click(screen.getByText("Cancel"));
+
+    const confirm = await screen.findByTestId("measure-map-discard-confirm");
+    expect(confirm.className).toContain("measure-map-discard-confirm");
+    const yes = screen.getByTestId("measure-map-discard-confirm-yes");
+    const no = screen.getByTestId("measure-map-discard-confirm-no");
+    expect(yes.className).toContain("is-danger");
+    expect(no.className).toContain("is-safe");
+
+    fireEvent.click(no);
+    expect(screen.queryByTestId("measure-map-discard-confirm")).toBeNull();
+  });
+
   it("keeps the review state and surfaces the error when Apply is rejected", async () => {
     const apply = vi.fn().mockRejectedValue("piece 7 has no valid edition");
     const api = makeApi({ apply });
