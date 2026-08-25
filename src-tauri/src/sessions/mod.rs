@@ -443,11 +443,45 @@ impl SessionService {
     /// ended. Returns the export result, or `None` when no session was open
     /// (nothing to save). A session with no rep activity still ends but writes no
     /// vault files. Best-effort and quick — safe to call from the app-exit hook.
-    pub fn end_and_export(&self, store: &Store, pieces_dir: &Path) -> Option<ExportResult> {
+    ///
+    /// The single entry point (flaw B56): the caller's own "is it safe to end
+    /// this session" precondition is evaluated **under** `lifecycle`, so
+    /// nothing can open, adopt or roll a session between the check and the
+    /// export. There used to be a second, unguarded `end_and_export` with no
+    /// precondition — it had no production caller (every real path needs the
+    /// active-set check) and was deleted rather than kept alive as untested
+    /// surface area; if a call site ever needs "no precondition", pass
+    /// `|| Ok::<_, std::convert::Infallible>(())`.
+    ///
+    /// The rep engine is the caller that needs this: its "no set is live"
+    /// check used to be a peek-and-drop, leaving a TOCTOU window in which a
+    /// concurrent `open`/`checkpoint` could mint a session and land a rep
+    /// against the record being exported and closed. `precondition` must NOT
+    /// call back into `SessionService` (it would deadlock on this same
+    /// non-reentrant lock) — it may only take locks that sit BELOW
+    /// `lifecycle` in the lattice `lifecycle < current < pause_hook < active
+    /// < store.conn`, which is exactly what `rep.active` does.
+    ///
+    /// NOTE (B56 residual, see NOTES.md): this closes the exporter-side
+    /// window. A narrower opener-side window still exists between
+    /// `ensure_session()` returning and the caller locking `self.active`
+    /// (`rep/mod.rs:277-278`) — not fixed here, tracked as a follow-up.
+    pub fn end_and_export_guarded<E>(
+        &self,
+        store: &Store,
+        pieces_dir: &Path,
+        precondition: impl FnOnce() -> Result<(), E>,
+    ) -> Result<Option<ExportResult>, E> {
         let _lifecycle = self
             .lifecycle
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
+        precondition()?;
+        Ok(self.end_and_export_locked(store, pieces_dir))
+    }
+
+    /// The body of `end_and_export`. Caller MUST already hold `lifecycle`.
+    fn end_and_export_locked(&self, store: &Store, pieces_dir: &Path) -> Option<ExportResult> {
         // Deliberately the RAW (unfiltered) lookup, not `current_id()`: "End my
         // day" must still find and correctly close a session left open from a
         // prior local day, not treat it as if nothing were open.
@@ -483,6 +517,97 @@ mod tests {
         let rec = Arc::new(RecEmitter::default());
         svc.set_emitter(rec.clone());
         (svc, rec)
+    }
+
+    #[test]
+    fn end_and_export_guarded_still_ends_and_exports_with_a_no_op_precondition() {
+        // There is no unguarded `end_and_export` any more (it had no
+        // production caller — see the doc comment on `end_and_export_guarded`)
+        // — this pins that the guarded form alone still does the plain job
+        // when the precondition is trivially satisfied.
+        let store = Arc::new(Store::open(":memory:").expect("memory store"));
+        let service = SessionService::new(store.clone());
+        let dir = tempfile::tempdir().expect("tempdir");
+        service.ensure_session().expect("seed session");
+
+        let exported = service
+            .end_and_export_guarded(
+                &store,
+                dir.path(),
+                || -> Result<(), std::convert::Infallible> { Ok(()) },
+            )
+            .expect("no-op precondition never errors");
+        assert!(exported.is_some(), "the seeded session must export");
+        assert!(service.current().is_none(), "the session must be ended");
+    }
+
+    #[test]
+    fn end_and_export_guarded_holds_lifecycle_across_the_caller_precondition() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let store = Arc::new(Store::open(":memory:").expect("memory store"));
+        let service = Arc::new(SessionService::new(store.clone()));
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        // Seed an open session so end_and_export has something to close.
+        service.ensure_session().expect("seed session");
+
+        let (reached_tx, reached_rx) = mpsc::channel::<()>();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let (ensured_tx, ensured_rx) = mpsc::channel::<()>();
+
+        let ender = {
+            let service = service.clone();
+            let store = store.clone();
+            let path = dir.path().to_path_buf();
+            std::thread::spawn(move || {
+                service.end_and_export_guarded(&store, &path, || -> Result<(), String> {
+                    reached_tx.send(()).expect("signal reached");
+                    release_rx
+                        .recv_timeout(Duration::from_secs(5))
+                        .expect("release");
+                    Ok(())
+                })
+            })
+        };
+
+        // The precondition is now running with `lifecycle` held.
+        reached_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("precondition reached");
+
+        let opener = {
+            let service = service.clone();
+            std::thread::spawn(move || {
+                let sid = service.ensure_session();
+                ensured_tx.send(()).expect("signal ensured");
+                sid
+            })
+        };
+
+        // BOUNDED wait FIRST — an unbounded join here would hang the suite on
+        // regression instead of failing this one test (rep/mod.rs:2420-2425).
+        std::thread::sleep(Duration::from_millis(120));
+        assert!(
+            ensured_rx.try_recv().is_err(),
+            "ensure_session must block while the end precondition holds `lifecycle`"
+        );
+
+        release_tx.send(()).expect("release the precondition");
+        ensured_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("ensure_session must proceed once the end completes");
+
+        let exported = ender.join().expect("ender thread").expect("guarded end");
+        assert!(
+            exported.is_some(),
+            "the seeded session must have been ended and exported"
+        );
+        opener
+            .join()
+            .expect("opener thread")
+            .expect("session after end");
     }
 
     #[test]

@@ -2,6 +2,53 @@
 
 ## Decisions
 
+- **B56 (task 1, v7.0.1, 2026-08-25) — the exporter-side race is closed; the flaw is NARROWED,
+  NOT RESOLVED.** `RepEngine::end_session_and_export` used to peek `self.active`, drop the guard,
+  then call `sessions.end_and_export` — a TOCTOU window in which a concurrent `open`/`checkpoint`
+  could mint or adopt a session and land a rep against the record being exported and closed. Fix:
+  `SessionService::end_and_export_guarded<E>(&self, store, pieces_dir, precondition)` runs the
+  caller's precondition **inside** the `lifecycle` lock, before doing the raw-session lookup and
+  export (`sessions/mod.rs`); `RepEngine::end_session_and_export` now calls it with a closure that
+  locks `self.active` and refuses on a live set. Lock order taken is `lifecycle` → `active`, which
+  is lattice order (`lifecycle < current < pause_hook < active < store.conn`) and therefore
+  deadlock-free — the reverse order was the round-2 cross-thread ABBA class this same file already
+  survived once (`rep/mod.rs`, regression test
+  `end_session_and_export_does_not_deadlock_with_a_concurrent_day_boundary_rollover`). The old
+  unguarded `end_and_export` wrapper had no production caller left once the rep engine moved to the
+  guarded form, so it was deleted rather than kept alive just to dodge a dead-code lint —
+  `end_and_export_guarded` is now the single entry point (pass a no-op precondition,
+  `|| Ok::<_, Infallible>(())`, if a future caller genuinely has none).
+  - **Residual window (NOT fixed here — do not read this task as closing B56):** inside
+    `RepEngine::open_from`, `self.sessions.ensure_session()` returns and releases `lifecycle`
+    at `rep/mod.rs:277`; `self.active` is locked on the very next line, `:278`. Between those two
+    lines, an exporter that acquires `lifecycle` sees `active == None`, exports, and ends the
+    session — while the opener's already-resolved `session_hint` (captured at `:277`) still points
+    at that now-ended session, and `store.v2_open_set(session_hint, ...)` at `:288` writes the new
+    block against it. Same mis-attribution class as the flaw register describes, a much smaller
+    window (a handful of synchronous Rust instructions vs. an entire cross-thread call). The same
+    gap exists in `check_from`/`close_from`/etc. — every rep mutation does "peek active, drop,
+    `ensure_session()`, relock active" for the same historical reason (holding `active` across a
+    `SessionService` call is what caused the round-2 ABBA class in the first place). Closing it
+    completely means holding `lifecycle` across `[resolve session → mutate active]` for every one
+    of `open`/`check`/`undo`/`close`/`checkpoint` — a refactor of the exact hot path that has
+    already produced three separate deadlock classes over three rounds (A4b/A5 fix rounds 1–2).
+    That is a real design pass, not a stabilization-patch fix improvised mid-task. Two candidate
+    complete fixes for that future pass: (a) make every rep mutation take `lifecycle` for the
+    whole `[ensure_session → set self.active]` span, symmetric with the exporter's fix here; or
+    (b) push the invariant into the store: have `v2_open_set`'s own transaction check "the session
+    this write is about to hint at is still open" and fail the write if not, so the DB — not lock
+    discipline spread across five call sites — is the backstop.
+  - **The pre-existing deadlock regression test's assertion was widened, deliberately.** Its job,
+    per its name, is proving no deadlock — that's what the bounded `recv_timeout`-before-`join`
+    ordering proves. `assert!(exported.is_ok())` was incidental and encoded the OLD, racy
+    semantics: the peek used to run at thread-spawn time, before the concurrent opener had gotten
+    anywhere, so it always "won." With the fix, the opener can legitimately finish setting
+    `self.active` before the woken exporter thread gets rescheduled to recheck it — and the export
+    correctly refuses ("Close the current practice set before ending the session."), which is the
+    app's designed behavior, not a bug. The assertion now accepts `Ok(_)` or exactly that refusal
+    message; any other `Err` still fails the test. Do not restore the old assertion — it would
+    mean re-introducing the exporter-side TOCTOU to make a race come out the old way.
+
 - **The invisibility postmortem (2026-08-25, spec rev 2):** Christian refuted the claim that
   sub-sections shipped — and the code says he's right in the way that matters. The creation
   gesture is gated on `selectedRegionId` being set from the Tricky Sections LIST before the

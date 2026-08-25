@@ -441,27 +441,28 @@ impl RepEngine {
 
     /// End and export the practice session only when no set is live.
     ///
-    /// Quick peek, no side effects, guard dropped immediately (fix round 2,
-    /// N2): `sessions.end_and_export` acquires `sessions.lifecycle`, and
-    /// every practice mutation now takes `lifecycle` → `current` → `active`
-    /// (via `ensure_session` → a same-thread rollover pause). Holding
-    /// `self.active` here across that call would be the reverse order
-    /// (`active` → `lifecycle`) on a DIFFERENT thread — a cross-thread ABBA
-    /// deadlock the instant the two interleave (e.g. "End my day"/app-exit
-    /// racing a voice rep at a day boundary). `self.active` is never held
-    /// across any `SessionService` call anywhere in this file — see the
-    /// module-level audit note near the bottom of this impl block.
+    /// The active-set check runs INSIDE `sessions.end_and_export_guarded`,
+    /// i.e. with `sessions.lifecycle` already held. That is lattice order
+    /// (`lifecycle` → `active`), so it is deadlock-free — the reverse order
+    /// (`active` → `lifecycle`, which the old peek-and-drop was written to
+    /// avoid) is what caused the round-2 cross-thread ABBA class. Holding
+    /// `lifecycle` across the check closes flaw B56: a concurrent
+    /// `open`/`checkpoint` can no longer mint or adopt a session between the
+    /// check and the export, so a rep can no longer land against the session
+    /// record being closed. `self.active` is still never held across any
+    /// `SessionService` call.
     pub fn end_session_and_export(
         &self,
         pieces_dir: &Path,
     ) -> Result<Option<ExportResult>, String> {
-        {
-            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-            if active.is_some() {
-                return Err("Close the current practice set before ending the session.".into());
-            }
-        }
-        Ok(self.sessions.end_and_export(&self.store, pieces_dir))
+        self.sessions
+            .end_and_export_guarded(&self.store, pieces_dir, || {
+                let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+                if active.is_some() {
+                    return Err("Close the current practice set before ending the session.".into());
+                }
+                Ok(())
+            })
     }
 
     fn close_from(&self, source: MutationSource) -> Result<Option<RepSnapshot>, String> {
@@ -2426,7 +2427,29 @@ mod tests {
         let exported = export_rx
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("end_session_and_export must not deadlock and must complete");
-        assert!(exported.is_ok(), "{exported:?}");
+
+        // B56 fix (task 1): the active-set check now runs INSIDE
+        // `sessions.end_and_export_guarded`, i.e. under `lifecycle`, closing
+        // the exporter-side TOCTOU. A side effect of that correctness fix is
+        // that `open_from` (thread B) may legitimately win this exact race —
+        // it can finish setting `self.active` before the woken exporter
+        // thread gets scheduled to re-check it — so the export now correctly
+        // sees a live set and refuses instead of racing past it. That is
+        // the app's designed behaviour ("close the active set before ending
+        // the session"), not a regression: the old
+        // `assert!(exported.is_ok())` here encoded the PRE-fix racy semantics
+        // (the peek always ran before the opener existed) as if it were a
+        // requirement. This test's actual job — proved by the bounded
+        // `recv_timeout` above, not this assertion — is that the two threads
+        // never deadlock. Do not restore the old assertion: any Err other
+        // than the designed refusal message is still a real failure.
+        match &exported {
+            Ok(_) => {}
+            Err(message) => assert!(
+                message.contains("Close the current practice set"),
+                "unexpected export error: {message}"
+            ),
+        }
 
         opener
             .join()
@@ -2643,6 +2666,33 @@ mod tests {
         assert_eq!(exported.session_id, session_id);
         assert_eq!(exported.reps, 1);
         assert!(engine.sessions.current_id().is_none());
+    }
+
+    /// Characterization test (task 1, step 5): pins the behaviour that must
+    /// survive the guarded-API refactor — the active-set refusal still works
+    /// and the export still happens once nothing is live. The race itself is
+    /// pinned by the `sessions` test
+    /// (`end_and_export_guarded_holds_lifecycle_across_the_caller_precondition`)
+    /// — a single-threaded test cannot observe a TOCTOU window.
+    #[test]
+    fn end_session_and_export_refuses_while_a_set_is_live_and_exports_when_it_is_not() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (engine, piece_id, _store, _rec) = engine_with_piece();
+
+        let _opened = engine.open(open_args(piece_id)).expect("open");
+        let err = engine
+            .end_session_and_export(dir.path())
+            .expect_err("a live set must block the end");
+        assert!(
+            err.contains("Close the current practice set"),
+            "unexpected refusal message: {err}"
+        );
+
+        engine.close().expect("close the set");
+        let exported = engine
+            .end_session_and_export(dir.path())
+            .expect("end must succeed once nothing is live");
+        assert!(exported.is_some(), "a practised session must export");
     }
 
     #[test]
