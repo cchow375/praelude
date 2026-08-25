@@ -4,14 +4,15 @@ import { BlockForm } from "./BlockForm";
 
 afterEach(cleanup);
 
-const openMore = () =>
-  fireEvent.click(screen.getByRole("button", { name: /more/i }));
+const openAdvanced = () =>
+  fireEvent.click(screen.getByRole("button", { name: /advanced/i }));
 
 describe("BlockForm payload", () => {
-  // The B3 declutter must NOT change the wire contract. These two assert the
-  // WHOLE RepOpenArgs object for the frictionless default and for a run that
-  // touches every capability, so any accidental payload drift fails loudly.
-  it("submits the full default payload with no trip into More", () => {
+  // The A3 restructuring must NOT change the wire contract. These two
+  // assert the WHOLE RepOpenArgs object for the frictionless default and
+  // for a run that touches every capability, so any accidental payload
+  // drift fails loudly.
+  it("submits the full default payload with no interaction at all", () => {
     const onOpen = vi.fn();
     render(<BlockForm pieceId={7} onOpen={onOpen} />);
 
@@ -56,14 +57,21 @@ describe("BlockForm payload", () => {
       target: { value: "120" },
     });
 
-    // Everything else lives behind the single "More" disclosure.
-    openMore();
+    // Focus, the variant chain, and clean streak are always visible now
+    // (spec §5.3) — no disclosure needed to reach them.
     fireEvent.change(screen.getByLabelText("Clean streak target"), {
       target: { value: "custom" },
     });
     fireEvent.change(screen.getByLabelText("Custom clean streak"), {
       target: { value: "8" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "Hands separate" }));
+    fireEvent.change(screen.getByLabelText("Variant 1 attempts"), {
+      target: { value: "3" },
+    });
+
+    // Only the tempo ladder and the review boundary stay behind "Advanced".
+    openAdvanced();
     fireEvent.click(screen.getByRole("radio", { name: "Manual" }));
     fireEvent.change(screen.getByLabelText("Cleans needed"), {
       target: { value: "2" },
@@ -73,13 +81,6 @@ describe("BlockForm payload", () => {
     });
     fireEvent.change(screen.getByLabelText("Attempt review boundary"), {
       target: { value: "30" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "+ Add variant" }));
-    fireEvent.change(screen.getByLabelText("Variant 1 name"), {
-      target: { value: "hands separate" },
-    });
-    fireEvent.change(screen.getByLabelText("Variant 1 attempts"), {
-      target: { value: "3" },
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Start set" }));
@@ -103,47 +104,86 @@ describe("BlockForm payload", () => {
   });
 });
 
-describe("BlockForm layout", () => {
-  it("collapses strategy options behind a one-line summary and a single More disclosure", () => {
-    const onOpen = vi.fn();
-    render(<BlockForm pieceId={1} onOpen={onOpen} />);
+describe("BlockForm layout (A3 — un-bury the variants)", () => {
+  it("shows the variant chain builder with zero clicks", () => {
+    render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    expect(screen.getByRole("group", { name: /variant/i })).toBeTruthy();
+  });
 
-    // The plain-words defaults summary is visible up front (this element does
-    // not exist on the pre-B3 form, so this assertion bites on old code).
-    expect(screen.getByText(/5 clean in a row/i)).toBeTruthy();
+  it("offers one-tap preset variants", () => {
+    render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    for (const preset of ["Slow", "Dotted", "Reverse dotted", "Staccato"]) {
+      expect(screen.getByRole("button", { name: preset })).toBeTruthy();
+    }
+  });
 
-    // The strategy editors are NOT mounted until "More" opens. On the pre-B3
-    // form these were always present at top level, so each of these is a bite.
-    expect(screen.queryByLabelText("Clean streak target")).toBeNull();
-    expect(screen.queryByLabelText("Focus")).toBeNull();
-    expect(screen.queryByLabelText("Attempt review boundary")).toBeNull();
-    expect(screen.queryByRole("radio", { name: "Manual" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "+ Add variant" })).toBeNull();
+  it("appends a variant to the chain when a preset chip is tapped", () => {
+    render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    expect(screen.queryByLabelText("Variant 1 name")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Staccato" }));
+    expect(
+      (screen.getByLabelText("Variant 1 name") as HTMLInputElement).value,
+    ).toBe("staccato");
+  });
 
-    // Opening the one disclosure makes every capability reachable again, with
-    // the same defaults it always had (5 cleans, no review boundary).
-    openMore();
+  it("adds a custom free-text variant and remembers it as a chip", () => {
+    render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Custom variant name"), {
+      target: { value: "octave runs" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "+ Add" }));
+    expect(
+      (screen.getByLabelText("Variant 1 name") as HTMLInputElement).value,
+    ).toBe("octave runs");
+    // Remembered as a chip: a second tap re-adds it without retyping.
+    fireEvent.click(screen.getByRole("button", { name: "octave runs" }));
+    expect(
+      (screen.getByLabelText("Variant 2 name") as HTMLInputElement).value,
+    ).toBe("octave runs");
+  });
+
+  it("reorders and removes variants in the chain", () => {
+    render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Slow" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dotted" }));
+    expect(
+      (screen.getByLabelText("Variant 1 name") as HTMLInputElement).value,
+    ).toBe("slow");
+
+    fireEvent.click(screen.getByRole("button", { name: "Move variant 2 up" }));
+    expect(
+      (screen.getByLabelText("Variant 1 name") as HTMLInputElement).value,
+    ).toBe("dotted");
+    expect(
+      (screen.getByLabelText("Variant 2 name") as HTMLInputElement).value,
+    ).toBe("slow");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove variant 1" }));
+    expect(screen.queryByLabelText("Variant 2 name")).toBeNull();
+    expect(
+      (screen.getByLabelText("Variant 1 name") as HTMLInputElement).value,
+    ).toBe("slow");
+  });
+
+  it("shows practice focus and clean streak target with zero clicks", () => {
+    render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    expect(screen.getByLabelText("Focus")).toBeTruthy();
     expect(
       (screen.getByLabelText("Clean streak target") as HTMLSelectElement).value,
     ).toBe("5");
-    expect(
-      (screen.getByLabelText("Attempt review boundary") as HTMLInputElement)
-        .value,
-    ).toBe("");
-    expect(screen.getByLabelText("Focus")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "+ Add variant" })).toBeTruthy();
   });
 
-  it("keeps the summary in sync with edits made inside More", () => {
-    const onOpen = vi.fn();
-    render(<BlockForm pieceId={1} defaultCleanStreak={5} onOpen={onOpen} />);
-    expect(screen.getByText(/5 clean in a row/i)).toBeTruthy();
+  it("keeps the tempo ladder and review boundary collapsed under Advanced", async () => {
+    render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    expect(screen.queryByLabelText(/attempt review boundary/i)).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Manual" })).toBeNull();
+    expect(screen.queryByLabelText("One pass seconds")).toBeNull();
 
-    openMore();
-    fireEvent.change(screen.getByLabelText("Clean streak target"), {
-      target: { value: "10" },
-    });
-    expect(screen.getByText(/10 clean in a row/i)).toBeTruthy();
+    openAdvanced();
+    expect(
+      await screen.findByLabelText(/attempt review boundary/i),
+    ).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Manual" })).toBeTruthy();
   });
 });
 
@@ -180,7 +220,7 @@ describe("BlockForm pass-seconds estimate (Task A10)", () => {
   it("passes pass_seconds as a second context argument once entered", () => {
     const onOpen = vi.fn();
     render(<BlockForm pieceId={7} onOpen={onOpen} />);
-    openMore();
+    openAdvanced();
     fireEvent.change(screen.getByLabelText("One pass seconds"), {
       target: { value: "30" },
     });
@@ -194,7 +234,7 @@ describe("BlockForm pass-seconds estimate (Task A10)", () => {
 
   it("renders no estimate until a pass-time is entered, then the worked-example minutes", () => {
     render(<BlockForm pieceId={7} onOpen={vi.fn()} />);
-    openMore();
+    openAdvanced();
     expect(screen.queryByLabelText("Set time estimate")).toBeNull();
 
     // Ladder preview from defaults (start 60, no target) is one rung of 3
@@ -210,10 +250,10 @@ describe("BlockForm pass-seconds estimate (Task A10)", () => {
 
   it("has no pass-seconds field for a non-tempo focus", () => {
     render(<BlockForm pieceId={7} onOpen={vi.fn()} />);
-    openMore();
     fireEvent.change(screen.getByLabelText("Focus"), {
       target: { value: "notes" },
     });
+    openAdvanced();
     expect(screen.queryByLabelText("One pass seconds")).toBeNull();
   });
 });
@@ -224,7 +264,6 @@ describe("BlockForm behavior", () => {
     const { rerender } = render(
       <BlockForm pieceId={1} defaultCleanStreak={5} onOpen={onOpen} />,
     );
-    openMore();
 
     rerender(<BlockForm pieceId={1} defaultCleanStreak={7} onOpen={onOpen} />);
     expect(
@@ -243,7 +282,6 @@ describe("BlockForm behavior", () => {
   it("opens a non-tempo block without fake BPM or a ladder", () => {
     const onOpen = vi.fn();
     render(<BlockForm pieceId={1} onOpen={onOpen} />);
-    openMore();
     fireEvent.change(screen.getByLabelText("Focus"), {
       target: { value: "notes" },
     });
@@ -269,7 +307,6 @@ describe("BlockForm behavior", () => {
   it("can use a metronome for non-tempo work without enabling a ladder", () => {
     const onOpen = vi.fn();
     render(<BlockForm pieceId={1} onOpen={onOpen} />);
-    openMore();
     fireEvent.change(screen.getByLabelText("Focus"), {
       target: { value: "phrasing" },
     });

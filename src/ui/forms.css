@@ -22,6 +22,21 @@
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
+  /* A3 (§4b): never let the composer outgrow the window itself — the body
+     below scrolls internally instead, so Start set stays reachable at the
+     app's 720×520 floor. */
+  max-height: 100vh;
+  min-height: 0;
+}
+/* The scrolling region: everything except the heading and the pinned submit
+   row, so a tall composer (variant chain + Advanced open) never pushes
+   Start set off screen. */
+.block-form-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  overflow-y: auto;
 }
 .ck-form-heading {
   font-family: var(--font-display);
@@ -278,6 +293,80 @@ select.ck-input {
 }
 .ck-manual-rule {
   margin-top: var(--space-1);
+}
+
+/* Task A3: the variant chain builder — one-tap preset chips, free-text
+   custom, and the ordered chain itself. Always visible (§4b); no disclosure
+   gates this fieldset. */
+.ck-variant-chain {
+  gap: var(--space-3);
+}
+.ck-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.ck-chip {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-secondary);
+  background: var(--surface-app);
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+.ck-chip:hover {
+  color: var(--ink-primary);
+  border-color: var(--accent-line);
+}
+.ck-chip:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.ck-chain-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ck-chain-item {
+  align-items: center;
+}
+.ck-chain-index {
+  flex: 0 0 auto;
+  min-width: 1.25rem;
+  font-size: var(--text-xs);
+  color: var(--ink-tertiary);
+  text-align: right;
+}
+.ck-row-move {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  font-size: var(--text-base);
+  line-height: 1;
+  color: var(--ink-tertiary);
+  background: transparent;
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.ck-row-move:hover {
+  color: var(--ink-primary);
+}
+.ck-row-move:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ck-row-move:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* Task A10: the optional one-pass estimate, beside its field. */

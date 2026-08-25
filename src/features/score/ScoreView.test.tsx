@@ -973,9 +973,9 @@ describe("ScoreView", () => {
       expect.objectContaining({ region_id: 2, required_clean_streak: 3 }),
     );
 
-    // The pianist can still see and override it in the UI.
+    // The pianist can still see and override it in the UI (Clean streak
+    // target is always visible — Task A3 un-buried it).
     onOpenBlock.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: /More/ }));
     const streak = screen.getByLabelText(
       "Clean streak target",
     ) as HTMLSelectElement;
