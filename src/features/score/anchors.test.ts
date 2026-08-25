@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   anchorForEdition,
   normalizeDrag,
+  rectCentreIsInsideAnchor,
   replaceEditionRects,
   validAnchorMap,
 } from "./anchors";
@@ -58,5 +59,49 @@ describe("score Region anchors", () => {
   it("treats malformed legacy/foreign JSON as unmapped", () => {
     expect(validAnchorMap({ page: 1, x: 4 })).toBe(false);
     expect(anchorForEdition("garbage", "x", "y")).toBeNull();
+  });
+});
+
+describe("rectCentreIsInsideAnchor (B1: 'drag inside' must mean inside)", () => {
+  const parent = {
+    fingerprint: "fp",
+    rects: [{ page: 2, x: 0.2, y: 0.2, w: 0.4, h: 0.4 }],
+  };
+
+  it("treats a drag whose centre lands in the section's mark as inside", () => {
+    expect(
+      rectCentreIsInsideAnchor({ page: 2, x: 0.3, y: 0.3, w: 0.1, h: 0.1 }, parent),
+    ).toBe(true);
+  });
+
+  it("is forgiving of a sloppy drag that overhangs the mark's edges", () => {
+    // Centre (0.32, 0.32) is inside even though the rect spills past x = 0.2.
+    expect(
+      rectCentreIsInsideAnchor({ page: 2, x: 0.14, y: 0.14, w: 0.36, h: 0.36 }, parent),
+    ).toBe(true);
+  });
+
+  it("does NOT claim a drag elsewhere on the page — the defect this fixes", () => {
+    expect(
+      rectCentreIsInsideAnchor({ page: 2, x: 0.7, y: 0.7, w: 0.1, h: 0.1 }, parent),
+    ).toBe(false);
+  });
+
+  it("does not match the same coordinates on a different page", () => {
+    expect(
+      rectCentreIsInsideAnchor({ page: 3, x: 0.3, y: 0.3, w: 0.1, h: 0.1 }, parent),
+    ).toBe(false);
+  });
+
+  it("treats a section with no mark on this edition as nothing to be inside of", () => {
+    expect(
+      rectCentreIsInsideAnchor({ page: 2, x: 0.3, y: 0.3, w: 0.1, h: 0.1 }, null),
+    ).toBe(false);
+    expect(
+      rectCentreIsInsideAnchor(
+        { page: 2, x: 0.3, y: 0.3, w: 0.1, h: 0.1 },
+        { fingerprint: "fp", rects: [] },
+      ),
+    ).toBe(false);
   });
 });

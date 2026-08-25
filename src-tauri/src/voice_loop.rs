@@ -564,6 +564,14 @@ impl ActionCtx {
             if let Some((fired, at)) = &self.fast_path {
                 if t.at.saturating_duration_since(*at) < DEDUP_WINDOW && intent == *fired {
                     self.fast_path = None;
+                    // This final ENDS the utterance even though it is dropped.
+                    // It is not enough to assume the fast-path fire already
+                    // cleared the start: the engine keeps streaming interim
+                    // partials after we act, and any one of them re-arms
+                    // `utterance_start` (it sees `None` and treats the tail as
+                    // a new utterance). Returning without clearing would charge
+                    // that stray start to the user's NEXT command.
+                    self.utterance_start = None;
                     return;
                 }
             }
@@ -603,6 +611,11 @@ impl ActionCtx {
         });
         self.last = Some((norm, t.at));
         if suppress {
+            // Same reasoning as the tail guard above: a suppressed re-send is
+            // still the end of an utterance, and an interim partial arriving
+            // between the original final and this re-send can have re-armed
+            // `utterance_start`. Clear it here rather than assuming.
+            self.utterance_start = None;
             return;
         }
 
@@ -2636,6 +2649,67 @@ mod tests {
         assert!(
             app_ms < 2_000,
             "the muted stretch must not be charged to the next command: got {app_ms} ms"
+        );
+    }
+
+    #[test]
+    fn a_partial_after_a_fast_path_fire_is_not_charged_to_the_next_command() {
+        // Refutation found by adversarial verification of the first D1 fix.
+        // The fast-path fire clears the tracked start, but the engine keeps
+        // streaming interim partials for the SAME utterance; one of them sees
+        // `None` and re-arms the start. The settled final is then dropped by
+        // the tail guard, which used to return WITHOUT clearing — so the stray
+        // start was charged to whatever the user said next.
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let started = Instant::now();
+
+        ctx.handle_partial(&Transcript {
+            text: "metro".to_string(),
+            is_final: false,
+            at: started,
+        });
+        // The fast path acts on the partial and charges the utterance.
+        ctx.handle_fast_path(&Transcript {
+            text: "metronome off".to_string(),
+            is_final: true,
+            at: started + Duration::from_millis(200),
+        });
+        // The engine keeps streaming this same utterance; this re-arms the start.
+        ctx.handle_partial(&Transcript {
+            text: "metronome off pl".to_string(),
+            is_final: false,
+            at: started + Duration::from_millis(300),
+        });
+        // Its settled final is swallowed by the tail guard.
+        ctx.handle_final(&Transcript {
+            text: "metronome off".to_string(),
+            is_final: true,
+            at: started + Duration::from_millis(900),
+        });
+        assert!(
+            ctx.utterance_start.is_none(),
+            "the swallowed tail final must still end the utterance"
+        );
+
+        // A genuinely fast later command must report its OWN latency.
+        let later = started + Duration::from_secs(8);
+        ctx.handle_partial(&Transcript {
+            text: "metro".to_string(),
+            is_final: false,
+            at: later,
+        });
+        ctx.handle_final(&Transcript {
+            text: "metronome on".to_string(),
+            is_final: true,
+            at: later + Duration::from_millis(400),
+        });
+        let payload = last_payload(&rec, "voice://transcript").expect("transcript emitted");
+        let app_ms = payload["app_ms"].as_u64().expect("app_ms present");
+        assert!(
+            app_ms < 2_000,
+            "a stray start from the previous utterance's tail must not be charged here: got \
+             {app_ms} ms"
         );
     }
 

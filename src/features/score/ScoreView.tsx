@@ -17,6 +17,7 @@ import { BlockForm } from "../rep/BlockForm";
 import {
   anchorForEdition,
   anchorKind,
+  rectCentreIsInsideAnchor,
   replaceEditionRects,
   validAnchorMap,
 } from "./anchors";
@@ -2188,7 +2189,27 @@ export function ScoreView({
       setNewRegionStart(String(snap.m_start));
       setNewRegionEnd(String(snap.m_end));
     }
-    setNewRegionParentId(selectedRegionId);
+    // B1: only a drag that actually lands INSIDE the selected section makes a
+    // child of it. The hint this release ships says "Drag inside <name> on the
+    // score to isolate a spot", so defaulting a drag on the far side of the
+    // page to a sub-section would make the app's own instruction untrue — the
+    // user would be silently given a child they never asked for. Judged on the
+    // drag's centre point against the selected section's rects for this
+    // edition, which is forgiving of an imprecise drag while still meaning
+    // "inside". A section with no anchor on this edition has no box to be
+    // inside of, so a drag cannot imply it; "+ Add" (which defaults to a
+    // sub-section of the selection, with a visible opt-out) remains the way to
+    // build one there.
+    const parentAnchor =
+      selectedRegion && edition
+        ? anchorForEdition(
+            selectedRegion.pdf_anchor,
+            edition.id,
+            edition.fingerprint,
+          )
+        : null;
+    const droppedInsideParent = rectCentreIsInsideAnchor(rect, parentAnchor);
+    setNewRegionParentId(droppedInsideParent ? selectedRegionId : null);
     setAddingRegion(true);
     setNavigationNotice(
       snap

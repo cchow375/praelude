@@ -8,7 +8,12 @@ import type {
 const MIN_RECT_SPAN = 0.005;
 
 function finiteUnit(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= 1
+  );
 }
 
 function validRect(value: unknown): value is PdfAnchorRect {
@@ -25,8 +30,9 @@ function validRect(value: unknown): value is PdfAnchorRect {
     rect.w >= MIN_RECT_SPAN &&
     rect.h >= MIN_RECT_SPAN &&
     rect.x + rect.w <= 1.000001 &&
-    rect.y + rect.h <= 1.000001
-    && (rect.kind === undefined || ["box", "highlight", "note"].includes(rect.kind))
+    rect.y + rect.h <= 1.000001 &&
+    (rect.kind === undefined ||
+      ["box", "highlight", "note"].includes(rect.kind))
   );
 }
 
@@ -37,7 +43,11 @@ export function anchorKind(rect: PdfAnchorRect): PdfAnchorKind {
 export function validAnchorMap(value: unknown): value is PdfAnchorMap {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<PdfAnchorMap>;
-  if (candidate.v !== 1 || !candidate.editions || typeof candidate.editions !== "object") {
+  if (
+    candidate.v !== 1 ||
+    !candidate.editions ||
+    typeof candidate.editions !== "object"
+  ) {
     return false;
   }
   return Object.values(candidate.editions).every((edition) => {
@@ -60,6 +70,37 @@ export function anchorForEdition(
   if (!validAnchorMap(value)) return null;
   const anchor = value.editions[editionId];
   return anchor?.fingerprint === fingerprint ? anchor : null;
+}
+
+/** Does `rect` land INSIDE one of `anchor`'s marks on the same page?
+ *
+ * B1: the sub-section hint tells the user "drag inside <section> on the score
+ * to isolate a spot", so a drag must only be treated as building a child of
+ * the selected section when it genuinely lands within that section's mark.
+ * Without this, a drag anywhere on the page while a section happened to be
+ * selected silently produced a child — making the app's own instruction untrue.
+ *
+ * Judged on the drag's CENTRE point rather than full containment: a user
+ * isolating a five-note spot drags roughly, and demanding every edge fall
+ * inside would reject obviously-inside gestures. `null`/absent anchors are
+ * simply "not inside" — a section with no mark on this edition has no box to
+ * be inside of. Pure so it is testable without a DOM (jsdom has no layout).
+ */
+export function rectCentreIsInsideAnchor(
+  rect: PdfAnchorRect,
+  anchor: PdfEditionAnchors | null,
+): boolean {
+  if (!anchor) return false;
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  return anchor.rects.some(
+    (mark) =>
+      mark.page === rect.page &&
+      cx >= mark.x &&
+      cx <= mark.x + mark.w &&
+      cy >= mark.y &&
+      cy <= mark.y + mark.h,
+  );
 }
 
 export function replaceEditionRects(
