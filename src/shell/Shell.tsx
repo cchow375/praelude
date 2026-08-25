@@ -47,6 +47,7 @@ import { useVoice } from "../features/voice/useVoice";
 import { useTtsDegraded } from "../features/voice/useTtsDegraded";
 import { VoiceToast } from "../features/voice/VoiceToast";
 import { HeardPill } from "../features/voice/HeardPill";
+import { MicToggle } from "../features/voice/MicToggle";
 import {
   ActionDraftCard,
   type ActionDraft,
@@ -1059,6 +1060,8 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
             );
           })}
         </nav>
+
+        <MicToggle status={voice.status} onToggle={voice.mute} />
 
         <button
           ref={metroButtonRef}

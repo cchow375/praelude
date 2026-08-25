@@ -1,0 +1,30 @@
+.mic-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+.mic-toggle:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.mic-toggle.is-muted {
+  color: var(--signal-warning);
+  border-color: var(--signal-warning);
+  background: var(--signal-warning-wash);
+}
+.mic-toggle.is-down {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.mic-toggle-glyph {
+  font-size: 16px;
+  line-height: 1;
+}

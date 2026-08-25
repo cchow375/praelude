@@ -107,6 +107,13 @@ describe("Shell", () => {
       expect(hud.classList.contains("is-collapsed")).toBe(true);
     });
   });
+  it("shows the mic control in the rail with nothing open (the one-gesture rule)", async () => {
+    render(<Shell />);
+    expect(
+      await screen.findByRole("button", { name: /^mic (listening|muted)/i }),
+    ).toBeTruthy();
+  });
+
   it("renders exactly five workspace nav targets", async () => {
     render(<Shell />);
     const nav = screen.getByRole("tablist", { name: /workspace/i });
