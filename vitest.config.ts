@@ -8,5 +8,8 @@ export default defineConfig({
     environment: "jsdom",
     globals: false,
     include: ["src/**/*.test.{ts,tsx}", "tests/**/*.test.ts"],
+    // Raises Testing Library's `waitFor` ceiling so a busy machine cannot fail
+    // the suite on timing alone — see the reasoning in the file itself.
+    setupFiles: ["./src/testSetup.ts"],
   },
 });
