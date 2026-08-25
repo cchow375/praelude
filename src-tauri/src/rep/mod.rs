@@ -269,48 +269,58 @@ impl RepEngine {
         v2_validate_open(&args, &rule, planned, &contract).map_err(|error| error.to_string())?;
 
         // Only after validation passes do we touch the session — preserves
-        // "an invalid open touches zero rows" — and only while `self.active`
-        // is NOT held: the day-rollover boundary may need to pause whatever
-        // set is active, which locks `self.active` itself (see
-        // `pause_for_rollover`); holding it here first would deadlock (task
-        // A5 fix round 1, CRITICAL 2).
-        let session_hint = Some(self.sessions.ensure_session()?);
-        let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        if active
-            .as_ref()
-            .is_some_and(|snap| snap.set_state == "active")
-        {
-            return Err("close the current block first".to_string());
-        }
-
+        // "an invalid open touches zero rows".
+        //
+        // B56 residual fix: session resolution and the `active` mutation now
+        // happen inside ONE `with_session_locked` closure, so `lifecycle`
+        // stays held across both — an exporter can no longer see `active ==
+        // None` and end the very session this open just resolved. Lock order
+        // taken by this thread is `lifecycle` (held for the whole closure) →
+        // `active` (locked/dropped inside it), which is lattice order
+        // (`lifecycle` < `active`) and therefore deadlock-free. The closure
+        // does not call back into `SessionService` while `active` is held —
+        // `adopt_committed_practice_session`/`emit_persisted_practice` run
+        // AFTER `drop(active)`, same as before. The day-rollover pause (which
+        // locks `self.active` via `pause_for_rollover`) can still fire inside
+        // `with_session_locked`'s own session resolution, strictly BEFORE
+        // this closure runs — not nested inside it.
         let command_id = v2_command_id(source, "open");
         let now = self.now()?;
-        let opened = self
-            .store
-            .v2_open_set(
-                session_hint,
-                &args,
-                &rule,
-                planned,
-                &contract,
-                context.as_ref(),
-                source,
-                &command_id,
-                &now,
-            )
-            .map_err(|e| e.to_string())?;
-        let snap = opened.snapshot;
-        *active = Some(snap.clone());
-        // `adopt_committed_practice_session` locks `sessions.current` — moved
-        // here, AFTER `drop(active)` (fix round 2: a rollover on another
-        // thread holds `current` while it locks `active` via the pause hook;
-        // holding `active` while THIS thread locks `current` would be the
-        // reverse order, an ABBA deadlock between the two threads).
-        drop(active);
+        let (snap, adopted_session, feed_id) =
+            self.sessions
+                .with_session_locked(|sid| -> Result<_, String> {
+                    let session_hint = sid;
+                    let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+                    if active
+                        .as_ref()
+                        .is_some_and(|snap| snap.set_state == "active")
+                    {
+                        return Err("close the current block first".to_string());
+                    }
+
+                    let opened = self
+                        .store
+                        .v2_open_set(
+                            session_hint,
+                            &args,
+                            &rule,
+                            planned,
+                            &contract,
+                            context.as_ref(),
+                            source,
+                            &command_id,
+                            &now,
+                        )
+                        .map_err(|e| e.to_string())?;
+                    let snap = opened.snapshot;
+                    *active = Some(snap.clone());
+                    drop(active);
+                    Ok((snap, opened.session_id, opened.feed_id))
+                })?;
         self.sessions
-            .adopt_committed_practice_session(opened.session_id);
+            .adopt_committed_practice_session(adopted_session);
         self.sessions
-            .emit_persisted_practice(opened.feed_id, EventKind::REP_OPEN);
+            .emit_persisted_practice(feed_id, EventKind::REP_OPEN);
         self.emit_state(Some(&snap));
         Ok(snap)
     }
@@ -357,63 +367,68 @@ impl RepEngine {
                 return Err("no active rep block".to_string());
             }
         }
-        // Resolved BEFORE the active-set guard is retaken — see `open_from`
-        // (same deadlock hazard: the day-rollover pause locks `self.active`
-        // too).
-        let session_hint = Some(self.sessions.ensure_session()?);
-        let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        let snap = active
-            .as_ref()
-            .ok_or_else(|| "no active rep block".to_string())?;
-        let cur_lane = ladder::variant_index_for_rep(&snap.variants, snap.tries + 1);
-        let rep_variant = cur_lane.map(|i| snap.variants[i].name.clone());
-        let block_id = snap.block_id;
+        // B56 residual fix: session resolution and the `active` mutation
+        // happen inside ONE `with_session_locked` closure — see `open_from`
+        // for the full lattice-order rationale. The closure calls no
+        // `SessionService` method while `active` is held; the two
+        // session-touching follow-ups run AFTER `drop(active)`, as before.
         let generated_command_id;
-        let command_id = if let Some(command_id) = command_id_override {
+        let command_id: &str = if let Some(command_id) = command_id_override {
             command_id
         } else {
             generated_command_id = v2_command_id(source, "check");
             &generated_command_id
         };
         let now = self.now()?;
-        let mutation = self
-            .store
-            .v2_record_attempt(
-                session_hint,
-                block_id,
-                rep_variant.as_deref(),
-                verdict,
-                note.as_deref(),
-                source,
-                command_id,
-                &now,
-            )
-            .map_err(|error| error.to_string())?;
-        let mut receipt = mutation.receipt.clone();
-        let replayed = receipt.as_ref().is_some_and(|receipt| receipt.replayed);
-        let out_snap = if replayed {
-            self.store
-                .v2_snapshot(block_id)
-                .map_err(|error| error.to_string())?
-        } else {
-            mutation.snapshot
-        };
-        if replayed {
-            if let Some(receipt) = &mut receipt {
-                receipt.value = Some(out_snap.clone());
-            }
-        }
-        let new_bpm = mutation.new_bpm;
+        let (out_snap, new_bpm, say, receipt, feed_id) =
+            self.sessions
+                .with_session_locked(|sid| -> Result<_, String> {
+                    let session_hint = sid;
+                    let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+                    let snap = active
+                        .as_ref()
+                        .ok_or_else(|| "no active rep block".to_string())?;
+                    let cur_lane = ladder::variant_index_for_rep(&snap.variants, snap.tries + 1);
+                    let rep_variant = cur_lane.map(|i| snap.variants[i].name.clone());
+                    let block_id = snap.block_id;
+                    let mutation = self
+                        .store
+                        .v2_record_attempt(
+                            session_hint,
+                            block_id,
+                            rep_variant.as_deref(),
+                            verdict,
+                            note.as_deref(),
+                            source,
+                            command_id,
+                            &now,
+                        )
+                        .map_err(|error| error.to_string())?;
+                    let mut receipt = mutation.receipt.clone();
+                    let replayed = receipt.as_ref().is_some_and(|receipt| receipt.replayed);
+                    let out_snap = if replayed {
+                        self.store
+                            .v2_snapshot(block_id)
+                            .map_err(|error| error.to_string())?
+                    } else {
+                        mutation.snapshot
+                    };
+                    if replayed {
+                        if let Some(receipt) = &mut receipt {
+                            receipt.value = Some(out_snap.clone());
+                        }
+                    }
+                    let new_bpm = mutation.new_bpm;
+                    let say = compose_v2_say(&out_snap, verdict, new_bpm);
+                    *active = Some(out_snap.clone());
+                    drop(active);
+                    Ok((out_snap, new_bpm, say, receipt, mutation.feed_id))
+                })?;
         let block_done = out_snap.mastery_status == "satisfied";
-        let say = compose_v2_say(&out_snap, verdict, new_bpm);
-        *active = Some(out_snap.clone());
-        // `adopt_committed_practice_session` locks `sessions.current` —
-        // moved here, AFTER `drop(active)` (fix round 2: see `open_from`).
-        drop(active);
         if let Some(session_id) = receipt.as_ref().and_then(|value| value.session_id) {
             self.sessions.adopt_committed_practice_session(session_id);
         }
-        if let Some(feed_id) = mutation.feed_id {
+        if let Some(feed_id) = feed_id {
             self.sessions
                 .emit_persisted_practice(feed_id, EventKind::REP);
         }
@@ -474,22 +489,31 @@ impl RepEngine {
                 return Ok(None);
             }
         }
-        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
-        let sid = self.sessions.ensure_session()?;
-        let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(current) = active.as_ref() else {
-            return Ok(None);
-        };
+        // B56 residual fix: session resolution and the `active` mutation
+        // happen inside ONE `with_session_locked` closure — see `open_from`.
         let command_id = v2_command_id(source, "close");
         let now = self.now()?;
-        let mutation = self
-            .store
-            .v2_close(sid, current.block_id, source, &command_id, &now)
-            .map_err(|error| error.to_string())?;
-        let snap = mutation.snapshot;
-        *active = None;
-        drop(active);
-        if let Some(feed_id) = mutation.feed_id {
+        let outcome = self
+            .sessions
+            .with_session_locked(|sid| -> Result<_, String> {
+                let sid = sid.ok_or_else(|| "Could not open a practice session.".to_string())?;
+                let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+                let Some(current) = active.as_ref() else {
+                    return Ok(None);
+                };
+                let mutation = self
+                    .store
+                    .v2_close(sid, current.block_id, source, &command_id, &now)
+                    .map_err(|error| error.to_string())?;
+                let snap = mutation.snapshot;
+                *active = None;
+                drop(active);
+                Ok(Some((snap, mutation.feed_id)))
+            })?;
+        let Some((snap, feed_id)) = outcome else {
+            return Ok(None);
+        };
+        if let Some(feed_id) = feed_id {
             self.sessions.emit_persisted_practice(feed_id, "rep_close");
         }
         self.emit_state(None);
@@ -505,29 +529,36 @@ impl RepEngine {
                 return Err("no active rep block".to_string());
             }
         }
-        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
-        let sid = self.sessions.ensure_session()?;
-        let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        let block_id = active
-            .as_ref()
-            .ok_or_else(|| "no active rep block".to_string())?
-            .block_id;
+        // B56 residual fix: session resolution and the `active` mutation
+        // happen inside ONE `with_session_locked` closure — see `open_from`.
         let command_id = v2_command_id(MutationSource::UserClick, "undo");
         let now = self.now()?;
-        let mutation = self
-            .store
-            .v2_undo(
-                sid,
-                block_id,
-                MutationSource::UserClick,
-                &command_id,
-                Some(&now),
-            )
-            .map_err(|error| error.to_string())?;
-        let snap = mutation.snapshot;
-        *active = Some(snap.clone());
-        drop(active);
-        if let Some(feed_id) = mutation.feed_id {
+        let (snap, feed_id, new_bpm) =
+            self.sessions
+                .with_session_locked(|sid| -> Result<_, String> {
+                    let sid =
+                        sid.ok_or_else(|| "Could not open a practice session.".to_string())?;
+                    let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
+                    let block_id = active
+                        .as_ref()
+                        .ok_or_else(|| "no active rep block".to_string())?
+                        .block_id;
+                    let mutation = self
+                        .store
+                        .v2_undo(
+                            sid,
+                            block_id,
+                            MutationSource::UserClick,
+                            &command_id,
+                            Some(&now),
+                        )
+                        .map_err(|error| error.to_string())?;
+                    let snap = mutation.snapshot;
+                    *active = Some(snap.clone());
+                    drop(active);
+                    Ok((snap, mutation.feed_id, mutation.new_bpm))
+                })?;
+        if let Some(feed_id) = feed_id {
             self.sessions.emit_persisted_practice(feed_id, "rep_edit");
         }
         self.emit_state(Some(&snap));
@@ -535,7 +566,7 @@ impl RepEngine {
             block_done: snap.mastery_status == "satisfied",
             say: format!("Attempt undone. {} tries remain.", snap.tries),
             snap,
-            new_bpm: mutation.new_bpm,
+            new_bpm,
             receipt: None,
         })
     }
@@ -953,31 +984,36 @@ impl RepEngine {
                 return Err("no live practice set".to_string());
             }
         }
-        // Resolved BEFORE the active-set guard is retaken — see `open_from`.
-        let session_hint = Some(self.sessions.ensure_session()?);
-        let mut active = self
-            .active
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        let block_id = active
-            .as_ref()
-            .ok_or_else(|| "no live practice set".to_string())?
-            .block_id;
+        // B56 residual fix: session resolution and the `active` mutation
+        // happen inside ONE `with_session_locked` closure — see `open_from`.
         let now = self.now()?;
-        let mut receipt = self
-            .store
-            .v2_checkpoint(
-                session_hint,
-                block_id,
-                MutationSource::UserClick,
-                command_id,
-                &now,
-            )
-            .map_err(|error| error.to_string())?;
-        let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
-        // `adopt_receipt_session` locks `sessions.current` — moved here,
-        // AFTER `drop(active)` (fix round 2: see `open_from`).
-        drop(active);
+        let (receipt, snapshot) =
+            self.sessions
+                .with_session_locked(|sid| -> Result<_, String> {
+                    let session_hint = sid;
+                    let mut active = self
+                        .active
+                        .lock()
+                        .unwrap_or_else(|poison| poison.into_inner());
+                    let block_id = active
+                        .as_ref()
+                        .ok_or_else(|| "no live practice set".to_string())?
+                        .block_id;
+                    let mut receipt = self
+                        .store
+                        .v2_checkpoint(
+                            session_hint,
+                            block_id,
+                            MutationSource::UserClick,
+                            command_id,
+                            &now,
+                        )
+                        .map_err(|error| error.to_string())?;
+                    let snapshot =
+                        self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+                    drop(active);
+                    Ok((receipt, snapshot))
+                })?;
         self.adopt_receipt_session(&receipt);
         self.emit_state(Some(&snapshot));
         Ok(receipt)
@@ -1310,31 +1346,49 @@ impl RepEngine {
         }
     }
 
-    // ── Task A5 fix round 2 audit note ──────────────────────────────────────
+    // ── Task A5 fix round 2 audit note (Task 1, v7.1.0, updated for the B56
+    //    residual fix) ─────────────────────────────────────────────────────
     // Every path in this file that locks `self.active` and then calls into
     // `self.sessions` was walked (grep for `self.active.lock` ×
     // `self.sessions.`/`ensure_session`) and confirmed to release `active`
-    // FIRST:
-    //   - `ensure_session()`/session_hint resolution: `open_from`,
-    //     `check_from`, `close_from`, `undo`, `correct`, `reverse_adjustment`,
-    //     `restart`, `session_plan_start`, `pause`, `resume`, `checkpoint`,
-    //     `reflect`, `safety_stop_after_commit`, `recover` — all resolve the
-    //     session (and, for the ones that can no-op/fail on "nothing
-    //     active", quick-peek `active` first) BEFORE taking the guard that
-    //     spans the store mutation (round 1 CRITICAL 2 / round 2 N1).
+    // FIRST — EXCEPT the five converted below, which now deliberately hold
+    // `sessions.lifecycle` (never `self.active`) across the resolve-and-mutate
+    // span, which is lattice order and therefore safe (see `open_from`):
+    //   - `with_session_locked()` (closes the B56 opener-side residual —
+    //     resolves the session AND performs the `active` mutation inside one
+    //     `lifecycle`-held closure): `open_from`, `check_from`, `close_from`,
+    //     `undo`, `checkpoint`. None of these closures calls back into
+    //     `self.sessions` while `active` is held inside them; the
+    //     session-cache follow-ups (`adopt_committed_practice_session`/
+    //     `adopt_receipt_session`/`emit_persisted_practice`) all run AFTER
+    //     `with_session_locked` returns (i.e. after `lifecycle` itself is
+    //     released), same ordering discipline as before.
+    //   - `ensure_session()`/session_hint resolution (STILL the peek-drop-
+    //     reresolve shape, STILL carrying the narrower B56-class window
+    //     documented in NOTES.md — not touched by Task 1, which converted
+    //     only the five sites above): `correct`, `reverse_adjustment`,
+    //     `restart`, `session_plan_start`, `pause`, `resume`, `reflect`,
+    //     `safety_stop_after_commit`, `recover` — all resolve the session
+    //     (and, for the ones that can no-op/fail on "nothing active"),
+    //     quick-peek `active` first) BEFORE taking the guard that spans the
+    //     store mutation (round 1 CRITICAL 2 / round 2 N1).
     //   - `adopt_committed_practice_session`/`adopt_receipt_session` (locks
-    //     `sessions.current`): `open_from`, `check_from`, `session_plan_start`,
-    //     `pause`, `resume`, `checkpoint`, `reflect`,
-    //     `safety_stop_after_commit`, `recover` all now call it AFTER
+    //     `sessions.current`): for the still-peek-drop sites
+    //     (`session_plan_start`, `pause`, `resume`, `reflect`,
+    //     `safety_stop_after_commit`, `recover`) this still runs AFTER
     //     `drop(active)`, not before (round 2 — a rollover on another thread
     //     holds `current` while locking `active` via the pause hook; the
-    //     reverse order on this thread was a second ABBA hazard).
+    //     reverse order on this thread was a second ABBA hazard). For the
+    //     five `with_session_locked` sites it runs after the closure returns.
     //   - `emit_persisted_practice`/`emit_state` never lock a `sessions`
     //     mutex (only `store` reads and the `emitter` mutex) — safe to call
     //     while `active` is held or not.
     //   - `end_session_and_export` and `pause_for_rollover` never hold
     //     `active` across a `sessions.*` call (round 2 N2; the latter is the
-    //     CALLEE the whole invariant protects against re-entering).
+    //     CALLEE the whole invariant protects against re-entering, including
+    //     when it fires from inside a `with_session_locked` closure's own
+    //     session resolution — that happens strictly BEFORE the closure body
+    //     runs, never nested inside it).
     //   - `resync_active_if` locks `active` but never touches `self.sessions`.
     // No remaining path holds `self.active` while calling into
     // `self.sessions`.

@@ -295,6 +295,26 @@ impl SessionService {
             .ok_or_else(|| "Could not open a practice session.".to_string())
     }
 
+    /// Resolve the current session and run `f` with `lifecycle` STILL HELD.
+    ///
+    /// Closes the opener-side half of B56. `ensure_session()` releases
+    /// `lifecycle` when it returns, so a caller that then locks `rep.active`
+    /// has a window in which an exporter can end the very session it just
+    /// resolved. Holding `lifecycle` across both is lattice order
+    /// (`lifecycle` → `active`) and therefore deadlock-free.
+    ///
+    /// `f` MUST NOT call back into `SessionService` — this lock is not
+    /// reentrant. It may take locks strictly below `lifecycle` in the lattice,
+    /// which is exactly what `rep.active` and `store.conn` are.
+    pub fn with_session_locked<R>(&self, f: impl FnOnce(Option<i64>) -> R) -> R {
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let sid = self.resolve_session();
+        f(sid)
+    }
+
     /// Update the process cache only after the practice transaction that
     /// adopted or created this session has committed successfully.
     pub(crate) fn adopt_committed_practice_session(&self, session_id: i64) {
@@ -608,6 +628,63 @@ mod tests {
             .join()
             .expect("opener thread")
             .expect("session after end");
+    }
+
+    #[test]
+    fn with_session_locked_holds_lifecycle_so_the_resolved_session_cannot_be_ended_underneath() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let store = Arc::new(Store::open(":memory:").expect("memory store"));
+        let service = Arc::new(SessionService::new(store.clone()));
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        let (inside_tx, inside_rx) = mpsc::channel::<i64>();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let (ended_tx, ended_rx) = mpsc::channel::<()>();
+
+        let opener = {
+            let service = service.clone();
+            std::thread::spawn(move || {
+                service.with_session_locked(|sid| {
+                    inside_tx.send(sid.expect("a session")).expect("signal");
+                    release_rx
+                        .recv_timeout(Duration::from_secs(5))
+                        .expect("release");
+                })
+            })
+        };
+
+        let sid = inside_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("closure entered");
+
+        let ender = {
+            let service = service.clone();
+            let store = store.clone();
+            let path = dir.path().to_path_buf();
+            std::thread::spawn(move || {
+                let r = service.end_and_export_guarded(&store, &path, || Ok::<(), String>(()));
+                ended_tx.send(()).expect("signal");
+                r
+            })
+        };
+
+        // BOUNDED wait FIRST — an unbounded join here would hang the whole suite on
+        // regression instead of failing this one test (rep/mod.rs:2420-2425).
+        std::thread::sleep(Duration::from_millis(120));
+        assert!(
+            ended_rx.try_recv().is_err(),
+            "ending must block while a caller holds the session critical section"
+        );
+
+        release_tx.send(()).expect("release");
+        ended_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("end proceeds after release");
+        opener.join().expect("opener");
+        ender.join().expect("ender").expect("guarded end");
+        assert!(sid > 0);
     }
 
     #[test]
