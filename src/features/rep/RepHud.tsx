@@ -536,7 +536,11 @@ export function RepHud({
         </div>
       </div>
 
-      <div className="rep-hud-entry" aria-busy={busy === "check"}>
+      <div
+        className="rep-hud-entry"
+        data-compact-visible
+        aria-busy={busy === "check"}
+      >
         <div className="rep-hud-actions" aria-label="Record attempt verdict">
           {VERDICT_BUTTONS.map((button) => (
             <Button

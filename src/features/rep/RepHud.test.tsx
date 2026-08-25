@@ -111,6 +111,32 @@ describe("RepHud", () => {
     expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the verdict buttons rendered when the set is collapsed (B82)", () => {
+    render(
+      <RepHud
+        snap={makeSnap()}
+        feed={[]}
+        error={null}
+        collapsed
+        onToggleCollapsed={() => {}}
+        {...callbacks()}
+      />,
+    );
+    const hud = screen.getByRole("region", { name: "Active practice set" });
+    expect(hud.classList.contains("is-collapsed")).toBe(true);
+
+    // The CSS hides every direct child of a collapsed HUD that is not context,
+    // not main, and not explicitly marked compact-visible. The verdict row must
+    // carry that mark, or Clean/Sloppy/Again vanish at the 720x520 floor.
+    const entry = hud.querySelector(".rep-hud-entry");
+    expect(entry).toBeTruthy();
+    expect(entry?.hasAttribute("data-compact-visible")).toBe(true);
+
+    for (const name of ["Clean", "Sloppy", "Again"]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+  });
+
   it("shows the moving rung streak while climbing to target, not a frozen mastery fraction", () => {
     // Regression: Christian opened a tempo set at 45 with target 52, clicked
     // Clean repeatedly, and the prominent number sat at "0/7" the whole time —
