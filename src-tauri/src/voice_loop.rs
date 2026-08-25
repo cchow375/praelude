@@ -216,6 +216,18 @@ use crate::tts::{Gate, PcmSink, Speaker, SpeakerConfig};
 /// ALL intents (see the module docs, "Dedup policy").
 const DEDUP_WINDOW: Duration = Duration::from_millis(2500);
 
+/// The longest first-partial→action span the D1 instrument will publish.
+///
+/// A real utterance runs partial → ~600 ms settle → final, so a credible span
+/// is a couple of seconds. Anything beyond this means the tracked start does
+/// not belong to the utterance that just ended — the engine never finalised an
+/// earlier utterance (exactly the "I said done and nothing happened" case this
+/// instrument exists to measure), or the mic was muted in between. Publishing
+/// that arithmetic would put a fabricated latency in front of the user, which
+/// is worse than publishing nothing: the whole point of this figure is that it
+/// is measured, not modelled.
+const MAX_CREDIBLE_UTTERANCE: Duration = Duration::from_secs(30);
+
 /// Phrases allowed to finalize on a PARTIAL hypothesis, skipping the settler's
 /// 600 ms quiet gap. See the module docs, "Fast path".
 ///
@@ -489,8 +501,17 @@ impl ActionCtx {
     /// An interim hypothesis: stamp the utterance's start (D1 latency
     /// instrument) if this is the first partial seen since the last final was
     /// routed. Takes no other action.
+    ///
+    /// A tracked start older than [`MAX_CREDIBLE_UTTERANCE`] is treated as
+    /// belonging to a dead utterance and replaced: the engine can simply never
+    /// finalise what it heard (the "I said done and nothing happened" case),
+    /// which would otherwise leave a stale start to be charged against the
+    /// NEXT command the user speaks.
     fn handle_partial(&mut self, t: &Transcript) {
-        if self.utterance_start.is_none() {
+        let stale = self
+            .utterance_start
+            .is_some_and(|start| t.at.saturating_duration_since(start) > MAX_CREDIBLE_UTTERANCE);
+        if self.utterance_start.is_none() || stale {
             self.utterance_start = Some(t.at);
         }
     }
@@ -504,6 +525,12 @@ impl ActionCtx {
 
     fn route_and_act(&mut self, t: &Transcript, via_fast_path: bool) {
         if self.muted.load(Ordering::Acquire) {
+            // Muting ends whatever utterance was in flight. Without this the
+            // tracked start survives the entire muted stretch and is charged
+            // against the first command spoken after unmuting — the mic toggle
+            // shipped in this same release makes that an ordinary thing to do,
+            // so the instrument would routinely report a fabricated figure.
+            self.utterance_start = None;
             return;
         }
         let mode = Mode {
@@ -1009,28 +1036,40 @@ impl ActionCtx {
     /// (see [`ActionCtx::take_app_ms`] and the module docs). It is NOT
     /// utterance→action: the macOS engine's own recognition delay happens
     /// upstream of every timestamp this app can see.
-    fn emit_transcript(&self, text: &str, is_final: bool, handled: bool, app_ms: u64) {
-        self.emitter.emit(
-            "voice://transcript",
-            json!({ "text": text, "is_final": is_final, "handled": handled, "app_ms": app_ms }),
-        );
+    fn emit_transcript(&self, text: &str, is_final: bool, handled: bool, app_ms: Option<u64>) {
+        let mut payload = json!({ "text": text, "is_final": is_final, "handled": handled });
+        // Omitted entirely when there is nothing honest to report, so the UI
+        // renders no figure at all rather than a misleading "app 0.0s".
+        if let Some(ms) = app_ms {
+            payload["app_ms"] = json!(ms);
+        }
+        self.emitter.emit("voice://transcript", payload);
     }
 
     /// Read-and-clear the current utterance's tracked first-partial `Instant`
-    /// (D1 latency instrument), returning elapsed milliseconds to now. Falls
-    /// back to `t.at` (the settler's own emit timestamp) when no partial was
-    /// tracked for this utterance — a fast-path or settled final can in
-    /// principle reach here with nothing recorded (e.g. a test that drives
-    /// `handle_final` directly without a prior partial), in which case the
-    /// figure simply reports the time since the final itself rather than
-    /// panicking or fabricating a number. Clearing here (not on `t.is_final`
-    /// generally) means only finals that actually reach an emit point — routed
-    /// or `Ignored` — close out the utterance; a final dropped earlier by the
-    /// fast-path tail guard or the spurious-final dedup never reaches this
-    /// call, so it correctly leaves the tracked start alone for whichever
-    /// final DOES end the utterance.
-    fn take_app_ms(&mut self, t: &Transcript) -> u64 {
-        let start = self.utterance_start.take().unwrap_or(t.at);
+    /// (D1 latency instrument), returning elapsed milliseconds to this call.
+    ///
+    /// `None` — meaning "publish no figure at all" — when either there was no
+    /// tracked partial (nothing to measure from) or the span exceeds
+    /// [`MAX_CREDIBLE_UTTERANCE`] (the tracked start cannot belong to the
+    /// utterance that just ended). Both cases used to produce a number anyway:
+    /// the first fell back to `t.at` and reported a flat `0`, which the UI
+    /// rendered as "app 0.0s"; the second reported the whole dead gap. A
+    /// measurement that is wrong is worse than no measurement, because the
+    /// entire justification for showing this figure is that it is measured
+    /// rather than modelled.
+    ///
+    /// Clearing here (not on `t.is_final` generally) means only finals that
+    /// actually reach an emit point — routed or `Ignored` — close out the
+    /// utterance. A final dropped earlier by the fast-path tail guard or the
+    /// spurious-final dedup never reaches this call, which is correct: those
+    /// are re-sends of an utterance whose ORIGINAL final already cleared the
+    /// start here. The paths that genuinely ended an utterance without
+    /// reaching this call are handled at their own sites — muting clears in
+    /// `route_and_act`, and an utterance the engine never finalises is aged
+    /// out by `handle_partial`.
+    fn take_app_ms(&mut self, t: &Transcript) -> Option<u64> {
+        let start = self.utterance_start.take()?;
         // Measured against `t.at` (the FINAL's own timestamp), like every
         // other time comparison in this module (e.g. `DEDUP_WINDOW`), not
         // `Instant::now()` — fixture/replayed transcripts carry synthetic
@@ -1038,7 +1077,8 @@ impl ActionCtx {
         // production transcripts already carry real `Instant`s, so this is
         // correct in both worlds. `saturating_duration_since` never panics if
         // a fixture's `at` values are out of order.
-        t.at.saturating_duration_since(start).as_millis() as u64
+        let span = t.at.saturating_duration_since(start);
+        (span <= MAX_CREDIBLE_UTTERANCE).then_some(span.as_millis() as u64)
     }
 
     /// Score navigation is intentionally silent: a spoken acknowledgement would
@@ -2520,15 +2560,116 @@ mod tests {
         let rec = Arc::new(Recorder::default());
         let mut ctx = test_ctx(&rec);
         let started = Instant::now();
+        ctx.handle_partial(&Transcript {
+            text: "something the router".to_string(),
+            is_final: false,
+            at: started,
+        });
         ctx.handle_final(&Transcript {
             text: "something the router ignores".to_string(),
             is_final: true,
-            at: started,
+            at: started + Duration::from_millis(400),
         });
         let payload = last_payload(&rec, "voice://transcript").expect("transcript emitted");
         assert!(
             payload["app_ms"].is_u64(),
             "an Ignored final must carry app_ms too — invisible misses are the whole D1 complaint"
+        );
+    }
+
+    #[test]
+    fn a_final_with_no_tracked_partial_publishes_no_figure_rather_than_zero() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.handle_final(&Transcript {
+            text: "something the router ignores".to_string(),
+            is_final: true,
+            at: Instant::now(),
+        });
+        let payload = last_payload(&rec, "voice://transcript").expect("transcript emitted");
+        assert!(
+            payload.get("app_ms").is_none(),
+            "with nothing to measure from, the field must be ABSENT — a flat 0 renders as \
+             'app 0.0s', a measurement the app never made: {payload}"
+        );
+    }
+
+    #[test]
+    fn muting_ends_the_tracked_utterance_so_it_is_not_charged_to_the_next_command() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let started = Instant::now();
+
+        // A partial opens an utterance, then the mic is muted before any final.
+        ctx.handle_partial(&Transcript {
+            text: "metro".to_string(),
+            is_final: false,
+            at: started,
+        });
+        ctx.muted.store(true, Ordering::Release);
+        ctx.handle_final(&Transcript {
+            text: "metronome off".to_string(),
+            is_final: true,
+            at: started + Duration::from_millis(300),
+        });
+        assert!(
+            ctx.utterance_start.is_none(),
+            "muting must end the in-flight utterance"
+        );
+
+        // Much later, unmuted, the user speaks a fresh command.
+        ctx.muted.store(false, Ordering::Release);
+        let later = started + Duration::from_secs(600);
+        ctx.handle_partial(&Transcript {
+            text: "metro".to_string(),
+            is_final: false,
+            at: later,
+        });
+        ctx.handle_final(&Transcript {
+            text: "metronome off".to_string(),
+            is_final: true,
+            at: later + Duration::from_millis(500),
+        });
+
+        let payload = last_payload(&rec, "voice://transcript").expect("transcript emitted");
+        let app_ms = payload["app_ms"].as_u64().expect("app_ms present");
+        assert!(
+            app_ms < 2_000,
+            "the muted stretch must not be charged to the next command: got {app_ms} ms"
+        );
+    }
+
+    #[test]
+    fn an_utterance_the_engine_never_finalised_is_aged_out_not_charged_to_the_next_one() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let started = Instant::now();
+
+        // Christian's actual complaint: he speaks, the OS never finalises it.
+        ctx.handle_partial(&Transcript {
+            text: "done".to_string(),
+            is_final: false,
+            at: started,
+        });
+
+        // Minutes later he speaks a command that DOES land.
+        let later = started + Duration::from_secs(300);
+        ctx.handle_partial(&Transcript {
+            text: "metro".to_string(),
+            is_final: false,
+            at: later,
+        });
+        ctx.handle_final(&Transcript {
+            text: "metronome off".to_string(),
+            is_final: true,
+            at: later + Duration::from_millis(500),
+        });
+
+        let payload = last_payload(&rec, "voice://transcript").expect("transcript emitted");
+        let app_ms = payload["app_ms"].as_u64().expect("app_ms present");
+        assert!(
+            app_ms < 2_000,
+            "a dead utterance's start must not be charged to a later command: got {app_ms} ms"
         );
     }
 
