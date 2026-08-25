@@ -2,6 +2,23 @@
 
 ## Decisions
 
+- **Aug 8 overhaul spec drafted (2026-08-24, planning only):**
+  `docs/superpowers/specs/2026-08-24-aug8-practice-overhaul-design.md` — Christian's Aug 8 dump
+  organized into 21 asks, diffed against v6/v7 (sub-sections, voice fast path, mapping, galaxy
+  already shipped after the note was written), designed and phased P0–P5. Engineering facts the
+  recon pinned that the spec builds on: **no demotion path exists** (`ladder.rs step()` only
+  climbs; manual `tempo_backoff` recovery is the sole decrease); **variants are free-text lanes
+  cycled per-rep** (`variant_index_for_rep`), so chains = streak-gated sequential stages, JSON
+  shape extension with serde defaults; **mic mute backend is fully built but has no button**
+  (`voice_loop.rs:1300-1310` + gate hardening `:414-427`); **"done" is grammar but not fast-path**
+  by B70 law (bare words banned) — two-word mode-gated phrases are the lawful lane; **two overlay
+  render paths coexist** (`RegionOverlay` + atlas `TargetDraftOverlay`, both mounted in
+  `ScoreView.tsx:2866/:2935`) — unify rendering, keep storage; **zero audio-recording code
+  anywhere** (no MediaRecorder/rodio/encoders) — C2 designs on webview MediaRecorder with
+  processing OFF (echoCancellation/noiseSuppression/autoGainControl false) for honest piano
+  capture, three-way mic-coexistence spike required; **end-session Rust path is unwrap-clean and
+  poison-safe** — the crash suspect is the filed B56 serialization race, not a panic in the path.
+
 - **v6 Plan A "Practice Surfaces" — built + verified on branch `v6/plan-a` (2026-08-05/06,
   commits `9f0ceb2..b7744f5`, NOT merged/shipped; installed app still v5.0.0):** the engineering
   facts that must survive:
@@ -2441,8 +2458,8 @@ clippy `--all-targets --all-features` clean, tsc clean.
   still lets a spoken question reach the model; gate only the tab and the same is true. The other
   non-obvious surfaces: `PassageHelper` (mounted in the Score Plan tab AND under day-sheet piece
   headings, nothing to do with the Assistant tab), `BrainConnection` in Settings, and Today's own
-  Assistant entry. Rule: for any "disable X" feature, enumerate every *mount point* and every
-  *route*, not just the nav item.
+  Assistant entry. Rule: for any "disable X" feature, enumerate every _mount point_ and every
+  _route_, not just the nav item.
 - **Gate the refusal where the network call happens.** IPC commands are callable regardless of
   which React view is mounted, so the Rust-side `require_assistant_enabled` check is the real
   guarantee and the UI hiding is a convenience. The tests assert `transport.requests().is_empty()`
