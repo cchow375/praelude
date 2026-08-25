@@ -66,3 +66,13 @@ two `RegionOverlay.test.tsx` tests.
    zero state could not be produced in the browser without deeper devMock changes. The behaviour is
    pinned by unit tests in `src/features/streak/StreakLine.test.tsx`; there is no screenshot, and
    this note exists so nobody assumes there was one.
+
+6. **The B4 fix's wide-window behaviour was reasoned about, not visually confirmed.** The fix
+   changes `.region-canonical-fields` from a fixed two-column grid to
+   `repeat(auto-fit, minmax(9rem, 1fr))`, which in principle could yield more than two columns in a
+   wide container and move "Save section" away from the right edge. I could not expand the section
+   inspector under the headless browser to measure it. By arithmetic it stays at two columns for
+   any container narrower than ~470px, and the sections aside is 340–420px
+   (`--score-sidebar-width`), so the wide layout should be unchanged; and even at three columns the
+   result is trailing empty space, not the overlap B4 describes. **Recheck by eye on the installed
+   app** — this is reasoning, not a measurement.
