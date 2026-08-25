@@ -49,6 +49,38 @@
     message; any other `Err` still fails the test. Do not restore the old assertion — it would
     mean re-introducing the exporter-side TOCTOU to make a race come out the old way.
 
+- **D1 voice latency (v7.0.1, 2026-08-25) — only a subset of "utterance → action" is measurable,
+  and the UI says so.** The `hear` CLI forwards bare text lines with no timestamps of any kind
+  (`read_lines`, `stt/supervisor.rs:555-580`); the only clock in the whole pipeline is
+  `Transcript.at` (`supervisor.rs:17-22`), stamped `Instant::now()` inside the settler's `emit`
+  closure (`:616-624`) at the moment the supervisor _decides_ to emit — for a settled final that is
+  ~600 ms after the last partial, via the `recv_timeout(settle)` quiet-gap timer (`:628`). `settle`
+  is a hardcoded `Duration::from_millis(600)` at `supervisor.rs:103` (P3 makes it a setting).
+  So mic→engine-final is **not measurable in-app**: the macOS engine's own recognition delay happens
+  upstream of every timestamp the app can see, and the true utterance→action figure must be
+  hand-timed at the piano. Quoting the measurable part as if it were the whole would be exactly the
+  modelled-number-as-measured mistake this project already made twice on score perf.
+  - What shipped: `app_ms` on the `voice://transcript` payload — ms from the utterance's FIRST
+    PARTIAL to the action completing (or, for an `Ignored` final, to that routing decision, so
+    misses are measurable rather than invisible). `ActionCtx` gained `utterance_start:
+Option<Instant>`, set by `handle_partial` (`voice_loop.rs:492-496` — four lines that record a
+    timestamp and nothing else; it cannot route or mutate). A new `ActionMessage::Partial` variant
+    forwards ordinary interim hypotheses to the action thread purely so this can be stamped —
+    before this, only fast-path partials and finals ever reached `ActionCtx`. The frontend's own
+    interim emit is unchanged. Law 3 gate re-run on all five narrated suites: zero false mutations.
+  - `take_app_ms` computes elapsed against `t.at` via `saturating_duration_since`, **not**
+    `Instant::elapsed()`. `elapsed()` reads real wall-clock, which is wrong against this module's
+    synthetic/replayed test timestamps (fixtures construct `Instant::now() + 700ms` and never sleep
+    through it), and it matches the file's existing `DEDUP_WINDOW`-style timestamp comparisons.
+  - `emit_transcript` was deliberately NOT moved after the `act_*` dispatch: the file documents a
+    transcript-before-state ordering invariant (Lane B must never draft a final the backend already
+    routed). `app_ms` is computed at the existing emit site; the gap to dispatch-returns is one
+    synchronous deterministic call, negligible against the 600 ms this instrument exists to expose.
+  - `FAST_PATH_PHRASES` is `["metronome off", "metronome stop", "metronome on"]`
+    (`voice_loop.rs:250`), confirmed unchanged. The "done" vs "metronome off" baseline P3 owes is
+    therefore exactly settled-vs-fast-path, and the fast-path branch reports a visibly smaller
+    `app_ms` — which is the settle contribution P3 needs to see.
+
 - **The invisibility postmortem (2026-08-25, spec rev 2):** Christian refuted the claim that
   sub-sections shipped — and the code says he's right in the way that matters. The creation
   gesture is gated on `selectedRegionId` being set from the Tricky Sections LIST before the
