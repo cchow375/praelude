@@ -483,9 +483,16 @@ impl SessionService {
     /// < store.conn`, which is exactly what `rep.active` does.
     ///
     /// NOTE (B56 residual, see NOTES.md): this closes the exporter-side
-    /// window. A narrower opener-side window still exists between
-    /// `ensure_session()` returning and the caller locking `self.active`
-    /// (`rep/mod.rs:277-278`) — not fixed here, tracked as a follow-up.
+    /// window. Task 1 (v7.1.0) additionally closed the opener-side window for
+    /// `open_from`/`check_from`/`close_from`/`undo`/`checkpoint` via
+    /// [`Self::with_session_locked`], which holds `lifecycle` across both
+    /// session resolution and the caller's `self.active` mutation. The same,
+    /// narrower `ensure_session()`-returns-then-`self.active`-is-locked
+    /// window STILL exists in `rep/mod.rs`'s other mutation methods
+    /// (`correct`, `reverse_adjustment`, `restart`, `session_plan_start`,
+    /// `pause`, `resume`, `reflect`, `safety_stop_after_commit`, `recover`),
+    /// which were not in that task's scope — not fixed here, tracked as a
+    /// follow-up.
     pub fn end_and_export_guarded<E>(
         &self,
         store: &Store,
