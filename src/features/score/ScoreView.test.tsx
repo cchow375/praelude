@@ -2140,6 +2140,10 @@ describe("ScoreView measure mapping", () => {
     render(<ScoreView pieceId={7} api={makeApi()} adapter={adapter} />);
     const button = await screen.findByText("Map measures");
     expect(button).toHaveProperty("disabled", true);
+    expect(button.getAttribute("title")).toMatch(/still loading/i);
+    const mapScore = screen.getByText("Map this score");
+    expect(mapScore).toHaveProperty("disabled", true);
+    expect(mapScore.getAttribute("title")).toMatch(/still loading/i);
   });
 
   it("the Show measures toggle persists and reveals cached bar numbers", async () => {

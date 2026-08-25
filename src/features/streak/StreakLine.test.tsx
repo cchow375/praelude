@@ -22,8 +22,8 @@ describe("StreakLine", () => {
     expect(screen.getByTestId("streak-line").textContent).toContain("best 11");
   });
 
-  it("says nothing at all when nothing has been earned", () => {
-    const { container } = render(
+  it("teaches what can be earned instead of rendering nothing at zero", () => {
+    render(
       <StreakLine
         summary={{
           current_days: 0,
@@ -33,8 +33,23 @@ describe("StreakLine", () => {
         }}
       />,
     );
-    // No evidence, no visual: not a zero, not a dimmed placeholder — nothing.
-    expect(container.firstChild).toBeNull();
+    expect(
+      screen.getByText(/day 1 starts at 10 focused minutes/i),
+    ).toBeTruthy();
+  });
+
+  it("still never displays an unearned streak number", () => {
+    render(
+      <StreakLine
+        summary={{
+          current_days: 0,
+          best_days: 0,
+          threshold_minutes: 10,
+          today_focused_seconds: 0,
+        }}
+      />,
+    );
+    expect(screen.queryByText(/\b[1-9]\d*\s*day/i)).toBeNull();
   });
 
   it("renders nothing while the summary is still loading", () => {

@@ -408,20 +408,14 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   });
   // B82: this used to seed `true` at <=800x620 — which is every window at or
   // near the configured 720x520 minimum — and the collapsed HUD hides the
-  // verdict buttons. Measured: the expanded HUD fits at 720x520 with ~155px to
-  // spare, so the only honest reason to collapse is a window shorter than the
-  // HUD itself. Re-evaluated on resize, because the old one-shot useState left
-  // a grown window collapsed forever.
-  const [repHudCollapsed, setRepHudCollapsed] = useState(
-    () => window.innerHeight < 480,
-  );
-  useEffect(() => {
-    const onResize = () => {
-      if (window.innerHeight >= 480) setRepHudCollapsed(false);
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+  // verdict buttons. `tauri.conf.json`'s `minHeight: 520` is OS-enforced, so
+  // no window the app permits can ever be shorter than that, and the expanded
+  // HUD is measured to fit at 720x520 with ~155px to spare — there is no
+  // window size where auto-collapsing is justified. The seed is therefore
+  // always `false`; the only collapse is the one the pianist asks for via
+  // "Collapse set" below, and it must survive ordinary window resizes rather
+  // than being silently overridden.
+  const [repHudCollapsed, setRepHudCollapsed] = useState(false);
   // A2: the galaxy's glow gets its evidence from the same streak the Today
   // menu and Calendar header render.
   const streak = useStreak();

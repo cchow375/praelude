@@ -621,6 +621,28 @@ describe("DockPillBar (residuals fix wave, defect 4: pill occludes page content)
     fireEvent.click(carry);
   });
 
+  it("labels the pill row so pills read as tools you can open, not decoration", () => {
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        rep: { x: 0, y: 0, minimized: true, open: true, z: 1, flashing: false },
+      }),
+    );
+    render(<Harness pillCount={1} />);
+    const bar = document.getElementById("dock-pill-bar");
+    expect(bar?.getAttribute("role")).toBe("toolbar");
+    expect(bar?.getAttribute("aria-label")).toBe("Practice tools");
+    expect(bar?.textContent).toContain("Tools");
+  });
+
+  it("stays visually empty (no label) when there is nothing minimized to restore", () => {
+    render(<Harness pillCount={0} />);
+    const bar = document.getElementById("dock-pill-bar");
+    // No pills registered as minimized/closed — the bar must still collapse
+    // via `.dock-pill-bar:empty`, so the label must not force it open.
+    expect(bar?.textContent).toBe("");
+  });
+
   it("falls back to the old fixed-position pill when no bar is mounted (e.g. a standalone test)", () => {
     window.localStorage.setItem(
       DOCK_STORAGE_KEY,

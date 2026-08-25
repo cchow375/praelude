@@ -2603,6 +2603,13 @@ export function ScoreView({
             type="button"
             className="score-map-score"
             disabled={phase !== "ready" || !edition}
+            title={
+              phase !== "ready"
+                ? "The score is still loading"
+                : !edition
+                  ? "Pick an edition first"
+                  : undefined
+            }
             onClick={openWizard}
           >
             {calibrationAnchors.length > 0
@@ -2613,6 +2620,15 @@ export function ScoreView({
             type="button"
             className="score-map-measures"
             disabled={phase !== "ready" || !edition || pageCount < 1}
+            title={
+              phase !== "ready"
+                ? "The score is still loading"
+                : !edition
+                  ? "Pick an edition first"
+                  : pageCount < 1
+                    ? "This edition has no pages yet"
+                    : undefined
+            }
             onClick={() => setMapPanelOpen(true)}
           >
             Map measures

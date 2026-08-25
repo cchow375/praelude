@@ -27,5 +27,25 @@ export function DockPillBar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return <div ref={ref} id="dock-pill-bar" className="dock-pill-bar" />;
+  // §4b: a bare row of pills reads as decoration, not as tools you can open —
+  // that was one of two premises `before-today-720x520.png` confirmed. The
+  // label is rendered into the SAME node the pills portal into (the ref
+  // target), and only when a pill actually exists, so `.dock-pill-bar:empty`
+  // still governs the true empty case (nothing minimized/closed) and the row
+  // keeps collapsing to zero height then — no dead space added.
+  const hasPills = Object.values(ctx.state).some(
+    (panel) => !panel.open || panel.minimized,
+  );
+
+  return (
+    <div
+      ref={ref}
+      id="dock-pill-bar"
+      className="dock-pill-bar"
+      role="toolbar"
+      aria-label="Practice tools"
+    >
+      {hasPills && <span className="dock-pill-bar-label">Tools</span>}
+    </div>
+  );
 }
