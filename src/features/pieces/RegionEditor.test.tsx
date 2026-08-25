@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   cleanup,
   fireEvent,
@@ -319,5 +321,58 @@ describe("RegionEditor", () => {
         (item) => item.textContent,
       ),
     ).toEqual(["Earlier", "Later"]);
+  });
+});
+
+// B4: at the 720x520 floor, `.region-canonical-fields` is a 2-column grid
+// (`minmax(0, 1fr) minmax(0, 1fr)`) with `.region-measure-fields` in column 1
+// and the "Save section" button in column 2. `.region-measure-fields` is a
+// non-wrapping flex row with two `width: 5rem` inputs (~170px minimum), which
+// does not fit in a narrow first column, so it overflows into column 2 and
+// visually overlaps "Save section".
+//
+// jsdom has no layout engine (and this project's vitest config does not load
+// stylesheets into jsdom's CSSOM), so a getComputedStyle/geometry assertion
+// here would pass vacuously regardless of the real CSS. Per the repo's
+// "jsdom green != app works" lesson, this test instead pins the contract by
+// reading the actual stylesheet source and asserting on the rules that cause
+// (before the fix) and prevent (after the fix) the overlap. The real pixel
+// proof is the before/after 720x520 screenshot, not this test.
+describe("Pieces.css region editor layout (B4 720x520 overlap)", () => {
+  const css = readFileSync(
+    join(process.cwd(), "src/features/pieces/Pieces.css"),
+    "utf8",
+  );
+
+  function rule(selector: string): string {
+    const escaped = selector.replace(/[.]/g, "\\.");
+    const match = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, "m"));
+    if (!match) throw new Error(`No CSS rule found for ${selector}`);
+    return match[1];
+  }
+
+  it("lets the canonical-fields grid collapse instead of forcing two rigid columns", () => {
+    const body = rule(".region-canonical-fields");
+    // Before the fix: `grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);`
+    // permits each column to shrink below its content's intrinsic width,
+    // which is exactly what lets the measure row spill into the Save column.
+    expect(body).not.toMatch(
+      /grid-template-columns:\s*minmax\(0,\s*1fr\)\s*minmax\(0,\s*1fr\)/,
+    );
+    // After the fix: an auto-fit template collapses to a single column when
+    // the container is narrower than one field can hold.
+    expect(body).toMatch(/grid-template-columns:\s*repeat\(auto-fit,/);
+  });
+
+  it("allows the measure-fields row to wrap onto a second line", () => {
+    const body = rule(".region-measure-fields");
+    expect(body).toMatch(/flex-wrap:\s*wrap/);
+  });
+
+  it("lets the measure inputs shrink instead of holding a fixed width", () => {
+    const body = rule(".region-measure-fields input");
+    // Before the fix: `width: 5rem;` is an unshrinkable floor — two of them
+    // plus the gap need ~170px regardless of how narrow the column is.
+    expect(body).not.toMatch(/(?<!max-)width:\s*5rem/);
   });
 });

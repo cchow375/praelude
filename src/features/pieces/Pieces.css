@@ -605,7 +605,7 @@
 }
 .region-canonical-fields {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
   align-items: end;
   gap: var(--space-3);
 }
@@ -615,6 +615,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  min-width: 0;
 }
 .region-title-field,
 .region-notes-field {
@@ -629,10 +630,16 @@
 }
 .region-measure-fields {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
+.region-measure-fields label {
+  flex: 1 1 4rem;
+}
 .region-measure-fields input {
-  width: 5rem;
+  width: 100%;
+  max-width: 5rem;
+  min-width: 0;
   min-height: 36px;
   padding: 0 var(--space-2);
   border: 1px solid var(--hairline);
