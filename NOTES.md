@@ -2,6 +2,25 @@
 
 ## Decisions
 
+- **The invisibility postmortem (2026-08-25, spec rev 2):** Christian refuted the claim that
+  sub-sections shipped — and the code says he's right in the way that matters. The creation
+  gesture is gated on `selectedRegionId` being set from the Tricky Sections LIST before the
+  drag (`ScoreView.tsx:2155`, rule documented only in the comment at `:2130-2132`); the
+  "+ Add" button explicitly nulls `newRegionParentId` (`:3006`), so the natural path cancels
+  the feature; render requires `parent_region_id === selectedRegionId` (`:1519-1544`); the
+  tutorial omits the select-first step. Write path is real and tested
+  (`region_create_with_parent`, `store/crud.rs:249-301`) — and apparently never used live.
+  **Systemic pattern (discoverability audit):** dock panels default closed
+  (`dockState.ts:72-80`, persisted, can stay minimized forever); variants live 3 actions deep
+  behind the "More" disclosure (`BlockForm.tsx:526-564`); `StreakLine.tsx:15` renders null at
+  zero; the heard pill flashes 1.8 s (`Shell.tsx:1246`) and the mic-level meter was never
+  built (`HeardPill.tsx:25-36` says why); "Map measures" renders disabled with no reason
+  (`ScoreView.tsx:2618`). **Rule adopted (spec §4b, binding): a feature is done when Christian
+  uses it unprompted; tools are visible, rewards are earned; every new feature passes a
+  10-second find-it test with the affordance in the screenshot QA.** Test-green + tutorial-
+  documented + reachable-in-principle still summed to invisible in practice — the gap no gate
+  was measuring.
+
 - **Aug 8 overhaul spec drafted (2026-08-24, planning only):**
   `docs/superpowers/specs/2026-08-24-aug8-practice-overhaul-design.md` — Christian's Aug 8 dump
   organized into 21 asks, diffed against v6/v7 (sub-sections, voice fast path, mapping, galaxy
