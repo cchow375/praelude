@@ -1098,13 +1098,14 @@ impl Store {
         Ok(())
     }
 
-    /// A session's last event timestamp (falling back to `started_at` when it
-    /// has no events yet), returned verbatim in whatever native format that row
-    /// already carries, alongside whether that timestamp falls on the same
-    /// LOCAL calendar day as `now` — both sides compared through SQLite's
+    /// The session's last event timestamp (falling back to `started_at`) and
+    /// whether it falls on the same LOCAL calendar day as `now`, using SQLite's
     /// `'localtime'` modifier (the Mac's local timezone at evaluation time, per
-    /// the v6 day-scoped-sessions adoption rule). `None` if the session id is
-    /// unknown.
+    /// the v6 day-scoped-sessions adoption rule).
+    ///
+    /// `None` when the session id is unknown **or the session is already
+    /// ended** (flaw B56): an ended session must never look adoptable, or
+    /// `resolve_session` would keep logging events against a closed record.
     pub(crate) fn session_last_event_and_same_local_day(
         &self,
         session_id: i64,
@@ -1115,8 +1116,9 @@ impl Store {
             "SELECT ts, date(ts,'localtime') = date(?2,'localtime')
              FROM (SELECT COALESCE(
                      (SELECT MAX(ts) FROM session_event WHERE session_id = ?1),
-                     (SELECT started_at FROM session WHERE id = ?1)
-                   ) AS ts)
+                     (SELECT started_at FROM session WHERE id = ?1 AND ended_at IS NULL)
+                   ) AS ts
+                   WHERE EXISTS (SELECT 1 FROM session WHERE id = ?1 AND ended_at IS NULL))
              WHERE ts IS NOT NULL",
             rusqlite::params![session_id, now],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
@@ -1185,6 +1187,31 @@ mod tests {
     #[test]
     fn fresh_store_is_at_current_schema_version() {
         assert_eq!(mem().schema_version().unwrap(), migrations::SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn session_last_event_and_same_local_day_never_adopts_an_ended_session() {
+        let store = mem();
+        let sid = store.open_session().expect("open session");
+        let now = store.now_rfc3339().expect("now");
+
+        assert!(
+            store
+                .session_last_event_and_same_local_day(sid, &now)
+                .expect("query")
+                .is_some(),
+            "an OPEN same-day session must be adoptable"
+        );
+
+        store.end_session(sid, "").expect("end session");
+
+        assert_eq!(
+            store
+                .session_last_event_and_same_local_day(sid, &now)
+                .expect("query"),
+            None,
+            "an ENDED session must never look adoptable — resolve_session would log new events against it"
+        );
     }
 
     #[test]
