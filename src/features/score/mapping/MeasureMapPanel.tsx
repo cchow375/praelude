@@ -105,6 +105,8 @@ export function MeasureMapPanel({
   const cancelRef = useRef(false);
   const pageImagesRef = useRef<Record<number, string>>({});
   const requestedImagesRef = useRef(new Set<number>());
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef<Element | null>(null);
 
   const hasUnsavedWork = dirty && (stage === "review" || stage === "scanning");
 
@@ -259,6 +261,50 @@ export function MeasureMapPanel({
     onClose();
   }, [dirty, onClose]);
 
+  // B77: trap focus inside this dialog. Without this, Tab from inside the
+  // panel reaches the dock controls behind the scrim — including the rep
+  // verdict buttons, where Enter records a real practice rep.
+  useEffect(() => {
+    openerRef.current = document.activeElement;
+    dialogRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        discardReview();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (items.length === 0) {
+        event.preventDefault();
+        root.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || document.activeElement === root)
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      (openerRef.current as HTMLElement | null)?.focus?.();
+    };
+  }, [discardReview]);
+
   const handleBarClick = useCallback(
     (
       pageIndex: number,
@@ -373,9 +419,12 @@ export function MeasureMapPanel({
 
   return (
     <div
+      ref={dialogRef}
       className="measure-map-panel"
       data-testid="measure-map-panel"
       role="dialog"
+      aria-modal="true"
+      tabIndex={-1}
     >
       <header className="measure-map-panel-head">
         <h2>Map measures</h2>

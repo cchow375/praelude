@@ -841,4 +841,67 @@ describe("MeasureMapPanel", () => {
     expect(appliedPages[0].map.systems[0].bars[0].x_right).toBeCloseTo(0.4, 5);
     expect(appliedPages[0].map.systems[0].bars[0].source).toBe("model");
   });
+
+  // ── B77: focus trap ──────────────────────────────────────────────────────
+
+  it("keeps Tab inside the dialog — a rep verdict button must never be reachable behind the scrim", () => {
+    render(
+      <>
+        <MeasureMapPanel
+          pieceId={1}
+          editionId="score/score.pdf"
+          editionFingerprint="fp-1"
+          pageCount={1}
+          onClose={vi.fn()}
+          rasterizePage={rasterizePage}
+          api={makeApi()}
+        />
+        <button>Clean</button>
+      </>,
+    );
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+
+    const focusables = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        "button, input, select, textarea, [tabindex]",
+      ),
+    ).filter((el) => el !== dialog);
+    expect(focusables.length).toBeGreaterThan(0);
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+
+    // Tab forward from the last focusable wraps back to the first, rather
+    // than escaping to the "Clean" button rendered outside the dialog.
+    last.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(first);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    // Shift+Tab back from the first wraps to the last.
+    first.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  it("returns focus to the opener on close", () => {
+    const opener = document.createElement("button");
+    document.body.appendChild(opener);
+    opener.focus();
+    const { unmount } = render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={makeApi()}
+      />,
+    );
+    unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
 });
