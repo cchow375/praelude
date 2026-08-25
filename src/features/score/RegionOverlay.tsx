@@ -284,7 +284,16 @@ export function RegionOverlay({
                     } as React.CSSProperties
                   }
                   aria-label={`${item.label}, ${anchorKind(rect)} on page ${pageNumber}`}
-                  onPointerDown={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => {
+                    // Task B1: a click on any OTHER box must still just
+                    // select it, not start a drag-to-create underneath it —
+                    // but a drag that starts INSIDE the already-selected
+                    // parent is exactly the create gesture the hint chip
+                    // teaches, so it must reach the overlay's own
+                    // onPointerDown (which arms `createDrag`/`mapping`)
+                    // instead of being swallowed here.
+                    if (!item.selected) event.stopPropagation();
+                  }}
                   onClick={() => onSelect(item.regionId)}
                 >
                   {anchorKind(rect) === "note" && <span>{item.label}</span>}

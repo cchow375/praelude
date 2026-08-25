@@ -680,6 +680,13 @@ export function ScoreView({
     null,
   );
   const [creatingRegion, setCreatingRegion] = useState(false);
+  // Task B1: whether this piece's user has already been taught the
+  // select-then-drag-inside gesture that creates a sub-section — persisted
+  // per piece through the generic settings key/value pair (no schema
+  // change: `Store::get_setting`/`set_setting`, `store/mod.rs:137,190`).
+  // Assume seen until told otherwise so the hint never flashes on before the
+  // read resolves.
+  const [subsectionHintSeen, setSubsectionHintSeen] = useState(true);
   const [targetMode, setTargetMode] = useState(false);
   const [targetDraftId, setTargetDraftId] = useState<string | null>(null);
   const [targetAnchor, setTargetAnchor] =
@@ -1134,6 +1141,25 @@ export function ScoreView({
 
   const selectedRegion =
     regions.find((region) => region.id === selectedRegionId) ?? null;
+  // Task B1: read the per-piece sub-section hint seen-flag. Keyed on
+  // pieceId so the hint reappears (and can be re-dismissed) for every piece
+  // independently — it never leaks across pieces.
+  const subsectionHintKey =
+    pieceId != null ? `score.subsection_hint_seen.${pieceId}` : null;
+  useEffect(() => {
+    if (!subsectionHintKey) return;
+    let cancelled = false;
+    void invoke<string | null>("get_setting", { key: subsectionHintKey })
+      .then((value) => {
+        if (!cancelled) setSubsectionHintSeen(value === "true");
+      })
+      .catch(() => {
+        if (!cancelled) setSubsectionHintSeen(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [subsectionHintKey]);
   useLayoutEffect(() => {
     livePieceIdRef.current = pieceId;
     liveEditionRef.current = edition;
@@ -2089,6 +2115,16 @@ export function ScoreView({
         color: REGION_COLORS[regions.length % REGION_COLORS.length],
       });
       await graphChanged();
+      // Task B1: a child sub-section was just created — the user has now
+      // learned the gesture the hint was teaching, so retire it for this
+      // piece, permanently, before `newRegionParentId` is cleared below.
+      if (subsectionHintKey && newRegionParentId != null) {
+        setSubsectionHintSeen(true);
+        void invoke("set_setting", {
+          key: subsectionHintKey,
+          value: "true",
+        }).catch(() => {});
+      }
       setSelectedRegionId(colored.id);
       setExpandedRegionId(colored.id);
       setSectionTab("marks");
@@ -3006,6 +3042,15 @@ export function ScoreView({
                   {navigationNotice}
                 </p>
               )}
+              {selectedRegion &&
+                selectedRegion.parent_region_id == null &&
+                !subsectionHintSeen && (
+                  <p className="score-subsection-hint" role="status">
+                    Drag inside <strong>{selectedRegion.name}</strong> on the
+                    score to isolate a spot — a 2-beat or 5-note micro-target
+                    inside this section.
+                  </p>
+                )}
               <div className="score-region-tools">
                 <input
                   aria-label="Search tricky sections"
@@ -3019,7 +3064,20 @@ export function ScoreView({
                   aria-expanded={addingRegion}
                   onClick={() =>
                     setAddingRegion((value) => {
-                      if (value) setNewRegionParentId(null);
+                      if (value) {
+                        setNewRegionParentId(null);
+                      } else if (
+                        selectedRegion &&
+                        selectedRegion.parent_region_id == null
+                      ) {
+                        // §4b / spec 5.8: with a section selected, the
+                        // obvious button must build INSIDE it. Opening the
+                        // form used to leave the parent unset, so "+ Add"
+                        // silently made another top-level section — the
+                        // exact reason sub-sections were never created in
+                        // real use.
+                        setNewRegionParentId(selectedRegion.id);
+                      }
                       return !value;
                     })
                   }
@@ -3027,14 +3085,22 @@ export function ScoreView({
                   {addingRegion ? "Cancel" : "+ Add"}
                 </button>
               </div>
-              {addingRegion && newRegionParentId != null && (
-                <p className="score-map-notice" role="status">
-                  Creating a sub-section of{" "}
-                  {regions.find((item) => item.id === newRegionParentId)
-                    ?.name ?? "the selected section"}
-                  .
-                </p>
-              )}
+              {addingRegion &&
+                selectedRegion &&
+                selectedRegion.parent_region_id == null && (
+                  <label className="score-subsection-choice">
+                    <input
+                      type="checkbox"
+                      checked={newRegionParentId === selectedRegion.id}
+                      onChange={(event) =>
+                        setNewRegionParentId(
+                          event.target.checked ? selectedRegion.id : null,
+                        )
+                      }
+                    />
+                    <span>Sub-section of {selectedRegion.name}</span>
+                  </label>
+                )}
               {addingRegion && (
                 <form
                   className="score-add-region-form"
@@ -3098,7 +3164,8 @@ export function ScoreView({
                 </form>
               )}
               <p className="score-region-order-note">
-                In score order · click a section to open its tools
+                In score order · click a section to open its tools, then drag
+                inside it on the score to add a sub-section
               </p>
               <div className="score-region-list">
                 {displayedRegions.map((region) => {
@@ -3185,7 +3252,11 @@ export function ScoreView({
                 })}
                 {displayedRegions.length === 0 && (
                   <p className="tutorial-empty">
-                    No sections match that search.
+                    {regions.length === 0
+                      ? "No tricky sections yet — drag on the score to mark your first one."
+                      : regionQuery.trim()
+                        ? "No sections match that search."
+                        : "Nothing to show here yet."}
                   </p>
                 )}
               </div>

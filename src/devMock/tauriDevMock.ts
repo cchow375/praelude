@@ -355,6 +355,13 @@ let REGIONS: Record<number, Region[]> = SEED_REGIONS;
  * validation, one-level nesting, cascade/promote) for offline QA. */
 let mockRegionNextId = 100;
 
+// Task B1: the generic settings key/value pair (`get_setting`/`set_setting`,
+// `store/mod.rs:137,190`) backing the sub-section hint's per-piece seen-flag.
+// A plain string map — same shape as the real `Store`'s untyped settings
+// table — reset on each install so a hint dismissed in one test session
+// never leaks into the next.
+const mockGenericSettings = new Map<string, string>();
+
 function mockAllRegions(): Region[] {
   return Object.values(REGIONS).flat();
 }
@@ -3027,6 +3034,17 @@ function routeCommand(cmd: string, args: unknown): unknown {
       } catch (reason) {
         return Promise.reject(reason);
       }
+    // Task B1: generic settings key/value pair (distinct from the typed
+    // settings_snapshot/settings_update projection below).
+    case "get_setting": {
+      const key = ((args ?? {}) as { key?: string }).key ?? "";
+      return mockGenericSettings.get(key) ?? null;
+    }
+    case "set_setting": {
+      const record = (args ?? {}) as { key?: string; value?: string };
+      mockGenericSettings.set(record.key ?? "", record.value ?? "");
+      return null;
+    }
     // Shell-level mounts.
     case "settings_snapshot":
       return CURRENT_SETTINGS_SNAPSHOT;
@@ -3631,6 +3649,9 @@ export function installTauriDevMock(
     Region[]
   >;
   mockRegionNextId = 100;
+  // Task B1: fresh generic-settings state per install (the sub-section
+  // hint's seen-flag never bleeds between installs/tests).
+  mockGenericSettings.clear();
   // Plan B: fresh dynamics meter + calibration state per install, and a fresh
   // event registry — a leftover ticker or listener must never bleed into the
   // next suite.

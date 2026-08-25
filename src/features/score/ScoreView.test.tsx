@@ -427,6 +427,104 @@ describe("ScoreView", () => {
     ]);
   });
 
+  describe("Task B1: sub-sections are findable", () => {
+    function tricketBitRegion() {
+      return {
+        id: 1,
+        piece_id: 7,
+        name: "Tricky bit",
+        notes: null,
+        m_start: 1,
+        m_end: 20,
+        kind: "hard_spot",
+        order: 0,
+        color: null,
+        pdf_anchor: null,
+        parent_region_id: null,
+      };
+    }
+
+    it("tells you how to make a sub-section as soon as a section is selected", async () => {
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([tricketBitRegion()]),
+          })}
+          adapter={makePdf(1).adapter}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      fireEvent.click(
+        await screen.findByRole("button", { name: /tricky bit/i }),
+      );
+      expect(
+        await screen.findByText(/drag inside .* to isolate a spot/i),
+      ).toBeTruthy();
+    });
+
+    it("defaults '+ Add' to a sub-section of the selected section, and lets you opt out", async () => {
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([tricketBitRegion()]),
+          })}
+          adapter={makePdf(1).adapter}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      fireEvent.click(
+        await screen.findByRole("button", { name: /tricky bit/i }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "+ Add" }));
+
+      const asChild = screen.getByRole("checkbox", {
+        name: /sub-section of/i,
+      });
+      expect((asChild as HTMLInputElement).checked).toBe(true);
+
+      fireEvent.click(asChild);
+      expect((asChild as HTMLInputElement).checked).toBe(false);
+    });
+
+    it("teaches the gesture when a piece has no sections at all", async () => {
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({ regions: vi.fn().mockResolvedValue([]) })}
+          adapter={makePdf(1).adapter}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      expect(
+        await screen.findByText(
+          /no tricky sections yet.*drag on the score to mark your first one/i,
+        ),
+      ).toBeTruthy();
+    });
+
+    it("distinguishes 'no sections yet' from 'nothing matched your search'", async () => {
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([tricketBitRegion()]),
+          })}
+          adapter={makePdf(1).adapter}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      fireEvent.change(
+        screen.getByRole("searchbox", { name: /search tricky sections/i }),
+        { target: { value: "zzzz" } },
+      );
+      expect(
+        await screen.findByText(/no sections match that search/i),
+      ).toBeTruthy();
+    });
+  });
+
   it("lifts the visible edition, page, and selected section for Practice Brain grounding", async () => {
     const region = {
       id: 4,
