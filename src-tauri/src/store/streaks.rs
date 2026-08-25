@@ -96,8 +96,7 @@ impl Store {
     /// Consecutive LOCAL days whose event-derived focused time cleared
     /// `threshold_minutes`, plus the best such run and today's raw seconds.
     pub(crate) fn streak_summary(&self, threshold_minutes: i64) -> rusqlite::Result<StreakSummary> {
-        let threshold_minutes =
-            threshold_minutes.clamp(1, STREAK_THRESHOLD_DEFENSIVE_MAX_MINUTES);
+        let threshold_minutes = threshold_minutes.clamp(1, STREAK_THRESHOLD_DEFENSIVE_MAX_MINUTES);
         let threshold_seconds = threshold_minutes.saturating_mul(60);
         let today = self.today_local()?;
 
@@ -320,7 +319,10 @@ mod tests {
             seed_day(&store, &today.add_days(-back).unwrap().to_string(), 11);
         }
         let out = store.streak_summary(10).expect("summary");
-        assert_eq!(out.current_days, 3, "yesterday is accepted as a live anchor");
+        assert_eq!(
+            out.current_days, 3,
+            "yesterday is accepted as a live anchor"
+        );
         assert_eq!(out.today_focused_seconds, 0, "today has no session yet");
     }
 
@@ -347,7 +349,10 @@ mod tests {
         seed_day(&store, &today.to_string(), 11);
 
         let out = store.streak_summary(10).expect("summary");
-        assert_eq!(out.current_days, 2, "the live run is only yesterday + today");
+        assert_eq!(
+            out.current_days, 2,
+            "the live run is only yesterday + today"
+        );
         assert_eq!(
             out.best_days, 5,
             "the best run is the older 5-day stretch, not the trailing one"

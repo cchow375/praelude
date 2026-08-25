@@ -163,7 +163,10 @@ impl Store {
         // unique index on active=1, so inserting an active row while another is
         // still active violates it. Same transaction, so there is no window in
         // which zero profiles are active.
-        tx.execute("UPDATE dynamics_profile SET active = 0 WHERE active = 1", [])?;
+        tx.execute(
+            "UPDATE dynamics_profile SET active = 0 WHERE active = 1",
+            [],
+        )?;
         tx.execute(
             "INSERT INTO dynamics_profile (device_id, label, active, created_at)
              VALUES (?1, ?2, 1, ?3)",
@@ -319,7 +322,10 @@ mod tests {
     fn rejects_a_non_increasing_curve_naming_the_offending_pair() {
         let err = validate_points(&pts([-48.0, -29.8, -31.4, -18.0, -9.0])).unwrap_err();
         assert!(err.contains("mf"), "message must name mf: {err}");
-        assert!(err.contains("-31.4"), "message must quote the measured dB: {err}");
+        assert!(
+            err.contains("-31.4"),
+            "message must quote the measured dB: {err}"
+        );
         assert!(
             err.contains("p ("),
             "message must name the step it failed against: {err}"
@@ -371,14 +377,22 @@ mod tests {
         let all = store.dynamics_profile_list().unwrap();
         assert_eq!(all.iter().filter(|p| p.active).count(), 1);
         assert_eq!(store.dynamics_profile_active().unwrap().unwrap().id, b.id);
-        assert_eq!(all.len(), 2, "recalibration creates a NEW profile, never mutates");
+        assert_eq!(
+            all.len(),
+            2,
+            "recalibration creates a NEW profile, never mutates"
+        );
     }
 
     #[test]
     fn save_stores_all_five_points_in_pp_to_ff_order() {
         let store = store();
         let p = store
-            .dynamics_profile_save("mic-1", "Steinway", &pts([-50.0, -40.0, -30.0, -20.0, -10.0]))
+            .dynamics_profile_save(
+                "mic-1",
+                "Steinway",
+                &pts([-50.0, -40.0, -30.0, -20.0, -10.0]),
+            )
             .unwrap();
         let round_tripped = store.dynamics_profile_active().unwrap().unwrap();
         let labels: Vec<_> = round_tripped
@@ -410,7 +424,10 @@ mod tests {
         assert!(store
             .dynamics_profile_save("mic-1", "bad", &pts([-50.0, -40.0, -45.0, -20.0, -10.0]))
             .is_err());
-        assert_eq!(store.dynamics_profile_active().unwrap().unwrap().id, good.id);
+        assert_eq!(
+            store.dynamics_profile_active().unwrap().unwrap().id,
+            good.id
+        );
         assert_eq!(store.dynamics_profile_list().unwrap().len(), 1);
     }
 
