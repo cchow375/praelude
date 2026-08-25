@@ -26,6 +26,20 @@ the live database is a separate, still-outstanding item.
 | `C3-mic-toggle-rail-720x520.png`         | **Three fixes in one frame:** the labelled **Mic** control in the rail (C3), the verdict buttons visible by default (B82), and the **"Tools"** label on the pill row (§4b visibility pass). |
 | `v7-galaxy-clear-720x520.png`            | Universe/Practice Universe at the floor size with panels minimized — renders cleanly; a minimized Rep Counter correctly becomes a labelled pill.                                            |
 | `v7-galaxy-scrolled-720x520.png`         | The composer-grouped repertoire index below it.                                                                                                                                             |
+| `B1-subsection-hint-720x520.png` | **B1 unlocked.** Selecting a section shows a hint naming the section and the gesture: *"Drag inside **Opening theme** on the score to isolate a spot — a 2-beat or 5-note micro-target inside this section."* The order note underneath repeats the rule. |
+| `B1-add-defaults-to-subsection-720x520.png` | **"+ Add" repaired.** With a section selected the form opens with **☑ Sub-section of Opening theme** checked — the default is now the child, and the checkbox is the visible way to opt out. |
+
+### The B1 gesture was not merely undocumented — it was broken
+
+Worth recording separately, because it changes what B1 actually was. `RegionOverlay.tsx:287`
+called `event.stopPropagation()` on every box's `onPointerDown` unconditionally, so a drag that
+**started inside a selected section's box** never reached the overlay handler that arms the
+create-drag. The intuitive gesture — select the box, then drag inside it — therefore did nothing.
+Sub-sections could only ever be created by dragging somewhere *not* covered by a box while a
+parent happened to be selected. That is very likely why the live database shows no evidence of a
+single sub-section ever being made: the documented mental model and the only working gesture were
+different things. Fixed by stopping propagation only when the box is **not** selected, pinned by
+two `RegionOverlay.test.tsx` tests.
 
 ## Observations recorded rather than fixed
 
