@@ -68,6 +68,15 @@ export interface VoiceTranscriptEvent {
   is_final: boolean;
   /** The backend's authoritative routing outcome for a final (see delivery). */
   handled?: boolean;
+  /**
+   * D1 latency instrument: milliseconds from the utterance's FIRST PARTIAL to
+   * the action completing (or, for an `Ignored` final, to that decision).
+   * This is NOT utterance→action — the Mac's own recognition delay happens
+   * upstream of every timestamp the app can see, so it is excluded. Present
+   * on finals only (`voice_loop.rs`'s `emit_transcript`); absent on interim
+   * hypotheses.
+   */
+  app_ms?: number;
   delivery_id?: string;
   revision?: number;
   source?: VoiceTranscriptSource;
@@ -125,10 +134,11 @@ function recognitionSource(
   value: VoiceTranscriptSource | undefined,
 ): VoiceTranscriptSource {
   if (
-    value === "typed_input"
-    || value === "narrated_replay"
-    || value === "macos_speech"
-  ) return value;
+    value === "typed_input" ||
+    value === "narrated_replay" ||
+    value === "macos_speech"
+  )
+    return value;
   return "macos_speech";
 }
 
@@ -137,27 +147,31 @@ export function normalizeVoiceTranscriptEvent(
   event: VoiceTranscriptEvent,
   legacyDeliveryId: string,
 ): VoiceTranscriptDelivery {
-  const hasIdentityField = event.delivery_id !== undefined
-    || event.revision !== undefined;
-  const deliveryId = typeof event.delivery_id === "string"
-    ? event.delivery_id
-    : hasIdentityField
-      ? ""
-      : legacyDeliveryId;
-  const revision = typeof event.revision === "number"
-    ? event.revision
-    : hasIdentityField
-      ? Number.NaN
-      : 0;
-  const confidence = event.recognition?.confidence !== undefined
-    ? event.recognition.confidence
-    : event.confidence ?? null;
+  const hasIdentityField =
+    event.delivery_id !== undefined || event.revision !== undefined;
+  const deliveryId =
+    typeof event.delivery_id === "string"
+      ? event.delivery_id
+      : hasIdentityField
+        ? ""
+        : legacyDeliveryId;
+  const revision =
+    typeof event.revision === "number"
+      ? event.revision
+      : hasIdentityField
+        ? Number.NaN
+        : 0;
+  const confidence =
+    event.recognition?.confidence !== undefined
+      ? event.recognition.confidence
+      : (event.confidence ?? null);
   return {
     delivery_id: deliveryId,
     revision,
     text: typeof event.text === "string" ? event.text : "",
     is_final: event.is_final === true,
     handled: event.handled === true,
+    app_ms: typeof event.app_ms === "number" ? event.app_ms : undefined,
     recognition: {
       source: recognitionSource(event.recognition?.source ?? event.source),
       confidence,
@@ -165,7 +179,9 @@ export function normalizeVoiceTranscriptEvent(
   };
 }
 
-export function useVoice(tierAContext: TierAContext = DEFAULT_TIER_A_CONTEXT): UseVoice {
+export function useVoice(
+  tierAContext: TierAContext = DEFAULT_TIER_A_CONTEXT,
+): UseVoice {
   // The two authoritative flags are held in refs so event/command closures read
   // them without staleness; `status` is the derived value mirrored into React
   // state so the UI re-renders.
@@ -214,13 +230,17 @@ export function useVoice(tierAContext: TierAContext = DEFAULT_TIER_A_CONTEXT): U
 
   const processDelivery = useCallback((delivery: VoiceTranscriptDelivery) => {
     // The delivery firewall exclusively controls parse/action-facing state.
-    const transition = registerVoiceDelivery(deliveryLedgerRef.current, delivery);
+    const transition = registerVoiceDelivery(
+      deliveryLedgerRef.current,
+      delivery,
+    );
     deliveryLedgerRef.current = transition.ledger;
     setDeliveryDisposition(transition.disposition);
     if (
-      transition.disposition.kind !== "accepted_new"
-      && transition.disposition.kind !== "accepted_revision"
-    ) return;
+      transition.disposition.kind !== "accepted_new" &&
+      transition.disposition.kind !== "accepted_revision"
+    )
+      return;
 
     const parsed = parseTierAIntent(delivery, tierAContextRef.current);
     setTierAResult(parsed);
@@ -250,10 +270,12 @@ export function useVoice(tierAContext: TierAContext = DEFAULT_TIER_A_CONTEXT): U
           await listen<VoiceTranscriptEvent>("voice://transcript", (e) => {
             if (!alive) return;
             legacyDeliverySequence.current += 1;
-            processDelivery(normalizeVoiceTranscriptEvent(
-              e.payload,
-              `legacy-${legacyDeliverySequence.current}`,
-            ));
+            processDelivery(
+              normalizeVoiceTranscriptEvent(
+                e.payload,
+                `legacy-${legacyDeliverySequence.current}`,
+              ),
+            );
           }),
         );
         track(

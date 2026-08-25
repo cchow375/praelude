@@ -11,9 +11,7 @@ export interface VoiceDeliveryIdentity {
 }
 
 export type VoiceTranscriptSource =
-  | "macos_speech"
-  | "typed_input"
-  | "narrated_replay";
+  "macos_speech" | "typed_input" | "narrated_replay";
 
 /** Metadata describes speech transcription only; it is never a piano grade. */
 export interface VoiceRecognitionMetadata {
@@ -32,6 +30,15 @@ export interface VoiceTranscriptDelivery extends VoiceDeliveryIdentity {
    * Absent on interim hypotheses and legacy events, which default to unhandled.
    */
   readonly handled?: boolean;
+  /**
+   * D1 latency instrument: milliseconds from the utterance's FIRST PARTIAL to
+   * the action completing (or, for an `Ignored` final, to that decision).
+   * This is NOT utterance→action — the Mac's own recognition delay happens
+   * upstream of every timestamp the app can see, so it is excluded (see
+   * `voice_loop.rs`'s `ActionCtx::take_app_ms`). Absent on interim hypotheses
+   * and legacy events.
+   */
+  readonly app_ms?: number;
 }
 
 export type InvalidDeliveryReason =
@@ -50,8 +57,8 @@ export function validateVoiceDelivery(
   }
   const { confidence } = delivery.recognition;
   if (
-    confidence !== null
-    && (!Number.isFinite(confidence) || confidence < 0 || confidence > 1)
+    confidence !== null &&
+    (!Number.isFinite(confidence) || confidence < 0 || confidence > 1)
   ) {
     return "invalid_confidence";
   }
@@ -118,7 +125,9 @@ export function registerVoiceDelivery(
     };
   }
 
-  const latest = ledger.latest_revision_by_delivery_id.get(delivery.delivery_id);
+  const latest = ledger.latest_revision_by_delivery_id.get(
+    delivery.delivery_id,
+  );
   if (latest === delivery.revision) {
     return { ledger, disposition: { kind: "duplicate", identity } };
   }
@@ -137,12 +146,13 @@ export function registerVoiceDelivery(
   revisions.set(delivery.delivery_id, delivery.revision);
   return {
     ledger: { latest_revision_by_delivery_id: revisions },
-    disposition: latest === undefined
-      ? { kind: "accepted_new", identity }
-      : {
-          kind: "accepted_revision",
-          identity,
-          previous_revision: latest,
-        },
+    disposition:
+      latest === undefined
+        ? { kind: "accepted_new", identity }
+        : {
+            kind: "accepted_revision",
+            identity,
+            previous_revision: latest,
+          },
   };
 }

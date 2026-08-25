@@ -451,6 +451,19 @@ struct ActionCtx {
     /// from `last` so the command dedup ledger's locked identical-text rule
     /// stays exactly as it is.
     fast_path: Option<(Intent, Instant)>,
+    /// The `at` of the current utterance's FIRST partial (D1 latency
+    /// instrument). Set once per utterance, on the first partial that reaches
+    /// this ctx (when `None`); read-and-cleared the moment a final is routed
+    /// (handled or `Ignored`) so `app_ms` in the next utterance's
+    /// `voice://transcript` payload starts fresh. This is deliberately NOT
+    /// `t.at` at the final — the settler stamps `at` at EMIT time, ~600 ms
+    /// after the last partial for a settled final, which would hide the
+    /// wait this instrument exists to show (module docs on `settle`,
+    /// `stt/supervisor.rs`). A plain field, not shared state: every partial
+    /// and final for an utterance passes through this same ctx on the single
+    /// action thread ([`ActionMessage::Partial`] carries interim hypotheses
+    /// there too now, purely so this can be stamped).
+    utterance_start: Option<Instant>,
 }
 
 enum ActionMessage {
@@ -458,6 +471,12 @@ enum ActionMessage {
     /// A partial hypothesis that exactly matched [`FAST_PATH_PHRASES`], promoted
     /// to a final so it acts now instead of after the settle wait.
     FastPath(Transcript),
+    /// An interim (non-final, non-fast-path) hypothesis, forwarded ONLY so
+    /// [`ActionCtx::handle_partial`] can stamp the utterance's start for the
+    /// D1 latency instrument. It takes no other action — the frontend's
+    /// interim event is still emitted directly from the settler thread
+    /// (`on_event`), unchanged.
+    Partial(Transcript),
     SpeakBrain(String),
 }
 
@@ -465,6 +484,15 @@ impl ActionCtx {
     /// A settled final from the settler: route it and act.
     fn handle_final(&mut self, t: &Transcript) {
         self.route_and_act(t, false);
+    }
+
+    /// An interim hypothesis: stamp the utterance's start (D1 latency
+    /// instrument) if this is the first partial seen since the last final was
+    /// routed. Takes no other action.
+    fn handle_partial(&mut self, t: &Transcript) {
+        if self.utterance_start.is_none() {
+            self.utterance_start = Some(t.at);
+        }
     }
 
     /// A partial that matched [`FAST_PATH_PHRASES`], acting ahead of the settle
@@ -522,7 +550,8 @@ impl ActionCtx {
         // happens to repeat the ambient words (e.g. a UI-opened rep followed by
         // the spoken verdict within the window).
         if matches!(intent, Intent::Ignored) {
-            self.emit_transcript(&t.text, t.is_final, false);
+            let app_ms = self.take_app_ms(t);
+            self.emit_transcript(&t.text, t.is_final, false, app_ms);
             return;
         }
 
@@ -574,8 +603,14 @@ impl ActionCtx {
         // A routed command is authoritative. Emit its transcript carrying
         // `handled = true` BEFORE the action's state events, so a downstream
         // consumer sees transcript-before-state ordering and Lane B never drafts
-        // a final the backend already routed.
-        self.emit_transcript(&t.text, t.is_final, true);
+        // a final the backend already routed. `app_ms` is read (and the
+        // utterance cleared) here rather than after the `act_*` dispatch below
+        // so this ordering invariant is not disturbed — the dispatch itself is
+        // a synchronous, deterministic, DB-light call (constraint 2: no LLM in
+        // this path), so the difference is on the order of microseconds against
+        // a measurement whose whole point is the ~600 ms settle wait.
+        let app_ms = self.take_app_ms(t);
+        self.emit_transcript(&t.text, t.is_final, true, app_ms);
 
         match intent {
             Intent::MetroStart(bpm) => self.act_start(bpm, &t.text),
@@ -968,11 +1003,42 @@ impl ActionCtx {
     /// false for an ambient final the backend declined to route (which the
     /// frontend Lane B is then free to draft). Interim (non-final) hypotheses are
     /// emitted straight from the settler thread with `handled = false`.
-    fn emit_transcript(&self, text: &str, is_final: bool, handled: bool) {
+    ///
+    /// `app_ms` (D1 latency instrument) is milliseconds from the utterance's
+    /// FIRST PARTIAL to this call — the only span the app can actually measure
+    /// (see [`ActionCtx::take_app_ms`] and the module docs). It is NOT
+    /// utterance→action: the macOS engine's own recognition delay happens
+    /// upstream of every timestamp this app can see.
+    fn emit_transcript(&self, text: &str, is_final: bool, handled: bool, app_ms: u64) {
         self.emitter.emit(
             "voice://transcript",
-            json!({ "text": text, "is_final": is_final, "handled": handled }),
+            json!({ "text": text, "is_final": is_final, "handled": handled, "app_ms": app_ms }),
         );
+    }
+
+    /// Read-and-clear the current utterance's tracked first-partial `Instant`
+    /// (D1 latency instrument), returning elapsed milliseconds to now. Falls
+    /// back to `t.at` (the settler's own emit timestamp) when no partial was
+    /// tracked for this utterance — a fast-path or settled final can in
+    /// principle reach here with nothing recorded (e.g. a test that drives
+    /// `handle_final` directly without a prior partial), in which case the
+    /// figure simply reports the time since the final itself rather than
+    /// panicking or fabricating a number. Clearing here (not on `t.is_final`
+    /// generally) means only finals that actually reach an emit point — routed
+    /// or `Ignored` — close out the utterance; a final dropped earlier by the
+    /// fast-path tail guard or the spurious-final dedup never reaches this
+    /// call, so it correctly leaves the tracked start alone for whichever
+    /// final DOES end the utterance.
+    fn take_app_ms(&mut self, t: &Transcript) -> u64 {
+        let start = self.utterance_start.take().unwrap_or(t.at);
+        // Measured against `t.at` (the FINAL's own timestamp), like every
+        // other time comparison in this module (e.g. `DEDUP_WINDOW`), not
+        // `Instant::now()` — fixture/replayed transcripts carry synthetic
+        // `at` values that are never actually slept through, and real
+        // production transcripts already carry real `Instant`s, so this is
+        // correct in both worlds. `saturating_duration_since` never panics if
+        // a fixture's `at` values are out of order.
+        t.at.saturating_duration_since(start).as_millis() as u64
     }
 
     /// Score navigation is intentionally silent: a spoken acknowledgement would
@@ -1211,11 +1277,17 @@ impl VoiceLoop {
                         ..t
                     }));
                 } else {
-                    // Interim hypotheses are liveness only; nothing routes them.
+                    // Interim hypotheses are liveness only; nothing routes
+                    // them. They ARE forwarded to the action thread as
+                    // `ActionMessage::Partial` so `ActionCtx` can stamp the
+                    // utterance's first-partial `Instant` for the D1 latency
+                    // instrument (`handle_partial`) — this is a timestamp
+                    // capture only, never a routing decision.
                     ev_emitter.emit(
                         "voice://transcript",
                         json!({ "text": t.text, "is_final": false, "handled": false }),
                     );
+                    let _ = fwd_tx.send(ActionMessage::Partial(t));
                 }
             }
             SttEvent::Down(reason) => {
@@ -1268,11 +1340,13 @@ impl VoiceLoop {
                     muted: action_muted,
                     last: None,
                     fast_path: None,
+                    utterance_start: None,
                 };
                 for message in rx.iter() {
                     match message {
                         ActionMessage::Transcript(transcript) => ctx.handle_final(&transcript),
                         ActionMessage::FastPath(transcript) => ctx.handle_fast_path(&transcript),
+                        ActionMessage::Partial(transcript) => ctx.handle_partial(&transcript),
                         // Reuse the exact same Speaker → PCM sink → STT gate as
                         // command confirmations. A provider answer can never be
                         // played through an ungated WebView speech API.
@@ -1495,6 +1569,7 @@ mod tests {
             wake_word: None,
             muted: Arc::new(AtomicBool::new(false)),
             last: None,
+            utterance_start: None,
         }
     }
 
@@ -2207,8 +2282,8 @@ mod tests {
     /// original fire) must still act rather than being swallowed against the
     /// now-superseded fire.
     #[test]
-    fn a_genuine_command_between_the_fire_and_a_later_same_intent_final_clears_the_guard_for_start(
-    ) {
+    fn a_genuine_command_between_the_fire_and_a_later_same_intent_final_clears_the_guard_for_start()
+    {
         let rec = Arc::new(Recorder::default());
         let mut ctx = test_ctx(&rec);
         let at = Instant::now();
@@ -2223,7 +2298,10 @@ mod tests {
         // An intervening genuine command — a different intent — dispatches and
         // must clear the guard.
         ctx.handle_final(&final_at("metronome off", at + Duration::from_millis(20)));
-        assert!(!ctx.metro.snapshot().running, "the intervening stop must act");
+        assert!(
+            !ctx.metro.snapshot().running,
+            "the intervening stop must act"
+        );
 
         // Still well inside DEDUP_WINDOW of the ORIGINAL "metronome on" fire, a
         // genuine later resume, spoken outside the fast-path allowlist, must
@@ -2274,9 +2352,12 @@ mod tests {
             at + Duration::from_millis(200),
         ));
         assert!(
-            rec.events.lock().unwrap().iter().any(|(e, p)| e
-                == "voice://transcript"
-                && p["text"] == json!("turn the metronome off")),
+            rec.events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(e, p)| e == "voice://transcript"
+                    && p["text"] == json!("turn the metronome off")),
             "a second same-intent final must not be swallowed by an already-consumed guard"
         );
     }
@@ -2385,6 +2466,72 @@ mod tests {
             .and_then(|(_, p)| p["handled"].as_bool())
     }
 
+    /// The most recently emitted payload for `event`, if any — mirrors the
+    /// plan's illustrative `emitter.last_payload(...)`, adapted to the real
+    /// `Recorder`/`RecEmitter` harness (a flat `Vec<(String, Value)>`).
+    fn last_payload(rec: &Arc<Recorder>, event: &str) -> Option<serde_json::Value> {
+        rec.events
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|(e, _)| e == event)
+            .map(|(_, p)| p.clone())
+    }
+
+    // --- D1: voice latency instrumentation (the honest baseline) ----------
+    //
+    // Only the app-side span is measurable: first partial → action complete.
+    // `Transcript.at` on a settled FINAL is stamped by the settler at emit
+    // time (`stt/supervisor.rs`), ~600 ms after the last partial — using it as
+    // the start would silently absorb the very wait this instrument exists to
+    // show. See the module docs and `ActionCtx::take_app_ms`.
+
+    #[test]
+    fn a_routed_final_reports_the_app_side_latency_it_can_actually_measure() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let started = Instant::now();
+
+        // A partial opens the utterance, a final closes it.
+        ctx.handle_partial(&Transcript {
+            text: "metro".to_string(),
+            is_final: false,
+            at: started,
+        });
+        ctx.handle_final(&Transcript {
+            text: "metronome off".to_string(),
+            is_final: true,
+            at: started + Duration::from_millis(700),
+        });
+
+        let payload = last_payload(&rec, "voice://transcript").expect("transcript emitted");
+        let app_ms = payload["app_ms"]
+            .as_u64()
+            .expect("app_ms present on a routed final");
+        assert!(
+            app_ms >= 700,
+            "app_ms must span from the FIRST PARTIAL, not the final: got {app_ms}"
+        );
+    }
+
+    #[test]
+    fn an_ignored_final_still_reports_latency_so_misses_are_measurable() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        let started = Instant::now();
+        ctx.handle_final(&Transcript {
+            text: "something the router ignores".to_string(),
+            is_final: true,
+            at: started,
+        });
+        let payload = last_payload(&rec, "voice://transcript").expect("transcript emitted");
+        assert!(
+            payload["app_ms"].is_u64(),
+            "an Ignored final must carry app_ms too — invisible misses are the whole D1 complaint"
+        );
+    }
+
     #[test]
     fn brain_answer_is_bounded_and_queued_for_the_voice_owner() {
         let recorder = Arc::new(Recorder::default());
@@ -2408,7 +2555,9 @@ mod tests {
             ActionMessage::SpeakBrain(answer) => {
                 assert_eq!(answer, "Use three silent landings.")
             }
-            ActionMessage::Transcript(_) | ActionMessage::FastPath(_) => {
+            ActionMessage::Transcript(_)
+            | ActionMessage::FastPath(_)
+            | ActionMessage::Partial(_) => {
                 panic!("expected a brain speech message")
             }
         }

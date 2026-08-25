@@ -29,7 +29,9 @@ describe("HeardPill (visible hearing, v6 S9)", () => {
         delivery={final("i think the metronome off days are behind me")}
       />,
     );
-    expect(screen.getByRole("status").textContent).toContain("i think the metronome off days are behind me");
+    expect(screen.getByRole("status").textContent).toContain(
+      "i think the metronome off days are behind me",
+    );
   });
 
   it("auto-fades, so it is a flash and not a log", () => {
@@ -69,5 +71,29 @@ describe("HeardPill (visible hearing, v6 S9)", () => {
   it("states the honest limit rather than promising sensitivity it cannot have", () => {
     expect(QUIET_SPEECH_NOTE).toContain("macOS speech engine");
     expect(QUIET_SPEECH_NOTE).toContain("can't hear better");
+  });
+
+  // --- D1: voice latency instrumentation (the honest baseline) ------------
+
+  it("renders the app-side latency figure, labelled honestly as 'app'", () => {
+    render(
+      <HeardPill
+        delivery={{ text: "metronome off", is_final: true, app_ms: 1234 }}
+      />,
+    );
+    const status = screen.getByRole("status");
+    expect(status.textContent).toContain("app 1.2s");
+    const latency = status.querySelector(".heard-pill-latency");
+    expect(latency).not.toBeNull();
+    expect(latency?.getAttribute("title")).toContain(
+      "does not include how long the Mac itself took to hear you",
+    );
+  });
+
+  it("renders nothing for the latency figure when app_ms is absent, never 0.0s", () => {
+    render(<HeardPill delivery={final("metronome off")} />);
+    const status = screen.getByRole("status");
+    expect(status.querySelector(".heard-pill-latency")).toBeNull();
+    expect(status.textContent).not.toContain("0.0s");
   });
 });

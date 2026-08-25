@@ -43,6 +43,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* D1 latency instrument — the honest app-side figure, never the whole
+   utterance→action span (the module doc/title explains why). A quiet
+   trailing note, not a metric callout: same dim ink as the pill body. */
+.heard-pill-latency {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+}
+
 @keyframes heard-pill-in {
   from {
     opacity: 0;

@@ -56,18 +56,31 @@ interface HeardPillProps {
   readonly delivery: {
     readonly text: string;
     readonly is_final: boolean;
+    /**
+     * D1 latency instrument: ms from the utterance's FIRST PARTIAL to the
+     * action completing (or, for an ignored final, to that decision). This is
+     * the ONLY span the app can measure — NOT utterance→action, since the
+     * Mac's own recognition delay happens upstream of every timestamp the app
+     * can see. Absent on legacy/interim events.
+     */
+    readonly app_ms?: number;
   } | null;
 }
 
 export function HeardPill({ delivery }: HeardPillProps) {
   const [heard, setHeard] = useState<string | null>(null);
+  const [appMs, setAppMs] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     if (!delivery || !delivery.is_final) return;
     const text = truncateHeard(delivery.text);
     if (!text) return;
     setHeard(text);
-    const timer = setTimeout(() => setHeard(null), HEARD_MS);
+    setAppMs(delivery.app_ms);
+    const timer = setTimeout(() => {
+      setHeard(null);
+      setAppMs(undefined);
+    }, HEARD_MS);
     return () => clearTimeout(timer);
   }, [delivery]);
 
@@ -76,6 +89,14 @@ export function HeardPill({ delivery }: HeardPillProps) {
     <div className="heard-pill" role="status" aria-live="polite">
       <span className="heard-pill-ear" aria-hidden="true" />
       <span className="heard-pill-text">{heard}</span>
+      {typeof appMs === "number" && (
+        <span
+          className="heard-pill-latency"
+          title="Time from the first words the Mac gave the app to the action being done. It does not include how long the Mac itself took to hear you — the app cannot see that."
+        >
+          app {(appMs / 1000).toFixed(1)}s
+        </span>
+      )}
     </div>
   );
 }
