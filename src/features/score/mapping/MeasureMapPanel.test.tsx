@@ -381,8 +381,7 @@ describe("MeasureMapPanel", () => {
     });
   });
 
-  it("Cancel discards the review and never calls apply", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("Cancel discards the review (after confirming inline) and never calls apply", async () => {
     const apply = vi.fn().mockResolvedValue(1);
     const onClose = vi.fn();
     const api = makeApi({ apply });
@@ -400,9 +399,58 @@ describe("MeasureMapPanel", () => {
     fireEvent.click(screen.getByText("Start scan"));
     await screen.findByTestId("measure-map-no-conflicts");
     fireEvent.click(screen.getByText("Cancel"));
+    // First attempt while dirty only asks for confirmation inline — it must
+    // not close (and must not touch the native window.confirm dialog, which
+    // is banned in this codebase because wry/WKWebView can silently return
+    // falsy from it).
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("measure-map-discard-confirm-yes"));
     expect(apply).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(1);
-    confirmSpy.mockRestore();
+  });
+
+  // ── B83: window.confirm is banned — replaced with the inline-confirm idiom ─
+
+  it("dismissing the inline discard confirmation keeps the panel open and its work intact", async () => {
+    const onClose = vi.fn();
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={onClose}
+        rasterizePage={rasterizePage}
+        api={makeApi()}
+      />,
+    );
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-no-conflicts");
+    fireEvent.click(screen.getByText("Cancel"));
+    await screen.findByTestId("measure-map-discard-confirm");
+    fireEvent.click(screen.getByTestId("measure-map-discard-confirm-no"));
+    expect(onClose).not.toHaveBeenCalled();
+    // The review work is still there — dismissing did not discard anything.
+    expect(screen.getByTestId("measure-map-no-conflicts")).toBeTruthy();
+    expect(screen.queryByTestId("measure-map-discard-confirm")).toBeNull();
+  });
+
+  it("a close attempt while clean (never dirty) closes immediately with no confirmation", () => {
+    const onClose = vi.fn();
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={onClose}
+        rasterizePage={rasterizePage}
+        api={makeApi()}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Close"));
+    expect(screen.queryByTestId("measure-map-discard-confirm")).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the review state and surfaces the error when Apply is rejected", async () => {
@@ -903,5 +951,37 @@ describe("MeasureMapPanel", () => {
     unmount();
     expect(document.activeElement).toBe(opener);
     opener.remove();
+  });
+
+  it("a dirty transition does not steal focus off the currently-focused element inside the dialog", async () => {
+    const apply = vi.fn().mockResolvedValue(1);
+    const api = makeApi({ apply });
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={1}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={api}
+      />,
+    );
+    fireEvent.click(screen.getByText("Start scan"));
+    await screen.findByTestId("measure-map-no-conflicts");
+
+    const closeButton = screen.getByLabelText("Close");
+    closeButton.focus();
+    expect(document.activeElement).toBe(closeButton);
+
+    // Apply flips `dirty` from true -> false on success. Before the B83 fix,
+    // that flip changed `discardReview`'s identity, tearing down and
+    // remounting the focus-trap effect: its cleanup called
+    // `openerRef.current?.focus()` (yanking focus to the opener behind the
+    // scrim) and the new effect then called `dialogRef.current?.focus()`,
+    // stealing focus from whatever the user had focused mid-edit.
+    fireEvent.click(screen.getByTestId("measure-map-apply"));
+    await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
+    expect(document.activeElement).toBe(closeButton);
   });
 });

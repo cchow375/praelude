@@ -94,6 +94,7 @@ export function MeasureMapPanel({
   const [error, setError] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const [pageImages, setPageImages] = useState<Record<number, string>>({});
   /** Pages the human chose to leave unmapped rather than fix (F3, partial
    * Apply). The store treats a re-apply as the new whole truth for this
@@ -244,13 +245,14 @@ export function MeasureMapPanel({
     cancelRef.current = true;
   }, []);
 
-  const discardReview = useCallback(() => {
-    if (
-      dirty &&
-      !window.confirm("Discard this review? Nothing will be applied.")
-    ) {
-      return;
-    }
+  // B83: `window.confirm` is banned in this codebase — wry/WKWebView has
+  // historically returned falsy from it silently, which here would have
+  // meant the ×, Cancel, AND Escape paths all silently no-op once the panel
+  // is dirty, trapping the user in a dialog they cannot close. Replaced with
+  // the same inline-confirm idiom as SessionBar.tsx's "End my day" flow
+  // (see SessionBar.tsx around its `confirmingEndDay` state): a two-step
+  // in-page confirmation, no native dialog.
+  const actuallyDiscard = useCallback(() => {
     setStage("intro");
     setWorkingPages([]);
     setConflicts([]);
@@ -258,8 +260,39 @@ export function MeasureMapPanel({
     setDirty(false);
     setError(null);
     setApplyError(null);
+    setConfirmingDiscard(false);
     onClose();
-  }, [dirty, onClose]);
+  }, [onClose]);
+
+  const discardReview = useCallback(() => {
+    if (dirty) {
+      setConfirmingDiscard(true);
+      return;
+    }
+    actuallyDiscard();
+  }, [actuallyDiscard, dirty]);
+
+  const confirmDiscard = useCallback(() => {
+    actuallyDiscard();
+  }, [actuallyDiscard]);
+
+  const cancelDiscardConfirm = useCallback(() => {
+    setConfirmingDiscard(false);
+  }, []);
+
+  // B83 follow-up to B77: keep the close handler in a ref so the trap effect
+  // below can stay mounted for the panel's whole lifetime. `discardReview`'s
+  // identity changes on every `dirty` transition (ordinary bar clicks and
+  // edits) — if the effect depended on it directly, each transition would
+  // tear it down and its cleanup would fire `openerRef.current?.focus()`,
+  // yanking focus out of the dialog and back to the opener behind the scrim
+  // mid-edit, then immediately re-focus the dialog root. The ref keeps the
+  // effect's dependency array empty so it only mounts/unmounts once, and the
+  // "restore focus to the opener" cleanup only ever runs on real unmount.
+  const discardReviewRef = useRef(discardReview);
+  useEffect(() => {
+    discardReviewRef.current = discardReview;
+  }, [discardReview]);
 
   // B77: trap focus inside this dialog. Without this, Tab from inside the
   // panel reaches the dock controls behind the scrim — including the rep
@@ -269,7 +302,7 @@ export function MeasureMapPanel({
     dialogRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        discardReview();
+        discardReviewRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -303,7 +336,7 @@ export function MeasureMapPanel({
       document.removeEventListener("keydown", onKeyDown, true);
       (openerRef.current as HTMLElement | null)?.focus?.();
     };
-  }, [discardReview]);
+  }, []);
 
   const handleBarClick = useCallback(
     (
@@ -428,9 +461,37 @@ export function MeasureMapPanel({
     >
       <header className="measure-map-panel-head">
         <h2>Map measures</h2>
-        <button type="button" onClick={discardReview} aria-label="Close">
-          ×
-        </button>
+        {confirmingDiscard ? (
+          <span
+            className="measure-map-discard-confirm"
+            data-testid="measure-map-discard-confirm"
+          >
+            <span className="measure-map-discard-confirm-ask">
+              Discard this review? Nothing will be applied.
+            </span>
+            <button
+              type="button"
+              className="measure-map-discard-confirm-action"
+              data-testid="measure-map-discard-confirm-yes"
+              onClick={confirmDiscard}
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              className="measure-map-discard-confirm-action"
+              aria-label="Keep this review"
+              data-testid="measure-map-discard-confirm-no"
+              onClick={cancelDiscardConfirm}
+            >
+              Keep working
+            </button>
+          </span>
+        ) : (
+          <button type="button" onClick={discardReview} aria-label="Close">
+            ×
+          </button>
+        )}
       </header>
 
       {stage === "intro" && (
