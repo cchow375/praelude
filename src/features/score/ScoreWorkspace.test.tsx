@@ -104,12 +104,33 @@ describe("ScoreWorkspace", () => {
     await waitFor(() => expect(picker.value).toBe("2"));
   });
 
-  it("guards an in-app piece switch while a measure-map review is unsaved (Important 3, fix round 1)", async () => {
+  // B83: window.confirm is banned (wry/WKWebView can silently return falsy
+  // from it) — replaced with the same inline two-step confirm idiom used by
+  // MeasureMapPanel.tsx.
+  it("switches pieces immediately with no prompt when the measure-map review is clean", async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === "pieces_list") return Promise.resolve(PIECES);
       return Promise.resolve(undefined);
     });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    render(<ScoreWorkspace />);
+    const picker = (await screen.findByLabelText(
+      "Choose a piece",
+    )) as HTMLSelectElement;
+    await screen.findByTestId("score-view-stub");
+
+    fireEvent.change(picker, { target: { value: "2" } });
+    await waitFor(() => expect(picker.value).toBe("2"));
+    expect(
+      screen.queryByTestId("score-workspace-piece-switch-confirm"),
+    ).toBeNull();
+  });
+
+  it("switching pieces with a dirty measure-map review prompts inline and does not switch", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      return Promise.resolve(undefined);
+    });
 
     render(<ScoreWorkspace />);
     const picker = (await screen.findByLabelText(
@@ -122,37 +143,68 @@ describe("ScoreWorkspace", () => {
     props.onMeasureMapDirtyChange?.(true);
 
     fireEvent.change(picker, { target: { value: "2" } });
-    expect(confirmSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Discard the measure-map review?"),
+    const confirm = await screen.findByTestId(
+      "score-workspace-piece-switch-confirm",
     );
-    // Declined: the switch never happened.
+    expect(confirm.textContent).toContain(
+      "Discard the measure-map review? Your scan/edits have not been applied.",
+    );
+    // Declined by default: the switch never happened, and the DOM value was
+    // reverted (the browser mutates it before the handler runs).
     expect(picker.value).toBe("1");
-
-    // Confirming proceeds with the switch.
-    confirmSpy.mockReturnValue(true);
-    fireEvent.change(picker, { target: { value: "2" } });
-    await waitFor(() => expect(picker.value).toBe("2"));
-
-    confirmSpy.mockRestore();
   });
 
-  it("switches pieces freely once the measure-map review is clean", async () => {
+  it("confirming the inline prompt switches to the originally-chosen piece", async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === "pieces_list") return Promise.resolve(PIECES);
       return Promise.resolve(undefined);
     });
-    const confirmSpy = vi.spyOn(window, "confirm");
 
     render(<ScoreWorkspace />);
     const picker = (await screen.findByLabelText(
       "Choose a piece",
     )) as HTMLSelectElement;
-    await screen.findByTestId("score-view-stub");
+    const props = scoreViewProps.current as ScoreViewProps;
+    props.onMeasureMapDirtyChange?.(true);
 
     fireEvent.change(picker, { target: { value: "2" } });
+    fireEvent.click(
+      await screen.findByTestId("score-workspace-piece-switch-confirm-yes"),
+    );
     await waitFor(() => expect(picker.value).toBe("2"));
-    expect(confirmSpy).not.toHaveBeenCalled();
-    confirmSpy.mockRestore();
+    expect(
+      screen.queryByTestId("score-workspace-piece-switch-confirm"),
+    ).toBeNull();
+  });
+
+  it("dismissing the inline prompt keeps both the review and the original selection", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "pieces_list") return Promise.resolve(PIECES);
+      return Promise.resolve(undefined);
+    });
+
+    render(<ScoreWorkspace />);
+    const picker = (await screen.findByLabelText(
+      "Choose a piece",
+    )) as HTMLSelectElement;
+    const props = scoreViewProps.current as ScoreViewProps;
+    props.onMeasureMapDirtyChange?.(true);
+
+    fireEvent.change(picker, { target: { value: "2" } });
+    fireEvent.click(
+      await screen.findByTestId("score-workspace-piece-switch-confirm-no"),
+    );
+    expect(picker.value).toBe("1");
+    expect(
+      screen.queryByTestId("score-workspace-piece-switch-confirm"),
+    ).toBeNull();
+
+    // The review is still "dirty" — a later switch attempt prompts again
+    // rather than having been silently cleared by the dismissal.
+    fireEvent.change(picker, { target: { value: "2" } });
+    expect(
+      await screen.findByTestId("score-workspace-piece-switch-confirm"),
+    ).toBeTruthy();
   });
 
   it("shows the requested no-PDF piece instead of substituting another score", async () => {

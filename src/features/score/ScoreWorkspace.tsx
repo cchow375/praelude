@@ -90,6 +90,15 @@ export function ScoreWorkspace({
   // in a ref (not state) so the picker's `onChange` can read it synchronously
   // before committing the switch, without waiting on a re-render.
   const measureMapDirtyRef = useRef(false);
+  // B83: the piece the user tried to switch to while a measure-map review was
+  // dirty — held so confirming completes THAT switch rather than making them
+  // pick again. `window.confirm` is banned in this codebase (wry/WKWebView
+  // can silently return falsy from it), which here would have been a
+  // completely silent failure: the select just snaps back with no
+  // explanation. Same inline-confirm idiom as MeasureMapPanel.tsx.
+  const [pendingPieceSwitch, setPendingPieceSwitch] = useState<number | null>(
+    null,
+  );
 
   // Each navigation request sets the tab explicitly: a Plan deep link opens Plan
   // (spec C3); any other jump lands on the Score itself. A plain picker change is
@@ -262,19 +271,16 @@ export function ScoreWorkspace({
                 aria-label="Choose a piece"
                 value={selectedId ?? ""}
                 onChange={(event) => {
-                  if (
-                    measureMapDirtyRef.current &&
-                    !window.confirm(
-                      "Discard the measure-map review? Your scan/edits have not been applied.",
-                    )
-                  ) {
+                  const id = Number(event.target.value);
+                  if (measureMapDirtyRef.current) {
                     // Revert the <select>'s own DOM value: the browser has
-                    // already changed it before this handler ran.
+                    // already changed it before this handler ran. The
+                    // requested id is remembered so confirming completes
+                    // THAT switch rather than making the user pick again.
                     event.target.value = String(selectedId ?? "");
+                    setPendingPieceSwitch(id);
                     return;
                   }
-                  measureMapDirtyRef.current = false;
-                  const id = Number(event.target.value);
                   setNavigationError(null);
                   setSelectedId(id);
                   writeLastPieceId(id);
@@ -288,6 +294,40 @@ export function ScoreWorkspace({
                 ))}
               </select>
             </label>
+          )}
+          {pendingPieceSwitch != null && (
+            <span
+              className="score-workspace-piece-switch-confirm"
+              data-testid="score-workspace-piece-switch-confirm"
+            >
+              <span className="score-workspace-piece-switch-confirm-ask">
+                Discard the measure-map review? Your scan/edits have not been
+                applied.
+              </span>
+              <button
+                type="button"
+                className="score-workspace-piece-switch-confirm-action"
+                data-testid="score-workspace-piece-switch-confirm-yes"
+                onClick={() => {
+                  measureMapDirtyRef.current = false;
+                  setNavigationError(null);
+                  setSelectedId(pendingPieceSwitch);
+                  writeLastPieceId(pendingPieceSwitch);
+                  setPendingPieceSwitch(null);
+                }}
+              >
+                Discard and switch
+              </button>
+              <button
+                type="button"
+                className="score-workspace-piece-switch-confirm-action"
+                aria-label="Keep the measure-map review"
+                data-testid="score-workspace-piece-switch-confirm-no"
+                onClick={() => setPendingPieceSwitch(null)}
+              >
+                Keep working
+              </button>
+            </span>
           )}
         </div>
       </header>
