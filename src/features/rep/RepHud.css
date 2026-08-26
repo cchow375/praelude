@@ -318,6 +318,15 @@
   color: var(--ink-dim);
 }
 
+/* A2: the variant chain's current stage. A headline element, not an aside —
+   during a hands-free chain this is the line that tells him which variant he
+   is playing and what clears it, so it reads at the same weight as the climb
+   line rather than shrinking into the background. */
+.rep-hud-variant-stage {
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+
 /* The approaching-demotion count. Quieter still than the demotion itself —
    it is a heads-up, not an event, and it disappears the moment he plays a
    clean rep. Same restraint: no red, no warning iconography. */

@@ -624,6 +624,22 @@ export function RepHud({
                 {snap.current_sloppy_streak} sloppy in a row
               </span>
             )}
+          {/* A2: the variant chain's current stage, as a HEADLINE element
+              rather than drawer content — he practises a chain hands-free, so
+              "which variant am I on and what clears it" has to be readable
+              from the piano without opening anything. Lives inside
+              `.rep-hud-main`, which the collapsed-HUD rule exempts, so it
+              survives a compact HUD. Absent entirely when the set has no
+              variants, which is exactly today's behaviour. */}
+          {snap.variant_stage_index != null && snap.variant != null && (
+            <span className="rep-hud-variant-stage" role="status">
+              {snap.variant} · {snap.variant_stage_cleans ?? 0}/
+              {snap.variant_stage_required ?? 0}
+              {snap.next_variant_stage_name
+                ? ` → next: ${snap.next_variant_stage_name}`
+                : " · last in the chain"}
+            </span>
+          )}
           {(mastered || !verified) && (
             <span
               className={`rep-hud-mastery ${mastered ? "is-satisfied" : ""}`}

@@ -143,6 +143,20 @@ export interface RepSnapshot {
   /** A1: whether this set has been demoted at least once — the repeat
    * threshold (2, not 3) applies for the remainder of the set once true. */
   demoted_this_set?: boolean;
+  /** A2: 0-based index of the current stage in the variant chain. Null when
+   * the set has no variants — the chain is a no-op, exactly as before. */
+  variant_stage_index?: number | null;
+  /** A2: clean reps landed so far at the current stage. */
+  variant_stage_cleans?: number;
+  /** A2: clean reps needed to clear the current stage (its own `clean_streak`,
+   * or its `reps` for a legacy variant). */
+  variant_stage_required?: number;
+  /** A2: name of the stage after this one, for the HUD's "next: …" line.
+   * Null at the last stage or with no variants. */
+  next_variant_stage_name?: string | null;
+  /** A2: every stage cleared this pass. With a ladder this coincides with a
+   * tempo step (the chain restarts); without one, the set is complete. */
+  variant_chain_complete?: boolean;
 }
 
 export interface RecoveryActionView {

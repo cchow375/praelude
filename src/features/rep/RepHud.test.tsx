@@ -659,6 +659,62 @@ describe("RepHud", () => {
     });
   });
 
+  describe("A2 variant chain stage (a headline, not drawer content)", () => {
+    it("names the current variant, its progress, and what comes next", () => {
+      const { container } = render(
+        <RepHud
+          snap={makeSnap({
+            variant: "dotted",
+            variant_stage_index: 0,
+            variant_stage_cleans: 3,
+            variant_stage_required: 5,
+            next_variant_stage_name: "reverse dotted",
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+        />,
+      );
+      const stage = container.querySelector(".rep-hud-variant-stage");
+      expect(stage).not.toBeNull();
+      expect(stage?.textContent).toContain("dotted");
+      expect(stage?.textContent).toContain("3/5");
+      expect(stage?.textContent).toContain("next: reverse dotted");
+    });
+
+    it("says when this is the last stage rather than promising a next one", () => {
+      const { container } = render(
+        <RepHud
+          snap={makeSnap({
+            variant: "staccato",
+            variant_stage_index: 2,
+            variant_stage_cleans: 1,
+            variant_stage_required: 5,
+            next_variant_stage_name: null,
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+        />,
+      );
+      const stage = container.querySelector(".rep-hud-variant-stage");
+      expect(stage?.textContent).toContain("last in the chain");
+      expect(stage?.textContent).not.toContain("next:");
+    });
+
+    it("renders nothing at all for a set with no variant chain", () => {
+      const { container } = render(
+        <RepHud
+          snap={makeSnap({ variant: null, variant_stage_index: null })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+        />,
+      );
+      expect(container.querySelector(".rep-hud-variant-stage")).toBeNull();
+    });
+  });
+
   describe("A1 demotion moment (display + chime, not a celebration)", () => {
     afterEach(() => vi.useRealTimers());
 
