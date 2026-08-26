@@ -552,6 +552,48 @@ export function RepHud({
             </span>
           )}
         </div>
+        {/* A7 §4b: the repair for a drifted count sits BESIDE the count, in
+            the main row. Measured at the 720x520 floor: the dock panel's body
+            ends just under the verdict buttons, so every top-level row below
+            them (the note field, the safety stop, the drawer) is already below
+            the fold — a ± row placed there would have been "shipped" and
+            invisible, the exact §4b failure this task exists to prevent. Here
+            it costs ZERO vertical space and is legible without scrolling,
+            collapsing, or opening anything.
+
+            Both controls reuse the paths the verdict buttons already use
+            (＋ clean is a normal `rep_check` through `submit`; ↩ undo last is
+            the existing REP_UNDO through `runUndo`), so provenance, receipts,
+            the busy guard and the mastered guard are identical to a click.
+
+            `data-compact-visible` is carried deliberately. `.rep-hud-main` is
+            already exempt from the collapsed-HUD hiding rule, so today it is
+            belt-and-braces — but that rule keys on DIRECT children, and this
+            row is one promotion away from being one. B82 was exactly that
+            mistake, so the mark (and the test that pins it) travels with the
+            row. */}
+        <div
+          className="rep-hud-adjust"
+          data-compact-visible="true"
+          aria-label="Adjust the rep count"
+        >
+          <button
+            type="button"
+            className="rep-hud-adjust-add"
+            disabled={mastered || busy != null}
+            onClick={() => void submit("clean")}
+          >
+            ＋ clean
+          </button>
+          <button
+            type="button"
+            className="rep-hud-adjust-undo"
+            disabled={busy != null || tries === 0}
+            onClick={() => void runUndo()}
+          >
+            {busy === "undo" ? "Undoing…" : "↩ undo last"}
+          </button>
+        </div>
       </div>
 
       {/* A6 §4b: a hotkey nobody knows about is not a feature. The mapping is

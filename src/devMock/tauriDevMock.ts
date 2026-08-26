@@ -1341,6 +1341,33 @@ const REPS_BY_BLOCK: Record<number, Rep[]> = {
 let mockAttemptSeq = MOCK_REP_STATE.last_attempt_id ?? 4402;
 let mockAttempts = MOCK_REP_STATE.attempts_recorded ?? 4;
 let mockCleanStreak = MOCK_REP_STATE.current_clean_streak ?? 3;
+let mockVoided = MOCK_REP_STATE.voided_attempts ?? 0;
+
+/** One recorded attempt, kept only so `rep_undo` can walk the ledger BACK. */
+interface MockAttemptEntry {
+  id: number;
+  verdict: Verdict;
+  note: string | null;
+  /** The clean streak as it stood BEFORE this attempt — what undo restores. */
+  streakBefore: number;
+}
+
+/**
+ * The attempts recorded through `rep_check` this session, oldest first. The
+ * real engine derives undo from the immutable ledger; the mock keeps the same
+ * shape at toy scale so `rep_undo` gives back exactly what the undone attempt
+ * took, instead of guessing a streak.
+ */
+let mockAttemptLog: MockAttemptEntry[] = [];
+
+/** Restore the rep ledger counters to their seeded values (per install). */
+function resetMockRepLedger(): void {
+  mockAttemptSeq = MOCK_REP_STATE.last_attempt_id ?? 4402;
+  mockAttempts = MOCK_REP_STATE.attempts_recorded ?? 4;
+  mockCleanStreak = MOCK_REP_STATE.current_clean_streak ?? 3;
+  mockVoided = MOCK_REP_STATE.voided_attempts ?? 0;
+  mockAttemptLog = [];
+}
 
 // Books panel (D3): the four built-ins the native manifest bootstraps, plus any
 // books added this session. In-memory only — a reload restores the built-ins,
@@ -1546,7 +1573,9 @@ function repCheckOutcome(args: unknown): CheckOutcome {
   const commandId = String(record.commandId ?? `mock-check-${mockAttemptSeq}`);
   const attemptId = ++mockAttemptSeq;
   mockAttempts += 1;
+  const streakBefore = mockCleanStreak;
   mockCleanStreak = verdict === "clean" ? mockCleanStreak + 1 : 0;
+  mockAttemptLog.push({ id: attemptId, verdict, note, streakBefore });
   const nextVerdicts = {
     ...MOCK_REP_STATE.verdicts,
     [verdict]: (MOCK_REP_STATE.verdicts[verdict] ?? 0) + 1,
@@ -1583,6 +1612,63 @@ function repCheckOutcome(args: unknown): CheckOutcome {
   return { snap, new_bpm: null, block_done: false, say: "", receipt };
 }
 
+/**
+ * `rep_undo` — the inverse of `repCheckOutcome`, and a B80 gap until now: with
+ * no handler the seam returned null, the HUD read `outcome.snap` off it and the
+ * ± row's undo landed a RED receipt in the harness. This voids the most recent
+ * attempt, gives back exactly the clean streak it took, and falls the
+ * `last_attempt_id` back onto the attempt that is now latest (the receipt
+ * de-dupe keys on it). Rejections are plain strings, the backend's convention.
+ */
+function repUndoOutcome(): CheckOutcome {
+  const undone = mockAttemptLog.pop();
+  if (!undone) throw "there is nothing to undo in this set";
+  mockAttempts = Math.max(0, mockAttempts - 1);
+  mockCleanStreak = undone.streakBefore;
+  mockVoided += 1;
+  const previous = mockAttemptLog[mockAttemptLog.length - 1] ?? null;
+  const nextVerdicts = {
+    ...MOCK_REP_STATE.verdicts,
+    [undone.verdict]: Math.max(
+      0,
+      (MOCK_REP_STATE.verdicts[undone.verdict] ?? 0) - 1,
+    ),
+  };
+  const snap: RepSnapshot = {
+    ...MOCK_REP_STATE,
+    verdicts: nextVerdicts,
+    attempts_recorded: mockAttempts,
+    tries: mockAttempts,
+    reps_done: mockAttempts,
+    current_clean_streak: mockCleanStreak,
+    mastery_progress_streak: mockCleanStreak,
+    voided_attempts: mockVoided,
+    last_attempt_id: previous?.id ?? MOCK_REP_STATE.last_attempt_id ?? null,
+    last: previous
+      ? {
+          verdict: previous.verdict,
+          note: previous.note,
+          bpm: MOCK_REP_STATE.bpm,
+        }
+      : MOCK_REP_STATE.last,
+  };
+  const receipt: MutationReceipt<RepSnapshot> = {
+    receipt_id: `mock-receipt-undo-${undone.id}`,
+    command_id: `mock-undo-${undone.id}`,
+    status: "committed",
+    summary: `Attempt ${mockAttempts + 1} undone.`,
+    value: snap,
+    entity_refs: [{ entity_type: "set", entity_id: snap.block_id }],
+    event_ids: [undone.id],
+    undo_action: null,
+    error_code: null,
+    error_detail: null,
+    replayed: false,
+    committed_ts: new Date().toISOString(),
+  };
+  return { snap, new_bpm: null, block_done: false, say: "", receipt };
+}
+
 function mockSession(): SessionView {
   const startedAt = new Date(Date.now() - 22 * 60 * 1000).toISOString();
   return {
@@ -1600,7 +1686,7 @@ function mockSession(): SessionView {
   };
 }
 
-const METRO_STATE = {
+const METRO_SEED = {
   running: false,
   bpm: 92,
   beats_per_bar: 4,
@@ -1610,6 +1696,83 @@ const METRO_STATE = {
   gain: 0.8,
   boost: false,
 };
+
+const METRO_STATE = { ...METRO_SEED };
+
+/** The set the practice click is currently following, if any. */
+let mockMetroPracticeSetId: number | null = null;
+
+function resetMockMetroState(): void {
+  Object.assign(METRO_STATE, METRO_SEED);
+  mockMetroPracticeSetId = null;
+}
+
+function metroArgNumber(args: unknown, ...keys: string[]): number | null {
+  const record = (args ?? {}) as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+/**
+ * The `metro_practice_*` family — a B80 gap until now: every one of these fell
+ * through to `default: return null`, so a set could start, retune, pause and
+ * close in the browser harness with the metronome state never moving.
+ *
+ * Each command mutates METRO_STATE the way the native engine does and returns
+ * the resulting state so the harness (and a test) can observe it. Two rules
+ * carried from `metronome.rs`: `do_ensure_running` touches BPM only, so an
+ * omitted `beats_per_bar`/`subdivision` is NOT a reset; and a non-finite BPM is
+ * ignored rather than written (the `safe_bpm` guard's behaviour).
+ */
+function mockMetroPractice(
+  action: "start" | "retune" | "restart" | "pause" | "resume" | "close",
+  args: unknown,
+): typeof METRO_STATE {
+  const bpm = metroArgNumber(args, "bpm");
+  const beatsPerBar = metroArgNumber(args, "beatsPerBar", "beats_per_bar");
+  const subdivision = metroArgNumber(args, "subdivision");
+  const setId = metroArgNumber(
+    args,
+    "setId",
+    "set_id",
+    "newSetId",
+    "new_set_id",
+  );
+
+  if (bpm != null && bpm > 0) METRO_STATE.bpm = bpm;
+  if (beatsPerBar != null && beatsPerBar > 0) {
+    METRO_STATE.beats_per_bar = beatsPerBar;
+  }
+  if (subdivision != null && subdivision > 0) {
+    METRO_STATE.subdivision = subdivision;
+  }
+
+  switch (action) {
+    case "start":
+    case "restart":
+    case "resume":
+      METRO_STATE.running = true;
+      mockMetroPracticeSetId = setId ?? mockMetroPracticeSetId;
+      break;
+    case "retune":
+      // Retuning ensures the click is running, exactly as `do_ensure_running`
+      // does after a tempo step.
+      METRO_STATE.running = true;
+      break;
+    case "pause":
+      METRO_STATE.running = false;
+      break;
+    case "close":
+      METRO_STATE.running = false;
+      mockMetroPracticeSetId = null;
+      break;
+  }
+  // A copy: a caller must not be handed a handle on the mock's live state.
+  return { ...METRO_STATE };
+}
 
 // A complete settings snapshot so the v3 Settings workspace renders (and its
 // Brain/keys/aliases rows resolve) under `npm run dev:mock`.
@@ -3051,7 +3214,12 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "settings_update": {
       const patch =
         ((args ?? {}) as { patch?: Record<string, unknown> }).patch ?? {};
-      return { ...CURRENT_SETTINGS_SNAPSHOT, ...patch };
+      // The merge is PERSISTED (it used to be discarded, so a later
+      // `settings_snapshot` silently reverted every write — a remapped hotkey
+      // or a theme change looked like it had failed). The install-time reset
+      // below still gives every test suite a fresh snapshot.
+      CURRENT_SETTINGS_SNAPSHOT = { ...CURRENT_SETTINGS_SNAPSHOT, ...patch };
+      return CURRENT_SETTINGS_SNAPSHOT;
     }
     case "brain_status":
       return BRAIN_STATUS;
@@ -3138,6 +3306,14 @@ function routeCommand(cmd: string, args: unknown): unknown {
     // receipt lands GREEN (previously unmapped → null → red error receipt).
     case "rep_check":
       return repCheckOutcome(args);
+    // A7 / B80: the ± row's "↩ undo last" (and the drawer's Undo) had no mock
+    // handler at all — the seam returned null and the receipt landed RED.
+    case "rep_undo":
+      try {
+        return repUndoOutcome();
+      } catch (reason) {
+        return Promise.reject(reason);
+      }
     // Task A4: the rep HUD's existing Pause/Resume toggle and the paused-sets
     // tray's Resume button both call these two commands — no separate mock
     // write path, matching the real backend.
@@ -3167,6 +3343,21 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return mockPausedSets;
     case "metro_state":
       return METRO_STATE;
+    // B80: the whole practice-metronome family. Every one of these used to fall
+    // through to `default: return null`, so the click never moved with the set
+    // in the browser harness.
+    case "metro_practice_start":
+      return mockMetroPractice("start", args);
+    case "metro_practice_retune":
+      return mockMetroPractice("retune", args);
+    case "metro_practice_restart":
+      return mockMetroPractice("restart", args);
+    case "metro_practice_pause":
+      return mockMetroPractice("pause", args);
+    case "metro_practice_resume":
+      return mockMetroPractice("resume", args);
+    case "metro_practice_close":
+      return mockMetroPractice("close", args);
     case "session_current":
       return mockSession();
     case "voice_state":
@@ -3636,6 +3827,11 @@ export function installTauriDevMock(
   mockLastPassSeconds = null;
   // Fix wave item 8: fresh checkpoint-seconds state per install.
   mockCheckpointedSeconds = MOCK_REP_STATE.active_seconds ?? 0;
+  // A7: fresh rep ledger (attempt ids, counts, streak, undo log) and a stopped
+  // click at the seeded tempo, so neither an attempt nor a metronome start
+  // bleeds from one suite into the next.
+  resetMockRepLedger();
+  resetMockMetroState();
   // Task A11: banner edits never bleed between installs.
   MOCK_BANNERS.clear();
   // Task C4: applied measure maps never bleed between installs.

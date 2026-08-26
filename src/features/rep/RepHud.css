@@ -227,8 +227,17 @@
 }
 
 /* --- Main: the streak line (metrics live in the Details fold) ----------- */
+/* A7: the streak block reads the count, the adjust column repairs it — one
+   row, so the repair costs no vertical space at the 720x520 floor. */
 .rep-hud-main {
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.rep-hud-main > .rep-hud-streak {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .rep-hud-streak {
@@ -405,6 +414,42 @@
 }
 .rep-hud-hotkeys.is-learned {
   color: var(--ink-faint);
+}
+
+/* --- A7 ± reps ---------------------------------------------------------- */
+/* Correcting a drifted count is a repair, not a verdict: these are quiet, they
+   sit beside the number they fix, and they never compete with the primary
+   Clean/Sloppy/Again decision. Still unmistakably controls (a 3.3:1 boundary,
+   WCAG 1.4.11) and still a comfortable target at the 720x520 floor. */
+.rep-hud-adjust {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--s-1);
+  align-items: stretch;
+}
+.rep-hud-adjust button {
+  min-height: 26px;
+  padding: 0 var(--s-2);
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rep-hud-adjust button:hover:not(:disabled) {
+  background: var(--bg-sunken);
+}
+.rep-hud-adjust button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.rep-hud-adjust button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* --- Tool row + generic inputs ----------------------------------------- */

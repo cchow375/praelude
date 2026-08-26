@@ -6,10 +6,10 @@ import { installTauriDevMock, uninstallTauriDevMock } from "./tauriDevMock";
 // never exercised because every SettingsPanel.test.tsx render injects a
 // fully mocked `api` prop, and state/settings.test.ts — the other caller —
 // stubs `@tauri-apps/api/core` directly with `vi.mock`. That leaves this
-// file's own patch-merge branch (`{ ...SETTINGS_SNAPSHOT, ...patch }`)
-// unexercised, including the fact that the merge is NOT persisted back
-// onto the module-level SETTINGS_SNAPSHOT (a later `settings_snapshot`
-// read does not reflect a prior `settings_update`).
+// file's own patch-merge branch unexercised — including, until v7.1.0
+// Task 7, the fact that the merge was NOT persisted, so a later
+// `settings_snapshot` read forgot a prior `settings_update`. It now
+// persists (per install), and these pin that.
 
 function seamInvoke<T>(cmd: string, args?: unknown): Promise<T> {
   const internals = (
@@ -41,14 +41,16 @@ describe("dev-mock settings_update handler", () => {
     expect(updated.wake_word).toBe("coda");
   });
 
-  it("does not persist the update: a later settings_snapshot forgets it", async () => {
+  it("persists the update: a later settings_snapshot reflects it", async () => {
     await seamInvoke("settings_update", { patch: { theme: "light" } });
     const snapshot =
       await seamInvoke<MockSettingsSnapshot>("settings_snapshot");
-    // This documents the mock's actual (non-persisting) behavior; if a
-    // future change makes settings_update mutate shared state, update this
-    // assertion to match the new contract intentionally.
-    expect(snapshot.theme).toBe("dark");
+    // Deliberate contract change (v7.1.0 Task 7). The merge used to be
+    // discarded, so every write silently reverted on the next read — a
+    // remapped verdict hotkey or a theme change looked like it had failed in
+    // `dev:mock`. `installTauriDevMock()` still rebuilds the snapshot, so no
+    // suite inherits another suite's writes.
+    expect(snapshot.theme).toBe("light");
   });
 });
 

@@ -832,4 +832,107 @@ describe("RepHud", () => {
       expect(screen.queryByText(hint)).toBeNull();
     });
   });
+
+  describe("± reps (A7)", () => {
+    it("shows both adjustments during a live set without opening the drawer", () => {
+      render(
+        <RepHud snap={makeSnap()} feed={[]} error={null} {...callbacks()} />,
+      );
+      const drawer = document.querySelector(".rep-hud-drawer")!;
+      for (const name of ["＋ clean", "↩ undo last"]) {
+        const control = screen.getByRole("button", { name });
+        expect(control).toBeTruthy();
+        // §4b: one gesture. Neither control may live inside the "More" drawer.
+        expect(drawer.contains(control)).toBe(false);
+      }
+      // The drawer is genuinely still closed — nothing was expanded to find them.
+      expect((drawer as HTMLDetailsElement).open).toBe(false);
+    });
+
+    it("carries data-compact-visible so the row survives a compact HUD (B82)", () => {
+      render(
+        <RepHud
+          snap={makeSnap()}
+          feed={[]}
+          error={null}
+          collapsed
+          onToggleCollapsed={() => {}}
+          {...callbacks()}
+        />,
+      );
+      const hud = screen.getByRole("region", { name: "Active practice set" });
+      const row = hud.querySelector(".rep-hud-adjust") as HTMLElement;
+      expect(row).toBeTruthy();
+      // The CSS hides every DIRECT child of a collapsed HUD that is not
+      // context, not main, and not explicitly marked compact-visible — the
+      // exact mechanism that rendered the verdict buttons at 0x0 (B82). The
+      // row rides inside .rep-hud-main, which the rule exempts, and it carries
+      // the mark anyway so promoting it to a top-level row can never regress.
+      expect(row.closest(".rep-hud-main")).toBeTruthy();
+      expect(row.getAttribute("data-compact-visible")).toBe("true");
+      // Belt-and-braces is not the proof. This is: the controls still render
+      // with the HUD collapsed, and the drawer is still shut.
+      expect(hud.classList.contains("is-collapsed")).toBe(true);
+      expect(
+        (document.querySelector(".rep-hud-drawer") as HTMLDetailsElement).open,
+      ).toBe(false);
+      expect(screen.getByRole("button", { name: "＋ clean" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "↩ undo last" })).toBeTruthy();
+    });
+
+    it("routes ＋ clean through the same rep_check path as the Clean button", async () => {
+      const props = callbacks();
+      render(<RepHud snap={makeSnap()} feed={[]} error={null} {...props} />);
+      fireEvent.change(screen.getByLabelText("Attempt note"), {
+        target: { value: "  count drifted  " },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "＋ clean" }));
+      await waitFor(() =>
+        expect(props.onCheck).toHaveBeenCalledWith("clean", "count drifted"),
+      );
+      expect(props.onCheck).toHaveBeenCalledTimes(1);
+    });
+
+    it("routes ↩ undo last through the existing undo path", async () => {
+      const props = callbacks();
+      render(<RepHud snap={makeSnap()} feed={[]} error={null} {...props} />);
+      fireEvent.click(screen.getByRole("button", { name: "↩ undo last" }));
+      await waitFor(() => expect(props.onUndo).toHaveBeenCalledTimes(1));
+    });
+
+    it("cannot undo an attempt that was never recorded", () => {
+      const props = callbacks();
+      render(
+        <RepHud
+          snap={makeSnap({ attempts_recorded: 0, tries: 0, reps_done: 0 })}
+          feed={[]}
+          error={null}
+          {...props}
+        />,
+      );
+      const undo = screen.getByRole("button", { name: "↩ undo last" });
+      expect((undo as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(undo);
+      expect(props.onUndo).not.toHaveBeenCalled();
+    });
+
+    it("stops adding reps to a mastered set, exactly like the verdict buttons", () => {
+      const props = callbacks();
+      render(
+        <RepHud
+          snap={makeSnap({
+            mastery_status: "satisfied",
+            mastery_verified: true,
+          })}
+          feed={[]}
+          error={null}
+          {...props}
+        />,
+      );
+      const add = screen.getByRole("button", { name: "＋ clean" });
+      expect((add as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(add);
+      expect(props.onCheck).not.toHaveBeenCalled();
+    });
+  });
 });
