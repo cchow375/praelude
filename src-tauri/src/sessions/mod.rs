@@ -284,8 +284,20 @@ impl SessionService {
         self.emit_logged_event(event_id, kind);
     }
 
-    /// Resolve or open the session required by a rep transaction. Unlike the
-    /// generic best-effort logger, practice mutations propagate failure.
+    /// Resolve or open the session required by a rep transaction.
+    ///
+    /// **Test-only, and deliberately so (B56).** This releases `lifecycle` when
+    /// it returns, so any caller that then locks `self.active` — or simply
+    /// writes against the id it just received — has a window in which an
+    /// exporter can end that very session first. That was B56: a rep landing
+    /// against a closed session record. Every production caller now goes
+    /// through [`Self::with_session_locked`], which holds `lifecycle` across
+    /// both the resolution and the caller's own work.
+    ///
+    /// It is kept only to let tests seed a session cheaply. **Do not call it
+    /// from production code** — if you need a session id in order to write
+    /// something, you need the lock held while you write.
+    #[cfg(test)]
     pub(crate) fn ensure_session(&self) -> Result<i64, String> {
         let _lifecycle = self
             .lifecycle

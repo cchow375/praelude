@@ -1301,18 +1301,25 @@ impl RepEngine {
         due_date: &str,
     ) -> Result<MutationReceipt<RetentionCheckView>, String> {
         let now = self.now()?;
-        let session_hint = Some(self.sessions.ensure_session()?);
-        let receipt = self
-            .store
-            .retention_snooze(
-                session_hint,
-                check_id,
-                due_date,
-                MutationSource::UserClick,
-                command_id,
-                &now,
-            )
-            .map_err(|error| error.to_string())?;
+        // B56, same class as the rep mutations: resolving the session and then
+        // writing against it outside `lifecycle` leaves a window in which an
+        // exporter can end that session first, so the row lands against a
+        // closed record. Lower stakes than a practice rep — a retention check,
+        // not his rep history — but the same defect, so it gets the same fix.
+        // Lattice order holds: `lifecycle` → `store.conn`. No `self.active`
+        // here, so there is nothing else to serialize against.
+        let receipt = self.sessions.with_session_locked(|session_hint| {
+            self.store
+                .retention_snooze(
+                    session_hint,
+                    check_id,
+                    due_date,
+                    MutationSource::UserClick,
+                    command_id,
+                    &now,
+                )
+                .map_err(|error| error.to_string())
+        })?;
         self.adopt_receipt_session(&receipt);
         Ok(receipt)
     }
@@ -1325,34 +1332,46 @@ impl RepEngine {
         transition: &str,
     ) -> Result<MutationReceipt<RetentionCheckView>, String> {
         let now = self.now()?;
-        let session_hint = Some(self.sessions.ensure_session()?);
-        let outcome = match transition {
-            "confirm" => self.store.retention_confirm(
-                session_hint,
-                check_id,
-                result,
-                MutationSource::UserClick,
-                command_id,
-                &now,
-            ),
-            "lower" => self.store.retention_lower(
-                session_hint,
-                check_id,
-                result,
-                MutationSource::UserClick,
-                command_id,
-                &now,
-            ),
-            "reopen" => self.store.retention_reopen(
-                session_hint,
-                check_id,
-                result,
-                MutationSource::UserClick,
-                command_id,
-                &now,
-            ),
-            _ => return Err("unknown retention transition".into()),
-        };
+        // Reject an unknown transition BEFORE resolving a session: an invalid
+        // call must touch zero rows and must never mint or roll a session
+        // (the round-1 early-out lesson recorded for `open_from`).
+        if !matches!(transition, "confirm" | "lower" | "reopen") {
+            return Err("unknown retention transition".into());
+        }
+        // B56 (see `retention_snooze`): resolve and write inside one
+        // `lifecycle` critical section so the row cannot land against a
+        // session an exporter closed in between.
+        let outcome = self
+            .sessions
+            .with_session_locked(|session_hint| match transition {
+                "confirm" => self.store.retention_confirm(
+                    session_hint,
+                    check_id,
+                    result,
+                    MutationSource::UserClick,
+                    command_id,
+                    &now,
+                ),
+                "lower" => self.store.retention_lower(
+                    session_hint,
+                    check_id,
+                    result,
+                    MutationSource::UserClick,
+                    command_id,
+                    &now,
+                ),
+                "reopen" => self.store.retention_reopen(
+                    session_hint,
+                    check_id,
+                    result,
+                    MutationSource::UserClick,
+                    command_id,
+                    &now,
+                ),
+                // Unreachable: the transition was validated above, before any
+                // session was resolved.
+                _ => unreachable!("transition validated before the session lock"),
+            });
         let receipt = outcome.map_err(|error| error.to_string())?;
         self.adopt_receipt_session(&receipt);
         Ok(receipt)
