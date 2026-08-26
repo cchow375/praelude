@@ -310,6 +310,21 @@
   font-size: 0.8125rem;
   color: var(--ink-dim);
 }
+/* A1 "the punishment": the demotion moment. Deliberately the SAME quiet idiom
+   as `.rep-hud-climb` — calm, ink-colored, no shame styling. This is his
+   practice tool telling him what just happened, not a scold. */
+.rep-hud-demotion {
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+
+/* The approaching-demotion count. Quieter still than the demotion itself —
+   it is a heads-up, not an event, and it disappears the moment he plays a
+   clean rep. Same restraint: no red, no warning iconography. */
+.rep-hud-sloppy-run {
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}
 
 .rep-hud-metrics {
   display: grid;

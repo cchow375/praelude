@@ -48,6 +48,15 @@ export interface LastRep {
 export interface IncrementRule {
   clean_needed: number;
   bpm_step: number;
+  /** A1: per-set override of `rep.demote_enabled`. `null`/absent = use the
+   * global setting. */
+  demote_enabled?: boolean | null;
+  /** A1: per-set override of `rep.demote_first`. `null`/absent = use the
+   * global setting. */
+  demote_first?: number | null;
+  /** A1: per-set override of `rep.demote_repeat`. `null`/absent = use the
+   * global setting. */
+  demote_repeat?: number | null;
 }
 
 export interface VariantSpec {
@@ -128,6 +137,12 @@ export interface RepSnapshot {
   working_m_end?: number;
   /** A5: the set's own metronome tuning. Absent only on legacy/test payloads. */
   tuning?: SetTuning;
+  /** A1: trailing sloppy attempts under the current working tempo, reset by
+   * a clean. Counts SLOPPY only — "again"/failed neither counts nor resets. */
+  current_sloppy_streak?: number;
+  /** A1: whether this set has been demoted at least once — the repeat
+   * threshold (2, not 3) applies for the remainder of the set once true. */
+  demoted_this_set?: boolean;
 }
 
 export interface RecoveryActionView {

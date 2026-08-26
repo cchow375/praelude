@@ -659,6 +659,277 @@ describe("RepHud", () => {
     });
   });
 
+  describe("A1 demotion moment (display + chime, not a celebration)", () => {
+    afterEach(() => vi.useRealTimers());
+
+    function tempoSnap(over: Partial<RepSnapshot> = {}): RepSnapshot {
+      return makeSnap({
+        bpm: 68,
+        start_bpm: 60,
+        target_bpm: 260,
+        rule: { clean_needed: 1, bpm_step: 4 },
+        current_sloppy_streak: 0,
+        demoted_this_set: false,
+        last: { verdict: "flawed", note: null, bpm: 68 },
+        last_attempt_id: 200,
+        ...over,
+      });
+    }
+
+    function fakeAudioFactory() {
+      const play = vi.fn().mockResolvedValue(undefined);
+      const factory = vi.fn().mockReturnValue({ play });
+      return { factory, play };
+    }
+
+    it("shows a building sloppy run so a demotion can be seen coming", () => {
+      const { container } = render(
+        <RepHud
+          snap={tempoSnap({ current_sloppy_streak: 2 })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+        />,
+      );
+      const run = container.querySelector(".rep-hud-sloppy-run");
+      expect(run).not.toBeNull();
+      expect(run?.textContent).toContain("2 sloppy in a row");
+    });
+
+    it("shows nothing once a clean rep has reset the sloppy run", () => {
+      const { container } = render(
+        <RepHud
+          snap={tempoSnap({ current_sloppy_streak: 0 })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+        />,
+      );
+      expect(container.querySelector(".rep-hud-sloppy-run")).toBeNull();
+    });
+
+    it("renders the demotion moment and names the new tempo when bpm decreases", () => {
+      vi.useFakeTimers();
+      const { factory, play } = fakeAudioFactory();
+      const { container, rerender } = render(
+        <RepHud
+          snap={tempoSnap()}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+          audioFactory={factory}
+        />,
+      );
+      expect(container.querySelector(".rep-hud-demotion")).toBeNull();
+
+      // Three consecutive Flawed reps just pulled the tempo back one rung:
+      // 68 -> 64 (see `three_consecutive_sloppy_reps_pull_the_tempo_back_one_rung`
+      // in `rep/mod.rs`).
+      act(() => {
+        rerender(
+          <RepHud
+            snap={tempoSnap({
+              bpm: 64,
+              demoted_this_set: true,
+              current_sloppy_streak: 0,
+              last: { verdict: "flawed", note: null, bpm: 64 },
+              last_attempt_id: 201,
+            })}
+            feed={[]}
+            error={null}
+            {...callbacks()}
+            audioFactory={factory}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain("Tempo pulled back to ♩64");
+      expect(factory).toHaveBeenCalledWith("/chime.wav");
+      expect(play).toHaveBeenCalledTimes(1);
+
+      // Calm, ink-colored — never the celebration/rung-complete styling.
+      const moment = container.querySelector(".rep-hud-demotion");
+      expect(moment).toBeTruthy();
+      expect(container.querySelector(".is-rung-complete")).toBeNull();
+
+      // Holds briefly, then clears.
+      act(() => vi.advanceTimersByTime(1200));
+      expect(container.querySelector(".rep-hud-demotion")).toBeNull();
+    });
+
+    it("does not render on a normal step-up (bpm increasing)", () => {
+      vi.useFakeTimers();
+      const { factory, play } = fakeAudioFactory();
+      const { container, rerender } = render(
+        <RepHud
+          snap={tempoSnap({
+            bpm: 60,
+            last: { verdict: "clean", note: null, bpm: 60 },
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+          audioFactory={factory}
+        />,
+      );
+      act(() => {
+        rerender(
+          <RepHud
+            snap={tempoSnap({
+              bpm: 64,
+              last: { verdict: "clean", note: null, bpm: 64 },
+              last_attempt_id: 201,
+            })}
+            feed={[]}
+            error={null}
+            {...callbacks()}
+            audioFactory={factory}
+          />,
+        );
+      });
+      expect(container.querySelector(".rep-hud-demotion")).toBeNull();
+      expect(container.textContent).not.toContain("pulled back");
+      expect(play).not.toHaveBeenCalled();
+    });
+
+    it("does not render for a manual tempo backoff (only a check outcome counts)", () => {
+      vi.useFakeTimers();
+      const { factory, play } = fakeAudioFactory();
+      const { container, rerender } = render(
+        <RepHud
+          snap={tempoSnap()}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+          audioFactory={factory}
+        />,
+      );
+      // A bpm decrease with no accompanying `flawed` check (e.g. the last
+      // verdict is still clean/failed) is not an automatic demotion.
+      act(() => {
+        rerender(
+          <RepHud
+            snap={tempoSnap({
+              bpm: 62,
+              last: { verdict: "failed", note: null, bpm: 68 },
+              last_attempt_id: 201,
+            })}
+            feed={[]}
+            error={null}
+            {...callbacks()}
+            audioFactory={factory}
+          />,
+        );
+      });
+      expect(container.querySelector(".rep-hud-demotion")).toBeNull();
+      expect(play).not.toHaveBeenCalled();
+    });
+
+    it("is absent when nothing changed between snapshots", () => {
+      vi.useFakeTimers();
+      const { factory, play } = fakeAudioFactory();
+      const { container, rerender } = render(
+        <RepHud
+          snap={tempoSnap()}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+          audioFactory={factory}
+        />,
+      );
+      expect(container.querySelector(".rep-hud-demotion")).toBeNull();
+      // Same bpm, same everything — a re-render carrying no transition at all.
+      act(() => {
+        rerender(
+          <RepHud
+            snap={tempoSnap()}
+            feed={[]}
+            error={null}
+            {...callbacks()}
+            audioFactory={factory}
+          />,
+        );
+      });
+      expect(container.querySelector(".rep-hud-demotion")).toBeNull();
+      expect(container.textContent).not.toContain("pulled back");
+      expect(play).not.toHaveBeenCalled();
+    });
+
+    it("remains visible in a compact HUD (B82 mechanism)", () => {
+      vi.useFakeTimers();
+      const { factory } = fakeAudioFactory();
+      const { container, rerender } = render(
+        <RepHud
+          snap={tempoSnap()}
+          feed={[]}
+          error={null}
+          collapsed
+          {...callbacks()}
+          audioFactory={factory}
+        />,
+      );
+      act(() => {
+        rerender(
+          <RepHud
+            snap={tempoSnap({
+              bpm: 64,
+              demoted_this_set: true,
+              current_sloppy_streak: 0,
+              last: { verdict: "flawed", note: null, bpm: 64 },
+              last_attempt_id: 201,
+            })}
+            feed={[]}
+            error={null}
+            collapsed
+            {...callbacks()}
+            audioFactory={factory}
+          />,
+        );
+      });
+      const hud = screen.getByRole("region", { name: "Active practice set" });
+      expect(hud.classList.contains("is-collapsed")).toBe(true);
+      const moment = container.querySelector(".rep-hud-demotion");
+      expect(moment).toBeTruthy();
+      expect(moment?.getAttribute("data-compact-visible")).toBe("true");
+      expect(container.textContent).toContain("Tempo pulled back to ♩64");
+    });
+
+    it("shows an approaching-demotion count that clears once the streak resets", () => {
+      const { rerender } = render(
+        <RepHud
+          snap={tempoSnap({ current_sloppy_streak: 0 })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+        />,
+      );
+      expect(screen.queryByText(/sloppy in a row/)).toBeNull();
+
+      rerender(
+        <RepHud
+          snap={tempoSnap({ current_sloppy_streak: 2 })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+        />,
+      );
+      expect(screen.getByText("2 sloppy in a row")).toBeTruthy();
+
+      rerender(
+        <RepHud
+          snap={tempoSnap({
+            current_sloppy_streak: 0,
+            last: { verdict: "clean", note: null, bpm: 68 },
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+        />,
+      );
+      expect(screen.queryByText(/sloppy in a row/)).toBeNull();
+    });
+  });
+
   describe("streak-reset pulse (display only)", () => {
     afterEach(() => vi.useRealTimers());
 

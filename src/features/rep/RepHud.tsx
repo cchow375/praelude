@@ -35,6 +35,9 @@ export interface RepHudProps {
   onSafetyStop: (reason?: string | null) => Promise<void>;
   onRecover: (action: RecoveryActionRequest) => Promise<void>;
   onClose: () => void;
+  /** Test-only override for the A1 demotion-moment chime; production always
+   * uses `new Audio("/chime.wav")` — the same file `ClockPanel` plays. */
+  audioFactory?: AudioFactory;
 }
 
 const VERDICT_BUTTONS: {
@@ -76,6 +79,21 @@ interface RungCelebration {
 /** How long the filled-rung receipt holds before the live new-rung state shows. */
 const RUNG_CELEBRATION_MS = 1200;
 
+/**
+ * A1 "the punishment": how long the demotion moment holds. A demotion is not
+ * a celebration (it never touches `fireCompletionFx`/the confetti layer) —
+ * just a calm, ink-colored line naming the new tempo, plus the same chime
+ * `ClockPanel` already uses for a quiet done-signal. Held about as long as
+ * the rung celebration so it reads, not flashes.
+ */
+const DEMOTION_MOMENT_MS = 1200;
+
+/** Test-only override; production always uses `new Audio(...)` — same shape
+ * as `ClockPanel`'s `AudioFactory`, not a new audio path. */
+type AudioFactory = (src: string) => { play: () => Promise<void> };
+const defaultAudioFactory: AudioFactory = (src) =>
+  new Audio(src) as unknown as { play: () => Promise<void> };
+
 export function formatFocusedTime(seconds: number): string {
   const safe = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
   const minutes = Math.floor(safe / 60);
@@ -100,6 +118,7 @@ export function RepHud({
   onSafetyStop,
   onRecover,
   onClose,
+  audioFactory = defaultAudioFactory,
 }: RepHudProps) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<
@@ -122,6 +141,9 @@ export function RepHud({
   const [restartConfirm, setRestartConfirm] = useState(false);
   const [resetPulse, setResetPulse] = useState(false);
   const [celebration, setCelebration] = useState<RungCelebration | null>(null);
+  // A1 "the punishment": the new (lower) tempo while the demotion moment
+  // holds, or `null` when none is showing.
+  const [demotionBpm, setDemotionBpm] = useState<number | null>(null);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [reflectionOpen, setReflectionOpen] = useState(false);
   const [reflection, setReflection] = useState("");
@@ -213,6 +235,42 @@ export function RepHud({
     const timer = window.setTimeout(
       () => setCelebration(null),
       RUNG_CELEBRATION_MS,
+    );
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastAttemptId]);
+
+  // A1 "the punishment": when a check's outcome shows the bpm went DOWN, an
+  // automatic demotion just happened (the only way this engine ever lowers
+  // the working tempo on a plain check — manual "Back off tempo" is a
+  // separate recovery action, not a check outcome). §4b visibility: a
+  // punishment the pianist cannot perceive teaches nothing, so this renders a
+  // calm, ink-colored HUD moment naming the new tempo and fires the existing
+  // chime — never `fireCompletionFx`; a demotion is not a celebration.
+  useEffect(() => {
+    if (!snap) return;
+    const prevBpm = prevBpmRef.current;
+    const curBpm = snap.bpm;
+    const demoted =
+      prevBpm != null &&
+      curBpm != null &&
+      curBpm < prevBpm &&
+      snap.focus === "tempo" &&
+      snap.last?.verdict === "flawed";
+    if (!demoted) {
+      setDemotionBpm(null);
+      return;
+    }
+    setDemotionBpm(curBpm);
+    void audioFactory("/chime.wav")
+      .play()
+      .catch(() => {
+        // Autoplay can be blocked, or jsdom's stub can reject — same
+        // swallow-and-move-on as `ClockPanel`'s chime; never load-bearing.
+      });
+    const timer = window.setTimeout(
+      () => setDemotionBpm(null),
+      DEMOTION_MOMENT_MS,
     );
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -538,6 +596,34 @@ export function RepHud({
               </span>
             )
           )}
+          {/* A1 "the punishment": the demotion moment. Takes precedence over
+              the "approaching demotion" line below — it just happened, and it
+              is the thing he needs to understand. Calm, ink-colored, no shame
+              styling, no exclamation mark — a demotion is a normal part of
+              deliberate practice, not a telling-off. `data-compact-visible`
+              is belt-and-braces (this row already lives inside `.rep-hud-main`,
+              which is itself exempt from the collapsed-HUD hiding rule), but
+              the mark travels with the moment per the B82 lesson: the event
+              can fire regardless of whether the HUD is compact or expanded. */}
+          {demotionBpm != null && (
+            <span
+              className="rep-hud-demotion"
+              role="status"
+              data-compact-visible="true"
+            >
+              Tempo pulled back to ♩{demotionBpm}
+            </span>
+          )}
+          {/* A1: let him see a demotion coming instead of being surprised by
+              it. Only while a sloppy run is actually building, and never at
+              the same time as the demotion moment itself. */}
+          {demotionBpm == null &&
+            (snap.current_sloppy_streak ?? 0) > 0 &&
+            snap.focus === "tempo" && (
+              <span className="rep-hud-sloppy-run" role="status">
+                {snap.current_sloppy_streak} sloppy in a row
+              </span>
+            )}
           {(mastered || !verified) && (
             <span
               className={`rep-hud-mastery ${mastered ? "is-satisfied" : ""}`}
