@@ -162,6 +162,14 @@ impl Default for DemotionConfig {
 pub struct VariantSpec {
     pub name: String,
     pub reps: u32,
+    /// A2: the clean-streak length that clears this stage before the chain
+    /// auto-advances to the next one (or completes, at the last stage).
+    /// `#[serde(default)]` because **legacy stored payloads have no such
+    /// key** — `None` means "fall back to `reps`", which preserves today's
+    /// per-rep lane cycling byte-for-byte for every set already on disk. No
+    /// migration: this rides the existing `variants` JSON TEXT column.
+    #[serde(default)]
+    pub clean_streak: Option<u32>,
 }
 
 /// The note value a set's bpm number counts — a LABEL only. `ClickPattern.bpm`
@@ -820,6 +828,27 @@ pub struct RepSnapshot {
     /// `rep.demote_repeat` rather than `rep.demote_first`.
     #[serde(default)]
     pub demoted_this_set: bool,
+    /// A2: the 0-based index of the current stage in the block's variant
+    /// chain. `None` when the block has no variants — the chain is a no-op,
+    /// exactly like today.
+    #[serde(default)]
+    pub variant_stage_index: Option<usize>,
+    /// A2: clean reps landed so far at the current stage.
+    #[serde(default)]
+    pub variant_stage_cleans: u32,
+    /// A2: clean reps required to clear the current stage (the stage's own
+    /// `clean_streak`, or its `reps` for a legacy variant).
+    #[serde(default)]
+    pub variant_stage_required: u32,
+    /// A2: the name of the stage after the current one, for the HUD's
+    /// "next: …" headline. `None` at the last stage or with no variants.
+    #[serde(default)]
+    pub next_variant_stage_name: Option<String>,
+    /// A2: whether every stage in the chain has been cleared this pass. With
+    /// a tempo ladder this coincides with a step (the chain then restarts at
+    /// the new tempo); without one, it means the set itself is complete.
+    #[serde(default)]
+    pub variant_chain_complete: bool,
 }
 
 /// The result of recording one rep (`rep_check`): the updated snapshot, the new

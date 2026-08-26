@@ -2778,10 +2778,12 @@ mod tests {
             VariantSpec {
                 name: "blocked".into(),
                 reps: 1,
+                clean_streak: None,
             },
             VariantSpec {
                 name: "as written".into(),
                 reps: 1,
+                clean_streak: None,
             },
         ];
         engine.open(args).unwrap();
@@ -2984,14 +2986,17 @@ mod tests {
                         VariantSpec {
                             name: "blocked".into(),
                             reps: 60,
+                            clean_streak: None,
                         },
                         VariantSpec {
                             name: "dotted".into(),
                             reps: 60,
+                            clean_streak: None,
                         },
                         VariantSpec {
                             name: "reverse dotted".into(),
                             reps: 60,
+                            clean_streak: None,
                         },
                     ],
                     focus: "tempo".into(),
@@ -4426,6 +4431,128 @@ mod tests {
         );
     }
 
+    // ── A2 "the chain": variant stages composing with the ladder and A1 ────
+    // Christian's "very very important" ask: dotted → reverse dotted →
+    // staccato, each cleared by its own streak, hands-free. Spec §5.2's
+    // ladder interplay: WITH a ladder, one full chain pass at the current
+    // tempo counts as the ladder's clean group (tempo steps, chain restarts
+    // at the new tempo); WITHOUT one, one pass completes the set. A1's
+    // demotion operates strictly within the current variant.
+
+    fn open_args_chain(target_bpm: Option<f64>) -> RepOpenArgs {
+        RepOpenArgs {
+            tuning: Default::default(),
+            piece_id: 1,
+            region_id: None,
+            m_start: 1,
+            m_end: 8,
+            label: None,
+            start_bpm: 60.0,
+            target_bpm,
+            planned_reps: Some(30),
+            required_clean_streak: None,
+            increment: Some(IncrementRule {
+                clean_needed: 1,
+                bpm_step: 4.0,
+                ..Default::default()
+            }),
+            variants: vec![
+                VariantSpec {
+                    name: "dotted".into(),
+                    reps: 30,
+                    clean_streak: Some(2),
+                },
+                VariantSpec {
+                    name: "reverse dotted".into(),
+                    reps: 30,
+                    clean_streak: Some(2),
+                },
+            ],
+            focus: "tempo".into(),
+            use_metronome: true,
+        }
+    }
+
+    #[test]
+    fn a_full_chain_pass_steps_the_ladder_and_the_chain_restarts_at_the_new_tempo() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_chain(Some(260.0))).unwrap();
+        // Clear "dotted" (2 clean) then "reverse dotted" (2 clean) — one full
+        // pass — WITHOUT the normal clean_needed=1 gate firing early: a lone
+        // clean rep must NOT step the tempo when variants are in play.
+        engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(
+            engine.snapshot().unwrap().bpm,
+            Some(60.0),
+            "one clean does not step — chain, not clean_needed, gates the ladder"
+        );
+        engine.check(RepVerdict::Clean, None).unwrap(); // clears "dotted"
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let out = engine.check(RepVerdict::Clean, None).unwrap(); // clears "reverse dotted" too
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(snap.bpm, Some(64.0), "the chain pass steps the ladder");
+        assert_eq!(out.new_bpm, Some(64.0));
+        assert_eq!(
+            snap.variant_stage_index,
+            Some(0),
+            "the chain restarts at the new tempo"
+        );
+        assert_eq!(snap.variant_stage_cleans, 0);
+        assert!(!snap.variant_chain_complete);
+    }
+
+    #[test]
+    fn without_a_ladder_one_chain_pass_completes_the_set() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_chain(None)).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap(); // clears "dotted"
+        engine.check(RepVerdict::Clean, None).unwrap();
+        assert_ne!(engine.snapshot().unwrap().mastery_status, "satisfied");
+        let out = engine.check(RepVerdict::Clean, None).unwrap(); // clears the chain
+        assert!(out.block_done, "one full pass completes the set");
+        assert_eq!(out.snap.mastery_status, "satisfied");
+        assert!(out.snap.variant_chain_complete);
+        assert_eq!(out.snap.bpm, Some(60.0), "no ladder — tempo never moves");
+    }
+
+    #[test]
+    fn a1_demotion_operates_within_the_current_variant_not_the_chain() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_chain(Some(260.0))).unwrap();
+        // A full first pass steps the ladder to 64 and restarts the chain.
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(engine.snapshot().unwrap().bpm, Some(64.0));
+        // Second pass: clear "dotted" again, then land one clean on
+        // "reverse dotted".
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(snap.variant_stage_index, Some(1), "into the second stage");
+        assert_eq!(snap.variant_stage_cleans, 1);
+        // Three Flawed reps trigger an automatic demotion (default config:
+        // first threshold 3).
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        let out = engine.check(RepVerdict::Flawed, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert!(snap.demoted_this_set, "the demotion still fires");
+        assert_eq!(out.new_bpm, Some(60.0), "demoted back one rung");
+        assert_eq!(
+            snap.variant_stage_index,
+            Some(1),
+            "demotion neither advances nor resets the chain — still stage 1"
+        );
+        assert_eq!(
+            snap.variant_stage_cleans, 0,
+            "the current stage's own streak was reset by the Flawed reps, not the demotion"
+        );
+    }
+
     #[test]
     fn variants_lane_through_and_announce_next() {
         let (engine, pid, _store, _rec) = engine_with_piece();
@@ -4445,10 +4572,12 @@ mod tests {
                 VariantSpec {
                     name: "hands separate".into(),
                     reps: 2,
+                    clean_streak: None,
                 },
                 VariantSpec {
                     name: "hands together".into(),
                     reps: 2,
+                    clean_streak: None,
                 },
             ],
             focus: "tempo".into(),
@@ -5623,12 +5752,14 @@ mod tests {
         value.variants = vec![VariantSpec {
             name: " ".into(),
             reps: 1,
+            clean_streak: None,
         }];
         invalid.push(value);
         let mut value = base;
         value.variants = vec![VariantSpec {
             name: "hands".into(),
             reps: 0,
+            clean_streak: None,
         }];
         invalid.push(value);
 

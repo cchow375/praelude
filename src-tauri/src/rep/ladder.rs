@@ -12,6 +12,7 @@
 //! plus [`variant_index_for_rep`], which maps a 1-based rep number onto its
 //! variant lane.
 
+use crate::protocol::AttemptVerdict;
 use crate::store::model::{IncrementRule, VariantSpec};
 
 /// The fixed BPM increment per rung. A ladder always steps by whole, musical
@@ -136,6 +137,85 @@ pub fn variant_index_for_rep(variants: &[VariantSpec], rep_1based: u32) -> Optio
     Some(variants.len() - 1)
 }
 
+/// A2: one resolved point in a variant CHAIN — which stage is current, how
+/// many clean reps have landed at it, how many it requires, and whether the
+/// whole chain has been cleared this pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VariantStage {
+    /// 0-based index into `variants`.
+    pub index: usize,
+    /// Clean reps landed so far at `index`.
+    pub cleans: u32,
+    /// Clean reps required to clear `index`.
+    pub required: u32,
+    /// Whether every stage, including the last, has been cleared.
+    pub complete: bool,
+}
+
+/// The clean-streak requirement for stage `index`: its own `clean_streak`
+/// when set, else its `reps` (the legacy fallback — see [`VariantSpec`]),
+/// floored at 1 so a stray `0` can never stall the chain forever.
+fn stage_requirement(variants: &[VariantSpec], index: usize) -> u32 {
+    variants[index]
+        .clean_streak
+        .unwrap_or(variants[index].reps)
+        .max(1)
+}
+
+/// Resolve the current stage of a variant chain from the sequence of
+/// verdicts recorded so far (oldest first) — a pure replay, exactly the way
+/// `project_tempo` replays the attempt ledger. `None` when there are no
+/// variants, exactly like [`variant_index_for_rep`] today.
+///
+/// Each stage is cleared by `required` CONSECUTIVE clean verdicts; clearing
+/// advances to the next stage, or completes the chain at the last one. A
+/// `Flawed` rep resets only the CURRENT stage's streak — it does not throw
+/// away progress through earlier stages. `Failed` ("again") neither counts
+/// nor resets, mirroring A1's treatment of a mis-start. Once the chain is
+/// complete, trailing verdicts are ignored — the chain simply stays complete
+/// until the caller (the ladder/set projection) restarts it.
+pub fn variant_stage(
+    variants: &[VariantSpec],
+    verdicts: &[AttemptVerdict],
+) -> Option<VariantStage> {
+    if variants.is_empty() {
+        return None;
+    }
+    let mut index = 0usize;
+    let mut cleans = 0u32;
+    let mut complete = false;
+    for verdict in verdicts {
+        if complete {
+            break;
+        }
+        match verdict {
+            AttemptVerdict::Clean => {
+                cleans += 1;
+                let required = stage_requirement(variants, index);
+                if cleans >= required {
+                    if index + 1 < variants.len() {
+                        index += 1;
+                        cleans = 0;
+                    } else {
+                        complete = true;
+                    }
+                }
+            }
+            AttemptVerdict::Flawed => {
+                cleans = 0;
+            }
+            AttemptVerdict::Failed => {}
+        }
+    }
+    let required = stage_requirement(variants, index);
+    Some(VariantStage {
+        index,
+        cleans,
+        required,
+        complete,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,6 +224,7 @@ mod tests {
         VariantSpec {
             name: name.to_string(),
             reps,
+            clean_streak: None,
         }
     }
 
@@ -264,5 +345,89 @@ mod tests {
             "beyond total clamps to last"
         );
         assert_eq!(variant_index_for_rep(&[], 1), None, "no variants → no lane");
+    }
+
+    // ── A2: variant chains ──────────────────────────────────────────────────
+
+    fn variant_with_streak(name: &str, reps: u32, clean_streak: u32) -> VariantSpec {
+        VariantSpec {
+            name: name.to_string(),
+            reps,
+            clean_streak: Some(clean_streak),
+        }
+    }
+
+    use AttemptVerdict::{Clean, Failed, Flawed};
+
+    #[test]
+    fn a_stage_advances_at_exactly_its_clean_streak() {
+        let chain = [
+            variant_with_streak("dotted", 30, 3),
+            variant_with_streak("reverse dotted", 30, 2),
+        ];
+        let stage = variant_stage(&chain, &[Clean, Clean]).unwrap();
+        assert_eq!(stage.index, 0, "not yet at the threshold");
+        assert_eq!(stage.cleans, 2);
+        assert_eq!(stage.required, 3);
+
+        let stage = variant_stage(&chain, &[Clean, Clean, Clean]).unwrap();
+        assert_eq!(stage.index, 1, "advanced to the next stage");
+        assert_eq!(stage.cleans, 0, "fresh start on the new stage");
+        assert_eq!(stage.required, 2);
+    }
+
+    #[test]
+    fn a_flawed_rep_resets_the_current_stages_streak_but_not_the_chain() {
+        let chain = [
+            variant_with_streak("dotted", 30, 2),
+            variant_with_streak("reverse dotted", 30, 3),
+        ];
+        // Clear stage 0, land one clean on stage 1, then flub one.
+        let stage = variant_stage(&chain, &[Clean, Clean, Clean, Flawed]).unwrap();
+        assert_eq!(
+            stage.index, 1,
+            "the chain's progress through stage 0 stands"
+        );
+        assert_eq!(stage.cleans, 0, "only the current stage's streak reset");
+    }
+
+    #[test]
+    fn a_legacy_variant_without_clean_streak_falls_back_to_reps() {
+        let chain = [VariantSpec {
+            name: "hands separate".into(),
+            reps: 4,
+            clean_streak: None,
+        }];
+        let stage = variant_stage(&chain, &[Clean, Clean, Clean]).unwrap();
+        assert_eq!(stage.required, 4, "falls back to reps");
+        assert!(!stage.complete);
+        let stage = variant_stage(&chain, &[Clean, Clean, Clean, Clean]).unwrap();
+        assert!(stage.complete, "four cleans clears a lone legacy stage");
+    }
+
+    #[test]
+    fn the_chain_completes_after_its_last_stage() {
+        let chain = [
+            variant_with_streak("dotted", 30, 1),
+            variant_with_streak("reverse dotted", 30, 1),
+            variant_with_streak("staccato", 30, 1),
+        ];
+        let stage = variant_stage(&chain, &[Clean, Clean]).unwrap();
+        assert_eq!(stage.index, 2, "on the last stage");
+        assert!(!stage.complete);
+        let stage = variant_stage(&chain, &[Clean, Clean, Clean]).unwrap();
+        assert!(
+            stage.complete,
+            "the last stage's clean streak completes the chain"
+        );
+        assert_eq!(stage.index, 2, "stays reported at the last stage");
+        // Failed neither counts nor resets, mirroring A1.
+        let stage = variant_stage(&chain, &[Failed, Clean, Failed, Clean, Failed, Clean]).unwrap();
+        assert!(stage.complete);
+    }
+
+    #[test]
+    fn an_empty_chain_is_none_exactly_as_today() {
+        assert_eq!(variant_stage(&[], &[Clean, Clean]), None);
     }
 }

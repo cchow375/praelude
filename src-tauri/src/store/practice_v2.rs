@@ -356,6 +356,10 @@ struct TempoProjection {
     sloppy_streak: u32,
     /// A1: whether an automatic demotion has occurred anywhere in this set.
     demoted_this_set: bool,
+    /// A2: the current point in the block's variant chain, resolved over the
+    /// verdicts recorded since the chain last restarted (at open, or at the
+    /// most recent chain-driven tempo step). `None` with no variants.
+    variant_stage: Option<ladder::VariantStage>,
 }
 
 /// Rebuild the current tempo from immutable attempt facts plus their effective
@@ -369,6 +373,17 @@ fn project_tempo(
     tempo_backoff: Option<f64>,
     demotion: DemotionConfig,
 ) -> rusqlite::Result<TempoProjection> {
+    // A2: without a ladder (or with one not yet reached), a variant chain is
+    // still resolved over the whole set's effective verdicts — there is no
+    // tempo window to restart it against.
+    let whole_set_verdicts = || -> Vec<AttemptVerdict> {
+        effective
+            .iter()
+            .filter(|attempt| !attempt.voided)
+            .map(|attempt| attempt.verdict)
+            .collect()
+    };
+
     if row.focus != "tempo" {
         return Ok(TempoProjection {
             // The click is a factual practice condition even when tempo is not
@@ -387,6 +402,7 @@ fn project_tempo(
             cleans_at_step: 0,
             sloppy_streak: 0,
             demoted_this_set: false,
+            variant_stage: ladder::variant_stage(&row.variants, &whole_set_verdicts()),
         });
     }
 
@@ -404,6 +420,7 @@ fn project_tempo(
             cleans_at_step: 0,
             sloppy_streak: 0,
             demoted_this_set: false,
+            variant_stage: ladder::variant_stage(&row.variants, &whole_set_verdicts()),
         });
     }
 
@@ -425,6 +442,18 @@ fn project_tempo(
     // "more punishment".
     let mut demoted_this_set = false;
     let mut recovery_reset_applied = false;
+    // A2 "ladder interplay" (spec §5.2): with variants, one full CHAIN pass
+    // at the current tempo counts as the ladder's clean group — the usual
+    // `rule.clean_needed` consecutive-clean gate is bypassed in favour of the
+    // chain actually completing. `chain_verdicts` accumulates the verdicts
+    // since the chain last restarted (at open, or at the most recent
+    // chain-driven step below); it is cleared on that step so the chain
+    // restarts at the new tempo, per spec. A1's demotion loop below is
+    // untouched by any of this — it reads/writes only `sloppy_streak` and
+    // `working`, never `chain_verdicts` — so a demotion operates strictly
+    // within the current variant, neither advancing nor resetting the chain.
+    let has_variants = !row.variants.is_empty();
+    let mut chain_verdicts: Vec<AttemptVerdict> = Vec::new();
     for attempt in effective.iter().filter(|attempt| !attempt.voided) {
         if reset_after_attempt_id
             .is_some_and(|boundary| !recovery_reset_applied && attempt.id > boundary)
@@ -459,9 +488,29 @@ fn project_tempo(
                 clean_streak = 0;
             }
         }
-        if let Some(next) = ladder::step(&row.rule, clean_streak, working, row.target_bpm) {
+        if has_variants {
+            chain_verdicts.push(attempt.verdict);
+        }
+        let chain_stage = has_variants.then(|| {
+            ladder::variant_stage(&row.variants, &chain_verdicts)
+                .expect("non-empty variants always yield a stage")
+        });
+        let stepped = if has_variants {
+            chain_stage.filter(|stage| stage.complete).and_then(|_| {
+                row.target_bpm
+                    .map(|target| (working + row.rule.bpm_step).min(target))
+                    .filter(|&next| next > working)
+            })
+        } else {
+            ladder::step(&row.rule, clean_streak, working, row.target_bpm)
+        };
+        if let Some(next) = stepped {
             working = next;
             clean_streak = 0;
+            if has_variants {
+                // The chain restarts at the new tempo.
+                chain_verdicts.clear();
+            }
         }
         if demotion.enabled {
             let threshold = if demoted_this_set {
@@ -491,11 +540,16 @@ fn project_tempo(
         working = backoff;
         clean_streak = 0;
     }
+    let variant_stage = has_variants.then(|| {
+        ladder::variant_stage(&row.variants, &chain_verdicts)
+            .expect("non-empty variants always yield a stage")
+    });
     Ok(TempoProjection {
         bpm: Some(working),
         cleans_at_step: clean_streak,
         sloppy_streak,
         demoted_this_set,
+        variant_stage,
     })
 }
 
@@ -649,6 +703,16 @@ pub(super) fn project(
         } else {
             MasteryStatus::NotSatisfied
         };
+        // A2 "ladder interplay" (spec §5.2): WITHOUT a ladder (no target_bpm),
+        // one full chain pass completes the set outright — it does not wait
+        // on the generic trailing-clean-streak mastery rule above, which has
+        // no notion of the chain's own per-stage requirements.
+        if row.target_bpm.is_none()
+            && !row.variants.is_empty()
+            && tempo.variant_stage.is_some_and(|stage| stage.complete)
+        {
+            summary.contract.mastery = MasteryStatus::Satisfied;
+        }
     }
     let effective = summary
         .effective_attempts
@@ -660,6 +724,11 @@ pub(super) fn project(
     let variants = row.variants.clone();
     let next_variant = ladder::variant_index_for_rep(&variants, summary.tries.saturating_add(1))
         .map(|index| variants[index].name.clone());
+    let next_variant_stage_name = tempo
+        .variant_stage
+        .filter(|stage| !stage.complete)
+        .and_then(|stage| variants.get(stage.index + 1))
+        .map(|variant| variant.name.clone());
     let verification = row.mastery_verification == "verified";
 
     Ok(RepSnapshot {
@@ -732,6 +801,11 @@ pub(super) fn project(
         working_m_end: loop_state.working_m_end,
         current_sloppy_streak: tempo.sloppy_streak,
         demoted_this_set: tempo.demoted_this_set,
+        variant_stage_index: tempo.variant_stage.map(|stage| stage.index),
+        variant_stage_cleans: tempo.variant_stage.map_or(0, |stage| stage.cleans),
+        variant_stage_required: tempo.variant_stage.map_or(0, |stage| stage.required),
+        next_variant_stage_name,
+        variant_chain_complete: tempo.variant_stage.is_some_and(|stage| stage.complete),
     })
 }
 

@@ -2910,6 +2910,7 @@ mod tests {
         let variants = vec![VariantSpec {
             name: "hands together".into(),
             reps: 10,
+            clean_streak: None,
         }];
         let block = store
             .insert_rep_block(
