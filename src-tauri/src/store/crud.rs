@@ -6,9 +6,9 @@
 use rusqlite::{Connection, OptionalExtension};
 
 use super::model::{
-    json_to_sql, BlockPatch, BrainThreadResume, BrainTurnRow, Goal, GoalCreate, GoalPatch,
-    PieceFieldPatch, RecoveryActionRow, Region, RegionCreate, RegionDeleteMode, RegionPatch,
-    RepPatch,
+    json_to_sql, BlockPatch, BrainThreadResume, BrainTurnRow, DemotionConfig, Goal, GoalCreate,
+    GoalPatch, PieceFieldPatch, RecoveryActionRow, Region, RegionCreate, RegionDeleteMode,
+    RegionPatch, RepPatch,
 };
 use super::{EventKind, Store};
 use crate::ledger::MutationSource;
@@ -90,6 +90,7 @@ mod test_support {
             &IncrementRule {
                 clean_needed: 3,
                 bpm_step: 2.0,
+                ..Default::default()
             },
             10,
             &[],
@@ -1726,7 +1727,7 @@ impl Store {
         let replace_note = patch.note.is_some();
         let note = patch.note.flatten();
         let keep_open = self
-            .v2_snapshot(block_id)
+            .v2_snapshot(block_id, DemotionConfig::default())
             .map(|snapshot| matches!(snapshot.set_state.as_str(), "active" | "paused"))
             .unwrap_or(false);
         let command_id =
@@ -1742,6 +1743,7 @@ impl Store {
             &command_id,
             keep_open,
             None,
+            DemotionConfig::default(),
         )?;
         Ok(block_id)
     }
@@ -1751,7 +1753,7 @@ impl Store {
     pub fn rep_delete(&self, rep_id: i64) -> rusqlite::Result<i64> {
         let block_id = self.v2_block_id_for_attempt(rep_id)?;
         let keep_open = self
-            .v2_snapshot(block_id)
+            .v2_snapshot(block_id, DemotionConfig::default())
             .map(|snapshot| matches!(snapshot.set_state.as_str(), "active" | "paused"))
             .unwrap_or(false);
         let command_id = super::practice_v2::command_id(MutationSource::UserClick, "history_void");
@@ -1761,6 +1763,7 @@ impl Store {
             MutationSource::UserClick,
             &command_id,
             keep_open,
+            DemotionConfig::default(),
         )?;
         Ok(block_id)
     }

@@ -293,6 +293,7 @@ mod tests {
                 &IncrementRule {
                     clean_needed: 3,
                     bpm_step: 2.0,
+                    ..Default::default()
                 },
                 10,
                 &[],

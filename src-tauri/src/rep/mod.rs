@@ -21,8 +21,9 @@ use crate::ledger::MutationSource;
 use crate::protocol::PracticeContract;
 use crate::sessions::{RolloverPauseHook, SessionService, StateEmitter};
 use crate::store::model::{
-    CheckOutcome, ExportResult, MutationReceipt, PausedSetRow, RecoveryActionRequest, RepOpenArgs,
-    RepSnapshot, RetentionCheckView, RetentionResult, SetFocusContextInput,
+    CheckOutcome, DemotionConfig, ExportResult, IncrementRule, MutationReceipt, PausedSetRow,
+    RecoveryActionRequest, RepOpenArgs, RepSnapshot, RetentionCheckView, RetentionResult,
+    SetFocusContextInput,
 };
 use crate::store::{
     v2_command_id, v2_validate_open, EventKind, SessionPlanStartOutcome, SessionPlanStartPayload,
@@ -97,10 +98,13 @@ impl RepEngine {
         sessions: Arc<SessionService>,
         clock: Arc<dyn PracticeClock>,
     ) -> Self {
+        // Resolved from the global setting BEFORE the store call — no active
+        // block (and so no per-set override) exists yet at boot.
+        let boot_demotion = Self::resolve_demotion_config_for(&store, &IncrementRule::default());
         let restored_result = clock
             .now(&store)
             .map_err(rusqlite::Error::InvalidParameterName)
-            .and_then(|now| store.v2_restore_active_at(&now));
+            .and_then(|now| store.v2_restore_active_at(&now, boot_demotion));
         let (restored, restore_error) = match restored_result {
             Ok(snapshot) => (snapshot, None),
             Err(error) => {
@@ -121,6 +125,78 @@ impl RepEngine {
 
     fn now(&self) -> Result<String, String> {
         self.clock.now(&self.store)
+    }
+
+    /// A1 "the punishment" — lock-trap fix. `project_tempo` runs inside the
+    /// store while the `conn` mutex is held, and `Store::get_setting` takes
+    /// that SAME mutex, so settings must never be read from in there. This
+    /// resolves the demotion config HERE, in the engine, before any store call
+    /// that ends up projecting tempo — per-set override (`rule.demote_*`) wins
+    /// when present, else the global `rep.demote_*` setting, else the
+    /// hardcoded default. `store.get_setting` locks/unlocks `conn`
+    /// independently each call and is never invoked while any transaction is
+    /// open, so this is safe to call at any point before handing off to a
+    /// store mutation.
+    fn resolve_demotion_config_for(store: &Store, rule: &IncrementRule) -> DemotionConfig {
+        let default = DemotionConfig::default();
+        let enabled = rule.demote_enabled.unwrap_or_else(|| {
+            store
+                .get_setting("rep.demote_enabled")
+                .ok()
+                .flatten()
+                .and_then(|value| match value.as_str() {
+                    "true" => Some(true),
+                    "false" => Some(false),
+                    _ => None,
+                })
+                .unwrap_or(default.enabled)
+        });
+        let first = rule.demote_first.unwrap_or_else(|| {
+            store
+                .get_setting("rep.demote_first")
+                .ok()
+                .flatten()
+                .and_then(|value| value.parse::<u32>().ok())
+                .filter(|value| (2..=10).contains(value))
+                .unwrap_or(default.first)
+        });
+        let repeat = rule.demote_repeat.unwrap_or_else(|| {
+            store
+                .get_setting("rep.demote_repeat")
+                .ok()
+                .flatten()
+                .and_then(|value| value.parse::<u32>().ok())
+                .filter(|value| (1..=10).contains(value))
+                .unwrap_or(default.repeat)
+        });
+        DemotionConfig {
+            enabled,
+            first,
+            repeat,
+        }
+    }
+
+    fn resolve_demotion_config(&self, rule: &IncrementRule) -> DemotionConfig {
+        Self::resolve_demotion_config_for(&self.store, rule)
+    }
+
+    /// The global demotion config (no per-set override in scope), for boot
+    /// restore — see `Store::v2_restore_active_at`.
+    fn resolve_global_demotion_config(&self) -> DemotionConfig {
+        self.resolve_demotion_config(&IncrementRule::default())
+    }
+
+    /// The active block's rule, if any is open — read from `self.active`
+    /// (a separate mutex from the store's `conn`), never from inside a store
+    /// transaction.
+    fn active_demotion_config(&self) -> Option<DemotionConfig> {
+        let rule = self
+            .active
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(|snap| snap.rule.clone())?;
+        Some(self.resolve_demotion_config(&rule))
     }
 
     /// Install the `rep://state` emitter (once the Tauri `AppHandle` exists).
@@ -157,8 +233,10 @@ impl RepEngine {
     /// Task A4: every currently-paused set, independent of which one (if any)
     /// this engine instance holds as its own live block.
     pub fn paused_sets_list(&self) -> Result<Vec<PausedSetRow>, String> {
+        // The tray lists sets that are not `self.active`, so there is no
+        // single per-set rule to prefer — the global setting applies to all.
         self.store
-            .paused_sets_list()
+            .paused_sets_list(self.resolve_global_demotion_config())
             .map_err(|error| error.to_string())
     }
 
@@ -259,6 +337,9 @@ impl RepEngine {
             bpm_step,
         );
         let rule = args.increment.clone().unwrap_or(auto_rule);
+        // Resolved BEFORE the store call (and before `with_session_locked`) —
+        // see `resolve_demotion_config`'s lock-trap note.
+        let demotion = self.resolve_demotion_config(&rule);
         let planned = if args.variants.is_empty() {
             compatibility_planned
         } else {
@@ -310,6 +391,7 @@ impl RepEngine {
                             source,
                             &command_id,
                             &now,
+                            demotion,
                         )
                         .map_err(|e| e.to_string())?;
                     let snap = opened.snapshot;
@@ -360,13 +442,13 @@ impl RepEngine {
     ) -> Result<CheckOutcome, String> {
         // Quick peek, no side effects (fix round 2, N1): a failing check
         // with nothing active must never mint/roll a session — see
-        // `open_from`.
-        {
-            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-            if active.is_none() {
-                return Err("no active rep block".to_string());
-            }
-        }
+        // `open_from`. Also resolves the demotion config from the active
+        // block's rule — BEFORE `with_session_locked`/any store call, per the
+        // lock-trap note on `resolve_demotion_config`.
+        let demotion = match self.active_demotion_config() {
+            Some(demotion) => demotion,
+            None => return Err("no active rep block".to_string()),
+        };
         // B56 residual fix: session resolution and the `active` mutation
         // happen inside ONE `with_session_locked` closure — see `open_from`
         // for the full lattice-order rationale. The closure calls no
@@ -402,13 +484,14 @@ impl RepEngine {
                             source,
                             command_id,
                             &now,
+                            demotion,
                         )
                         .map_err(|error| error.to_string())?;
                     let mut receipt = mutation.receipt.clone();
                     let replayed = receipt.as_ref().is_some_and(|receipt| receipt.replayed);
                     let out_snap = if replayed {
                         self.store
-                            .v2_snapshot(block_id)
+                            .v2_snapshot(block_id, demotion)
                             .map_err(|error| error.to_string())?
                     } else {
                         mutation.snapshot
@@ -483,12 +566,11 @@ impl RepEngine {
     fn close_from(&self, source: MutationSource) -> Result<Option<RepSnapshot>, String> {
         // Quick peek, no side effects (fix round 2, N1): a no-op close with
         // nothing active must never mint/roll a session — see `open_from`.
-        {
-            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-            if active.is_none() {
-                return Ok(None);
-            }
-        }
+        // Also resolves the demotion config from the active block's rule,
+        // BEFORE any store call, per the lock-trap note.
+        let Some(demotion) = self.active_demotion_config() else {
+            return Ok(None);
+        };
         // B56 residual fix: session resolution and the `active` mutation
         // happen inside ONE `with_session_locked` closure — see `open_from`.
         let command_id = v2_command_id(source, "close");
@@ -503,7 +585,7 @@ impl RepEngine {
                 };
                 let mutation = self
                     .store
-                    .v2_close(sid, current.block_id, source, &command_id, &now)
+                    .v2_close(sid, current.block_id, source, &command_id, &now, demotion)
                     .map_err(|error| error.to_string())?;
                 let snap = mutation.snapshot;
                 *active = None;
@@ -523,12 +605,11 @@ impl RepEngine {
     pub fn undo(&self) -> Result<CheckOutcome, String> {
         // Quick peek, no side effects (fix round 2, N1): a failing undo with
         // nothing active must never mint/roll a session — see `open_from`.
-        {
-            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-            if active.is_none() {
-                return Err("no active rep block".to_string());
-            }
-        }
+        // Also resolves the demotion config from the active block's rule,
+        // BEFORE any store call, per the lock-trap note.
+        let Some(demotion) = self.active_demotion_config() else {
+            return Err("no active rep block".to_string());
+        };
         // B56 residual fix: session resolution and the `active` mutation
         // happen inside ONE `with_session_locked` closure — see `open_from`.
         let command_id = v2_command_id(MutationSource::UserClick, "undo");
@@ -551,6 +632,7 @@ impl RepEngine {
                             MutationSource::UserClick,
                             &command_id,
                             Some(&now),
+                            demotion,
                         )
                         .map_err(|error| error.to_string())?;
                     let snap = mutation.snapshot;
@@ -580,13 +662,11 @@ impl RepEngine {
     ) -> Result<CheckOutcome, String> {
         // Quick peek, no side effects (fix round 2, N1): a failing correct
         // with nothing active must never mint/roll a session — see
-        // `open_from`.
-        {
-            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-            if active.is_none() {
-                return Err("no active rep block".to_string());
-            }
-        }
+        // `open_from`. Also resolves the demotion config from the active
+        // block's rule, BEFORE any store call, per the lock-trap note.
+        let Some(demotion) = self.active_demotion_config() else {
+            return Err("no active rep block".to_string());
+        };
         // B56 residual fix: session resolution and the `active` mutation
         // happen inside ONE `with_session_locked` closure — see `open_from`.
         let command_id = v2_command_id(MutationSource::UserClick, "correct");
@@ -613,6 +693,7 @@ impl RepEngine {
                         &command_id,
                         true,
                         Some(&now),
+                        demotion,
                     )
                     .map_err(|error| error.to_string())?;
                 let snap = mutation.snapshot.clone();
@@ -637,13 +718,11 @@ impl RepEngine {
     pub fn reverse_adjustment(&self, adjustment_id: i64) -> Result<CheckOutcome, String> {
         // Quick peek, no side effects (fix round 2, N1): a failing reversal
         // with nothing active must never mint/roll a session — see
-        // `open_from`.
-        {
-            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-            if active.is_none() {
-                return Err("no active rep block".to_string());
-            }
-        }
+        // `open_from`. Also resolves the demotion config from the active
+        // block's rule, BEFORE any store call, per the lock-trap note.
+        let Some(demotion) = self.active_demotion_config() else {
+            return Err("no active rep block".to_string());
+        };
         // B56 residual fix: session resolution and the `active` mutation
         // happen inside ONE `with_session_locked` closure — see `open_from`.
         let command_id = v2_command_id(MutationSource::UserClick, "reverse_adjustment");
@@ -666,6 +745,7 @@ impl RepEngine {
                         MutationSource::UserClick,
                         &command_id,
                         Some(&now),
+                        demotion,
                     )
                     .map_err(|error| error.to_string())?;
                 let snap = mutation.snapshot.clone();
@@ -690,13 +770,11 @@ impl RepEngine {
     pub fn restart(&self, required_clean_streak: Option<u32>) -> Result<RepSnapshot, String> {
         // Quick peek, no side effects (fix round 2, N1): a failing restart
         // with nothing active must never mint/roll a session — see
-        // `open_from`.
-        {
-            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-            if active.is_none() {
-                return Err("no active rep block".to_string());
-            }
-        }
+        // `open_from`. Also resolves the demotion config from the active
+        // block's rule, BEFORE any store call, per the lock-trap note.
+        let Some(demotion) = self.active_demotion_config() else {
+            return Err("no active rep block".to_string());
+        };
         // B56 residual fix: session resolution and the `active` mutation
         // happen inside ONE `with_session_locked` closure — see `open_from`.
         let command_id = v2_command_id(MutationSource::UserClick, "restart");
@@ -719,6 +797,7 @@ impl RepEngine {
                         MutationSource::UserClick,
                         &command_id,
                         &now,
+                        demotion,
                     )
                     .map_err(|error| error.to_string())?;
                 *active = Some(opened.snapshot.clone());
@@ -778,10 +857,11 @@ impl RepEngine {
         active: &mut Option<RepSnapshot>,
         block_id: i64,
         receipt: &mut MutationReceipt<RepSnapshot>,
+        demotion: DemotionConfig,
     ) -> Result<RepSnapshot, String> {
         let snapshot = if receipt.replayed {
             self.store
-                .v2_snapshot(block_id)
+                .v2_snapshot(block_id, demotion)
                 .map_err(|error| error.to_string())?
         } else {
             receipt
@@ -805,16 +885,11 @@ impl RepEngine {
     pub fn pause(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
         // Quick peek, no side effects (fix round 2, N1): a failing pause
         // with nothing active must never mint/roll a session — see
-        // `open_from`.
-        {
-            let active = self
-                .active
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            if active.is_none() {
-                return Err("no live practice set".to_string());
-            }
-        }
+        // `open_from`. Also resolves the demotion config from the active
+        // block's rule, BEFORE any store call, per the lock-trap note.
+        let Some(demotion) = self.active_demotion_config() else {
+            return Err("no live practice set".to_string());
+        };
         // B56 residual fix: session resolution and the `active` mutation
         // happen inside ONE `with_session_locked` closure — see `open_from`.
         let now = self.now()?;
@@ -838,10 +913,11 @@ impl RepEngine {
                             MutationSource::UserClick,
                             command_id,
                             &now,
+                            demotion,
                         )
                         .map_err(|error| error.to_string())?;
                     let snapshot =
-                        self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+                        self.apply_snapshot_receipt(&mut active, block_id, &mut receipt, demotion)?;
                     drop(active);
                     Ok((receipt, snapshot))
                 })?;
@@ -909,7 +985,7 @@ impl RepEngine {
             } else {
                 let paused = self
                     .store
-                    .paused_sets_list()
+                    .paused_sets_list(self.resolve_global_demotion_config())
                     .map_err(|error| error.to_string())?;
                 match paused.as_slice() {
                     [] => return Err("no paused practice set".to_string()),
@@ -929,6 +1005,11 @@ impl RepEngine {
         // happen inside ONE `with_session_locked` closure — see `open_from`.
         // The `untracked_fallback_id` peek above is a plain `store` read, no
         // `SessionService` call, so resolving it before the closure is fine.
+        // The target set may not be the one this engine tracks as `active`
+        // (Task A4b's cross-set resume), so there is no single in-scope
+        // per-set rule to prefer here — the global demotion config applies,
+        // same as `paused_sets_list` above.
+        let demotion = self.resolve_global_demotion_config();
         let now = self.now()?;
         let (receipt, snapshot) =
             self.sessions
@@ -965,10 +1046,15 @@ impl RepEngine {
                             MutationSource::UserClick,
                             command_id,
                             &now,
+                            demotion,
                         )
                         .map_err(|error| error.to_string())?;
-                    let snapshot =
-                        self.apply_snapshot_receipt(&mut active, target_block_id, &mut receipt)?;
+                    let snapshot = self.apply_snapshot_receipt(
+                        &mut active,
+                        target_block_id,
+                        &mut receipt,
+                        demotion,
+                    )?;
                     drop(active);
                     Ok((receipt, snapshot))
                 })?;
@@ -999,9 +1085,17 @@ impl RepEngine {
             .active
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let Some(block_id) = active.as_ref().map(|snapshot| snapshot.block_id) else {
+        let Some((block_id, rule)) = active
+            .as_ref()
+            .map(|snapshot| (snapshot.block_id, snapshot.rule.clone()))
+        else {
             return Ok(());
         };
+        // Resolves the demotion config from the active block's own rule,
+        // before the store call, per the lock-trap note — `active` is
+        // already held here, but `resolve_demotion_config` only touches
+        // settings, never `self.active`, so this cannot deadlock.
+        let demotion = self.resolve_demotion_config(&rule);
         let command_id = v2_command_id(MutationSource::SystemSchedule, "day_rollover_pause");
         let mut receipt = self
             .store
@@ -1011,9 +1105,11 @@ impl RepEngine {
                 MutationSource::SystemSchedule,
                 &command_id,
                 at,
+                demotion,
             )
             .map_err(|error| error.to_string())?;
-        let snapshot = self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+        let snapshot =
+            self.apply_snapshot_receipt(&mut active, block_id, &mut receipt, demotion)?;
         drop(active);
         self.emit_state(Some(&snapshot));
         Ok(())
@@ -1022,16 +1118,11 @@ impl RepEngine {
     pub fn checkpoint(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
         // Quick peek, no side effects (fix round 2, N1): a failing
         // checkpoint with nothing active must never mint/roll a session —
-        // see `open_from`.
-        {
-            let active = self
-                .active
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            if active.is_none() {
-                return Err("no live practice set".to_string());
-            }
-        }
+        // see `open_from`. Also resolves the demotion config from the active
+        // block's rule, BEFORE any store call, per the lock-trap note.
+        let Some(demotion) = self.active_demotion_config() else {
+            return Err("no live practice set".to_string());
+        };
         // B56 residual fix: session resolution and the `active` mutation
         // happen inside ONE `with_session_locked` closure — see `open_from`.
         let now = self.now()?;
@@ -1055,10 +1146,11 @@ impl RepEngine {
                             MutationSource::UserClick,
                             command_id,
                             &now,
+                            demotion,
                         )
                         .map_err(|error| error.to_string())?;
                     let snapshot =
-                        self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+                        self.apply_snapshot_receipt(&mut active, block_id, &mut receipt, demotion)?;
                     drop(active);
                     Ok((receipt, snapshot))
                 })?;
@@ -1074,16 +1166,11 @@ impl RepEngine {
     ) -> Result<MutationReceipt<RepSnapshot>, String> {
         // Quick peek, no side effects (fix round 2, N1): a failing reflect
         // with nothing active must never mint/roll a session — see
-        // `open_from`.
-        {
-            let active = self
-                .active
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            if active.is_none() {
-                return Err("no live practice set".to_string());
-            }
-        }
+        // `open_from`. Also resolves the demotion config from the active
+        // block's rule, BEFORE any store call, per the lock-trap note.
+        let Some(demotion) = self.active_demotion_config() else {
+            return Err("no live practice set".to_string());
+        };
         // B56 residual fix: session resolution and the `active` mutation
         // happen inside ONE `with_session_locked` closure — see `open_from`.
         let now = self.now()?;
@@ -1108,10 +1195,11 @@ impl RepEngine {
                             MutationSource::UserClick,
                             command_id,
                             &now,
+                            demotion,
                         )
                         .map_err(|error| error.to_string())?;
                     let snapshot =
-                        self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+                        self.apply_snapshot_receipt(&mut active, block_id, &mut receipt, demotion)?;
                     drop(active);
                     Ok((receipt, snapshot))
                 })?;
@@ -1140,16 +1228,12 @@ impl RepEngine {
         // stop with nothing active must never mint/roll a session — see
         // `open_from`. `execute_safety_stop` still runs the physical stop on
         // this early `Err` (its fail-safe closure fires whenever the
-        // closure passed in here was never consumed).
-        {
-            let active = self
-                .active
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            if active.is_none() {
-                return Err("no live practice set".to_string());
-            }
-        }
+        // closure passed in here was never consumed). Also resolves the
+        // demotion config from the active block's rule, BEFORE any store
+        // call, per the lock-trap note.
+        let Some(demotion) = self.active_demotion_config() else {
+            return Err("no live practice set".to_string());
+        };
         // B56 residual fix: session resolution and the `active` mutation
         // happen inside ONE `with_session_locked` closure — see `open_from`.
         // `after_commit()` (the physical stop) still runs WHILE `active` is
@@ -1181,10 +1265,11 @@ impl RepEngine {
                             MutationSource::UserClick,
                             command_id,
                             &now,
+                            demotion,
                         )
                         .map_err(|error| error.to_string())?;
                     let snapshot =
-                        self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+                        self.apply_snapshot_receipt(&mut active, block_id, &mut receipt, demotion)?;
                     if receipt.replayed {
                         drop(active);
                         return Ok((receipt, None));
@@ -1239,16 +1324,11 @@ impl RepEngine {
     ) -> Result<MutationReceipt<RepSnapshot>, String> {
         // Quick peek, no side effects (fix round 2, N1): a failing recover
         // with nothing active must never mint/roll a session — see
-        // `open_from`.
-        {
-            let active = self
-                .active
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            if active.is_none() {
-                return Err("no live practice set".to_string());
-            }
-        }
+        // `open_from`. Also resolves the demotion config from the active
+        // block's rule, BEFORE any store call, per the lock-trap note.
+        let Some(demotion) = self.active_demotion_config() else {
+            return Err("no live practice set".to_string());
+        };
         // B56 residual fix: session resolution and the `active` mutation
         // happen inside ONE `with_session_locked` closure — see `open_from`.
         let now = self.now()?;
@@ -1273,10 +1353,11 @@ impl RepEngine {
                             MutationSource::UserClick,
                             command_id,
                             &now,
+                            demotion,
                         )
                         .map_err(|error| error.to_string())?;
                     let snapshot =
-                        self.apply_snapshot_receipt(&mut active, block_id, &mut receipt)?;
+                        self.apply_snapshot_receipt(&mut active, block_id, &mut receipt, demotion)?;
                     drop(active);
                     Ok((receipt, snapshot))
                 })?;
@@ -1419,7 +1500,10 @@ impl RepEngine {
         if current.block_id != block_id {
             return;
         }
-        let out = match self.store.v2_snapshot(block_id) {
+        // Resolves the demotion config from the block's own rule, before the
+        // store call, per the lock-trap note.
+        let demotion = self.resolve_demotion_config(&current.rule);
+        let out = match self.store.v2_snapshot(block_id, demotion) {
             Ok(snapshot) => snapshot,
             Err(_) => {
                 *active = None;
@@ -1697,7 +1781,9 @@ mod tests {
     }
 
     fn assert_set_lifecycle(store: &Store, block_id: i64, state: &str, status: &str) {
-        let projected = store.v2_snapshot(block_id).unwrap();
+        let projected = store
+            .v2_snapshot(block_id, DemotionConfig::default())
+            .unwrap();
         assert_eq!(projected.set_state, state);
         assert_eq!(projected.status, status);
         assert_eq!(
@@ -1733,7 +1819,7 @@ mod tests {
             .unwrap();
         assert_set_lifecycle(store, block_id, state, "abandoned");
         let correction_id = store
-            .v2_snapshot(block_id)
+            .v2_snapshot(block_id, DemotionConfig::default())
             .unwrap()
             .last_adjustment_id
             .unwrap();
@@ -1746,6 +1832,7 @@ mod tests {
                 MutationSource::UserClick,
                 &v2_command_id(MutationSource::UserClick, "terminal_correct_reverse"),
                 None,
+                DemotionConfig::default(),
             )
             .unwrap();
         assert_set_lifecycle(store, block_id, state, "abandoned");
@@ -1753,7 +1840,7 @@ mod tests {
         store.rep_delete(attempt_id).unwrap();
         assert_set_lifecycle(store, block_id, state, "abandoned");
         let void_id = store
-            .v2_snapshot(block_id)
+            .v2_snapshot(block_id, DemotionConfig::default())
             .unwrap()
             .last_adjustment_id
             .unwrap();
@@ -1765,6 +1852,7 @@ mod tests {
                 MutationSource::UserClick,
                 &v2_command_id(MutationSource::UserClick, "terminal_void_reverse"),
                 None,
+                DemotionConfig::default(),
             )
             .unwrap();
         assert_set_lifecycle(store, block_id, state, "abandoned");
@@ -1820,6 +1908,7 @@ mod tests {
             increment: Some(IncrementRule {
                 clean_needed,
                 bpm_step: step,
+                ..Default::default()
             }),
             variants: vec![],
             focus: "tempo".into(),
@@ -1846,6 +1935,7 @@ mod tests {
             increment: Some(IncrementRule {
                 clean_needed: 1,
                 bpm_step: 4.0,
+                ..Default::default()
             }),
             variants: vec![],
             focus: focus.into(),
@@ -2888,6 +2978,7 @@ mod tests {
                     increment: Some(IncrementRule {
                         clean_needed: 4,
                         bpm_step: 2.0,
+                        ..Default::default()
                     }),
                     variants: vec![
                         VariantSpec {
@@ -3396,7 +3487,7 @@ mod tests {
         // the physical reset boundary (not beyond it), so it must not re-enter
         // the post-reset streak — and the tempo backoff stays applied.
         let void_adjustment_id = store
-            .v2_snapshot(third.snap.block_id)
+            .v2_snapshot(third.snap.block_id, DemotionConfig::default())
             .unwrap()
             .last_adjustment_id
             .unwrap();
@@ -4126,6 +4217,215 @@ mod tests {
         assert_eq!(snap.bpm, Some(80.0), "no step yet");
     }
 
+    // ── A1 "the punishment": tempo demotion ─────────────────────────────────
+    // Christian's request: "there needs to be more punishment." Only `Flawed`
+    // ("sloppy") counts toward demotion — `Failed` ("again") neither counts
+    // nor resets the counter, so a mis-start cannot launder a sloppy run.
+
+    #[test]
+    fn three_consecutive_sloppy_reps_pull_the_tempo_back_one_rung() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        // open at 60, step 4, clean_needed 1 (so one clean rep climbs
+        // deterministically); climb to 64, then three Flawed → back to 60.
+        engine.open(open_args_tempo(true, 1, 4.0, 60.0)).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(snap.bpm, Some(64.0), "climbed one rung");
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        let out = engine.check(RepVerdict::Flawed, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(snap.bpm, Some(60.0), "demoted one rung back down");
+        assert!(snap.demoted_this_set);
+        assert_eq!(snap.current_sloppy_streak, 0, "reset after demoting");
+        assert_eq!(out.new_bpm, Some(60.0));
+    }
+
+    #[test]
+    fn a_clean_rep_resets_the_sloppy_counter() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_tempo(true, 1, 4.0, 60.0)).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        // The clean rep both resets the sloppy streak AND steps the ladder
+        // (clean_needed 1) — the assertion is on the ABSENCE of a demotion.
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert!(!snap.demoted_this_set, "never reached 3 in a row");
+        assert_eq!(snap.current_sloppy_streak, 2);
+    }
+
+    #[test]
+    fn again_does_not_count_toward_demotion() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_tempo(true, 1, 4.0, 60.0)).unwrap();
+        for _ in 0..5 {
+            engine.check(RepVerdict::Failed, None).unwrap();
+        }
+        let snap = engine.snapshot().unwrap();
+        assert!(
+            !snap.demoted_this_set,
+            "Failed (\"again\") does not count toward demotion"
+        );
+        assert_eq!(
+            snap.current_sloppy_streak, 0,
+            "Failed does not even move the sloppy counter"
+        );
+        assert_eq!(snap.bpm, Some(60.0), "tempo untouched by five Faileds");
+    }
+
+    #[test]
+    fn a_failed_rep_does_not_launder_a_sloppy_run() {
+        // A mis-start (Failed) sandwiched between Flawed reps must not reset
+        // the sloppy streak either — Christian's explicit answer (Q4).
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_tempo(true, 1, 4.0, 60.0)).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Failed, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(
+            snap.current_sloppy_streak, 2,
+            "Failed did not reset the streak that two Flaweds built"
+        );
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert!(
+            snap.demoted_this_set,
+            "the third Flawed still demotes, undisturbed by the Failed in between"
+        );
+    }
+
+    #[test]
+    fn demotion_never_falls_below_the_sets_start_bpm() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_tempo(true, 1, 4.0, 60.0)).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(snap.bpm, Some(60.0), "floored at the set's own start_bpm");
+        assert!(snap.demoted_this_set);
+    }
+
+    #[test]
+    fn after_the_first_demotion_two_sloppy_reps_are_enough() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_tempo(true, 1, 4.0, 60.0)).unwrap();
+        // Climb two rungs: 60 -> 64 -> 68.
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(engine.snapshot().unwrap().bpm, Some(68.0));
+        // First demotion needs 3.
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        assert!(
+            !engine.snapshot().unwrap().demoted_this_set,
+            "only two so far — not yet at the first threshold"
+        );
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert!(snap.demoted_this_set);
+        assert_eq!(snap.bpm, Some(64.0), "one rung down from 68");
+        // Repeat threshold is now 2, not 3.
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        assert_eq!(
+            engine.snapshot().unwrap().bpm,
+            Some(64.0),
+            "only one so far — repeat threshold is 2"
+        );
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(snap.bpm, Some(60.0), "two was enough this time");
+    }
+
+    #[test]
+    fn demotion_disabled_is_a_no_op() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        let mut args = open_args_tempo(true, 1, 4.0, 60.0);
+        args.increment = Some(IncrementRule {
+            clean_needed: 1,
+            bpm_step: 4.0,
+            demote_enabled: Some(false),
+            demote_first: None,
+            demote_repeat: None,
+        });
+        engine.open(args).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(engine.snapshot().unwrap().bpm, Some(64.0));
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(
+            snap.bpm,
+            Some(64.0),
+            "demotion disabled per-set — tempo unchanged despite sloppy reps"
+        );
+        assert!(!snap.demoted_this_set);
+    }
+
+    #[test]
+    fn a_demoted_set_re_climbs_by_the_normal_ladder_rules() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_tempo(true, 1, 4.0, 60.0)).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(engine.snapshot().unwrap().bpm, Some(68.0));
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert!(snap.demoted_this_set);
+        assert_eq!(snap.bpm, Some(64.0));
+        // Normal ladder rules resume: clean_needed 1 still steps on one clean.
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(snap.bpm, Some(68.0), "climbs normally again after demotion");
+    }
+
+    #[test]
+    fn manual_tempo_backoff_wins_over_automatic_demotion() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_tempo(true, 1, 4.0, 60.0)).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(engine.snapshot().unwrap().bpm, Some(68.0));
+        // Trigger an automatic demotion down to 64.
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        assert_eq!(engine.snapshot().unwrap().bpm, Some(64.0));
+        // An explicit human recovery action composes with/overrides the
+        // automatic demotion — manual backoff wins, per the documented order
+        // in `project_tempo` (applied AFTER the ladder/demotion loop).
+        engine
+            .recover(
+                "manual-backoff-1",
+                &RecoveryActionRequest::TempoBackoff {
+                    bpm: 62.0,
+                    rationale: "hands felt tense".into(),
+                },
+            )
+            .unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(
+            snap.bpm,
+            Some(62.0),
+            "manual backoff overrides the demoted ladder tempo"
+        );
+        // The backoff persists across the next projection too, undisturbed
+        // by one more Flawed rep that alone cannot re-trigger demotion.
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        assert_eq!(
+            engine.snapshot().unwrap().bpm,
+            Some(62.0),
+            "manual backoff still wins"
+        );
+    }
+
     #[test]
     fn variants_lane_through_and_announce_next() {
         let (engine, pid, _store, _rec) = engine_with_piece();
@@ -4434,6 +4734,7 @@ mod tests {
             increment: Some(IncrementRule {
                 clean_needed: 1,
                 bpm_step: 4.0,
+                ..Default::default()
             }),
             variants: vec![],
             focus: "tempo".into(),
@@ -4469,6 +4770,7 @@ mod tests {
                 increment: Some(IncrementRule {
                     clean_needed: 10,
                     bpm_step: 4.0,
+                    ..Default::default()
                 }),
                 variants: vec![],
                 focus: "tempo".into(),
@@ -4519,6 +4821,7 @@ mod tests {
                 increment: Some(IncrementRule {
                     clean_needed: 5,
                     bpm_step: 4.0,
+                    ..Default::default()
                 }),
                 variants: vec![],
                 focus: "tempo".into(),
@@ -4658,6 +4961,7 @@ mod tests {
                 increment: Some(IncrementRule {
                     clean_needed: 3,
                     bpm_step: 4.0,
+                    ..Default::default()
                 }),
                 variants: vec![],
                 focus: "tempo".into(),
@@ -5089,6 +5393,7 @@ mod tests {
                 &IncrementRule {
                     clean_needed: 3,
                     bpm_step: 4.0,
+                    ..Default::default()
                 },
                 5,
                 &[],
@@ -5099,7 +5404,9 @@ mod tests {
         store
             .insert_rep(block_id, 0.0, None, "clean", Some("legacy notes"))
             .unwrap();
-        let snapshot = store.v2_snapshot(block_id).unwrap();
+        let snapshot = store
+            .v2_snapshot(block_id, DemotionConfig::default())
+            .unwrap();
         assert_eq!(snapshot.mastery_status, "unverified_legacy");
         assert_eq!(snapshot.tries, 1);
         assert_eq!(snapshot.last.as_ref().unwrap().bpm, None);
@@ -5126,6 +5433,7 @@ mod tests {
                 &IncrementRule {
                     clean_needed: 3,
                     bpm_step: 4.0,
+                    ..Default::default()
                 },
                 5,
                 &[],
@@ -5136,7 +5444,10 @@ mod tests {
         store
             .insert_rep(block_id, -1.0, None, "clean", None)
             .unwrap();
-        let error = store.v2_snapshot(block_id).unwrap_err().to_string();
+        let error = store
+            .v2_snapshot(block_id, DemotionConfig::default())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("invalid physical BPM -1"), "{error}");
         assert_eq!(
             store
@@ -5161,6 +5472,7 @@ mod tests {
                 &IncrementRule {
                     clean_needed: 3,
                     bpm_step: 4.0,
+                    ..Default::default()
                 },
                 5,
                 &[],
@@ -5171,7 +5483,10 @@ mod tests {
         store
             .insert_rep(block_id, 0.0, None, "clean", None)
             .unwrap();
-        let error = store.v2_snapshot(block_id).unwrap_err().to_string();
+        let error = store
+            .v2_snapshot(block_id, DemotionConfig::default())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("invalid physical BPM 0"), "{error}");
     }
 
@@ -5189,6 +5504,7 @@ mod tests {
                 &IncrementRule {
                     clean_needed: 3,
                     bpm_step: 4.0,
+                    ..Default::default()
                 },
                 5,
                 &[],
@@ -5199,7 +5515,10 @@ mod tests {
         store
             .insert_rep(block_id, 0.0, None, "clean", None)
             .unwrap();
-        let error = store.v2_snapshot(block_id).unwrap_err().to_string();
+        let error = store
+            .v2_snapshot(block_id, DemotionConfig::default())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("invalid physical BPM 0"), "{error}");
     }
 
@@ -5217,6 +5536,7 @@ mod tests {
                 &IncrementRule {
                     clean_needed: 1,
                     bpm_step: 4.0,
+                    ..Default::default()
                 },
                 3,
                 &[],
@@ -5279,18 +5599,21 @@ mod tests {
         value.increment = Some(IncrementRule {
             clean_needed: 0,
             bpm_step: 4.0,
+            ..Default::default()
         });
         invalid.push(value);
         let mut value = base.clone();
         value.increment = Some(IncrementRule {
             clean_needed: 3,
             bpm_step: 0.0,
+            ..Default::default()
         });
         invalid.push(value);
         let mut value = base.clone();
         value.increment = Some(IncrementRule {
             clean_needed: 3,
             bpm_step: f64::NAN,
+            ..Default::default()
         });
         invalid.push(value);
         let mut value = base.clone();
@@ -5416,7 +5739,10 @@ mod tests {
     fn sets_paused_list_returns_the_paused_set_with_correct_join_fields_and_streak() {
         let (engine, pid, store, _rec) = engine_with_piece();
         assert!(
-            store.paused_sets_list().unwrap().is_empty(),
+            store
+                .paused_sets_list(DemotionConfig::default())
+                .unwrap()
+                .is_empty(),
             "nothing paused yet"
         );
 
@@ -5426,7 +5752,7 @@ mod tests {
         engine.check(RepVerdict::Clean, None).unwrap();
         engine.pause("test-pause-1").unwrap();
 
-        let rows = store.paused_sets_list().unwrap();
+        let rows = store.paused_sets_list(DemotionConfig::default()).unwrap();
         assert_eq!(rows.len(), 1);
         let row = &rows[0];
         assert_eq!(row.set_id, opened.block_id);
@@ -5442,7 +5768,10 @@ mod tests {
 
         // Resuming takes it out of the tray.
         engine.resume("test-resume-1", None).unwrap();
-        assert!(store.paused_sets_list().unwrap().is_empty());
+        assert!(store
+            .paused_sets_list(DemotionConfig::default())
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -5479,7 +5808,7 @@ mod tests {
             ))
             .unwrap();
 
-        let rows = store.paused_sets_list().unwrap();
+        let rows = store.paused_sets_list(DemotionConfig::default()).unwrap();
         assert_eq!(rows.len(), 1, "only the genuinely paused set");
         assert_eq!(rows[0].set_id, opened.block_id);
         assert_eq!(rows[0].piece_id, pid);
@@ -5524,7 +5853,7 @@ mod tests {
         let opened3 = engine.open(tempo_args(pid3, 70.0)).unwrap();
         assert_eq!(opened3.set_state, "active");
 
-        let rows = store.paused_sets_list().unwrap();
+        let rows = store.paused_sets_list(DemotionConfig::default()).unwrap();
         assert_eq!(rows.len(), 2, "two paused rows coexist");
         assert_eq!(
             rows[0].set_id, opened2.block_id,

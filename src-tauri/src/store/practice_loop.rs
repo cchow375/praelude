@@ -9,9 +9,9 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
 
 use super::model::{
-    json_from_sql, json_to_sql, MutationEntityRef, MutationReceipt, RecoveryActionRequest,
-    RecoveryActionView, RepOpenArgs, RepSnapshot, RetentionCheckView, RetentionCondition,
-    RetentionDecision, RetentionResult, SetFocusContextInput,
+    json_from_sql, json_to_sql, DemotionConfig, MutationEntityRef, MutationReceipt,
+    RecoveryActionRequest, RecoveryActionView, RepOpenArgs, RepSnapshot, RetentionCheckView,
+    RetentionCondition, RetentionDecision, RetentionResult, SetFocusContextInput,
 };
 use super::practice_v2::{invalid, project, source_name};
 use super::Store;
@@ -847,6 +847,7 @@ pub(super) fn load_loop_projection(
 }
 
 impl Store {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_pause(
         &self,
         session_hint: Option<i64>,
@@ -854,6 +855,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         now: &str,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<MutationReceipt<RepSnapshot>> {
         let fingerprint = request_fingerprint(&json!({"block_id": block_id}))?;
         let mut conn = self
@@ -875,7 +877,7 @@ impl Store {
         };
         let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
-        let before = project(&tx, block_id)?;
+        let before = project(&tx, block_id, demotion)?;
         if before.set_state != "active" {
             return Err(invalid("only an active practice set can pause"));
         }
@@ -911,7 +913,7 @@ impl Store {
                 now,
             },
         )?;
-        let snapshot = project(&tx, block_id)?;
+        let snapshot = project(&tx, block_id, demotion)?;
         let receipt = finish_operation(
             &tx,
             pending,
@@ -936,6 +938,7 @@ impl Store {
     /// state. The receipt's summary and entity refs/event ids reflect both
     /// transitions when an auto-pause happened, and read exactly as before
     /// (single "resumed" transition) when nothing else was active.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_resume(
         &self,
         session_hint: Option<i64>,
@@ -943,6 +946,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         now: &str,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<MutationReceipt<RepSnapshot>> {
         let fingerprint = request_fingerprint(&json!({"block_id": block_id}))?;
         let mut conn = self
@@ -964,7 +968,7 @@ impl Store {
         };
         let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
-        let before = project(&tx, block_id)?;
+        let before = project(&tx, block_id, demotion)?;
         if before.set_state != "paused" {
             return Err(invalid("only a paused practice set can resume"));
         }
@@ -985,7 +989,7 @@ impl Store {
         let mut summary_parts = Vec::new();
 
         if let Some(other_id) = other_active_id {
-            let other_before = project(&tx, other_id)?;
+            let other_before = project(&tx, other_id, demotion)?;
             close_interval(&tx, other_id, now, "pause", Some(pending.id))?;
             tx.execute(
                 "UPDATE set_contract SET set_state='paused' WHERE set_id=?1",
@@ -1075,7 +1079,7 @@ impl Store {
             "Practice resumed with a fresh active interval.".to_string()
         };
 
-        let snapshot = project(&tx, block_id)?;
+        let snapshot = project(&tx, block_id, demotion)?;
         let mut all_event_ids: Vec<i64> = session.start_event_id.into_iter().collect();
         all_event_ids.extend(event_ids);
         let receipt = finish_operation(
@@ -1091,6 +1095,7 @@ impl Store {
         Ok(receipt)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_checkpoint(
         &self,
         session_hint: Option<i64>,
@@ -1098,6 +1103,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         now: &str,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<MutationReceipt<RepSnapshot>> {
         let fingerprint = request_fingerprint(&json!({"block_id": block_id}))?;
         let mut conn = self
@@ -1119,12 +1125,12 @@ impl Store {
         };
         let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
-        let before = project(&tx, block_id)?;
+        let before = project(&tx, block_id, demotion)?;
         if before.set_state != "active" {
             return Err(invalid("only an active practice set can checkpoint time"));
         }
         let advance = checkpoint_interval(&tx, block_id, now, true, Some(pending.id))?;
-        let snapshot = project(&tx, block_id)?;
+        let snapshot = project(&tx, block_id, demotion)?;
         let payload = json!({
             "block_id": block_id,
             "piece_id": before.piece_id,
@@ -1166,6 +1172,7 @@ impl Store {
         Ok(receipt)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_reflect(
         &self,
         session_hint: Option<i64>,
@@ -1174,6 +1181,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         now: &str,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<MutationReceipt<RepSnapshot>> {
         let reflection = required_text(reflection, "reflection", 4000)?;
         let fingerprint = request_fingerprint(&json!({
@@ -1199,7 +1207,7 @@ impl Store {
         };
         let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
-        let before = project(&tx, block_id)?;
+        let before = project(&tx, block_id, demotion)?;
         if before.contract_source == "migration_legacy" {
             return Err(invalid("legacy sets cannot receive a v2 focus reflection"));
         }
@@ -1228,7 +1236,7 @@ impl Store {
                 now,
             },
         )?;
-        let snapshot = project(&tx, block_id)?;
+        let snapshot = project(&tx, block_id, demotion)?;
         let receipt = finish_operation(
             &tx,
             pending,
@@ -1245,6 +1253,7 @@ impl Store {
         Ok(receipt)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_safety_stop(
         &self,
         session_hint: Option<i64>,
@@ -1253,6 +1262,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         now: &str,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<MutationReceipt<RepSnapshot>> {
         let reason = optional_text(reason, "safety reason", 2000)?;
         let fingerprint = request_fingerprint(&json!({
@@ -1278,7 +1288,7 @@ impl Store {
         };
         let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
-        let before = project(&tx, block_id)?;
+        let before = project(&tx, block_id, demotion)?;
         if before.set_state != "active" {
             return Err(invalid("safety stop requires an active practice set"));
         }
@@ -1317,7 +1327,7 @@ impl Store {
                 now,
             },
         )?;
-        let snapshot = project(&tx, block_id)?;
+        let snapshot = project(&tx, block_id, demotion)?;
         let receipt = finish_operation(
             &tx,
             pending,
@@ -1334,6 +1344,7 @@ impl Store {
         Ok(receipt)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_recover(
         &self,
         session_hint: Option<i64>,
@@ -1342,6 +1353,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         now: &str,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<MutationReceipt<RepSnapshot>> {
         let fingerprint = request_fingerprint(&json!({
             "block_id": block_id,
@@ -1366,7 +1378,7 @@ impl Store {
         };
         let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
-        let before = project(&tx, block_id)?;
+        let before = project(&tx, block_id, demotion)?;
         if !matches!(before.set_state.as_str(), "active" | "paused") {
             return Err(invalid(
                 "recovery cannot mutate a terminal set; restart it as a linked set first",
@@ -1562,7 +1574,7 @@ impl Store {
                 now,
             },
         )?;
-        let snapshot = project(&tx, block_id)?;
+        let snapshot = project(&tx, block_id, demotion)?;
         let receipt = finish_operation(
             &tx,
             pending,
@@ -1889,7 +1901,16 @@ impl Store {
     /// reconciliation here: pausing always closes their interval already, so
     /// only the single ACTIVE row (enforced by `set_contract_one_active_v2_idx`,
     /// SCHEMA_V14) can ever have one left open by a crash.
-    pub(crate) fn v2_restore_active_at(&self, now: &str) -> rusqlite::Result<Option<RepSnapshot>> {
+    /// Boot-time restore, before any set's per-set `IncrementRule` override is
+    /// in play in this process. Uses `demotion` as resolved by the caller from
+    /// the global `rep.demote_*` settings; a per-set override on the restored
+    /// block (none exist yet — that composer control ships in a later task)
+    /// would only apply starting with the next projection.
+    pub(crate) fn v2_restore_active_at(
+        &self,
+        now: &str,
+        demotion: DemotionConfig,
+    ) -> rusqlite::Result<Option<RepSnapshot>> {
         let mut conn = self
             .conn
             .lock()
@@ -1951,7 +1972,7 @@ impl Store {
         if set_state == "active" {
             start_interval(&tx, *set_id, now, None)?;
         }
-        let snapshot = project(&tx, *set_id)?;
+        let snapshot = project(&tx, *set_id, demotion)?;
         tx.commit()?;
         Ok(Some(snapshot))
     }

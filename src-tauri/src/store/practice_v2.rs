@@ -9,9 +9,9 @@ use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 
 use super::model::{
-    json_from_sql, json_to_sql, BlockHistory, IncrementRule, LastRep, MutationEntityRef,
-    MutationReceipt, PausedSetRow, RepOpenArgs, RepSnapshot, SetFocusContextInput, SetTuning,
-    VariantSpec, VerdictCounts,
+    json_from_sql, json_to_sql, BlockHistory, DemotionConfig, IncrementRule, LastRep,
+    MutationEntityRef, MutationReceipt, PausedSetRow, RepOpenArgs, RepSnapshot,
+    SetFocusContextInput, SetTuning, VariantSpec, VerdictCounts,
 };
 use super::Store;
 use crate::ledger::{
@@ -172,6 +172,7 @@ fn load_set_row(conn: &Connection, block_id: i64) -> rusqlite::Result<Option<Set
                         IncrementRule {
                             clean_needed: 3,
                             bpm_step: 4.0,
+                            ..Default::default()
                         },
                     ),
                     focus: row.get(12)?,
@@ -351,6 +352,10 @@ const BPM_EPSILON: f64 = 0.000_001;
 struct TempoProjection {
     bpm: Option<f64>,
     cleans_at_step: u32,
+    /// A1: consecutive `flawed` reps accumulated toward the next demotion.
+    sloppy_streak: u32,
+    /// A1: whether an automatic demotion has occurred anywhere in this set.
+    demoted_this_set: bool,
 }
 
 /// Rebuild the current tempo from immutable attempt facts plus their effective
@@ -362,6 +367,7 @@ fn project_tempo(
     effective: &[EffectiveAttempt],
     reset_after_attempt_id: Option<i64>,
     tempo_backoff: Option<f64>,
+    demotion: DemotionConfig,
 ) -> rusqlite::Result<TempoProjection> {
     if row.focus != "tempo" {
         return Ok(TempoProjection {
@@ -379,6 +385,8 @@ fn project_tempo(
                 None
             },
             cleans_at_step: 0,
+            sloppy_streak: 0,
+            demoted_this_set: false,
         });
     }
 
@@ -394,14 +402,28 @@ fn project_tempo(
                 .and_then(|attempt| attempt.bpm)
                 .or(row.start_bpm),
             cleans_at_step: 0,
+            sloppy_streak: 0,
+            demoted_this_set: false,
         });
     }
 
-    let mut working = row
+    let start_bpm = row
         .start_bpm
         .filter(|bpm| bpm.is_finite() && *bpm > 0.0)
         .ok_or_else(|| invalid("tempo set requires a positive finite start BPM"))?;
+    let mut working = start_bpm;
     let mut clean_streak = 0_u32;
+    // A1 "the punishment": consecutive `flawed` reps pull the tempo back one
+    // rung. `Failed` ("again") neither counts toward this nor resets it — a
+    // mis-start must not launder a sloppy run (Christian's explicit answer,
+    // Q4). Only `Clean` resets it, same as `clean_streak`.
+    let mut sloppy_streak = 0_u32;
+    // Ambiguity resolution (stated, not stalled on): "while demoted, the
+    // threshold is `demote_repeat`" is read as *once a demotion has occurred
+    // anywhere in this set, the repeat threshold applies for the remainder of
+    // the set* — not just immediately after. Simple, predictable, and matches
+    // "more punishment".
+    let mut demoted_this_set = false;
     let mut recovery_reset_applied = false;
     for attempt in effective.iter().filter(|attempt| !attempt.voided) {
         if reset_after_attempt_id
@@ -422,14 +444,37 @@ fn project_tempo(
             working = attempt_bpm;
             clean_streak = 0;
         }
-        if attempt.verdict == AttemptVerdict::Clean {
-            clean_streak = clean_streak.saturating_add(1);
-        } else {
-            clean_streak = 0;
+        match attempt.verdict {
+            AttemptVerdict::Clean => {
+                clean_streak = clean_streak.saturating_add(1);
+                sloppy_streak = 0;
+            }
+            AttemptVerdict::Flawed => {
+                clean_streak = 0;
+                sloppy_streak = sloppy_streak.saturating_add(1);
+            }
+            // `Failed` ("again") resets rung progress like any non-clean rep,
+            // but deliberately leaves `sloppy_streak` untouched.
+            AttemptVerdict::Failed => {
+                clean_streak = 0;
+            }
         }
         if let Some(next) = ladder::step(&row.rule, clean_streak, working, row.target_bpm) {
             working = next;
             clean_streak = 0;
+        }
+        if demotion.enabled {
+            let threshold = if demoted_this_set {
+                demotion.repeat
+            } else {
+                demotion.first
+            };
+            if sloppy_streak >= threshold {
+                working = (working - row.rule.bpm_step).max(start_bpm);
+                sloppy_streak = 0;
+                clean_streak = 0;
+                demoted_this_set = true;
+            }
         }
     }
     if reset_after_attempt_id.is_some() && !recovery_reset_applied {
@@ -439,12 +484,18 @@ fn project_tempo(
         if !backoff.is_finite() || backoff <= 0.0 {
             return Err(invalid("accepted tempo backoff is invalid"));
         }
+        // Manual "Back off tempo" recovery force-overwrites the ladder's
+        // working tempo AFTER both the climb and the automatic-demotion loop
+        // above — an explicit human backoff always wins over/composes with
+        // automatic demotion, never the reverse.
         working = backoff;
         clean_streak = 0;
     }
     Ok(TempoProjection {
         bpm: Some(working),
         cleans_at_step: clean_streak,
+        sloppy_streak,
+        demoted_this_set,
     })
 }
 
@@ -474,7 +525,10 @@ fn trailing_clean_at_or_above(
 /// newest-paused first. Reuses [`project`] for `current_clean_streak` rather
 /// than re-deriving streak math here — the ledger projection is the single
 /// source of truth for that number everywhere else it's shown.
-pub(super) fn paused_sets_list(conn: &Connection) -> rusqlite::Result<Vec<PausedSetRow>> {
+pub(super) fn paused_sets_list(
+    conn: &Connection,
+    demotion: DemotionConfig,
+) -> rusqlite::Result<Vec<PausedSetRow>> {
     let mut stmt = conn.prepare(
         "SELECT sc.set_id, rb.piece_id, p.title, rb.m_start, rb.m_end,
                 (SELECT e.ts FROM event e
@@ -505,7 +559,7 @@ pub(super) fn paused_sets_list(conn: &Connection) -> rusqlite::Result<Vec<Paused
 
     let mut out = Vec::with_capacity(raw.len());
     for (set_id, piece_id, piece_title, m_start, m_end, paused_since_ts) in raw {
-        let snapshot = project(conn, set_id)?;
+        let snapshot = project(conn, set_id, demotion)?;
         // Legacy/migrated paused rows with no recorded `rep_pause` event (see
         // the ambiguity note on `PausedSetRow`) fall back to the contract's
         // own creation timestamp rather than a fabricated pause time.
@@ -533,7 +587,11 @@ pub(super) fn paused_sets_list(conn: &Connection) -> rusqlite::Result<Vec<Paused
     Ok(out)
 }
 
-pub(super) fn project(conn: &Connection, block_id: i64) -> rusqlite::Result<RepSnapshot> {
+pub(super) fn project(
+    conn: &Connection,
+    block_id: i64,
+    demotion: DemotionConfig,
+) -> rusqlite::Result<RepSnapshot> {
     let row = load_set_row(conn, block_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
     let loop_state = super::practice_loop::load_loop_projection(
         conn,
@@ -562,6 +620,7 @@ pub(super) fn project(conn: &Connection, block_id: i64) -> rusqlite::Result<RepS
         &summary.effective_attempts,
         loop_state.reset_after_attempt_id,
         loop_state.tempo_backoff,
+        demotion,
     )?;
     // One authoritative tempo-mastery rule: progress resets whenever tempo
     // changes, and with a target the final required effective attempts must be
@@ -671,6 +730,8 @@ pub(super) fn project(conn: &Connection, block_id: i64) -> rusqlite::Result<RepS
         retention_check: loop_state.retention_check,
         working_m_start: loop_state.working_m_start,
         working_m_end: loop_state.working_m_end,
+        current_sloppy_streak: tempo.sloppy_streak,
+        demoted_this_set: tempo.demoted_this_set,
     })
 }
 
@@ -905,6 +966,7 @@ pub(super) fn open_set_in_tx(
     source: MutationSource,
     command_id: &str,
     now: &str,
+    demotion: DemotionConfig,
 ) -> rusqlite::Result<(V2Open, Vec<i64>)> {
     let active_exists: bool = tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM set_contract WHERE set_state='active')",
@@ -985,7 +1047,7 @@ pub(super) fn open_set_in_tx(
             timestamp: Some(now),
         },
     )?;
-    let snapshot = project(tx, block_id)?;
+    let snapshot = project(tx, block_id, demotion)?;
     let event_ids = super::practice_loop::operation_event_ids(session, open_event_id);
     Ok((
         V2Open {
@@ -1000,12 +1062,15 @@ pub(super) fn open_set_in_tx(
 impl Store {
     /// IPC-facing read for the paused-sets tray (Task A4). See
     /// [`paused_sets_list`] for the query and streak-reuse rationale.
-    pub fn paused_sets_list(&self) -> rusqlite::Result<Vec<PausedSetRow>> {
+    pub fn paused_sets_list(
+        &self,
+        demotion: DemotionConfig,
+    ) -> rusqlite::Result<Vec<PausedSetRow>> {
         let conn = self
             .conn
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        paused_sets_list(&conn)
+        paused_sets_list(&conn, demotion)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1020,6 +1085,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         now: &str,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<V2Open> {
         validate_open(args, rule, planned_reps, contract)?;
 
@@ -1039,21 +1105,31 @@ impl Store {
             source,
             command_id,
             now,
+            demotion,
         )?;
         tx.commit()?;
         Ok(opened)
     }
 
-    pub(crate) fn v2_snapshot(&self, block_id: i64) -> rusqlite::Result<RepSnapshot> {
+    pub(crate) fn v2_snapshot(
+        &self,
+        block_id: i64,
+        demotion: DemotionConfig,
+    ) -> rusqlite::Result<RepSnapshot> {
         let conn = self
             .conn
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        project(&conn, block_id)
+        project(&conn, block_id, demotion)
     }
 
+    /// Historical/read-model enrichment, not the interactive hot loop — uses
+    /// the global demotion defaults rather than a live-resolved per-set
+    /// config, since `BlockHistory` rows carry no per-set override context
+    /// here and this path is display-only (see the lock-trap note on
+    /// `project_tempo`: settings are still never read from inside the store).
     pub(crate) fn v2_enrich_history(&self, history: &mut BlockHistory) -> rusqlite::Result<()> {
-        let snapshot = self.v2_snapshot(history.block_id)?;
+        let snapshot = self.v2_snapshot(history.block_id, DemotionConfig::default())?;
         history.bpm = snapshot.bpm;
         history.reps_done = snapshot.reps_done;
         history.attempt_ceiling = snapshot.attempt_ceiling;
@@ -1080,6 +1156,7 @@ impl Store {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_record_attempt(
         &self,
         session_hint: Option<i64>,
@@ -1090,6 +1167,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         now: &str,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<V2Mutation> {
         // `rep_variant` is derived from the durable set projection, not supplied
         // by the caller. A retry after the first delivery commits can therefore
@@ -1116,7 +1194,7 @@ impl Store {
             now,
         )? {
             super::practice_loop::OperationStart::Replay(mut receipt) => {
-                let snapshot = project(&tx, block_id)?;
+                let snapshot = project(&tx, block_id, demotion)?;
                 receipt.value = Some(snapshot.clone());
                 return Ok(V2Mutation {
                     snapshot,
@@ -1136,7 +1214,7 @@ impl Store {
         )?;
         pending.session_id = Some(session.id);
         ensure_sidecars(&tx, block_id)?;
-        let before = project(&tx, block_id)?;
+        let before = project(&tx, block_id, demotion)?;
         if !matches!(before.set_state.as_str(), "active" | "paused" | "mastered") {
             return Err(invalid("practice set is already terminal"));
         }
@@ -1179,7 +1257,7 @@ impl Store {
             rusqlite::params![rep_id, source_name(source), command_id, now],
         )?;
 
-        let after_attempt = project(&tx, block_id)?;
+        let after_attempt = project(&tx, block_id, demotion)?;
         let new_bpm = projected_retune(before.bpm, after_attempt.bpm);
         let payload = json!({
             "block_id": block_id,
@@ -1238,7 +1316,7 @@ impl Store {
             )?;
             event_ids.push(tempo_event_id);
         }
-        let after_tempo = project(&tx, block_id)?;
+        let after_tempo = project(&tx, block_id, demotion)?;
         if after_tempo.mastery_status == "satisfied" {
             super::practice_loop::close_active_interval(
                 &tx,
@@ -1253,7 +1331,7 @@ impl Store {
             )?;
             tx.execute("UPDATE rep_block SET status='done' WHERE id=?1", [block_id])?;
         }
-        let snapshot = project(&tx, block_id)?;
+        let snapshot = project(&tx, block_id, demotion)?;
         let receipt = super::practice_loop::finish_operation(
             &tx,
             pending,
@@ -1298,6 +1376,7 @@ impl Store {
         command_id: &str,
         keep_open: bool,
         now: Option<&str>,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<V2Mutation> {
         let mut conn = self
             .conn
@@ -1305,7 +1384,7 @@ impl Store {
             .unwrap_or_else(|poison| poison.into_inner());
         let tx = conn.transaction()?;
         ensure_sidecars(&tx, block_id)?;
-        let before = project(&tx, block_id)?;
+        let before = project(&tx, block_id, demotion)?;
         let attempt_id = attempt_id
             .or(before.last_attempt_id)
             .ok_or_else(|| invalid("no effective attempt to adjust"))?;
@@ -1330,7 +1409,7 @@ impl Store {
             ],
             |row| row.get(0),
         )?;
-        let mut snapshot = project(&tx, block_id)?;
+        let mut snapshot = project(&tx, block_id, demotion)?;
         // Corrections repair attempt truth; they do not rewrite how a set left
         // the live lifecycle. Mastered, restarted, explicitly abandoned, and
         // unresolved closed sets retain that terminal lineage even if the
@@ -1367,7 +1446,7 @@ impl Store {
                 "UPDATE rep_block SET status=?2 WHERE id=?1",
                 rusqlite::params![block_id, compat],
             )?;
-            snapshot = project(&tx, block_id)?;
+            snapshot = project(&tx, block_id, demotion)?;
         }
         let payload = json!({
             "block_id": block_id,
@@ -1441,6 +1520,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         now: Option<&str>,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<V2Mutation> {
         self.v2_adjust(
             Some(session_id),
@@ -1453,6 +1533,7 @@ impl Store {
             command_id,
             true,
             now,
+            demotion,
         )
     }
 
@@ -1469,6 +1550,7 @@ impl Store {
         command_id: &str,
         keep_open: bool,
         now: Option<&str>,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<V2Mutation> {
         let (kind, after) = if replace_note {
             (
@@ -1483,10 +1565,11 @@ impl Store {
         };
         self.v2_adjust(
             session_id, block_id, attempt_id, kind, &after, None, source, command_id, keep_open,
-            now,
+            now, demotion,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_void_history_attempt(
         &self,
         block_id: i64,
@@ -1494,6 +1577,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         keep_open: bool,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<V2Mutation> {
         self.v2_adjust(
             None,
@@ -1506,6 +1590,7 @@ impl Store {
             command_id,
             keep_open,
             None,
+            demotion,
         )
     }
 
@@ -1530,6 +1615,7 @@ impl Store {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_reverse_adjustment(
         &self,
         session_id: i64,
@@ -1538,6 +1624,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         now: Option<&str>,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<V2Mutation> {
         let conn = self
             .conn
@@ -1561,9 +1648,11 @@ impl Store {
             command_id,
             true,
             now,
+            demotion,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_restart(
         &self,
         session_id: i64,
@@ -1572,6 +1661,7 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         now: &str,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<V2Open> {
         let mut conn = self
             .conn
@@ -1652,7 +1742,7 @@ impl Store {
                 timestamp: Some(now),
             },
         )?;
-        let snapshot = project(&tx, new_id)?;
+        let snapshot = project(&tx, new_id, demotion)?;
         tx.commit()?;
         Ok(V2Open {
             snapshot,
@@ -1661,6 +1751,7 @@ impl Store {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_close(
         &self,
         session_id: i64,
@@ -1668,13 +1759,14 @@ impl Store {
         source: MutationSource,
         command_id: &str,
         now: &str,
+        demotion: DemotionConfig,
     ) -> rusqlite::Result<V2Mutation> {
         let mut conn = self
             .conn
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let tx = conn.transaction()?;
-        let before = project(&tx, block_id)?;
+        let before = project(&tx, block_id, demotion)?;
         if !matches!(before.set_state.as_str(), "active" | "paused" | "mastered") {
             return Err(invalid("practice set is already terminal"));
         }
@@ -1704,7 +1796,7 @@ impl Store {
             "UPDATE rep_block SET status=?2 WHERE id=?1",
             rusqlite::params![block_id, compat],
         )?;
-        let snapshot = project(&tx, block_id)?;
+        let snapshot = project(&tx, block_id, demotion)?;
         let close_payload = json!({
             "block_id": block_id,
             "piece_id": snapshot.piece_id,

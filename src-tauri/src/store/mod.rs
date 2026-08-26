@@ -1386,6 +1386,7 @@ mod tests {
         let rule = IncrementRule {
             clean_needed: 1,
             bpm_step: 4.0,
+            ..Default::default()
         };
         assert!(store
             .insert_rep_block_with_practice_event(
@@ -2904,6 +2905,7 @@ mod tests {
         let rule = IncrementRule {
             clean_needed: 3,
             bpm_step: 4.0,
+            ..Default::default()
         };
         let variants = vec![VariantSpec {
             name: "hands together".into(),
@@ -2971,6 +2973,7 @@ mod tests {
         let rule = IncrementRule {
             clean_needed: 1,
             bpm_step: 2.0,
+            ..Default::default()
         };
         store
             .insert_rep_block(

@@ -79,6 +79,7 @@ pub fn resolve_auto_with_defaults(
         IncrementRule {
             clean_needed,
             bpm_step,
+            ..Default::default()
         },
         planned_reps,
     )
@@ -202,6 +203,7 @@ mod tests {
         let rule = IncrementRule {
             clean_needed: 3,
             bpm_step: 4.0,
+            ..Default::default()
         };
         assert_eq!(step(&rule, 3, 80.0, Some(120.0)), Some(84.0));
         assert_eq!(
@@ -221,6 +223,7 @@ mod tests {
         let rule = IncrementRule {
             clean_needed: 1,
             bpm_step: 4.0,
+            ..Default::default()
         };
         // 118 + 4 would be 122, but the target 120 caps it.
         assert_eq!(step(&rule, 1, 118.0, Some(120.0)), Some(120.0));
@@ -235,6 +238,7 @@ mod tests {
         let rule = IncrementRule {
             clean_needed: 1,
             bpm_step: 4.0,
+            ..Default::default()
         };
         assert_eq!(step(&rule, 99, 80.0, None), None, "no target ⇒ never steps");
     }

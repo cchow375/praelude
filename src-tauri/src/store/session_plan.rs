@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::model::{
-    IncrementRule, MutationEntityRef, MutationReceipt, RepOpenArgs, RepSnapshot,
+    DemotionConfig, IncrementRule, MutationEntityRef, MutationReceipt, RepOpenArgs, RepSnapshot,
     SetFocusContextInput,
 };
 use super::practice_loop::{
@@ -232,7 +232,7 @@ impl Store {
                 // Re-project the block so a replay reflects live truth rather
                 // than the snapshot frozen at first commit.
                 if let Some(outcome) = receipt.value.as_mut() {
-                    outcome.snapshot = project(&tx, outcome.block_id)?;
+                    outcome.snapshot = project(&tx, outcome.block_id, DemotionConfig::default())?;
                 }
                 tx.commit()?;
                 return Ok(receipt);
@@ -260,6 +260,7 @@ impl Store {
         let rule = IncrementRule {
             clean_needed: required,
             bpm_step: 1.0,
+            ..Default::default()
         };
         let args = RepOpenArgs {
             tuning: Default::default(),
@@ -304,6 +305,7 @@ impl Store {
             source,
             &command_id,
             now,
+            DemotionConfig::default(),
         )?;
         pending.session_id = Some(opened.session_id);
 
@@ -699,6 +701,7 @@ mod tests {
                 MutationSource::UserClick,
                 "close-plan-prog-1",
                 "2026-07-16T12:05:00Z",
+                DemotionConfig::default(),
             )
             .expect("closes first block");
         assert_eq!(active_sets(&store), 0);

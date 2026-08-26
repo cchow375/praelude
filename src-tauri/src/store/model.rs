@@ -109,10 +109,50 @@ pub struct Intake {
 /// `"auto"` request is resolved to concrete numbers when the block opens).
 // Consumed by the Task 17 rep engine; only tests construct it in this task.
 #[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct IncrementRule {
     pub clean_needed: u32,
     pub bpm_step: f64,
+    /// A1: per-set override of `rep.demote_enabled`. `None` = use the global
+    /// setting. `#[serde(default)]` so old stored JSON (and the nullable
+    /// `increment_rule` column) deserializes unchanged.
+    #[serde(default)]
+    pub demote_enabled: Option<bool>,
+    /// A1: per-set override of `rep.demote_first` (consecutive sloppy reps
+    /// before the first demotion in a set). `None` = use the global setting.
+    #[serde(default)]
+    pub demote_first: Option<u32>,
+    /// A1: per-set override of `rep.demote_repeat` (consecutive sloppy reps
+    /// required for subsequent demotions once `demoted_this_set` is true).
+    /// `None` = use the global setting.
+    #[serde(default)]
+    pub demote_repeat: Option<u32>,
+}
+
+/// A1: the resolved tempo-demotion configuration for one projection. Resolved
+/// OUTSIDE the store's `conn` lock (in `rep::mod`, from the per-set
+/// [`IncrementRule`] overrides and the `rep.demote_*` settings) and passed in
+/// as a plain parameter — never read from settings inside `project_tempo`,
+/// which runs while the store's connection mutex is held (see the lock-trap
+/// note on `project_tempo`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DemotionConfig {
+    pub enabled: bool,
+    /// Consecutive `flawed` reps before the first demotion in a set.
+    pub first: u32,
+    /// Consecutive `flawed` reps before each subsequent demotion, once a set
+    /// has already demoted once (`demoted_this_set`).
+    pub repeat: u32,
+}
+
+impl Default for DemotionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            first: 3,
+            repeat: 2,
+        }
+    }
 }
 
 /// A named practice variant within a block (e.g. "hands separate", `reps`
@@ -770,6 +810,16 @@ pub struct RepSnapshot {
     /// A5: the set's own metronome tuning. See [`RepOpenArgs::tuning`].
     #[serde(default)]
     pub tuning: SetTuning,
+    /// A1: consecutive `flawed` reps accumulated toward the next automatic
+    /// demotion. Resets to 0 on a `clean` rep or a demotion; untouched by
+    /// `failed`.
+    #[serde(default)]
+    pub current_sloppy_streak: u32,
+    /// A1: whether an automatic demotion has occurred anywhere in this set.
+    /// Once true, the demotion threshold for the rest of the set is
+    /// `rep.demote_repeat` rather than `rep.demote_first`.
+    #[serde(default)]
+    pub demoted_this_set: bool,
 }
 
 /// The result of recording one rep (`rep_check`): the updated snapshot, the new

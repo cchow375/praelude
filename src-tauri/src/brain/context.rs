@@ -600,6 +600,7 @@ mod tests {
                 &IncrementRule {
                     clean_needed: 3,
                     bpm_step: 4.0,
+                    ..Default::default()
                 },
                 10,
                 &[],
@@ -679,6 +680,7 @@ mod tests {
                 &IncrementRule {
                     clean_needed: 3,
                     bpm_step: 4.0,
+                    ..Default::default()
                 },
                 10,
                 &[],
@@ -736,6 +738,7 @@ mod tests {
                     &IncrementRule {
                         clean_needed: 3,
                         bpm_step: 4.0,
+                        ..Default::default()
                     },
                     10,
                     &[],
@@ -823,6 +826,7 @@ mod tests {
                 &IncrementRule {
                     clean_needed: 3,
                     bpm_step: 4.0,
+                    ..Default::default()
                 },
                 5,
                 &[],

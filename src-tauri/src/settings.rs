@@ -93,6 +93,14 @@ pub struct SettingsSnapshot {
     pub hotkey_verdict_sloppy: String,
     pub hotkey_verdict_again: String,
     pub verdict_aliases: VerdictAliases,
+    /// A1: whether the tempo ladder demotes automatically after consecutive
+    /// sloppy reps. Per-set overridable via `IncrementRule.demote_enabled`.
+    pub demote_enabled: bool,
+    /// A1: consecutive `flawed` reps before the FIRST demotion in a set.
+    pub demote_first: u32,
+    /// A1: consecutive `flawed` reps before each SUBSEQUENT demotion, once
+    /// `demoted_this_set` is true.
+    pub demote_repeat: u32,
     pub api_keys: Vec<ApiKeyStatus>,
 }
 
@@ -122,6 +130,9 @@ pub struct SettingsPatch {
     pub hotkey_verdict_sloppy: Option<String>,
     pub hotkey_verdict_again: Option<String>,
     pub verdict_aliases: Option<VerdictAliases>,
+    pub demote_enabled: Option<bool>,
+    pub demote_first: Option<u32>,
+    pub demote_repeat: Option<u32>,
 }
 
 pub fn snapshot(store: &Store) -> SettingsSnapshot {
@@ -178,6 +189,12 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
         hotkey_verdict_sloppy: key_code(store, "hotkeys.verdict_sloppy", "ShiftRight"),
         hotkey_verdict_again: key_code(store, "hotkeys.verdict_again", "Enter"),
         verdict_aliases: aliases(store),
+        // A1 "the punishment": Christian's request for more consequence when
+        // the ladder only ever climbed. Sloppy-only by design (Q4) — see
+        // `store::practice_v2::project_tempo`.
+        demote_enabled: boolean(store, "rep.demote_enabled", true),
+        demote_first: integer(store, "rep.demote_first", 3, 2, 10),
+        demote_repeat: integer(store, "rep.demote_repeat", 2, 1, 10),
         api_keys: vec![
             api_key_status(ApiKeyProvider::Claude),
             api_key_status(ApiKeyProvider::Gemini),
@@ -312,6 +329,21 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
         writes.push((
             "voice.verdict_aliases",
             serde_json::to_string(&aliases).map_err(|_| "Could not encode verdict aliases.")?,
+        ));
+    }
+    if let Some(value) = patch.demote_enabled {
+        writes.push(("rep.demote_enabled", value.to_string()));
+    }
+    if let Some(value) = patch.demote_first {
+        writes.push((
+            "rep.demote_first",
+            bounded(value, 2, 10, "Demote after (first)")?.to_string(),
+        ));
+    }
+    if let Some(value) = patch.demote_repeat {
+        writes.push((
+            "rep.demote_repeat",
+            bounded(value, 1, 10, "Demote after (repeat)")?.to_string(),
         ));
     }
     if writes.is_empty() {
@@ -629,10 +661,33 @@ mod tests {
         assert_eq!(value.ladder_default_reps, 30);
         assert_eq!(value.practice_default_clean_streak, 5);
         assert_eq!(value.ladder_bpm_step, 4);
+        assert!(value.demote_enabled, "A1 demotion is on by default");
+        assert_eq!(value.demote_first, 3);
+        assert_eq!(value.demote_repeat, 2);
         assert!(value
             .api_keys
             .iter()
             .all(|status| matches!(status.source, "keychain" | "environment" | "none")));
+    }
+
+    #[test]
+    fn demotion_settings_are_bounded() {
+        let store = Store::open(":memory:").unwrap();
+        store.set_setting("rep.demote_first", "1").unwrap();
+        store.set_setting("rep.demote_repeat", "99").unwrap();
+        store
+            .set_setting("rep.demote_enabled", "not a bool")
+            .unwrap();
+        let value = snapshot(&store);
+        assert_eq!(
+            value.demote_first, 3,
+            "out-of-range stored value falls back"
+        );
+        assert_eq!(
+            value.demote_repeat, 2,
+            "out-of-range stored value falls back"
+        );
+        assert!(value.demote_enabled, "junk stored value falls back");
     }
 
     #[test]
@@ -649,6 +704,9 @@ mod tests {
                 practice_default_clean_streak: Some(7),
                 ladder_bpm_step: Some(6),
                 calendar_capacity_minutes: Some(90),
+                demote_enabled: Some(false),
+                demote_first: Some(4),
+                demote_repeat: Some(3),
                 ..Default::default()
             },
         )
@@ -661,6 +719,9 @@ mod tests {
         assert_eq!(result.practice_default_clean_streak, 7);
         assert_eq!(result.ladder_bpm_step, 6);
         assert_eq!(result.calendar_capacity_minutes, 90);
+        assert!(!result.demote_enabled);
+        assert_eq!(result.demote_first, 4);
+        assert_eq!(result.demote_repeat, 3);
     }
 
     #[test]
@@ -694,6 +755,24 @@ mod tests {
         )
         .is_err());
         assert_eq!(store.get_setting("ui.interface_scale").unwrap(), None);
+        assert!(update(
+            &store,
+            SettingsPatch {
+                demote_first: Some(1),
+                ..Default::default()
+            }
+        )
+        .is_err());
+        assert_eq!(store.get_setting("rep.demote_first").unwrap(), None);
+        assert!(update(
+            &store,
+            SettingsPatch {
+                demote_repeat: Some(11),
+                ..Default::default()
+            }
+        )
+        .is_err());
+        assert_eq!(store.get_setting("rep.demote_repeat").unwrap(), None);
     }
 
     #[test]

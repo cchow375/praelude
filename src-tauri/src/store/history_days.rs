@@ -14,6 +14,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 
 use super::day_sheet::DaySheet;
+use super::model::DemotionConfig;
 use super::practice_v2::{invalid, project};
 use super::Store;
 use crate::date::Date;
@@ -386,7 +387,11 @@ impl Store {
                     .conn
                     .lock()
                     .unwrap_or_else(|poison| poison.into_inner());
-                project(&conn, row.block_id)?.mastery_status
+                // Historical/display-only read of mastery_status, which does
+                // not depend on the ladder's automatic-demotion path — the
+                // global demotion default is fine here (see the lock-trap note
+                // on `project_tempo`).
+                project(&conn, row.block_id, DemotionConfig::default())?.mastery_status
             };
             sets.push(HistoryDaySet {
                 block_id: row.block_id,
