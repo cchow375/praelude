@@ -482,17 +482,18 @@ impl SessionService {
     /// `lifecycle` in the lattice `lifecycle < current < pause_hook < active
     /// < store.conn`, which is exactly what `rep.active` does.
     ///
-    /// NOTE (B56 residual, see NOTES.md): this closes the exporter-side
-    /// window. Task 1 (v7.1.0) additionally closed the opener-side window for
-    /// `open_from`/`check_from`/`close_from`/`undo`/`checkpoint` via
-    /// [`Self::with_session_locked`], which holds `lifecycle` across both
-    /// session resolution and the caller's `self.active` mutation. The same,
-    /// narrower `ensure_session()`-returns-then-`self.active`-is-locked
-    /// window STILL exists in `rep/mod.rs`'s other mutation methods
-    /// (`correct`, `reverse_adjustment`, `restart`, `session_plan_start`,
-    /// `pause`, `resume`, `reflect`, `safety_stop_after_commit`, `recover`),
-    /// which were not in that task's scope — not fixed here, tracked as a
-    /// follow-up.
+    /// NOTE (B56, see NOTES.md): this closes the exporter-side window. Task 1
+    /// (v7.1.0) closed the opener-side window for `open_from`/`check_from`/
+    /// `close_from`/`undo`/`checkpoint`, and a follow-up pass converted the
+    /// remaining nine mutation methods in `rep/mod.rs` — `correct`,
+    /// `reverse_adjustment`, `restart`, `session_plan_start`, `pause`,
+    /// `resume`, `reflect`, `safety_stop_after_commit`, `recover` — to the
+    /// same [`Self::with_session_locked`] shape, one at a time with a full
+    /// `cargo test` between each and zero reverts. Every mutation method in
+    /// `rep/mod.rs` that resolves a session and then touches `self.active`
+    /// now does so inside a single `lifecycle`-held critical section; no
+    /// path resolves a session, releases `lifecycle`, and only then locks
+    /// `self.active`. B56 is closed, not merely narrowed.
     pub fn end_and_export_guarded<E>(
         &self,
         store: &Store,

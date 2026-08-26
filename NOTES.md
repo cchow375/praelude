@@ -75,6 +75,32 @@
   and it builds fine, but it puts gratuitous churn in a release diff. Use a targeted regex on
   that file, as with `Cargo.toml`.
 
+- **B56 CLOSED (v7.1.0, 2026-08-25) — see the entry below this one for the final state.** The
+  entry immediately below is the original P0 fix and its residual-window analysis, kept verbatim
+  for the record. A follow-up task converted the nine remaining `rep/mod.rs` mutation methods
+  (`correct`, `reverse_adjustment`, `restart`, `session_plan_start`, `pause`, `resume`, `reflect`,
+  `safety_stop_after_commit`, `recover`) named in that residual to `SessionService::with_session_
+locked`, the same shape already used by `open_from`/`check_from`/`close_from`/`undo`/
+  `checkpoint`. Converted one method at a time with a full unfiltered `cargo test` between each —
+  **zero reverts, zero hangs**. Every mutation method in `rep/mod.rs` that resolves a session and
+  then touches `self.active` now does so inside one `lifecycle`-held critical section; no method
+  resolves a session, releases `lifecycle`, and only then locks `self.active`. `resume`'s DB-wide
+  "untracked" fallback peek (`store.paused_sets_list()`) still runs before the closure, which is
+  fine — it is a plain `store` read, not a `SessionService` call, so it carries no lattice risk.
+  `safety_stop_after_commit`'s `after_commit()` runs inside the closure (unchanged ordering vs.
+  before — the physical stop must still happen before a concurrent resume can overtake it);
+  traced its one production call site (`lib.rs`, `metro.do_safety_stop()`) and confirmed it never
+  reaches back into `SessionService`, so it cannot self-deadlock on the non-reentrant `lifecycle`
+  mutex. Verification beyond the standard gates: the two deadlock regression tests
+  (`end_session_and_export_does_not_deadlock_with_a_concurrent_day_boundary_rollover`,
+  `day_rollover_pause_does_not_deadlock_a_practice_mutation_holding_active`) and the two
+  resume-cannot-overtake-the-safety-physical-stop tests each ran clean 20/20 in isolation; the
+  full `rep::tests` module ran clean 20/20. Gates: cargo **964 passed / 0 failed** (baseline moved
+  from 960 to 964 by unrelated concurrent settings.rs work in this session, not by this change),
+  `filtered out: 0`, clippy `--all-targets --all-features -D warnings` clean. **B56 is now closed,
+  not narrowed:** no known window remains in `rep/mod.rs` in which a rep can land against a
+  session record that a concurrent exporter is closing.
+
 - **B56 (task 1, v7.0.1, 2026-08-25) — the exporter-side race is closed; the flaw is NARROWED,
   NOT RESOLVED.** `RepEngine::end_session_and_export` used to peek `self.active`, drop the guard,
   then call `sessions.end_and_export` — a TOCTOU window in which a concurrent `open`/`checkpoint`
