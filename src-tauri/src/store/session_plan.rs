@@ -262,6 +262,7 @@ impl Store {
             bpm_step: 1.0,
         };
         let args = RepOpenArgs {
+            tuning: Default::default(),
             piece_id,
             region_id: Some(region_id),
             m_start,

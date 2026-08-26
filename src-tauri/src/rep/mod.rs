@@ -1772,6 +1772,7 @@ mod tests {
 
     fn open_args(pid: i64) -> RepOpenArgs {
         RepOpenArgs {
+            tuning: Default::default(),
             piece_id: pid,
             region_id: None,
             m_start: 40,
@@ -1806,6 +1807,7 @@ mod tests {
         start: f64,
     ) -> RepOpenArgs {
         RepOpenArgs {
+            tuning: Default::default(),
             piece_id: 1,
             region_id: None,
             m_start: 1,
@@ -1831,6 +1833,7 @@ mod tests {
     /// mastery targets are meaningful only for tempo-focus contracts.
     fn open_args_focus(focus: &str) -> RepOpenArgs {
         RepOpenArgs {
+            tuning: Default::default(),
             piece_id: 1,
             region_id: None,
             m_start: 1,
@@ -1852,6 +1855,7 @@ mod tests {
 
     fn strict_notes_args(piece_id: i64, required: u32) -> RepOpenArgs {
         RepOpenArgs {
+            tuning: Default::default(),
             piece_id,
             region_id: None,
             m_start: 1,
@@ -2871,6 +2875,7 @@ mod tests {
         let opened = engine
             .open_with_context(
                 RepOpenArgs {
+                    tuning: Default::default(),
                     piece_id,
                     region_id: Some(region.id),
                     m_start: 73,
@@ -3944,6 +3949,62 @@ mod tests {
         assert_eq!(hist[0].reps_done, 0);
     }
 
+    /// A5: a set's own metronome tuning is persisted at open and comes back
+    /// on the snapshot. `beat_unit` never touches `bpm` — it is a label.
+    #[test]
+    fn open_persists_and_returns_the_sets_metronome_tuning() {
+        let (engine, pid, _store, _rec) = engine_with_piece();
+        let mut args = open_args(pid);
+        args.tuning = crate::store::model::SetTuning {
+            beat_unit: crate::store::model::BeatUnit::DottedQuarter,
+            subdivision: 3,
+            beats_per_bar: 6,
+        };
+        let snap = engine.open(args).unwrap();
+        assert_eq!(
+            snap.tuning.beat_unit,
+            crate::store::model::BeatUnit::DottedQuarter
+        );
+        assert_eq!(snap.tuning.subdivision, 3);
+        assert_eq!(snap.tuning.beats_per_bar, 6);
+        // beat_unit is a label: bpm is exactly what was entered, untouched.
+        assert_eq!(snap.bpm, Some(80.0));
+    }
+
+    /// A block opened without an explicit `tuning` (every existing caller)
+    /// keeps today's behaviour: quarter / 1 / 4.
+    #[test]
+    fn open_without_explicit_tuning_defaults_to_quarter_1_4() {
+        let (engine, pid, _store, _rec) = engine_with_piece();
+        let snap = engine.open(open_args(pid)).unwrap();
+        assert_eq!(
+            snap.tuning,
+            crate::store::model::SetTuning::default(),
+            "a legacy-shaped open must behave exactly as before"
+        );
+    }
+
+    /// Restarting a set carries its tuning forward — restart has no tuning
+    /// argument of its own, so the new set inherits the old one's.
+    #[test]
+    fn restart_carries_the_sets_tuning_forward() {
+        let (engine, pid, _store, _rec) = engine_with_piece();
+        let mut args = open_args(pid);
+        args.tuning = crate::store::model::SetTuning {
+            beat_unit: crate::store::model::BeatUnit::Eighth,
+            subdivision: 2,
+            beats_per_bar: 3,
+        };
+        engine.open(args).unwrap();
+        let restarted = engine.restart(None).unwrap();
+        assert_eq!(
+            restarted.tuning.beat_unit,
+            crate::store::model::BeatUnit::Eighth
+        );
+        assert_eq!(restarted.tuning.subdivision, 2);
+        assert_eq!(restarted.tuning.beats_per_bar, 3);
+    }
+
     #[test]
     fn opening_reps_inside_a_tricky_section_links_the_same_canonical_region() {
         let (engine, pid, store, _rec) = engine_with_piece();
@@ -4069,6 +4130,7 @@ mod tests {
     fn variants_lane_through_and_announce_next() {
         let (engine, pid, _store, _rec) = engine_with_piece();
         let args = RepOpenArgs {
+            tuning: Default::default(),
             piece_id: pid,
             region_id: None,
             m_start: 1,
@@ -4114,6 +4176,7 @@ mod tests {
         let (engine, pid, store, _rec) = engine_with_piece();
         // planned 2, no target: two reps then done.
         let args = RepOpenArgs {
+            tuning: Default::default(),
             planned_reps: Some(2),
             required_clean_streak: Some(2),
             target_bpm: None,
@@ -4358,6 +4421,7 @@ mod tests {
     fn tempo_mastery_requires_full_streak_at_target_condition() {
         let (engine, pid, _store, _rec) = engine_with_piece();
         let args = RepOpenArgs {
+            tuning: Default::default(),
             piece_id: pid,
             region_id: None,
             m_start: 1,
@@ -4392,6 +4456,7 @@ mod tests {
         let (engine, pid, store, _rec) = engine_with_piece();
         let opened = engine
             .open(RepOpenArgs {
+                tuning: Default::default(),
                 piece_id: pid,
                 region_id: None,
                 m_start: 1,
@@ -4441,6 +4506,7 @@ mod tests {
         let (engine, pid, _store, _rec) = engine_with_piece();
         engine
             .open(RepOpenArgs {
+                tuning: Default::default(),
                 piece_id: pid,
                 region_id: None,
                 m_start: 1,
@@ -4579,6 +4645,7 @@ mod tests {
         let (engine, pid, store, _rec) = engine_with_piece();
         engine
             .open(RepOpenArgs {
+                tuning: Default::default(),
                 piece_id: pid,
                 region_id: None,
                 m_start: 1,
@@ -5318,6 +5385,7 @@ mod tests {
 
     fn tempo_args(piece_id: i64, target_bpm: f64) -> RepOpenArgs {
         RepOpenArgs {
+            tuning: Default::default(),
             piece_id,
             region_id: None,
             m_start: 1,

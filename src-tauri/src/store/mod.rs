@@ -1190,6 +1190,34 @@ mod tests {
     }
 
     #[test]
+    fn v16_adds_set_tuning_defaulted_for_every_existing_block() {
+        let store = mem();
+        let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.execute(
+            "INSERT INTO piece (title, folder_path) VALUES ('Test Piece', '/tmp/test-piece')",
+            [],
+        )
+        .unwrap();
+        let piece_id: i64 = conn
+            .query_row("SELECT id FROM piece", [], |row| row.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO rep_block (piece_id, m_start, m_end) VALUES (?1, 1, 8)",
+            [piece_id],
+        )
+        .unwrap();
+        let tuning: String = conn
+            .query_row("SELECT tuning_json FROM rep_block LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .expect("column exists and is populated");
+        assert_eq!(
+            tuning, "{}",
+            "existing rows default to an empty tuning object"
+        );
+    }
+
+    #[test]
     fn session_last_event_and_same_local_day_never_adopts_an_ended_session() {
         let store = mem();
         let sid = store.open_session().expect("open session");

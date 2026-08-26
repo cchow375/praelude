@@ -124,6 +124,55 @@ pub struct VariantSpec {
     pub reps: u32,
 }
 
+/// The note value a set's bpm number counts — a LABEL only. `ClickPattern.bpm`
+/// (`audio/clock.rs`) has no note-value semantics anywhere in the engine: the
+/// entered number IS the click rate. Changing `beat_unit` must never multiply,
+/// divide, or otherwise convert the stored bpm — doing so would silently
+/// change the tempo of every existing set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BeatUnit {
+    #[default]
+    Quarter,
+    Eighth,
+    DottedQuarter,
+    Half,
+}
+
+/// A set's own metronome tuning (A5): the beat-unit label plus the engine's
+/// existing `subdivision`/`beats_per_bar` dimensions (`audio/clock.rs:21-52`),
+/// which already support 1-16 and are not locked to a quarter note. This
+/// struct is what a set remembers between opens/restarts; `#[serde(default)]`
+/// on every field means `{}` and every pre-v16 row (which has none of these
+/// keys) deserialize to today's behaviour exactly (quarter / 1 / 4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetTuning {
+    #[serde(default)]
+    pub beat_unit: BeatUnit,
+    #[serde(default = "default_subdivision")]
+    pub subdivision: u8,
+    #[serde(default = "default_beats_per_bar")]
+    pub beats_per_bar: u8,
+}
+
+fn default_subdivision() -> u8 {
+    1
+}
+
+fn default_beats_per_bar() -> u8 {
+    4
+}
+
+impl Default for SetTuning {
+    fn default() -> Self {
+        SetTuning {
+            beat_unit: BeatUnit::Quarter,
+            subdivision: default_subdivision(),
+            beats_per_bar: default_beats_per_bar(),
+        }
+    }
+}
+
 /// Tally of rep verdicts, used in block history and rep snapshots.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -248,6 +297,11 @@ pub struct RepOpenArgs {
     /// Whether a ladder step should retune the metronome. Defaults to `true`.
     #[serde(default = "default_use_metronome")]
     pub use_metronome: bool,
+    /// A5: the set's own metronome tuning (beat-unit label + subdivision +
+    /// beats-per-bar). Omitted by every existing caller and stored payload,
+    /// so `#[serde(default)]` preserves today's behaviour exactly.
+    #[serde(default)]
+    pub tuning: SetTuning,
 }
 
 /// Optional focus-loop evidence supplied beside `RepOpenArgs` at the IPC
@@ -297,6 +351,87 @@ mod nullable_bpm_tests {
         }))
         .unwrap();
         assert_eq!(args.start_bpm, 0.0);
+    }
+
+    /// A `RepOpenArgs` payload omitting `tuning` entirely (every existing
+    /// caller and every stored pre-v16 payload) must load with today's
+    /// defaults, never fail deserialization.
+    #[test]
+    fn rep_open_args_without_tuning_key_defaults_to_quarter_1_4() {
+        let args: RepOpenArgs = serde_json::from_value(serde_json::json!({
+            "piece_id": 1,
+            "m_start": 1,
+            "m_end": 8,
+            "start_bpm": 80.0,
+        }))
+        .unwrap();
+        assert_eq!(args.tuning, SetTuning::default());
+        assert_eq!(args.tuning.beat_unit, BeatUnit::Quarter);
+        assert_eq!(args.tuning.subdivision, 1);
+        assert_eq!(args.tuning.beats_per_bar, 4);
+    }
+}
+
+#[cfg(test)]
+mod set_tuning_tests {
+    use super::*;
+
+    #[test]
+    fn set_tuning_round_trips_through_json() {
+        let tuning = SetTuning {
+            beat_unit: BeatUnit::DottedQuarter,
+            subdivision: 3,
+            beats_per_bar: 6,
+        };
+        let raw = json_to_sql(&tuning).unwrap();
+        let back: SetTuning = json_from_sql(&raw).unwrap();
+        assert_eq!(tuning, back);
+    }
+
+    /// The empty-object default written by the v16 migration for every
+    /// existing row must deserialize to quarter / 1 / 4 — today's behaviour.
+    #[test]
+    fn empty_json_object_yields_the_default_tuning() {
+        let tuning: SetTuning = json_from_sql("{}").unwrap();
+        assert_eq!(tuning, SetTuning::default());
+        assert_eq!(tuning.beat_unit, BeatUnit::Quarter);
+        assert_eq!(tuning.subdivision, 1);
+        assert_eq!(tuning.beats_per_bar, 4);
+    }
+
+    /// A partial object (only `beat_unit` set, as a composer control might
+    /// send) must default the remaining fields rather than fail to parse.
+    #[test]
+    fn partial_json_object_defaults_the_missing_fields() {
+        let tuning: SetTuning = json_from_sql(r#"{"beat_unit":"eighth"}"#).unwrap();
+        assert_eq!(tuning.beat_unit, BeatUnit::Eighth);
+        assert_eq!(tuning.subdivision, 1);
+        assert_eq!(tuning.beats_per_bar, 4);
+    }
+
+    #[test]
+    fn beat_unit_serializes_to_the_documented_wire_strings() {
+        assert_eq!(json_to_sql(&BeatUnit::Quarter).unwrap(), "\"quarter\"");
+        assert_eq!(json_to_sql(&BeatUnit::Eighth).unwrap(), "\"eighth\"");
+        assert_eq!(
+            json_to_sql(&BeatUnit::DottedQuarter).unwrap(),
+            "\"dotted_quarter\""
+        );
+        assert_eq!(json_to_sql(&BeatUnit::Half).unwrap(), "\"half\"");
+    }
+
+    /// `beat_unit` is a label, never a bpm conversion: changing it alone must
+    /// not touch anything else stored in `SetTuning`.
+    #[test]
+    fn changing_beat_unit_does_not_touch_subdivision_or_beats_per_bar() {
+        let mut tuning = SetTuning {
+            beat_unit: BeatUnit::Quarter,
+            subdivision: 2,
+            beats_per_bar: 3,
+        };
+        tuning.beat_unit = BeatUnit::Half;
+        assert_eq!(tuning.subdivision, 2);
+        assert_eq!(tuning.beats_per_bar, 3);
     }
 }
 
@@ -632,6 +767,9 @@ pub struct RepSnapshot {
     pub working_m_start: u32,
     #[serde(default)]
     pub working_m_end: u32,
+    /// A5: the set's own metronome tuning. See [`RepOpenArgs::tuning`].
+    #[serde(default)]
+    pub tuning: SetTuning,
 }
 
 /// The result of recording one rep (`rep_check`): the updated snapshot, the new

@@ -468,16 +468,42 @@ impl Metronome {
         inner.state.clone()
     }
 
+    /// Apply an optional A5 tuning override (beats-per-bar / subdivision) via
+    /// the existing `do_set` path, which already live-applies to a running
+    /// engine and persists unconditionally. Omitting both is a no-op — no
+    /// call, no persist — so `None` never changes today's behaviour. Called
+    /// before `do_ensure_running` so a subsequent (re)start reads the updated
+    /// `inner.state` when building its pattern.
+    fn apply_practice_tuning(
+        &self,
+        store: &Store,
+        beats_per_bar: Option<u8>,
+        subdivision: Option<u8>,
+    ) -> Result<(), String> {
+        if beats_per_bar.is_none() && subdivision.is_none() {
+            return Ok(());
+        }
+        let (_, result) = self.do_set(store, None, beats_per_bar, subdivision, None, None, None, None);
+        result
+    }
+
     /// Start or retune for a newly opened practice set. Starting a stopped click
     /// claims practice ownership; retuning an already-running click preserves
-    /// its existing owner (notably `manual`).
+    /// its existing owner (notably `manual`). `beats_per_bar`/`subdivision`
+    /// are the set's own A5 tuning (label + engine dimensions); omitted, they
+    /// leave the metronome's current values untouched exactly as before.
     pub(crate) fn do_practice_start(
         &self,
         store: &Store,
         set_id: i64,
         bpm: f64,
+        beats_per_bar: Option<u8>,
+        subdivision: Option<u8>,
     ) -> (MetroState, Result<(), String>) {
         let was_running = self.snapshot().running;
+        if let Err(err) = self.apply_practice_tuning(store, beats_per_bar, subdivision) {
+            return (self.snapshot(), Err(err));
+        }
         let (_, result) = self.do_ensure_running(store, Some(bpm));
         if result.is_ok() && !was_running {
             self.lock().state.owner = Some(MetroOwner::Practice { set_id });
@@ -494,8 +520,13 @@ impl Metronome {
         old_set_id: i64,
         new_set_id: i64,
         bpm: f64,
+        beats_per_bar: Option<u8>,
+        subdivision: Option<u8>,
     ) -> (MetroState, Result<(), String>) {
         let before = self.snapshot();
+        if let Err(err) = self.apply_practice_tuning(store, beats_per_bar, subdivision) {
+            return (self.snapshot(), Err(err));
+        }
         let (_, result) = self.do_ensure_running(store, Some(bpm));
         if result.is_ok() {
             let mut inner = self.lock();
@@ -527,9 +558,14 @@ impl Metronome {
         store: &Store,
         set_id: i64,
         bpm: f64,
+        beats_per_bar: Option<u8>,
+        subdivision: Option<u8>,
     ) -> (MetroState, Result<(), String>) {
         if self.snapshot().owner != Some(MetroOwner::Practice { set_id }) {
             return (self.snapshot(), Ok(()));
+        }
+        if let Err(err) = self.apply_practice_tuning(store, beats_per_bar, subdivision) {
+            return (self.snapshot(), Err(err));
         }
         self.do_ensure_running(store, Some(bpm))
     }
@@ -541,6 +577,8 @@ impl Metronome {
         store: &Store,
         set_id: i64,
         bpm: f64,
+        beats_per_bar: Option<u8>,
+        subdivision: Option<u8>,
     ) -> (MetroState, Result<(), String>) {
         if let Some(MetroOwner::Practice { set_id: owner }) = self.snapshot().owner {
             if owner != set_id {
@@ -550,7 +588,16 @@ impl Metronome {
                 );
             }
         }
-        self.do_set(store, Some(bpm), None, None, None, None, None, None)
+        self.do_set(
+            store,
+            Some(bpm),
+            beats_per_bar,
+            subdivision,
+            None,
+            None,
+            None,
+            None,
+        )
     }
 
     /// Close only stops a click owned by the closing set, then releases that
@@ -887,6 +934,8 @@ pub async fn metro_set(
 pub async fn metro_practice_start(
     set_id: i64,
     bpm: f64,
+    beats_per_bar: Option<u8>,
+    subdivision: Option<u8>,
     app: AppHandle,
     metro: State<'_, Arc<Metronome>>,
     store: State<'_, Arc<Store>>,
@@ -895,7 +944,8 @@ pub async fn metro_practice_start(
     let store = Arc::clone(&store);
     let (state, result) = tauri::async_runtime::spawn_blocking(move || {
         metro.serialized(|| {
-            let (state, result) = metro.do_practice_start(&store, set_id, bpm);
+            let (state, result) =
+                metro.do_practice_start(&store, set_id, bpm, beats_per_bar, subdivision);
             emit(&app, &state);
             (state, result)
         })
@@ -906,10 +956,13 @@ pub async fn metro_practice_start(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn metro_practice_restart(
     old_set_id: i64,
     new_set_id: i64,
     bpm: f64,
+    beats_per_bar: Option<u8>,
+    subdivision: Option<u8>,
     app: AppHandle,
     metro: State<'_, Arc<Metronome>>,
     store: State<'_, Arc<Store>>,
@@ -918,7 +971,14 @@ pub async fn metro_practice_restart(
     let store = Arc::clone(&store);
     let (state, result) = tauri::async_runtime::spawn_blocking(move || {
         metro.serialized(|| {
-            let (state, result) = metro.do_practice_restart(&store, old_set_id, new_set_id, bpm);
+            let (state, result) = metro.do_practice_restart(
+                &store,
+                old_set_id,
+                new_set_id,
+                bpm,
+                beats_per_bar,
+                subdivision,
+            );
             emit(&app, &state);
             (state, result)
         })
@@ -950,6 +1010,8 @@ pub async fn metro_practice_pause(
 pub async fn metro_practice_resume(
     set_id: i64,
     bpm: f64,
+    beats_per_bar: Option<u8>,
+    subdivision: Option<u8>,
     app: AppHandle,
     metro: State<'_, Arc<Metronome>>,
     store: State<'_, Arc<Store>>,
@@ -958,7 +1020,8 @@ pub async fn metro_practice_resume(
     let store = Arc::clone(&store);
     let (state, result) = tauri::async_runtime::spawn_blocking(move || {
         metro.serialized(|| {
-            let (state, result) = metro.do_practice_resume(&store, set_id, bpm);
+            let (state, result) =
+                metro.do_practice_resume(&store, set_id, bpm, beats_per_bar, subdivision);
             emit(&app, &state);
             (state, result)
         })
@@ -972,6 +1035,8 @@ pub async fn metro_practice_resume(
 pub async fn metro_practice_retune(
     set_id: i64,
     bpm: f64,
+    beats_per_bar: Option<u8>,
+    subdivision: Option<u8>,
     app: AppHandle,
     metro: State<'_, Arc<Metronome>>,
     store: State<'_, Arc<Store>>,
@@ -980,7 +1045,8 @@ pub async fn metro_practice_retune(
     let store = Arc::clone(&store);
     let (state, result) = tauri::async_runtime::spawn_blocking(move || {
         metro.serialized(|| {
-            let (state, result) = metro.do_practice_retune(&store, set_id, bpm);
+            let (state, result) =
+                metro.do_practice_retune(&store, set_id, bpm, beats_per_bar, subdivision);
             emit(&app, &state);
             (state, result)
         })
@@ -1389,7 +1455,7 @@ mod tests {
             metro.claim_manual();
         });
         let (manual_retune, result) =
-            metro.serialized(|| metro.do_practice_start(&store, 41, 72.0));
+            metro.serialized(|| metro.do_practice_start(&store, 41, 72.0, None, None));
         assert!(result.is_ok());
         assert_eq!(manual_retune.owner, Some(MetroOwner::Manual));
         assert_eq!(manual_retune.bpm, 72.0);
@@ -1403,7 +1469,7 @@ mod tests {
             metro.do_stop();
             metro.claim_manual();
         });
-        let (owned, result) = metro.serialized(|| metro.do_practice_start(&store, 41, 64.0));
+        let (owned, result) = metro.serialized(|| metro.do_practice_start(&store, 41, 64.0, None, None));
         assert!(result.is_ok());
         assert_eq!(owned.owner, Some(MetroOwner::Practice { set_id: 41 }));
         let paused = metro.serialized(|| metro.do_practice_pause(41));
@@ -1411,10 +1477,10 @@ mod tests {
         assert_eq!(paused.owner, Some(MetroOwner::Practice { set_id: 41 }));
 
         let (wrong_resume, result) =
-            metro.serialized(|| metro.do_practice_resume(&store, 99, 68.0));
+            metro.serialized(|| metro.do_practice_resume(&store, 99, 68.0, None, None));
         assert!(result.is_ok());
         assert!(!wrong_resume.running);
-        let (resumed, result) = metro.serialized(|| metro.do_practice_resume(&store, 41, 68.0));
+        let (resumed, result) = metro.serialized(|| metro.do_practice_resume(&store, 41, 68.0, None, None));
         assert!(result.is_ok());
         assert!(resumed.running);
         assert_eq!(resumed.bpm, 68.0);
@@ -1424,7 +1490,7 @@ mod tests {
         );
 
         let (restarted, result) =
-            metro.serialized(|| metro.do_practice_restart(&store, 41, 42, 60.0));
+            metro.serialized(|| metro.do_practice_restart(&store, 41, 42, 60.0, None, None));
         assert!(result.is_ok());
         assert_eq!(restarted.owner, Some(MetroOwner::Practice { set_id: 42 }));
         assert!(metro.serialized(|| metro.do_practice_pause(41)).running);
@@ -1434,7 +1500,7 @@ mod tests {
 
         // Manual intervention revokes the practice lease; safety stops every
         // owner and deliberately leaves no automatic-resume association.
-        let (owned_again, result) = metro.serialized(|| metro.do_practice_start(&store, 50, 80.0));
+        let (owned_again, result) = metro.serialized(|| metro.do_practice_start(&store, 50, 80.0, None, None));
         assert!(result.is_ok());
         assert_eq!(owned_again.owner, Some(MetroOwner::Practice { set_id: 50 }));
         metro.serialized(|| {
@@ -1452,6 +1518,81 @@ mod tests {
             4,
             "one manual and three practice starts"
         );
+    }
+
+    /// A5: starting a practice set with an explicit tuning applies it to the
+    /// live pattern, and omitting it (`None`) leaves today's behaviour
+    /// exactly unchanged — no reset of whatever the metronome already had.
+    #[test]
+    fn practice_start_forwards_beats_per_bar_and_subdivision_when_given() {
+        let (boost_seam, _vol) = recording_boost();
+        let metro = Metronome::with_seams(
+            sounds_with(&["woodblock"]),
+            MetroState::default(),
+            85,
+            |_cfg| Ok(EngineHandle::test_handle(48_000, 0)),
+            boost_seam,
+        );
+        let store = Store::open(":memory:").expect("in-memory store");
+
+        let (state, result) =
+            metro.serialized(|| metro.do_practice_start(&store, 1, 90.0, Some(3), Some(2)));
+        assert!(result.is_ok());
+        assert_eq!(state.beats_per_bar, 3);
+        assert_eq!(state.subdivision, 2);
+        assert_eq!(state.bpm, 90.0, "beat_unit/subdivision never touch bpm");
+    }
+
+    /// Omitting both tuning fields on every practice command must be a true
+    /// no-op on the engine's existing beats_per_bar/subdivision — proving an
+    /// omitted argument is never read as "reset to defaults".
+    #[test]
+    fn omitting_tuning_on_every_practice_command_preserves_current_values() {
+        let (boost_seam, _vol) = recording_boost();
+        let metro = Metronome::with_seams(
+            sounds_with(&["woodblock"]),
+            MetroState::default(),
+            85,
+            |_cfg| Ok(EngineHandle::test_handle(48_000, 0)),
+            boost_seam,
+        );
+        let store = Store::open(":memory:").expect("in-memory store");
+
+        // Establish a non-default tuning via metro_set's path (do_set), as the
+        // standalone popover would.
+        metro.serialized(|| {
+            let (_, result) =
+                metro.do_set(&store, Some(100.0), Some(5), Some(4), None, None, None, None);
+            assert!(result.is_ok());
+        });
+        assert_eq!(metro.snapshot().beats_per_bar, 5);
+        assert_eq!(metro.snapshot().subdivision, 4);
+
+        let (started, result) =
+            metro.serialized(|| metro.do_practice_start(&store, 7, 100.0, None, None));
+        assert!(result.is_ok());
+        assert_eq!(started.beats_per_bar, 5, "None must not reset beats_per_bar");
+        assert_eq!(started.subdivision, 4, "None must not reset subdivision");
+
+        let (resumed, result) = metro.serialized(|| {
+            metro.do_practice_pause(7);
+            metro.do_practice_resume(&store, 7, 100.0, None, None)
+        });
+        assert!(result.is_ok());
+        assert_eq!(resumed.beats_per_bar, 5);
+        assert_eq!(resumed.subdivision, 4);
+
+        let (retuned, result) =
+            metro.serialized(|| metro.do_practice_retune(&store, 7, 110.0, None, None));
+        assert!(result.is_ok());
+        assert_eq!(retuned.beats_per_bar, 5);
+        assert_eq!(retuned.subdivision, 4);
+
+        let (restarted, result) =
+            metro.serialized(|| metro.do_practice_restart(&store, 7, 8, 110.0, None, None));
+        assert!(result.is_ok());
+        assert_eq!(restarted.beats_per_bar, 5);
+        assert_eq!(restarted.subdivision, 4);
     }
 
     #[test]
@@ -1477,7 +1618,7 @@ mod tests {
         assert_eq!(*starts.lock().unwrap(), 0);
 
         let (resumed, result) =
-            metro.serialized(|| metro.do_practice_resume(&store, 88, 76.0));
+            metro.serialized(|| metro.do_practice_resume(&store, 88, 76.0, None, None));
         assert!(result.is_ok());
         assert!(resumed.running);
         assert_eq!(resumed.bpm, 76.0);
@@ -1497,7 +1638,7 @@ mod tests {
         ));
         let store = Arc::new(Store::open(":memory:").expect("in-memory store"));
         metro.serialized(|| {
-            let (_, result) = metro.do_practice_start(&store, 7, 72.0);
+            let (_, result) = metro.do_practice_start(&store, 7, 72.0, None, None);
             assert!(result.is_ok());
         });
 

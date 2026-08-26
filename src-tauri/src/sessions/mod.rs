@@ -976,6 +976,7 @@ mod tests {
 
         let snapshot = rep
             .open(RepOpenArgs {
+                tuning: Default::default(),
                 piece_id,
                 region_id: None,
                 m_start: 1,
@@ -1075,6 +1076,7 @@ mod tests {
 
         let opened = rep
             .open(RepOpenArgs {
+                tuning: Default::default(),
                 piece_id,
                 region_id: None,
                 m_start: 1,

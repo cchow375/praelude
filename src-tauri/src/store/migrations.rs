@@ -8,7 +8,7 @@
 use rusqlite::{Connection, OptionalExtension};
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 15;
+pub const SCHEMA_VERSION: i32 = 16;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -1506,6 +1506,12 @@ CREATE TABLE dynamics_calibration_point (
 );
 ";
 
+// SCHEMA_V16: per-set metronome tuning. Additive and defaulted, so every
+// existing block keeps today's behaviour (`{}` deserializes to the defaults:
+// quarter-note beat, subdivision 1, 4 beats per bar).
+pub(crate) const SCHEMA_V16: &str =
+    "ALTER TABLE rep_block ADD COLUMN tuning_json TEXT NOT NULL DEFAULT '{}';";
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
@@ -1768,6 +1774,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             Ok(())
         })();
         if let Err(error) = v15 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
+    if version < 16 {
+        let v16 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            conn.execute_batch(SCHEMA_V16)?;
+            conn.execute_batch("PRAGMA user_version = 16;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v16 {
             let _ = conn.execute_batch("ROLLBACK;");
             return Err(error);
         }
@@ -4399,7 +4419,7 @@ mod v3_tests {
         // currently is (v15 as of B74/day_photo/dynamics tables) — this test only
         // isolates the v13→v14 *content* (measure_map + the two columns below), not the
         // version number itself, which the pragma assertion above already anchors.
-        assert_eq!(SCHEMA_VERSION, 15);
+        assert_eq!(SCHEMA_VERSION, 16);
 
         // measure_map insert/select round-trips (piece id=1, "Etude", already
         // exists from seed_v11()).
@@ -4547,7 +4567,7 @@ mod v3_tests {
                 .unwrap(),
             SCHEMA_VERSION
         );
-        assert_eq!(SCHEMA_VERSION, 15);
+        assert_eq!(SCHEMA_VERSION, 16);
 
         // session row survives; only the column is gone.
         assert_eq!(
@@ -4654,7 +4674,8 @@ mod v3_tests {
         );
     }
 
-    /// A fresh (user_version 0) database migrates straight to v15 with the same guarantees.
+    /// A fresh (user_version 0) database migrates straight to the current
+    /// schema version with the same guarantees.
     #[test]
     fn fresh_database_migrates_to_v15() {
         let c = Connection::open_in_memory().unwrap();
@@ -4662,7 +4683,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            15
+            SCHEMA_VERSION
         );
         let mut stmt = c
             .prepare("SELECT name FROM pragma_table_info('session')")

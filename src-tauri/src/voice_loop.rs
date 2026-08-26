@@ -799,6 +799,8 @@ impl ActionCtx {
                                     &self.store,
                                     outcome.snap.block_id,
                                     nb,
+                                    None,
+                                    None,
                                 );
                                 let state = self.metro.snapshot();
                                 self.emit_state(&state);
@@ -863,6 +865,7 @@ impl ActionCtx {
         // Default the start tempo to the metronome's current bpm when unspoken.
         let start_bpm = spec.start_bpm.unwrap_or_else(|| self.metro.snapshot().bpm);
         let args = RepOpenArgs {
+            tuning: Default::default(),
             piece_id,
             region_id: None,
             m_start: spec.m_start,
@@ -880,9 +883,13 @@ impl ActionCtx {
         match self.rep.open_voice(args) {
             Ok(snap) => {
                 let result = self.metro.serialized(|| {
-                    let (_, result) =
-                        self.metro
-                            .do_practice_start(&self.store, snap.block_id, snap.start_bpm);
+                    let (_, result) = self.metro.do_practice_start(
+                        &self.store,
+                        snap.block_id,
+                        snap.start_bpm,
+                        None,
+                        None,
+                    );
                     let state = self.metro.snapshot();
                     self.emit_state(&state);
                     result
@@ -1792,6 +1799,7 @@ mod tests {
     fn open_test_block(ctx: &ActionCtx) {
         ctx.rep
             .open(crate::store::model::RepOpenArgs {
+                tuning: Default::default(),
                 piece_id: 1,
                 region_id: None,
                 m_start: 1,
@@ -2869,6 +2877,7 @@ mod tests {
         // No target tempo => judged by the mastery streak, requirement 4.
         ctx.rep
             .open(crate::store::model::RepOpenArgs {
+                tuning: Default::default(),
                 piece_id: 1,
                 region_id: None,
                 m_start: 1,
@@ -3226,6 +3235,7 @@ mod tests {
         // is now read live from the engine, not a field).
         ctx.rep
             .open(crate::store::model::RepOpenArgs {
+                tuning: Default::default(),
                 piece_id: 1,
                 region_id: None,
                 m_start: 1,
@@ -3633,6 +3643,7 @@ mod tests {
         // Open a block directly (engine), leaving the metronome stopped.
         ctx.rep
             .open(crate::store::model::RepOpenArgs {
+                tuning: Default::default(),
                 piece_id: 1,
                 region_id: None,
                 m_start: 40,
@@ -3693,6 +3704,7 @@ mod tests {
         // is no voice grammar for it yet), same as the sibling stopped-metro test.
         ctx.rep
             .open(crate::store::model::RepOpenArgs {
+                tuning: Default::default(),
                 piece_id: pid,
                 region_id: None,
                 m_start: 40,

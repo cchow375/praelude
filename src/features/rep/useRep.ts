@@ -55,6 +55,19 @@ export interface VariantSpec {
   reps: number;
 }
 
+/** A5: the note value a set's bpm number counts. A LABEL only — the entered
+ * bpm is exactly the click rate; changing this never multiplies/divides it. */
+export type BeatUnit = "quarter" | "eighth" | "dotted_quarter" | "half";
+
+/** A5: a set's own metronome tuning — the beat-unit label plus the engine's
+ * existing subdivision/beats-per-bar dimensions. Mirrors the backend
+ * `SetTuning` (defaults: quarter / 1 / 4). */
+export interface SetTuning {
+  beat_unit: BeatUnit;
+  subdivision: number;
+  beats_per_bar: number;
+}
+
 /** Mirrors the backend `RepSnapshot` serde payload (snake_case). */
 export interface RepSnapshot {
   block_id: number;
@@ -113,6 +126,8 @@ export interface RepSnapshot {
   retention_check?: RetentionCheckView | null;
   working_m_start?: number;
   working_m_end?: number;
+  /** A5: the set's own metronome tuning. Absent only on legacy/test payloads. */
+  tuning?: SetTuning;
 }
 
 export interface RecoveryActionView {
@@ -302,6 +317,9 @@ export interface RepOpenArgs {
   variants: VariantSpec[];
   focus: string;
   use_metronome: boolean;
+  /** A5: the set's own metronome tuning. Omitted delegates to the backend
+   * default (quarter / 1 / 4). */
+  tuning?: SetTuning;
 }
 
 export interface SetFocusContextInput {
@@ -383,7 +401,15 @@ const REP_RECOVERY = defineCommand<
   { commandId: string; action: RecoveryActionRequest },
   MutationReceipt<RepSnapshot>
 >("rep_recovery", "The recovery choice could not be saved.");
-const METRO_START = defineCommand<{ setId: number; bpm: number }, unknown>(
+const METRO_START = defineCommand<
+  {
+    setId: number;
+    bpm: number;
+    beatsPerBar?: number;
+    subdivision?: number;
+  },
+  unknown
+>(
   "metro_practice_start",
   "The set opened, but the metronome could not be started.",
 );
@@ -391,7 +417,15 @@ const METRO_STATE = defineCommand<undefined, MetroState>(
   "metro_state",
   "The metronome state could not be loaded.",
 );
-const METRO_SET = defineCommand<{ setId: number; bpm: number }, unknown>(
+const METRO_SET = defineCommand<
+  {
+    setId: number;
+    bpm: number;
+    beatsPerBar?: number;
+    subdivision?: number;
+  },
+  unknown
+>(
   "metro_practice_retune",
   "The attempt saved, but the metronome tempo could not be updated.",
 );
@@ -400,6 +434,8 @@ const METRO_RESTART = defineCommand<
     oldSetId: number;
     newSetId: number;
     bpm: number;
+    beatsPerBar?: number;
+    subdivision?: number;
   },
   unknown
 >(
@@ -410,7 +446,15 @@ const METRO_PAUSE = defineCommand<{ setId: number }, unknown>(
   "metro_practice_pause",
   "Practice paused, but the metronome could not be synchronized.",
 );
-const METRO_RESUME = defineCommand<{ setId: number; bpm: number }, unknown>(
+const METRO_RESUME = defineCommand<
+  {
+    setId: number;
+    bpm: number;
+    beatsPerBar?: number;
+    subdivision?: number;
+  },
+  unknown
+>(
   "metro_practice_resume",
   "Practice resumed, but the metronome could not be synchronized.",
 );
@@ -672,6 +716,8 @@ export function useRep(): UseRep {
         await executeCommand(METRO_SET, {
           setId: current.block_id,
           bpm: outcome.new_bpm,
+          beatsPerBar: current.tuning?.beats_per_bar,
+          subdivision: current.tuning?.subdivision,
         });
       } catch (cause) {
         const message = commandErrorMessage(
@@ -897,12 +943,16 @@ export function useRep(): UseRep {
               await executeCommand(METRO_SET, {
                 setId,
                 bpm: authoritativeStartBpm,
+                beatsPerBar: current?.tuning?.beats_per_bar,
+                subdivision: current?.tuning?.subdivision,
               });
             }
           } else {
             await executeCommand(METRO_START, {
               setId,
               bpm: authoritativeStartBpm,
+              beatsPerBar: current?.tuning?.beats_per_bar,
+              subdivision: current?.tuning?.subdivision,
             });
           }
         } catch (cause) {
@@ -1152,6 +1202,8 @@ export function useRep(): UseRep {
               oldSetId: blockAtStart,
               newSetId: next.block_id,
               bpm,
+              beatsPerBar: next.tuning?.beats_per_bar,
+              subdivision: next.tuning?.subdivision,
             });
           } catch (cause) {
             const message = commandErrorMessage(
@@ -1221,7 +1273,12 @@ export function useRep(): UseRep {
       metroCommandGuardIsCurrent(metroAtStart, metroRevision.current)
     ) {
       try {
-        await executeCommand(METRO_RESUME, { setId: blockAtStart, bpm });
+        await executeCommand(METRO_RESUME, {
+          setId: blockAtStart,
+          bpm,
+          beatsPerBar: next.tuning?.beats_per_bar,
+          subdivision: next.tuning?.subdivision,
+        });
       } catch (cause) {
         const message = commandErrorMessage(
           cause,

@@ -10,8 +10,8 @@ use serde_json::{json, Value};
 
 use super::model::{
     json_from_sql, json_to_sql, BlockHistory, IncrementRule, LastRep, MutationEntityRef,
-    MutationReceipt, PausedSetRow, RepOpenArgs, RepSnapshot, SetFocusContextInput, VariantSpec,
-    VerdictCounts,
+    MutationReceipt, PausedSetRow, RepOpenArgs, RepSnapshot, SetFocusContextInput, SetTuning,
+    VariantSpec, VerdictCounts,
 };
 use super::Store;
 use crate::ledger::{
@@ -134,6 +134,7 @@ struct SetRow {
     rule: IncrementRule,
     focus: String,
     use_metronome: bool,
+    tuning: SetTuning,
     contract: PracticeContract,
     contract_source: String,
     set_state: String,
@@ -145,12 +146,13 @@ fn load_set_row(conn: &Connection, block_id: i64) -> rusqlite::Result<Option<Set
         .query_row(
             "SELECT b.id,b.piece_id,p.title,b.m_start,b.m_end,b.label,b.start_bpm,
                     b.target_bpm,b.planned_reps,b.status,b.variants,b.increment_rule,
-                    b.focus,b.use_metronome
+                    b.focus,b.use_metronome,b.tuning_json
              FROM rep_block b JOIN piece p ON p.id=b.piece_id WHERE b.id=?1",
             [block_id],
             |row| {
                 let variants: String = row.get(10)?;
                 let rule: Option<String> = row.get(11)?;
+                let tuning: String = row.get(14)?;
                 let m_start: i64 = row.get(3)?;
                 let m_end: i64 = row.get(4)?;
                 let planned: i64 = row.get(8)?;
@@ -174,6 +176,7 @@ fn load_set_row(conn: &Connection, block_id: i64) -> rusqlite::Result<Option<Set
                     ),
                     focus: row.get(12)?,
                     use_metronome: row.get(13)?,
+                    tuning: json_from_sql(&tuning)?,
                     contract: PracticeContract::legacy_attempt_count(
                         u32::try_from(planned.max(0)).unwrap_or(u32::MAX),
                     ),
@@ -653,6 +656,7 @@ pub(super) fn project(conn: &Connection, block_id: i64) -> rusqlite::Result<RepS
         status: row.status,
         focus: row.focus,
         use_metronome: row.use_metronome,
+        tuning: row.tuning,
         active_seconds: loop_state.active_seconds,
         timer_state: loop_state.timer_state,
         intention: loop_state.intention,
@@ -926,10 +930,10 @@ pub(super) fn open_set_in_tx(
     let block_id: i64 = tx.query_row(
         "INSERT INTO rep_block
              (piece_id,m_start,m_end,label,start_bpm,target_bpm,increment_rule,
-              planned_reps,variants,focus,use_metronome,region_id)
+              planned_reps,variants,focus,use_metronome,region_id,tuning_json)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,
                COALESCE(?12,(SELECT id FROM region WHERE piece_id=?1 AND m_start<=?2 AND m_end>=?3
-                ORDER BY (m_end-m_start),sort_order,id LIMIT 1))) RETURNING id",
+                ORDER BY (m_end-m_start),sort_order,id LIMIT 1)),?13) RETURNING id",
         rusqlite::params![
             args.piece_id,
             args.m_start,
@@ -943,6 +947,7 @@ pub(super) fn open_set_in_tx(
             args.focus,
             args.use_metronome,
             args.region_id,
+            json_to_sql(&args.tuning)?,
         ],
         |row| row.get(0),
     )?;
@@ -1595,9 +1600,9 @@ impl Store {
         let new_id: i64 = tx.query_row(
             "INSERT INTO rep_block
              (piece_id,m_start,m_end,label,start_bpm,target_bpm,increment_rule,
-              planned_reps,variants,status,region_id,focus,use_metronome)
+              planned_reps,variants,status,region_id,focus,use_metronome,tuning_json)
              SELECT piece_id,m_start,m_end,label,start_bpm,target_bpm,increment_rule,
-                    planned_reps,variants,'open',region_id,focus,use_metronome
+                    planned_reps,variants,'open',region_id,focus,use_metronome,tuning_json
              FROM rep_block WHERE id=?1 RETURNING id",
             [block_id],
             |row| row.get(0),
