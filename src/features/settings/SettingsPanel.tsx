@@ -7,6 +7,7 @@ import type { CommandInvoker } from "../../services/command";
 import { BrainConnection } from "./BrainConnection";
 import { BooksPanel, type BooksApi } from "./BooksPanel";
 import { resetDockLayout } from "../dock/dockState";
+import { hotkeyLabel } from "../rep/useVerdictHotkeys";
 import { TTS_DEGRADED_LABEL, useTtsDegraded } from "../voice/useTtsDegraded";
 import { QUIET_SPEECH_NOTE } from "../voice/HeardPill";
 import {
@@ -58,6 +59,10 @@ export interface SettingsSnapshot {
   calendar_capacity_minutes: number;
   streak_threshold_minutes: number;
   vault_pieces_dir: string;
+  hotkeys_enabled: boolean;
+  hotkey_verdict_clean: string;
+  hotkey_verdict_sloppy: string;
+  hotkey_verdict_again: string;
   verdict_aliases: VerdictAliases;
   api_keys: ApiKeyStatus[];
 }
@@ -119,6 +124,10 @@ export function SettingsPanel({
               : 90,
             knowledge_dir: next.knowledge_dir || DEFAULT_KNOWLEDGE_DIR,
             share_retrieved_knowledge: next.share_retrieved_knowledge ?? true,
+            hotkeys_enabled: next.hotkeys_enabled ?? true,
+            hotkey_verdict_clean: next.hotkey_verdict_clean || "Space",
+            hotkey_verdict_sloppy: next.hotkey_verdict_sloppy || "ShiftRight",
+            hotkey_verdict_again: next.hotkey_verdict_again || "Enter",
             assistant_enabled: next.assistant_enabled ?? false,
             practice_default_clean_streak:
               Number.isInteger(next.practice_default_clean_streak) &&
@@ -165,6 +174,10 @@ export function SettingsPanel({
         calendar_capacity_minutes: value.calendar_capacity_minutes,
         streak_threshold_minutes: value.streak_threshold_minutes,
         vault_pieces_dir: value.vault_pieces_dir,
+        hotkeys_enabled: value.hotkeys_enabled,
+        hotkey_verdict_clean: value.hotkey_verdict_clean,
+        hotkey_verdict_sloppy: value.hotkey_verdict_sloppy,
+        hotkey_verdict_again: value.hotkey_verdict_again,
         verdict_aliases: {
           clean: parseAliases(aliasDrafts.clean),
           flawed: parseAliases(aliasDrafts.flawed),
@@ -616,6 +629,61 @@ export function SettingsPanel({
         </div>
       </Disclosure>
 
+      {/* A6. Christian practises at a real piano: reaching for the mouse to
+          record every rep is the friction this removes. The mapping is
+          remappable here, and the HUD teaches it on its own line. */}
+      <Disclosure
+        summary={
+          <SectionLabel icon={<TagIcon />}>Verdict hotkeys</SectionLabel>
+        }
+        defaultOpen
+      >
+        <div className="settings-group">
+          <label className="settings-check settings-wide">
+            <input
+              type="checkbox"
+              aria-label="Verdict hotkeys"
+              checked={value.hotkeys_enabled}
+              onChange={(event) =>
+                setValue({ ...value, hotkeys_enabled: event.target.checked })
+              }
+            />
+            <span>
+              <strong>Record verdicts from the keyboard</strong>
+              <small>
+                During an active set, one key logs one rep so your hands never
+                leave the piano. Ignored while you are typing an attempt note or
+                a dialog is open.
+              </small>
+            </span>
+          </label>
+          <KeyBindingField
+            label="Clean hotkey"
+            code={value.hotkey_verdict_clean}
+            disabled={!value.hotkeys_enabled}
+            onChange={(hotkey_verdict_clean) =>
+              setValue({ ...value, hotkey_verdict_clean })
+            }
+          />
+          <KeyBindingField
+            label="Sloppy hotkey"
+            code={value.hotkey_verdict_sloppy}
+            disabled={!value.hotkeys_enabled}
+            onChange={(hotkey_verdict_sloppy) =>
+              setValue({ ...value, hotkey_verdict_sloppy })
+            }
+          />
+          <KeyBindingField
+            label="Again hotkey"
+            code={value.hotkey_verdict_again}
+            disabled={!value.hotkeys_enabled}
+            onChange={(hotkey_verdict_again) =>
+              setValue({ ...value, hotkey_verdict_again })
+            }
+          />
+        </div>
+      </Disclosure>
+
       <Disclosure
         summary={
           <SectionLabel icon={<CalendarIcon />}>Calendar capacity</SectionLabel>
@@ -786,6 +854,51 @@ function NumberField({
         min={min}
         max={max}
         onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
+}
+
+/**
+ * Remap one verdict hotkey by pressing the key you want. The stored value is
+ * `KeyboardEvent.code`, never `key` — `key` reads "Shift" for BOTH shift keys,
+ * so only `code` can tell Right-Shift from Left-Shift.
+ */
+function KeyBindingField({
+  label,
+  code,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  code: string;
+  disabled?: boolean;
+  onChange: (code: string) => void;
+}) {
+  const [listening, setListening] = useState(false);
+  return (
+    <label className="settings-row">
+      <span>{label}</span>
+      <input
+        type="text"
+        aria-label={label}
+        readOnly
+        disabled={disabled}
+        value={listening ? "Press any key…" : hotkeyLabel(code)}
+        onFocus={() => setListening(true)}
+        onBlur={() => setListening(false)}
+        onKeyDown={(event) => {
+          // Tab must still move focus out; Escape abandons the remap.
+          if (event.key === "Tab") return;
+          event.preventDefault();
+          if (event.key === "Escape") {
+            event.currentTarget.blur();
+            return;
+          }
+          if (!/^[A-Za-z0-9]{1,24}$/.test(event.code)) return;
+          onChange(event.code);
+          setListening(false);
+        }}
       />
     </label>
   );

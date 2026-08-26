@@ -748,4 +748,88 @@ describe("RepHud", () => {
     // A null tempo renders no tempo chip at all in the compact HUD.
     expect(document.body.textContent).not.toContain("♩");
   });
+
+  describe("verdict hotkeys (A6)", () => {
+    const hint = /Space = clean · Right-Shift = sloppy · Return = again/;
+
+    it("teaches the mapping on one line in the HUD itself, not in the drawer", () => {
+      render(
+        <RepHud snap={makeSnap()} feed={[]} error={null} {...callbacks()} />,
+      );
+      const line = document.querySelector(".rep-hud-hotkeys") as HTMLElement;
+      expect(line.textContent).toContain(
+        "Space = clean · Right-Shift = sloppy · Return = again",
+      );
+      // §4b: it must be a DIRECT child of the HUD (the drawer would bury it),
+      // and it must survive a compact HUD while it is still teaching.
+      expect(line.parentElement?.classList.contains("rep-hud")).toBe(true);
+      expect(line.getAttribute("data-compact-visible")).toBe("true");
+      expect(document.querySelector(".rep-hud-drawer")!.contains(line)).toBe(
+        false,
+      );
+    });
+
+    it("records each verdict through the same path as the buttons", () => {
+      const props = callbacks();
+      render(<RepHud snap={makeSnap()} feed={[]} error={null} {...props} />);
+      fireEvent.keyDown(document.body, { code: "Space", key: " " });
+      expect(props.onCheck).toHaveBeenCalledWith("clean", null);
+    });
+
+    it("carries the typed attempt note exactly as a click would", async () => {
+      const props = callbacks();
+      render(<RepHud snap={makeSnap()} feed={[]} error={null} {...props} />);
+      fireEvent.change(screen.getByLabelText("Attempt note"), {
+        target: { value: "  left hand rushed  " },
+      });
+      fireEvent.keyDown(document.body, { code: "ShiftRight", key: "Shift" });
+      await waitFor(() =>
+        expect(props.onCheck).toHaveBeenCalledWith(
+          "flawed",
+          "left hand rushed",
+        ),
+      );
+    });
+
+    it("does not record while the pianist is typing that note", () => {
+      const props = callbacks();
+      render(<RepHud snap={makeSnap()} feed={[]} error={null} {...props} />);
+      const note = screen.getByLabelText("Attempt note");
+      fireEvent.keyDown(note, { code: "Space", key: " " });
+      fireEvent.keyDown(note, { code: "Enter", key: "Enter" });
+      expect(props.onCheck).not.toHaveBeenCalled();
+    });
+
+    it("compacts the hint once a hotkey has recorded a rep", async () => {
+      const props = callbacks();
+      render(<RepHud snap={makeSnap()} feed={[]} error={null} {...props} />);
+      expect(screen.getByText(hint)).toBeTruthy();
+      fireEvent.keyDown(document.body, { code: "Enter", key: "Enter" });
+      await waitFor(() => expect(screen.queryByText(hint)).toBeNull());
+      const compact = document.querySelector(".rep-hud-hotkeys")!;
+      expect(compact.textContent).toContain(
+        "Keys: Space · Right-Shift · Return",
+      );
+      // Its compact-mode slot goes back to the controls once it has taught.
+      expect(compact.getAttribute("data-compact-visible")).toBeNull();
+    });
+
+    it("stays silent once the set is mastered, exactly like the buttons", () => {
+      const props = callbacks();
+      render(
+        <RepHud
+          snap={makeSnap({
+            mastery_status: "satisfied",
+            mastery_verified: true,
+          })}
+          feed={[]}
+          error={null}
+          {...props}
+        />,
+      );
+      fireEvent.keyDown(document.body, { code: "Space", key: " " });
+      expect(props.onCheck).not.toHaveBeenCalled();
+      expect(screen.queryByText(hint)).toBeNull();
+    });
+  });
 });

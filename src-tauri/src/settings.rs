@@ -88,6 +88,10 @@ pub struct SettingsSnapshot {
     pub calendar_capacity_minutes: u32,
     pub streak_threshold_minutes: u32,
     pub vault_pieces_dir: String,
+    pub hotkeys_enabled: bool,
+    pub hotkey_verdict_clean: String,
+    pub hotkey_verdict_sloppy: String,
+    pub hotkey_verdict_again: String,
     pub verdict_aliases: VerdictAliases,
     pub api_keys: Vec<ApiKeyStatus>,
 }
@@ -113,6 +117,10 @@ pub struct SettingsPatch {
     pub calendar_capacity_minutes: Option<u32>,
     pub streak_threshold_minutes: Option<u32>,
     pub vault_pieces_dir: Option<String>,
+    pub hotkeys_enabled: Option<bool>,
+    pub hotkey_verdict_clean: Option<String>,
+    pub hotkey_verdict_sloppy: Option<String>,
+    pub hotkey_verdict_again: Option<String>,
     pub verdict_aliases: Option<VerdictAliases>,
 }
 
@@ -160,6 +168,15 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
             "vault.pieces_dir",
             "/Users/c3/Desktop/christian's universe/Piano Practice/Pieces",
         ),
+        // A6 verdict hotkeys. Christian's confirmed mapping (2026-08-25):
+        // Space = clean, Right-Shift = sloppy, Return = again — "so I don't
+        // have to move my hand off the piano". Stored as `KeyboardEvent.code`
+        // values, never `key`: `key` is "Shift" for BOTH shift keys, so only
+        // `code` can tell the right one from the left.
+        hotkeys_enabled: boolean(store, "hotkeys.enabled", true),
+        hotkey_verdict_clean: key_code(store, "hotkeys.verdict_clean", "Space"),
+        hotkey_verdict_sloppy: key_code(store, "hotkeys.verdict_sloppy", "ShiftRight"),
+        hotkey_verdict_again: key_code(store, "hotkeys.verdict_again", "Enter"),
         verdict_aliases: aliases(store),
         api_keys: vec![
             api_key_status(ApiKeyProvider::Claude),
@@ -265,6 +282,31 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
         }
         writes.push(("vault.pieces_dir", trimmed.to_string()));
     }
+    if let Some(value) = patch.hotkeys_enabled {
+        writes.push(("hotkeys.enabled", value.to_string()));
+    }
+    // Validated together, not one at a time: two verdicts sharing one key would
+    // make a rep ambiguous, and each field on its own cannot see that.
+    let clean = patch.hotkey_verdict_clean.clone();
+    let sloppy = patch.hotkey_verdict_sloppy.clone();
+    let again = patch.hotkey_verdict_again.clone();
+    if clean.is_some() || sloppy.is_some() || again.is_some() {
+        let resolved = [
+            validate_key_code(clean.unwrap_or_else(|| current.hotkey_verdict_clean.clone()))?,
+            validate_key_code(sloppy.unwrap_or_else(|| current.hotkey_verdict_sloppy.clone()))?,
+            validate_key_code(again.unwrap_or_else(|| current.hotkey_verdict_again.clone()))?,
+        ];
+        if resolved[0] == resolved[1] || resolved[0] == resolved[2] || resolved[1] == resolved[2] {
+            return Err("Each verdict needs its own key.".into());
+        }
+        for (key, value) in [
+            ("hotkeys.verdict_clean", &resolved[0]),
+            ("hotkeys.verdict_sloppy", &resolved[1]),
+            ("hotkeys.verdict_again", &resolved[2]),
+        ] {
+            writes.push((key, value.clone()));
+        }
+    }
     if let Some(value) = patch.verdict_aliases {
         let aliases = validate_aliases(value)?;
         writes.push((
@@ -320,6 +362,32 @@ fn integer(store: &Store, key: &str, fallback: u32, min: u32, max: u32) -> u32 {
         .and_then(|value| value.parse().ok())
         .filter(|value| (min..=max).contains(value))
         .unwrap_or(fallback)
+}
+
+/// A stored `KeyboardEvent.code`, falling back when the row is absent or was
+/// hand-edited into something no browser would ever emit.
+fn key_code(store: &Store, key: &str, fallback: &str) -> String {
+    store
+        .get_setting(key)
+        .ok()
+        .flatten()
+        .and_then(|value| validate_key_code(value).ok())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+/// Every `KeyboardEvent.code` is ASCII alphanumeric — "Space", "ShiftRight",
+/// "Enter", "KeyA", "Digit1", "F7". Nothing else may become a live binding.
+fn validate_key_code(value: String) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed.chars().count() > 24
+        || !trimmed
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
+    {
+        return Err("A hotkey must be a key code such as Space, ShiftRight or Enter.".into());
+    }
+    Ok(trimmed.to_string())
 }
 
 fn validate_choice(value: String, allowed: &[&str]) -> Result<String, String> {
@@ -472,6 +540,80 @@ mod tests {
             },
         );
         assert!(rejected.is_err(), "241 minutes is outside the UI bound");
+    }
+
+    #[test]
+    fn verdict_hotkeys_default_to_christians_confirmed_mapping() {
+        let store = Store::open(":memory:").unwrap();
+        let value = snapshot(&store);
+        assert!(value.hotkeys_enabled, "hotkeys ship ON (A6 default)");
+        assert_eq!(value.hotkey_verdict_clean, "Space");
+        assert_eq!(value.hotkey_verdict_sloppy, "ShiftRight");
+        assert_eq!(value.hotkey_verdict_again, "Enter");
+    }
+
+    #[test]
+    fn a_remapped_verdict_hotkey_persists_and_reads_back() {
+        let store = Store::open(":memory:").unwrap();
+        let saved = update(
+            &store,
+            SettingsPatch {
+                hotkey_verdict_clean: Some("KeyZ".into()),
+                hotkeys_enabled: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(saved.hotkey_verdict_clean, "KeyZ");
+        assert!(!saved.hotkeys_enabled);
+        // A FRESH snapshot proves it reached the setting table, and that the
+        // two untouched bindings were carried through unchanged rather than
+        // reset by the partial patch.
+        let reread = snapshot(&store);
+        assert_eq!(reread.hotkey_verdict_clean, "KeyZ");
+        assert_eq!(reread.hotkey_verdict_sloppy, "ShiftRight");
+        assert_eq!(reread.hotkey_verdict_again, "Enter");
+        assert!(!reread.hotkeys_enabled);
+    }
+
+    #[test]
+    fn two_verdicts_may_not_share_one_key() {
+        let store = Store::open(":memory:").unwrap();
+        // "Space" is already clean's binding, so giving it to sloppy would make
+        // every press ambiguous.
+        assert!(update(
+            &store,
+            SettingsPatch {
+                hotkey_verdict_sloppy: Some("Space".into()),
+                ..Default::default()
+            }
+        )
+        .is_err());
+        assert_eq!(store.get_setting("hotkeys.verdict_sloppy").unwrap(), None);
+    }
+
+    #[test]
+    fn a_hotkey_that_is_not_a_key_code_is_rejected_and_never_stored() {
+        let store = Store::open(":memory:").unwrap();
+        for bad in ["", "   ", "Shift+Space", "⌘", "this-is-far-too-long-a-code"] {
+            assert!(
+                update(
+                    &store,
+                    SettingsPatch {
+                        hotkey_verdict_again: Some(bad.into()),
+                        ..Default::default()
+                    }
+                )
+                .is_err(),
+                "{bad:?} is not a KeyboardEvent.code"
+            );
+        }
+        assert_eq!(store.get_setting("hotkeys.verdict_again").unwrap(), None);
+        // A junk row already on disk falls back rather than binding nothing.
+        store
+            .set_setting("hotkeys.verdict_again", "Shift+Space")
+            .unwrap();
+        assert_eq!(snapshot(&store).hotkey_verdict_again, "Enter");
     }
 
     #[test]

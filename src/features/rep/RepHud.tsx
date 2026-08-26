@@ -6,6 +6,11 @@ import type {
   Verdict,
 } from "./useRep";
 import { repMasteryStatus, repMasteryVerified, repTries } from "./useRep";
+import {
+  hotkeyLabel,
+  useVerdictHotkeyConfig,
+  useVerdictHotkeys,
+} from "./useVerdictHotkeys";
 import { Button, type ButtonVariant } from "../../ui";
 import "./RepHud.css";
 
@@ -136,6 +141,18 @@ export function RepHud({
   // guard as well. This prevents rapid keyboard/click activation from sending
   // two verdicts against the same authoritative set projection.
   const checkPending = useRef(false);
+  // A6: the hotkeys route through the very same `submit()` the verdict buttons
+  // call, so provenance, receipts, the busy guard and the mastered guard are
+  // identical to a click. `submit` is defined below the `!snap` early return,
+  // so the listener reaches it through this ref rather than a second write path.
+  const submitRef = useRef<((verdict: Verdict) => Promise<void>) | null>(null);
+
+  const hotkeys = useVerdictHotkeyConfig();
+  const { used: hotkeyUsed } = useVerdictHotkeys({
+    active: snap != null,
+    config: hotkeys,
+    onVerdict: (verdict) => void submitRef.current?.(verdict),
+  });
 
   const lastAttemptId = snap?.last_attempt_id ?? null;
   const lastAdjustmentId = snap?.last_adjustment_id ?? null;
@@ -241,6 +258,7 @@ export function RepHud({
       setBusy(null);
     }
   };
+  submitRef.current = submit;
 
   const runUndo = async () => {
     if (busy) return;
@@ -535,6 +553,32 @@ export function RepHud({
           )}
         </div>
       </div>
+
+      {/* A6 §4b: a hotkey nobody knows about is not a feature. The mapping is
+          a one-line hint in the HUD itself — never drawer content — and it
+          carries `data-compact-visible` WHILE IT IS STILL TEACHING, so a
+          collapsed HUD cannot hide the one thing that explains the keys. Once
+          a hotkey has actually recorded a rep it compacts to the bare key names
+          and gives its compact-mode slot back. */}
+      {hotkeys.enabled && !mastered && (
+        <p
+          className={`rep-hud-hotkeys ${hotkeyUsed ? "is-learned" : ""}`}
+          {...(hotkeyUsed ? {} : { "data-compact-visible": "true" })}
+        >
+          {hotkeyUsed ? (
+            <>
+              Keys: {hotkeyLabel(hotkeys.clean)} · {hotkeyLabel(hotkeys.sloppy)}{" "}
+              · {hotkeyLabel(hotkeys.again)}
+            </>
+          ) : (
+            <>
+              Keys: {hotkeyLabel(hotkeys.clean)} = clean ·{" "}
+              {hotkeyLabel(hotkeys.sloppy)} = sloppy ·{" "}
+              {hotkeyLabel(hotkeys.again)} = again
+            </>
+          )}
+        </p>
+      )}
 
       <div
         className="rep-hud-entry"

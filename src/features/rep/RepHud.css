@@ -391,6 +391,22 @@
   opacity: 0.5;
 }
 
+/* --- A6 verdict-hotkey hint -------------------------------------------- */
+/* One line, directly in the HUD. Calm and quiet: it teaches, it never shouts,
+   and it must never grow to a second line at the 720x520 floor. */
+.rep-hud-hotkeys {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rep-hud-hotkeys.is-learned {
+  color: var(--ink-faint);
+}
+
 /* --- Tool row + generic inputs ----------------------------------------- */
 .rep-hud-tools {
   display: flex;

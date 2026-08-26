@@ -355,4 +355,33 @@ describe("SettingsPanel", () => {
       screen.queryByRole("region", { name: "Claude API key" }),
     ).toBeNull();
   });
+
+  it("remaps a verdict hotkey by capturing the pressed key code (A6)", async () => {
+    const settingsApi = api();
+    render(<SettingsPanel api={settingsApi} />);
+    await screen.findByText(/dark practice-room interface/i);
+
+    // The mapping ships ON and readable, spelled the way Christian says it.
+    expect(
+      (screen.getByRole("checkbox", { name: "Verdict hotkeys" }) as
+        HTMLInputElement).checked,
+    ).toBe(true);
+    const sloppy = screen.getByLabelText("Sloppy hotkey") as HTMLInputElement;
+    expect(sloppy.value).toBe("Right-Shift");
+
+    // `code`, never `key`: pressing Z must store "KeyZ".
+    fireEvent.keyDown(sloppy, { code: "KeyZ", key: "z" });
+    expect(sloppy.value).toBe("Z");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(settingsApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hotkeys_enabled: true,
+          hotkey_verdict_clean: "Space",
+          hotkey_verdict_sloppy: "KeyZ",
+          hotkey_verdict_again: "Enter",
+        }),
+      ),
+    );
+  });
 });

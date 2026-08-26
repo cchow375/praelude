@@ -122,6 +122,7 @@ describe("useSettings", () => {
 
     expect(writes.map((write) => write.status)).toEqual(["rejected", "fulfilled"]);
     expect(result.current.settings).toEqual({
+      ...DEFAULT_SETTINGS,
       theme: "light",
       interface_scale: 100,
       practice_default_clean_streak: 5,
@@ -189,6 +190,7 @@ describe("useSettings", () => {
     });
 
     expect(result.current.settings).toEqual({
+      ...DEFAULT_SETTINGS,
       theme: "dark",
       interface_scale: 80,
       practice_default_clean_streak: 5,
