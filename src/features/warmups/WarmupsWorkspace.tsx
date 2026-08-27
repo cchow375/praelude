@@ -16,9 +16,22 @@ import type {
 } from "./types";
 import type { RepSnapshot } from "../rep/useRep";
 import { SET_COMPLETION_SECONDS } from "../rep/useSetCompletion";
+import { useOptionalDock } from "../dock/DockProvider";
 import "./warmups.css";
 
 const CATALOG_PAGE_SIZE = 36;
+const COMPACT_VIEWPORT_WIDTH = 720;
+const COMPACT_VIEWPORT_HEIGHT = 520;
+
+type RepTuckPhase = "idle" | "pending" | "owned" | "released";
+
+function isCompactWarmupsViewport(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.innerWidth <= COMPACT_VIEWPORT_WIDTH &&
+    window.innerHeight <= COMPACT_VIEWPORT_HEIGHT
+  );
+}
 
 interface ExpectedWarmupSet {
   pieceId: number;
@@ -116,7 +129,95 @@ export function WarmupsWorkspace({
   const openingRef = useRef<string | null>(null);
   const advancedRef = useRef<Set<string>>(new Set());
   const completedFxRef = useRef<Set<number>>(new Set());
+  const repDock = useOptionalDock("rep");
+  const latestRepDock = useRef(repDock);
+  const repTuckPhase = useRef<RepTuckPhase>("idle");
+  const restoreRepTimer = useRef<number | null>(null);
+  const [compactViewport, setCompactViewport] = useState(
+    isCompactWarmupsViewport,
+  );
   activeRepRef.current = activeRep;
+  latestRepDock.current = repDock;
+
+  useEffect(() => {
+    const update = () => setCompactViewport(isCompactWarmupsViewport());
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  // At the app's 720x520 floor the floating Rep Counter covers the warmup
+  // purpose/search controls. Tuck only its panel into Tools; the active set,
+  // timer and practice engine remain untouched. The small ownership machine
+  // distinguishes our minimize from a later user restore/close/re-minimize,
+  // so workspace cleanup never fights an explicit dock choice.
+  useEffect(() => {
+    if (!repDock) return;
+
+    if (!compactViewport) {
+      if (
+        (repTuckPhase.current === "pending" ||
+          repTuckPhase.current === "owned") &&
+        repDock.isOpen &&
+        repDock.isMinimized
+      ) {
+        // The overlap guard no longer applies. Release ownership before
+        // restoring so the resulting visible state is not mistaken for a
+        // user override or tucked again by a later render.
+        repTuckPhase.current = "released";
+        repDock.open();
+      } else if (
+        repTuckPhase.current === "pending" ||
+        repTuckPhase.current === "owned"
+      ) {
+        // A close or restore that raced the resize belongs to the user.
+        repTuckPhase.current = "released";
+      }
+      return;
+    }
+
+    if (repTuckPhase.current === "idle") {
+      if (repDock.isOpen && !repDock.isMinimized) {
+        repTuckPhase.current = "pending";
+        repDock.minimize();
+      }
+      return;
+    }
+
+    if (repTuckPhase.current === "pending") {
+      if (!repDock.isOpen) repTuckPhase.current = "released";
+      else if (repDock.isMinimized) repTuckPhase.current = "owned";
+      return;
+    }
+
+    if (
+      repTuckPhase.current === "owned" &&
+      (!repDock.isOpen || !repDock.isMinimized)
+    ) {
+      repTuckPhase.current = "released";
+    }
+  }, [compactViewport, repDock]);
+
+  useEffect(() => {
+    // StrictMode runs a synthetic cleanup/setup pair on mount. Deferring the
+    // restore lets that replacement setup cancel it, while a real workspace
+    // exit restores only the still-owned minimized state.
+    if (restoreRepTimer.current != null) {
+      window.clearTimeout(restoreRepTimer.current);
+      restoreRepTimer.current = null;
+    }
+    return () => {
+      restoreRepTimer.current = window.setTimeout(() => {
+        const current = latestRepDock.current;
+        if (
+          repTuckPhase.current === "owned" &&
+          current?.isOpen &&
+          current.isMinimized
+        ) {
+          current.open();
+        }
+      }, 0);
+    };
+  }, []);
 
   const filteredCatalog = useMemo(
     () => filterWarmups(query, target),
@@ -681,6 +782,12 @@ export function WarmupsWorkspace({
     setBusy(null);
     setRun(null);
   };
+  const repCounterTucked = Boolean(
+    (repTuckPhase.current === "pending" ||
+      repTuckPhase.current === "owned") &&
+      repDock?.isOpen &&
+      repDock.isMinimized,
+  );
 
   return (
     <main className="warmups-workspace" data-testid="workspace-warmups">
@@ -701,6 +808,18 @@ export function WarmupsWorkspace({
           <small>No generic routine is imposed.</small>
         </div>
       </header>
+
+      {repCounterTucked && (
+        <aside className="warmups-dock-note" role="status">
+          <span>
+            Your active set is unchanged. Rep Counter is tucked into Tools so
+            it cannot cover Warmups.
+          </span>
+          <button type="button" onClick={() => repDock?.open()}>
+            Show Rep Counter
+          </button>
+        </aside>
+      )}
 
       {error && (
         <p className="warmups-error" role="alert">

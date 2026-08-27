@@ -8,11 +8,93 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WarmupsWorkspace } from "./WarmupsWorkspace";
 import { WARMUP_CATALOG } from "./catalog";
 import type { WarmupApi, WarmupRoutine } from "./types";
 import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
+import { DockProvider, useDock } from "../dock/DockProvider";
+import { DockPanel } from "../dock/DockPanel";
+import { DOCK_STORAGE_KEY } from "../dock/dockState";
+
+const ORIGINAL_VIEWPORT = {
+  width: window.innerWidth,
+  height: window.innerHeight,
+};
+
+function setViewport(width: number, height: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: width,
+  });
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: height,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
+function seedShownRepPanel() {
+  window.localStorage.setItem(
+    DOCK_STORAGE_KEY,
+    JSON.stringify({
+      rep: {
+        x: 160,
+        y: 108,
+        minimized: false,
+        open: true,
+        z: 1,
+        flashing: false,
+      },
+    }),
+  );
+}
+
+function RepDockProbe() {
+  const rep = useDock("rep");
+  return (
+    <output data-testid="warmups-rep-dock-state">
+      {rep.isOpen ? "open" : "closed"}:
+      {rep.isMinimized ? "minimized" : "shown"}
+    </output>
+  );
+}
+
+function WarmupsDockHarness({
+  activeRep = null,
+  onOpenBlock = vi.fn(),
+}: {
+  activeRep?: RepSnapshot | null;
+  onOpenBlock?: ReturnType<typeof vi.fn>;
+}) {
+  const [showWarmups, setShowWarmups] = useState(true);
+  return (
+    <>
+      <button type="button" onClick={() => setShowWarmups(false)}>
+        Leave Warmups
+      </button>
+      {showWarmups ? (
+        <WarmupsWorkspace
+          activeRep={activeRep}
+          onOpenBlock={onOpenBlock}
+          api={fakeApi()}
+        />
+      ) : (
+        <p>Another workspace</p>
+      )}
+      <DockPanel
+        id="rep"
+        title="Rep Counter"
+        defaultPosition={{ x: 160, y: 108 }}
+        width={440}
+      >
+        Active set remains here
+      </DockPanel>
+      <RepDockProbe />
+    </>
+  );
+}
 
 function routine(over: Partial<WarmupRoutine> = {}): WarmupRoutine {
   return {
@@ -90,12 +172,164 @@ async function loadAndStart(
   return onOpenBlock.mock.calls[0][0] as RepOpenArgs;
 }
 
+beforeEach(() => {
+  const memory = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => memory.set(key, value),
+      removeItem: (key: string) => memory.delete(key),
+      clear: () => memory.clear(),
+      key: (index: number) => [...memory.keys()][index] ?? null,
+      get length() {
+        return memory.size;
+      },
+    },
+  });
+});
+
 afterEach(() => {
   cleanup();
+  window.localStorage.removeItem(DOCK_STORAGE_KEY);
+  setViewport(ORIGINAL_VIEWPORT.width, ORIGINAL_VIEWPORT.height);
   vi.restoreAllMocks();
 });
 
 describe("WarmupsWorkspace", () => {
+  it("tucks the open Rep Counter at exactly 720x520 without touching the active set, then restores it on exit", async () => {
+    setViewport(720, 520);
+    seedShownRepPanel();
+    const onOpenBlock = vi.fn();
+    const activeRep = Object.freeze(
+      repFor(
+        {
+          piece_id: 5,
+          m_start: 1,
+          m_end: 4,
+          label: "Repertoire set",
+          start_bpm: 60,
+        },
+        { piece_id: 5, piece_title: "Chopin", block_id: 404 },
+      ),
+    );
+
+    render(
+      <DockProvider>
+        <WarmupsDockHarness
+          activeRep={activeRep}
+          onOpenBlock={onOpenBlock}
+        />
+      </DockProvider>,
+    );
+
+    expect(
+      await screen.findByText(/Rep Counter is tucked into Tools/),
+    ).toBeTruthy();
+    expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
+      "open:minimized",
+    );
+    expect(onOpenBlock).not.toHaveBeenCalled();
+    expect(activeRep).toEqual(
+      expect.objectContaining({
+        block_id: 404,
+        piece_id: 5,
+        set_state: "active",
+        timer_state: "active",
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave Warmups" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
+        "open:shown",
+      ),
+    );
+  });
+
+  it("leaves the open Rep Counter visible above the compact boundary", async () => {
+    setViewport(900, 700);
+    seedShownRepPanel();
+
+    render(
+      <DockProvider>
+        <WarmupsDockHarness />
+      </DockProvider>,
+    );
+
+    await screen.findByText("C major scale");
+    expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
+      "open:shown",
+    );
+    expect(
+      screen.queryByText(/Rep Counter is tucked into Tools/),
+    ).toBeNull();
+  });
+
+  it("restores its owned tuck immediately when the viewport grows out of compact mode", async () => {
+    setViewport(720, 520);
+    seedShownRepPanel();
+
+    render(
+      <DockProvider>
+        <WarmupsDockHarness />
+      </DockProvider>,
+    );
+
+    expect(
+      await screen.findByText(/Rep Counter is tucked into Tools/),
+    ).toBeTruthy();
+    expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
+      "open:minimized",
+    );
+
+    act(() => setViewport(900, 700));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
+        "open:shown",
+      ),
+    );
+    expect(
+      screen.queryByText(/Rep Counter is tucked into Tools/),
+    ).toBeNull();
+  });
+
+  it("respects a user restore and close instead of reopening that override on exit", async () => {
+    setViewport(720, 520);
+    seedShownRepPanel();
+
+    render(
+      <DockProvider>
+        <WarmupsDockHarness />
+      </DockProvider>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show Rep Counter" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
+        "open:shown",
+      ),
+    );
+    expect(
+      screen.queryByText(/Rep Counter is tucked into Tools/),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Rep Counter" }));
+    expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
+      "closed:shown",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Leave Warmups" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
+        "closed:shown",
+      ),
+    );
+  });
+
   it("keeps the catalog shrinkable inside the 480px stage at 720×520", () => {
     const css = readFileSync(
       resolve("src/features/warmups/warmups.css"),
