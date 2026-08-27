@@ -34,6 +34,7 @@ function createArgs(over: Partial<Record<string, unknown>> = {}) {
 function microTargetArgs(over: Partial<Record<string, unknown>> = {}) {
   return {
     args: {
+      command_id: "spot-drag-1",
       piece_id: 1,
       parent_region_id: 11,
       name: "Spot 1",
@@ -86,6 +87,33 @@ describe("dev-mock region create/delete (Task C5)", () => {
 
     const list = await seamInvoke<Region[]>("region_list", { pieceId: 1 });
     expect(list.filter((region) => region.id === created.id)).toEqual([created]);
+  });
+
+  it("replays a committed micro-target command without creating a duplicate", async () => {
+    const first = await seamInvoke<Region>(
+      "score_micro_target_create",
+      microTargetArgs({ command_id: "spot-replay" }),
+    );
+    const replay = await seamInvoke<Region>(
+      "score_micro_target_create",
+      microTargetArgs({ command_id: "spot-replay" }),
+    );
+    expect(replay).toEqual(first);
+    const list = await seamInvoke<Region[]>("region_list", { pieceId: 1 });
+    expect(list.filter((region) => region.id === first.id)).toHaveLength(1);
+  });
+
+  it("rejects reusing a micro-target command for different content", async () => {
+    await seamInvoke(
+      "score_micro_target_create",
+      microTargetArgs({ command_id: "spot-conflict" }),
+    );
+    await expect(
+      seamInvoke(
+        "score_micro_target_create",
+        microTargetArgs({ command_id: "spot-conflict", m_end: 4 }),
+      ),
+    ).rejects.toMatch(/different operation payload/);
   });
 
   it("leaves the region list unchanged when atomic validation rejects", async () => {

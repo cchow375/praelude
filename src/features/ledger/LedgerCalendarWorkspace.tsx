@@ -21,7 +21,7 @@ interface LedgerCalendarWorkspaceProps {
    * shell-level RepHud reflects it. When rendered standalone (tests) it falls
    * back to a no-op so the Pieces surface still mounts and browses.
    */
-  onOpenBlock?: (args: RepOpenArgs) => Promise<void>;
+  onOpenBlock?: (args: RepOpenArgs) => Promise<RepSnapshot | void>;
   activeRep?: RepSnapshot | null;
   defaultCleanStreak?: number;
   requestedSurface?: LedgerSurface | null;

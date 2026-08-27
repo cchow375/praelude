@@ -1,14 +1,14 @@
 //! Pieces manager backend: import a browser-downloaded score PDF into a piece's
-//! vault folder, and archive a piece by moving its folder to the vault `.trash/`.
+//! vault folder, and delete a piece's files by moving its folder to `.trash/`.
 //!
 //! Both operations are deliberately conservative about the filesystem:
 //! - [`import_pdf`] COPIES the user's download (never moves it — their Downloads
 //!   file stays exactly where the browser left it) and only ever writes inside
 //!   `<pieces_root>/<folder>/score/`.
-//! - [`archive`] MOVES a piece folder into `<pieces_root>/.trash/…` (never a hard
+//! - [`delete_files`] MOVES a piece folder into `<pieces_root>/.trash/…` (never a hard
 //!   delete) and re-points the DB row's `folder_path` at the trash location.
 //!
-//! WHY archive re-points the DB row (rather than leaving the DB untouched):
+//! WHY delete-files re-points the DB row (rather than leaving the DB untouched):
 //! pieces are folder-scan discovered, but `list_pieces` reads the `piece` table,
 //! and a rescan only ever *upserts* the folders it finds — it never PRUNES rows
 //! whose folder has since gone. So moving the folder alone would leave the piece
@@ -174,14 +174,15 @@ pub fn import_pdf(pieces_root: &Path, folder_name: &str, source: &Path) -> Resul
     Ok(pieces_root.join(folder_name).to_string_lossy().into_owned())
 }
 
-/// Archive a piece: move `<pieces_root>/<folder_name>` into
+/// Delete a piece's files: move `<pieces_root>/<folder_name>` into
 /// `<pieces_root>/.trash/<folder_name>-<unix_secs>/` and re-point its DB row's
 /// `folder_path` so it drops out of [`Store::list_pieces`] (which filters
 /// `%/.trash/%`). NEVER hard-deletes and NEVER deletes the DB row: all practice
 /// history (`rep_block`/`rep`/`session_event`) referencing this piece is
 /// preserved. `typed_name` must exactly match the folder name or the display
-/// title, or the archive is refused.
-pub fn archive(
+/// title, or the operation is refused. This is deliberately distinct from
+/// schema-v17's reversible logical archive, which never moves files.
+pub fn delete_files(
     pieces_root: &Path,
     store: &Store,
     folder_name: &str,
@@ -353,11 +354,11 @@ mod tests {
         assert!(!outside.path().join("score/score.pdf").exists());
     }
 
-    // ---- archive ----
+    // ---- delete files ----
 
     /// A root with one scanned piece folder + its DB row. Returns (root, store,
     /// piece_id, folder_name).
-    fn archive_fixture() -> (TempDir, Store, i64, String) {
+    fn delete_files_fixture() -> (TempDir, Store, i64, String) {
         let root = TempDir::new().unwrap();
         let folder_name = "Chopin - Scherzo".to_string();
         let folder = root.path().join(&folder_name);
@@ -377,9 +378,9 @@ mod tests {
     }
 
     #[test]
-    fn archive_rejects_wrong_typed_name() {
-        let (root, store, _id, folder_name) = archive_fixture();
-        let err = archive(root.path(), &store, &folder_name, "Nocturne").unwrap_err();
+    fn delete_files_rejects_wrong_typed_name() {
+        let (root, store, _id, folder_name) = delete_files_fixture();
+        let err = delete_files(root.path(), &store, &folder_name, "Nocturne").unwrap_err();
         assert!(err.contains("doesn't match"), "got: {err}");
         // Refused: the folder is untouched and the piece is still listed.
         assert!(root.path().join(&folder_name).exists());
@@ -387,10 +388,10 @@ mod tests {
     }
 
     #[test]
-    fn archive_accepts_title_or_folder_name_and_moves_to_trash() {
+    fn delete_files_accepts_title_or_folder_name_and_moves_to_trash() {
         // Accept the display title...
-        let (root, store, _id, folder_name) = archive_fixture();
-        let dest = archive(root.path(), &store, &folder_name, "Scherzo").unwrap();
+        let (root, store, _id, folder_name) = delete_files_fixture();
+        let dest = delete_files(root.path(), &store, &folder_name, "Scherzo").unwrap();
         assert!(dest.contains("/.trash/"), "moved into .trash: {dest}");
         assert!(
             !root.path().join(&folder_name).exists(),
@@ -406,15 +407,15 @@ mod tests {
         assert!(store.get_piece(_id).unwrap().is_some());
 
         // ...and accept the exact folder name too.
-        let (root2, store2, _id2, folder_name2) = archive_fixture();
-        archive(root2.path(), &store2, &folder_name2, &folder_name2).unwrap();
+        let (root2, store2, _id2, folder_name2) = delete_files_fixture();
+        delete_files(root2.path(), &store2, &folder_name2, &folder_name2).unwrap();
         assert!(store2.list_pieces().unwrap().is_empty());
     }
 
     #[test]
-    fn archive_rejects_missing_folder_and_path_escape() {
-        let (root, store, _id, _folder) = archive_fixture();
-        assert!(archive(root.path(), &store, "Ghost - Piece", "Piece").is_err());
-        assert!(archive(root.path(), &store, "../escape", "escape").is_err());
+    fn delete_files_rejects_missing_folder_and_path_escape() {
+        let (root, store, _id, _folder) = delete_files_fixture();
+        assert!(delete_files(root.path(), &store, "Ghost - Piece", "Piece").is_err());
+        assert!(delete_files(root.path(), &store, "../escape", "escape").is_err());
     }
 }

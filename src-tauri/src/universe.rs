@@ -5,14 +5,14 @@
 //! practice event kinds are admitted, so Calendar and Goal administration cannot
 //! manufacture practice time, active days, planets, halos, or brightness.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use serde::Serialize;
 
 use crate::date::Date;
 use crate::metrics;
 use crate::store::model::{BlockHistory, BlockMeta, Event, PieceSummary, Region};
-use crate::store::Store;
+use crate::store::{LifetimeStreakEvidence, Store};
 
 const PRACTICE_EVENT_KINDS: [&str; 4] = ["rep_open", "rep", "verdict", "tempo_change"];
 const ACTIVE_WINDOW_DAYS: i64 = 28;
@@ -23,6 +23,7 @@ pub(crate) struct UniverseSnapshot {
     pub definitions: Vec<SignalDefinition>,
     pub traces: UniverseTraces,
     pub totals: UniverseTotals,
+    pub technique: TechniqueSignal,
     pub pieces: Vec<PieceSignal>,
 }
 
@@ -46,13 +47,33 @@ pub(crate) struct UniverseTraces {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub(crate) struct UniverseTotals {
+    /// Backward-compatible name for all-history focused seconds.
     pub focused_seconds: u64,
+    /// All canonical focused seconds across visible, archived, file-deleted
+    /// repertoire and technique.
+    pub lifetime_focused_seconds: u64,
+    /// Rolling event-day rail; any valid practice event date can contribute.
     pub active_days_28: u32,
+    /// All-time days clearing the configured streak focused-minute threshold.
+    pub lifetime_active_days: u32,
+    /// Longest run of those configured-threshold qualifying days.
+    pub best_streak_days: u32,
     pub regions_practiced: u32,
+    /// Backward-compatible name for all-history revisited targets.
     pub regions_revisited: u32,
+    pub revisited_targets: u32,
     pub mastered_targets: u32,
     pub recovered_targets: u32,
     pub practice_sessions: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub(crate) struct TechniqueSignal {
+    pub focused_seconds: u64,
+    pub active_days_28: u32,
+    pub completed_warmups: u32,
+    pub practice_sessions: u32,
+    pub last_practiced: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -60,6 +81,7 @@ pub(crate) struct PieceSignal {
     pub piece_id: i64,
     pub title: String,
     pub composer: Option<String>,
+    pub archived_at: Option<i64>,
     pub focused_seconds: u64,
     pub active_days_28: u32,
     pub regions_total: u32,
@@ -107,6 +129,12 @@ struct PieceInput {
     events: Vec<DatedEvent>,
 }
 
+#[derive(Default)]
+struct TechniqueInput {
+    set_evidence: Vec<SetEvidence>,
+    events: Vec<DatedEvent>,
+}
+
 #[derive(Clone, Debug)]
 struct SetEvidence {
     region_id: Option<i64>,
@@ -146,7 +174,7 @@ pub(crate) fn snapshot(store: &Store) -> rusqlite::Result<UniverseSnapshot> {
     })?;
 
     let inputs = store
-        .list_pieces()?
+        .list_pieces_including_archived()?
         .into_iter()
         .map(|piece| {
             let events = store
@@ -170,20 +198,111 @@ pub(crate) fn snapshot(store: &Store) -> rusqlite::Result<UniverseSnapshot> {
             })
         })
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let projected_piece_ids: HashSet<i64> = inputs.iter().map(|input| input.piece.id).collect();
+    // `Delete files` intentionally keeps the Piece row and every event while
+    // hiding the row from library projections. Preserve those canonical events
+    // for headline time/XP, active-day and session evidence without putting a
+    // deleted score back on the visible repertoire shelf.
+    let file_deleted_history = store
+        .repertoire_piece_ids_for_history()?
+        .into_iter()
+        .filter(|piece_id| !projected_piece_ids.contains(piece_id))
+        .map(|piece_id| {
+            store.events_for_piece(piece_id).map(|events| {
+                events
+                    .into_iter()
+                    .map(|event| DatedEvent {
+                        local_date: local_date_for_utc_timestamp(&event.ts),
+                        event,
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
 
-    aggregate(store.now_rfc3339()?, today, &inputs)
+    let technique = match store.warmup_system_piece() {
+        Ok(system) => TechniqueInput {
+            set_evidence: store
+                .block_history(system.piece_id)?
+                .into_iter()
+                .map(SetEvidence::from)
+                .collect(),
+            events: store
+                .events_for_piece(system.piece_id)?
+                .into_iter()
+                .map(|event| DatedEvent {
+                    local_date: local_date_for_utc_timestamp(&event.ts),
+                    event,
+                })
+                .collect(),
+        },
+        Err(rusqlite::Error::QueryReturnedNoRows) => TechniqueInput::default(),
+        Err(error) => return Err(error),
+    };
+    let threshold = i64::from(crate::settings::snapshot(store).streak_threshold_minutes);
+    let lifetime_streak = store.lifetime_streak_evidence(threshold)?;
+
+    aggregate(
+        store.now_rfc3339()?,
+        today,
+        &inputs,
+        &technique,
+        &file_deleted_history,
+        lifetime_streak,
+    )
 }
 
 fn aggregate(
     generated_at: String,
     today: Date,
     inputs: &[PieceInput],
+    technique_input: &TechniqueInput,
+    file_deleted_history: &[DatedEvent],
+    lifetime_streak: LifetimeStreakEvidence,
 ) -> rusqlite::Result<UniverseSnapshot> {
     let window_start = today.add_days(-(ACTIVE_WINDOW_DAYS - 1)).ok_or_else(|| {
         rusqlite::Error::InvalidParameterName("28-day Universe window is out of range".into())
     })?;
     let mut global_active_dates = BTreeSet::new();
     let mut pieces = Vec::with_capacity(inputs.len());
+
+    let technique_practice: Vec<&DatedEvent> = technique_input
+        .events
+        .iter()
+        .filter(|dated| is_practice_event(&dated.event))
+        .collect();
+    let technique_events: Vec<Event> = technique_practice
+        .iter()
+        .map(|dated| dated.event.clone())
+        .collect();
+    let technique_active_dates = dates_in_window(&technique_practice, window_start, today);
+    let technique_sessions = distinct_sessions(&technique_practice);
+    global_active_dates.extend(technique_active_dates.iter().copied());
+    let file_deleted_practice: Vec<&DatedEvent> = file_deleted_history
+        .iter()
+        .filter(|dated| is_practice_event(&dated.event))
+        .collect();
+    global_active_dates.extend(
+        dates_in_window(&file_deleted_practice, window_start, today)
+            .iter()
+            .copied(),
+    );
+    let technique = TechniqueSignal {
+        focused_seconds: metrics::focused_seconds(&technique_events),
+        active_days_28: count_u32(technique_active_dates.len()),
+        completed_warmups: count_u32(
+            technique_input
+                .set_evidence
+                .iter()
+                .filter(|set| set.mastery_verified && set.mastery_satisfied)
+                .count(),
+        ),
+        practice_sessions: count_u32(technique_sessions.len()),
+        last_practiced: last_practiced(&technique_practice),
+    };
 
     for input in inputs {
         let practice: Vec<&DatedEvent> = input
@@ -297,6 +416,7 @@ fn aggregate(
             piece_id: input.piece.id,
             title: input.piece.title.clone(),
             composer: input.piece.composer.clone(),
+            archived_at: input.piece.archived_at,
             focused_seconds,
             active_days_28: count_u32(active_dates.len()),
             regions_total,
@@ -323,17 +443,44 @@ fn aggregate(
         });
     }
 
+    // A piece-by-piece sum can count the same wall-clock interval twice when
+    // one session interleaves repertoire or technique. Headline XP must use
+    // the canonical session timeline once, while piece rails remain useful
+    // local views of where that time was spent.
+    let mut events_by_session: HashMap<Option<i64>, Vec<Event>> = HashMap::new();
+    for dated in inputs
+        .iter()
+        .flat_map(|input| input.events.iter())
+        .chain(technique_input.events.iter())
+        .chain(file_deleted_history.iter())
+        .filter(|dated| is_practice_event(&dated.event))
+    {
+        events_by_session
+            .entry(dated.event.session_id)
+            .or_default()
+            .push(dated.event.clone());
+    }
+    let lifetime_focused_seconds = events_by_session.values().fold(0u64, |total, events| {
+        total.saturating_add(metrics::focused_seconds(events))
+    });
+    let revisited_targets = pieces.iter().map(|piece| piece.regions_revisited).sum();
     let totals = UniverseTotals {
-        focused_seconds: pieces.iter().map(|piece| piece.focused_seconds).sum(),
+        focused_seconds: lifetime_focused_seconds,
+        lifetime_focused_seconds,
         active_days_28: count_u32(global_active_dates.len()),
+        lifetime_active_days: lifetime_streak.active_days,
+        best_streak_days: lifetime_streak.best_days,
         regions_practiced: pieces.iter().map(|piece| piece.regions_practiced).sum(),
-        regions_revisited: pieces.iter().map(|piece| piece.regions_revisited).sum(),
+        regions_revisited: revisited_targets,
+        revisited_targets,
         mastered_targets: pieces.iter().map(|piece| piece.mastered_targets).sum(),
         recovered_targets: pieces.iter().map(|piece| piece.recovered_targets).sum(),
         practice_sessions: count_u32(
             inputs
                 .iter()
                 .flat_map(|input| input.events.iter())
+                .chain(technique_input.events.iter())
+                .chain(file_deleted_history.iter())
                 .filter(|dated| is_practice_event(&dated.event))
                 .filter_map(|dated| dated.event.session_id)
                 .collect::<BTreeSet<_>>()
@@ -345,7 +492,7 @@ fn aggregate(
         generated_at,
         definitions: definitions(),
         traces: UniverseTraces {
-            source: "canonical event log + current Piece/block/Region graph",
+            source: "canonical event log + repertoire Piece/block/Region graph + hidden warmup set contracts",
             practice_event_kinds: PRACTICE_EVENT_KINDS.to_vec(),
             idle_threshold_seconds: metrics::IDLE_THRESHOLD_SECS,
             active_window_start: window_start.to_string(),
@@ -354,6 +501,7 @@ fn aggregate(
             maturity_formula: "0.25 logarithmic focused time + 0.20 active-day continuity + 0.20 target coverage + 0.25 verified mastery + 0.10 honest recovery; rounded to 4 decimals; bounded 0..1",
         },
         totals,
+        technique,
         pieces,
     })
 }
@@ -399,6 +547,16 @@ fn definitions() -> Vec<SignalDefinition> {
             signal: "session_constellation",
             label: "Practice sessions",
             definition: "Distinct durable session identities attached to canonical practice events for this Piece.",
+        },
+        SignalDefinition {
+            signal: "technique_practice",
+            label: "Technique work",
+            definition: "Focused time, active days, completed verified warmup contracts, and sessions from the hidden Warm-ups system piece; the system piece never appears in the repertoire map.",
+        },
+        SignalDefinition {
+            signal: "lifetime_game_evidence",
+            label: "Lifetime earned evidence",
+            definition: "All-history focused seconds run each canonical practice session timeline once, including archived repertoire, file-deleted rows whose history remains, and hidden warmups, so interleaved pieces cannot double-count XP. Lifetime active days and best streak use the configured streak qualifying-minute threshold. Revisited, mastered, and recovered target counts reflect current and archived target rows and never use the rolling 28-day window.",
         },
     ]
 }
@@ -576,6 +734,8 @@ mod tests {
             has_xml: false,
             has_pdf: false,
             intake_done: false,
+            archived_at: None,
+            last_practiced: None,
         }
     }
 
@@ -637,6 +797,37 @@ mod tests {
             "2026-07-12T12:00:00Z".into(),
             Date::parse("2026-07-12").unwrap(),
             inputs,
+            &TechniqueInput::default(),
+            &[],
+            LifetimeStreakEvidence::default(),
+        )
+        .unwrap()
+    }
+
+    fn run_with_technique(inputs: &[PieceInput], technique: &TechniqueInput) -> UniverseSnapshot {
+        aggregate(
+            "2026-07-12T12:00:00Z".into(),
+            Date::parse("2026-07-12").unwrap(),
+            inputs,
+            technique,
+            &[],
+            LifetimeStreakEvidence::default(),
+        )
+        .unwrap()
+    }
+
+    fn run_with_lifetime(
+        inputs: &[PieceInput],
+        technique: &TechniqueInput,
+        lifetime_streak: LifetimeStreakEvidence,
+    ) -> UniverseSnapshot {
+        aggregate(
+            "2026-07-12T12:00:00Z".into(),
+            Date::parse("2026-07-12").unwrap(),
+            inputs,
+            technique,
+            &[],
+            lifetime_streak,
         )
         .unwrap()
     }
@@ -645,11 +836,123 @@ mod tests {
     fn empty_snapshot_has_definitions_traces_and_zero_totals() {
         let out = run(&[]);
         assert_eq!(out.totals, UniverseTotals::default());
+        assert_eq!(out.technique, TechniqueSignal::default());
         assert!(out.pieces.is_empty());
-        assert_eq!(out.definitions.len(), 8);
+        assert_eq!(out.definitions.len(), 10);
         assert_eq!(out.traces.active_window_start, "2026-06-15");
         assert_eq!(out.traces.active_window_end, "2026-07-12");
         assert_eq!(out.traces.practice_event_kinds, PRACTICE_EVENT_KINDS);
+    }
+
+    #[test]
+    fn technique_contributes_to_headline_totals_without_becoming_repertoire() {
+        let mut first = event(
+            1,
+            9_999,
+            "rep_open",
+            "2026-07-12 10:00:00",
+            Some("2026-07-12"),
+            Some(501),
+            None,
+        );
+        first.event.session_id = Some(17);
+        let mut second = event(
+            2,
+            9_999,
+            "rep",
+            "2026-07-12 10:01:00",
+            Some("2026-07-12"),
+            Some(501),
+            Some("clean"),
+        );
+        second.event.session_id = Some(17);
+        let technique = TechniqueInput {
+            set_evidence: vec![SetEvidence {
+                region_id: None,
+                mastery_verified: true,
+                mastery_satisfied: true,
+                reset_count: 0,
+                recovery_remaining: 0,
+            }],
+            events: vec![first, second],
+        };
+
+        let out = run_with_technique(&[], &technique);
+        assert!(out.pieces.is_empty(), "system piece is never repertoire");
+        assert_eq!(out.technique.focused_seconds, 60);
+        assert_eq!(out.technique.active_days_28, 1);
+        assert_eq!(out.technique.completed_warmups, 1);
+        assert_eq!(out.technique.practice_sessions, 1);
+        assert_eq!(out.totals.focused_seconds, 60);
+        assert_eq!(out.totals.lifetime_focused_seconds, 60);
+        assert_eq!(out.totals.active_days_28, 1);
+        assert_eq!(out.totals.practice_sessions, 1);
+    }
+
+    #[test]
+    fn lifetime_badge_evidence_is_explicit_and_independent_of_the_rolling_rail() {
+        let regions = vec![region(10, 1, "Old target")];
+        let blocks = vec![BlockMeta {
+            block_id: 100,
+            region_id: Some(10),
+            focus: "technique".into(),
+        }];
+        let events = vec![
+            event(
+                1,
+                1,
+                "rep_open",
+                "2026-05-01 10:00:00",
+                Some("2026-05-01"),
+                Some(100),
+                None,
+            ),
+            event(
+                2,
+                1,
+                "rep",
+                "2026-05-01 10:01:00",
+                Some("2026-05-01"),
+                Some(100),
+                Some("clean"),
+            ),
+            event(
+                3,
+                1,
+                "rep",
+                "2026-05-02 10:00:00",
+                Some("2026-05-02"),
+                Some(100),
+                Some("clean"),
+            ),
+        ];
+        let mut old = input(1, regions, blocks, events);
+        old.piece.archived_at = Some(1_787_000_000);
+        old.set_evidence = vec![SetEvidence {
+            region_id: Some(10),
+            mastery_verified: true,
+            mastery_satisfied: true,
+            reset_count: 1,
+            recovery_remaining: 0,
+        }];
+
+        let out = run_with_lifetime(
+            &[old],
+            &TechniqueInput::default(),
+            LifetimeStreakEvidence {
+                active_days: 23,
+                best_days: 7,
+            },
+        );
+        assert_eq!(out.totals.active_days_28, 0);
+        assert_eq!(out.totals.lifetime_active_days, 23);
+        assert_eq!(out.totals.best_streak_days, 7);
+        assert_eq!(out.totals.focused_seconds, 60);
+        assert_eq!(out.totals.lifetime_focused_seconds, 60);
+        assert_eq!(out.totals.revisited_targets, 1);
+        assert_eq!(out.totals.regions_revisited, 1);
+        assert_eq!(out.totals.mastered_targets, 1);
+        assert_eq!(out.totals.recovered_targets, 1);
     }
 
     #[test]
@@ -909,6 +1212,129 @@ mod tests {
     }
 
     #[test]
+    fn headline_focus_counts_an_interleaved_session_timeline_once() {
+        let first_piece = input(
+            1,
+            vec![],
+            vec![],
+            vec![
+                event(
+                    1,
+                    1,
+                    "rep_open",
+                    "2026-07-12 10:00:00",
+                    Some("2026-07-12"),
+                    Some(100),
+                    None,
+                ),
+                event(
+                    2,
+                    1,
+                    "rep",
+                    "2026-07-12 10:02:00",
+                    Some("2026-07-12"),
+                    Some(100),
+                    Some("clean"),
+                ),
+            ],
+        );
+        let second_piece = input(
+            2,
+            vec![],
+            vec![],
+            vec![
+                event(
+                    3,
+                    2,
+                    "rep_open",
+                    "2026-07-12 10:00:30",
+                    Some("2026-07-12"),
+                    Some(200),
+                    None,
+                ),
+                event(
+                    4,
+                    2,
+                    "rep",
+                    "2026-07-12 10:01:30",
+                    Some("2026-07-12"),
+                    Some(200),
+                    Some("clean"),
+                ),
+            ],
+        );
+
+        let out = run(&[first_piece, second_piece]);
+        assert_eq!(out.pieces[0].focused_seconds, 120);
+        assert_eq!(out.pieces[1].focused_seconds, 60);
+        assert_eq!(out.totals.lifetime_focused_seconds, 120);
+        assert_eq!(out.totals.focused_seconds, 120);
+    }
+
+    #[test]
+    fn archived_repertoire_remains_in_history_and_headline_totals() {
+        let mut archived = input(
+            1,
+            vec![],
+            vec![],
+            vec![event(
+                1,
+                1,
+                "rep",
+                "2026-07-12 10:00:00",
+                Some("2026-07-12"),
+                None,
+                Some("clean"),
+            )],
+        );
+        archived.piece.archived_at = Some(1_787_000_000);
+
+        let out = run(&[archived]);
+        assert_eq!(out.pieces.len(), 1);
+        assert_eq!(out.pieces[0].archived_at, Some(1_787_000_000));
+        assert_eq!(out.pieces[0].active_days_28, 1);
+        assert_eq!(out.totals.active_days_28, 1);
+    }
+
+    #[test]
+    fn file_deleted_history_keeps_headline_focus_without_reappearing_as_a_piece() {
+        let deleted_events = vec![
+            event(
+                1,
+                99,
+                "rep_open",
+                "2026-07-12 10:00:00",
+                Some("2026-07-12"),
+                Some(900),
+                None,
+            ),
+            event(
+                2,
+                99,
+                "rep",
+                "2026-07-12 10:02:00",
+                Some("2026-07-12"),
+                Some(900),
+                Some("clean"),
+            ),
+        ];
+        let out = aggregate(
+            "2026-07-12T12:00:00Z".into(),
+            Date::parse("2026-07-12").unwrap(),
+            &[],
+            &TechniqueInput::default(),
+            &deleted_events,
+            LifetimeStreakEvidence::default(),
+        )
+        .unwrap();
+
+        assert!(out.pieces.is_empty());
+        assert_eq!(out.totals.lifetime_focused_seconds, 120);
+        assert_eq!(out.totals.active_days_28, 1);
+        assert_eq!(out.totals.practice_sessions, 1);
+    }
+
+    #[test]
     fn focused_time_and_last_practiced_use_only_valid_practice_timestamps() {
         let events = vec![
             event(
@@ -1026,6 +1452,10 @@ mod tests {
             .unwrap();
         let before = snapshot(&store).unwrap();
         assert_eq!(before.pieces.len(), 1);
+        assert_ne!(
+            before.pieces[0].piece_id,
+            store.warmup_system_piece().unwrap().piece_id,
+        );
         assert_eq!(before.totals, UniverseTotals::default());
 
         store
@@ -1045,5 +1475,86 @@ mod tests {
         let after = snapshot(&store).unwrap();
         assert_eq!(after.pieces[0].active_days_28, 1);
         assert_eq!(after.pieces[0].quality_brightness, 0.968);
+
+        assert!(store.set_piece_archived(piece_id, true).unwrap());
+        let archived = snapshot(&store).unwrap();
+        assert_eq!(archived.pieces.len(), 1);
+        assert!(archived.pieces[0].archived_at.is_some());
+        assert_eq!(archived.totals.active_days_28, 1);
+    }
+
+    #[test]
+    fn store_snapshot_uses_configured_streak_threshold_for_lifetime_days() {
+        let store = Store::open(":memory:").unwrap();
+        let piece_id = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/vault/Archive".into(),
+                title: "Archive".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+        let day = store.today_local().unwrap();
+        let session_id = store.open_session_at(&format!("{day}T10:00:00")).unwrap();
+        store
+            .test_execute_batch(&format!(
+                "INSERT INTO event(ts,session_id,piece_id,kind,payload) VALUES
+                 ('{day}T10:00:00',{session_id},{piece_id},'rep_open','{{}}'),
+                 ('{day}T10:01:00',{session_id},{piece_id},'rep','{{\"verdict\":\"clean\"}}');"
+            ))
+            .unwrap();
+
+        assert_eq!(
+            snapshot(&store).unwrap().totals.lifetime_active_days,
+            0,
+            "one focused minute is below the default ten-minute bar",
+        );
+        store.set_setting("streak.threshold_minutes", "1").unwrap();
+        assert!(store.set_piece_archived(piece_id, true).unwrap());
+        let out = snapshot(&store).unwrap();
+        assert_eq!(out.totals.lifetime_active_days, 1);
+        assert_eq!(out.totals.best_streak_days, 1);
+        assert_eq!(out.totals.lifetime_focused_seconds, 60);
+        assert_eq!(out.pieces.len(), 1, "archived repertoire remains evidence");
+        assert!(out.pieces[0].archived_at.is_some());
+    }
+
+    #[test]
+    fn moving_score_files_to_trash_never_revokes_preserved_practice_time() {
+        let store = Store::open(":memory:").unwrap();
+        let piece_id = store
+            .upsert_piece(&ScanPiece {
+                folder_path: "/vault/DeleteMe".into(),
+                title: "Delete Me".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+        let day = store.today_local().unwrap();
+        let session_id = store.open_session_at(&format!("{day}T10:00:00")).unwrap();
+        store
+            .test_execute_batch(&format!(
+                "INSERT INTO event(ts,session_id,piece_id,kind,payload) VALUES
+                 ('{day}T10:00:00',{session_id},{piece_id},'rep_open','{{}}'),
+                 ('{day}T10:02:00',{session_id},{piece_id},'rep','{{\"verdict\":\"clean\"}}');"
+            ))
+            .unwrap();
+        let before = snapshot(&store).unwrap();
+        assert_eq!(before.totals.lifetime_focused_seconds, 120);
+        assert_eq!(before.pieces.len(), 1);
+
+        assert_eq!(
+            store
+                .repoint_piece_folder("/vault/DeleteMe", "/vault/.trash/DeleteMe-1")
+                .unwrap(),
+            1
+        );
+        let after = snapshot(&store).unwrap();
+        assert!(after.pieces.is_empty(), "deleted score stays off the shelf");
+        assert_eq!(after.totals.lifetime_focused_seconds, 120);
+        assert_eq!(after.totals.active_days_28, 1);
+        assert_eq!(after.totals.practice_sessions, 1);
     }
 }

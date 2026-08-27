@@ -14,7 +14,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use codakiller_lib::tts::{Gate, Pcm, PcmError, PcmSink, Speaker, SpeakerConfig, TtsError, TtsProvider};
+use codakiller_lib::tts::{
+    Gate, Pcm, PcmError, PcmSink, Speaker, SpeakerConfig, TtsError, TtsProvider,
+};
 
 // --------------------------------------------------------------------------
 // Test doubles
@@ -93,7 +95,8 @@ impl PcmSink for FakeSink {
         if fe.is_none() {
             *fe = Some(Instant::now());
         }
-        self.total_samples.fetch_add(samples.len(), Ordering::SeqCst);
+        self.total_samples
+            .fetch_add(samples.len(), Ordering::SeqCst);
         Ok(())
     }
     fn done(&self) -> bool {
@@ -162,7 +165,11 @@ fn gate_closes_before_enqueue_and_reopens_300ms_after_drain() {
     speaker.speak_blocking("CodaKiller online").expect("spoke");
 
     let events = gate.events();
-    assert_eq!(events.len(), 2, "exactly one close then one open: {events:?}");
+    assert_eq!(
+        events.len(),
+        2,
+        "exactly one close then one open: {events:?}"
+    );
     let (close_at, close_open) = events[0];
     let (open_at, open_open) = events[1];
     assert!(!close_open, "first gate event must be a CLOSE");
@@ -185,7 +192,10 @@ fn gate_closes_before_enqueue_and_reopens_300ms_after_drain() {
         margin.as_millis()
     );
     // And the gate was closed for the full drain: open strictly after drain.
-    assert!(open_at > drain_at, "gate stayed closed through the entire drain");
+    assert!(
+        open_at > drain_at,
+        "gate stayed closed through the entire drain"
+    );
 
     drop(speaker);
 }
@@ -237,7 +247,9 @@ fn backpressure_is_retried_never_dropped() {
         gate.clone() as Arc<dyn Gate>,
         test_config(),
     );
-    speaker.speak_blocking("retry me").expect("spoke despite backpressure");
+    speaker
+        .speak_blocking("retry me")
+        .expect("spoke despite backpressure");
 
     assert_eq!(
         sink.total_samples.load(Ordering::SeqCst),
@@ -279,7 +291,11 @@ fn utterances_serialize_no_interleaved_gate_cycles() {
     assert_eq!(events.len(), 4, "two full cycles: {events:?}");
     // Strict close,open,close,open — never two closes in a row.
     let opens: Vec<bool> = events.iter().map(|e| e.1).collect();
-    assert_eq!(opens, vec![false, true, false, true], "cycles must not interleave");
+    assert_eq!(
+        opens,
+        vec![false, true, false, true],
+        "cycles must not interleave"
+    );
 
     drop(speaker);
 }

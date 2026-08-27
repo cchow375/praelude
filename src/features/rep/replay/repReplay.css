@@ -1,0 +1,146 @@
+.rep-replay {
+  border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  padding: 8px 0 2px;
+}
+
+.rep-replay-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.rep-replay-toggle input {
+  accent-color: var(--ink);
+}
+
+.rep-replay-toggle span {
+  display: grid;
+  gap: 1px;
+}
+
+.rep-replay-toggle strong {
+  font: 600 0.76rem/1.2 var(--font-sans);
+}
+
+.rep-replay-toggle small,
+.rep-replay-review p,
+.rep-replay-kept small {
+  color: var(--ink-muted);
+  font: 500 0.65rem/1.3 var(--font-sans);
+}
+
+.rep-replay-body {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.rep-replay-record,
+.rep-replay-stop {
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.rep-replay-stop span {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--signal-error);
+}
+
+.rep-replay-recording {
+  display: grid;
+  gap: 4px;
+}
+
+.rep-replay-recording small {
+  color: var(--ink-muted);
+  font-size: 0.64rem;
+}
+
+.rep-replay-review,
+.rep-replay-kept {
+  display: grid;
+  gap: 6px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  padding: 8px;
+}
+
+.rep-replay audio {
+  width: 100%;
+  height: 30px;
+}
+
+.rep-replay-player {
+  display: grid;
+  gap: 4px;
+}
+
+.rep-replay-player > label {
+  display: grid;
+  grid-template-columns: auto minmax(70px, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: 0.64rem;
+}
+
+.rep-replay-player input[type="range"] {
+  width: 100%;
+}
+
+.rep-replay-bypass {
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.rep-replay-review-row,
+.rep-replay-kept li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.rep-replay-review-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+}
+
+.rep-replay-review p {
+  margin: 0;
+}
+
+.rep-replay-kept summary {
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.rep-replay-kept ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rep-replay-kept li span {
+  font-size: 0.7rem;
+  font-weight: 600;
+}

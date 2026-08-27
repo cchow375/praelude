@@ -5,7 +5,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
-import { universeSnapshot } from "./api";
+import { universeHistoryDays, universeSnapshot } from "./api";
 import type { UniverseSnapshot } from "./types";
 
 const SNAPSHOT: UniverseSnapshot = {
@@ -153,5 +153,48 @@ describe("universeSnapshot", () => {
       universeSnapshot(),
     ]);
     expect(invokeMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("universeHistoryDays", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  it("reads the exact snapshot trace bounds through the existing read-only command", async () => {
+    const rows = [
+      {
+        date: "2026-07-17",
+        focused_seconds: 600,
+        session_count: 1,
+        attempts: 4,
+        cleans: 3,
+        sets_touched: 1,
+        mastered_sets: 0,
+        pieces: [],
+      },
+    ];
+    invokeMock.mockResolvedValueOnce(rows);
+    await expect(
+      universeHistoryDays("2026-06-20", "2026-07-17"),
+    ).resolves.toEqual(rows);
+    expect(invokeMock).toHaveBeenCalledWith("history_days", {
+      from: "2026-06-20",
+      to: "2026-07-17",
+    });
+  });
+
+  it("normalizes a null compatibility response to an empty day list", async () => {
+    invokeMock.mockResolvedValueOnce(null);
+    await expect(
+      universeHistoryDays("2026-06-20", "2026-07-17"),
+    ).resolves.toEqual([]);
+  });
+
+  it("propagates absence so the workspace can render its honest fallback", async () => {
+    invokeMock.mockRejectedValueOnce(new Error("unknown command history_days"));
+    await expect(
+      universeHistoryDays("2026-06-20", "2026-07-17"),
+    ).rejects.toThrow("unknown command history_days");
   });
 });

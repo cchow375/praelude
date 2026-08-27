@@ -38,4 +38,20 @@ describe("MicToggle", () => {
     expect(button.hasAttribute("disabled")).toBe(true);
     expect(button.getAttribute("title")).toMatch(/not running|unavailable/i);
   });
+
+  it("cannot be reopened while Listen Back owns the verdict boundary", () => {
+    const onToggle = vi.fn();
+    render(
+      <MicToggle
+        status="muted"
+        onToggle={onToggle}
+        lockedReason="Voice stays muted while Listen Back is active."
+      />,
+    );
+    const button = screen.getByRole("button", { name: /mic/i });
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(button.getAttribute("title")).toMatch(/Listen Back/i);
+    fireEvent.click(button);
+    expect(onToggle).not.toHaveBeenCalled();
+  });
 });

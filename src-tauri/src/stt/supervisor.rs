@@ -6,7 +6,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -67,6 +67,9 @@ pub struct SttConfig {
     pub use_stdbuf: bool,
     /// Quiet gap after which a pending utterance is finalized.
     pub settle: Duration,
+    /// Optional live settle control, in milliseconds. The supervisor reads it
+    /// before every wait so Settings can tune responsiveness without relaunch.
+    pub settle_control: Option<Arc<AtomicU64>>,
     /// Delay before respawning a dead child.
     pub backoff: Duration,
     /// Max restarts allowed within `restart_window` before giving up.
@@ -101,6 +104,7 @@ impl SttConfig {
             env: HashMap::new(),
             use_stdbuf: true,
             settle: Duration::from_millis(600),
+            settle_control: None,
             backoff: Duration::from_secs(1),
             max_restarts: 5,
             restart_window: Duration::from_secs(60),
@@ -250,8 +254,23 @@ impl SttSupervisor {
     where
         F: Fn(SttEvent) + Send + Sync + 'static,
     {
+        Self::spawn_with_config_and_gate(config, on_event, Arc::new(AtomicBool::new(true)))
+    }
+
+    /// Spawn with a caller-owned gate. The voice loop uses this narrower seam
+    /// when it temporarily tears the recognizer down: every replacement
+    /// supervisor must keep using the same gate atom already owned by TTS and
+    /// the mute command, otherwise a resumed recognizer could escape those
+    /// controls through a fresh, unrelated flag.
+    pub(crate) fn spawn_with_config_and_gate<F>(
+        config: SttConfig,
+        on_event: F,
+        gate: Arc<AtomicBool>,
+    ) -> SttHandle
+    where
+        F: Fn(SttEvent) + Send + Sync + 'static,
+    {
         let sink: Sink = Arc::new(on_event);
-        let gate = Arc::new(AtomicBool::new(true));
         let shutdown = Arc::new(AtomicBool::new(false));
         let pgid = Arc::new(Mutex::new(None));
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
@@ -293,7 +312,8 @@ fn run_manager(
         let sink = sink.clone();
         let gate = gate.clone();
         let settle = config.settle;
-        move || run_settler(line_rx, sink, gate, settle)
+        let settle_control = config.settle_control.clone();
+        move || run_settler_controlled(line_rx, sink, gate, settle, settle_control)
     });
 
     let mut restarts: Vec<Instant> = Vec::new();
@@ -607,11 +627,22 @@ fn read_stderr_head(stderr: impl Read) -> String {
 /// policy (see module docs). Runs for the supervisor's whole lifetime so
 /// utterance state survives child respawns. Gate is re-checked at emit time so
 /// a settle-timer final can never leak into a closed-gate window.
+#[cfg(test)]
 fn run_settler(
     line_rx: mpsc::Receiver<String>,
     sink: Sink,
     gate: Arc<AtomicBool>,
     settle: Duration,
+) {
+    run_settler_controlled(line_rx, sink, gate, settle, None);
+}
+
+fn run_settler_controlled(
+    line_rx: mpsc::Receiver<String>,
+    sink: Sink,
+    gate: Arc<AtomicBool>,
+    fallback_settle: Duration,
+    settle_control: Option<Arc<AtomicU64>>,
 ) {
     let emit = |text: String, is_final: bool| {
         if gate.load(Ordering::Acquire) {
@@ -625,6 +656,10 @@ fn run_settler(
 
     let mut pending: Option<String> = None;
     loop {
+        let settle = settle_control
+            .as_ref()
+            .map(|value| Duration::from_millis(value.load(Ordering::Relaxed)))
+            .unwrap_or(fallback_settle);
         match line_rx.recv_timeout(settle) {
             Ok(text) => {
                 // A distinct new utterance finalizes the previous pending one; a
@@ -739,6 +774,7 @@ mod tests {
             env: HashMap::new(),
             use_stdbuf: false,
             settle: Duration::from_millis(50),
+            settle_control: None,
             backoff: Duration::from_millis(1),
             max_restarts: 3,
             restart_window: Duration::from_secs(60),
@@ -769,6 +805,7 @@ mod tests {
             env: HashMap::new(),
             use_stdbuf: false,
             settle: Duration::from_millis(50),
+            settle_control: None,
             backoff: Duration::from_millis(1),
             max_restarts: 3,
             restart_window: Duration::from_millis(30),
@@ -778,6 +815,36 @@ mod tests {
             assert!(!should_give_up(&mut restarts, &cfg, &sink, ""));
             thread::sleep(Duration::from_millis(40)); // each restart ages out
         }
+    }
+
+    #[test]
+    fn live_settle_control_applies_to_the_next_quiet_gap() {
+        let (sink, log) = sink_collecting();
+        let (tx, rx) = mpsc::channel();
+        let gate = Arc::new(AtomicBool::new(true));
+        let control = Arc::new(AtomicU64::new(200));
+        let worker = thread::spawn({
+            let control = control.clone();
+            move || {
+                run_settler_controlled(rx, sink, gate, Duration::from_millis(600), Some(control))
+            }
+        });
+
+        tx.send("mark".into()).unwrap();
+        thread::sleep(Duration::from_millis(30));
+        assert!(!log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event| matches!(event, SttEvent::Transcript(t) if t.is_final)));
+        control.store(20, Ordering::Relaxed);
+        tx.send("mark done".into()).unwrap();
+        thread::sleep(Duration::from_millis(60));
+        assert!(log.lock().unwrap().iter().any(|event| {
+            matches!(event, SttEvent::Transcript(t) if t.is_final && t.text == "mark done")
+        }));
+        drop(tx);
+        worker.join().unwrap();
     }
 
     // The framing policy: distinct lines each finalize; a prefix-growth collapses

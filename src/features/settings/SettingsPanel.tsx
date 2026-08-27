@@ -8,6 +8,7 @@ import { BrainConnection } from "./BrainConnection";
 import { BooksPanel, type BooksApi } from "./BooksPanel";
 import { resetDockLayout } from "../dock/dockState";
 import { hotkeyLabel } from "../rep/useVerdictHotkeys";
+import { acceptCommittedSettings } from "../../state/settings";
 import { TTS_DEGRADED_LABEL, useTtsDegraded } from "../voice/useTtsDegraded";
 import { QUIET_SPEECH_NOTE } from "../voice/HeardPill";
 import {
@@ -51,6 +52,7 @@ export interface SettingsSnapshot {
   wake_word_enabled: boolean;
   wake_word: string;
   speak_acks: boolean;
+  stt_settle_ms: number;
   metronome_sound: string;
   metronome_boost: boolean;
   metronome_boost_level: number;
@@ -137,6 +139,12 @@ export function SettingsPanel({
             hotkey_verdict_again: next.hotkey_verdict_again || "Enter",
             assistant_enabled: next.assistant_enabled ?? false,
             speak_acks: next.speak_acks ?? false,
+            stt_settle_ms:
+              Number.isInteger(next.stt_settle_ms) &&
+              next.stt_settle_ms >= 300 &&
+              next.stt_settle_ms <= 2000
+                ? next.stt_settle_ms
+                : 600,
             demote_enabled: next.demote_enabled ?? true,
             demote_first:
               Number.isInteger(next.demote_first) &&
@@ -188,6 +196,7 @@ export function SettingsPanel({
         wake_word_enabled: value.wake_word_enabled,
         wake_word: value.wake_word,
         speak_acks: value.speak_acks,
+        stt_settle_ms: value.stt_settle_ms,
         metronome_sound: value.metronome_sound,
         metronome_boost: value.metronome_boost,
         metronome_boost_level: value.metronome_boost_level,
@@ -209,13 +218,14 @@ export function SettingsPanel({
           failed: parseAliases(aliasDrafts.failed),
         },
       });
+      // The Rep HUD is mounted outside the Settings workspace and must adopt
+      // committed hotkey changes without being torn down or reloaded.
+      acceptCommittedSettings(next);
       setValue(next);
       setAliasDrafts(aliasStrings(next.verdict_aliases));
       onInterfaceScaleSaved?.(next.interface_scale);
       onPracticeDefaultCleanStreakSaved?.(next.practice_default_clean_streak);
-      setMessage(
-        "Settings saved. Voice/provider changes apply after relaunch.",
-      );
+      setMessage("Settings saved. Settle delay applies now; provider changes apply after relaunch.");
       receipts.committed("Settings saved.");
     } catch (cause) {
       const message = errorMessage(cause);
@@ -270,13 +280,23 @@ export function SettingsPanel({
           <div className="settings-guide-intro">
             <p className="settings-guide-kicker">Start here</p>
             <h3 id="settings-guide-title">
-              One practice loop, two voice lanes
+              {value.assistant_enabled
+                ? "One practice loop, two voice lanes"
+                : "One hands-free practice loop"}
             </h3>
-            <p>
-              Use short, exact commands for immediate practice control. Use the{" "}
-              {ASSISTANT} for plain-English questions, screen-grounded help, and
-              reviewable action drafts.
-            </p>
+            {value.assistant_enabled ? (
+              <p>
+                Use short, exact commands for immediate practice control. Use
+                the {ASSISTANT} for plain-English questions, screen-grounded
+                help, and reviewable action drafts.
+              </p>
+            ) : (
+              <p>
+                Use short, exact commands to control practice without leaving
+                the piano. You report each attempt; CodaKiller counts, times,
+                and remembers it without grading the piano.
+              </p>
+            )}
           </div>
 
           <ol className="settings-guide-flow" aria-label="Golden practice flow">
@@ -309,7 +329,11 @@ export function SettingsPanel({
             </li>
           </ol>
 
-          <div className="settings-guide-lanes">
+          <div
+            className={`settings-guide-lanes${
+              value.assistant_enabled ? "" : " is-single"
+            }`}
+          >
             <section aria-labelledby="settings-guide-instant">
               <h4 id="settings-guide-instant">Instant commands</h4>
               <p>
@@ -351,39 +375,43 @@ export function SettingsPanel({
               </p>
             </section>
 
-            <section aria-labelledby="settings-guide-brain">
-              <h4 id="settings-guide-brain">Plain-English {ASSISTANT}</h4>
-              <p>
-                Type in the {ASSISTANT}, or ask an assistant-directed question
-                such as <q>Can you tell me what happened last session?</q>{" "}
-                without a wake phrase. The {ASSISTANT} receives the selected
-                Score piece, Region, page, edition, active set, and today's
-                written plan, plus grounded practice history and cited
-                references.
-              </p>
-              <p className="settings-guide-note">
-                The {ASSISTANT} may draft a verdict, tempo change, undo, or
-                streak restart. Coda reads the draft back; say <q>confirm</q> or{" "}
-                <q>cancel</q>. It still cannot hear or grade playing, interpret
-                a page without a selected section, or manage Calendar and Goals
-                by voice yet.
-              </p>
-            </section>
+            {value.assistant_enabled && (
+              <section aria-labelledby="settings-guide-brain">
+                <h4 id="settings-guide-brain">Plain-English {ASSISTANT}</h4>
+                <p>
+                  Type in the {ASSISTANT}, or ask an assistant-directed question
+                  such as <q>Can you tell me what happened last session?</q>{" "}
+                  without a wake phrase. The {ASSISTANT} receives the selected
+                  Score piece, Region, page, edition, active set, and today's
+                  written plan, plus grounded practice history and cited
+                  references.
+                </p>
+                <p className="settings-guide-note">
+                  The {ASSISTANT} may draft a verdict, tempo change, undo, or
+                  streak restart. Coda reads the draft back; say <q>confirm</q>{" "}
+                  or <q>cancel</q>. It still cannot hear or grade playing,
+                  interpret a page without a selected section, or manage
+                  Calendar and Goals by voice yet.
+                </p>
+              </section>
+            )}
           </div>
 
-          <aside
-            className="settings-guide-safety"
-            aria-label="Confirmation safety"
-          >
-            <strong>Before anything ambiguous changes</strong>
-            <p>
-              If CodaKiller shows a draft or confirmation card, review every
-              field and choose or say Confirm or Cancel; nothing on that card
-              runs first. Exact commands above are different: they run
-              immediately. In a noisy room, use the HUD or Metronome button
-              instead of repeating a command you are unsure it heard.
-            </p>
-          </aside>
+          {value.assistant_enabled && (
+            <aside
+              className="settings-guide-safety"
+              aria-label="Confirmation safety"
+            >
+              <strong>Before anything ambiguous changes</strong>
+              <p>
+                If CodaKiller shows a draft or confirmation card, review every
+                field and choose or say Confirm or Cancel; nothing on that card
+                runs first. Exact commands above are different: they run
+                immediately. In a noisy room, use the HUD or Metronome button
+                instead of repeating a command you are unsure it heard.
+              </p>
+            </aside>
+          )}
         </section>
       </Disclosure>
 
@@ -490,11 +518,13 @@ export function SettingsPanel({
         </div>
       </Disclosure>
 
-      <Disclosure
-        summary={<SectionLabel icon={<BooksIcon />}>Books</SectionLabel>}
-      >
-        <BooksPanel {...(booksApi ? { api: booksApi } : {})} />
-      </Disclosure>
+      {value.assistant_enabled && (
+        <Disclosure
+          summary={<SectionLabel icon={<BooksIcon />}>Books</SectionLabel>}
+        >
+          <BooksPanel {...(booksApi ? { api: booksApi } : {})} />
+        </Disclosure>
+      )}
 
       <Disclosure
         summary={
@@ -517,6 +547,17 @@ export function SettingsPanel({
               cheaper than letting Christian hunt for a setting that cannot
               exist. */}
           <p className="settings-note">{QUIET_SPEECH_NOTE}</p>
+          <NumberField
+            label="Voice settle delay (ms)"
+            value={value.stt_settle_ms}
+            min={300}
+            max={2000}
+            onChange={(stt_settle_ms) => setValue({ ...value, stt_settle_ms })}
+          />
+          <p className="settings-note settings-wide">
+            Lower is more responsive; too low can split a command at a short
+            pause. Bare verdict words still wait for this safe finalization gap.
+          </p>
           <label className="settings-check settings-wide">
             <input
               type="checkbox"

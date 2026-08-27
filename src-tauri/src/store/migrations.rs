@@ -8,7 +8,7 @@
 use rusqlite::{Connection, OptionalExtension};
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 16;
+pub const SCHEMA_VERSION: i32 = 19;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -1512,6 +1512,86 @@ CREATE TABLE dynamics_calibration_point (
 pub(crate) const SCHEMA_V16: &str =
     "ALTER TABLE rep_block ADD COLUMN tuning_json TEXT NOT NULL DEFAULT '{}';";
 
+/// Schema v17: score movements plus reversible library archiving.
+///
+/// Both changes are additive. Existing pieces remain active (`archived_at IS
+/// NULL`) and a piece with zero movement rows keeps the whole-score behaviour.
+/// Movement page ranges are derived from consecutive `start_page` values at
+/// read time, so no Region or score-anchor row is rewritten by this migration.
+pub(crate) const SCHEMA_V17: &str = "\
+ALTER TABLE piece ADD COLUMN archived_at INTEGER
+  CHECK(archived_at IS NULL OR archived_at >= 0);
+CREATE TABLE piece_movement (
+  id INTEGER PRIMARY KEY,
+  piece_id INTEGER NOT NULL REFERENCES piece(id) ON DELETE CASCADE,
+  title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 200),
+  start_page INTEGER NOT NULL CHECK(start_page >= 1),
+  display_order INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(piece_id, start_page)
+);
+CREATE INDEX piece_movement_piece_order_idx
+  ON piece_movement(piece_id, start_page, display_order, id);
+CREATE INDEX piece_archive_idx
+  ON piece(archived_at, id);
+";
+
+/// Schema v18: user-authored warmup routines plus one hidden system piece.
+///
+/// Existing repertoire rows receive `kind='repertoire'`. The seeded system
+/// row gives warmup reps a valid piece/session/history home without polluting
+/// the Pieces library or earned-only Universe. It has no real filesystem
+/// folder and is never discovered or overwritten by the vault scanner.
+pub(crate) const SCHEMA_V18: &str = "\
+ALTER TABLE piece ADD COLUMN kind TEXT NOT NULL DEFAULT 'repertoire'
+  CHECK(kind IN ('repertoire','system'));
+-- Reserve rowid 0 for the one non-repertoire piece. This keeps SQLite's next
+-- implicit rowid at 1 on a fresh database, so every scanned/user-facing piece
+-- retains the long-standing positive-id contract and migration fixtures do
+-- not accidentally select the hidden Warm-ups row as the first piece.
+INSERT INTO piece(id,title,composer,folder_path,intake_done,kind)
+VALUES (0,'Warm-ups',NULL,'codakiller://warmups',1,'system');
+CREATE TABLE warmup_routine (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 120),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE warmup_routine_item (
+  id INTEGER PRIMARY KEY,
+  routine_id INTEGER NOT NULL REFERENCES warmup_routine(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL CHECK(position >= 0),
+  catalog_id TEXT NOT NULL
+    CHECK(length(trim(catalog_id)) BETWEEN 1 AND 100),
+  bpm INTEGER NOT NULL CHECK(bpm BETWEEN 20 AND 300),
+  clean_streak INTEGER NOT NULL CHECK(clean_streak BETWEEN 1 AND 20),
+  UNIQUE(routine_id,position)
+);
+CREATE INDEX warmup_routine_updated_idx
+  ON warmup_routine(updated_at DESC,id DESC);
+";
+
+/// Schema v19: metadata for explicitly kept listen-back takes. Temporary
+/// recordings never reach SQLite or disk. `rel_path` is app-data relative and
+/// verified against its content hash every time native serves it.
+pub(crate) const SCHEMA_V19: &str = "\
+CREATE TABLE rep_replay (
+  id INTEGER PRIMARY KEY,
+  rep_block_id INTEGER NOT NULL REFERENCES rep_block(id) ON DELETE CASCADE,
+  attempt_id INTEGER REFERENCES rep(id) ON DELETE SET NULL,
+  rel_path TEXT NOT NULL UNIQUE
+    CHECK(length(rel_path) BETWEEN 14 AND 240 AND instr(rel_path,'..')=0),
+  mime_type TEXT NOT NULL
+    CHECK(mime_type LIKE 'audio/webm%' OR mime_type LIKE 'audio/mp4%'),
+  duration_ms INTEGER NOT NULL CHECK(duration_ms BETWEEN 1 AND 1800000),
+  byte_len INTEGER NOT NULL CHECK(byte_len BETWEEN 1 AND 31457280),
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX rep_replay_block_idx ON rep_replay(rep_block_id,id DESC);
+CREATE UNIQUE INDEX rep_replay_attempt_idx ON rep_replay(attempt_id)
+  WHERE attempt_id IS NOT NULL;
+";
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
@@ -1793,6 +1873,48 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         }
     }
 
+    if version < 17 {
+        let v17 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            conn.execute_batch(SCHEMA_V17)?;
+            conn.execute_batch("PRAGMA user_version = 17;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v17 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
+    if version < 18 {
+        let v18 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            conn.execute_batch(SCHEMA_V18)?;
+            conn.execute_batch("PRAGMA user_version = 18;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v18 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
+    if version < 19 {
+        let v19 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            conn.execute_batch(SCHEMA_V19)?;
+            conn.execute_batch("PRAGMA user_version = 19;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v19 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
+    }
+
     Ok(())
 }
 
@@ -1800,6 +1922,18 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
 mod v3_tests {
     use super::*;
     use rusqlite::Connection;
+
+    /// Every legacy-version fixture in this module migrates through v18 on
+    /// its way to `SCHEMA_VERSION`. That step adds exactly one reserved hidden
+    /// system row and is the sole permitted change to a `piece` count; every
+    /// repertoire row and every other graph table must still match exactly.
+    fn counts_with_hidden_system_piece(tables: &[&str], before: &[i64]) -> Vec<i64> {
+        tables
+            .iter()
+            .zip(before)
+            .map(|(table, count)| count + i64::from(*table == "piece"))
+            .collect()
+    }
 
     fn seed_v2() -> Connection {
         let c = Connection::open_in_memory().unwrap();
@@ -2175,8 +2309,9 @@ mod v3_tests {
             })
             .collect();
         assert_eq!(
-            after, before,
-            "v12 must invent nothing on a normal database"
+            after,
+            counts_with_hidden_system_piece(&counted_tables, &before),
+            "v12 must invent no repertoire or graph evidence; v18 adds one hidden system piece"
         );
         // Specifically: no phantom Copland on a fresh install.
         assert_eq!(
@@ -2206,8 +2341,8 @@ mod v3_tests {
         assert_eq!(
             c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            pieces_before + 1,
-            "exactly one new piece"
+            pieces_before + 2,
+            "v12 adds exactly one repaired repertoire piece and v18 one hidden system piece"
         );
         assert_eq!(
             c.query_row("SELECT count(*) FROM rep", [], |row| row.get::<_, i64>(0))
@@ -2557,8 +2692,8 @@ mod v3_tests {
         assert_eq!(
             c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            3,
-            "the Etude plus the two repaired pieces"
+            4,
+            "the Etude, two repaired repertoire pieces, and hidden system piece"
         );
 
         // The whole stranded graph landed on the auto-discovered Copland row.
@@ -2617,7 +2752,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            3
+            4
         );
         assert_eq!(count_where(&c, "event", copland), 27);
     }
@@ -2658,7 +2793,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            3
+            4
         );
     }
 
@@ -2901,8 +3036,9 @@ mod v3_tests {
             })
             .collect();
         assert_eq!(
-            after, before,
-            "v11 must preserve every existing graph row count"
+            after,
+            counts_with_hidden_system_piece(&counted_tables, &before),
+            "v11 preserves every graph row; v18 adds one hidden system piece"
         );
 
         // The two additive tables now exist and start empty.
@@ -3362,7 +3498,11 @@ mod v3_tests {
                 .unwrap()
             })
             .collect::<Vec<_>>();
-        assert_eq!(after, before, "v5 must not rewrite any v4 graph row");
+        assert_eq!(
+            after,
+            counts_with_hidden_system_piece(&tables, &before),
+            "v5-current must not rewrite any v4 graph row; v18 adds one hidden system piece"
+        );
         assert_eq!(
             c.query_row(
                 "SELECT preferred_pdf_path FROM piece WHERE id=1",
@@ -3612,8 +3752,9 @@ mod v3_tests {
             })
             .collect();
         assert_eq!(
-            after, before,
-            "v6 must not rewrite or delete any v5 graph row"
+            after,
+            counts_with_hidden_system_piece(&preserved_tables, &before),
+            "v6-current must not rewrite any v5 graph row; v18 adds one hidden system piece"
         );
         assert_eq!(
             c.query_row("SELECT count(*) FROM event", [], |row| row.get::<_, i64>(0))
@@ -4111,8 +4252,14 @@ mod v3_tests {
                 c.query_row("SELECT count(*) FROM event", [], |row| row.get::<_, i64>(0))
                     .unwrap(),
             ),
-            source_counts,
-            "v10 creates sidecars without changing physical v1 evidence rows"
+            (
+                source_counts.0 + 1,
+                source_counts.1,
+                source_counts.2,
+                source_counts.3,
+                source_counts.4,
+            ),
+            "v10-current preserves physical evidence; v18 adds one hidden system piece"
         );
         assert_eq!(
             c.query_row("SELECT count(*) FROM practice_operation", [], |row| {
@@ -4348,8 +4495,8 @@ mod v3_tests {
         assert_eq!(
             c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            pieces_before,
-            "purely additive"
+            pieces_before + 1,
+            "v13-current preserves repertoire rows; v18 adds one hidden system piece"
         );
         assert_eq!(
             c.query_row("SELECT count(*) FROM score_page_mark", [], |row| row
@@ -4419,7 +4566,7 @@ mod v3_tests {
         // currently is (v15 as of B74/day_photo/dynamics tables) — this test only
         // isolates the v13→v14 *content* (measure_map + the two columns below), not the
         // version number itself, which the pragma assertion above already anchors.
-        assert_eq!(SCHEMA_VERSION, 16);
+        assert_eq!(SCHEMA_VERSION, 19);
 
         // measure_map insert/select round-trips (piece id=1, "Etude", already
         // exists from seed_v11()).
@@ -4567,7 +4714,7 @@ mod v3_tests {
                 .unwrap(),
             SCHEMA_VERSION
         );
-        assert_eq!(SCHEMA_VERSION, 16);
+        assert_eq!(SCHEMA_VERSION, 19);
 
         // session row survives; only the column is gone.
         assert_eq!(
@@ -4710,6 +4857,250 @@ mod v3_tests {
                 "{table} must exist on a fresh v15 database"
             );
         }
+    }
+
+    fn seed_v16() -> Connection {
+        let c = seed_v14();
+        assert_sqlite_version_supports_drop_column(&c);
+        assert_no_references_to_session_focused_seconds(&c);
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        c.execute_batch(SCHEMA_V15).unwrap();
+        c.execute_batch("PRAGMA user_version = 15; COMMIT;")
+            .unwrap();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        c.execute_batch(SCHEMA_V16).unwrap();
+        c.execute_batch("PRAGMA user_version = 16; COMMIT;")
+            .unwrap();
+        c
+    }
+
+    /// v16 -> current is copy-safe: all live graph rows survive,
+    /// every existing piece remains active, and movement rows enforce their
+    /// page/title/FK contracts without rewriting score anchors or Regions.
+    #[test]
+    fn migrate_v16_to_current_preserves_graph_and_adds_library_contracts() {
+        let c = seed_v16();
+        let before: Vec<(String, i64)> = [
+            "piece",
+            "region",
+            "rep_block",
+            "rep",
+            "session",
+            "event",
+            "setting",
+        ]
+        .into_iter()
+        .map(|table| {
+            let count = c
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap();
+            (table.to_string(), count)
+        })
+        .collect();
+
+        migrate(&c).unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+        for (table, expected) in before {
+            let actual = c
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap();
+            let expected_after = if table == "piece" {
+                expected + 1 // v18's hidden Warm-ups system piece
+            } else {
+                expected
+            };
+            assert_eq!(
+                actual, expected_after,
+                "current migration changed existing {table} rows"
+            );
+        }
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM piece WHERE archived_at IS NOT NULL",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0,
+            "all pre-v17 pieces must remain active"
+        );
+        assert_eq!(
+            c.query_row("SELECT kind FROM piece WHERE id=1", [], |row| row
+                .get::<_, String>(0),)
+                .unwrap(),
+            "repertoire"
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM piece
+                 WHERE kind='system' AND folder_path='codakiller://warmups'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT id FROM piece
+                 WHERE kind='system' AND folder_path='codakiller://warmups'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0,
+            "the hidden system piece owns the reserved non-repertoire id"
+        );
+
+        c.execute(
+            "INSERT INTO piece_movement(piece_id,title,start_page,display_order)
+             VALUES (1,'I',1,0)",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO piece_movement(piece_id,title,start_page,display_order)
+             VALUES (1,'II',7,1)",
+            [],
+        )
+        .unwrap();
+        assert!(c
+            .execute(
+                "INSERT INTO piece_movement(piece_id,title,start_page) VALUES (1,'duplicate',7)",
+                [],
+            )
+            .is_err());
+        assert!(c
+            .execute(
+                "INSERT INTO piece_movement(piece_id,title,start_page) VALUES (1,'bad',0)",
+                [],
+            )
+            .is_err());
+
+        c.execute("UPDATE piece SET archived_at=1724745600 WHERE id=1", [])
+            .unwrap();
+        assert_eq!(
+            c.query_row("SELECT archived_at FROM piece WHERE id=1", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            1_724_745_600
+        );
+
+        // A second open is a no-op, including the user-authored movement rows.
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM piece_movement", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            2
+        );
+    }
+
+    #[test]
+    fn fresh_schema_reserves_zero_and_first_repertoire_keeps_id_one() {
+        let c = Connection::open_in_memory().unwrap();
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row(
+                "SELECT id FROM piece
+                 WHERE kind='system' AND folder_path='codakiller://warmups'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0
+        );
+        let repertoire_id: i64 = c
+            .query_row(
+                "INSERT INTO piece(title,folder_path)
+                 VALUES ('First repertoire','/scores/first') RETURNING id",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(repertoire_id, 1);
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM piece
+                 WHERE kind='system' AND folder_path='codakiller://warmups'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
+        );
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM piece", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            2,
+            "reopening schema 19 must neither duplicate nor replace either row"
+        );
+    }
+
+    #[test]
+    fn v18_and_v19_constraints_reject_invalid_routines_and_audio_metadata() {
+        let c = seed_v16();
+        migrate(&c).unwrap();
+        let warmup_piece: i64 = c
+            .query_row("SELECT id FROM piece WHERE kind='system'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(warmup_piece, 0);
+
+        let routine: i64 = c
+            .query_row(
+                "INSERT INTO warmup_routine(name) VALUES ('Octave day') RETURNING id",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        c.execute(
+            "INSERT INTO warmup_routine_item
+             (routine_id,position,catalog_id,bpm,clean_streak)
+             VALUES (?1,0,'octave-jumps',52,4)",
+            [routine],
+        )
+        .unwrap();
+        assert!(c
+            .execute(
+                "INSERT INTO warmup_routine_item
+                 (routine_id,position,catalog_id,bpm,clean_streak)
+                 VALUES (?1,1,'unsafe',999,4)",
+                [routine],
+            )
+            .is_err());
+
+        let block: i64 = c
+            .query_row("SELECT id FROM rep_block LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        c.execute(
+            "INSERT INTO rep_replay
+             (rep_block_id,rel_path,mime_type,duration_ms,byte_len,content_hash)
+             VALUES (?1,'rep-replays/one.webm','audio/webm;codecs=opus',1200,128,?2)",
+            rusqlite::params![block, "a".repeat(64)],
+        )
+        .unwrap();
+        assert!(c
+            .execute(
+                "INSERT INTO rep_replay
+                 (rep_block_id,rel_path,mime_type,duration_ms,byte_len,content_hash)
+                 VALUES (?1,'../escape.wav','audio/wav',0,0,'bad')",
+                [block],
+            )
+            .is_err());
     }
 
     #[test]

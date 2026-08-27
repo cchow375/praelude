@@ -33,7 +33,7 @@ import App from "./App";
 afterEach(cleanup);
 
 describe("App shell smoke (v3)", () => {
-  it("renders the five-workspace shell with Today mounted by default", async () => {
+  it("renders the core workspaces plus Assistant with Today mounted by default", async () => {
     render(<App />);
     const nav = screen.getByRole("tablist", { name: /workspace/i });
     // assistant_enabled is read async (settings_snapshot); wait for the
@@ -43,7 +43,14 @@ describe("App shell smoke (v3)", () => {
       within(nav)
         .getAllByRole("tab")
         .map((t) => t.textContent),
-    ).toEqual(["Today", "Score", "Assistant", "History", "Universe"]);
+    ).toEqual([
+      "Today",
+      "Score",
+      "Warmups",
+      "Assistant",
+      "History",
+      "Universe",
+    ]);
     expect(await screen.findByTestId("workspace-today")).toBeTruthy();
   });
 

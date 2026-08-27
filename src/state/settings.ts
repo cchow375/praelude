@@ -81,8 +81,39 @@ const SETTING_LABELS: Record<keyof Settings, string> = {
 // Process-lifetime fallback store used whenever the Tauri backend is unavailable.
 const memoryStore = new Map<keyof Settings, Settings[keyof Settings]>();
 
+type CommittedSettingsListener = (settings: Settings) => void;
+const committedSettingsListeners = new Set<CommittedSettingsListener>();
+
 export function __resetSettingsForTests() {
   memoryStore.clear();
+}
+
+/**
+ * Accept a full settings projection only after the backend has committed it.
+ * The Settings form uses a separate, broad snapshot type, so mounted focused
+ * surfaces cannot rely on its React tree re-rendering when that form saves.
+ * This process-local projection is the authoritative bridge for those live
+ * consumers; persistence remains owned by `settings_update`.
+ */
+export function acceptCommittedSettings(
+  value: Partial<Settings>,
+): Settings {
+  const snapshot = normalizedSnapshot(value);
+  for (const key of Object.keys(snapshot) as (keyof Settings)[]) {
+    memoryStore.set(key, snapshot[key]);
+  }
+  for (const listener of committedSettingsListeners) {
+    listener(snapshot);
+  }
+  return snapshot;
+}
+
+/** Subscribe to projections accepted after a successful settings write. */
+export function subscribeCommittedSettings(
+  listener: CommittedSettingsListener,
+): () => void {
+  committedSettingsListeners.add(listener);
+  return () => committedSettingsListeners.delete(listener);
 }
 
 function normalizedSnapshot(

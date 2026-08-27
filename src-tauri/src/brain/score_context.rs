@@ -808,6 +808,8 @@ mod tests {
             has_xml: xml_path.is_some(),
             has_pdf: false,
             intake_done: true,
+            archived_at: None,
+            last_practiced: None,
             folder_path: root.to_string_lossy().into_owned(),
             xml_path: xml_path.map(|path| path.to_string_lossy().into_owned()),
             pdf_path: None,

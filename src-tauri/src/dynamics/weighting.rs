@@ -145,7 +145,11 @@ impl AWeighting {
             gain: 1.0,
         };
         let at_1k = me.raw_magnitude(1000.0, sample_rate);
-        me.gain = if at_1k > 0.0 { (1.0 / at_1k) as f32 } else { 1.0 };
+        me.gain = if at_1k > 0.0 {
+            (1.0 / at_1k) as f32
+        } else {
+            1.0
+        };
         me
     }
 
@@ -192,7 +196,10 @@ mod tests {
         for fs in [44_100.0_f64, 48_000.0_f64] {
             let w = AWeighting::new(fs);
             let db = w.response_db(1000.0, fs);
-            assert!(db.abs() <= 0.5, "fs={fs}: 1 kHz response {db} dB, want ~0 dB");
+            assert!(
+                db.abs() <= 0.5,
+                "fs={fs}: 1 kHz response {db} dB, want ~0 dB"
+            );
         }
     }
 
@@ -245,6 +252,9 @@ mod tests {
             }
         }
         let db = 10.0 * (sum_out / sum_in).log10();
-        assert!(db.abs() < 0.5, "1 kHz through process() is {db} dB, want ~0");
+        assert!(
+            db.abs() < 0.5,
+            "1 kHz through process() is {db} dB, want ~0"
+        );
     }
 }

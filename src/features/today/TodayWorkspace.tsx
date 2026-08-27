@@ -15,6 +15,7 @@ import {
   SheetIcon,
   SlidersIcon,
   SparkIcon,
+  WarmupIcon,
 } from "./menuIcons";
 import "./TodayWorkspace.css";
 
@@ -22,6 +23,7 @@ interface TodayWorkspaceProps {
   /** Opens the Score workspace with no requested piece (the "Score" entry and
    *  the panel's Atlas launcher share this). */
   onOpenAtlas: () => void;
+  onOpenWarmups: () => void;
   onOpenCalendar: () => void;
   /** Deep link (spec C3): a day-sheet piece heading opens Score on the Plan tab. */
   onOpenPiecePlan: (pieceId: number) => void;
@@ -42,6 +44,7 @@ interface TodayWorkspaceProps {
  */
 export function TodayWorkspace({
   onOpenAtlas,
+  onOpenWarmups,
   onOpenCalendar,
   onOpenPiecePlan,
   onOpenBrain,
@@ -145,6 +148,14 @@ export function TodayWorkspace({
           >
             <NoteIcon className="today-menu-icon" />
             <span>Score</span>
+          </button>
+          <button
+            type="button"
+            className="today-menu-item"
+            onClick={onOpenWarmups}
+          >
+            <WarmupIcon className="today-menu-icon" />
+            <span>Warmups</span>
           </button>
           {assistantEnabled && (
             <button

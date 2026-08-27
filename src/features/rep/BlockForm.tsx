@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type {
   BeatUnit,
+  DemotionOverride,
   RepOpenArgs,
   SetFocusContextInput,
   SetTuning,
@@ -52,7 +53,11 @@ interface BlockFormProps {
    * estimate — omitted (single-argument call) otherwise. Per-set tuning lives
    * inside the first argument and does not change that positional contract.
    */
-  onOpen: (args: RepOpenArgs, context?: SetFocusContextInput) => void;
+  onOpen: (
+    args: RepOpenArgs,
+    context?: SetFocusContextInput,
+    demotion?: DemotionOverride,
+  ) => void;
   opening?: boolean;
   /** Prevents a guaranteed backend rejection while another set owns the loop. */
   blockedReason?: string | null;
@@ -212,6 +217,11 @@ export function BlockForm({
   const [mode, setMode] = useState<"auto" | "manual">("auto");
   const [cleanNeeded, setCleanNeeded] = useState<string>("3");
   const [bpmStep, setBpmStep] = useState<string>("4");
+  const [demotionMode, setDemotionMode] = useState<"inherit" | "on" | "off">(
+    "inherit",
+  );
+  const [demotionFirst, setDemotionFirst] = useState("3");
+  const [demotionRepeat, setDemotionRepeat] = useState("2");
   const [variants, setVariants] = useState<VariantSpec[]>([]);
   const [focus, setFocus] = useState("tempo");
   const [useMetronome, setUseMetronome] = useState(true);
@@ -302,6 +312,13 @@ export function BlockForm({
     )?.label.replace(/\s*\([^)]*\)$/, "");
     advancedParts.push(`${unit ?? "Quarter note"} pulse`);
   }
+  if (demotionMode !== "inherit") {
+    advancedParts.push(
+      demotionMode === "off"
+        ? "demotion off for this set"
+        : `demote after ${demotionFirst}, then ${demotionRepeat} sloppy`,
+    );
+  }
   const reviewAt = parseIntOrNull(plannedReps);
   if (reviewAt != null) advancedParts.push(`review at ${reviewAt}`);
   const advancedSummary =
@@ -374,10 +391,24 @@ export function BlockForm({
         beats_per_bar: beatsPerBar,
       },
     };
-    // Task A10 compatibility: an untouched pass-time still means a single
+    const demotion: DemotionOverride | undefined =
+      demotionMode === "inherit"
+        ? undefined
+        : {
+            enabled: demotionMode === "on",
+            first: clampInteger(demotionFirst, 2, 10, 3),
+            repeat: clampInteger(demotionRepeat, 1, 10, 2),
+          };
+    // Task A10 compatibility: untouched optional controls still mean a single
     // positional argument. A5's tuning is part of that RepOpenArgs object.
     if (parsedPassSeconds != null && parsedPassSeconds > 0) {
-      onOpen(args, { pass_seconds: parsedPassSeconds });
+      if (demotion) {
+        onOpen(args, { pass_seconds: parsedPassSeconds }, demotion);
+      } else {
+        onOpen(args, { pass_seconds: parsedPassSeconds });
+      }
+    } else if (demotion) {
+      onOpen(args, undefined, demotion);
     } else {
       onOpen(args);
     }
@@ -754,6 +785,60 @@ export function BlockForm({
                       </span>
                     )}
                   </div>
+                </fieldset>
+              )}
+
+              {focus === "tempo" && (
+                <fieldset className="ck-field">
+                  <legend className="ck-label">Tempo demotion</legend>
+                  <label className="ck-field">
+                    <span className="ck-label">For this set</span>
+                    <select
+                      className="ck-input"
+                      aria-label="Tempo demotion for this set"
+                      value={demotionMode}
+                      onChange={(event) =>
+                        setDemotionMode(
+                          event.target.value as "inherit" | "on" | "off",
+                        )
+                      }
+                    >
+                      <option value="inherit">Use global setting</option>
+                      <option value="on">On</option>
+                      <option value="off">Off</option>
+                    </select>
+                  </label>
+                  {demotionMode === "on" && (
+                    <div className="ck-field-grid ck-manual-rule">
+                      <label className="ck-field">
+                        <span className="ck-label">First demotion after sloppy</span>
+                        <input
+                          className="ck-input"
+                          type="number"
+                          min={2}
+                          max={10}
+                          aria-label="First demotion after sloppy reps"
+                          value={demotionFirst}
+                          onChange={(event) => setDemotionFirst(event.target.value)}
+                        />
+                      </label>
+                      <label className="ck-field">
+                        <span className="ck-label">Later demotions after sloppy</span>
+                        <input
+                          className="ck-input"
+                          type="number"
+                          min={1}
+                          max={10}
+                          aria-label="Later demotions after sloppy reps"
+                          value={demotionRepeat}
+                          onChange={(event) => setDemotionRepeat(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                  )}
+                  <p className="ck-tuning-note">
+                    Sloppy resets the clean streak and can step tempo down; Again does neither.
+                  </p>
                 </fieldset>
               )}
 

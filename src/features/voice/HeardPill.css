@@ -1,32 +1,23 @@
-/* ===========================================================================
-   Heard-text pill (v6 S9, "visible hearing"). Quiet by construction: it exists
-   to be glanced at mid-phrase and then forgotten, so it uses the same raised
-   surface / hairline / dim-ink tokens as the other voice pills and adds no
-   colour of its own. Tokens only — nothing here invents a value.
-   ========================================================================== */
+/* Persistent last-three transcript evidence inside the compact Rep Counter. */
+.heard-feed {
+  margin-top: var(--s-3);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--hairline);
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+}
 
-.heard-pill {
-  position: fixed;
-  left: var(--s-4);
-  bottom: calc(var(--s-4) + var(--s-6));
-  z-index: 50;
+.heard-feed-heading {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  max-width: min(60vw, 24rem);
-  padding: var(--s-1) var(--s-3);
-  font-size: 0.8125rem;
-  color: var(--ink-dim);
-  background: var(--bg-raised);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-md);
-  /* Never intercepts a click: it can appear over anything at any moment. */
-  pointer-events: none;
-  animation: heard-pill-in var(--dur-fast) var(--ease-out);
+  margin-bottom: var(--s-1);
+  color: var(--ink-faint);
+  font-size: 0.6875rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
-/* A small open circle: "listening", not a status light. Deliberately not the
-   filled dot the degraded-voice pill uses — that one means something is wrong. */
 .heard-pill-ear {
   flex: 0 0 auto;
   width: 6px;
@@ -35,21 +26,38 @@
   border-radius: 50%;
 }
 
+.heard-feed-empty {
+  margin: 0;
+  color: var(--ink-faint);
+}
+
+.heard-feed-lines {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.heard-feed-lines li {
+  display: flex;
+  min-width: 0;
+  gap: var(--s-2);
+  animation: heard-pill-in var(--dur-fast) var(--ease-out);
+}
+
 .heard-pill-text {
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.4;
-  font-variant-numeric: tabular-nums;
 }
 
-/* D1 latency instrument — the honest app-side figure, never the whole
-   utterance→action span (the module doc/title explains why). A quiet
-   trailing note, not a metric callout: same dim ink as the pill body. */
 .heard-pill-latency {
   flex: 0 0 auto;
-  font-variant-numeric: tabular-nums;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 @keyframes heard-pill-in {
@@ -64,7 +72,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .heard-pill {
+  .heard-feed-lines li {
     animation: none;
   }
 }

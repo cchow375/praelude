@@ -426,10 +426,7 @@ impl SessionReplay {
         }
         if let Some(want) = &cp.mastery {
             let got = mastery_str(self.mastery());
-            assert_eq!(
-                got, want,
-                "checkpoint mastery for {seg_id} {text:?}"
-            );
+            assert_eq!(got, want, "checkpoint mastery for {seg_id} {text:?}");
         }
     }
 }

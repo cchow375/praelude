@@ -59,6 +59,11 @@ pub struct PieceSummary {
     pub has_xml: bool,
     pub has_pdf: bool,
     pub intake_done: bool,
+    /// Unix seconds when the piece was reversibly archived; `None` = active.
+    pub archived_at: Option<i64>,
+    /// Most recent recorded attempt timestamp, used for recent-first library
+    /// ordering. `None` means the piece has never had a recorded attempt.
+    pub last_practiced: Option<String>,
 }
 
 /// Full piece record for the detail view: the summary fields plus the paths and
@@ -71,6 +76,8 @@ pub struct PieceDetail {
     pub has_xml: bool,
     pub has_pdf: bool,
     pub intake_done: bool,
+    pub archived_at: Option<i64>,
+    pub last_practiced: Option<String>,
     pub folder_path: String,
     pub xml_path: Option<String>,
     pub pdf_path: Option<String>,
@@ -84,6 +91,32 @@ pub struct PieceDetail {
     /// `None` = no banner. Bounded to 140 characters by both the Rust command
     /// and the column's CHECK constraint.
     pub banner_text: Option<String>,
+}
+
+/// One named page-range start inside a piece PDF (schema v17). The end page is
+/// intentionally derived from the next movement's `start_page` and the live
+/// document page count, so PDF replacement never leaves a stale stored end.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PieceMovement {
+    pub id: i64,
+    pub piece_id: i64,
+    pub title: String,
+    pub start_page: u32,
+    pub display_order: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct PieceMovementCreate {
+    pub piece_id: i64,
+    pub title: String,
+    pub start_page: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct PieceMovementPatch {
+    pub title: Option<String>,
+    pub start_page: Option<u32>,
+    pub display_order: Option<i64>,
 }
 
 /// A trouble spot the user flagged during intake: a measure range and a note.
@@ -350,6 +383,16 @@ pub struct RepOpenArgs {
     /// so `#[serde(default)]` preserves today's behaviour exactly.
     #[serde(default)]
     pub tuning: SetTuning,
+}
+
+/// Optional per-set demotion policy supplied beside `RepOpenArgs`. Keeping it
+/// separate lets an auto ladder resolve its clean/rung arithmetic natively,
+/// then overlays only the three demotion fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DemotionOverride {
+    pub enabled: bool,
+    pub first: u32,
+    pub repeat: u32,
 }
 
 /// Optional focus-loop evidence supplied beside `RepOpenArgs` at the IPC
@@ -737,6 +780,13 @@ pub struct RepSnapshot {
     pub block_id: i64,
     pub piece_id: i64,
     pub piece_title: String,
+    /// Canonical Region judged by this set, when it has one.
+    #[serde(default)]
+    pub region_id: Option<i64>,
+    /// The Region's persistent sound target (`region.notes`) projected into
+    /// the hot loop so the verdict surface can show/edit it without guessing.
+    #[serde(default)]
+    pub sound_target: Option<String>,
     pub m_start: u32,
     pub m_end: u32,
     pub label: Option<String>,

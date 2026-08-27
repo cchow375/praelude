@@ -21,6 +21,25 @@ describe("dev-mock rep_resume setId handling", () => {
   beforeEach(() => installTauriDevMock());
   afterEach(() => uninstallTauriDevMock());
 
+  it("rejects an exact pause when another set identity is observed", async () => {
+    const before = await seamInvoke<RepSnapshot | null>("rep_state");
+    expect(before).not.toBeNull();
+    const receipt = await seamInvoke<MutationReceipt<RepSnapshot>>(
+      "rep_pause",
+      {
+        commandId: "stale-rotation-pause",
+        expectedSetId: before!.block_id + 1,
+      },
+    );
+    expect(receipt.status).toBe("rejected");
+    expect(receipt.error_detail).toContain("active practice set changed");
+    expect(await seamInvoke<PausedSetRow[]>("sets_paused_list")).toEqual([]);
+    expect(await seamInvoke<RepSnapshot | null>("rep_state")).toMatchObject({
+      block_id: before!.block_id,
+      set_state: "active",
+    });
+  });
+
   it("rejects a resume whose setId does not match the paused mock row", async () => {
     await seamInvoke("rep_pause", { commandId: "test-pause" });
     const paused = await seamInvoke<PausedSetRow[]>("sets_paused_list");

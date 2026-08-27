@@ -174,7 +174,7 @@ describe("DetailPanel", () => {
       expect(metricValue("Verified mastery")).toBe("1 / 3");
       expect(metricValue("Honestly recovered")).toBe("1");
       expect(metricValue("Practice sessions")).toBe("8");
-      expect(metricValue("Earned maturity")).toBe("64%");
+      expect(metricValue("Open recovery")).toBe("0");
       expect(metricValue("Last practiced")).toBe("Jul 11, 2026");
     });
 
@@ -183,34 +183,26 @@ describe("DetailPanel", () => {
       expect(metricValue("Verified mastery")).toBe("0 / 0");
       expect(metricValue("Honestly recovered")).toBe("0");
       expect(metricValue("Practice sessions")).toBe("0");
-      expect(metricValue("Earned maturity")).toBe("0%");
+      expect(metricValue("Open recovery")).toBe("0");
       expect(metricValue("Last practiced")).toBe("Not practiced yet");
       // No composer recorded -> no sub-label invented.
       expect(screen.queryByText("Chopin")).toBeNull();
     });
 
-    it("clamps an out-of-range earned_maturity instead of rendering it raw", () => {
+    it("does not surface the opaque earned_maturity composite as a score", () => {
       const snapshot: UniverseSnapshot = {
         ...SNAPSHOT,
         pieces: [{ ...PIECE, earned_maturity: 4.2 }],
       };
       renderPanel(PIECE_SELECTION, { snapshot });
-      expect(metricValue("Earned maturity")).toBe("100%");
-
-      cleanup();
-      renderPanel(PIECE_SELECTION, {
-        snapshot: {
-          ...SNAPSHOT,
-          pieces: [{ ...PIECE, earned_maturity: -3 }],
-        },
-      });
-      expect(metricValue("Earned maturity")).toBe("0%");
+      expect(screen.queryByText("Earned maturity")).toBeNull();
+      expect(document.body.textContent).not.toContain("420%");
     });
 
-    it("lists every region as a labelled, clickable row", () => {
+    it("lists every target as a labelled, clickable row", () => {
       const { props } = renderPanel(PIECE_SELECTION);
-      const list = screen.getByRole("region", { name: /^Regions/ });
-      expect(within(list).getByText("Regions (2)")).toBeTruthy();
+      const list = screen.getByRole("region", { name: /^Targets/ });
+      expect(within(list).getByText("Targets (2)")).toBeTruthy();
 
       const opening = within(list).getByRole("button", { name: /Opening/ });
       expect(opening.textContent).toContain("Mastery verified");
@@ -226,11 +218,11 @@ describe("DetailPanel", () => {
       });
     });
 
-    it("says so honestly when a piece has no regions marked yet", () => {
+    it("says so honestly when a piece has no targets marked yet", () => {
       renderPanel({ kind: "piece", pieceId: 8 });
-      expect(screen.getByText("Regions (0)")).toBeTruthy();
+      expect(screen.getByText("Targets (0)")).toBeTruthy();
       expect(
-        screen.getByText("No regions marked on this piece yet."),
+        screen.getByText("No targets marked on this piece yet."),
       ).toBeTruthy();
     });
 
@@ -271,11 +263,11 @@ describe("DetailPanel", () => {
     });
   });
 
-  describe("region selection", () => {
-    it("renders every region metric the snapshot carries", () => {
+  describe("target selection", () => {
+    it("renders every target metric the snapshot carries", () => {
       renderPanel(BLOCK_SELECTION);
       const panel = screen.getByRole("complementary", { name: "Opening" });
-      expect(within(panel).getByText("Region")).toBeTruthy();
+      expect(within(panel).getByText("Target")).toBeTruthy();
       expect(metricValue("Reps")).toBe("6");
       expect(metricValue("Clean reps")).toBe("5");
       expect(metricValue("Focused time")).toBe("1h 0m");

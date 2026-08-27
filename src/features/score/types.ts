@@ -1,4 +1,4 @@
-import type { BlockHistory, Region } from "../pieces/types";
+import type { BlockHistory, PieceMovement, Region } from "../pieces/types";
 import type { AtomicTargetSavePayload } from "./atlas/savePayload";
 
 export interface PdfEdition {
@@ -101,6 +101,8 @@ export interface ScorePdfApi {
   bytes: (pieceId: number, editionId: string) => Promise<ArrayBuffer>;
   regions: (pieceId: number) => Promise<Region[]>;
   blocks: (pieceId: number) => Promise<BlockHistory[]>;
+  /** Optional for test/legacy adapters; production always supplies schema-v17 movements. */
+  movements?: (pieceId: number) => Promise<PieceMovement[]>;
   updateRegion: (
     regionId: number,
     pdfAnchor: PdfAnchorMap | null,

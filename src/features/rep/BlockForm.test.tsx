@@ -221,6 +221,33 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
     expect(screen.getByRole("radio", { name: "Manual" })).toBeTruthy();
     expect(screen.getByLabelText("BPM note value")).toBeTruthy();
   });
+
+  it("submits an explicit per-set demotion override without replacing the auto ladder", () => {
+    const onOpen = vi.fn();
+    render(<BlockForm pieceId={7} onOpen={onOpen} />);
+    openAdvanced();
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Tempo demotion for this set" }),
+      { target: { value: "on" } },
+    );
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: "First demotion after sloppy reps" }),
+      { target: { value: "4" } },
+    );
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: "Later demotions after sloppy reps" }),
+      { target: { value: "2" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen.mock.calls[0][0].increment).toBeNull();
+    expect(onOpen.mock.calls[0][1]).toBeUndefined();
+    expect(onOpen.mock.calls[0][2]).toEqual({
+      enabled: true,
+      first: 4,
+      repeat: 2,
+    });
+  });
 });
 
 describe("BlockForm per-set metronome tuning (A5)", () => {

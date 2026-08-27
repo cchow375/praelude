@@ -13,6 +13,7 @@
 // never calls it at all.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   dragBarline,
   isBlockingConflict,
@@ -37,12 +38,22 @@ export interface MeasureMapApi {
   scanPage: typeof measureScanPage;
   reconcile: typeof measureReconcile;
   apply: typeof measureMapApply;
+  /** Local key-presence preflight only; never returns secret values. Optional
+   * so isolated tests and legacy adapters keep their deterministic seam. */
+  status?: () => Promise<MappingProviderStatus[]>;
+}
+
+interface MappingProviderStatus {
+  provider: "claude" | "gemini";
+  configured: boolean;
+  source: "keychain" | "environment" | "none" | string;
 }
 
 const defaultApi: MeasureMapApi = {
   scanPage: measureScanPage,
   reconcile: measureReconcile,
   apply: measureMapApply,
+  status: () => invoke<MappingProviderStatus[]>("measure_mapping_status"),
 };
 
 export interface MeasureMapPanelProps {
@@ -96,6 +107,9 @@ export function MeasureMapPanel({
   const [dirty, setDirty] = useState(false);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const [pageImages, setPageImages] = useState<Record<number, string>>({});
+  const [providerStatus, setProviderStatus] = useState<
+    MappingProviderStatus[] | null
+  >(null);
   /** Pages the human chose to leave unmapped rather than fix (F3, partial
    * Apply). The store treats a re-apply as the new whole truth for this
    * fingerprint, so omitting a page from the payload simply leaves it
@@ -108,6 +122,31 @@ export function MeasureMapPanel({
   const requestedImagesRef = useRef(new Set<number>());
   const dialogRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<Element | null>(null);
+
+  useEffect(() => {
+    if (!api.status) return;
+    let alive = true;
+    void api
+      .status()
+      .then((status) => {
+        if (alive) setProviderStatus(status);
+      })
+      .catch(() => {
+        if (alive) setProviderStatus(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [api]);
+
+  const claudeReady = providerStatus?.some(
+    (status) => status.provider === "claude" && status.configured,
+  );
+  const geminiReady = providerStatus?.some(
+    (status) => status.provider === "gemini" && status.configured,
+  );
+  const knownMissingKeys =
+    providerStatus != null && !claudeReady && !geminiReady;
 
   const hasUnsavedWork = dirty && (stage === "review" || stage === "scanning");
 
@@ -503,7 +542,25 @@ export function MeasureMapPanel({
             posture as the Brain. Nothing is written to this piece until you
             review and Apply.
           </p>
-          <button type="button" onClick={() => void startScan()}>
+          {providerStatus != null && (
+            <p className="measure-map-provider-state" role="status">
+              {claudeReady
+                ? "Anthropic key found — Claude is ready. Gemini remains the fallback."
+                : geminiReady
+                  ? "No Anthropic key is configured. Gemini fallback is ready for this run."
+                  : "No Anthropic or Gemini key is configured. Add one in Settings; no score page will be sent until then."}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={knownMissingKeys}
+            title={
+              knownMissingKeys
+                ? "Add an Anthropic or Gemini key in Settings first"
+                : undefined
+            }
+            onClick={() => void startScan()}
+          >
             Start scan
           </button>
         </div>

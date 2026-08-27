@@ -44,7 +44,7 @@ function writeLastPieceId(id: number) {
 
 export interface ScoreWorkspaceProps {
   /** Shell's rep.open — without it ScoreView's Practice tab renders nothing. */
-  onOpenBlock?: (args: RepOpenArgs) => Promise<void>;
+  onOpenBlock?: (args: RepOpenArgs) => Promise<RepSnapshot | void>;
   /** Resume one exact paused set from an in-score micro-target chip. */
   onResumeSet?: (setId: number) => Promise<void>;
   defaultCleanStreak?: number;
@@ -397,6 +397,7 @@ export function ScoreWorkspace({
               <ScoreView
                 key={selectedId}
                 pieceId={selectedId}
+                pieceTitle={selected?.title ?? "This piece"}
                 isActive={isActive && tab === "score"}
                 onOpenBlock={onOpenBlock ? openBlock : undefined}
                 onResumeSet={onResumeSet ? resumeSet : undefined}

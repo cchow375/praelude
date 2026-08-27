@@ -196,6 +196,29 @@
   color: var(--ink-faint);
   white-space: nowrap;
 }
+.rep-hud-subdivision {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: var(--s-2);
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  color: var(--ink-dim);
+}
+.rep-hud-subdivision button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-sm);
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.rep-hud-subdivision button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 
 /* --- Focus contract strip ---------------------------------------------- */
 .rep-focus-strip {
@@ -414,6 +437,65 @@
 .rep-hud-actions {
   display: flex;
   gap: var(--s-2);
+}
+.rep-hud-sound-target {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  min-width: 0;
+  color: var(--ink-dim);
+  font-size: 0.8125rem;
+}
+.rep-hud-sound-target > span {
+  flex: none;
+  color: var(--ink-faint);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.rep-hud-sound-target > button {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rep-hud-sound-target > form {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex: 1;
+  min-width: 0;
+}
+.rep-hud-sound-target input {
+  flex: 1;
+  min-width: 8rem;
+  height: 30px;
+  padding: 0 var(--s-2);
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  background: var(--bg-sunken);
+  font: inherit;
+}
+.rep-hud-sound-target form button {
+  height: 30px;
+  padding: 0 var(--s-2);
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.rep-hud-sound-target small {
+  color: var(--signal-error);
 }
 /* The one thing that must NOT shrink. Pressed mid-playing, read at arm's
    length: three equal, unmissable targets. */

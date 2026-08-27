@@ -30,14 +30,23 @@ fn scherzo2_session_replays_with_zero_false_mutations() {
     assert_eq!(fx.session_id, "scherzo2");
     assert_eq!(fx.piece_alias_hint.as_deref(), Some("Scherzo"));
     assert_eq!(
-        fx.source_wav_sha256,
-        "9b6a44ee71d994b8e68a1c0c705bbfa225015d2ceb5cd5c5b32179b47ed918c0",
+        fx.source_wav_sha256, "9b6a44ee71d994b8e68a1c0c705bbfa225015d2ceb5cd5c5b32179b47ed918c0",
         "WAV hash must match the corpus manifest"
     );
-    assert!(fx.source_narration_json.ends_with("scherzo2_narration.json"));
+    assert!(fx
+        .source_narration_json
+        .ends_with("scherzo2_narration.json"));
     assert!(!fx.honesty_note.trim().is_empty());
-    assert_eq!(fx.segment_count, fx.segments.len(), "declared count matches");
-    assert_eq!(fx.segments.len(), 201, "scherzo2 has 201 narration segments");
+    assert_eq!(
+        fx.segment_count,
+        fx.segments.len(),
+        "declared count matches"
+    );
+    assert_eq!(
+        fx.segments.len(),
+        201,
+        "scherzo2 has 201 narration segments"
+    );
 
     let replay = assert_full_session_replay(&fx);
 
@@ -86,6 +95,12 @@ fn scherzo2_classification_stats_are_honest() {
         command, 0,
         "scherzo2 meta-narration produced no genuine hot-loop command"
     );
-    assert_eq!(review, 3, "three contract-required Tier B/C moments escalated");
-    assert_eq!(ambient + firewall + asr + command + correction + review, 201);
+    assert_eq!(
+        review, 3,
+        "three contract-required Tier B/C moments escalated"
+    );
+    assert_eq!(
+        ambient + firewall + asr + command + correction + review,
+        201
+    );
 }

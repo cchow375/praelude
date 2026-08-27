@@ -111,6 +111,49 @@ describe("RepHud", () => {
     expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the Region Sound target beside verdicts and persists edits", async () => {
+    const onSoundTargetSave = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <RepHud
+        snap={makeSnap({
+          region_id: 41,
+          sound_target: "Bell-like, never percussive",
+        })}
+        feed={[]}
+        error={null}
+        onSoundTargetSave={onSoundTargetSave}
+        {...callbacks()}
+      />,
+    );
+
+    const target = screen.getByText("Bell-like, never percussive");
+    const targetRow = target.closest(".rep-hud-sound-target");
+    expect(targetRow?.hasAttribute("data-compact-visible")).toBe(true);
+    fireEvent.click(target);
+    const input = screen.getByRole("textbox", { name: "Region sound target" });
+    fireEvent.change(input, { target: { value: "  A singing inner voice  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(onSoundTargetSave).toHaveBeenCalledWith(
+        41,
+        "A singing inner voice",
+      ),
+    );
+    expect(screen.getByText("A singing inner voice")).toBeTruthy();
+
+    rerender(
+      <RepHud
+        snap={makeSnap({ region_id: null, sound_target: null })}
+        feed={[]}
+        error={null}
+        onSoundTargetSave={onSoundTargetSave}
+        {...callbacks()}
+      />,
+    );
+    expect(screen.queryByText("Sound target")).toBeNull();
+  });
+
   it("keeps the verdict buttons rendered when the set is collapsed (B82)", () => {
     render(
       <RepHud
@@ -203,6 +246,44 @@ describe("RepHud", () => {
     },
   );
 
+  it("offers compact subdivision steps only while the set metronome is running", () => {
+    const setSubdivision = vi.fn();
+    const { rerender } = render(
+      <RepHud
+        snap={makeSnap()}
+        feed={[]}
+        error={null}
+        metroRunning
+        runningSubdivision={3}
+        onSetRunningSubdivision={setSubdivision}
+        {...callbacks()}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Increase running subdivision" }),
+    );
+    expect(setSubdivision).toHaveBeenCalledWith(4);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Decrease running subdivision" }),
+    );
+    expect(setSubdivision).toHaveBeenCalledWith(2);
+
+    rerender(
+      <RepHud
+        snap={makeSnap()}
+        feed={[]}
+        error={null}
+        metroRunning={false}
+        runningSubdivision={3}
+        onSetRunningSubdivision={setSubdivision}
+        {...callbacks()}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Increase running subdivision" }),
+    ).toBeNull();
+  });
+
   it("switches to the N-in-a-row target proof once the working tempo reaches target", () => {
     render(
       <RepHud
@@ -282,6 +363,35 @@ describe("RepHud", () => {
     expect(handlers.onCheck).toHaveBeenNthCalledWith(2, "flawed", null);
     expect(handlers.onCheck).toHaveBeenNthCalledWith(3, "failed", null);
     expect(note.value).toBe("");
+  });
+
+  it("makes Listen Back a visible soft nudge and reports ownership to the voice gate", async () => {
+    const handlers = callbacks();
+    const onReplayModeChange = vi.fn();
+    render(
+      <RepHud
+        snap={makeSnap()}
+        feed={[]}
+        error={null}
+        onReplayModeChange={onReplayModeChange}
+        {...handlers}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /Review each rep by listening back/i,
+      }),
+    );
+    await waitFor(() => expect(onReplayModeChange).toHaveBeenCalledWith(true));
+    const clean = screen.getByRole("button", { name: "Clean" });
+    expect((clean as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(clean);
+    expect(handlers.onCheck).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Judge without listening" }),
+    );
+    fireEvent.click(clean);
+    await waitFor(() => expect(handlers.onCheck).toHaveBeenCalledTimes(1));
   });
 
   it("serializes overlapping HUD verdicts so a later check cannot suppress an earlier rung retune", async () => {
@@ -781,9 +891,9 @@ describe("RepHud", () => {
       );
       expect(headline(container)).toBe("4");
       expect(required(container)).toBe("5");
-      expect(
-        container.querySelector(".rep-hud-stage-name")?.textContent,
-      ).toBe("dotted");
+      expect(container.querySelector(".rep-hud-stage-name")?.textContent).toBe(
+        "dotted",
+      );
       expect(
         screen.getByLabelText(
           "dotted 4 of 5 clean, next variation reverse dotted",
@@ -832,9 +942,9 @@ describe("RepHud", () => {
       // never the downward 4 -> 0 the raw snapshot would show.
       expect(headline(container)).toBe("5");
       expect(required(container)).toBe("5");
-      expect(
-        container.querySelector(".rep-hud-stage-name")?.textContent,
-      ).toBe("dotted");
+      expect(container.querySelector(".rep-hud-stage-name")?.textContent).toBe(
+        "dotted",
+      );
       expect(factory).toHaveBeenCalledTimes(1);
       expect(factory).toHaveBeenCalledWith("/chime.wav");
       expect(play).toHaveBeenCalledTimes(1);
@@ -857,9 +967,9 @@ describe("RepHud", () => {
       // Then the next variation takes over at 0/5 — "5/5 -> 0/5 · reverse dotted".
       act(() => vi.advanceTimersByTime(1200));
       expect(headline(container)).toBe("0");
-      expect(
-        container.querySelector(".rep-hud-stage-name")?.textContent,
-      ).toBe("reverse dotted");
+      expect(container.querySelector(".rep-hud-stage-name")?.textContent).toBe(
+        "reverse dotted",
+      );
       vi.useRealTimers();
     });
 
@@ -1068,8 +1178,7 @@ describe("RepHud", () => {
         "Reset clean proof",
         {
           kind: "reset_streak",
-          rationale:
-            "Pianist chose to restart the clean proof after an error.",
+          rationale: "Pianist chose to restart the clean proof after an error.",
         },
       ],
       [
@@ -1090,9 +1199,7 @@ describe("RepHud", () => {
         expect(screen.getByText(/Set complete · closing in 1/)).toBeTruthy();
 
         act(() => {
-          fireEvent.click(
-            screen.getByRole("button", { name: buttonName }),
-          );
+          fireEvent.click(screen.getByRole("button", { name: buttonName }));
         });
         expect(props.onRecover).toHaveBeenCalledWith(expectedAction);
         expect(screen.queryByText(/Set complete/)).toBeNull();
@@ -1488,11 +1595,11 @@ describe("RepHud", () => {
   describe("verdict hotkeys (A6)", () => {
     const hint = /Space = clean · Right-Shift = sloppy · Return = again/;
 
-    it("teaches the mapping on one line in the HUD itself, not in the drawer", () => {
+    it("teaches the mapping on one line in the HUD itself, not in the drawer", async () => {
       render(
         <RepHud snap={makeSnap()} feed={[]} error={null} {...callbacks()} />,
       );
-      const line = document.querySelector(".rep-hud-hotkeys") as HTMLElement;
+      const line = (await screen.findByText(hint)) as HTMLElement;
       expect(line.textContent).toContain(
         "Space = clean · Right-Shift = sloppy · Return = again",
       );
@@ -1505,16 +1612,37 @@ describe("RepHud", () => {
       );
     });
 
-    it("records each verdict through the same path as the buttons", () => {
+    it("records each verdict through the same path as the buttons", async () => {
       const props = callbacks();
       render(<RepHud snap={makeSnap()} feed={[]} error={null} {...props} />);
+      await screen.findByText(hint);
       fireEvent.keyDown(document.body, { code: "Space", key: " " });
-      expect(props.onCheck).toHaveBeenCalledWith("clean", null);
+      await waitFor(() =>
+        expect(props.onCheck).toHaveBeenCalledWith("clean", null),
+      );
+    });
+
+    it("does not let the persistent panel record keys from another workspace", async () => {
+      const props = callbacks();
+      render(
+        <RepHud
+          snap={makeSnap()}
+          feed={[]}
+          error={null}
+          hotkeysActive={false}
+          {...props}
+        />,
+      );
+      await screen.findByText(hint);
+      fireEvent.keyDown(document.body, { code: "Space", key: " " });
+      fireEvent.keyDown(document.body, { code: "Enter", key: "Enter" });
+      expect(props.onCheck).not.toHaveBeenCalled();
     });
 
     it("carries the typed attempt note exactly as a click would", async () => {
       const props = callbacks();
       render(<RepHud snap={makeSnap()} feed={[]} error={null} {...props} />);
+      await screen.findByText(hint);
       fireEvent.change(screen.getByLabelText("Attempt note"), {
         target: { value: "  left hand rushed  " },
       });
@@ -1527,9 +1655,10 @@ describe("RepHud", () => {
       );
     });
 
-    it("does not record while the pianist is typing that note", () => {
+    it("does not record while the pianist is typing that note", async () => {
       const props = callbacks();
       render(<RepHud snap={makeSnap()} feed={[]} error={null} {...props} />);
+      await screen.findByText(hint);
       const note = screen.getByLabelText("Attempt note");
       fireEvent.keyDown(note, { code: "Space", key: " " });
       fireEvent.keyDown(note, { code: "Enter", key: "Enter" });
@@ -1539,7 +1668,7 @@ describe("RepHud", () => {
     it("compacts the hint once a hotkey has recorded a rep", async () => {
       const props = callbacks();
       render(<RepHud snap={makeSnap()} feed={[]} error={null} {...props} />);
-      expect(screen.getByText(hint)).toBeTruthy();
+      expect(await screen.findByText(hint)).toBeTruthy();
       fireEvent.keyDown(document.body, { code: "Enter", key: "Enter" });
       await waitFor(() => expect(screen.queryByText(hint)).toBeNull());
       const compact = document.querySelector(".rep-hud-hotkeys")!;

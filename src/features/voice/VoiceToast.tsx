@@ -54,6 +54,14 @@ export function labelForIntent(intent: VoiceIntent): string {
       return "Rep passed";
     case "rep_fail":
       return "Rep failed";
+    case "rep":
+      return "Rep saved";
+    case "rep_add":
+      return intent.count === 1 ? "1 clean added" : `${intent.count ?? ""} cleans added`.trim();
+    case "rep_undo":
+      return intent.count === 1 ? "1 rep removed" : `${intent.count ?? ""} reps removed`.trim();
+    case "rep_undo_rejected":
+      return "Nothing removed";
     default:
       return intent.kind;
   }

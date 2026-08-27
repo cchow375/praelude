@@ -56,6 +56,16 @@
   font-size: 0.85rem;
 }
 
+.measure-map-provider-state {
+  padding: var(--s-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--ink-dim);
+  background: var(--bg-sunken);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
 .measure-map-progress {
   display: flex;
   align-items: center;

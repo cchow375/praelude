@@ -27,6 +27,17 @@
   border-style: dashed;
 }
 
+.completion-fx[data-moment="variant_stage"] .completion-fx-mark,
+.completion-fx[data-moment="reference_take"] .completion-fx-mark,
+.completion-fx[data-moment="warmup_routine"] .completion-fx-mark,
+.completion-fx[data-moment="rotation_cycle"] .completion-fx-mark {
+  width: 4.75rem;
+  height: 4.75rem;
+  border-color: var(--accent);
+  border-style: double;
+  border-width: 4px;
+}
+
 @keyframes completion-bloom {
   0% {
     opacity: 0;

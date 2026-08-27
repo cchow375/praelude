@@ -1,18 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installTauriDevMock, uninstallTauriDevMock } from "./tauriDevMock";
-import type { PieceSummary } from "../features/pieces/types";
-
-// `piece_archive` has ZERO coverage anywhere in src/. The real backend
-// (src-tauri/src/lib.rs's `piece_archive`) requires `typed_name` to exactly
-// match the piece's folder name or title and REJECTS otherwise (a
-// type-to-confirm destructive-action guard) — see pieces::archive's
-// mismatch error. The mock accepts ANY typed_name (never rejects) and does
-// not persist the removal into the shared PIECES list: it returns a
-// filtered snapshot for that one call only, so a follow-up pieces_list still
-// shows the "archived" piece. Both are real, verified fidelity gaps between
-// the mock and the native contract; this pins CURRENT mock behavior so a
-// future fix to either is a deliberate, visible diff here, not a silent
-// mock-only behavior change.
+import type { PieceMovement, PieceSummary } from "../features/pieces/types";
 
 function seamInvoke<T>(cmd: string, args?: unknown): Promise<T> {
   const internals = (
@@ -23,43 +11,72 @@ function seamInvoke<T>(cmd: string, args?: unknown): Promise<T> {
   return internals.invoke(cmd, args);
 }
 
-describe("dev-mock piece_archive handler", () => {
+describe("dev-mock piece library archive contracts", () => {
   beforeEach(() => installTauriDevMock());
   afterEach(() => uninstallTauriDevMock());
 
-  it("returns the piece list with the archived id filtered out", async () => {
-    const remaining = await seamInvoke<PieceSummary[]>("piece_archive", {
+  it("persists reversible Archive while active lists exclude the piece", async () => {
+    const all = await seamInvoke<PieceSummary[]>("piece_archive_set", {
       id: 2,
+      archived: true,
+    });
+    expect(all.find((piece) => piece.id === 2)?.archived_at).not.toBeNull();
+
+    const active = await seamInvoke<PieceSummary[]>("pieces_list");
+    expect(active.some((piece) => piece.id === 2)).toBe(false);
+    const includingArchived = await seamInvoke<PieceSummary[]>("pieces_list", {
+      includeArchived: true,
+    });
+    expect(includingArchived.some((piece) => piece.id === 2)).toBe(true);
+
+    await seamInvoke("piece_archive_set", { id: 2, archived: false });
+    const restored = await seamInvoke<PieceSummary[]>("pieces_list");
+    expect(restored.some((piece) => piece.id === 2)).toBe(true);
+  });
+
+  it("keeps Delete files distinct and rejects the wrong typed name", async () => {
+    await expect(
+      seamInvoke("piece_delete_files", {
+        folderName: "white-peacock",
+        typedName: "totally the wrong name",
+      }),
+    ).rejects.toContain("doesn't match");
+    expect(
+      (await seamInvoke<PieceSummary[]>("pieces_list")).some(
+        (piece) => piece.id === 2,
+      ),
+    ).toBe(true);
+  });
+
+  it("persists a confirmed file removal across subsequent library reads", async () => {
+    await seamInvoke("piece_delete_files", {
       folderName: "white-peacock",
       typedName: "The White Peacock",
     });
-    expect(remaining.some((piece) => piece.id === 2)).toBe(false);
-    expect(remaining.some((piece) => piece.id === 1)).toBe(true);
+    const list = await seamInvoke<PieceSummary[]>("pieces_list", {
+      includeArchived: true,
+    });
+    expect(list.some((piece) => piece.id === 2)).toBe(false);
   });
 
-  // KNOWN GAP vs. native: the real command rejects when typedName doesn't
-  // match the piece's folder name/title. The mock does not validate this at
-  // all — it archives regardless of what (or whether) typedName is passed.
-  it("gap: does NOT reject a mismatched typedName the way the real command does", async () => {
-    const remaining = await seamInvoke<PieceSummary[]>("piece_archive", {
-      id: 2,
-      folderName: "white-peacock",
-      typedName: "totally the wrong name",
+  it("round-trips movement CRUD through the same browser harness seam", async () => {
+    const created = await seamInvoke<PieceMovement>("piece_movement_create", {
+      input: { piece_id: 2, title: "II · Lento", start_page: 7 },
     });
-    expect(remaining.some((piece) => piece.id === 2)).toBe(false);
-  });
+    expect(created.start_page).toBe(7);
 
-  // KNOWN GAP vs. native: the real command persists the archive (moves the
-  // vault folder + updates the DB row), so a subsequent list call would not
-  // show the piece again. The mock's PIECES array is never mutated, so a
-  // fresh pieces_list still returns the "archived" piece.
-  it("gap: does NOT persist — a follow-up pieces_list still includes the archived piece", async () => {
-    await seamInvoke<PieceSummary[]>("piece_archive", {
-      id: 2,
-      folderName: "white-peacock",
-      typedName: "The White Peacock",
+    const updated = await seamInvoke<PieceMovement>("piece_movement_update", {
+      id: created.id,
+      patch: { title: "II · Andante", start_page: 8 },
     });
-    const list = await seamInvoke<PieceSummary[]>("pieces_list");
-    expect(list.some((piece) => piece.id === 2)).toBe(true);
+    expect(updated).toMatchObject({ title: "II · Andante", start_page: 8 });
+    expect(
+      await seamInvoke<PieceMovement[]>("piece_movement_list", { pieceId: 2 }),
+    ).toHaveLength(1);
+
+    await seamInvoke("piece_movement_delete", { id: created.id });
+    expect(
+      await seamInvoke<PieceMovement[]>("piece_movement_list", { pieceId: 2 }),
+    ).toEqual([]);
   });
 });

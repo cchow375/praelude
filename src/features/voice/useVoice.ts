@@ -22,8 +22,9 @@ import {
 //   voice://transcript — a legacy { text, is_final } payload or a delivery
 //                         carrying stable identity + recognizer metadata
 //   voice://intent     — { kind, text, bpm } a recognised command
-// and exposes two commands: `voice_mute(muted)` and `voice_state()` (a one-shot
-// snapshot used only on mount).
+// and exposes mute/status commands plus an exact native-capture lease used by
+// Listen Back. Muting gates interpretation; a capture lease actually stops and
+// reaps the native recognizer so audio review owns the microphone device.
 //
 // This hook subscribes to the three events FIRST, then does the single
 // `voice_state()` fetch — same ordering as useMetronome: if the fetch went
@@ -92,6 +93,7 @@ export interface VoiceIntent {
   kind: string;
   text: string;
   bpm: number | null;
+  count?: number;
 }
 
 /**
@@ -120,6 +122,10 @@ export interface UseVoice {
   deliveryDisposition: VoiceDeliveryDisposition | null;
   /** Mute/unmute the mic. Optimistically updates local status, then invokes. */
   mute: (muted: boolean) => void;
+  /** Stop/reap native STT capture and return its exact ownership epoch. */
+  suspendCapture: (requestId: string) => Promise<number>;
+  /** Return one exact request lease. Stale/duplicate releases are inert. */
+  resumeCapture: (requestId: string) => Promise<boolean>;
 }
 
 const DEFAULT_TIER_A_CONTEXT: TierAContext = {
@@ -317,6 +323,19 @@ export function useVoice(
     [syncStatus],
   );
 
+  const suspendCapture = useCallback(
+    (requestId: string) =>
+      invoke<number>("voice_capture_suspend", { requestId }),
+    [],
+  );
+  const resumeCapture = useCallback(
+    (requestId: string) =>
+      invoke<boolean>("voice_capture_resume", {
+        requestId,
+      }),
+    [],
+  );
+
   return {
     status,
     downGuidance,
@@ -325,5 +344,7 @@ export function useVoice(
     tierAResult,
     deliveryDisposition,
     mute,
+    suspendCapture,
+    resumeCapture,
   };
 }

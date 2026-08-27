@@ -245,6 +245,29 @@ describe("useVoice — IPC wiring", () => {
     expect(result.current.status).toBe("live");
   });
 
+  it("passes exact capture request identity through suspend and resume", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "voice_capture_suspend") return Promise.resolve(17);
+      if (command === "voice_capture_resume") return Promise.resolve(true);
+      return Promise.resolve({ muted: false, down: null });
+    });
+    const { result } = renderHook(() => useVoice());
+    await waitFor(() => expect(listenMock).toHaveBeenCalled());
+
+    await expect(result.current.suspendCapture("listen-back-17")).resolves.toBe(
+      17,
+    );
+    await expect(result.current.resumeCapture("listen-back-17")).resolves.toBe(
+      true,
+    );
+    expect(invokeMock).toHaveBeenCalledWith("voice_capture_suspend", {
+      requestId: "listen-back-17",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("voice_capture_resume", {
+      requestId: "listen-back-17",
+    });
+  });
+
   it("a live status event always wins over the snapshot fetch", async () => {
     // Snapshot says muted, but a live event lands first — the event must win.
     invokeMock.mockResolvedValueOnce({ muted: true, down: null });

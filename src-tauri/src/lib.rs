@@ -35,15 +35,18 @@ use metronome::Metronome;
 use rep::{RepEngine, RepVerdict};
 use sessions::{SessionService, StateEmitter};
 use store::model::{
-    BlockHistory, BlockPatch, CheckOutcome, DailyWorkCreate, DailyWorkPatch, ExportResult, Goal,
-    GoalCreate, GoalPatch, Intake, MutationReceipt, PanelLayout, PausedSetRow, PieceDetail,
-    PieceFieldPatch, PieceSummary, ProgressSummary, RecoveryActionRequest, Region, RegionCreate,
-    RegionDeleteMode, RegionPatch, Rep, RepOpenArgs, RepPatch, RepSnapshot, RetentionCheckView,
-    RetentionResult,
+    BlockHistory, BlockPatch, CheckOutcome, DailyWorkCreate, DailyWorkPatch, DemotionOverride,
+    ExportResult, Goal, GoalCreate, GoalPatch, Intake, MutationReceipt, PanelLayout, PausedSetRow,
+    PieceDetail, PieceFieldPatch, PieceMovement, PieceMovementCreate, PieceMovementPatch,
+    PieceSummary, ProgressSummary, RecoveryActionRequest, Region, RegionCreate, RegionDeleteMode,
+    RegionPatch, Rep, RepOpenArgs, RepPatch, RepSnapshot, RetentionCheckView, RetentionResult,
     SessionView, SetFocusContextInput, TutorialClip, TutorialClipCreate, TutorialClipPatch,
     TutorialVideo, TutorialVideoPatch, TutorialVideoUpsert,
 };
-use store::Store;
+use store::{
+    RepReplayInsert, RepReplayMeta, RepReplaySaveInput, Store, WarmupRoutine,
+    WarmupRoutineSaveInput, WarmupSystemPiece,
+};
 use stt::SttConfig;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
@@ -95,6 +98,7 @@ fn settings_update(
     // next command he speaks proves the toggle worked. Waiting for a relaunch
     // would leave him testing a mute he cannot hear take effect.
     voice.set_speech_muted(!next.speak_acks);
+    voice.set_settle_ms(next.stt_settle_ms);
     Ok(next)
 }
 
@@ -106,6 +110,17 @@ fn api_key_save(provider: keys::ApiKeyProvider, key: String) -> Result<keys::Api
 #[tauri::command]
 fn api_key_clear(provider: keys::ApiKeyProvider) -> Result<keys::ApiKeyStatus, String> {
     keys::clear_api_key(provider)
+}
+
+/// Key-presence only (never values) for the explicit measure-mapping dialog.
+/// Lets the UI explain the Claude-primary/Gemini-fallback state before any
+/// score page is prepared for transfer.
+#[tauri::command]
+fn measure_mapping_status() -> Vec<keys::ApiKeyStatus> {
+    vec![
+        keys::api_key_status(keys::ApiKeyProvider::Claude),
+        keys::api_key_status(keys::ApiKeyProvider::Gemini),
+    ]
 }
 
 #[tauri::command]
@@ -204,19 +219,38 @@ fn piece_import_pdf(
     pieces::import_pdf(&dir, &folder_name, std::path::Path::new(&source_path))
 }
 
-/// Archive a piece: move its vault folder into `.trash/` and re-point its DB row
-/// so it leaves the Pieces workspace while all practice history is preserved.
+/// Delete a piece's files: move its vault folder into `.trash/` and re-point
+/// its DB row. This is the old physical operation, intentionally distinct from
+/// the reversible schema-v17 archive toggle below.
 /// `typed_name` must exactly match the piece's folder name or title. Returns the
 /// refreshed piece list.
 #[tauri::command]
-fn piece_archive(
+fn piece_delete_files(
     folder_name: String,
     typed_name: String,
     store: State<'_, Arc<Store>>,
 ) -> Result<Vec<PieceSummary>, String> {
     let dir = pieces_dir(&store);
-    pieces::archive(&dir, &store, &folder_name, &typed_name)?;
+    pieces::delete_files(&dir, &store, &folder_name, &typed_name)?;
     store.list_pieces().map_err(|e| e.to_string())
+}
+
+/// Reversibly archive or restore one piece. No files or practice history move.
+#[tauri::command]
+fn piece_archive_set(
+    id: i64,
+    archived: bool,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<PieceSummary>, String> {
+    if !store
+        .set_piece_archived(id, archived)
+        .map_err(|error| error.to_string())?
+    {
+        return Err(format!("piece {id} not found"));
+    }
+    store
+        .list_pieces_including_archived()
+        .map_err(|error| error.to_string())
 }
 
 /// One regular file in `~/Downloads`, for the import step's arrival poll.
@@ -395,8 +429,60 @@ fn pieces_scan(store: State<'_, Arc<Store>>) -> Result<Vec<PieceSummary>, String
 
 /// All known pieces, without rescanning the vault.
 #[tauri::command]
-fn pieces_list(store: State<'_, Arc<Store>>) -> Result<Vec<PieceSummary>, String> {
-    store.list_pieces().map_err(|e| e.to_string())
+fn pieces_list(
+    include_archived: Option<bool>,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<PieceSummary>, String> {
+    if include_archived.unwrap_or(false) {
+        store
+            .list_pieces_including_archived()
+            .map_err(|error| error.to_string())
+    } else {
+        store.list_pieces().map_err(|error| error.to_string())
+    }
+}
+
+#[tauri::command]
+fn piece_movement_list(
+    piece_id: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<PieceMovement>, String> {
+    store
+        .piece_movement_list(piece_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn piece_movement_create(
+    input: PieceMovementCreate,
+    store: State<'_, Arc<Store>>,
+) -> Result<PieceMovement, String> {
+    store
+        .piece_movement_create(input)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn piece_movement_update(
+    id: i64,
+    patch: PieceMovementPatch,
+    store: State<'_, Arc<Store>>,
+) -> Result<PieceMovement, String> {
+    store
+        .piece_movement_update(id, patch)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn piece_movement_delete(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    if store
+        .piece_movement_delete(id)
+        .map_err(|error| error.to_string())?
+    {
+        Ok(())
+    } else {
+        Err(format!("movement {id} not found"))
+    }
 }
 
 /// Full detail for one piece.
@@ -560,15 +646,8 @@ async fn score_page_image(
         .app_cache_dir()
         .map_err(|e| format!("resolve app cache dir: {e}"))?;
     tauri::async_runtime::spawn_blocking(move || {
-        score::page_image_bytes(
-            &store,
-            &root,
-            piece_id,
-            &edition_id,
-            page,
-            target_long_edge,
-        )
-        .map(tauri::ipc::Response::new)
+        score::page_image_bytes(&store, &root, piece_id, &edition_id, page, target_long_edge)
+            .map(tauri::ipc::Response::new)
     })
     .await
     .map_err(|e| format!("page image worker failed: {e}"))?
@@ -591,15 +670,8 @@ async fn score_page_image_warm(
         .app_cache_dir()
         .map_err(|e| format!("resolve app cache dir: {e}"))?;
     tauri::async_runtime::spawn_blocking(move || {
-        score::page_image_bytes(
-            &store,
-            &root,
-            piece_id,
-            &edition_id,
-            page,
-            target_long_edge,
-        )
-        .map(|_| ())
+        score::page_image_bytes(&store, &root, piece_id, &edition_id, page, target_long_edge)
+            .map(|_| ())
     })
     .await
     .map_err(|e| format!("page image warm worker failed: {e}"))?
@@ -682,11 +754,13 @@ fn piece_intake_save(
 fn rep_open(
     args: RepOpenArgs,
     context: Option<SetFocusContextInput>,
+    demotion: Option<DemotionOverride>,
     rep: State<'_, Arc<RepEngine>>,
 ) -> Result<RepSnapshot, String> {
-    match context {
-        Some(context) => rep.open_with_context(args, Some(context)),
-        None => rep.open(args),
+    match (demotion, context) {
+        (Some(demotion), context) => rep.open_with_demotion(args, context, Some(demotion)),
+        (None, Some(context)) => rep.open_with_context(args, Some(context)),
+        (None, None) => rep.open(args),
     }
 }
 
@@ -770,9 +844,16 @@ fn rejected_retention(command_id: &str, error: String) -> MutationReceipt<Retent
 }
 
 #[tauri::command]
-fn rep_pause(command_id: String, rep: State<'_, Arc<RepEngine>>) -> MutationReceipt<RepSnapshot> {
-    rep.pause(&command_id)
-        .unwrap_or_else(|error| rejected_snapshot(&command_id, error))
+fn rep_pause(
+    command_id: String,
+    expected_set_id: Option<i64>,
+    rep: State<'_, Arc<RepEngine>>,
+) -> MutationReceipt<RepSnapshot> {
+    let result = match expected_set_id {
+        Some(set_id) => rep.pause_expected(&command_id, Some(set_id)),
+        None => rep.pause(&command_id),
+    };
+    result.unwrap_or_else(|error| rejected_snapshot(&command_id, error))
 }
 
 /// Task A4b: `set_id` picks which paused set to resume (the paused-sets
@@ -1396,7 +1477,9 @@ fn dynamics_profile_activate(
     id: i64,
     store: State<'_, Arc<Store>>,
 ) -> Result<store::dynamics_profiles::DynamicsProfile, String> {
-    store.dynamics_profile_activate(id).map_err(|e| e.to_string())
+    store
+        .dynamics_profile_activate(id)
+        .map_err(|e| e.to_string())
 }
 
 /// Read one piece's long-term "arch" plan, or `null` when it has none yet.
@@ -1471,6 +1554,1097 @@ fn day_sheets_range(
 fn streak_summary(store: State<'_, Arc<Store>>) -> Result<store::StreakSummary, String> {
     let threshold = i64::from(settings::snapshot(&store).streak_threshold_minutes);
     store.streak_summary(threshold).map_err(|e| e.to_string())
+}
+
+// ── Warmup routines (schema v18) ─────────────────────────────────────────
+
+#[tauri::command]
+fn warmup_routines_list(store: State<'_, Arc<Store>>) -> Result<Vec<WarmupRoutine>, String> {
+    store
+        .warmup_routines_list()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn warmup_routine_save(
+    input: WarmupRoutineSaveInput,
+    store: State<'_, Arc<Store>>,
+) -> Result<WarmupRoutine, String> {
+    store
+        .warmup_routine_save(&input)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn warmup_routine_delete(id: i64, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    store
+        .warmup_routine_delete(id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn warmup_system_piece(store: State<'_, Arc<Store>>) -> Result<WarmupSystemPiece, String> {
+    store
+        .warmup_system_piece()
+        .map_err(|error| error.to_string())
+}
+
+// ── Listen-back takes (schema v19) ───────────────────────────────────────
+
+const REP_REPLAY_MAX_BYTES: usize = 12 * 1024 * 1024;
+const REP_REPLAY_MAX_DURATION_MS: u64 = 10 * 60 * 1000;
+const REP_REPLAY_RECOVERY_DIR: &str = "_recovery";
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct RepReplayReconcileReport {
+    recovered_finished_takes: usize,
+    quarantined_partials: usize,
+    quarantined_unlinked_takes: usize,
+    missing_referenced_files: usize,
+    damaged_referenced_files: usize,
+    unsafe_entries_preserved: usize,
+    unmanaged_entries_preserved: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GeneratedReplayName<'a> {
+    block_id: i64,
+    attempt_id: i64,
+    duration_ms: u64,
+    hash_prefix: &'a str,
+    extension: &'a str,
+    partial: bool,
+}
+
+fn valid_replay_day(day: &str) -> bool {
+    day.len() == 10
+        && day.bytes().enumerate().all(|(index, byte)| {
+            matches!(index, 4 | 7) && byte == b'-'
+                || !matches!(index, 4 | 7) && byte.is_ascii_digit()
+        })
+}
+
+/// The filename is a tiny write-ahead record. If the process dies after the
+/// durable rename but before SQLite commits, startup can prove the exact
+/// block/attempt/duration/hash and restore the row without guessing "latest".
+fn generated_replay_name(name: &str) -> Option<GeneratedReplayName<'_>> {
+    let (finished_name, partial) = match name.strip_suffix(".partial") {
+        Some(value) => (value, true),
+        None => (name, false),
+    };
+    let (stem, extension) = finished_name.rsplit_once('.')?;
+    if !matches!(extension, "webm" | "m4a") {
+        return None;
+    }
+    let mut parts = stem.split('-');
+    let block_id = parts.next()?.parse::<i64>().ok()?;
+    let attempt_id = parts.next()?.parse::<i64>().ok()?;
+    let duration_ms = parts.next()?.parse::<u64>().ok()?;
+    let _nonce = parts.next()?.parse::<u128>().ok()?;
+    let hash_prefix = parts.next()?;
+    if parts.next().is_some()
+        || block_id < 1
+        || attempt_id < 1
+        || duration_ms == 0
+        || duration_ms > REP_REPLAY_MAX_DURATION_MS
+        || hash_prefix.len() != 12
+        || !hash_prefix
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        return None;
+    }
+    Some(GeneratedReplayName {
+        block_id,
+        attempt_id,
+        duration_ms,
+        hash_prefix,
+        extension,
+        partial,
+    })
+}
+
+fn ensure_private_directory(
+    path: &std::path::Path,
+    label: &str,
+) -> Result<std::path::PathBuf, String> {
+    std::fs::create_dir_all(path).map_err(|error| format!("create {label}: {error}"))?;
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|error| format!("inspect {label}: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(format!("{label} must be a private directory, not a link"));
+    }
+    std::fs::canonicalize(path).map_err(|error| format!("resolve {label}: {error}"))
+}
+
+fn ensure_replay_day_directory(
+    directory: &std::path::Path,
+    day: &str,
+) -> Result<std::path::PathBuf, String> {
+    if !valid_replay_day(day) {
+        return Err("kept take day is invalid".into());
+    }
+    let root = ensure_private_directory(directory, "rep-replays directory")?;
+    let day_directory = root.join(day);
+    let canonical_day = ensure_private_directory(&day_directory, "dated replay directory")?;
+    if canonical_day.parent() != Some(root.as_path()) {
+        return Err("dated replay directory escaped rep-replays".into());
+    }
+    // Persist the dated-directory entry as well as the file rename that will
+    // happen inside it. This matters on a first save for a new local day.
+    sync_directory(&root)?;
+    Ok(canonical_day)
+}
+
+fn sync_directory(path: &std::path::Path) -> Result<(), String> {
+    std::fs::File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| format!("sync replay directory: {error}"))
+}
+
+fn rep_replays_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("resolve app data dir: {error}"))?
+        .join("rep-replays");
+    ensure_private_directory(&directory, "rep-replays directory")
+}
+
+fn validate_replay_input(
+    input: &RepReplaySaveInput,
+    byte_len: usize,
+) -> Result<&'static str, String> {
+    if input.rep_block_id < 1 {
+        return Err("A review take must belong to a practice set.".into());
+    }
+    if input.attempt_id < 1 {
+        return Err("A review take must identify the judged attempt.".into());
+    }
+    if byte_len == 0 || byte_len > REP_REPLAY_MAX_BYTES {
+        return Err(format!(
+            "A kept review take must be between 1 byte and {} MB.",
+            REP_REPLAY_MAX_BYTES / (1024 * 1024)
+        ));
+    }
+    if input.duration_ms == 0 || input.duration_ms > REP_REPLAY_MAX_DURATION_MS {
+        return Err("A review take must be between 1 ms and 10 minutes.".into());
+    }
+    let mime = input.mime_type.trim().to_ascii_lowercase();
+    if mime.starts_with("audio/webm") {
+        Ok("webm")
+    } else if mime.starts_with("audio/mp4") {
+        Ok("m4a")
+    } else {
+        Err("Review takes must be compact WebM/Opus or MP4 audio.".into())
+    }
+}
+
+fn rep_replay_path(
+    directory: &std::path::Path,
+    rel_path: &str,
+) -> Result<std::path::PathBuf, String> {
+    let suffix = rel_path
+        .strip_prefix("rep-replays/")
+        .ok_or_else(|| "kept take path is outside rep-replays".to_string())?;
+    let mut components = suffix.split('/');
+    let day = components.next().unwrap_or_default();
+    let name = components.next().unwrap_or_default();
+    if !valid_replay_day(day)
+        || name.is_empty()
+        || components.next().is_some()
+        || name.contains('\\')
+        || name.contains("..")
+        || std::path::Path::new(name)
+            .file_name()
+            .and_then(|value| value.to_str())
+            != Some(name)
+    {
+        return Err("kept take path is invalid".into());
+    }
+    let day_directory = directory.join(day);
+    let path = day_directory.join(name);
+    match path.parent() {
+        Some(parent) if parent == day_directory => Ok(path),
+        _ => Err("kept take path escaped rep-replays".into()),
+    }
+}
+
+/// Resolve an existing replay without following a root, day, or file symlink.
+/// `Ok(None)` means the referenced file is simply absent; unsafe/ambiguous
+/// filesystem state is an error and is preserved for manual recovery.
+fn existing_replay_path(
+    directory: &std::path::Path,
+    rel_path: &str,
+) -> Result<Option<std::path::PathBuf>, String> {
+    let root = ensure_private_directory(directory, "rep-replays directory")?;
+    let lexical = rep_replay_path(&root, rel_path)?;
+    let day_directory = lexical
+        .parent()
+        .ok_or_else(|| "kept take has no dated directory".to_string())?;
+    let day_metadata = match std::fs::symlink_metadata(day_directory) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("inspect dated replay directory: {error}")),
+    };
+    if day_metadata.file_type().is_symlink() || !day_metadata.is_dir() {
+        return Err("dated replay directory is not a private directory".into());
+    }
+    let canonical_day = std::fs::canonicalize(day_directory)
+        .map_err(|error| format!("resolve dated replay directory: {error}"))?;
+    if canonical_day.parent() != Some(root.as_path()) {
+        return Err("dated replay directory escaped rep-replays".into());
+    }
+    let metadata = match std::fs::symlink_metadata(&lexical) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("inspect kept take: {error}")),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("kept take is not a private regular file".into());
+    }
+    let canonical =
+        std::fs::canonicalize(&lexical).map_err(|error| format!("resolve kept take: {error}"))?;
+    if canonical.parent() != Some(canonical_day.as_path()) {
+        return Err("kept take escaped its dated directory".into());
+    }
+    Ok(Some(canonical))
+}
+
+fn write_replay_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write as _;
+    let temporary = path.with_extension(format!(
+        "{}.partial",
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or("audio")
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temporary)
+        .map_err(|error| format!("create temporary review take: {error}"))?;
+    if let Err(error) = file.write_all(bytes).and_then(|_| file.sync_all()) {
+        return Err(format!("write review take: {error}"));
+    }
+    let parent = path.parent().ok_or("kept take has no parent directory")?;
+    // Publishing with a hard link is atomic *and* no-replace. `rename` would
+    // silently replace a destination created in the narrow check/write race.
+    std::fs::hard_link(&temporary, path).map_err(|error| format!("finish review take: {error}"))?;
+    sync_directory(parent)?;
+    std::fs::remove_file(&temporary)
+        .map_err(|error| format!("remove published replay temporary: {error}"))?;
+    sync_directory(parent)
+}
+
+fn quarantine_replay_file(
+    directory: &std::path::Path,
+    day: &str,
+    source: &std::path::Path,
+    name: &str,
+) -> Result<std::path::PathBuf, String> {
+    let root = ensure_private_directory(directory, "rep-replays directory")?;
+    let recovery = ensure_private_directory(
+        &root.join(REP_REPLAY_RECOVERY_DIR),
+        "replay recovery directory",
+    )?;
+    if recovery.parent() != Some(root.as_path()) {
+        return Err("replay recovery directory escaped rep-replays".into());
+    }
+    sync_directory(&root)?;
+    let stem = format!("{day}--{name}");
+    let target = (0..10_000)
+        .find_map(|collision| {
+            let candidate = if collision == 0 {
+                recovery.join(&stem)
+            } else {
+                recovery.join(format!("{stem}--{collision}"))
+            };
+            match std::fs::symlink_metadata(&candidate) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(candidate),
+                _ => None,
+            }
+        })
+        .ok_or_else(|| "replay recovery directory has too many name collisions".to_string())?;
+    std::fs::rename(source, &target)
+        .map_err(|error| format!("move unlinked replay into recovery: {error}"))?;
+    sync_directory(
+        source
+            .parent()
+            .ok_or("unlinked replay has no source directory")?,
+    )?;
+    sync_directory(&recovery)?;
+    Ok(target)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FinishedReplayDisposition {
+    Recovered,
+    Quarantine,
+}
+
+fn recover_finished_replay(
+    store: &Store,
+    generated: GeneratedReplayName<'_>,
+    rel_path: &str,
+    path: &std::path::Path,
+) -> Result<FinishedReplayDisposition, String> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| format!("inspect unlinked finished replay: {error}"))?;
+    if metadata.len() == 0 || metadata.len() > REP_REPLAY_MAX_BYTES as u64 {
+        return Ok(FinishedReplayDisposition::Quarantine);
+    }
+    let bytes =
+        std::fs::read(path).map_err(|error| format!("read unlinked finished replay: {error}"))?;
+    let hash = store::sha256_hex(&bytes);
+    if !hash.starts_with(generated.hash_prefix) {
+        return Ok(FinishedReplayDisposition::Quarantine);
+    }
+    if !store
+        .rep_replay_attempt_exists(generated.block_id, generated.attempt_id)
+        .map_err(|error| error.to_string())?
+    {
+        return Ok(FinishedReplayDisposition::Quarantine);
+    }
+    if store
+        .rep_replay_for_attempt(generated.block_id, generated.attempt_id)
+        .map_err(|error| error.to_string())?
+        .is_some()
+    {
+        return Ok(FinishedReplayDisposition::Quarantine);
+    }
+    let mime_type = match generated.extension {
+        "webm" => "audio/webm;codecs=opus",
+        "m4a" => "audio/mp4",
+        _ => return Ok(FinishedReplayDisposition::Quarantine),
+    };
+    match store.rep_replay_insert(RepReplayInsert {
+        block_id: generated.block_id,
+        attempt_id: generated.attempt_id,
+        rel_path,
+        mime_type,
+        duration_ms: generated.duration_ms,
+        byte_len: bytes.len() as u64,
+        content_hash: &hash,
+    }) {
+        Ok(_) => Ok(FinishedReplayDisposition::Recovered),
+        Err(error) => {
+            // A concurrent or previously recovered winner makes this file a
+            // duplicate, not a reason to fail startup. Any other DB failure is
+            // surfaced and the source file remains untouched.
+            if store
+                .rep_replay_for_attempt(generated.block_id, generated.attempt_id)
+                .map_err(|lookup_error| lookup_error.to_string())?
+                .is_some()
+            {
+                Ok(FinishedReplayDisposition::Quarantine)
+            } else {
+                Err(error.to_string())
+            }
+        }
+    }
+}
+
+/// Repair only states that can be proven from durable evidence. Finished
+/// generated files contain enough identity in their names to restore their
+/// exact SQLite row. Incomplete or ambiguous generated files are moved—not
+/// deleted—under `_recovery`. Missing/corrupt DB-linked takes and unfamiliar
+/// files are reported and left in place for backup/manual recovery.
+fn reconcile_rep_replays_in_directory(
+    directory: &std::path::Path,
+    store: &Store,
+) -> Result<RepReplayReconcileReport, String> {
+    use std::collections::HashSet;
+
+    let root = ensure_private_directory(directory, "rep-replays directory")?;
+    let rows = store
+        .rep_replay_files()
+        .map_err(|error| error.to_string())?;
+    let referenced: HashSet<String> = rows.iter().map(|row| row.rel_path.clone()).collect();
+    let mut report = RepReplayReconcileReport::default();
+
+    for row in &rows {
+        match existing_replay_path(&root, &row.rel_path) {
+            Ok(None) => report.missing_referenced_files += 1,
+            Ok(Some(path)) => match std::fs::read(path) {
+                Ok(bytes)
+                    if bytes.len() as u64 == row.byte_len
+                        && store::sha256_hex(&bytes) == row.content_hash => {}
+                Ok(_) | Err(_) => report.damaged_referenced_files += 1,
+            },
+            Err(_) => report.unsafe_entries_preserved += 1,
+        }
+    }
+
+    for day_entry in
+        std::fs::read_dir(&root).map_err(|error| format!("scan rep-replays: {error}"))?
+    {
+        let day_entry = day_entry.map_err(|error| format!("scan rep-replays entry: {error}"))?;
+        let day_name = match day_entry.file_name().into_string() {
+            Ok(value) => value,
+            Err(_) => {
+                report.unsafe_entries_preserved += 1;
+                continue;
+            }
+        };
+        if day_name == REP_REPLAY_RECOVERY_DIR {
+            continue;
+        }
+        if !valid_replay_day(&day_name) {
+            report.unmanaged_entries_preserved += 1;
+            continue;
+        }
+        let day_symlink_metadata = std::fs::symlink_metadata(day_entry.path())
+            .map_err(|error| format!("inspect dated replay link: {error}"))?;
+        if day_symlink_metadata.file_type().is_symlink() || !day_symlink_metadata.is_dir() {
+            report.unsafe_entries_preserved += 1;
+            continue;
+        }
+        let canonical_day = std::fs::canonicalize(day_entry.path())
+            .map_err(|error| format!("resolve dated replay entry: {error}"))?;
+        if canonical_day.parent() != Some(root.as_path()) {
+            report.unsafe_entries_preserved += 1;
+            continue;
+        }
+        for file_entry in std::fs::read_dir(&canonical_day)
+            .map_err(|error| format!("scan dated replays: {error}"))?
+        {
+            let file_entry =
+                file_entry.map_err(|error| format!("scan dated replay entry: {error}"))?;
+            let name = match file_entry.file_name().into_string() {
+                Ok(value) => value,
+                Err(_) => {
+                    report.unsafe_entries_preserved += 1;
+                    continue;
+                }
+            };
+            let rel_path = format!("rep-replays/{day_name}/{name}");
+            if referenced.contains(&rel_path) {
+                continue;
+            }
+            let link_metadata = std::fs::symlink_metadata(file_entry.path())
+                .map_err(|error| format!("inspect unlinked replay: {error}"))?;
+            if link_metadata.file_type().is_symlink() || !link_metadata.is_file() {
+                report.unsafe_entries_preserved += 1;
+                continue;
+            }
+            let Some(generated) = generated_replay_name(&name) else {
+                report.unmanaged_entries_preserved += 1;
+                continue;
+            };
+            let path = std::fs::canonicalize(file_entry.path())
+                .map_err(|error| format!("resolve unlinked replay: {error}"))?;
+            if path.parent() != Some(canonical_day.as_path()) {
+                report.unsafe_entries_preserved += 1;
+                continue;
+            }
+            if generated.partial {
+                quarantine_replay_file(&root, &day_name, &path, &name)?;
+                report.quarantined_partials += 1;
+                continue;
+            }
+            match recover_finished_replay(store, generated, &rel_path, &path)? {
+                FinishedReplayDisposition::Recovered => report.recovered_finished_takes += 1,
+                FinishedReplayDisposition::Quarantine => {
+                    quarantine_replay_file(&root, &day_name, &path, &name)?;
+                    report.quarantined_unlinked_takes += 1;
+                }
+            }
+        }
+    }
+
+    Ok(report)
+}
+
+#[tauri::command]
+fn rep_replay_save(
+    input: RepReplaySaveInput,
+    app: AppHandle,
+    store: State<'_, Arc<Store>>,
+) -> Result<RepReplayMeta, String> {
+    let directory = rep_replays_dir(&app)?;
+    rep_replay_save_in_directory(input, &directory, &store)
+}
+
+fn rep_replay_save_in_directory(
+    input: RepReplaySaveInput,
+    directory: &std::path::Path,
+    store: &Store,
+) -> Result<RepReplayMeta, String> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(input.bytes_base64.trim())
+        .map_err(|_| "The kept review take was not valid base64 audio.".to_string())?;
+    let extension = validate_replay_input(&input, bytes.len())?;
+    if !store
+        .rep_replay_attempt_exists(input.rep_block_id, input.attempt_id)
+        .map_err(|error| error.to_string())?
+    {
+        return Err("The judged attempt does not belong to this practice set.".into());
+    }
+    // A lost success response may make the frontend retry. Attempt identity is
+    // the replay key, so return the already-durable take instead of writing a
+    // second file or row.
+    if let Some(existing) = store
+        .rep_replay_for_attempt(input.rep_block_id, input.attempt_id)
+        .map_err(|error| error.to_string())?
+    {
+        return Ok(existing);
+    }
+    let hash = store::sha256_hex(&bytes);
+    let day = store.local_today().map_err(|error| error.to_string())?;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| format!("system clock before Unix epoch: {error}"))?
+        .as_nanos();
+    let filename = format!(
+        "{}-{}-{}-{nonce}-{}.{}",
+        input.rep_block_id,
+        input.attempt_id,
+        input.duration_ms,
+        &hash[..12],
+        extension
+    );
+    let rel_path = format!("rep-replays/{day}/{filename}");
+    let path = ensure_replay_day_directory(directory, &day)?.join(&filename);
+    match std::fs::symlink_metadata(&path) {
+        Ok(_) => return Err("A kept take filename unexpectedly already exists.".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("inspect kept take destination: {error}")),
+    }
+    write_replay_atomic(&path, &bytes)?;
+    let inserted = store.rep_replay_insert(RepReplayInsert {
+        block_id: input.rep_block_id,
+        attempt_id: input.attempt_id,
+        rel_path: &rel_path,
+        mime_type: input.mime_type.trim(),
+        duration_ms: input.duration_ms,
+        byte_len: bytes.len() as u64,
+        content_hash: &hash,
+    });
+    match inserted {
+        Ok(row) => Ok(row),
+        Err(error) => {
+            // Covers a concurrent replay of the same request between the
+            // preflight and INSERT. The unique attempt index chooses one file.
+            // Preserve the losing finished bytes in recovery rather than
+            // deleting user audio automatically.
+            let winning = store
+                .rep_replay_for_attempt(input.rep_block_id, input.attempt_id)
+                .map_err(|lookup_error| lookup_error.to_string())?
+                .ok_or_else(|| error.to_string())?;
+            let _ = quarantine_replay_file(directory, &day, &path, &filename);
+            Ok(winning)
+        }
+    }
+}
+
+#[tauri::command]
+fn rep_replay_list(
+    rep_block_id: i64,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<RepReplayMeta>, String> {
+    store
+        .rep_replay_list(rep_block_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn rep_replay_read(
+    id: i64,
+    app: AppHandle,
+    store: State<'_, Arc<Store>>,
+) -> Result<String, String> {
+    let directory = rep_replays_dir(&app)?;
+    rep_replay_read_from_directory(id, &directory, &store)
+}
+
+fn rep_replay_read_from_directory(
+    id: i64,
+    directory: &std::path::Path,
+    store: &Store,
+) -> Result<String, String> {
+    use base64::Engine as _;
+    let row = store
+        .rep_replay_file(id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("kept take {id} not found"))?;
+    let path = existing_replay_path(directory, &row.rel_path)?
+        .ok_or_else(|| format!("kept take {} is missing from disk", row.id))?;
+    let bytes = std::fs::read(path).map_err(|error| format!("read kept take: {error}"))?;
+    if bytes.len() as u64 != row.byte_len || store::sha256_hex(&bytes) != row.content_hash {
+        return Err(format!("kept take {} failed its integrity check", row.id));
+    }
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+#[tauri::command]
+fn rep_replay_delete(id: i64, app: AppHandle, store: State<'_, Arc<Store>>) -> Result<(), String> {
+    let Some(row) = store
+        .rep_replay_file(id)
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(());
+    };
+    let directory = rep_replays_dir(&app)?;
+    let path = existing_replay_path(&directory, &row.rel_path)?;
+    delete_replay_file_then_metadata(path, || {
+        store
+            .rep_replay_delete_row(id)
+            .map_err(|error| error.to_string())
+    })
+}
+
+fn delete_replay_file_then_metadata<F>(
+    path: Option<std::path::PathBuf>,
+    delete_metadata: F,
+) -> Result<(), String>
+where
+    F: FnOnce() -> Result<bool, String>,
+{
+    // This is the one destructive path and it is explicitly user-requested.
+    // Remove+sync the bytes first, then the row. A crash between them leaves a
+    // visible missing-file row that a retry can finish; it must not leave an
+    // unlinked generated file that startup could legitimately recover.
+    if let Some(path) = path {
+        match std::fs::remove_file(&path) {
+            Ok(()) => sync_directory(
+                path.parent()
+                    .ok_or("kept take has no dated directory after delete")?,
+            )?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("delete kept take: {error}")),
+        }
+    }
+    delete_metadata()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod rep_replay_file_tests {
+    use super::*;
+    use base64::Engine as _;
+
+    fn replay_store() -> (Store, i64, i64) {
+        let store = Store::open(":memory:").unwrap();
+        let (block, attempt) = store.rep_replay_test_seed().unwrap();
+        (store, block, attempt)
+    }
+
+    fn replay_input(block: i64, attempt: i64) -> RepReplaySaveInput {
+        RepReplaySaveInput {
+            rep_block_id: block,
+            attempt_id: attempt,
+            mime_type: "audio/webm;codecs=opus".into(),
+            duration_ms: 800,
+            bytes_base64: base64::engine::general_purpose::STANDARD.encode([1, 2, 3]),
+        }
+    }
+
+    fn staged_generated_take(
+        directory: &std::path::Path,
+        block: i64,
+        attempt: i64,
+        duration_ms: u64,
+        bytes: &[u8],
+        partial: bool,
+    ) -> (String, std::path::PathBuf) {
+        let day = "2026-08-27";
+        let hash = store::sha256_hex(bytes);
+        let mut name = format!(
+            "{block}-{attempt}-{duration_ms}-123456789-{}.webm",
+            &hash[..12]
+        );
+        if partial {
+            name.push_str(".partial");
+        }
+        let day_directory = directory.join(day);
+        std::fs::create_dir_all(&day_directory).unwrap();
+        let path = day_directory.join(&name);
+        std::fs::write(&path, bytes).unwrap();
+        (format!("rep-replays/{day}/{name}"), path)
+    }
+
+    #[test]
+    fn replay_paths_cannot_leave_the_private_audio_directory() {
+        let directory = std::path::PathBuf::from("/tmp/codakiller-rep-replays-test");
+        assert_eq!(
+            rep_replay_path(&directory, "rep-replays/2026-08-27/7-123-audio.webm",).unwrap(),
+            directory.join("2026-08-27/7-123-audio.webm")
+        );
+        for escaped in [
+            "../secret.webm",
+            "rep-replays/../secret.webm",
+            "rep-replays/nested/secret.webm",
+            "rep-replays/2026-08-27/nested/secret.webm",
+            "rep-replays/\\secret.webm",
+            "/tmp/secret.webm",
+        ] {
+            assert!(rep_replay_path(&directory, escaped).is_err(), "{escaped}");
+        }
+    }
+
+    #[test]
+    fn replay_write_is_atomic_and_hashable() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("take.webm");
+        let bytes = b"small opus-shaped test bytes";
+        write_replay_atomic(&path, bytes).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert_eq!(store::sha256_hex(&std::fs::read(path).unwrap()).len(), 64);
+        assert_eq!(
+            std::fs::read_dir(directory.path()).unwrap().count(),
+            1,
+            "the .partial file must be renamed away"
+        );
+    }
+
+    #[test]
+    fn replay_publish_never_replaces_an_existing_destination() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("take.webm");
+        std::fs::write(&path, b"existing user audio").unwrap();
+
+        let error = write_replay_atomic(&path, b"new competing audio").unwrap_err();
+        assert!(error.contains("finish review take"), "{error}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"existing user audio");
+        assert_eq!(
+            std::fs::read(path.with_extension("webm.partial")).unwrap(),
+            b"new competing audio",
+            "the losing bytes remain available for startup recovery"
+        );
+    }
+
+    #[test]
+    fn wrong_or_missing_attempt_writes_no_file_or_row() {
+        let (store, block, attempt) = replay_store();
+        let directory = tempfile::tempdir().unwrap();
+        assert!(rep_replay_save_in_directory(
+            replay_input(block + 99, attempt),
+            directory.path(),
+            &store,
+        )
+        .is_err());
+        assert!(rep_replay_save_in_directory(
+            replay_input(block, attempt + 99),
+            directory.path(),
+            &store,
+        )
+        .is_err());
+        assert_eq!(store.rep_replay_list(block).unwrap().len(), 0);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_lost_success_retry_returns_one_exact_durable_take() {
+        let (store, block, attempt) = replay_store();
+        let directory = tempfile::tempdir().unwrap();
+        let first =
+            rep_replay_save_in_directory(replay_input(block, attempt), directory.path(), &store)
+                .unwrap();
+        let retry =
+            rep_replay_save_in_directory(replay_input(block, attempt), directory.path(), &store)
+                .unwrap();
+        assert_eq!(retry.id, first.id);
+        assert_eq!(store.rep_replay_list(block).unwrap().len(), 1);
+        let encoded = rep_replay_read_from_directory(first.id, directory.path(), &store).unwrap();
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .unwrap(),
+            [1, 2, 3],
+        );
+        let dated = std::fs::read_dir(directory.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert_eq!(std::fs::read_dir(dated).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn replay_validation_allows_compact_audio_only() {
+        let valid = RepReplaySaveInput {
+            rep_block_id: 1,
+            attempt_id: 2,
+            mime_type: "audio/webm;codecs=opus".into(),
+            duration_ms: 1_200,
+            bytes_base64: "AQID".into(),
+        };
+        assert_eq!(validate_replay_input(&valid, 3), Ok("webm"));
+        assert!(validate_replay_input(
+            &RepReplaySaveInput {
+                mime_type: "audio/wav".into(),
+                ..valid.clone()
+            },
+            3
+        )
+        .is_err());
+        assert!(validate_replay_input(
+            &RepReplaySaveInput {
+                duration_ms: 0,
+                ..valid
+            },
+            3
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn generated_filename_is_an_exact_recovery_identity() {
+        let parsed =
+            generated_replay_name("12-98-1600-123456789-012345abcdef.webm.partial").unwrap();
+        assert_eq!(parsed.block_id, 12);
+        assert_eq!(parsed.attempt_id, 98);
+        assert_eq!(parsed.duration_ms, 1_600);
+        assert_eq!(parsed.hash_prefix, "012345abcdef");
+        assert_eq!(parsed.extension, "webm");
+        assert!(parsed.partial);
+        for invalid in [
+            "12-98-1600-123456789-012345abcdef.wav",
+            "12-98-0-123456789-012345abcdef.webm",
+            "12-98-1600-nope-012345abcdef.webm",
+            "12-98-1600-123456789-TOOUPPERCASE.webm",
+            "12-98-1600-123456789-short.webm",
+        ] {
+            assert!(generated_replay_name(invalid).is_none(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn startup_recovers_a_finished_exact_orphan_and_is_idempotent() {
+        let (store, block, attempt) = replay_store();
+        let directory = tempfile::tempdir().unwrap();
+        let bytes = b"durable finished opus payload";
+        let (rel_path, path) =
+            staged_generated_take(directory.path(), block, attempt, 1_600, bytes, false);
+
+        let first = reconcile_rep_replays_in_directory(directory.path(), &store).unwrap();
+        assert_eq!(first.recovered_finished_takes, 1);
+        assert_eq!(first.quarantined_unlinked_takes, 0);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        let rows = store.rep_replay_list(block).unwrap();
+        assert_eq!(rows.len(), 1);
+        let file_row = store.rep_replay_file(rows[0].id).unwrap().unwrap();
+        assert_eq!(file_row.rel_path, rel_path);
+        assert_eq!(file_row.content_hash, store::sha256_hex(bytes));
+
+        let second = reconcile_rep_replays_in_directory(directory.path(), &store).unwrap();
+        assert_eq!(second, RepReplayReconcileReport::default());
+        assert_eq!(store.rep_replay_list(block).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn startup_moves_a_partial_to_recovery_without_deleting_its_bytes() {
+        let (store, block, attempt) = replay_store();
+        let directory = tempfile::tempdir().unwrap();
+        let bytes = b"possibly incomplete but never auto-deleted";
+        let (_, source) = staged_generated_take(directory.path(), block, attempt, 900, bytes, true);
+
+        let first = reconcile_rep_replays_in_directory(directory.path(), &store).unwrap();
+        assert_eq!(first.quarantined_partials, 1);
+        assert!(!source.exists());
+        assert!(store.rep_replay_list(block).unwrap().is_empty());
+        let recovered = std::fs::read_dir(directory.path().join(REP_REPLAY_RECOVERY_DIR))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert_eq!(std::fs::read(recovered).unwrap(), bytes);
+
+        let second = reconcile_rep_replays_in_directory(directory.path(), &store).unwrap();
+        assert_eq!(second, RepReplayReconcileReport::default());
+    }
+
+    #[test]
+    fn unverifiable_generated_and_unmanaged_files_are_preserved_conservatively() {
+        let (store, block, attempt) = replay_store();
+        let directory = tempfile::tempdir().unwrap();
+        let bytes = b"audio with a deliberately wrong filename hash";
+        let (valid_rel, valid_path) =
+            staged_generated_take(directory.path(), block, attempt, 700, bytes, false);
+        let wrong_name = valid_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(&store::sha256_hex(bytes)[..12], "000000000000");
+        let wrong_path = valid_path.with_file_name(&wrong_name);
+        std::fs::rename(&valid_path, &wrong_path).unwrap();
+        let unmanaged = wrong_path.with_file_name("my-manual-take.webm");
+        std::fs::write(&unmanaged, b"manual audio").unwrap();
+
+        let report = reconcile_rep_replays_in_directory(directory.path(), &store).unwrap();
+        assert_eq!(report.quarantined_unlinked_takes, 1);
+        assert_eq!(report.unmanaged_entries_preserved, 1);
+        assert!(unmanaged.exists());
+        assert!(!wrong_path.exists());
+        let recovered_bytes: Vec<Vec<u8>> =
+            std::fs::read_dir(directory.path().join(REP_REPLAY_RECOVERY_DIR))
+                .unwrap()
+                .map(|entry| std::fs::read(entry.unwrap().path()).unwrap())
+                .collect();
+        assert!(recovered_bytes.contains(&bytes.to_vec()));
+        assert!(store.rep_replay_list(block).unwrap().is_empty());
+        assert!(valid_rel.starts_with("rep-replays/2026-08-27/"));
+    }
+
+    #[test]
+    fn missing_or_damaged_referenced_takes_keep_their_metadata_and_bytes() {
+        let (missing_store, block, attempt) = replay_store();
+        let missing_directory = tempfile::tempdir().unwrap();
+        let saved = rep_replay_save_in_directory(
+            replay_input(block, attempt),
+            missing_directory.path(),
+            &missing_store,
+        )
+        .unwrap();
+        let saved_file = missing_store.rep_replay_file(saved.id).unwrap().unwrap();
+        let saved_path = rep_replay_path(missing_directory.path(), &saved_file.rel_path).unwrap();
+        std::fs::remove_file(saved_path).unwrap();
+        let missing =
+            reconcile_rep_replays_in_directory(missing_directory.path(), &missing_store).unwrap();
+        assert_eq!(missing.missing_referenced_files, 1);
+        assert_eq!(missing_store.rep_replay_list(block).unwrap().len(), 1);
+
+        let (damaged_store, block, attempt) = replay_store();
+        let damaged_directory = tempfile::tempdir().unwrap();
+        let saved = rep_replay_save_in_directory(
+            replay_input(block, attempt),
+            damaged_directory.path(),
+            &damaged_store,
+        )
+        .unwrap();
+        let saved_file = damaged_store.rep_replay_file(saved.id).unwrap().unwrap();
+        let saved_path = rep_replay_path(damaged_directory.path(), &saved_file.rel_path).unwrap();
+        let damaged_bytes = b"changed bytes stay available for manual recovery";
+        std::fs::write(&saved_path, damaged_bytes).unwrap();
+        let damaged =
+            reconcile_rep_replays_in_directory(damaged_directory.path(), &damaged_store).unwrap();
+        assert_eq!(damaged.damaged_referenced_files, 1);
+        assert_eq!(std::fs::read(saved_path).unwrap(), damaged_bytes);
+        assert_eq!(damaged_store.rep_replay_list(block).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn explicit_delete_metadata_failure_never_resurrects_the_removed_take() {
+        let (store, block, attempt) = replay_store();
+        let directory = tempfile::tempdir().unwrap();
+        let saved =
+            rep_replay_save_in_directory(replay_input(block, attempt), directory.path(), &store)
+                .unwrap();
+        let file = store.rep_replay_file(saved.id).unwrap().unwrap();
+        let path = existing_replay_path(directory.path(), &file.rel_path)
+            .unwrap()
+            .unwrap();
+
+        let error = delete_replay_file_then_metadata(Some(path.clone()), || {
+            Err("simulated SQLite metadata delete failure".to_string())
+        })
+        .unwrap_err();
+        assert_eq!(error, "simulated SQLite metadata delete failure");
+        assert!(
+            !path.exists(),
+            "the explicit byte deletion already succeeded"
+        );
+        assert_eq!(
+            store.rep_replay_list(block).unwrap().len(),
+            1,
+            "failed metadata deletion remains visible and retryable"
+        );
+
+        let startup = reconcile_rep_replays_in_directory(directory.path(), &store).unwrap();
+        assert_eq!(startup.missing_referenced_files, 1);
+        assert_eq!(startup.recovered_finished_takes, 0);
+        assert_eq!(startup.quarantined_unlinked_takes, 0);
+        assert!(
+            !path.exists(),
+            "startup must not recreate explicitly deleted audio"
+        );
+        assert_eq!(store.rep_replay_list(block).unwrap().len(), 1);
+
+        delete_replay_file_then_metadata(None, || {
+            store
+                .rep_replay_delete_row(saved.id)
+                .map_err(|cause| cause.to_string())
+        })
+        .unwrap();
+        assert!(store.rep_replay_list(block).unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recovery_directory_symlink_is_rejected_without_touching_outside_files() {
+        use std::os::unix::fs::symlink;
+
+        let (store, block, attempt) = replay_store();
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let bytes = b"partial remains at source when recovery is unsafe";
+        let (_, source) = staged_generated_take(directory.path(), block, attempt, 900, bytes, true);
+        symlink(
+            outside.path(),
+            directory.path().join(REP_REPLAY_RECOVERY_DIR),
+        )
+        .unwrap();
+
+        let error = reconcile_rep_replays_in_directory(directory.path(), &store).unwrap_err();
+        assert!(error.contains("private directory"), "{error}");
+        assert_eq!(std::fs::read(source).unwrap(), bytes);
+        assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replay_root_symlink_is_rejected_without_scanning_its_target() {
+        use std::os::unix::fs::symlink;
+
+        let (store, _, _) = replay_store();
+        let parent = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let sentinel = outside.path().join("sentinel.webm");
+        std::fs::write(&sentinel, b"never inspect or move me").unwrap();
+        let linked_root = parent.path().join("rep-replays");
+        symlink(outside.path(), &linked_root).unwrap();
+
+        let error = reconcile_rep_replays_in_directory(&linked_root, &store).unwrap_err();
+        assert!(error.contains("private directory"), "{error}");
+        assert_eq!(
+            std::fs::read(sentinel).unwrap(),
+            b"never inspect or move me"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dated_directory_and_file_symlinks_are_never_followed() {
+        use std::os::unix::fs::symlink;
+
+        let (store, block, attempt) = replay_store();
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_take = outside.path().join("outside.webm");
+        std::fs::write(&outside_take, b"outside must stay untouched").unwrap();
+        symlink(outside.path(), directory.path().join("2026-08-27")).unwrap();
+
+        let report = reconcile_rep_replays_in_directory(directory.path(), &store).unwrap();
+        assert_eq!(report.unsafe_entries_preserved, 1);
+        assert_eq!(
+            std::fs::read(&outside_take).unwrap(),
+            b"outside must stay untouched"
+        );
+        assert!(store.rep_replay_list(block).unwrap().is_empty());
+        assert!(existing_replay_path(
+            directory.path(),
+            &format!(
+                "rep-replays/2026-08-27/{}",
+                outside_take.file_name().unwrap().to_string_lossy()
+            )
+        )
+        .is_err());
+        assert!(store.rep_replay_attempt_exists(block, attempt).unwrap());
+    }
 }
 
 // ── Day photos (Plan A, task A3) ───────────────────────────────────────────
@@ -1577,8 +2751,7 @@ mod day_photo_integrity_tests {
         let dir = tempfile::tempdir().unwrap();
         let full = b"pretend full-resolution jpeg bytes";
         let thumb = b"pretend thumbnail jpeg bytes";
-        let content_hash =
-            day_photo_write_files(dir.path(), "2026-08-22", full, thumb).unwrap();
+        let content_hash = day_photo_write_files(dir.path(), "2026-08-22", full, thumb).unwrap();
 
         let row = store::DayPhotoRow {
             day: "2026-08-22".to_string(),
@@ -2457,6 +3630,27 @@ fn voice_mute(muted: bool, voice: State<'_, Arc<VoiceLoop>>) {
     voice.set_muted(muted);
 }
 
+/// Release the native STT microphone process for an exclusive audio-review
+/// owner. The returned epoch is an exact lease and must be supplied to resume.
+#[tauri::command]
+fn voice_capture_suspend(
+    request_id: String,
+    voice: State<'_, Arc<VoiceLoop>>,
+) -> Result<u64, String> {
+    voice.suspend_capture(&request_id)
+}
+
+/// Return one exact exclusive-capture lease. Request identity makes an
+/// unmount-safe release-before-acquire race inert; `true` means this call
+/// returned the final lease and restarted STT.
+#[tauri::command]
+fn voice_capture_resume(
+    request_id: String,
+    voice: State<'_, Arc<VoiceLoop>>,
+) -> Result<bool, String> {
+    voice.resume_capture(&request_id)
+}
+
 /// Current mic status (muted / down reason) for the top-bar glyph.
 #[tauri::command]
 fn voice_state(voice: State<'_, Arc<VoiceLoop>>) -> VoiceStatus {
@@ -2543,6 +3737,17 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let store = Store::open(dir.join("codakiller.db"))?;
+            match reconcile_rep_replays_in_directory(&dir.join("rep-replays"), &store) {
+                Ok(report) if report != RepReplayReconcileReport::default() => {
+                    eprintln!("rep-replays: startup reconciliation {report:?}");
+                }
+                Ok(_) => {}
+                // Replay maintenance is intentionally conservative and must
+                // not prevent the practice tracker from launching. A failure
+                // leaves every ambiguous row/file in place and is visible in
+                // the native log for manual recovery.
+                Err(error) => eprintln!("rep-replays: startup reconciliation skipped: {error}"),
+            }
 
             // Load click sounds (dev + bundled paths). A load failure is
             // non-fatal: the metronome then runs silent rather than crashing.
@@ -2614,7 +3819,8 @@ pub fn run() {
             // never per failure.
             let tts_app = app.handle().clone();
             tts::status_hub().set_listener(Box::new(move |degraded| {
-                if let Err(e) = tts_app.emit("voice://tts", serde_json::json!({ "degraded": degraded }))
+                if let Err(e) =
+                    tts_app.emit("voice://tts", serde_json::json!({ "degraded": degraded }))
                 {
                     eprintln!("app: failed to emit voice://tts: {e}");
                 }
@@ -2708,6 +3914,7 @@ pub fn run() {
             settings_update,
             api_key_save,
             api_key_clear,
+            measure_mapping_status,
             reference_open,
             imslp_search,
             imslp_editions,
@@ -2717,7 +3924,16 @@ pub fn run() {
             pieces_scan,
             pieces_list,
             piece_import_pdf,
-            piece_archive,
+            piece_delete_files,
+            piece_archive_set,
+            piece_movement_list,
+            piece_movement_create,
+            piece_movement_update,
+            piece_movement_delete,
+            warmup_routines_list,
+            warmup_routine_save,
+            warmup_routine_delete,
+            warmup_system_piece,
             piece_open_source_url,
             downloads_list,
             pick_import_file,
@@ -2740,6 +3956,10 @@ pub fn run() {
             rep_restart,
             rep_close,
             rep_state,
+            rep_replay_save,
+            rep_replay_list,
+            rep_replay_read,
+            rep_replay_delete,
             sets_paused_list,
             rep_pause,
             rep_resume,
@@ -2849,6 +4069,8 @@ pub fn run() {
             dynamics_profile_list,
             dynamics_profile_activate,
             voice_mute,
+            voice_capture_suspend,
+            voice_capture_resume,
             voice_state,
             tts_degraded,
             voice_speak,

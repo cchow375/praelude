@@ -68,6 +68,22 @@ vi.mock("../features/universe/UniverseWorkspace", () => ({
   },
 }));
 
+const warmupsWorkspaceProps = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock("../features/warmups/WarmupsWorkspace", () => ({
+  WarmupsWorkspace: (props: unknown) => {
+    warmupsWorkspaceProps.current = props;
+    return <div data-testid="warmups-workspace-stub" />;
+  },
+}));
+
+const rotationPanelProps = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock("../features/rotation/RotationPanel", () => ({
+  RotationPanel: (props: unknown) => {
+    rotationPanelProps.current = props;
+    return <div data-testid="rotation-panel-stub" />;
+  },
+}));
+
 import { Shell, voiceDraftOpenRequest } from "./Shell";
 import { ReceiptCenterProvider } from "../features/receipts/ReceiptCenter";
 
@@ -204,6 +220,10 @@ beforeEach(() => {
         return Promise.resolve(ACTIVE_SESSION);
       case "voice_state":
         return Promise.resolve({ muted: false, down: null });
+      case "voice_capture_suspend":
+        return Promise.resolve(1);
+      case "voice_capture_resume":
+        return Promise.resolve(true);
       case "metro_state":
         return Promise.resolve({ running: false, bpm: 84 });
       case "pieces_list":
@@ -231,6 +251,19 @@ beforeEach(() => {
         return Promise.resolve(BRAIN_ANSWER);
       case "rep_open":
         return Promise.resolve({ ...ACTIVE_SNAP, block_id: 2 });
+      case "rep_check":
+        return Promise.resolve({
+          snap: {
+            ...ACTIVE_SNAP,
+            attempts_recorded: 3,
+            tries: 3,
+            reps_done: 3,
+            last_attempt_id: 11,
+          },
+          new_bpm: null,
+          block_done: false,
+          say: "Attempt saved.",
+        });
       default:
         return Promise.resolve(null);
     }
@@ -329,6 +362,81 @@ describe("Shell app-level practice surfaces", () => {
     expect(screen.getByRole("button", { name: "Clean" })).toBeTruthy();
   });
 
+  it("exposes Warmups in the workspace rail and mounts it on the shell rep seam", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+
+    const tab = await screen.findByRole("tab", { name: "Warmups" });
+    expect(tab.getAttribute("aria-selected")).toBe("false");
+    fireEvent.click(tab);
+
+    expect(await screen.findByTestId("warmups-workspace-stub")).toBeTruthy();
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    expect(warmupsWorkspaceProps.current).toEqual(
+      expect.objectContaining({
+        activeRep: expect.objectContaining({ block_id: ACTIVE_SNAP.block_id }),
+        onOpenBlock: expect.any(Function),
+      }),
+    );
+  });
+
+  it("keeps verdict hotkeys active while practising from Warmups", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await screen.findByRole("region", { name: "Active practice set" });
+    fireEvent.click(screen.getByRole("tab", { name: "Warmups" }));
+    await screen.findByTestId("warmups-workspace-stub");
+    invokeMock.mockClear();
+
+    fireEvent.keyDown(document.body, { code: "Space", key: " " });
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith(
+        "rep_check",
+        expect.objectContaining({ verdict: "clean" }),
+      ),
+    );
+  });
+
+  it("scopes verdict hotkeys to Score even though the Rep panel persists globally", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await screen.findByRole("region", { name: "Active practice set" });
+    invokeMock.mockClear();
+
+    fireEvent.keyDown(document.body, { code: "Space", key: " " });
+    expect(invokeMock).not.toHaveBeenCalledWith("rep_check", expect.anything());
+
+    fireEvent.click(screen.getByRole("tab", { name: "Score" }));
+    await screen.findByTestId("score-workspace-stub");
+    fireEvent.keyDown(document.body, { code: "Space", key: " " });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith(
+        "rep_check",
+        expect.objectContaining({ verdict: "clean" }),
+      ),
+    );
+    const recorded = invokeMock.mock.calls.filter(
+      ([command]) => command === "rep_check",
+    ).length;
+
+    fireEvent.click(screen.getByRole("tab", { name: "Universe" }));
+    await screen.findByTestId("universe-workspace-stub");
+    fireEvent.keyDown(document.body, { code: "Enter", key: "Enter" });
+    expect(
+      invokeMock.mock.calls.filter(([command]) => command === "rep_check"),
+    ).toHaveLength(recorded);
+  });
+
   it("keeps the rep panel reachable across every workspace tab (Task A3: shell-level, not per-view)", async () => {
     render(
       <ReceiptCenterProvider>
@@ -354,6 +462,138 @@ describe("Shell app-level practice surfaces", () => {
     await screen.findByTestId("workspace-today");
     panel = await screen.findByRole("dialog", { name: "Rep Counter" });
     expect(within(panel).getByText("Scherzo No. 2")).toBeTruthy();
+  });
+
+  it("mounts one Rotation panel at shell level with the authoritative rep controls", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+
+    const panel = await screen.findByTestId("rotation-panel-stub");
+    expect(rotationPanelProps.current).toEqual(
+      expect.objectContaining({
+        activeRep: expect.objectContaining({ block_id: ACTIVE_SNAP.block_id }),
+        defaultCleanStreak: expect.any(Number),
+        onOpenBlock: expect.any(Function),
+        onPause: expect.any(Function),
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Warmups" }));
+    await screen.findByTestId("warmups-workspace-stub");
+    expect(screen.getAllByTestId("rotation-panel-stub")).toHaveLength(1);
+    expect(panel.isConnected).toBe(true);
+  });
+
+  it("gives Listen Back exact capture ownership without overwriting user mute", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await screen.findByRole("region", { name: "Active practice set" });
+    const review = screen.getByRole("checkbox", {
+      name: /Review each rep by listening back/,
+    });
+    invokeMock.mockClear();
+
+    fireEvent.click(review);
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("voice_capture_suspend", {
+        requestId: expect.stringMatching(/^listen-back-/),
+      }),
+    );
+    expect(invokeMock).toHaveBeenCalledWith("voice_mute", { muted: true });
+    const mic = screen.getByRole("button", {
+      name: "Mic muted — click to unmute",
+    }) as HTMLButtonElement;
+    expect(mic.disabled).toBe(true);
+    expect(mic.title).toContain("Listen Back");
+
+    fireEvent.click(review);
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("voice_capture_resume", {
+        requestId: expect.stringMatching(/^listen-back-/),
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Mic listening — click to mute" }),
+    ).toBeTruthy();
+    expect(invokeMock).toHaveBeenCalledWith("voice_mute", { muted: false });
+  });
+
+  it("leaves a pre-existing user mute intact across Listen Back", async () => {
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    await emit("voice://status", { state: "muted" });
+    const review = screen.getByRole("checkbox", {
+      name: /Review each rep by listening back/,
+    });
+    invokeMock.mockClear();
+
+    fireEvent.click(review);
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("voice_capture_suspend", {
+        requestId: expect.stringMatching(/^listen-back-/),
+      }),
+    );
+    fireEvent.click(review);
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("voice_capture_resume", {
+        requestId: expect.stringMatching(/^listen-back-/),
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Mic muted — click to unmute" }),
+    ).toBeTruthy();
+    expect(invokeMock).not.toHaveBeenCalledWith("voice_mute", expect.anything());
+  });
+
+  it("keeps the immediate voice firewall closed when physical suspension fails", async () => {
+    const baseInvoke = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((command: string, ...args: unknown[]) => {
+      if (command === "voice_capture_suspend") {
+        return Promise.reject(new Error("capture lifecycle unavailable"));
+      }
+      return baseInvoke?.(command, ...args);
+    });
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    const review = await screen.findByRole("checkbox", {
+      name: /Review each rep by listening back/,
+    });
+    invokeMock.mockClear();
+
+    fireEvent.click(review);
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("voice_mute", { muted: true }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText(/could not safely take the microphone/i),
+      ).toBeTruthy(),
+    );
+    expect(invokeMock).not.toHaveBeenCalledWith("voice_mute", { muted: false });
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Mic muted — click to unmute",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    fireEvent.click(review);
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("voice_mute", { muted: false }),
+    );
   });
 
   it("mounts the session bar from the current session", async () => {
@@ -934,7 +1174,13 @@ describe("Shell — Assistant disabled", () => {
     const labels = within(nav)
       .getAllByRole("tab")
       .map((tab) => tab.textContent);
-    expect(labels).toEqual(["Today", "Score", "History", "Universe"]);
+    expect(labels).toEqual([
+      "Today",
+      "Score",
+      "Warmups",
+      "History",
+      "Universe",
+    ]);
     expect(screen.queryByRole("tab", { name: "Assistant" })).toBeNull();
   });
 

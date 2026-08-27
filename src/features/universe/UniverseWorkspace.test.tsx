@@ -5,10 +5,14 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
+import { StrictMode, useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { galaxyLayout } from "./galaxy";
+import { DockProvider, useDock } from "../dock/DockProvider";
+import { DockPanel } from "../dock/DockPanel";
+import { DOCK_STORAGE_KEY } from "../dock/dockState";
 import type { UniversePiece, UniverseSnapshot } from "./types";
 
 const invokeMock = vi.fn();
@@ -96,7 +100,6 @@ const PIECE: UniversePiece = {
   ],
 };
 
-/** Cold: untouched for well past the stale threshold. */
 const STALE_PIECE: UniversePiece = {
   piece_id: 9,
   title: "The White Peacock",
@@ -107,7 +110,10 @@ const STALE_PIECE: UniversePiece = {
   regions_practiced: 1,
   regions_revisited: 0,
   mastered_targets: 0,
+  recovered_targets: 0,
+  open_recovery_debt: 0,
   practice_sessions: 1,
+  earned_maturity: 0.1,
   quality_brightness: 0.5,
   last_practiced: isoDaysBefore(40),
   region_signals: [
@@ -125,15 +131,11 @@ const STALE_PIECE: UniversePiece = {
       rated_rep_events: 1,
       clean_rep_events: 0,
       distinct_practice_dates: 1,
+      practice_sessions: 1,
     },
   ],
 };
 
-/** On the shelf, never opened: zero focused seconds, zero mastered targets,
- * zero practice_events anywhere. The earned-only law (fix-wave F1) says this
- * piece gets no star at all — used ONLY in the tests that opt into it below,
- * never mixed into the shared SNAPSHOT default (which every other test in
- * this file also renders). */
 const UNTOUCHED_PIECE: UniversePiece = {
   piece_id: 3,
   title: "Prelude in C",
@@ -144,7 +146,10 @@ const UNTOUCHED_PIECE: UniversePiece = {
   regions_practiced: 0,
   regions_revisited: 0,
   mastered_targets: 0,
+  recovered_targets: 0,
+  open_recovery_debt: 0,
   practice_sessions: 0,
+  earned_maturity: 0,
   quality_brightness: 0.96,
   last_practiced: null,
   region_signals: [
@@ -170,9 +175,14 @@ const SNAPSHOT: UniverseSnapshot = {
   generated_at: GENERATED_AT,
   definitions: [
     {
-      signal: "focused_time",
+      signal: "star_radius",
       label: "Focused time",
       definition: "Practice time after idle time is removed.",
+    },
+    {
+      signal: "quality_brightness",
+      label: "Subtle quality brightness",
+      definition: "A visual tint, not a score.",
     },
   ],
   traces: {
@@ -182,30 +192,65 @@ const SNAPSHOT: UniverseSnapshot = {
     active_window_start: "2026-06-15",
     active_window_end: "2026-07-12",
     quality_formula: "bounded smoothing",
+    maturity_formula: "opaque composite that must not be surfaced",
   },
   totals: {
     focused_seconds: 5430,
+    lifetime_focused_seconds: 7200,
     active_days_28: 5,
+    lifetime_active_days: 12,
+    best_streak_days: 5,
     regions_practiced: 2,
     regions_revisited: 1,
+    revisited_targets: 3,
     mastered_targets: 1,
     recovered_targets: 1,
     practice_sessions: 8,
   },
+  technique: {
+    focused_seconds: 540,
+    active_days_28: 2,
+    completed_warmups: 3,
+    practice_sessions: 2,
+    last_practiced: isoDaysBefore(1),
+  },
   pieces: [PIECE, STALE_PIECE],
 };
 
-const THIRD_EARNED_PIECE: UniversePiece = {
-  ...PIECE,
-  piece_id: 11,
-  title: "Ballade No. 1",
-  region_signals: PIECE.region_signals.map((region) => ({
-    ...region,
-    region_id: region.region_id + 100,
-  })),
-};
+const originalWidth = window.innerWidth;
+const originalHeight = window.innerHeight;
+
+function memoryStorage(): Storage {
+  const rows = new Map<string, string>();
+  return {
+    get length() {
+      return rows.size;
+    },
+    clear: () => rows.clear(),
+    getItem: (key) => rows.get(key) ?? null,
+    key: (index) => [...rows.keys()][index] ?? null,
+    removeItem: (key) => {
+      rows.delete(key);
+    },
+    setItem: (key, value) => {
+      rows.set(key, String(value));
+    },
+  };
+}
 
 beforeEach(() => {
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: memoryStorage(),
+  });
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: originalWidth,
+  });
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: originalHeight,
+  });
   invokeMock.mockReset();
   invokeMock.mockImplementation((command: string) =>
     command === "universe_snapshot"
@@ -214,481 +259,408 @@ beforeEach(() => {
   );
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+});
 
-async function renderMap(
+async function renderProgress(
   props: Partial<{
     onOpenPractice: (piece: unknown) => void;
     onOpenLedger: (piece: unknown) => void;
+    streak: { current_days: number } | null;
   }> = {},
 ) {
   const result = render(
     <UniverseWorkspace
       onOpenPractice={props.onOpenPractice ?? vi.fn()}
       onOpenLedger={props.onOpenLedger as ((piece: never) => void) | undefined}
+      streak={props.streak}
     />,
   );
   await screen.findByRole("heading", { name: "Your repertoire" });
   return result;
 }
 
-describe("UniverseWorkspace repertoire map", () => {
-  it("lays the repertoire out as a still index grouped by composer", async () => {
-    const { container } = await renderMap();
+describe("UniverseWorkspace evidence-first progress", () => {
+  it("puts momentum, focused time and exact progress before the repertoire", async () => {
+    const { container } = await renderProgress({ streak: { current_days: 4 } });
 
-    // Composer headings, alphabetical and deterministic.
-    const groups = [...container.querySelectorAll(".universe-group-name")].map(
-      (node) => node.textContent,
-    );
-    expect(groups).toEqual(["Chopin", "Griffes"]);
+    expect(
+      screen.getByRole("heading", { name: "Practice progress" }),
+    ).toBeTruthy();
+    const momentum = screen.getByTestId("universe-momentum");
+    expect(momentum.textContent).toContain("Momentum is holding.");
+    expect(momentum.textContent).toContain("4 consecutive qualifying days");
+    expect(momentum.textContent).toContain("1h 30m");
+    expect(momentum.textContent).toContain("5 active days · 28");
+    expect(momentum.textContent).toContain("8 sessions");
 
-    const card = screen.getByTestId("universe-piece-7");
-    expect(card.textContent).toContain("Nocturne Op. 9 No. 2");
-    expect(card.textContent).toContain("2 / 3 regions practiced");
-    expect(card.textContent).toContain("1 verified");
-    expect(card.textContent).toContain("1h 30m focused");
-    expect(card.textContent).toContain("8 sessions");
-    expect(card.textContent).toContain("Practiced yesterday");
+    const progress = container.querySelector(".universe-progress")!;
+    const repertoire = container.querySelector(".universe-map")!;
+    expect(
+      momentum.compareDocumentPosition(progress) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      progress.compareDocumentPosition(repertoire) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
-  // (a) The v5 lesson still holds: declarative motion only, never a loop.
-  it("runs no simulation and no animation frame loop", async () => {
-    const raf = vi.spyOn(window, "requestAnimationFrame");
-    const { container } = await renderMap();
-    expect(raf).not.toHaveBeenCalled();
-    // The galaxy IS an <svg> now — but a static one, drawn once from a layout.
-    expect(container.querySelector(".universe-canvas")).toBeNull();
-    expect(container.querySelectorAll("svg.universe-galaxy")).toHaveLength(1);
-    raf.mockRestore();
+  it("puts transparent Practice XP and evidence badges first without announcing old work", async () => {
+    const { container } = await renderProgress();
+    const game = screen.getByTestId("universe-game-panel");
+    expect(within(game).getByRole("heading", { name: "Level 3" })).toBeTruthy();
+    expect(within(game).getByTestId("universe-game-xp").textContent).toContain(
+      "120 XP",
+    );
+    expect(game.textContent).toContain("1 XP = 1 completed focused minute");
+    expect(game.textContent).toContain("Badge cabinet");
+    expect(container.querySelector(".universe-earned-status")).toBeNull();
+
+    const cadence = screen.getByTestId("universe-cadence");
+    const momentum = screen.getByTestId("universe-momentum");
+    expect(
+      game.compareDocumentPosition(cadence) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      cadence.compareDocumentPosition(momentum) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
-  // (b) Property: identical event history => identical galaxy.
-  it("lays the galaxy out deterministically for the same snapshot", () => {
-    const viewport = { width: 720, height: 520 };
-    const once = galaxyLayout(SNAPSHOT, viewport, { current_days: 2 });
-    const twice = galaxyLayout(SNAPSHOT, viewport, { current_days: 2 });
-    expect(once).toEqual(twice);
+  it("renders only the current canonical database and ignores legacy browser-stored progress", async () => {
+    window.localStorage.setItem(
+      "codakiller.universe.game-evidence.v1",
+      JSON.stringify({
+        version: 1,
+        evidence: {
+          lifetimeFocusedSeconds: 9_999_999,
+          lifetimeActiveDays: 365,
+          bestStreakDays: 100,
+          revisitedTargets: 100,
+          masteredTargets: 100,
+          recoveredTargets: 100,
+        },
+      }),
+    );
+    await renderProgress();
+    expect(screen.getByTestId("universe-game-xp").textContent).toBe("120 XP");
+
+    invokeMock.mockImplementation((command: string) =>
+      command === "universe_snapshot"
+        ? Promise.resolve({
+            ...SNAPSHOT,
+            totals: {
+              ...SNAPSHOT.totals,
+              focused_seconds: 60,
+              lifetime_focused_seconds: 60,
+              lifetime_active_days: 1,
+              best_streak_days: 1,
+              revisited_targets: 0,
+              mastered_targets: 0,
+              recovered_targets: 0,
+            },
+          })
+        : Promise.resolve(null),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh progress" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("universe-game-xp").textContent).toBe("1 XP"),
+    );
+    expect(screen.queryByText("7 active days")).toBeNull();
+    expect(screen.queryByText(/Badge earned:/)).toBeNull();
   });
 
-  // (c) Earned-only: every rendered visual traces back to a snapshot field.
-  it("renders no visual that is not backed by snapshot evidence", async () => {
-    const { container } = await renderMap();
-    const galaxy = container.querySelector(".universe-galaxy") as SVGElement;
-
-    const pieceIds = new Set(SNAPSHOT.pieces.map((p) => String(p.piece_id)));
-    const masteredRegionIds = new Set(
-      SNAPSHOT.pieces.flatMap((p) =>
-        p.region_signals
-          .filter((r) => (r.mastery_contracts_completed ?? 0) > 0)
-          .map((r) => String(r.region_id)),
-      ),
-    );
-
-    const stars = [...galaxy.querySelectorAll(".universe-star")];
-    expect(stars).toHaveLength(SNAPSHOT.pieces.length);
-    for (const star of stars) {
-      expect(pieceIds.has(star.getAttribute("data-piece-id") ?? "")).toBe(true);
-    }
-
-    const bodies = [...galaxy.querySelectorAll(".universe-orbit-body")];
-    expect(bodies.length).toBe(masteredRegionIds.size);
-    for (const body of bodies) {
-      expect(
-        masteredRegionIds.has(body.getAttribute("data-region-id") ?? ""),
-      ).toBe(true);
-      expect(body.getAttribute("data-evidence")).toBe(
-        "mastery_contracts_completed",
-      );
-    }
-
-    // A ring only exists where earned_maturity does.
-    const ringed = [...galaxy.querySelectorAll(".universe-star-ring")].map(
-      (node) => node.closest(".universe-star")!.getAttribute("data-piece-id"),
-    );
-    const withMaturity = SNAPSHOT.pieces
-      .filter((p) => (p.earned_maturity ?? 0) > 0)
-      .map((p) => String(p.piece_id));
-    expect(ringed.sort()).toEqual(withMaturity.sort());
-
-    // No streak was supplied, so nothing may glow.
-    expect(galaxy.querySelectorAll(".universe-star-glow")).toHaveLength(0);
-  });
-
-  // fix-wave F1: a piece with zero recorded practice evidence must never get
-  // a filled, twinkling, glowing star — that is granted, unearned growth.
-  it("renders an unearned piece (zero practice evidence) as a hollow, unlit marker — no glow even under a live streak", async () => {
-    invokeMock.mockResolvedValue({
-      ...SNAPSHOT,
-      pieces: [PIECE, UNTOUCHED_PIECE],
-    });
-    const { container } = render(
-      <UniverseWorkspace
-        onOpenPractice={vi.fn()}
-        streak={{ current_days: 6 }} // a LIVE global streak
-      />,
-    );
-    await screen.findByRole("heading", { name: "Your repertoire" });
-    const galaxy = container.querySelector(".universe-galaxy") as SVGElement;
-
-    const untouchedStar = galaxy.querySelector(
-      '.universe-star[data-piece-id="3"]',
-    ) as SVGGElement;
-    expect(untouchedStar).toBeTruthy();
-    expect(untouchedStar.getAttribute("data-evidence")).toBe("none");
-    expect(untouchedStar.classList.contains("is-unlit")).toBe(true);
-
-    // No filled disc, no glow, no ring, no orbits — only the hollow marker.
-    expect(untouchedStar.querySelector(".universe-star-disc")).toBeNull();
-    expect(untouchedStar.querySelector(".universe-star-glow")).toBeNull();
-    expect(untouchedStar.querySelector(".universe-star-ring")).toBeNull();
-    expect(untouchedStar.querySelectorAll(".universe-orbit-body")).toHaveLength(0);
-
-    const marker = untouchedStar.querySelector(
-      ".universe-star-unlit",
-    ) as SVGCircleElement;
-    expect(marker).toBeTruthy();
-    expect(marker.getAttribute("r")).toBe("4");
-    expect(marker.getAttribute("data-evidence")).toBe("none");
-    expect(marker.getAttribute("aria-label")).toBe("not yet practised");
-
-    // The earned piece in the SAME render still glows: the streak withholds
-    // evidence from the unearned piece, it never leaks onto it.
-    const earnedStar = galaxy.querySelector(
-      '.universe-star[data-piece-id="7"]',
-    ) as SVGGElement;
-    expect(earnedStar.querySelector(".universe-star-glow")).toBeTruthy();
-  });
-
-  // fix-wave F1(d): a rendered data-evidence attribute must never name a
-  // field whose value is 0 — checked directly against the DOM, not just the
-  // pure layout (galaxy.test.ts already covers the layout in isolation).
-  it("law: no rendered data-evidence attribute names a zero-valued field", async () => {
-    invokeMock.mockResolvedValue({
-      ...SNAPSHOT,
-      pieces: [PIECE, STALE_PIECE, UNTOUCHED_PIECE],
-    });
-    const { container } = render(
-      <UniverseWorkspace
-        onOpenPractice={vi.fn()}
-        streak={{ current_days: 2 }}
-      />,
-    );
-    await screen.findByRole("heading", { name: "Your repertoire" });
-    const galaxy = container.querySelector(".universe-galaxy") as SVGElement;
-    const byId: Record<string, UniversePiece> = {
-      "7": PIECE,
-      "9": STALE_PIECE,
-      "3": UNTOUCHED_PIECE,
-    };
-    for (const star of [...galaxy.querySelectorAll(".universe-star")]) {
-      const piece = byId[star.getAttribute("data-piece-id") ?? ""];
-      const evidence = star.getAttribute("data-evidence");
-      if (evidence === "focused_seconds") {
-        expect(piece.focused_seconds).toBeGreaterThan(0);
-      } else if (evidence === "mastered_targets") {
-        expect(piece.mastered_targets ?? 0).toBeGreaterThan(0);
-      } else if (evidence === "region_signals") {
-        expect(
-          piece.region_signals.some((r) => (r.practice_events ?? 0) > 0),
-        ).toBe(true);
-      } else {
-        expect(evidence).toBe("none");
+  it("keeps the newest canonical snapshot when StrictMode loads resolve out of order", async () => {
+    let resolveOlder!: (value: UniverseSnapshot) => void;
+    let resolveNewer!: (value: UniverseSnapshot) => void;
+    let snapshotCalls = 0;
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "universe_snapshot") {
+        snapshotCalls += 1;
+        return new Promise<UniverseSnapshot>((resolve) => {
+          if (snapshotCalls === 1) resolveOlder = resolve;
+          else resolveNewer = resolve;
+        });
       }
-    }
-  });
-
-  it("glows every star only when a live streak is passed in", async () => {
-    const { container } = render(
-      <UniverseWorkspace
-        onOpenPractice={vi.fn()}
-        streak={{ current_days: 4 }}
-      />,
-    );
-    await screen.findByRole("heading", { name: "Your repertoire" });
-    expect(container.querySelectorAll(".universe-star-glow")).toHaveLength(
-      SNAPSHOT.pieces.length,
-    );
-  });
-
-  it("draws nothing at all when there is no practice evidence", async () => {
-    invokeMock.mockResolvedValue({ ...SNAPSHOT, pieces: [] });
-    const { container } = render(
-      <UniverseWorkspace
-        onOpenPractice={vi.fn()}
-        streak={{ current_days: 9 }}
-      />,
-    );
-    await screen.findByRole("heading", {
-      name: "Your universe is quiet for now.",
+      if (command === "universe_history_days") return Promise.resolve([]);
+      return Promise.resolve(null);
     });
-    expect(container.querySelector(".universe-galaxy")).toBeNull();
+    render(
+      <StrictMode>
+        <UniverseWorkspace onOpenPractice={vi.fn()} />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(snapshotCalls).toBe(2));
+    const withSeconds = (seconds: number): UniverseSnapshot => ({
+      ...SNAPSHOT,
+      totals: {
+        ...SNAPSHOT.totals,
+        focused_seconds: seconds,
+        lifetime_focused_seconds: seconds,
+      },
+    });
+
+    resolveNewer(withSeconds(120));
+    await waitFor(() =>
+      expect(screen.getByTestId("universe-game-xp").textContent).toBe("2 XP"),
+    );
+    resolveOlder(withSeconds(60));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    expect(screen.getByTestId("universe-game-xp").textContent).toBe("2 XP");
+    expect(screen.queryByText(/Practice Level .* reached/)).toBeNull();
+    expect(screen.queryByText(/Badge earned:/)).toBeNull();
   });
 
-  // (d) Reduced motion collapses the galaxy to a fully static render, CSS-only.
-  it("wraps every keyframe animation in a prefers-reduced-motion escape", () => {
-    // NOTE: the plan's original snippet used
-    // `fileURLToPath(new URL("./universe.css", import.meta.url))`, which
-    // throws "The URL must be of scheme file" under this project's vitest/vite
-    // transform (import.meta.url does not resolve to a file: URL here).
-    // Fixed to the same `resolve("src/...")` pattern every sibling CSS-reading
-    // test in this repo already uses (e.g. shellOverlap.test.tsx,
-    // RepHudDensity.test.tsx, dockStacking.test.ts).
-    const css = readFileSync(
-      resolve("src/features/universe/universe.css"),
-      "utf8",
+  it("announces only a real later level and badge crossing", async () => {
+    await renderProgress();
+    expect(screen.queryByText(/Practice Level .* reached/)).toBeNull();
+
+    invokeMock.mockImplementation((command: string) =>
+      command === "universe_snapshot"
+        ? Promise.resolve({
+            ...SNAPSHOT,
+            totals: {
+              ...SNAPSHOT.totals,
+              lifetime_focused_seconds: 10_800,
+              mastered_targets: 5,
+            },
+            pieces: [{ ...PIECE, mastered_targets: 5 }, STALE_PIECE],
+          })
+        : Promise.resolve(null),
     );
-    const animated = [
-      ".universe-star-disc",
-      ".universe-orbit-body",
-      ".universe-galaxy-field",
+    fireEvent.click(screen.getByRole("button", { name: "Refresh progress" }));
+
+    expect(
+      (await screen.findByText(/Practice Level 4 reached/)).textContent,
+    ).toBe("Practice Level 4 reached · Badge earned: 5 verified masteries.");
+    expect(screen.getByTestId("universe-game-xp").textContent).toContain(
+      "180 XP",
+    );
+  });
+
+  it("renders an accessible 28-day cadence from exact trace bounds and fills quiet dates", async () => {
+    invokeMock.mockImplementation((command: string, args?: unknown) => {
+      if (command === "universe_snapshot") return Promise.resolve(SNAPSHOT);
+      if (command === "history_days") {
+        expect(args).toEqual({ from: "2026-06-15", to: "2026-07-12" });
+        return Promise.resolve([
+          {
+            date: "2026-06-15",
+            focused_seconds: 60,
+            session_count: 1,
+            attempts: 0,
+            cleans: 0,
+            sets_touched: 0,
+            mastered_sets: 0,
+            pieces: [],
+          },
+          {
+            date: "2026-07-01",
+            focused_seconds: 1_800,
+            session_count: 1,
+            attempts: 0,
+            cleans: 0,
+            sets_touched: 0,
+            mastered_sets: 0,
+            pieces: [],
+          },
+          {
+            date: "2026-07-12",
+            focused_seconds: 3_600,
+            session_count: 1,
+            attempts: 0,
+            cleans: 0,
+            sets_touched: 0,
+            mastered_sets: 0,
+            pieces: [],
+          },
+        ]);
+      }
+      return Promise.resolve(null);
+    });
+    await renderProgress();
+    const days = await screen.findByRole("list", {
+      name: "28-day focused-practice cadence",
+    });
+
+    expect(within(days).getAllByRole("listitem")).toHaveLength(28);
+    expect(
+      within(days).getByLabelText("Jun 15: 1 focused minute"),
+    ).toBeTruthy();
+    expect(
+      within(days).getByLabelText("Jun 16: no focused practice recorded"),
+    ).toBeTruthy();
+    expect(
+      within(days).getByLabelText("Jul 12: 60 focused minutes"),
+    ).toBeTruthy();
+    expect(screen.getByTestId("universe-cadence").textContent).toContain(
+      "3 days with focused work · 1h 31m",
+    );
+    expect(
+      invokeMock.mock.calls.filter(([command]) => command === "history_days"),
+    ).toHaveLength(1);
+  });
+
+  it("keeps Universe usable when the optional cadence command is unavailable", async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === "universe_snapshot"
+        ? Promise.resolve(SNAPSHOT)
+        : Promise.reject(new Error("unknown command history_days")),
+    );
+    await renderProgress();
+    expect(
+      await screen.findByText(
+        "Daily cadence is unavailable; no days have been guessed.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByTestId("universe-game-panel")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("renders every primary rail as an exact snapshot-backed ratio", async () => {
+    const { container } = await renderProgress();
+    const tracks = [
+      ...container.querySelectorAll(
+        ".universe-progress-card [role='progressbar']",
+      ),
     ];
-    for (const selector of animated) {
-      expect(css).toContain(selector);
-    }
-    expect(css).toMatch(/@keyframes universe-twinkle/);
-    expect(css).toMatch(/@keyframes universe-orbit/);
-    expect(css).toMatch(/@keyframes universe-parallax/);
-
-    const reduced = css.slice(
-      css.indexOf("@media (prefers-reduced-motion: reduce)"),
-    );
-    expect(reduced).not.toBe("");
-    expect(reduced).toContain("animation: none !important");
-    // fix-wave F4: the original assertion only checked that the reduce block
-    // CONTAINS the string once — it would still pass if three of the four
-    // animated selectors were silently dropped from the reset rule. Assert
-    // each of the four is actually part of the selector list feeding
-    // `animation: none !important`, not merely present somewhere in the file.
-    const resetRuleMatch = reduced.match(
-      /([^{}]+)\{\s*animation: none !important;/,
-    );
-    expect(resetRuleMatch).not.toBeNull();
-    const resetSelectors = resetRuleMatch![1];
-    for (const selector of [
-      ".universe-galaxy-field circle",
-      ".universe-star-disc",
-      ".universe-star-glow",
-      ".universe-orbit",
-    ]) {
-      expect(resetSelectors).toContain(selector);
-    }
-    // And no JS ever reads the media query — the app has zero matchMedia calls.
-    expect(css).not.toContain("matchMedia");
-  });
-
-  // fix-wave U1: `.universe-star-hit:hover ~ .universe-star-disc` is a
-  // subsequent-sibling combinator — it only matches an element that comes
-  // AFTER `.universe-star-hit` in DOM order. The hit circle must render
-  // FIRST inside `.universe-star`, or hovering a star silently does nothing.
-  it("renders the hit circle first, so the hover/focus CSS combinator can reach the disc behind it", async () => {
-    await renderMap();
-    const star = screen
-      .getByTestId("universe-galaxy")
-      .querySelector('.universe-star[data-piece-id="7"]') as SVGGElement;
-    const first = star.firstElementChild as SVGElement;
-    expect(first.classList.contains("universe-star-hit")).toBe(true);
-    // Every decorative element that follows must not intercept pointer
-    // events, or the hit circle beneath it can never receive :hover/:focus.
-    const css = readFileSync(
-      resolve("src/features/universe/universe.css"),
-      "utf8",
-    );
-    for (const selector of [".universe-star-disc", ".universe-star-glow", ".universe-orbit"]) {
-      const rule = css.slice(css.indexOf(`${selector} {`));
-      expect(rule.slice(0, rule.indexOf("}"))).toContain("pointer-events: none");
-    }
-  });
-
-  it("selects a piece by clicking its star, same as clicking its card", async () => {
-    await renderMap();
-    fireEvent.click(
-      screen
-        .getByTestId("universe-galaxy")
-        .querySelector(
-          '.universe-star[data-piece-id="7"] .universe-star-hit',
-        ) as Element,
+    expect(tracks.map((track) => track.getAttribute("aria-valuetext"))).toEqual(
+      ["5 of 28", "3 of 4", "1 of 3", "1 of 4"],
     );
     expect(
-      await screen.findByRole("complementary", {
-        name: "Nocturne Op. 9 No. 2",
-      }),
-    ).toBeTruthy();
-  });
-
-  it("draws one mark per region, in snapshot order, with its earned state", async () => {
-    await renderMap();
-    const marks = [
-      ...screen
-        .getByTestId("universe-piece-7")
-        .querySelectorAll(".universe-block"),
-    ].map((node) => node.getAttribute("data-state"));
-    // Opening = mastery verified, Coda = practiced, Middle = untouched.
-    expect(marks).toEqual(["mastered", "practiced", "untouched"]);
-  });
-
-  it("places a piece in the same spot however the snapshot is ordered", async () => {
-    const order = async () => {
-      const { container } = await renderMap();
-      const ids = [...container.querySelectorAll("[data-piece-id]")].map(
-        (node) => node.getAttribute("data-piece-id"),
-      );
-      cleanup();
-      return ids;
-    };
-    const forward = await order();
-    invokeMock.mockResolvedValue({
-      ...SNAPSHOT,
-      pieces: [STALE_PIECE, PIECE],
-    });
-    expect(await order()).toEqual(forward);
-  });
-
-  it("names what wants work, most pressing first, without inventing a due date", async () => {
-    await renderMap();
-    const band = screen.getByTestId("universe-wants-work");
-    const chips = within(band).getAllByRole("button");
-    // A piece practised yesterday is not nagged about; only the cold one is.
-    expect(chips).toHaveLength(1);
-    expect(chips[0].textContent).toContain("The White Peacock");
-    expect(chips[0].textContent).toContain("Rested 40 days");
-  });
-
-  it("marks recovery debt ahead of staleness", async () => {
-    invokeMock.mockResolvedValue({
-      ...SNAPSHOT,
-      pieces: [{ ...PIECE, open_recovery_debt: 2 }, STALE_PIECE],
-    });
-    await renderMap();
-    const band = screen.getByTestId("universe-wants-work");
-    const chips = within(band).getAllByRole("button");
-    expect(chips.map((chip) => chip.getAttribute("data-attention"))).toEqual([
-      "recovering",
-      "stale",
+      [...container.querySelectorAll(".universe-progress-card")].map((card) =>
+        card.getAttribute("data-evidence"),
+      ),
+    ).toEqual([
+      "totals.active_days_28",
+      "active_pieces.regions_practiced",
+      "active_pieces.regions_revisited",
+      "active_pieces.mastered_targets",
     ]);
-    expect(chips[0].textContent).toContain("2 regions in recovery");
+    expect(screen.getByTestId("universe-recovery-line").textContent).toContain(
+      "1 honestly recovered",
+    );
+    expect(document.body.textContent).not.toContain("Earned maturity");
+    expect(document.body.textContent).not.toContain("64%");
   });
 
-  it("caps the wants-work band and summarises the rest instead of listing 22 names", async () => {
+  it("shows technique as a separate hidden-system aggregate", async () => {
+    await renderProgress();
+    const technique = screen.getByTestId("universe-technique");
+    expect(technique.textContent).toContain("3 warmups completed");
+    expect(technique.textContent).toContain("9m");
+    expect(technique.textContent).toContain("Active days · 28");
+    expect(technique.textContent).toContain("2");
+    expect(
+      screen.queryByText("Warm-ups", { selector: ".universe-card-title" }),
+    ).toBeNull();
+  });
+
+  it("teaches from a technique-only record without inventing repertoire", async () => {
     invokeMock.mockResolvedValue({
       ...SNAPSHOT,
-      pieces: Array.from({ length: 10 }, (_, index) => ({
-        ...STALE_PIECE,
-        piece_id: 200 + index,
-        title: `Cold piece ${index}`,
-        last_practiced: isoDaysBefore(20 + index),
-      })),
+      pieces: [],
+      totals: {
+        focused_seconds: 540,
+        active_days_28: 2,
+        regions_practiced: 0,
+        regions_revisited: 0,
+        mastered_targets: 0,
+        recovered_targets: 0,
+        practice_sessions: 2,
+      },
     });
-    await renderMap();
-    const band = screen.getByTestId("universe-wants-work");
-    expect(within(band).getAllByRole("button")).toHaveLength(6);
-    expect(band.textContent).toContain("and 4 more, marked in the index below");
-    // Nothing is actually hidden: all ten still carry their own card + mark.
-    expect(document.querySelectorAll(".universe-card")).toHaveLength(10);
+    render(<UniverseWorkspace onOpenPractice={vi.fn()} />);
+
+    expect(await screen.findByTestId("universe-technique")).toBeTruthy();
     expect(
-      document.querySelectorAll('.universe-card[data-attention="stale"]'),
-    ).toHaveLength(10);
-  });
-
-  it("selects a piece from its card and opens the record beside it", async () => {
-    await renderMap();
-    const card = screen.getByTestId("universe-piece-7");
-    expect(card.getAttribute("aria-pressed")).toBe("false");
-
-    fireEvent.click(card);
+      screen.queryByRole("heading", { name: "Your practice record is quiet." }),
+    ).toBeNull();
     expect(
-      screen.getByTestId("universe-piece-7").getAttribute("aria-pressed"),
-    ).toBe("true");
-
-    const panel = await screen.findByRole("complementary", {
-      name: "Nocturne Op. 9 No. 2",
-    });
-    expect(within(panel).getByText("Piece")).toBeTruthy();
-    expect(within(panel).getByText("Regions (3)")).toBeTruthy();
-  });
-
-  it("selects a piece from the wants-work band", async () => {
-    await renderMap();
-    const band = screen.getByTestId("universe-wants-work");
-    fireEvent.click(
-      within(band).getByRole("button", { name: /The White Peacock/ }),
-    );
-    expect(
-      await screen.findByRole("complementary", { name: "The White Peacock" }),
+      screen.getByText(/No repertoire pieces are on this shelf yet/),
     ).toBeTruthy();
+    expect(screen.queryByTestId("universe-piece-9999")).toBeNull();
   });
 
-  it("drills from a piece into one region and back again", async () => {
-    await renderMap();
-    fireEvent.click(screen.getByTestId("universe-piece-7"));
-
-    const panel = await screen.findByRole("complementary", {
-      name: "Nocturne Op. 9 No. 2",
-    });
-    fireEvent.click(within(panel).getByRole("button", { name: /Opening/ }));
-
-    const regionPanel = await screen.findByRole("complementary", {
-      name: "Opening",
-    });
-    // reps = rated_rep_events (6), clean reps = clean_rep_events (5)
-    expect(within(regionPanel).getByText("Reps").nextSibling?.textContent).toBe(
-      "6",
+  it("shows truthful optional landmarks, not due dates or a generated plan", async () => {
+    await renderProgress();
+    const landmarks = screen.getByTestId("universe-landmarks");
+    expect(landmarks.textContent).toContain("Milestones, not assignments.");
+    expect(landmarks.textContent).toContain("7-day consistency mark");
+    expect(landmarks.textContent).toContain(
+      "2 more active days would reach 7 of this 28-day window.",
     );
+    expect(landmarks.textContent).toContain("Proof still open");
+    expect(landmarks.textContent).toContain(
+      "Nocturne Op. 9 No. 2 · Coda has practice evidence",
+    );
+    expect(landmarks.textContent).toContain("Target still untouched");
+    expect(landmarks.textContent).not.toMatch(/due|overdue|assigned/i);
+  });
 
+  it("puts open recovery first and styles only that real debt as open", async () => {
+    invokeMock.mockResolvedValue({
+      ...SNAPSHOT,
+      pieces: [
+        {
+          ...PIECE,
+          open_recovery_debt: 2,
+          region_signals: PIECE.region_signals.map((region, index) => ({
+            ...region,
+            open_recovery_debt: index === 0 ? 2 : 0,
+          })),
+        },
+        STALE_PIECE,
+      ],
+    });
+    await renderProgress();
+    const list = screen.getByTestId("universe-landmarks").querySelector("ol")!;
+    expect(list.firstElementChild?.textContent).toContain("Recovery to clear");
+    expect(list.firstElementChild?.textContent).toContain("2 targets");
+    const recoveryLine = screen.getByTestId("universe-recovery-line");
+    expect(
+      recoveryLine.querySelector('[data-state="open"]')?.textContent,
+    ).toContain("2 open recovery");
+  });
+
+  it("shows recent target touches with current state without claiming when it changed", async () => {
+    await renderProgress();
+    const recent = screen.getByTestId("universe-recent");
+    const rows = within(recent).getAllByRole("button");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain("Nocturne Op. 9 No. 2 · Opening");
+    expect(rows[0].textContent).toContain("Honestly recovered");
+    expect(rows[0].textContent).toContain("Practiced yesterday");
+    expect(rows[1].textContent).toContain("1 clean of 2 rated reps");
+    expect(recent.textContent).toContain("not a guessed change log");
+  });
+
+  it("opens exact target detail from recent evidence and a target landmark", async () => {
+    await renderProgress();
     fireEvent.click(
-      within(regionPanel).getByRole("button", {
-        name: /← Nocturne Op. 9 No. 2/,
+      within(screen.getByTestId("universe-recent")).getByRole("button", {
+        name: /Opening/,
       }),
     );
     expect(
-      await screen.findByRole("complementary", {
-        name: "Nocturne Op. 9 No. 2",
-      }),
+      await screen.findByRole("complementary", { name: "Opening" }),
     ).toBeTruthy();
-  });
 
-  it("keeps every card reachable and activatable from the keyboard", async () => {
-    await renderMap();
-    const card = screen.getByTestId("universe-piece-7");
-    // A real <button>, so Tab reaches it and Enter/Space activate it natively —
-    // no tabIndex on a non-interactive node, and no focus-scroll workaround.
-    expect(card.tagName).toBe("BUTTON");
-    expect(card.getAttribute("tabindex")).toBeNull();
-
-    card.focus();
-    expect(document.activeElement).toBe(card);
-    fireEvent.click(card);
-    // Selecting must not move focus away from the card the user pressed.
-    expect(document.activeElement).toBe(screen.getByTestId("universe-piece-7"));
-    expect(
-      await screen.findByRole("complementary", {
-        name: "Nocturne Op. 9 No. 2",
-      }),
-    ).toBeTruthy();
-  });
-
-  it("closes the record back to its resting prompt", async () => {
-    await renderMap();
-    fireEvent.click(screen.getByTestId("universe-piece-7"));
     fireEvent.click(
-      await screen.findByRole("button", { name: "Close detail panel" }),
+      within(screen.getByTestId("universe-landmarks")).getByRole("button", {
+        name: /Proof still open/,
+      }),
     );
     expect(
-      screen.getByTestId("universe-detail").classList.contains("is-resting"),
-    ).toBe(true);
-    expect(
-      screen.getByTestId("universe-piece-7").getAttribute("aria-pressed"),
-    ).toBe("false");
+      await screen.findByRole("complementary", { name: "Coda" }),
+    ).toBeTruthy();
   });
 
-  it("shows the totals band", async () => {
-    const { container } = await renderMap();
-    const totals = container.querySelector(".universe-totals") as HTMLElement;
-    expect(totals.textContent).toContain("1h 30m");
-    expect(within(totals).getByText("Mastery verified")).toBeTruthy();
-    expect(within(totals).getByText("Practice sessions")).toBeTruthy();
-  });
-
-  it("teaches an existing but wholly unearned shelf without granting it a star", async () => {
+  it("keeps an untouched shelf visibly empty without granting progress", async () => {
     invokeMock.mockResolvedValue({
       ...SNAPSHOT,
       pieces: [UNTOUCHED_PIECE],
@@ -702,77 +674,326 @@ describe("UniverseWorkspace repertoire map", () => {
         practice_sessions: 0,
       },
     });
-    const { container } = await renderMap();
-
-    const guide = screen.getByTestId("universe-earned-guide");
-    expect(guide.textContent).toContain("Nothing is missing.");
-    expect(guide.textContent).toContain(
-      "Filled stars and rings appear only as real focused practice is recorded.",
+    const { container } = await renderProgress({ streak: { current_days: 0 } });
+    expect(screen.getByTestId("universe-momentum").textContent).toContain(
+      "Ready for the first mark.",
     );
-    expect(container.querySelector(".universe-star-disc")).toBeNull();
-    expect(container.querySelector(".universe-star-ring")).toBeNull();
+    expect(screen.getByTestId("universe-momentum").textContent).toContain(
+      "No current streak",
+    );
+    expect(screen.getByTestId("universe-momentum").textContent).not.toContain(
+      "0-day current streak",
+    );
+    expect(
+      screen
+        .getByRole("progressbar", { name: "Targets practiced" })
+        .getAttribute("aria-valuetext"),
+    ).toBe("0 of 1");
+    expect(
+      screen
+        .getByTestId("universe-piece-3")
+        .querySelectorAll('.universe-block[data-state="untouched"]'),
+    ).toHaveLength(1);
+    expect(container.querySelector(".universe-galaxy")).toBeNull();
   });
 
-  it("keeps the earned-only explanation concise while one or two systems are growing", async () => {
-    invokeMock.mockResolvedValue({ ...SNAPSHOT, pieces: [PIECE, STALE_PIECE] });
-    await renderMap();
+  it("lays the repertoire out as a stable composer index with one target mark each", async () => {
+    const { container } = await renderProgress();
+    expect(
+      [...container.querySelectorAll(".universe-group-name")].map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(["Chopin", "Griffes"]);
 
-    const guide = screen.getByTestId("universe-earned-guide");
-    expect(guide.textContent).toContain("Your universe is taking shape.");
-    expect(guide.textContent).toContain(
-      "This view stays deliberately sparse until that evidence exists.",
-    );
+    const card = screen.getByTestId("universe-piece-7");
+    expect(card.textContent).toContain("Nocturne Op. 9 No. 2");
+    expect(card.textContent).toContain("2 / 3 targets practiced");
+    expect(card.textContent).toContain("1 verified");
+    expect(card.textContent).toContain("1h 30m focused");
+    expect(card.textContent).toContain("5 active days");
+    expect(card.textContent).toContain("8 sessions");
+    expect(
+      [...card.querySelectorAll(".universe-block")].map((node) =>
+        node.getAttribute("data-state"),
+      ),
+    ).toEqual(["mastered", "practiced", "untouched"]);
   });
 
-  it("removes the teaching strip once three systems have earned real evidence", async () => {
+  it("keeps archived repertoire dimmed as history and out of active suggestions", async () => {
+    const archived = {
+      ...STALE_PIECE,
+      archived_at: 1_787_000_000,
+      open_recovery_debt: 4,
+    };
     invokeMock.mockResolvedValue({
       ...SNAPSHOT,
-      pieces: [PIECE, STALE_PIECE, THIRD_EARNED_PIECE],
+      pieces: [PIECE, archived],
     });
-    await renderMap();
+    const onOpenPractice = vi.fn();
+    const onOpenLedger = vi.fn();
+    await renderProgress({ onOpenPractice, onOpenLedger });
 
-    expect(screen.queryByTestId("universe-earned-guide")).toBeNull();
+    const card = screen.getByTestId(`universe-piece-${archived.piece_id}`);
+    expect(card.getAttribute("data-archived")).toBe("true");
+    expect(card.textContent).toContain("Archived");
+    expect(screen.getByText(/1 active piece · 1 archived/)).toBeTruthy();
+    expect(
+      screen
+        .getByRole("progressbar", { name: "Targets practiced" })
+        .getAttribute("aria-valuetext"),
+    ).toBe("2 of 3");
+    expect(
+      screen
+        .getByRole("progressbar", { name: "Targets revisited" })
+        .getAttribute("aria-valuetext"),
+    ).toBe("1 of 2");
+    expect(screen.getByTestId("universe-landmarks").textContent).not.toContain(
+      archived.title,
+    );
+
+    fireEvent.click(card);
+    const detail = await screen.findByRole("complementary", {
+      name: archived.title,
+    });
+    expect(detail.textContent).toContain("Archived repertoire stays here");
+    expect(
+      within(detail).queryByRole("button", { name: "Open on score" }),
+    ).toBeNull();
+    fireEvent.click(
+      within(detail).getByRole("button", { name: /Open in History/ }),
+    );
+    expect(onOpenLedger).toHaveBeenCalledWith({
+      piece_id: archived.piece_id,
+      title: archived.title,
+    });
+    expect(onOpenPractice).not.toHaveBeenCalled();
   });
 
-  it("keeps the sparse guide in normal flow and stacks its copy at the 720px floor", async () => {
-    const { container } = await renderMap();
-    const totals = container.querySelector(".universe-totals") as HTMLElement;
-    const guide = screen.getByTestId("universe-earned-guide");
-    const map = container.querySelector(".universe-map") as HTMLElement;
-    expect(
-      totals.compareDocumentPosition(guide) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      guide.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-
+  it("does not use a simulation, SVG galaxy or ambient animation", async () => {
+    const raf = vi.spyOn(window, "requestAnimationFrame");
+    const { container } = await renderProgress();
+    expect(raf).not.toHaveBeenCalled();
+    expect(container.querySelector(".universe-galaxy")).toBeNull();
+    expect(container.querySelector("canvas")).toBeNull();
     const css = readFileSync(
       resolve("src/features/universe/universe.css"),
       "utf8",
     );
-    const compact = css.slice(css.indexOf("@media (max-width: 760px)"));
-    expect(compact).toContain(".universe-earned-guide");
-    expect(compact).toContain("grid-template-columns: minmax(0, 1fr)");
+    expect(css).not.toContain("@keyframes");
+    expect(css).not.toContain(".universe-star");
+    expect(css).not.toContain("position: fixed");
+    raf.mockRestore();
   });
 
-  it("discloses how the numbers are earned", async () => {
-    await renderMap();
-    fireEvent.click(screen.getByText("How these numbers are earned"));
+  it("keeps the 720×520 progress hierarchy dense and in normal flow", async () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 720,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 520,
+    });
+    window.dispatchEvent(new Event("resize"));
+    const { container } = await renderProgress();
+    const css = readFileSync(
+      resolve("src/features/universe/universe.css"),
+      "utf8",
+    );
+    const dense = css.slice(css.indexOf("@media (max-height: 560px)"));
+    expect(dense).toContain(".universe-momentum");
+    expect(dense).toContain(".universe-progress-card");
+    expect(container.querySelector(".universe-momentum")).toBeTruthy();
+    expect(container.querySelector(".universe-progress-grid")).toBeTruthy();
+    expect(container.querySelector(".universe-insights")).toBeTruthy();
+  });
+
+  it("tucks an already-open Rep Counter for an unobstructed overview and restores it on exit", async () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 720,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 520,
+    });
+    window.localStorage.setItem(
+      DOCK_STORAGE_KEY,
+      JSON.stringify({
+        rep: {
+          x: 160,
+          y: 108,
+          minimized: false,
+          open: true,
+          z: 1,
+          flashing: false,
+        },
+      }),
+    );
+
+    function Probe() {
+      const rep = useDock("rep");
+      return (
+        <output data-testid="rep-dock-state">
+          {rep.isOpen ? "open" : "closed"}:
+          {rep.isMinimized ? "minimized" : "shown"}
+        </output>
+      );
+    }
+    function Harness() {
+      const [showUniverse, setShowUniverse] = useState(true);
+      return (
+        <>
+          <button type="button" onClick={() => setShowUniverse(false)}>
+            Leave progress
+          </button>
+          {showUniverse ? (
+            <UniverseWorkspace onOpenPractice={vi.fn()} />
+          ) : (
+            <p>Another workspace</p>
+          )}
+          <Probe />
+        </>
+      );
+    }
+
+    render(
+      <DockProvider>
+        <Harness />
+      </DockProvider>,
+    );
     expect(
-      screen.getByText("Practice time after idle time is removed."),
+      await screen.findByText(/Rep Counter is tucked into Tools/),
     ).toBeTruthy();
-    expect(screen.getByText(/canonical practice events/).textContent).toContain(
-      "300 seconds",
+    expect(screen.getByTestId("rep-dock-state").textContent).toBe(
+      "open:minimized",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave progress" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("rep-dock-state").textContent).toBe(
+        "open:shown",
+      ),
     );
   });
 
-  it("opens Score Atlas from the header and from the record", async () => {
-    const onOpenPractice = vi.fn();
-    await renderMap({ onOpenPractice });
+  it("still tucks the Rep Counter when its dock registration lands after Universe mounts", async () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 720,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 520,
+    });
+    window.localStorage.removeItem(DOCK_STORAGE_KEY);
 
-    fireEvent.click(
-      screen.getAllByRole("button", { name: "Open score map" })[0],
+    function Probe() {
+      const rep = useDock("rep");
+      return (
+        <output data-testid="late-rep-dock-state">
+          {rep.isOpen ? "open" : "closed"}:
+          {rep.isMinimized ? "minimized" : "shown"}
+        </output>
+      );
+    }
+    function LateOpen() {
+      const rep = useDock("rep");
+      useEffect(() => {
+        rep.open();
+        // Mirror RepPanel opening after its DockPanel registration effect.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+      return null;
+    }
+
+    render(
+      <StrictMode>
+        <DockProvider>
+          <UniverseWorkspace onOpenPractice={vi.fn()} />
+          <DockPanel
+            id="rep"
+            title="Rep Counter"
+            defaultPosition={{ x: 160, y: 108 }}
+          >
+            Active set
+          </DockPanel>
+          <LateOpen />
+          <Probe />
+        </DockProvider>
+      </StrictMode>,
     );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("late-rep-dock-state").textContent).toBe(
+        "open:minimized",
+      ),
+    );
+    expect(
+      await screen.findByText(/Rep Counter is tucked into Tools/),
+    ).toBeTruthy();
+  });
+
+  it("selects a piece, drills into a target, and returns without losing the index", async () => {
+    await renderProgress();
+    const card = screen.getByTestId("universe-piece-7");
+    expect(card.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(card);
+    const panel = await screen.findByRole("complementary", {
+      name: "Nocturne Op. 9 No. 2",
+    });
+    expect(card.getAttribute("aria-pressed")).toBe("true");
+    expect(within(panel).getByText("Targets (3)")).toBeTruthy();
+
+    fireEvent.click(within(panel).getByRole("button", { name: /Opening/ }));
+    const target = await screen.findByRole("complementary", {
+      name: "Opening",
+    });
+    expect(within(target).getByText("Target")).toBeTruthy();
+    expect(within(target).getByText("Reps").nextSibling?.textContent).toBe("6");
+    fireEvent.click(
+      within(target).getByRole("button", { name: /← Nocturne Op. 9 No. 2/ }),
+    );
+    expect(
+      await screen.findByRole("complementary", {
+        name: "Nocturne Op. 9 No. 2",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("keeps every piece reachable and activatable from the keyboard", async () => {
+    await renderProgress();
+    const card = screen.getByTestId("universe-piece-7");
+    expect(card.tagName).toBe("BUTTON");
+    card.focus();
+    expect(document.activeElement).toBe(card);
+    fireEvent.click(card);
+    expect(document.activeElement).toBe(card);
+    expect(
+      await screen.findByRole("complementary", {
+        name: "Nocturne Op. 9 No. 2",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("closes selected detail back to its resting state", async () => {
+    await renderProgress();
+    fireEvent.click(screen.getByTestId("universe-piece-7"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Close detail panel" }),
+    );
+    expect(screen.getByTestId("universe-detail").classList).toContain(
+      "is-resting",
+    );
+    expect(
+      screen.getByTestId("universe-piece-7").getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+
+  it("opens the score map from the header and exact piece detail", async () => {
+    const onOpenPractice = vi.fn();
+    await renderProgress({ onOpenPractice });
+    fireEvent.click(screen.getByRole("button", { name: "Open score map" }));
     expect(onOpenPractice).toHaveBeenCalledWith(null);
 
     fireEvent.click(screen.getByTestId("universe-piece-7"));
@@ -782,16 +1003,36 @@ describe("UniverseWorkspace repertoire map", () => {
     fireEvent.click(
       within(panel).getByRole("button", { name: "Open on score" }),
     );
-    expect(onOpenPractice).toHaveBeenCalledWith({
+    expect(onOpenPractice).toHaveBeenLastCalledWith({
       piece_id: 7,
       title: "Nocturne Op. 9 No. 2",
     });
   });
 
-  it("has an honest empty state that opens Score Atlas", async () => {
+  it("discloses canonical definitions but omits retired visual formulas", async () => {
+    await renderProgress();
+    fireEvent.click(screen.getByText("How these numbers are earned"));
+    expect(
+      screen.getByText("Practice time after idle time is removed."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Subtle quality brightness")).toBeNull();
+    expect(document.body.textContent).not.toContain("opaque composite");
+    expect(screen.getByText(/canonical practice events/).textContent).toContain(
+      "300 seconds",
+    );
+  });
+
+  it("has an honest empty state that opens the score map", async () => {
     invokeMock.mockResolvedValue({
       ...SNAPSHOT,
       pieces: [],
+      technique: {
+        focused_seconds: 0,
+        active_days_28: 0,
+        completed_warmups: 0,
+        practice_sessions: 0,
+        last_practiced: null,
+      },
       totals: {
         focused_seconds: 0,
         active_days_28: 0,
@@ -803,10 +1044,12 @@ describe("UniverseWorkspace repertoire map", () => {
     render(<UniverseWorkspace onOpenPractice={onOpenPractice} />);
     expect(
       await screen.findByRole("heading", {
-        name: "Your universe is quiet for now.",
+        name: "Your practice record is quiet.",
       }),
     ).toBeTruthy();
-    expect(screen.getByText(/Filled stars and rings appear only/)).toBeTruthy();
+    expect(
+      screen.getByText(/appear only after they are actually recorded/),
+    ).toBeTruthy();
     fireEvent.click(
       screen.getAllByRole("button", { name: "Open score map" })[1],
     );

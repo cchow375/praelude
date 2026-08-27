@@ -210,6 +210,10 @@ pub struct AtomicTargetSavePayload {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AtomicMicroTargetCreate {
+    /// Stable identity for this one drag and every transport retry. A native
+    /// commit whose IPC response is lost must replay the same Region, never
+    /// create a second spot.
+    pub command_id: String,
     pub piece_id: i64,
     pub parent_region_id: i64,
     pub name: String,
@@ -463,6 +467,11 @@ impl Store {
     where
         F: FnOnce(&rusqlite::Transaction<'_>) -> rusqlite::Result<()>,
     {
+        let raw_command_id = args.command_id.trim();
+        if raw_command_id.is_empty() {
+            return Err(invalid("a micro-target create needs a command id"));
+        }
+        let command_id = format!("score-micro-target:{raw_command_id}");
         let name = args.name.trim().to_string();
         if name.is_empty() || name.chars().count() > 500 {
             return Err(invalid("a micro-target needs a short name"));
@@ -478,12 +487,38 @@ impl Store {
         }
         let child_editions = validate_region_anchor(&args.pdf_anchor)?;
         let anchor_sql = json_to_sql(&args.pdf_anchor)?;
+        let fingerprint = request_fingerprint(&json!({
+            "piece_id": args.piece_id,
+            "parent_region_id": args.parent_region_id,
+            "name": &name,
+            "m_start": args.m_start,
+            "m_end": args.m_end,
+            "color": &args.color,
+            "pdf_anchor": &args.pdf_anchor,
+        }))?;
+        let now = self.now_rfc3339()?;
 
         let mut conn = self
             .conn
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let tx = conn.transaction()?;
+        let pending = match begin_operation::<Region>(
+            &tx,
+            &command_id,
+            "score_micro_target_create",
+            &fingerprint,
+            None,
+            MutationSource::UserClick,
+            &now,
+        )? {
+            OperationStart::Replay(receipt) => {
+                return receipt
+                    .value
+                    .ok_or_else(|| invalid("replayed micro-target receipt is missing its Region"));
+            }
+            OperationStart::New(pending) => pending,
+        };
         let parent: Option<MicroTargetParentRow> = tx
             .query_row(
                 "SELECT r.piece_id, r.m_start, r.m_end, tm.parent_region_id, r.pdf_anchor
@@ -579,9 +614,10 @@ impl Store {
                 order
             ],
         )?;
-        tx.execute(
+        let event_id: i64 = tx.query_row(
             "INSERT INTO event (kind, session_id, piece_id, payload)
-             VALUES ('region_change', NULL, ?1, ?2)",
+             VALUES ('region_change', NULL, ?1, ?2)
+             RETURNING id",
             rusqlite::params![
                 args.piece_id,
                 json_to_sql(&json!({
@@ -591,10 +627,9 @@ impl Store {
                     "source": "score_micro_target_create",
                 }))?,
             ],
+            |row| row.get(0),
         )?;
-        tx.commit()?;
-
-        Ok(Region {
+        let region = Region {
             id: region_id,
             piece_id: args.piece_id,
             name,
@@ -606,7 +641,22 @@ impl Store {
             color: args.color,
             pdf_anchor: Some(args.pdf_anchor),
             parent_region_id: Some(args.parent_region_id),
-        })
+        };
+        finish_operation(
+            &tx,
+            pending,
+            "Score micro-target created.",
+            &region,
+            vec![MutationEntityRef {
+                entity_type: "region".into(),
+                entity_id: region_id,
+            }],
+            vec![event_id],
+            None,
+        )?;
+        tx.commit()?;
+
+        Ok(region)
     }
 
     /// Persist a Score Atlas target as one Region (with edition-bound PDF
@@ -1063,6 +1113,7 @@ mod tests {
 
     fn micro_target_payload(parent_region_id: i64) -> AtomicMicroTargetCreate {
         AtomicMicroTargetCreate {
+            command_id: "spot-drag-1".into(),
             piece_id: 1,
             parent_region_id,
             name: "Spot 1".into(),
@@ -1260,6 +1311,55 @@ mod tests {
             store.test_scalar_i64("SELECT count(*) FROM event").unwrap(),
             events_before + 1
         );
+        assert_eq!(
+            store
+                .test_scalar_i64(
+                    "SELECT count(*) FROM practice_operation WHERE operation_kind='score_micro_target_create'",
+                )
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn replaying_a_micro_target_command_returns_the_same_region_once() {
+        let store = memory_store_with_piece();
+        let parent_id = create_micro_target_parent(&store);
+        let payload = micro_target_payload(parent_id);
+
+        let first = store
+            .score_micro_target_create(payload.clone())
+            .expect("first drag commits");
+        let replay = store
+            .score_micro_target_create(payload)
+            .expect("lost-response retry replays");
+
+        assert_eq!(replay, first);
+        assert_eq!(store.region_list(1).unwrap().len(), 2);
+        assert_eq!(
+            store
+                .test_scalar_i64(
+                    "SELECT count(*) FROM practice_operation WHERE operation_kind='score_micro_target_create'",
+                )
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn reusing_a_micro_target_command_for_different_geometry_is_rejected() {
+        let store = memory_store_with_piece();
+        let parent_id = create_micro_target_parent(&store);
+        let payload = micro_target_payload(parent_id);
+        store
+            .score_micro_target_create(payload.clone())
+            .expect("first drag commits");
+        let mut conflict = payload;
+        conflict.m_end = 46;
+
+        let error = store.score_micro_target_create(conflict).unwrap_err();
+        assert!(error.to_string().contains("different operation payload"));
+        assert_eq!(store.region_list(1).unwrap().len(), 2);
     }
 
     #[test]

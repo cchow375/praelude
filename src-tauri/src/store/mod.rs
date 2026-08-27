@@ -17,19 +17,24 @@ mod history_days;
 mod measure_map;
 mod migrations;
 pub mod model;
+mod movements;
 mod practice_loop;
 mod practice_v2;
+mod rep_replays;
 mod score_atlas;
 mod score_marks;
 mod session_plan;
 mod streaks;
 mod tutorials;
 mod v8_backfill;
+mod warmups;
 
 pub use day_photos::{sha256_hex, DayPhotoRow};
 pub use day_sheet::{DaySheet, PiecePlan};
 pub use events::EventKind;
 pub use history_days::{HistoryDayDetail, HistoryDaySummary};
+pub(crate) use rep_replays::RepReplayInsert;
+pub use rep_replays::{RepReplayMeta, RepReplaySaveInput};
 // `MapBar`/`MapSystem`/`MapBarSource`/`MeasureMapPage` are the typed contract
 // (task C1 brief), not yet named directly outside `store` — later Plan C
 // tasks (vision scan output, reconciliation) construct them. Kept `pub` now
@@ -46,9 +51,11 @@ pub use score_atlas::{
 };
 pub use score_marks::{ScoreMark, ScorePageMarks};
 pub use session_plan::{SessionPlanStartOutcome, SessionPlanStartPayload};
+pub(crate) use streaks::LifetimeStreakEvidence;
 pub use streaks::{
     StreakSummary, DEFAULT_STREAK_THRESHOLD_MINUTES, STREAK_THRESHOLD_DEFENSIVE_MAX_MINUTES,
 };
+pub use warmups::{WarmupRoutine, WarmupRoutineSaveInput, WarmupSystemPiece};
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -250,7 +257,7 @@ impl Store {
         )
     }
 
-    /// Re-point a piece's `folder_path` (used by `pieces::archive` to move the
+    /// Re-point a piece's `folder_path` (used by `pieces::delete_files` to move the
     /// row's folder reference to a `.trash/` location so it drops out of
     /// [`Store::list_pieces`] without deleting the row or any practice history).
     /// Returns the number of rows updated (0 when the piece was never scanned).
@@ -262,22 +269,57 @@ impl Store {
         )
     }
 
-    /// All pieces as list-view summaries, ordered by title (case-insensitive).
+    /// Active pieces as list-view summaries, recently practiced first with an
+    /// alphabetical tie-break. Logical archives and legacy `.trash` rows are
+    /// excluded, so Today/Score/Planner callers never suggest archived work.
     ///
-    /// Archived pieces (moved to a `.trash/` folder by `pieces::archive`, which
+    /// Legacy file-deleted pieces (moved to `.trash/` by `pieces::delete_files`, which
     /// re-points their `folder_path`) are excluded so they leave the workspace
     /// while their rows — and all referencing practice history — remain in the DB.
     pub fn list_pieces(&self) -> rusqlite::Result<Vec<PieceSummary>> {
+        self.list_pieces_query(false)
+    }
+
+    /// The Pieces workspace projection, including reversible logical archives.
+    /// Legacy `.trash` rows stay excluded: those files were physically removed
+    /// by the older delete-files flow and cannot be restored by toggling a bit.
+    pub fn list_pieces_including_archived(&self) -> rusqlite::Result<Vec<PieceSummary>> {
+        self.list_pieces_query(true)
+    }
+
+    /// Every repertoire identity whose durable practice history still belongs
+    /// to this database, including rows whose score files were moved under
+    /// `.trash/`. Those rows stay hidden from library/workspace projections,
+    /// but deleting files must not erase their canonical time from lifetime
+    /// progress evidence.
+    pub(crate) fn repertoire_piece_ids_for_history(&self) -> rusqlite::Result<Vec<i64>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare("SELECT id FROM piece WHERE kind='repertoire' ORDER BY id")?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        rows.collect()
+    }
+
+    fn list_pieces_query(&self, include_archived: bool) -> rusqlite::Result<Vec<PieceSummary>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let sql = format!(
             "SELECT id, title, composer,
                     xml_path IS NOT NULL,
                     COALESCE(preferred_pdf_path, pdf_path) IS NOT NULL,
-                    intake_done
+                    intake_done, archived_at,
+                    (SELECT MAX(rep.ts)
+                       FROM rep JOIN rep_block ON rep_block.id=rep.block_id
+                      WHERE rep_block.piece_id=piece.id) AS last_practiced
              FROM piece
-             WHERE folder_path NOT LIKE '%/.trash/%'
-             ORDER BY title COLLATE NOCASE",
-        )?;
+             WHERE kind='repertoire' AND folder_path NOT LIKE '%/.trash/%'{}
+             ORDER BY (last_practiced IS NULL), last_practiced DESC,
+                      title COLLATE NOCASE, id",
+            if include_archived {
+                ""
+            } else {
+                " AND archived_at IS NULL"
+            }
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| {
             Ok(PieceSummary {
                 id: row.get(0)?,
@@ -286,9 +328,25 @@ impl Store {
                 has_xml: row.get(3)?,
                 has_pdf: row.get(4)?,
                 intake_done: row.get(5)?,
+                archived_at: row.get(6)?,
+                last_practiced: row.get(7)?,
             })
         })?;
         rows.collect()
+    }
+
+    /// Reversible library archive. No files, history, regions, score marks, or
+    /// movement rows move; only the nullable archive timestamp changes.
+    pub fn set_piece_archived(&self, id: i64, archived: bool) -> rusqlite::Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let sql = if archived {
+            "UPDATE piece SET archived_at=CAST(strftime('%s','now') AS INTEGER)
+             WHERE id=?1 AND kind='repertoire' AND folder_path NOT LIKE '%/.trash/%'"
+        } else {
+            "UPDATE piece SET archived_at=NULL
+             WHERE id=?1 AND kind='repertoire' AND folder_path NOT LIKE '%/.trash/%'"
+        };
+        Ok(conn.execute(sql, [id])? == 1)
     }
 
     /// Read-only projection of every disclosed data anomaly, ordered by kind
@@ -334,7 +392,10 @@ impl Store {
             "SELECT id, title, composer, folder_path, xml_path,
                     COALESCE(preferred_pdf_path, pdf_path),
                     goals, deadline, target_tempo, hard_spots, current_state,
-                    intake_done, notes, banner_text
+                    intake_done, notes, banner_text, archived_at,
+                    (SELECT MAX(rep.ts)
+                       FROM rep JOIN rep_block ON rep_block.id=rep.block_id
+                      WHERE rep_block.piece_id=piece.id)
              FROM piece WHERE id = ?1",
             [id],
             |row| {
@@ -359,6 +420,8 @@ impl Store {
                     intake_done: row.get(11)?,
                     notes: row.get(12)?,
                     banner_text: row.get(13)?,
+                    archived_at: row.get(14)?,
+                    last_practiced: row.get(15)?,
                 })
             },
         )
@@ -1559,6 +1622,7 @@ mod tests {
         merged_blocks: i64,
         merged_reps: i64,
         merged_events: i64,
+        system_piece_added: i64,
     ) {
         let parent = merged_folder
             .strip_suffix("/Chamber Pieces Tanglewood")
@@ -1646,7 +1710,7 @@ mod tests {
         assert_eq!(
             conn.query_row("SELECT COUNT(*) FROM piece", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            before_pieces + 1,
+            before_pieces + 1 + system_piece_added,
             "the two auto-discovered rows are reused, not duplicated"
         );
 
@@ -1719,7 +1783,7 @@ mod tests {
              Copland {scanned_copland} regions={merged_regions} blocks={merged_blocks} \
              reps={merged_reps} events={merged_events} focused={}s streak={} | \
              Barber {scanned_barber} focused={}s streak={}",
-            before_pieces + 1,
+            before_pieces + 1 + system_piece_added,
             copland_progress.focused_seconds,
             copland_progress.streak,
             barber_progress.focused_seconds,
@@ -1734,7 +1798,7 @@ mod tests {
             assert_eq!(
                 conn.query_row("SELECT COUNT(*) FROM piece", [], |row| row.get::<_, i64>(0))
                     .unwrap(),
-                before_pieces + 1
+                before_pieces + 1 + system_piece_added
             );
             assert_eq!(count_events(&conn, scanned_copland, false), merged_events);
         }
@@ -1781,6 +1845,7 @@ mod tests {
         let before_version: i32 = before_conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
+        let system_piece_added = i64::from(before_version < 18);
         assert!(before_version <= migrations::SCHEMA_VERSION);
         let before: Vec<i64> = preserved_tables
             .iter()
@@ -1997,8 +2062,8 @@ mod tests {
         let split_ran = i64::from(merged_id != 0);
         assert_eq!(
             after_pieces,
-            before_pieces + split_ran,
-            "the split adds exactly one piece, and only where the merged row existed"
+            before_pieces + split_ran + system_piece_added,
+            "the split adds one piece only when needed, and v18 seeds one hidden warmup piece"
         );
         println!("rehearsal: piece {before_pieces} -> {after_pieces}");
         assert_eq!(
@@ -2407,6 +2472,7 @@ mod tests {
                 merged_blocks,
                 merged_reps,
                 merged_events,
+                system_piece_added,
             );
             let _ = std::fs::remove_file(&stranded_path);
         } else {
@@ -2896,6 +2962,141 @@ mod tests {
         assert!(list[0].has_xml && !list[0].has_pdf);
         assert_eq!(list[1].title, "Zebra");
         assert!(!list[1].has_xml && list[1].has_pdf);
+    }
+
+    #[test]
+    fn library_archive_is_reversible_and_recent_practice_wins_title_order() {
+        let store = mem();
+        let alpha = store.upsert_piece(&scan("/v/A", "Alpha", None)).unwrap();
+        let zeta = store.upsert_piece(&scan("/v/Z", "Zeta", None)).unwrap();
+        let block = store
+            .insert_rep_block(
+                zeta,
+                1,
+                2,
+                None,
+                Some(60.0),
+                None,
+                &IncrementRule {
+                    clean_needed: 3,
+                    bpm_step: 4.0,
+                    ..Default::default()
+                },
+                3,
+                &[],
+                "tempo",
+                true,
+            )
+            .unwrap();
+        store.insert_rep(block, 60.0, None, "clean", None).unwrap();
+
+        let active = store.list_pieces().unwrap();
+        assert_eq!(
+            active.iter().map(|piece| piece.id).collect::<Vec<_>>(),
+            [zeta, alpha]
+        );
+        assert!(active[0].last_practiced.is_some());
+
+        assert!(store.set_piece_archived(zeta, true).unwrap());
+        assert_eq!(
+            store
+                .list_pieces()
+                .unwrap()
+                .iter()
+                .map(|piece| piece.id)
+                .collect::<Vec<_>>(),
+            [alpha]
+        );
+        let all = store.list_pieces_including_archived().unwrap();
+        assert_eq!(all.len(), 2);
+        assert!(all
+            .iter()
+            .find(|piece| piece.id == zeta)
+            .unwrap()
+            .archived_at
+            .is_some());
+        assert!(store
+            .get_piece(zeta)
+            .unwrap()
+            .unwrap()
+            .archived_at
+            .is_some());
+
+        assert!(store.set_piece_archived(zeta, false).unwrap());
+        assert!(store
+            .get_piece(zeta)
+            .unwrap()
+            .unwrap()
+            .archived_at
+            .is_none());
+        assert_eq!(store.list_pieces().unwrap().len(), 2);
+        assert!(!store.set_piece_archived(9_999, true).unwrap());
+    }
+
+    #[test]
+    fn active_snapshot_projects_the_regions_persistent_sound_target() {
+        let store = mem();
+        let piece = store.upsert_piece(&scan("/v/P", "Piece", None)).unwrap();
+        let region = store
+            .region_create(model::RegionCreate {
+                piece_id: piece,
+                name: "Bell coda".into(),
+                notes: Some("like distant bells".into()),
+                m_start: 9,
+                m_end: 12,
+                kind: "hard_spot".into(),
+            })
+            .unwrap();
+        let block = store
+            .insert_rep_block(
+                piece,
+                9,
+                12,
+                None,
+                Some(60.0),
+                None,
+                &IncrementRule {
+                    clean_needed: 3,
+                    bpm_step: 4.0,
+                    ..Default::default()
+                },
+                3,
+                &[],
+                "tempo",
+                true,
+            )
+            .unwrap();
+        {
+            let conn = store
+                .conn
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            conn.execute(
+                "UPDATE rep_block SET region_id=?2 WHERE id=?1",
+                rusqlite::params![block, region.id],
+            )
+            .unwrap();
+        }
+
+        let first = store
+            .v2_snapshot(block, model::DemotionConfig::default())
+            .unwrap();
+        assert_eq!(first.region_id, Some(region.id));
+        assert_eq!(first.sound_target.as_deref(), Some("like distant bells"));
+
+        store
+            .region_update(
+                region.id,
+                model::RegionPatch {
+                    notes: Some(Some("sotto voce".into())),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let edited = store
+            .v2_snapshot(block, model::DemotionConfig::default())
+            .unwrap();
+        assert_eq!(edited.sound_target.as_deref(), Some("sotto voce"));
     }
 
     // ── Rep round-trip ────────────────────────────────────────────────────

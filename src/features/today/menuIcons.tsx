@@ -63,6 +63,19 @@ export function NoteIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Warmups: a compact keyboard with one prepared key. */
+export function WarmupIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Glyph {...props}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <line x1="8" y1="5" x2="8" y2="19" />
+      <line x1="13" y1="5" x2="13" y2="19" />
+      <line x1="17.5" y1="5" x2="17.5" y2="19" />
+      <path d="M6.5 5v7h3V5M12 5v7h3V5" />
+    </Glyph>
+  );
+}
+
 /** Brain (assistant): a four-point spark. */
 export function SparkIcon(props: SVGProps<SVGSVGElement>) {
   return (

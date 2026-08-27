@@ -48,6 +48,15 @@ pub struct StreakSummary {
     pub today_focused_seconds: i64,
 }
 
+/// Monotonic all-history evidence for earned Universe progress. A day only
+/// enters this projection when it clears the exact same configured focused-
+/// minute threshold as [`StreakSummary`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct LifetimeStreakEvidence {
+    pub active_days: u32,
+    pub best_days: u32,
+}
+
 /// `(local day, session id)` for every session on record, oldest first.
 fn sessions_by_local_day(conn: &Connection) -> rusqlite::Result<Vec<(String, i64)>> {
     let mut stmt = conn
@@ -146,6 +155,38 @@ impl Store {
             best_days: longest_run(&qualifying),
             threshold_minutes,
             today_focused_seconds: focused_by_day.get(&today).copied().unwrap_or(0),
+        })
+    }
+
+    /// Distinct qualifying days and the best qualifying-day run across the
+    /// complete event history. Unlike `current_days`, neither field rolls
+    /// backward merely because the 28-day display window moves.
+    pub(crate) fn lifetime_streak_evidence(
+        &self,
+        threshold_minutes: i64,
+    ) -> rusqlite::Result<LifetimeStreakEvidence> {
+        let threshold_minutes = threshold_minutes.clamp(1, STREAK_THRESHOLD_DEFENSIVE_MAX_MINUTES);
+        let threshold_seconds = threshold_minutes.saturating_mul(60);
+        let pairs = {
+            let conn = self
+                .conn
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            sessions_by_local_day(&conn)?
+        };
+        let mut focused_by_day: BTreeMap<String, i64> = BTreeMap::new();
+        for (day, session_id) in pairs {
+            let events = self.events_for_session(session_id)?;
+            *focused_by_day.entry(day).or_insert(0) += metrics::focused_seconds(&events) as i64;
+        }
+        let qualifying: Vec<String> = focused_by_day
+            .into_iter()
+            .filter(|(_, seconds)| *seconds >= threshold_seconds)
+            .map(|(day, _)| day)
+            .collect();
+        Ok(LifetimeStreakEvidence {
+            active_days: u32::try_from(qualifying.len()).unwrap_or(u32::MAX),
+            best_days: u32::try_from(longest_run(&qualifying)).unwrap_or(u32::MAX),
         })
     }
 }
@@ -289,6 +330,29 @@ mod tests {
         assert_eq!(
             store.streak_summary(9_999).expect("s").threshold_minutes,
             1_440
+        );
+    }
+
+    #[test]
+    fn lifetime_evidence_counts_only_qualifying_days_and_keeps_the_best_run() {
+        let store = Store::open(":memory:").expect("store");
+        let today = Date::parse(&store.today_local().unwrap()).unwrap();
+        for back in [10, 9, 8, 2, 1] {
+            seed_day(&store, &today.add_days(-back).unwrap().to_string(), 11);
+        }
+        seed_day(&store, &today.to_string(), 3);
+
+        assert_eq!(
+            store.lifetime_streak_evidence(10).unwrap(),
+            LifetimeStreakEvidence {
+                active_days: 5,
+                best_days: 3,
+            },
+        );
+        assert_eq!(
+            store.lifetime_streak_evidence(1).unwrap().active_days,
+            6,
+            "the configured threshold controls lifetime evidence too",
         );
     }
 

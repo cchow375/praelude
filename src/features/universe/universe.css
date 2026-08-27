@@ -1,39 +1,43 @@
 /*
- * Practice Universe — a still map of the repertoire, drawn on paper, with an
- * earned-only living galaxy above it.
+ * Practice progress — calm evidence on paper.
  *
- * Rules this stylesheet keeps:
- *   - every colour comes from src/design/tokens.css; no hex lives here.
- *   - AMBIENT MOTION IS ALLOWED IN THE GALAXY BLOCK ONLY, and only as CSS
- *     @keyframes: twinkle, slow orbit, parallax drift. v5 removed a d3-force
- *     SIMULATION with a requestAnimationFrame tick loop, and that stays
- *     removed — there is still no JS animation of any kind on this screen.
- *     v7 A1 deliberately retires the older "no @keyframes" wording (see
- *     docs/superpowers/plans/2026-08-23-codakiller-v7-plan-a-galaxy-ritual.md).
- *     Every animation below must collapse to a fully static render under
- *     @media (prefers-reduced-motion: reduce) at the bottom of this file.
- *   - outside the galaxy block, the only motion is a --dur-fast colour/border
- *     change under the pointer or focus.
- *   - the ink ramp carries the meaning (a region's mark gets taller and darker
- *     as it earns more); the one saturated colour on the screen is the warning
- *     red that marks recovery debt and the notebook's margin rule.
+ * This surface has no ambient motion, simulated score or hidden quality score.
+ * The one explicit game rule is 1 Practice XP per completed focused minute;
+ * exact evidence still carries the hierarchy and verdict quality is unscored.
  */
 
 .universe-workspace {
   display: flex;
   flex-direction: column;
   gap: var(--s-5);
-  padding: var(--s-5) var(--s-6);
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--s-5) var(--s-6) var(--s-6);
   color: var(--ink);
 }
 
-/* Header ---------------------------------------------------------------- */
+/* Shared headings ------------------------------------------------------ */
+
+.universe-intro,
+.universe-section-head,
+.universe-map-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-4);
+}
 
 .universe-intro {
-  display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--s-5);
+}
+
+.universe-intro-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s-2);
 }
 
 .universe-eyebrow,
@@ -53,6 +57,24 @@
   letter-spacing: var(--tracking-tight);
 }
 
+.universe-section-head h2,
+.universe-map-heading h2 {
+  margin: var(--s-1) 0 0;
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-normal);
+  line-height: var(--leading-tight);
+}
+
+.universe-section-head > p {
+  max-width: 30ch;
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--ink-faint);
+  text-align: right;
+}
+
 .universe-atlas-cta {
   flex: none;
   border: none;
@@ -61,28 +83,63 @@
   background: var(--accent-invert-bg);
   color: var(--accent-invert-ink);
   font: inherit;
+  font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
   cursor: pointer;
 }
 
+.universe-refresh {
+  flex: none;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-md);
+  padding: var(--s-2) var(--s-3);
+  background: var(--bg-raised);
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.universe-refresh:disabled {
+  color: var(--ink-faint);
+  cursor: default;
+}
+
+/* States + compact-panel guard ---------------------------------------- */
+
+.universe-dock-note,
 .universe-error {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--s-3);
-  border: 1px solid var(--signal-error);
+  border: 1px solid var(--hairline-strong);
   border-radius: var(--r-md);
-  padding: var(--s-3) var(--s-4);
-  background: var(--signal-error-wash);
-  color: var(--signal-error);
+  padding: var(--s-2) var(--s-3);
+  background: var(--bg-sunken);
+  color: var(--ink-dim);
+  font-size: var(--text-sm);
 }
 
+.universe-dock-note button,
 .universe-error button {
+  flex: none;
   border: none;
+  padding: 0;
   background: transparent;
-  color: var(--ink);
+  color: var(--accent);
   font: inherit;
+  font-weight: var(--weight-medium);
   text-decoration: underline;
+  text-underline-offset: 3px;
   cursor: pointer;
+}
+
+.universe-error {
+  border-color: var(--signal-error);
+  background: var(--signal-error-wash);
+  color: var(--signal-error);
 }
 
 .universe-state {
@@ -109,179 +166,514 @@
 
 .universe-empty p {
   margin: 0;
-  max-width: var(--measure-narrow);
+  line-height: var(--leading-normal);
 }
 
-/* Totals ---------------------------------------------------------------- */
-
-.universe-totals {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s-5);
-  border-top: 1px solid var(--hairline);
-  border-bottom: 1px solid var(--hairline);
-  padding: var(--s-3) 0;
+.universe-earned-status {
+  margin: 0;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-md);
+  padding: var(--s-2) var(--s-3);
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
 }
 
-.universe-summary-value {
+/* 28-day cadence ------------------------------------------------------- */
+
+.universe-cadence {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--s-3);
+  min-width: 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-lg);
+  padding: var(--s-4);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-card);
 }
 
-.universe-summary-value span {
+.universe-cadence .universe-section-head > p strong {
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  font-variant-numeric: var(--numeric-figures);
+}
+
+.universe-cadence-state {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: var(--text-sm);
+}
+
+.universe-cadence-days {
+  display: grid;
+  grid-template-columns: repeat(28, minmax(3px, 1fr));
+  align-items: end;
+  gap: 3px;
+  height: 42px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.universe-cadence-days li {
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  min-width: 0;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--bg-sunken);
+}
+
+.universe-cadence-days li > span {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  background: var(--hairline-strong);
+}
+
+.universe-cadence-days li[data-band="light"] > span {
+  height: 25%;
+  background: var(--accent-line);
+}
+
+.universe-cadence-days li[data-band="medium"] > span {
+  height: 50%;
+  background: var(--accent);
+  opacity: 0.62;
+}
+
+.universe-cadence-days li[data-band="strong"] > span {
+  height: 75%;
+  background: var(--accent);
+}
+
+.universe-cadence-days li[data-band="peak"] > span {
+  height: 100%;
+  background: var(--surface-ink);
+}
+
+.universe-cadence-foot {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: var(--s-3);
+  color: var(--ink-faint);
+  font-size: var(--text-2xs);
+}
+
+.universe-cadence-foot > span:last-child {
+  text-align: right;
+}
+
+.universe-cadence-foot ul {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-1) var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.universe-cadence-foot li {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.universe-cadence-foot li::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 1px;
+  background: var(--bg-sunken);
+}
+
+.universe-cadence-foot li[data-band="light"]::before {
+  background: var(--accent-line);
+}
+
+.universe-cadence-foot li[data-band="medium"]::before {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.universe-cadence-foot li[data-band="strong"]::before {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.universe-cadence-foot li[data-band="peak"]::before {
+  border-color: var(--surface-ink);
+  background: var(--surface-ink);
+}
+
+/* Momentum ------------------------------------------------------------- */
+
+.universe-momentum {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.34fr);
+  gap: var(--s-5);
+  align-items: stretch;
+  border-radius: var(--r-lg);
+  padding: var(--s-5);
+  background: var(--surface-ink);
+  color: var(--ink-on-dark);
+  box-shadow: var(--shadow-card);
+}
+
+.universe-momentum .universe-section-kicker {
+  color: var(--ink-ghost);
+}
+
+.universe-momentum-copy h2 {
+  margin: var(--s-1) 0 var(--s-2);
+  font-family: var(--font-display);
+  font-size: clamp(var(--text-2xl), 3vw, 2rem);
+  font-weight: var(--weight-normal);
+  line-height: var(--leading-tight);
+  color: var(--ink-on-dark);
+}
+
+.universe-momentum-copy > p:last-of-type {
+  max-width: 58ch;
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--paper-edge);
+}
+
+.universe-momentum-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  margin: var(--s-4) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+  color: var(--paper-edge);
+}
+
+.universe-momentum-facts strong {
+  font-family: var(--font-mono);
+  font-variant-numeric: var(--numeric-figures);
+  font-size: var(--text-sm);
+  color: var(--ink-on-dark);
+}
+
+.universe-focus-total {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  border-left: 1px solid var(--ink-faint);
+  padding-left: var(--s-5);
+}
+
+.universe-focus-total > span,
+.universe-focus-total small {
   font-size: var(--text-2xs);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
+  color: var(--ink-ghost);
+}
+
+.universe-focus-total strong {
+  margin: var(--s-1) 0;
+  font-family: var(--font-mono);
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: var(--numeric-figures);
+  letter-spacing: var(--tracking-tight);
+  white-space: nowrap;
+  color: var(--ink-on-dark);
+}
+
+/* Exact progress ------------------------------------------------------- */
+
+.universe-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.universe-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--hairline-strong);
+  border-bottom: 1px solid var(--hairline-strong);
+}
+
+.universe-progress-card {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: var(--s-3);
+  border-right: 1px solid var(--hairline);
+}
+
+.universe-progress-card:last-child {
+  border-right: none;
+}
+
+.universe-progress-value {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-1);
+  font-family: var(--font-mono);
+  font-variant-numeric: var(--numeric-figures);
+}
+
+.universe-progress-value strong {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+}
+
+.universe-progress-value span {
+  font-size: var(--text-xs);
   color: var(--ink-faint);
 }
 
-.universe-summary-value strong {
-  font-family: var(--font-mono);
-  font-variant-numeric: var(--numeric-figures);
-  font-size: var(--text-xl);
-  font-weight: var(--weight-semibold);
-  color: var(--ink);
-}
-
-/* Earned-only teaching -------------------------------------------------- */
-
-.universe-earned-guide {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: baseline;
-  gap: var(--s-3);
-  border-top: 1px solid var(--hairline);
-  border-bottom: 1px solid var(--hairline);
-  padding: var(--s-2) 0;
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-  color: var(--ink-dim);
-}
-
-.universe-earned-guide strong {
-  font-weight: var(--weight-semibold);
-  color: var(--ink);
-}
-
-.universe-earned-guide p {
+.universe-progress-card p {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   min-width: 0;
   margin: 0;
 }
 
-/* Wants work ------------------------------------------------------------ */
-
-.universe-band-title {
-  margin: 0 0 var(--s-2);
-  font-size: var(--text-2xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
-.universe-attention ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.universe-attention-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--s-2);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-pill);
-  padding: var(--s-1) var(--s-3);
-  background: var(--bg-raised);
-  font: inherit;
-  font-size: var(--text-sm);
-  color: var(--ink);
-  cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out);
-}
-
-.universe-attention-chip:hover {
-  border-color: var(--ink-dim);
-}
-
-.universe-attention-rest {
-  align-self: center;
-  font-size: var(--text-sm);
-  color: var(--ink-faint);
-}
-
-.universe-attention-name {
+.universe-progress-card p strong {
+  font-size: var(--text-xs);
   font-weight: var(--weight-medium);
+  color: var(--ink);
 }
 
-.universe-attention-reason {
-  color: var(--signal-warning);
-}
-
-.universe-attention-chip[data-attention="recovering"] {
-  border-color: var(--signal-error);
-  background: var(--signal-error-wash);
-}
-
-.universe-attention-chip[data-attention="recovering"]
-  .universe-attention-reason {
-  color: var(--signal-error);
-}
-
-/* Map heading + legend -------------------------------------------------- */
-
-.universe-map-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--s-3);
-  margin-bottom: var(--s-4);
-}
-
-.universe-map-heading h2 {
-  margin: var(--s-1) 0 0;
-  font-family: var(--font-display);
-  font-size: var(--text-2xl);
-  font-weight: var(--weight-normal);
-}
-
-.universe-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--s-3);
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.universe-progress-card p span {
   font-size: var(--text-2xs);
-  color: var(--ink-dim);
+  line-height: var(--leading-tight);
+  color: var(--ink-faint);
 }
 
-.universe-legend li {
-  display: flex;
-  align-items: flex-end;
+.universe-progress-track {
+  height: 4px;
+  overflow: hidden;
+  background: var(--bg-sunken);
+}
+
+.universe-progress-track > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.universe-technique {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s-4);
+  align-items: center;
+  padding: var(--s-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+}
+
+.universe-technique > div {
+  display: grid;
   gap: var(--s-1);
 }
 
-/* The region mark -------------------------------------------------------
-   A pencil stroke standing on a ruled line. Height AND tone both climb with
-   what the region has earned, so the marks stay separable at arm's length in
-   room light — tone alone would not be. */
+.universe-technique > div > strong {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+}
+
+.universe-technique > div > span,
+.universe-technique dt {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+.universe-technique dl {
+  display: flex;
+  gap: var(--s-5);
+  margin: 0;
+}
+
+.universe-technique dl > div {
+  display: grid;
+  gap: 2px;
+}
+
+.universe-technique dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: var(--numeric-figures);
+  color: var(--ink);
+}
+
+.universe-recovery-line {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-dim);
+}
+
+.universe-recovery-line strong {
+  font-family: var(--font-mono);
+  font-variant-numeric: var(--numeric-figures);
+  color: var(--ink);
+}
+
+.universe-recovery-line [data-state="open"],
+.universe-recovery-line [data-state="open"] strong {
+  color: var(--signal-error);
+}
+
+/* Landmarks + recent evidence ----------------------------------------- */
+
+.universe-insights {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-5);
+}
+
+.universe-landmarks,
+.universe-recent {
+  min-width: 0;
+  border-top: 2px solid var(--ink);
+  padding-top: var(--s-3);
+}
+
+.universe-insights .universe-section-head {
+  align-items: flex-start;
+}
+
+.universe-insights .universe-section-head > p {
+  max-width: 20ch;
+}
+
+.universe-insight-empty {
+  margin: var(--s-4) 0 0;
+  color: var(--ink-faint);
+  font-size: var(--text-sm);
+}
+
+.universe-landmark-list,
+.universe-recent-list {
+  display: flex;
+  flex-direction: column;
+  margin: var(--s-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.universe-landmark-list > li,
+.universe-recent-list > li {
+  border-top: 1px solid var(--hairline);
+}
+
+.universe-landmark-list > li:last-child,
+.universe-recent-list > li:last-child {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.universe-landmark-list button,
+.universe-recent-list button {
+  width: 100%;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.universe-landmark-list button:hover,
+.universe-recent-list button:hover {
+  background: var(--surface-hover);
+}
+
+.universe-landmark-body {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-2);
+}
+
+.universe-landmark-body > span:last-child,
+.universe-recent-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.universe-landmark-body strong,
+.universe-recent-copy strong {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink);
+}
+
+.universe-landmark-body > span:last-child > span,
+.universe-recent-copy > span {
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--ink-dim);
+}
+
+.universe-landmark-index {
+  display: block;
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+}
+
+.universe-landmark-body[data-kind="recovery"] .universe-landmark-index {
+  border-color: var(--signal-error);
+  background: var(--signal-error);
+}
+
+.universe-landmark-body[data-kind="mastery"] .universe-landmark-index {
+  background: var(--accent);
+}
+
+.universe-recent-list button {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-2);
+}
+
+.universe-recent-when {
+  font-size: var(--text-2xs);
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+/* Target marks --------------------------------------------------------- */
 
 .universe-blocks {
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
   gap: 4px;
-  width: 100%;
-  min-height: 30px;
-  margin: var(--s-1) 0 var(--s-2);
-  padding-bottom: 4px;
+  min-height: 27px;
+  padding-bottom: 3px;
   border-bottom: 1px solid var(--hairline-strong);
 }
 
@@ -318,10 +710,9 @@
   background: var(--signal-error);
 }
 
-/* In a list row or the legend the mark is a compact key, not a bar in a chart —
-   the same five heights, scaled so a row stays one line tall. */
 .universe-legend .universe-block,
-.universe-detail-region .universe-block {
+.universe-detail-region .universe-block,
+.universe-recent-list .universe-block {
   width: 7px;
 }
 
@@ -347,16 +738,39 @@
   height: 17px;
 }
 
-/* Index + detail -------------------------------------------------------- */
+/* Repertoire ----------------------------------------------------------- */
+
+.universe-map-heading {
+  flex-wrap: wrap;
+  margin-bottom: var(--s-4);
+}
+
+.universe-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-2xs);
+  color: var(--ink-dim);
+}
+
+.universe-legend li {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-1);
+}
 
 .universe-map-and-detail {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 302px;
   align-items: flex-start;
   gap: var(--s-5);
 }
 
 .universe-index {
-  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -364,7 +778,7 @@
 }
 
 .universe-group-name {
-  margin: 0 0 var(--s-3);
+  margin: 0 0 var(--s-2);
   padding-bottom: var(--s-1);
   border-bottom: 1px solid var(--hairline);
   font-family: var(--font-display);
@@ -374,21 +788,20 @@
 }
 
 .universe-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(212px, 1fr));
-  gap: var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .universe-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--s-1);
+  display: grid;
+  grid-template-columns: minmax(170px, 1.15fr) minmax(180px, 1fr) max-content;
+  align-items: center;
+  gap: var(--s-4);
   width: 100%;
-  height: 100%;
   padding: var(--s-3);
   border: 1px solid var(--hairline);
   border-left: 3px solid transparent;
@@ -422,28 +835,53 @@
   border-color: var(--accent-line);
 }
 
+.universe-card[data-archived="true"] {
+  opacity: 0.58;
+  box-shadow: none;
+  filter: saturate(0.45);
+}
+
+.universe-card-identity,
+.universe-card-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
 .universe-card-title {
+  display: flex;
+  gap: var(--s-2);
+  align-items: baseline;
+  overflow: hidden;
   font-family: var(--font-display);
   font-size: var(--text-lg);
   line-height: var(--leading-tight);
-  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.universe-card-line {
+.universe-card-title small {
+  flex: none;
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+
+.universe-card-line,
+.universe-card-when {
   font-size: var(--text-xs);
   font-variant-numeric: var(--numeric-figures);
   color: var(--ink-dim);
 }
 
 .universe-card-line.is-quiet {
+  max-width: 19ch;
   color: var(--ink-faint);
-}
-
-.universe-card-when {
-  margin-top: auto;
-  padding-top: var(--s-1);
-  font-size: var(--text-xs);
-  color: var(--ink-dim);
+  text-align: right;
 }
 
 .universe-card[data-attention="stale"] .universe-card-when,
@@ -455,13 +893,13 @@
   color: var(--signal-error);
 }
 
-/* Detail panel ---------------------------------------------------------- */
+/* Detail panel --------------------------------------------------------- */
 
 .universe-detail {
-  flex: 0 0 302px;
   position: sticky;
   top: var(--s-4);
   align-self: flex-start;
+  width: 100%;
   border: 1px solid var(--hairline);
   border-radius: var(--r-lg);
   background: var(--bg-raised);
@@ -581,7 +1019,6 @@
   color: var(--ink);
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease-out);
 }
 
 .universe-detail-region:hover {
@@ -642,7 +1079,7 @@
   color: var(--accent-invert-ink);
 }
 
-/* Method footnote ------------------------------------------------------- */
+/* Method --------------------------------------------------------------- */
 
 .universe-method {
   border-top: 1px solid var(--hairline);
@@ -654,7 +1091,6 @@
 
 .universe-method summary {
   cursor: pointer;
-  color: var(--ink-dim);
 }
 
 .universe-method dl {
@@ -677,7 +1113,7 @@
   color: var(--ink-faint);
 }
 
-/* Focus ----------------------------------------------------------------- */
+/* Focus + responsive floor -------------------------------------------- */
 
 .universe-workspace :focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring);
@@ -686,130 +1122,170 @@
 
 @media (max-width: 980px) {
   .universe-map-and-detail {
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .universe-detail {
     position: static;
-    flex-basis: auto;
-    width: 100%;
+    order: -1;
+  }
+
+  .universe-detail.is-resting {
+    display: none;
   }
 }
 
 @media (max-width: 760px) {
-  .universe-earned-guide {
-    grid-template-columns: minmax(0, 1fr);
+  .universe-workspace {
+    gap: var(--s-4);
+    padding: var(--s-4);
+  }
+
+  .universe-momentum {
+    gap: var(--s-4);
+    padding: var(--s-4);
+  }
+
+  .universe-focus-total {
+    padding-left: var(--s-4);
+  }
+
+  .universe-section-head > p {
+    display: none;
+  }
+
+  .universe-cadence .universe-section-head > p {
+    display: block;
+    max-width: none;
+  }
+
+  .universe-cadence {
+    padding: var(--s-3);
+  }
+
+  .universe-cadence-days {
     gap: 2px;
   }
-}
 
-.universe-galaxy {
-  width: 100%;
-  height: auto;
-  display: block;
-  margin-bottom: var(--s-4);
-  overflow: visible;
-}
-
-.universe-galaxy-field circle {
-  fill: var(--hairline-strong);
-  opacity: 0.5;
-  animation: universe-parallax 90s linear infinite;
-}
-
-.universe-star-disc {
-  fill: var(--ink);
-  opacity: var(--star-brightness, 0.96);
-  animation: universe-twinkle 6s ease-in-out infinite;
-  animation-delay: var(--star-phase, 0ms);
-  /* The hit circle draws FIRST and this disc paints over it (fix-wave U1);
-     pointer-events:none lets a hover/click always fall through to the hit
-     circle underneath instead of stopping on this decorative shape. */
-  pointer-events: none;
-}
-
-.universe-star-ring {
-  fill: none;
-  stroke: var(--ink-dim);
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-.universe-star-glow {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1;
-  opacity: 0.45;
-  animation: universe-twinkle 4s ease-in-out infinite;
-  pointer-events: none;
-}
-
-.universe-orbit {
-  animation: universe-orbit var(--orbit-period, 42s) linear infinite;
-  animation-delay: calc(var(--orbit-period, 42s) * -1 * (var(--orbit-phase, 0deg) / 360deg));
-  pointer-events: none;
-}
-
-.universe-orbit-body {
-  fill: var(--ink-dim);
-}
-
-/* Earned-only law (fix-wave F1): a piece with zero practice evidence draws
-   as a hollow, non-animated marker — no fill, no twinkle, deliberately not
-   listed among the animated selectors above or under reduced-motion below. */
-.universe-star-unlit {
-  fill: none;
-  stroke: var(--ink-dim);
-  pointer-events: none;
-}
-
-.universe-star-hit {
-  fill: transparent;
-  cursor: pointer;
-}
-
-/* The hit circle is now the FIRST child of .universe-star (fix-wave U1), so
-   the general sibling combinator correctly matches every decorative element
-   that follows it — disc, ring, glow, unlit marker. */
-.universe-star-hit:hover ~ .universe-star-disc,
-.universe-star-hit:focus-visible ~ .universe-star-disc {
-  fill: var(--accent);
-}
-
-/* Hover/focus affordance for an unlit (never-practised) marker changes its
-   OUTLINE, never its fill — filling it would read as earned growth it does
-   not have. */
-.universe-star-hit:hover ~ .universe-star-unlit,
-.universe-star-hit:focus-visible ~ .universe-star-unlit {
-  stroke: var(--accent);
-}
-
-@keyframes universe-twinkle {
-  0%, 100% { opacity: var(--star-brightness, 0.96); }
-  50% { opacity: calc(var(--star-brightness, 0.96) * 0.72); }
-}
-
-@keyframes universe-orbit {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-@keyframes universe-parallax {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  50% { transform: translate3d(6px, -4px, 0); }
-}
-
-/* The static render. Not a slower galaxy — a still one. */
-@media (prefers-reduced-motion: reduce) {
-  .universe-galaxy-field circle,
-  .universe-star-disc,
-  .universe-star-glow,
-  .universe-orbit {
-    animation: none !important;
+  .universe-cadence-foot ul {
+    gap: var(--s-1);
   }
-  /* Bodies keep their hashed resting angle, so the picture is still the
-     earned one — it simply stops moving. */
-  .universe-orbit {
-    transform: rotate(var(--orbit-phase, 0deg));
+
+  .universe-insights {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-4);
+  }
+
+  .universe-card {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 1fr);
+    gap: var(--s-2) var(--s-4);
+  }
+
+  .universe-card-line.is-quiet {
+    grid-column: 1 / -1;
+    max-width: none;
+    text-align: left;
+  }
+}
+
+@media (max-width: 620px) {
+  .universe-intro {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .universe-intro-actions {
+    justify-content: flex-start;
+  }
+
+  .universe-momentum {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .universe-focus-total {
+    border-top: 1px solid var(--ink-faint);
+    border-left: none;
+    padding-top: var(--s-3);
+    padding-left: 0;
+  }
+
+  .universe-progress-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .universe-progress-card:nth-child(2) {
+    border-right: none;
+  }
+
+  .universe-progress-card:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .universe-technique {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .universe-technique dl {
+    justify-content: space-between;
+    gap: var(--s-3);
+  }
+
+  .universe-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .universe-card-line.is-quiet {
+    grid-column: auto;
+  }
+}
+
+@media (max-height: 560px) {
+  .universe-workspace {
+    gap: var(--s-3);
+    padding-top: var(--s-3);
+    padding-bottom: var(--s-4);
+  }
+
+  .universe-intro h1 {
+    font-size: var(--text-2xl);
+  }
+
+  .universe-momentum {
+    padding: var(--s-3) var(--s-4);
+  }
+
+  .universe-momentum-copy h2 {
+    font-size: var(--text-2xl);
+  }
+
+  .universe-momentum-facts {
+    margin-top: var(--s-2);
+  }
+
+  .universe-focus-total strong {
+    font-size: 2rem;
+  }
+
+  .universe-section-head h2,
+  .universe-map-heading h2 {
+    font-size: var(--text-xl);
+  }
+
+  .universe-cadence {
+    gap: var(--s-2);
+    padding: var(--s-3);
+  }
+
+  .universe-cadence-days {
+    height: 30px;
+  }
+
+  .universe-progress-card {
+    gap: var(--s-1);
+    padding: var(--s-2) var(--s-3);
+  }
+
+  .universe-progress-value strong {
+    font-size: var(--text-xl);
   }
 }

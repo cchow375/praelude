@@ -11,13 +11,17 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { PDFDocumentLoadingTask, PDFPageProxy } from "pdfjs-dist";
-import type { BlockHistory, Region } from "../pieces/types";
+import type { BlockHistory, PieceMovement, Region } from "../pieces/types";
 import type {
   RepOpenArgs,
   RepSnapshot,
   SetFocusContextInput,
 } from "../rep/useRep";
 import { BlockForm } from "../rep/BlockForm";
+import {
+  addRotationTarget,
+  rotationTargetKey,
+} from "../rotation/rotation";
 import {
   anchorForEdition,
   anchorKind,
@@ -49,6 +53,7 @@ import type { Stroke } from "./marks/strokes";
 import { REGION_COLORS, RegionEditor } from "../pieces/RegionEditor";
 import { useCrud } from "../rep/useCrud";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
+import { createCommandId } from "../../services/commandId";
 import { TutorialPanel } from "../tutorials/TutorialPanel";
 import { unknownMapping, validMeasureRange } from "./atlas/draft";
 import type {
@@ -118,6 +123,11 @@ import {
 } from "./mapping/measureMap";
 import "./mapping/measureMapping.css";
 import "./ScoreView.css";
+import {
+  movementRanges,
+  regionAnchorPage,
+  type MovementRange,
+} from "./movements";
 
 const PDF_LOAD_TIMEOUT_MS = 30_000;
 /** How long the `ckscore://` probe may take before we give up and use IPC. */
@@ -161,6 +171,8 @@ const defaultApi: ScorePdfApi = {
   regions: (pieceId) => invoke<Region[]>("region_list", { pieceId }),
   blocks: (pieceId) =>
     invoke<BlockHistory[]>("rep_blocks_for_piece", { pieceId }),
+  movements: (pieceId) =>
+    invoke<PieceMovement[]>("piece_movement_list", { pieceId }),
   updateRegion: (regionId, pdfAnchor) =>
     invoke<Region>("region_update", {
       id: regionId,
@@ -466,6 +478,8 @@ type ViewerPhase =
 
 export interface ScoreViewProps {
   pieceId: number;
+  /** Human label persisted with retrieval-rotation targets. */
+  pieceTitle?: string;
   /** False while Shell keeps this workspace mounted only to preserve state. */
   isActive?: boolean;
   activeRange?: { m_start: number; m_end: number } | null;
@@ -474,7 +488,7 @@ export interface ScoreViewProps {
   onOpenBlock?: (
     args: RepOpenArgs,
     context?: SetFocusContextInput,
-  ) => Promise<void> | void;
+  ) => Promise<RepSnapshot | void> | void;
   onResumeSet?: (setId: number) => Promise<void> | void;
   activeRep?: RepSnapshot | null;
   opening?: boolean;
@@ -627,6 +641,7 @@ function newTargetDraftId(pieceId: number): string {
 
 export function ScoreView({
   pieceId,
+  pieceTitle = "This piece",
   isActive = true,
   activeRange = null,
   defaultTargetBpm = null,
@@ -668,6 +683,10 @@ export function ScoreView({
   const [document, setDocument] = useState<PdfDocumentHandle | null>(null);
   const [regions, setRegions] = useState<Region[]>([]);
   const [blocks, setBlocks] = useState<BlockHistory[]>([]);
+  const [movements, setMovements] = useState<PieceMovement[]>([]);
+  const [selectedMovementId, setSelectedMovementId] = useState<number | null>(
+    null,
+  );
   const [selectedRegionId, setSelectedRegionId] = useState<number | null>(null);
   const [expandedRegionId, setExpandedRegionId] = useState<number | null>(null);
   const [sectionTab, setSectionTab] = useState<SectionTab>("practice");
@@ -867,14 +886,23 @@ export function ScoreView({
     const generation = ++graphGeneration.current;
     setGraphError(null);
     try {
-      const [nextRegions, nextBlocks] = await Promise.all([
+      const [nextRegions, nextBlocks, nextMovements] = await Promise.all([
         api.regions(pieceId),
         api.blocks(pieceId),
+        api.movements?.(pieceId) ?? Promise.resolve([]),
       ]);
       if (generation !== graphGeneration.current) return;
       const safeRegions = nextRegions ?? [];
       setRegions(safeRegions);
       setBlocks(nextBlocks ?? []);
+      const safeMovements = nextMovements ?? [];
+      setMovements(safeMovements);
+      setSelectedMovementId((current) =>
+        current != null &&
+        safeMovements.some((movement) => movement.id === current)
+          ? current
+          : (safeMovements[0]?.id ?? null),
+      );
       setSelectedRegionId((current) =>
         current != null && safeRegions.some((region) => region.id === current)
           ? current
@@ -894,6 +922,8 @@ export function ScoreView({
   useEffect(() => {
     setRegions([]);
     setBlocks([]);
+    setMovements([]);
+    setSelectedMovementId(null);
     setSelectedRegionId(null);
     setExpandedRegionId(null);
     setMapping(null);
@@ -1063,25 +1093,57 @@ export function ScoreView({
   }, [phase]);
 
   const pageCount = document?.numPages ?? 0;
+  const movementRangeList = useMemo(
+    () =>
+      movementRanges(movements, pageCount).filter(
+        (range) => range.start <= pageCount,
+      ),
+    [movements, pageCount],
+  );
+  const selectedMovementRange: MovementRange | null =
+    selectedMovementId == null
+      ? null
+      : (movementRangeList.find(
+          (range) => range.movement.id === selectedMovementId,
+        ) ?? null);
+  const pageScopeStart = selectedMovementRange?.start ?? 1;
+  const pageScopeEnd = selectedMovementRange?.end ?? pageCount;
+
+  useEffect(() => {
+    if (pageCount < 1 || !selectedMovementRange) return;
+    if (
+      currentPage >= selectedMovementRange.start &&
+      currentPage <= selectedMovementRange.end
+    ) {
+      return;
+    }
+    setCurrentPage(selectedMovementRange.start);
+    setPageDraft(String(selectedMovementRange.start));
+    setMarkPage(selectedMovementRange.start);
+  }, [currentPage, pageCount, selectedMovementRange]);
+
   // A true pager: one page is in view (two side-by-side in 2-page view). Only
   // those plus one buffered neighbor each side ever mount a canvas — on a
   // 25-page score at most three canvases exist, and the rest are unmounted.
   const visiblePageList = useMemo(() => {
     if (pageCount < 1) return [] as number[];
-    const anchor = Math.min(Math.max(1, currentPage), pageCount);
-    if (scaleMode === "overview" && anchor + 1 <= pageCount) {
+    const anchor = Math.min(
+      pageScopeEnd,
+      Math.max(pageScopeStart, currentPage),
+    );
+    if (scaleMode === "overview" && anchor + 1 <= pageScopeEnd) {
       return [anchor, anchor + 1];
     }
     return [anchor];
-  }, [currentPage, pageCount, scaleMode]);
+  }, [currentPage, pageCount, pageScopeEnd, pageScopeStart, scaleMode]);
   const mountedPages = useMemo(() => {
     const mounted = new Set<number>(visiblePageList);
     for (const page of visiblePageList) {
-      if (page - 1 >= 1) mounted.add(page - 1);
-      if (page + 1 <= pageCount) mounted.add(page + 1);
+      if (page - 1 >= pageScopeStart) mounted.add(page - 1);
+      if (page + 1 <= pageScopeEnd) mounted.add(page + 1);
     }
     return [...mounted].sort((a, b) => a - b);
-  }, [pageCount, visiblePageList]);
+  }, [pageScopeEnd, pageScopeStart, visiblePageList]);
   const scale =
     scaleMode === "width"
       ? fitWidthScale(containerWidth, maxPageWidth, 40)
@@ -1193,12 +1255,14 @@ export function ScoreView({
     [regions],
   );
   const selectedRegion =
-    (selectedRegionId == null ? null : regionById.get(selectedRegionId)) ?? null;
+    (selectedRegionId == null ? null : regionById.get(selectedRegionId)) ??
+    null;
   const selectedParentId =
     selectedRegion == null
       ? null
       : (effectiveParents.get(selectedRegion.id) ?? null);
-  const selectedLineageParentId = selectedParentId ?? selectedRegion?.id ?? null;
+  const selectedLineageParentId =
+    selectedParentId ?? selectedRegion?.id ?? null;
   const contextualLabel = useCallback(
     (region: Region) => {
       const parentId = effectiveParents.get(region.id) ?? null;
@@ -1651,15 +1715,26 @@ export function ScoreView({
   // Explicit target_meta links and unambiguous legacy geometry share one
   // effective hierarchy from here down. No consumer gets to independently
   // guess whether an old nested box is a peer or a spot.
+  const scopedRegions = useMemo(() => {
+    if (!selectedMovementRange || !edition) return regions;
+    return regions.filter((region) => {
+      const page = regionAnchorPage(region, edition.id, edition.fingerprint);
+      return (
+        page != null &&
+        selectedMovementRange.start <= page &&
+        page <= selectedMovementRange.end
+      );
+    });
+  }, [edition, regions, selectedMovementRange]);
   const childCounts = useMemo(() => {
     const counts = new Map<number, number>();
-    for (const region of regions) {
+    for (const region of scopedRegions) {
       const parentId = effectiveParents.get(region.id) ?? null;
       if (parentId == null) continue;
       counts.set(parentId, (counts.get(parentId) ?? 0) + 1);
     }
     return counts;
-  }, [effectiveParents, regions]);
+  }, [effectiveParents, scopedRegions]);
   const displayedRegions = useMemo(() => {
     const query = regionQuery.trim().toLocaleLowerCase();
     const compareRegion = (a: Region, b: Region) =>
@@ -1667,7 +1742,7 @@ export function ScoreView({
       a.m_end - b.m_end ||
       a.name.localeCompare(b.name) ||
       a.id - b.id;
-    return [...regions]
+    return [...scopedRegions]
       .filter((region) => {
         const parentId = effectiveParents.get(region.id) ?? null;
         return (
@@ -1700,7 +1775,7 @@ export function ScoreView({
     effectiveParents,
     regionById,
     regionQuery,
-    regions,
+    scopedRegions,
     selectedLineageParentId,
     selectedRegionId,
   ]);
@@ -2040,8 +2115,8 @@ export function ScoreView({
     (requested: number) => {
       if (!document) return;
       const page = Math.min(
-        document.numPages,
-        Math.max(1, Math.round(requested)),
+        pageScopeEnd,
+        Math.max(pageScopeStart, Math.round(requested)),
       );
       setCurrentPage(page);
       setPageDraft(String(page));
@@ -2052,7 +2127,7 @@ export function ScoreView({
       // (a zoomed page can overflow) back to the top of the new page.
       scrollRef.current?.scrollTo?.({ top: 0, left: 0 });
     },
-    [document],
+    [document, pageScopeEnd, pageScopeStart],
   );
 
   // Keyboard paging: PageDown/PageUp and Left/Right arrows flip pages, like a
@@ -2216,8 +2291,8 @@ export function ScoreView({
 
       const activeIsRunning = Boolean(
         activeRep &&
-          activeRep.set_state !== "paused" &&
-          activeRep.timer_state !== "paused",
+        activeRep.set_state !== "paused" &&
+        activeRep.timer_state !== "paused",
       );
       if (activeIsRunning) {
         setNavigationNotice(
@@ -2303,7 +2378,7 @@ export function ScoreView({
     if (!edition) return [];
     const hidden = new Set(spotsHidden);
     const selectedIsChild = selectedParentId != null;
-    return regions
+    return scopedRegions
       .filter((region) => {
         const parentId = effectiveParents.get(region.id) ?? null;
         if (parentId == null) return true;
@@ -2337,7 +2412,7 @@ export function ScoreView({
     edition,
     effectiveParents,
     practiceSpot,
-    regions,
+    scopedRegions,
     selectedParentId,
     selectedRegionId,
     spotsHidden,
@@ -2566,22 +2641,32 @@ export function ScoreView({
     // that claims measures outside the section it lives in is a visible lie.
     const mStart = Math.min(high, Math.max(low, raw.m_start));
     const mEnd = Math.min(high, Math.max(mStart, raw.m_end));
+    const payload = {
+      command_id: createCommandId("score-micro-target"),
+      piece_id: pieceId,
+      parent_region_id: parent.id,
+      name,
+      m_start: mStart,
+      m_end: mEnd,
+      color: REGION_COLORS[regions.length % REGION_COLORS.length],
+      pdf_anchor: replaceEditionRects(
+        null,
+        edition.id,
+        edition.fingerprint,
+        [rect],
+      ),
+    };
     setGraphError(null);
     try {
-      const created = await crud.microTargetCreate({
-        piece_id: pieceId,
-        parent_region_id: parent.id,
-        name,
-        m_start: mStart,
-        m_end: mEnd,
-        color: REGION_COLORS[regions.length % REGION_COLORS.length],
-        pdf_anchor: replaceEditionRects(
-          null,
-          edition.id,
-          edition.fingerprint,
-          [rect],
-        ),
-      });
+      let created: Region;
+      try {
+        created = await crud.microTargetCreate(payload);
+      } catch {
+        // A native transaction can commit even when its IPC response is lost.
+        // One bounded replay with the exact same command id recovers that
+        // committed Region; native rejects a reused id with changed content.
+        created = await crud.microTargetCreate(payload);
+      }
       await graphChanged();
       // Retire the teaching hint — the gesture has now been performed.
       if (subsectionHintKey) {
@@ -2834,8 +2919,8 @@ export function ScoreView({
                 {spotSavePending
                   ? "Saving spot…"
                   : spotArmed
-                  ? `Cancel — drag inside ${region.name}`
-                  : "⊕ Isolate a spot"}
+                    ? `Cancel — drag inside ${region.name}`
+                    : "⊕ Isolate a spot"}
               </button>
               {(childCounts.get(region.id) ?? 0) > 0 && (
                 <button
@@ -2844,7 +2929,9 @@ export function ScoreView({
                   aria-pressed={spotsHidden.includes(region.id)}
                   onClick={() => toggleSpotsHidden(region.id)}
                 >
-                  {spotsHidden.includes(region.id) ? "Show spots" : "Hide spots"}{" "}
+                  {spotsHidden.includes(region.id)
+                    ? "Show spots"
+                    : "Hide spots"}{" "}
                   ({childCounts.get(region.id)})
                 </button>
               )}
@@ -2884,7 +2971,7 @@ export function ScoreView({
                 <p>
                   Drag on the score to add a mark. Drag an existing mark to move
                   it; drag its corner to resize. Text notes use this section’s
-                  Practice notes.
+                  Sound target.
                 </p>
                 <div
                   className="score-annotation-tools"
@@ -3079,6 +3166,24 @@ export function ScoreView({
                   })}
                 </ul>
               )}
+              <button
+                type="button"
+                className="score-add-rotation"
+                onClick={() =>
+                  addRotationTarget({
+                    key: rotationTargetKey(pieceId, region.id),
+                    piece_id: pieceId,
+                    region_id: region.id,
+                    piece_title: pieceTitle,
+                    label: contextualLabel(region),
+                    m_start: region.m_start,
+                    m_end: region.m_end,
+                    sound_target: region.notes,
+                  })
+                }
+              >
+                Add to practice rotation
+              </button>
               <BlockForm
                 key={`${region.id}:${region.name}:${region.m_start}:${region.m_end}`}
                 pieceId={pieceId}
@@ -3177,6 +3282,40 @@ export function ScoreView({
               ))}
             </select>
           </label>
+          {movementRangeList.length > 0 && (
+            <label className="score-edition score-movement">
+              <span>Movement</span>
+              <select
+                aria-label="Score movement"
+                value={selectedMovementId ?? ""}
+                onChange={(event) => {
+                  const id = event.target.value
+                    ? Number(event.target.value)
+                    : null;
+                  setSelectedMovementId(id);
+                  setSelectedRegionId(null);
+                  setExpandedRegionId(null);
+                  const range =
+                    id == null
+                      ? null
+                      : movementRangeList.find(
+                          (candidate) => candidate.movement.id === id,
+                        );
+                  const page = range?.start ?? 1;
+                  setCurrentPage(page);
+                  setPageDraft(String(page));
+                  setMarkPage(page);
+                }}
+              >
+                <option value="">Whole score</option>
+                {movementRangeList.map((range) => (
+                  <option key={range.movement.id} value={range.movement.id}>
+                    {range.movement.title} · pp. {range.start}–{range.end}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             type="button"
             className={`score-draw-target ${targetMode ? "is-active" : ""}`}
@@ -3223,7 +3362,9 @@ export function ScoreView({
                   ? "Pick an edition first"
                   : pageCount < 1
                     ? "This edition has no pages yet"
-                    : undefined
+                    : selectedMovementRange
+                      ? "Movement view scopes local browsing only; measure mapping still sends the whole edition after you start it"
+                      : "Measure mapping sends every page in this edition after you start it"
             }
             onClick={() => setMapPanelOpen(true)}
           >
@@ -3261,7 +3402,7 @@ export function ScoreView({
           <button
             type="button"
             aria-label="Previous page"
-            disabled={currentPage <= 1}
+            disabled={currentPage <= pageScopeStart}
             onClick={() => jumpTo(currentPage - 1)}
           >
             ‹
@@ -3278,12 +3419,17 @@ export function ScoreView({
               value={pageDraft}
               onChange={(event) => setPageDraft(event.target.value)}
             />
-            <span>of {pageCount || "—"}</span>
+            <span>
+              of {pageScopeEnd || "—"}
+              {selectedMovementRange
+                ? ` · pp. ${pageScopeStart}–${pageScopeEnd}`
+                : ""}
+            </span>
           </form>
           <button
             type="button"
             aria-label="Next page"
-            disabled={currentPage >= pageCount}
+            disabled={currentPage >= pageScopeEnd}
             onClick={() => jumpTo(currentPage + 1)}
           >
             ›
@@ -3545,7 +3691,7 @@ export function ScoreView({
                   <span className="ck-label">Score map</span>
                   <h3>Tricky sections</h3>
                 </div>
-                <span>{regions.length}</span>
+                <span>{scopedRegions.length}</span>
               </div>
               {graphError && (
                 <p className="ck-inline-error" role="alert">
@@ -3570,10 +3716,10 @@ export function ScoreView({
                 !subsectionHintSeen && (
                   <p className="score-subsection-hint" role="status">
                     Open <strong>{selectedRegion.name}</strong> and press{" "}
-                    <strong>⊕ Isolate a spot</strong> — then drag a small box
-                    on the score. No title, no measure numbers: the spot is
-                    named and measured for you. (Dragging inside the section
-                    does the same thing without the button.)
+                    <strong>⊕ Isolate a spot</strong> — then drag a small box on
+                    the score. No title, no measure numbers: the spot is named
+                    and measured for you. (Dragging inside the section does the
+                    same thing without the button.)
                   </p>
                 )}
               <div className="score-region-tools">
@@ -3591,10 +3737,7 @@ export function ScoreView({
                     setAddingRegion((value) => {
                       if (value) {
                         setNewRegionParentId(null);
-                      } else if (
-                        selectedRegion &&
-                        selectedParentId == null
-                      ) {
+                      } else if (selectedRegion && selectedParentId == null) {
                         // §4b / spec 5.8: with a section selected, the
                         // obvious button must build INSIDE it. Opening the
                         // form used to leave the parent unset, so "+ Add"
@@ -3610,22 +3753,20 @@ export function ScoreView({
                   {addingRegion ? "Cancel" : "+ Add"}
                 </button>
               </div>
-              {addingRegion &&
-                selectedRegion &&
-                selectedParentId == null && (
-                  <label className="score-subsection-choice">
-                    <input
-                      type="checkbox"
-                      checked={newRegionParentId === selectedRegion.id}
-                      onChange={(event) =>
-                        setNewRegionParentId(
-                          event.target.checked ? selectedRegion.id : null,
-                        )
-                      }
-                    />
-                    <span>Sub-section of {selectedRegion.name}</span>
-                  </label>
-                )}
+              {addingRegion && selectedRegion && selectedParentId == null && (
+                <label className="score-subsection-choice">
+                  <input
+                    type="checkbox"
+                    checked={newRegionParentId === selectedRegion.id}
+                    onChange={(event) =>
+                      setNewRegionParentId(
+                        event.target.checked ? selectedRegion.id : null,
+                      )
+                    }
+                  />
+                  <span>Sub-section of {selectedRegion.name}</span>
+                </label>
+              )}
               {addingRegion && (
                 <form
                   className="score-add-region-form"
@@ -3647,9 +3788,10 @@ export function ScoreView({
                     />
                   </label>
                   <label>
-                    <span>Practice notes</span>
+                    <span>Sound target</span>
                     <textarea
-                      aria-label="New score tricky section practice notes"
+                      aria-label="New score tricky section sound target"
+                      placeholder="sotto voce · grand · like bells"
                       maxLength={10000}
                       value={newRegionNotes}
                       onChange={(event) =>
@@ -3689,8 +3831,8 @@ export function ScoreView({
                 </form>
               )}
               <p className="score-region-order-note">
-                In score order · click a section to open its tools, then press
-                ⊕ Isolate a spot (or just drag inside it on the score) to add a
+                In score order · click a section to open its tools, then press ⊕
+                Isolate a spot (or just drag inside it on the score) to add a
                 sub-section — no typing
               </p>
               <div className="score-region-list">
@@ -3784,9 +3926,11 @@ export function ScoreView({
                   <p className="tutorial-empty">
                     {regions.length === 0
                       ? "No tricky sections yet — drag on the score to mark your first one."
-                      : regionQuery.trim()
-                        ? "No sections match that search."
-                        : "Nothing to show here yet."}
+                      : selectedMovementRange && scopedRegions.length === 0
+                        ? "No current-edition sections are anchored inside this movement yet."
+                        : regionQuery.trim()
+                          ? "No sections match that search."
+                          : "Nothing to show here yet."}
                   </p>
                 )}
               </div>

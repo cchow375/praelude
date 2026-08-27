@@ -13,7 +13,11 @@ import {
   useVerdictHotkeys,
   type VerdictHotkeyConfig,
 } from "./useVerdictHotkeys";
-import { DEFAULT_SETTINGS, readSettings } from "../../state/settings";
+import {
+  acceptCommittedSettings,
+  DEFAULT_SETTINGS,
+  readSettings,
+} from "../../state/settings";
 import type { Verdict } from "./useRep";
 
 vi.mock("../../state/settings", async () => {
@@ -223,6 +227,64 @@ describe("useVerdictHotkeyConfig", () => {
     const { result } = renderHook(() => useVerdictHotkeyConfig());
     await waitFor(() => expect(result.current.clean).toBe("KeyZ"));
     expect(result.current.enabled).toBe(true);
+  });
+
+  it("keeps the verdict listener inert until the persisted mapping loads", async () => {
+    let resolveSettings!: (settings: typeof DEFAULT_SETTINGS) => void;
+    readSettingsMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSettings = resolve;
+      }),
+    );
+    const onVerdict = vi.fn<(verdict: Verdict) => void>();
+    const { result } = renderHook(() => {
+      const config = useVerdictHotkeyConfig();
+      useVerdictHotkeys({ active: true, config, onVerdict });
+      return config;
+    });
+
+    expect(result.current.enabled).toBe(false);
+    press(document.body, { code: "Space", key: " " });
+    press(document.body, { code: "ShiftRight", key: "Shift" });
+    press(document.body, { code: "Enter", key: "Enter" });
+    expect(onVerdict).not.toHaveBeenCalled();
+
+    act(() => {
+      resolveSettings({
+        ...DEFAULT_SETTINGS,
+        hotkey_verdict_clean: "KeyZ",
+      });
+    });
+    await waitFor(() => {
+      expect(result.current.enabled).toBe(true);
+      expect(result.current.clean).toBe("KeyZ");
+    });
+    press(document.body, { code: "Space", key: " " });
+    expect(onVerdict).not.toHaveBeenCalled();
+    press(document.body, { code: "KeyZ", key: "z" });
+    expect(onVerdict).toHaveBeenCalledWith("clean");
+  });
+
+  it("adopts a committed remap without remounting the hotkey listener", async () => {
+    const onVerdict = vi.fn<(verdict: Verdict) => void>();
+    const { result } = renderHook(() => {
+      const config = useVerdictHotkeyConfig();
+      useVerdictHotkeys({ active: true, config, onVerdict });
+      return config;
+    });
+    await waitFor(() => expect(result.current.enabled).toBe(true));
+
+    act(() => {
+      acceptCommittedSettings({
+        ...DEFAULT_SETTINGS,
+        hotkey_verdict_clean: "KeyZ",
+      });
+    });
+    expect(result.current.clean).toBe("KeyZ");
+    press(document.body, { code: "Space", key: " " });
+    expect(onVerdict).not.toHaveBeenCalled();
+    press(document.body, { code: "KeyZ", key: "z" });
+    expect(onVerdict).toHaveBeenCalledWith("clean");
   });
 
   it("carries the master toggle from settings", async () => {

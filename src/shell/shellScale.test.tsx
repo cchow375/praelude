@@ -2,7 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Christian's 2026-08-24 request flipped assistant_enabled's real default to
-// off; this suite exercises the full five-tab nav, so it explicitly opts
+// off; this suite exercises the full nav, so it explicitly opts
 // back in.
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn((command: string) => {
@@ -29,7 +29,7 @@ describe("Shell rail scale (B4)", () => {
     await screen.findByRole("tab", { name: "Assistant" });
     const tabs = within(nav).getAllByRole("tab");
 
-    expect(tabs).toHaveLength(5);
+    expect(tabs).toHaveLength(6);
     for (const tab of tabs) {
       const glyph = tab.querySelector("svg.shell-nav-icon");
       expect(
@@ -45,10 +45,11 @@ describe("Shell rail scale (B4)", () => {
     }
 
     // The accessible name still comes from the label text only — the glyph adds
-    // no text content, so the existing five-label contract is preserved.
+    // no text content, so the label contract is preserved.
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Today",
       "Score",
+      "Warmups",
       "Assistant",
       "History",
       "Universe",

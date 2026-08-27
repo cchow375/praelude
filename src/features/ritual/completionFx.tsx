@@ -17,7 +17,14 @@ import "./completionFx.css";
  *   - Deterministic: the same transition always produces the same flourish.
  */
 
-export type CompletionMoment = "set_complete" | "mastery_landing" | "day_close";
+export type CompletionMoment =
+  | "set_complete"
+  | "mastery_landing"
+  | "variant_stage"
+  | "warmup_routine"
+  | "rotation_cycle"
+  | "reference_take"
+  | "day_close";
 
 /** Long enough to read as a flourish, comfortably under the 1.5s ceiling. */
 const FX_DURATION_MS = 1_100;
@@ -50,6 +57,15 @@ export function detectMoment(
   // on mastery_status alone: fires only the instant it flips to satisfied.
   if (!satisfied(previous) && satisfied(next)) {
     return "mastery_landing";
+  }
+  if (
+    next != null &&
+    !next.variant_chain_complete &&
+    previous.variant_stage_index != null &&
+    next.variant_stage_index != null &&
+    next.variant_stage_index > previous.variant_stage_index
+  ) {
+    return "variant_stage";
   }
   if (previous.set_state === "active" && next?.set_state !== "active") {
     return "set_complete";

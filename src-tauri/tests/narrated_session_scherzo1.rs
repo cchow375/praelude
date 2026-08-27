@@ -35,14 +35,23 @@ fn scherzo1_session_replays_with_zero_false_mutations() {
     assert_eq!(fx.session_id, "scherzo1");
     assert_eq!(fx.piece_alias_hint.as_deref(), Some("Scherzo"));
     assert_eq!(
-        fx.source_wav_sha256,
-        "9d15d0421d1340822f35229f8aab191811f0a6b107bea8b421f37ad4baf6e10f",
+        fx.source_wav_sha256, "9d15d0421d1340822f35229f8aab191811f0a6b107bea8b421f37ad4baf6e10f",
         "WAV hash must match the corpus manifest"
     );
-    assert!(fx.source_narration_json.ends_with("scherzo1_narration.json"));
+    assert!(fx
+        .source_narration_json
+        .ends_with("scherzo1_narration.json"));
     assert!(!fx.honesty_note.trim().is_empty());
-    assert_eq!(fx.segment_count, fx.segments.len(), "declared count matches");
-    assert_eq!(fx.segments.len(), 721, "scherzo1 has 721 narration segments");
+    assert_eq!(
+        fx.segment_count,
+        fx.segments.len(),
+        "declared count matches"
+    );
+    assert_eq!(
+        fx.segments.len(),
+        721,
+        "scherzo1 has 721 narration segments"
+    );
 
     let replay = assert_full_session_replay(&fx);
 

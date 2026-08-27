@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type {
   BeatUnit,
+  CheckOutcome,
   LastRep,
   RecoveryActionRequest,
   RepSnapshot,
@@ -13,6 +15,9 @@ import {
   useVerdictHotkeys,
 } from "./useVerdictHotkeys";
 import { useSetCompletion } from "./useSetCompletion";
+import { RepReplayControl } from "./replay/RepReplayControl";
+import { useRepReplay } from "./replay/useRepReplay";
+import type { RepReplayCaptureOwnership } from "./replay/types";
 import { Button, type ButtonVariant } from "../../ui";
 import "./RepHud.css";
 
@@ -21,8 +26,27 @@ export interface RepHudProps {
   feed: LastRep[];
   error: string | null;
   collapsed?: boolean;
+  /** The panel persists globally, but verdict keys only belong to the active
+   * practice workspace. Direct mounts default on for backwards compatibility. */
+  hotkeysActive?: boolean;
+  metroRunning?: boolean;
+  runningSubdivision?: number;
+  onSetRunningSubdivision?: (value: number) => void;
   onToggleCollapsed?: () => void;
-  onCheck: (verdict: Verdict, note?: string | null) => Promise<void>;
+  /** Shell-owned voice gate: review mode must not let a spoken verdict bypass
+   * its record/listen evidence path. */
+  onReplayModeChange?: (enabled: boolean) => void;
+  /** Native recognizer ownership barrier used before WebView recording starts. */
+  replayCaptureOwnership?: RepReplayCaptureOwnership;
+  /** Earned visual moment after an explicitly kept reference take commits. */
+  onKeptTake?: () => void;
+  /** Region Sound target persistence seam. Production writes the Region;
+   * focused UI tests can inject a side-effect-free implementation. */
+  onSoundTargetSave?: (regionId: number, value: string | null) => Promise<void>;
+  onCheck: (
+    verdict: Verdict,
+    note?: string | null,
+  ) => Promise<CheckOutcome | void>;
   onUndo: () => Promise<void>;
   onCorrect: (
     attemptId: number | null,
@@ -122,6 +146,16 @@ type AudioFactory = (src: string) => { play: () => Promise<void> };
 const defaultAudioFactory: AudioFactory = (src) =>
   new Audio(src) as unknown as { play: () => Promise<void> };
 
+const defaultSoundTargetSave = async (
+  regionId: number,
+  value: string | null,
+) => {
+  await invoke("region_update", {
+    id: regionId,
+    patch: { notes: value },
+  });
+};
+
 export function formatFocusedTime(seconds: number): string {
   const safe = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
   const minutes = Math.floor(safe / 60);
@@ -134,7 +168,15 @@ export function RepHud({
   feed,
   error,
   collapsed = false,
+  hotkeysActive = true,
+  metroRunning = false,
+  runningSubdivision,
+  onSetRunningSubdivision,
   onToggleCollapsed,
+  onReplayModeChange,
+  replayCaptureOwnership,
+  onKeptTake,
+  onSoundTargetSave = defaultSoundTargetSave,
   onCheck,
   onUndo,
   onCorrect,
@@ -149,6 +191,10 @@ export function RepHud({
   audioFactory = defaultAudioFactory,
 }: RepHudProps) {
   const [note, setNote] = useState("");
+  const [soundTarget, setSoundTarget] = useState("");
+  const [soundEditing, setSoundEditing] = useState(false);
+  const [soundBusy, setSoundBusy] = useState(false);
+  const [soundError, setSoundError] = useState<string | null>(null);
   const [busy, setBusy] = useState<
     | "check"
     | "undo"
@@ -210,10 +256,21 @@ export function RepHud({
   // countdown is governed by the snapshot alone and cannot be skipped by a
   // render that happens to have no set.
   const completion = useSetCompletion(snap, onClose);
+  const replay = useRepReplay({
+    repBlockId: snap?.block_id ?? 0,
+    onKept: onKeptTake,
+    captureOwnership: replayCaptureOwnership,
+  });
+  useEffect(() => {
+    onReplayModeChange?.(replay.enabled);
+    return () => {
+      if (replay.enabled) onReplayModeChange?.(false);
+    };
+  }, [onReplayModeChange, replay.enabled]);
 
   const hotkeys = useVerdictHotkeyConfig();
   const { used: hotkeyUsed } = useVerdictHotkeys({
-    active: snap != null,
+    active: snap != null && hotkeysActive,
     config: hotkeys,
     onVerdict: (verdict) => void submitRef.current?.(verdict),
   });
@@ -388,20 +445,50 @@ export function RepHud({
   }, [snap?.block_id, snap?.reflection]);
 
   useEffect(() => {
+    if (soundEditing) return;
+    setSoundTarget(snap?.sound_target ?? "");
+    setSoundError(null);
+  }, [snap?.block_id, snap?.sound_target, soundEditing]);
+
+  useEffect(() => {
     if (restartConfirm) restartConfirmRef.current?.focus();
   }, [restartConfirm]);
 
   if (!snap) return null;
 
+  const saveSoundTarget = async () => {
+    if (snap.region_id == null || soundBusy) return;
+    setSoundBusy(true);
+    setSoundError(null);
+    const normalized = soundTarget.trim();
+    try {
+      await onSoundTargetSave(snap.region_id, normalized || null);
+      setSoundTarget(normalized);
+      setSoundEditing(false);
+    } catch (reason) {
+      setSoundError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSoundBusy(false);
+    }
+  };
+
   const submit = async (verdict: Verdict) => {
     if (mastered || busy || checkPending.current) return;
+    if (!replay.assertVerdictReady()) return;
+    // A completed listen-back verdict may still be writing an explicitly kept
+    // audio file. Keep this set open instead of letting the normal six-second
+    // auto-close remove the only retry surface after a disk error.
+    if (replay.enabled) completion.cancel();
     checkPending.current = true;
     setBusy("check");
     const trimmed = note.trim();
     const submittedNote = note;
     setNote("");
     try {
-      await onCheck(verdict, trimmed === "" ? null : trimmed);
+      const outcome = await onCheck(verdict, trimmed === "" ? null : trimmed);
+      await replay.commitAfterVerdict(
+        outcome?.snap.last_attempt_id ?? null,
+      );
     } catch {
       // The typed note is part of the user's evidence. A rejected native write
       // must not erase it; restore the draft for an explicit retry.
@@ -766,6 +853,36 @@ export function RepHud({
                     {tuningDetail}
                   </span>
                 )}
+                {metroRunning &&
+                  runningSubdivision != null &&
+                  onSetRunningSubdivision && (
+                    <span
+                      className="rep-hud-subdivision"
+                      aria-label={`Running subdivision ${runningSubdivision}`}
+                    >
+                      <button
+                        type="button"
+                        aria-label="Decrease running subdivision"
+                        disabled={runningSubdivision <= 1}
+                        onClick={() =>
+                          onSetRunningSubdivision(runningSubdivision - 1)
+                        }
+                      >
+                        −
+                      </button>
+                      <span>sub {runningSubdivision}</span>
+                      <button
+                        type="button"
+                        aria-label="Increase running subdivision"
+                        disabled={runningSubdivision >= 16}
+                        onClick={() =>
+                          onSetRunningSubdivision(runningSubdivision + 1)
+                        }
+                      >
+                        +
+                      </button>
+                    </span>
+                  )}
               </span>
             )
           ) : (
@@ -783,8 +900,7 @@ export function RepHud({
             climbingToTarget && (
               <span className="rep-hud-climb" role="status">
                 Climbing to {beatMark}
-                {snap.target_bpm} — then {requiredStreak ?? "—"}{" "}
-                clean in a row
+                {snap.target_bpm} — then {requiredStreak ?? "—"} clean in a row
               </span>
             )
           )}
@@ -891,6 +1007,8 @@ export function RepHud({
         </div>
       </div>
 
+      <RepReplayControl replay={replay} />
+
       {/* A6 §4b: a hotkey nobody knows about is not a feature. The mapping is
           a one-line hint in the HUD itself — never drawer content — and it
           carries `data-compact-visible` WHILE IT IS STILL TEACHING, so a
@@ -928,13 +1046,56 @@ export function RepHud({
               key={button.verdict}
               variant={button.variant}
               className="rep-verdict"
-              disabled={mastered || busy != null}
+                disabled={mastered || busy != null}
               onClick={() => void submit(button.verdict)}
             >
               {button.label}
             </Button>
           ))}
         </div>
+        {snap.region_id != null && (
+          <div className="rep-hud-sound-target" data-compact-visible>
+            <span>Sound target</span>
+            {soundEditing ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveSoundTarget();
+                }}
+              >
+                <input
+                  autoFocus
+                  aria-label="Region sound target"
+                  value={soundTarget}
+                  maxLength={10000}
+                  placeholder="sotto voce · grand · like bells"
+                  onChange={(event) => setSoundTarget(event.target.value)}
+                />
+                <button type="submit" disabled={soundBusy}>
+                  {soundBusy ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  disabled={soundBusy}
+                  onClick={() => {
+                    setSoundTarget(snap.sound_target ?? "");
+                    setSoundEditing(false);
+                    setSoundError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </form>
+            ) : (
+              <button type="button" onClick={() => setSoundEditing(true)}>
+                {soundTarget || "Add the sound you’re aiming for…"}
+              </button>
+            )}
+            {soundError && (
+              <small role="alert">Could not save: {soundError}</small>
+            )}
+          </div>
+        )}
         <input
           className="rep-hud-note"
           type="text"

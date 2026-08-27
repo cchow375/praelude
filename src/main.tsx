@@ -21,7 +21,11 @@ async function bootstrap() {
     // QA-able in this interactive harness — the test suite's own
     // `installTauriDevMock()` calls do not opt in, so nothing here changes
     // any test's behavior.
-    installTauriDevMock({ seedQaFixtures: true });
+    // Keep the interactive QA harness aligned with the shipped product:
+    // Christian asked for the optional Assistant to stay out of the way, so
+    // it starts off here just as it does in the native backend. Tests that
+    // exercise Assistant surfaces opt in explicitly through the mock seam.
+    installTauriDevMock({ seedQaFixtures: true, assistantEnabled: false });
   }
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

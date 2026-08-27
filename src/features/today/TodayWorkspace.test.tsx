@@ -68,6 +68,7 @@ function renderToday(
       <TodaySheetProvider>
         <TodayWorkspace
           onOpenAtlas={vi.fn()}
+          onOpenWarmups={vi.fn()}
           onOpenCalendar={vi.fn()}
           onOpenPiecePlan={vi.fn()}
           onOpenBrain={vi.fn()}
@@ -121,6 +122,7 @@ describe("TodayWorkspace main menu", () => {
     for (const label of [
       "Today's Practice",
       "Score",
+      "Warmups",
       "Assistant",
       "History",
       "Universe",

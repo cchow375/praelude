@@ -28,6 +28,7 @@ import { Disclosure } from "../../ui/Disclosure";
 import { usePiecePlan } from "../notebook/usePiecePlan";
 import type { PracticeBrainContext } from "../brain/types";
 import type { ScoreFocusContext } from "../score/types";
+import { MovementEditor } from "./MovementEditor";
 
 // ---------------------------------------------------------------------------
 // The detail surface for a selected piece. Before intake is done it shows the
@@ -43,13 +44,15 @@ interface PieceDetailProps {
   onOpenBlock: (
     args: RepOpenArgs,
     context?: SetFocusContextInput | null,
-  ) => Promise<void>;
+  ) => Promise<RepSnapshot | void>;
   activeRep?: RepSnapshot | null;
   defaultCleanStreak?: number;
   /** Notifies the parent list when the piece record changes (badges/summary). */
   onUpdated?: (piece: PieceDetailData) => void;
-  /** Notifies the parent that this piece was archived (removed from the vault). */
+  /** Notifies the parent that this piece's files were moved to vault trash. */
   onRemoved?: (pieceId: number) => void;
+  /** Notifies the library that this piece entered the reversible archive. */
+  onArchived?: (pieceId: number) => void;
   onPracticeContextChange?: (context: PracticeBrainContext | null) => void;
 }
 
@@ -67,6 +70,7 @@ export function PieceDetail({
   defaultCleanStreak = 5,
   onUpdated,
   onRemoved,
+  onArchived,
   onPracticeContextChange,
 }: PieceDetailProps) {
   const crud = useCrud();
@@ -262,13 +266,31 @@ export function PieceDetail({
             </button>
           </div>
         )}
+        <button
+          type="button"
+          className="piece-archive"
+          onClick={async () => {
+            try {
+              await invoke("piece_archive_set", {
+                id: piece.id,
+                archived: true,
+              });
+              onArchived?.(piece.id);
+              onBack();
+            } catch (cause) {
+              setError(messageOf(cause));
+            }
+          }}
+        >
+          Archive
+        </button>
         <ConfirmArchive
           expected={piece.title}
           onConfirm={async () => {
             const folderName =
               piece.folder_path.split("/").filter(Boolean).pop() ?? "";
             try {
-              await invoke("piece_archive", {
+              await invoke("piece_delete_files", {
                 folderName,
                 typedName: piece.title,
               });
@@ -282,9 +304,9 @@ export function PieceDetail({
           <button
             type="button"
             className="piece-remove"
-            aria-label="Remove this piece"
+            aria-label="Delete this piece's files"
           >
-            Remove
+            Delete files…
           </button>
         </ConfirmArchive>
       </div>
@@ -357,6 +379,11 @@ export function PieceDetail({
                 onChanged={() => setRegionRevision((revision) => revision + 1)}
               />
             </Disclosure>
+            {piece.has_pdf && (
+              <Disclosure summary="Movements">
+                <MovementEditor pieceId={piece.id} />
+              </Disclosure>
+            )}
             <Disclosure summary="History">
               <HistoryPanel
                 pieceId={piece.id}

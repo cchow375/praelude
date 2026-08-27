@@ -10,7 +10,6 @@ import {
 import type {
   PracticePieceContext,
   RegionSignal,
-  UniversePiece,
   UniverseSnapshot,
 } from "./types";
 
@@ -25,10 +24,6 @@ export interface DetailPanelProps {
   onSelect: (selection: Selection) => void;
   onOpenScore: (piece: PracticePieceContext) => void;
   onOpenLedger?: (piece: PracticePieceContext) => void;
-}
-
-function maturityPercent(piece: UniversePiece): number {
-  return Math.round(Math.max(0, Math.min(1, piece.earned_maturity ?? 0)) * 100);
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -95,7 +90,13 @@ export function DetailPanel({
       <header className="universe-detail-head">
         <div>
           <p className="universe-detail-kicker">
-            {region ? "Region" : "Piece"}
+            {piece.archived_at != null
+              ? region
+                ? "Archived target"
+                : "Archived piece"
+              : region
+                ? "Target"
+                : "Piece"}
           </p>
           <h3>{heading}</h3>
           {region ? (
@@ -126,6 +127,12 @@ export function DetailPanel({
 
       {!region && (
         <>
+          {piece.archived_at != null && (
+            <p className="universe-detail-note">
+              Archived repertoire stays here as practice history. It is not an
+              active practice suggestion.
+            </p>
+          )}
           <dl className="universe-detail-metrics">
             <Metric
               label="Focused time"
@@ -153,8 +160,8 @@ export function DetailPanel({
               value={String(piece.practice_sessions ?? 0)}
             />
             <Metric
-              label="Earned maturity"
-              value={`${maturityPercent(piece)}%`}
+              label="Open recovery"
+              value={String(piece.open_recovery_debt ?? 0)}
             />
             <Metric
               label="Last practiced"
@@ -167,11 +174,11 @@ export function DetailPanel({
             aria-labelledby="universe-detail-regions-title"
           >
             <h4 id="universe-detail-regions-title">
-              Regions ({piece.region_signals.length})
+              Targets ({piece.region_signals.length})
             </h4>
             {piece.region_signals.length === 0 ? (
               <p className="universe-detail-note">
-                No regions marked on this piece yet.
+                No targets marked on this piece yet.
               </p>
             ) : (
               <ul>
@@ -259,13 +266,15 @@ export function DetailPanel({
       )}
 
       <div className="universe-detail-actions">
-        <button
-          type="button"
-          className="universe-detail-action is-primary"
-          onClick={() => onOpenScore(jumpContext)}
-        >
-          Open on score
-        </button>
+        {piece.archived_at == null && (
+          <button
+            type="button"
+            className="universe-detail-action is-primary"
+            onClick={() => onOpenScore(jumpContext)}
+          >
+            Open on score
+          </button>
+        )}
         {onOpenLedger && (
           <button
             type="button"

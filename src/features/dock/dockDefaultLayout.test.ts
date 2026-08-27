@@ -4,6 +4,7 @@ import {
   DOCK_CHAIN_BASE_Y,
   MIN_PANEL_WIDTH,
   NAV_RAIL_WIDTH,
+  dockPanelMaxHeight,
 } from "./dockState";
 import {
   ASSUMED_MAX_HEIGHT as REP_ASSUMED_MAX_HEIGHT,
@@ -27,6 +28,12 @@ import {
   dynamicsDefaultX,
   dynamicsDefaultY,
 } from "./DynamicsPanel";
+import {
+  BOTTOM_DOCK_SAFE_RESERVE_PX as ROTATION_BOTTOM_DOCK_SAFE_RESERVE_PX,
+  DEFAULT_POSITION as ROTATION_DEFAULT_POSITION,
+  PANEL_WIDTH as ROTATION_PANEL_WIDTH,
+  rotationSafeMaxY,
+} from "../rotation/RotationPanel";
 
 // Fix wave item 9 (live-QA REFUTED finding): at the 720x520 dense-layout
 // floor the rep panel's OLD default (x:24, y:88, 440w) both covered the
@@ -181,9 +188,9 @@ describe("dock default positions at the 720x520 floor (fix wave item 9)", () => 
   });
 
   it("fits the dynamics panel inside the 720px floor from whatever x it picks there", () => {
-    expect(dynamicsDefaultX(VIEWPORT.width) + DYNAMICS_PANEL_WIDTH).toBeLessThanOrEqual(
-      VIEWPORT.width,
-    );
+    expect(
+      dynamicsDefaultX(VIEWPORT.width) + DYNAMICS_PANEL_WIDTH,
+    ).toBeLessThanOrEqual(VIEWPORT.width);
     expect(DYNAMICS_PANEL_WIDTH).toBeGreaterThanOrEqual(MIN_PANEL_WIDTH);
   });
 
@@ -202,6 +209,23 @@ describe("dock default positions at the 720x520 floor (fix wave item 9)", () => 
     expect(wide + DYNAMICS_PANEL_WIDTH).toBeLessThanOrEqual(1440);
     // ...and at the topbar-clearing y, not the chain's bottom.
     expect(dynamicsDefaultY(1440)).toBe(DYNAMICS_SECOND_COLUMN_Y);
+  });
+
+  it("keeps the Rotation panel and its foot controls above the bottom Tools row", () => {
+    expect(ROTATION_DEFAULT_POSITION.x).toBeGreaterThanOrEqual(NAV_RAIL_WIDTH);
+    expect(
+      ROTATION_DEFAULT_POSITION.x + ROTATION_PANEL_WIDTH,
+    ).toBeLessThanOrEqual(VIEWPORT.width);
+    expect(ROTATION_DEFAULT_POSITION.y).toBeLessThanOrEqual(
+      rotationSafeMaxY(VIEWPORT.height),
+    );
+
+    const panelBottom =
+      ROTATION_DEFAULT_POSITION.y +
+      dockPanelMaxHeight(VIEWPORT.height, ROTATION_DEFAULT_POSITION.y);
+    expect(panelBottom).toBeLessThanOrEqual(
+      VIEWPORT.height - ROTATION_BOTTOM_DOCK_SAFE_RESERVE_PX,
+    );
   });
 
   it("sanity: DENSE_LAYOUT_FLOOR matches this file's own VIEWPORT constant", () => {

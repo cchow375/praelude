@@ -114,7 +114,7 @@ describe("Shell", () => {
     ).toBeTruthy();
   });
 
-  it("renders exactly five workspace nav targets", async () => {
+  it("renders the five core workspaces plus the enabled Assistant", async () => {
     render(<Shell />);
     const nav = screen.getByRole("tablist", { name: /workspace/i });
     await screen.findByRole("tab", { name: "Assistant" });
@@ -122,6 +122,7 @@ describe("Shell", () => {
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Today",
       "Score",
+      "Warmups",
       "Assistant",
       "History",
       "Universe",

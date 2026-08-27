@@ -54,6 +54,8 @@ describe("labelForIntent", () => {
     expect(labelForIntent({ kind: "busy", text: "", bpm: null })).toBe("Busy");
     expect(labelForIntent({ kind: "rep_pass", text: "", bpm: null })).toBe("Rep passed");
     expect(labelForIntent({ kind: "rep_fail", text: "", bpm: null })).toBe("Rep failed");
+    expect(labelForIntent({ kind: "rep_add", text: "", bpm: null, count: 3 })).toBe("3 cleans added");
+    expect(labelForIntent({ kind: "rep_undo", text: "", bpm: null, count: 2 })).toBe("2 reps removed");
   });
 
   it("falls back to the raw kind for an unrecognised intent", () => {

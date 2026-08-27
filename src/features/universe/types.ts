@@ -15,13 +15,30 @@ export interface UniverseTraces {
 }
 
 export interface UniverseTotals {
+  /** Backward-compatible all-history focused total. */
   focused_seconds: number;
+  /** Monotonic all-history focus, including archived repertoire and technique. */
+  lifetime_focused_seconds: number;
   active_days_28: number;
+  /** Qualifying days across the current database's retained history. */
+  lifetime_active_days: number;
+  /** Longest configured-threshold qualifying-day run. */
+  best_streak_days: number;
   regions_practiced: number;
   regions_revisited: number;
+  /** All-history revisited targets, including archived repertoire. */
+  revisited_targets: number;
   mastered_targets?: number;
   recovered_targets?: number;
   practice_sessions?: number;
+}
+
+export interface UniverseTechnique {
+  focused_seconds: number;
+  active_days_28: number;
+  completed_warmups: number;
+  practice_sessions: number;
+  last_practiced: string | null;
 }
 
 export interface RegionSignal {
@@ -49,6 +66,8 @@ export interface UniversePiece {
   piece_id: number;
   title: string;
   composer: string | null;
+  /** Unix seconds when archived. Archived pieces remain historical evidence. */
+  archived_at?: number | null;
   focused_seconds: number;
   active_days_28: number;
   regions_total: number;
@@ -69,6 +88,8 @@ export interface UniverseSnapshot {
   definitions: UniverseDefinition[];
   traces: UniverseTraces;
   totals: UniverseTotals;
+  /** Separate hidden-system-piece aggregate; never a repertoire entry. */
+  technique?: UniverseTechnique;
   pieces: UniversePiece[];
 }
 

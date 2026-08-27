@@ -16,6 +16,7 @@ import {
 import { ReceiptCenterProvider } from "../receipts/ReceiptCenter";
 import type { BooksApi, BookRecord } from "./BooksPanel";
 import { resetDockLayout } from "../dock/dockState";
+import { subscribeCommittedSettings } from "../../state/settings";
 
 // The voice section reflects live degraded-TTS state pushed over `voice://tts`.
 // Only the event module is mocked (so a test can emit the backend's transition);
@@ -49,6 +50,7 @@ const snapshot: SettingsSnapshot = {
   wake_word_enabled: false,
   wake_word: "coda",
   speak_acks: false,
+  stt_settle_ms: 600,
   metronome_sound: "woodblock",
   metronome_boost: false,
   metronome_boost_level: 85,
@@ -102,8 +104,8 @@ describe("SettingsPanel", () => {
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
   });
 
-  it("opens with a truthful, accessible practice guide", async () => {
-    render(<SettingsPanel api={api()} />);
+  it("shows both voice lanes and draft safety when the Assistant is enabled", async () => {
+    render(<SettingsPanel api={api({ assistant_enabled: true })} />);
 
     const guide = await screen.findByRole("region", {
       name: "One practice loop, two voice lanes",
@@ -127,6 +129,30 @@ describe("SettingsPanel", () => {
       within(guide).getByRole("complementary", { name: "Confirmation safety" }),
     ).toBeTruthy();
     expect(within(guide).getByText(/Wake-word mode is off/)).toBeTruthy();
+  });
+
+  it("shows a concise practice-command guide when the Assistant is off", async () => {
+    render(<SettingsPanel api={api({ assistant_enabled: false })} />);
+
+    const guide = await screen.findByRole("region", {
+      name: "One hands-free practice loop",
+    });
+    expect(guide.closest("details")?.open).toBe(true);
+    expect(
+      within(guide).getByRole("list", { name: "Golden practice flow" }),
+    ).toBeTruthy();
+    expect(
+      within(guide).getByText(/Exact commands run immediately and offline/),
+    ).toBeTruthy();
+    expect(within(guide).getByText(/without grading the piano/)).toBeTruthy();
+    expect(within(guide).queryByText(/Plain-English Assistant/)).toBeNull();
+    expect(within(guide).queryByText(/without a wake phrase/)).toBeNull();
+    expect(
+      within(guide).queryByRole("complementary", {
+        name: "Confirmation safety",
+      }),
+    ).toBeNull();
+    expect(within(guide).queryByText(/review every field/)).toBeNull();
   });
 
   it("loads typed values and saves one validated projection", async () => {
@@ -414,6 +440,7 @@ describe("SettingsPanel", () => {
     expect(
       screen.getByRole("region", { name: "Claude API key" }),
     ).toBeTruthy();
+    expect(screen.getByText("Books")).toBeTruthy();
   });
 
   it("hides BrainConnection and every other Assistant control when disabled, leaving only the toggle", async () => {
@@ -436,6 +463,24 @@ describe("SettingsPanel", () => {
     expect(
       screen.queryByRole("region", { name: "Claude API key" }),
     ).toBeNull();
+    expect(screen.queryByText("Books")).toBeNull();
+
+    const assistantDisclosure = toggle.closest("details");
+    const voiceDisclosure = screen
+      .getByText("Voice & wake-word")
+      .closest("details");
+    expect(assistantDisclosure).toBeTruthy();
+    expect(voiceDisclosure).toBeTruthy();
+    expect(
+      within(assistantDisclosure as HTMLElement).queryByRole("spinbutton", {
+        name: "Voice settle delay (ms)",
+      }),
+    ).toBeNull();
+    expect(
+      within(voiceDisclosure as HTMLElement).getByRole("spinbutton", {
+        name: "Voice settle delay (ms)",
+      }),
+    ).toBeTruthy();
   });
 
   it("remaps a verdict hotkey by capturing the pressed key code (A6)", async () => {
@@ -467,6 +512,34 @@ describe("SettingsPanel", () => {
     );
   });
 
+  it("publishes a saved verdict remap to already-mounted practice surfaces", async () => {
+    const committed = vi.fn();
+    const unsubscribe = subscribeCommittedSettings(committed);
+    const settingsApi = api();
+    try {
+      render(<SettingsPanel api={settingsApi} />);
+      await screen.findByText(/dark practice-room interface/i);
+      fireEvent.keyDown(screen.getByLabelText("Clean hotkey"), {
+        code: "KeyZ",
+        key: "z",
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() =>
+        expect(committed).toHaveBeenCalledWith(
+          expect.objectContaining({
+            hotkeys_enabled: true,
+            hotkey_verdict_clean: "KeyZ",
+            hotkey_verdict_sloppy: "ShiftRight",
+            hotkey_verdict_again: "Enter",
+          }),
+        ),
+      );
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("shows the spoken-ack toggle off, and says the chime still plays", async () => {
     const settingsApi = api();
     render(<SettingsPanel api={settingsApi} />);
@@ -487,6 +560,25 @@ describe("SettingsPanel", () => {
     await waitFor(() =>
       expect(settingsApi.update).toHaveBeenCalledWith(
         expect.objectContaining({ speak_acks: true }),
+      ),
+    );
+  });
+
+  it("exposes a bounded settle control and saves it with voice settings", async () => {
+    const settingsApi = api();
+    render(<SettingsPanel api={settingsApi} />);
+    await screen.findByText(/dark practice-room interface/i);
+    const input = screen.getByRole("spinbutton", {
+      name: "Voice settle delay (ms)",
+    }) as HTMLInputElement;
+    expect(input.value).toBe("600");
+    expect(input.min).toBe("300");
+    expect(input.max).toBe("2000");
+    fireEvent.change(input, { target: { value: "350" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(settingsApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({ stt_settle_ms: 350 }),
       ),
     );
   });

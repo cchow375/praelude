@@ -191,7 +191,8 @@
 //! start ack follows the start; a rep check-off in a metronome-off block is
 //! silent, exactly as its spoken ack was before this change.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -259,13 +260,28 @@ const MAX_CREDIBLE_UTTERANCE: Duration = Duration::from_secs(30);
 /// Entries must already be in canonical form ([`crate::intent::canonicalize`]) —
 /// which is also why `"metranome off"` reaches the fast path without appearing
 /// here: the mangle is folded before the lookup, exactly as the router folds it.
-const FAST_PATH_PHRASES: &[&str] = &["metronome off", "metronome stop", "metronome on"];
+const METRO_FAST_PATH_PHRASES: &[&str] = &["metronome off", "metronome stop", "metronome on"];
+const REP_FAST_PATH_PHRASES: &[&str] = &["mark done", "rep done", "mark sloppy", "mark again"];
+const FAST_PATH_PHRASES: &[&str] = &[
+    "metronome off",
+    "metronome stop",
+    "metronome on",
+    "mark done",
+    "rep done",
+    "mark sloppy",
+    "mark again",
+];
 
 /// The allowlisted phrase this partial is exactly, or `None`. Cheap enough for
 /// the settler thread: one normalize pass plus a walk of ten short strings.
 fn fast_path_phrase(text: &str) -> Option<&'static str> {
     let norm = crate::intent::canonicalize(text);
     FAST_PATH_PHRASES.iter().copied().find(|p| *p == norm)
+}
+
+fn fast_path_allowed(phrase: &str, rep_active: bool) -> bool {
+    METRO_FAST_PATH_PHRASES.contains(&phrase)
+        || (rep_active && REP_FAST_PATH_PHRASES.contains(&phrase))
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +315,9 @@ trait Confirm: Send {
     /// Play the ack chime ([`crate::audio::chime`]) through the same PCM sink and
     /// gate cycle a spoken confirmation uses.
     fn chime(&self);
+    fn speech_enabled(&self) -> bool {
+        true
+    }
 }
 
 /// The production [`Confirm`]: a [`Speaker`] for words, plus a direct PCM path to
@@ -350,6 +369,10 @@ impl Confirm for AckPlayer {
             crate::audio::chime::ack_chime(),
             crate::audio::chime::CHIME_RATE,
         );
+    }
+
+    fn speech_enabled(&self) -> bool {
+        !self.speech_muted.load(Ordering::Relaxed)
     }
 }
 
@@ -441,12 +464,17 @@ impl PcmSink for MetroSink {
 struct AtomicGate {
     gate: Arc<AtomicBool>,
     muted: Arc<AtomicBool>,
+    capture_suspended: Arc<AtomicBool>,
 }
 impl Gate for AtomicGate {
     fn set_gate(&self, open: bool) {
-        if open && self.muted.load(Ordering::Acquire) {
-            // Mute wins: don't let a completing utterance's reopen re-arm the
-            // mic while the user has it muted.
+        if open
+            && (self.muted.load(Ordering::Acquire)
+                || self.capture_suspended.load(Ordering::Acquire))
+        {
+            // Mute and an exclusive-capture lease both win: don't let a
+            // completing utterance's reopen re-arm the recognizer while either
+            // owner says it must stay closed.
             return;
         }
         self.gate.store(open, Ordering::Release);
@@ -466,6 +494,7 @@ struct ActionCtx {
     emitter: Arc<dyn VoiceEmitter>,
     wake_word: Option<String>,
     muted: Arc<AtomicBool>,
+    capture_suspended: Arc<AtomicBool>,
     last: Option<(String, Instant)>,
     /// The routed [`Intent`] the fast path actually acted on, with the timestamp
     /// of the partial that fired it. A later final that routes to the SAME
@@ -505,6 +534,10 @@ enum ActionMessage {
     /// (`on_event`), unchanged.
     Partial(Transcript),
     SpeakBrain(String),
+    /// Explicit teardown sentinel. Restartable capture keeps its event sink
+    /// (and therefore a sender clone) for the app lifetime, so channel-drop is
+    /// no longer sufficient to end the action thread.
+    Shutdown,
 }
 
 impl ActionCtx {
@@ -539,7 +572,7 @@ impl ActionCtx {
     }
 
     fn route_and_act(&mut self, t: &Transcript, via_fast_path: bool) {
-        if self.muted.load(Ordering::Acquire) {
+        if self.muted.load(Ordering::Acquire) || self.capture_suspended.load(Ordering::Acquire) {
             // Muting ends whatever utterance was in flight. Without this the
             // tracked start survives the entire muted stretch and is charged
             // against the first command spoken after unmuting — the mic toggle
@@ -672,6 +705,8 @@ impl ActionCtx {
             Intent::MetroStop => self.act_stop(&t.text),
             Intent::MetroSet(args) => self.act_set(args, &t.text),
             Intent::RepCheck(v, note) => self.act_rep(v, note, &t.text),
+            Intent::RepAdd(count) => self.act_rep_add(count, &t.text),
+            Intent::RepUndo(count) => self.act_rep_undo(count, &t.text),
             Intent::RepOpen(spec) => self.act_rep_open(spec, &t.text),
             Intent::RepStatus => self.act_rep_status(&t.text),
             Intent::RepClose => self.act_rep_close(&t.text),
@@ -798,41 +833,111 @@ impl ActionCtx {
         };
         match self.rep.check_voice(verdict, note) {
             Ok(outcome) => {
-                // Follow a ladder step on the metronome only if the block uses the
-                // metronome (a metronome-off tempo block still advanced its tempo
-                // in the engine) and it is currently running.
-                if let Some(nb) = outcome.new_bpm {
-                    if outcome.snap.use_metronome {
-                        self.metro.serialized(|| {
-                            // Recheck running state inside the same command
-                            // boundary as the retune.  A stop that wins before
-                            // this boundary must not be followed by a stale
-                            // ladder retune; a stop that wins after it will be
-                            // the final serialized state.
-                            if self.metro.snapshot().running {
-                                let _ = self.metro.do_practice_retune(
-                                    &self.store,
-                                    outcome.snap.block_id,
-                                    nb,
-                                    None,
-                                    None,
-                                );
-                                let state = self.metro.snapshot();
-                                self.emit_state(&state);
-                            }
-                        });
-                    }
-                }
+                self.follow_rep_retune(&outcome);
                 self.emit_intent("rep", text, outcome.new_bpm);
-                if Self::rep_ack_speaks(&outcome, verdict) {
+                // Every verdict gets the low-latency chime immediately. Spoken
+                // detail is a second, opt-in layer; default-off never converts
+                // an informational result into a delayed synthesized ack.
+                self.speaker.chime();
+                if Self::rep_ack_speaks(&outcome, verdict) && self.speaker.speech_enabled() {
                     self.speaker.say(&outcome.say);
-                } else {
-                    self.speaker.chime();
                 }
             }
             // The router only produces RepCheck while a block is active, but a
             // block could close between routing and here — degrade quietly.
             Err(e) => eprintln!("voice: rep check ignored: {e}"),
+        }
+    }
+
+    fn follow_rep_retune(&self, outcome: &crate::store::model::CheckOutcome) {
+        let Some(nb) = outcome.new_bpm else {
+            return;
+        };
+        if !outcome.snap.use_metronome {
+            return;
+        }
+        self.metro.serialized(|| {
+            if self.metro.snapshot().running {
+                let _ = self.metro.do_practice_retune(
+                    &self.store,
+                    outcome.snap.block_id,
+                    nb,
+                    None,
+                    None,
+                );
+                self.emit_state(&self.metro.snapshot());
+            }
+        });
+    }
+
+    fn act_rep_add(&self, count: u32, text: &str) {
+        let mut completed = 0_u32;
+        let mut final_outcome = None;
+        for _ in 0..count {
+            match self.rep.check_voice(RepVerdict::Clean, None) {
+                Ok(outcome) => {
+                    self.follow_rep_retune(&outcome);
+                    completed += 1;
+                    final_outcome = Some(outcome);
+                }
+                Err(error) => {
+                    eprintln!("voice: counted rep add stopped after {completed}: {error}");
+                    break;
+                }
+            }
+        }
+        let Some(outcome) = final_outcome else {
+            return;
+        };
+        self.emit_adjustment_intent("rep_add", text, completed, outcome.new_bpm);
+        self.speaker.chime();
+        if self.speaker.speech_enabled() {
+            self.speaker.say(&format!(
+                "Added {} clean {}. {} tries.",
+                completed,
+                if completed == 1 { "rep" } else { "reps" },
+                outcome.snap.tries
+            ));
+        }
+    }
+
+    fn act_rep_undo(&self, count: u32, text: &str) {
+        let available = self.rep.snapshot().map_or(0, |snap| snap.tries);
+        if available < count {
+            self.emit_adjustment_intent("rep_undo_rejected", text, count, None);
+            self.speaker.chime();
+            if self.speaker.speech_enabled() {
+                self.speaker
+                    .say("There are not that many reps to take back.");
+            }
+            return;
+        }
+
+        let mut final_outcome = None;
+        for _ in 0..count {
+            match self.rep.undo_voice() {
+                Ok(outcome) => {
+                    self.follow_rep_retune(&outcome);
+                    final_outcome = Some(outcome);
+                }
+                Err(error) => {
+                    eprintln!("voice: counted rep undo failed: {error}");
+                    break;
+                }
+            }
+        }
+        let Some(outcome) = final_outcome else {
+            return;
+        };
+        self.emit_adjustment_intent("rep_undo", text, count, outcome.new_bpm);
+        self.speaker.chime();
+        if self.speaker.speech_enabled() {
+            self.speaker.say(&format!(
+                "Took back {} {}. {} tries remain.",
+                count,
+                if count == 1 { "rep" } else { "reps" },
+                outcome.snap.tries
+            ));
         }
     }
 
@@ -1060,6 +1165,13 @@ impl ActionCtx {
         );
     }
 
+    fn emit_adjustment_intent(&self, kind: &str, text: &str, count: u32, bpm: Option<f64>) {
+        self.emitter.emit(
+            "voice://intent",
+            json!({ "kind": kind, "text": text, "count": count, "bpm": bpm }),
+        );
+    }
+
     /// Emit a final's transcript carrying the backend's authoritative routing
     /// outcome. `handled` is true when a deterministic intent routed and acted,
     /// false for an ambient final the backend declined to route (which the
@@ -1217,18 +1329,43 @@ pub struct VoiceStatus {
     pub down: Option<String>,
 }
 
+type SttEventSink = Arc<dyn Fn(SttEvent) + Send + Sync + 'static>;
+
+/// Restartable ownership of the native recognizer process.
+///
+/// Listen Back may hold more than one short-lived lease while React effects are
+/// settling (Strict Mode, a quick toggle, or an unmount racing an in-flight
+/// command). Capture stays down until every issued lease is returned. Epochs
+/// make release idempotent: a late or duplicate release cannot restart capture
+/// underneath a newer owner.
+struct CaptureRuntime {
+    handle: Option<SttHandle>,
+    config: SttConfig,
+    sink: SttEventSink,
+    leases: BTreeSet<u64>,
+    /// Request identity → active epoch. `None` is a release tombstone: if an
+    /// unmount's resume IPC outruns its suspend IPC, the later suspend sees the
+    /// tombstone and cannot strand a microphone lease.
+    requests: BTreeMap<String, Option<u64>>,
+    next_epoch: u64,
+    resume_after_leases: bool,
+}
+
 /// Owns the STT supervisor, the TTS speaker (inside the action thread), and the
 /// action thread. Managed by Tauri; [`Self::shutdown`] tears everything down with
 /// no zombie processes or hung joins.
 pub struct VoiceLoop {
-    stt: Mutex<Option<SttHandle>>,
+    capture: Mutex<CaptureRuntime>,
     action_tx: Mutex<Option<mpsc::Sender<ActionMessage>>>,
     action_thread: Mutex<Option<JoinHandle<()>>>,
     gate: Arc<AtomicBool>,
     muted: Arc<AtomicBool>,
+    capture_suspended: Arc<AtomicBool>,
+    shutting_down: AtomicBool,
     /// "Stay quiet": shared with the [`AckPlayer`] on the action thread, so a
     /// settings write takes effect on the very next ack without a relaunch.
     speech_muted: Arc<AtomicBool>,
+    settle_ms: Arc<AtomicU64>,
     status: Arc<Mutex<VoiceStatus>>,
     emitter: Arc<dyn VoiceEmitter>,
 }
@@ -1243,7 +1380,7 @@ impl VoiceLoop {
         store: Arc<Store>,
         rep: Arc<RepEngine>,
         sessions: Arc<SessionService>,
-        stt_config: SttConfig,
+        mut stt_config: SttConfig,
         wake_word: Option<String>,
     ) -> Arc<VoiceLoop> {
         let emitter: Arc<dyn VoiceEmitter> = Arc::new(TauriEmitter(app.clone()));
@@ -1253,6 +1390,8 @@ impl VoiceLoop {
             .flatten()
             .filter(|value| value != "auto");
         let voice = store.get_setting("tts.voice").ok().flatten();
+        stt_config.settle =
+            Duration::from_millis(u64::from(crate::settings::stt_settle_ms(&store)));
         Self::start_with(
             emitter,
             metro,
@@ -1261,7 +1400,7 @@ impl VoiceLoop {
             sessions,
             stt_config,
             wake_word,
-            move |m, g, mu, sm| Self::build_speaker(m, g, mu, sm, provider, voice),
+            move |m, g, mu, cs, sm| Self::build_speaker(m, g, mu, cs, sm, provider, voice),
         )
     }
 
@@ -1276,13 +1415,18 @@ impl VoiceLoop {
         metro: Arc<Metronome>,
         gate: Arc<AtomicBool>,
         muted: Arc<AtomicBool>,
+        capture_suspended: Arc<AtomicBool>,
         speech_muted: Arc<AtomicBool>,
         provider_override: Option<String>,
         voice: Option<String>,
     ) -> Box<dyn Confirm> {
         let provider = crate::tts::select_provider(provider_override, None, voice);
         let sink: Arc<dyn PcmSink> = Arc::new(MetroSink(metro));
-        let gate_seam: Arc<dyn Gate> = Arc::new(AtomicGate { gate, muted });
+        let gate_seam: Arc<dyn Gate> = Arc::new(AtomicGate {
+            gate,
+            muted,
+            capture_suspended,
+        });
         let config = SpeakerConfig::default();
         // The Speaker and the chime share the same sink and gate — one output
         // path, one gate cycle, whichever shape the ack takes.
@@ -1319,10 +1463,11 @@ impl VoiceLoop {
         store: Arc<Store>,
         rep: Arc<RepEngine>,
         sessions: Arc<SessionService>,
-        stt_config: SttConfig,
+        mut stt_config: SttConfig,
         wake_word: Option<String>,
         make_speaker: impl FnOnce(
                 Arc<Metronome>,
+                Arc<AtomicBool>,
                 Arc<AtomicBool>,
                 Arc<AtomicBool>,
                 Arc<AtomicBool>,
@@ -1331,10 +1476,17 @@ impl VoiceLoop {
             + 'static,
     ) -> Arc<VoiceLoop> {
         let muted = Arc::new(AtomicBool::new(false));
+        let capture_suspended = Arc::new(AtomicBool::new(false));
+        // Stable across every recognizer restart. TTS, the user mute and the
+        // Listen Back capture lease must all drive this exact same atom.
+        let gate = Arc::new(AtomicBool::new(true));
         // Read before the store moves onto the action thread. Inverted here, at
         // the app boundary, because `tts` knows nothing about muting: the flag
         // it hands out is "speak acks", the flag the loop holds is "stay quiet".
         let speech_muted = Arc::new(AtomicBool::new(!crate::settings::speak_acks(&store)));
+        let initial_settle_ms = u64::try_from(stt_config.settle.as_millis()).unwrap_or(600);
+        let settle_ms = Arc::new(AtomicU64::new(initial_settle_ms));
+        stt_config.settle_control = Some(settle_ms.clone());
         let status = Arc::new(Mutex::new(VoiceStatus {
             muted: false,
             down: None,
@@ -1350,11 +1502,21 @@ impl VoiceLoop {
         let ev_emitter = emitter.clone();
         let ev_status = status.clone();
         let fwd_tx = tx.clone();
-        let on_event = move |ev: SttEvent| match ev {
+        let event_rep = rep.clone();
+        let event_capture_suspended = capture_suspended.clone();
+        let on_event: SttEventSink = Arc::new(move |ev: SttEvent| match ev {
             SttEvent::Transcript(t) => {
+                // A shutdown can already have read a line before the manager is
+                // reaped. The capture lease is the last authoritative guard:
+                // once acquired, no queued tail may reach the action thread.
+                if event_capture_suspended.load(Ordering::Acquire) {
+                    return;
+                }
                 if t.is_final {
                     let _ = fwd_tx.send(ActionMessage::Transcript(t));
-                } else if fast_path_phrase(&t.text).is_some() {
+                } else if fast_path_phrase(&t.text)
+                    .is_some_and(|phrase| fast_path_allowed(phrase, event_rep.active()))
+                {
                     // A complete command, spoken and finished — act now instead
                     // of paying the settle wait (module docs, "Fast path"). It is
                     // promoted to a final so the action thread treats it as the
@@ -1402,13 +1564,20 @@ impl VoiceLoop {
                     json!({ "state": "down", "reason": code, "guidance": guidance }),
                 );
             }
-        };
+        });
 
-        let handle = SttSupervisor::spawn_with_config(stt_config, on_event);
-        let gate = handle.gate_flag();
+        let handle = SttSupervisor::spawn_with_config_and_gate(
+            stt_config.clone(),
+            {
+                let on_event = on_event.clone();
+                move |event| on_event(event)
+            },
+            gate.clone(),
+        );
 
         let action_emitter = emitter.clone();
         let action_muted = muted.clone();
+        let action_capture_suspended = capture_suspended.clone();
         let action_gate = gate.clone();
         let action_speech_muted = speech_muted.clone();
         let action_thread = std::thread::Builder::new()
@@ -1422,6 +1591,7 @@ impl VoiceLoop {
                     metro.clone(),
                     action_gate,
                     action_muted.clone(),
+                    action_capture_suspended.clone(),
                     action_speech_muted,
                 );
                 let mut ctx = ActionCtx {
@@ -1433,6 +1603,7 @@ impl VoiceLoop {
                     emitter: action_emitter,
                     wake_word,
                     muted: action_muted,
+                    capture_suspended: action_capture_suspended,
                     last: None,
                     fast_path: None,
                     utterance_start: None,
@@ -1446,6 +1617,7 @@ impl VoiceLoop {
                         // command confirmations. A provider answer can never be
                         // played through an ungated WebView speech API.
                         ActionMessage::SpeakBrain(answer) => ctx.speaker.say(&answer),
+                        ActionMessage::Shutdown => break,
                     }
                 }
                 // Channel closed: drop ctx (and its Speaker → TTS worker join).
@@ -1453,12 +1625,23 @@ impl VoiceLoop {
             .expect("spawn voice action thread");
 
         Arc::new(VoiceLoop {
-            stt: Mutex::new(Some(handle)),
+            capture: Mutex::new(CaptureRuntime {
+                handle: Some(handle),
+                config: stt_config,
+                sink: on_event,
+                leases: BTreeSet::new(),
+                requests: BTreeMap::new(),
+                next_epoch: 0,
+                resume_after_leases: true,
+            }),
             action_tx: Mutex::new(Some(tx)),
             action_thread: Mutex::new(Some(action_thread)),
             gate,
             muted,
+            capture_suspended,
+            shutting_down: AtomicBool::new(false),
             speech_muted,
+            settle_ms,
             status,
             emitter,
         })
@@ -1476,12 +1659,26 @@ impl VoiceLoop {
         self.speech_muted.load(Ordering::Relaxed)
     }
 
+    /// Change the transcript quiet-gap for the next settler wait.
+    pub fn set_settle_ms(&self, milliseconds: u32) {
+        self.settle_ms
+            .store(u64::from(milliseconds), Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    pub fn settle_ms(&self) -> u64 {
+        self.settle_ms.load(Ordering::Relaxed)
+    }
+
     /// Mute (`true`) or unmute the mic. Closes the STT gate AND flips the
     /// action-thread `muted` flag (belt and suspenders — a TTS-reopened gate can
     /// briefly let a line through, but it is still never actioned while muted).
     pub fn set_muted(&self, muted: bool) {
         self.muted.store(muted, Ordering::Release);
-        self.gate.store(!muted, Ordering::Release);
+        self.gate.store(
+            !muted && !self.capture_suspended.load(Ordering::Acquire),
+            Ordering::Release,
+        );
         if let Ok(mut s) = self.status.lock() {
             s.muted = muted;
         }
@@ -1489,6 +1686,125 @@ impl VoiceLoop {
             "voice://status",
             json!({ "state": if muted { "muted" } else { "live" } }),
         );
+    }
+
+    /// Acquire an exclusive native-capture lease for Listen Back.
+    ///
+    /// This is deliberately stronger than [`Self::set_muted`]: it terminates
+    /// and reaps the supervised `hear` process, releasing the macOS microphone
+    /// device instead of merely dropping its transcripts. Multiple leases may
+    /// overlap; capture is restarted only after the last exact epoch returns.
+    pub fn suspend_capture(&self, request_id: &str) -> Result<u64, String> {
+        let request_id = request_id.trim();
+        if request_id.is_empty()
+            || request_id.len() > 128
+            || !request_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err("Voice capture request id is invalid".into());
+        }
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err("Voice loop is shutting down".into());
+        }
+        let pipeline_was_down = self
+            .status
+            .lock()
+            .map(|status| status.down.is_some())
+            .unwrap_or(false);
+        let mut capture = self
+            .capture
+            .lock()
+            .map_err(|_| "Voice capture lifecycle is unavailable".to_string())?;
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err("Voice loop is shutting down".into());
+        }
+        if let Some(epoch) = capture.requests.get(request_id) {
+            return Ok(epoch.unwrap_or(0));
+        }
+
+        capture.next_epoch = capture.next_epoch.wrapping_add(1).max(1);
+        let epoch = capture.next_epoch;
+        let first = capture.leases.is_empty();
+        capture.leases.insert(epoch);
+        capture.requests.insert(request_id.to_string(), Some(epoch));
+        if !first {
+            return Ok(epoch);
+        }
+
+        self.capture_suspended.store(true, Ordering::Release);
+        self.gate.store(false, Ordering::Release);
+        capture.resume_after_leases = capture.handle.is_some() && !pipeline_was_down;
+        if let Some(mut handle) = capture.handle.take() {
+            handle.shutdown();
+        }
+        self.emitter.emit(
+            "voice://capture",
+            json!({ "state": "suspended", "epoch": epoch }),
+        );
+        Ok(epoch)
+    }
+
+    /// Return one exact capture lease. A stale/duplicate epoch is inert, and a
+    /// newer overlapping lease keeps the microphone released. Returns `true`
+    /// only for the call that actually restored the recognizer.
+    pub fn resume_capture(&self, request_id: &str) -> Result<bool, String> {
+        let request_id = request_id.trim();
+        if request_id.is_empty()
+            || request_id.len() > 128
+            || !request_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err("Voice capture request id is invalid".into());
+        }
+        let mut capture = self
+            .capture
+            .lock()
+            .map_err(|_| "Voice capture lifecycle is unavailable".to_string())?;
+        let Some(epoch) = capture.requests.get(request_id).copied().flatten() else {
+            // Release-before-acquire is a real WebView unmount race. Keep a
+            // tombstone so that a late suspend carrying this same request id is
+            // inert instead of acquiring a lease nobody remains to return.
+            capture.requests.insert(request_id.to_string(), None);
+            return Ok(false);
+        };
+        capture.requests.insert(request_id.to_string(), None);
+        if !capture.leases.remove(&epoch) {
+            return Ok(false);
+        }
+        if !capture.leases.is_empty() {
+            return Ok(false);
+        }
+        if self.shutting_down.load(Ordering::Acquire) {
+            capture.resume_after_leases = false;
+            return Ok(false);
+        }
+
+        let should_resume = capture.resume_after_leases;
+        capture.resume_after_leases = false;
+        if should_resume {
+            let sink = capture.sink.clone();
+            let handle = SttSupervisor::spawn_with_config_and_gate(
+                capture.config.clone(),
+                move |event| sink(event),
+                self.gate.clone(),
+            );
+            // The shared gate remained closed throughout the handoff. Apply the
+            // user's independent mute state before capture becomes visible.
+            handle.set_gate(!self.muted.load(Ordering::Acquire));
+            capture.handle = Some(handle);
+        }
+        self.capture_suspended.store(false, Ordering::Release);
+        self.gate.store(
+            should_resume && !self.muted.load(Ordering::Acquire),
+            Ordering::Release,
+        );
+        self.emitter.emit(
+            "voice://capture",
+            json!({ "state": "resumed", "epoch": epoch }),
+        );
+        Ok(should_resume)
     }
 
     /// Current mic status for `voice_state()`.
@@ -1523,15 +1839,23 @@ impl VoiceLoop {
     /// channel so the loop ends and the TTS worker joins, then join the action
     /// thread. Idempotent.
     pub fn shutdown(&self) {
-        if let Ok(mut g) = self.stt.lock() {
-            if let Some(mut h) = g.take() {
+        self.shutting_down.store(true, Ordering::Release);
+        self.capture_suspended.store(true, Ordering::Release);
+        self.gate.store(false, Ordering::Release);
+        if let Ok(mut capture) = self.capture.lock() {
+            capture.leases.clear();
+            capture.requests.clear();
+            capture.resume_after_leases = false;
+            if let Some(mut h) = capture.handle.take() {
                 h.shutdown();
             }
         }
         // Drop our sender; the on_event closure's clone is dropped as the STT
         // threads (now joined) release it, so the action loop's rx ends.
         if let Ok(mut g) = self.action_tx.lock() {
-            *g = None;
+            if let Some(sender) = g.take() {
+                let _ = sender.send(ActionMessage::Shutdown);
+            }
         }
         if let Ok(mut g) = self.action_thread.lock() {
             if let Some(t) = g.take() {
@@ -1589,6 +1913,18 @@ mod tests {
         }
         fn chime(&self) {
             *self.0.chimed.lock().unwrap() += 1;
+        }
+    }
+    struct QuietRecConfirm(Arc<Recorder>);
+    impl Confirm for QuietRecConfirm {
+        fn say(&self, text: &str) {
+            self.0.said.lock().unwrap().push(text.to_string());
+        }
+        fn chime(&self) {
+            *self.0.chimed.lock().unwrap() += 1;
+        }
+        fn speech_enabled(&self) -> bool {
+            false
         }
     }
     struct RecEmitter(Arc<Recorder>);
@@ -1676,6 +2012,7 @@ mod tests {
             fast_path: None,
             wake_word: None,
             muted: Arc::new(AtomicBool::new(false)),
+            capture_suspended: Arc::new(AtomicBool::new(false)),
             last: None,
             utterance_start: None,
         }
@@ -1832,7 +2169,9 @@ mod tests {
         let words: Vec<&str> = text.split_whitespace().collect();
         for i in 0..words.len() {
             let partial = words[..=i].join(" ");
-            if fast_path_phrase(&partial).is_some() {
+            if fast_path_phrase(&partial)
+                .is_some_and(|phrase| fast_path_allowed(phrase, ctx.rep.active()))
+            {
                 ctx.handle_fast_path(&final_at(
                     &partial,
                     at + Duration::from_millis(10 * i as u64),
@@ -1995,6 +2334,45 @@ mod tests {
                 expect_running,
                 "{phrase:?} must still act on the partial"
             );
+        }
+    }
+
+    #[test]
+    fn approved_two_word_verdicts_fast_path_only_with_an_active_set() {
+        for (phrase, verdict) in [
+            ("mark done", "clean"),
+            ("rep done", "clean"),
+            ("mark sloppy", "flawed"),
+            ("mark again", "failed"),
+        ] {
+            let rec = Arc::new(Recorder::default());
+            let mut ctx = test_ctx(&rec);
+            let at = Instant::now();
+
+            replay_partial_stream(&mut ctx, phrase, at);
+            assert_eq!(rec.acks(), 0, "{phrase:?} acted outside rep mode");
+
+            open_test_block(&ctx);
+            let before = ctx.rep.snapshot().unwrap().tries;
+            let words: Vec<&str> = phrase.split_whitespace().collect();
+            for i in 0..words.len() {
+                let partial = words[..=i].join(" ");
+                if fast_path_phrase(&partial)
+                    .is_some_and(|candidate| fast_path_allowed(candidate, ctx.rep.active()))
+                {
+                    ctx.handle_fast_path(&final_at(
+                        &partial,
+                        at + Duration::from_millis(700 + 10 * i as u64),
+                    ));
+                }
+            }
+            let snap = ctx.rep.snapshot().unwrap();
+            assert_eq!(snap.tries, before + 1, "{phrase:?} did not act early");
+            assert_eq!(snap.last.unwrap().verdict, verdict);
+        }
+
+        for bare in ["done", "clean", "sloppy", "again"] {
+            assert_eq!(fast_path_phrase(bare), None, "bare-word B70 law");
         }
     }
 
@@ -2807,19 +3185,34 @@ mod tests {
     fn brain_answer_is_bounded_and_queued_for_the_voice_owner() {
         let recorder = Arc::new(Recorder::default());
         let (tx, rx) = mpsc::channel();
+        let capture_suspended = Arc::new(AtomicBool::new(false));
         let voice = VoiceLoop {
-            stt: Mutex::new(None),
+            capture: Mutex::new(CaptureRuntime {
+                handle: None,
+                config: SttConfig::hear("/usr/bin/true".into()),
+                sink: Arc::new(|_| {}),
+                leases: BTreeSet::new(),
+                requests: BTreeMap::new(),
+                next_epoch: 0,
+                resume_after_leases: false,
+            }),
             action_tx: Mutex::new(Some(tx)),
             action_thread: Mutex::new(None),
             gate: Arc::new(AtomicBool::new(true)),
             muted: Arc::new(AtomicBool::new(false)),
+            capture_suspended,
+            shutting_down: AtomicBool::new(false),
             speech_muted: Arc::new(AtomicBool::new(true)),
+            settle_ms: Arc::new(AtomicU64::new(600)),
             status: Arc::new(Mutex::new(VoiceStatus {
                 muted: false,
                 down: None,
             })),
             emitter: Arc::new(RecEmitter(recorder)),
         };
+        assert_eq!(voice.settle_ms(), 600);
+        voice.set_settle_ms(350);
+        assert_eq!(voice.settle_ms(), 350);
         voice
             .speak_brain_answer("Use three silent landings.")
             .unwrap();
@@ -2829,12 +3222,144 @@ mod tests {
             }
             ActionMessage::Transcript(_)
             | ActionMessage::FastPath(_)
-            | ActionMessage::Partial(_) => {
+            | ActionMessage::Partial(_)
+            | ActionMessage::Shutdown => {
                 panic!("expected a brain speech message")
             }
         }
         assert!(voice.speak_brain_answer("").is_err());
         assert!(voice.speak_brain_answer(&"x".repeat(4_001)).is_err());
+    }
+
+    #[test]
+    fn listen_back_capture_leases_release_and_restore_the_native_process_once() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let unique = TEST_PIECE_SEQ.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir();
+        let script = dir.join(format!(
+            "fake_hear_capture_{}_{}.sh",
+            std::process::id(),
+            unique
+        ));
+        let pid_log = dir.join(format!(
+            "fake_hear_capture_{}_{}.pids",
+            std::process::id(),
+            unique
+        ));
+        {
+            let mut file = std::fs::File::create(&script).unwrap();
+            writeln!(file, "#!/bin/sh").unwrap();
+            writeln!(file, "echo $$ >> \"$CK_CAPTURE_PID_LOG\"").unwrap();
+            writeln!(file, "trap 'exit 0' TERM").unwrap();
+            writeln!(file, "while :; do sleep 1; done").unwrap();
+            let mut permissions = file.metadata().unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&script, permissions).unwrap();
+        }
+
+        let rec = Arc::new(Recorder::default());
+        let ctx = test_ctx(&rec);
+        let mut config = SttConfig::hear(script.clone());
+        config.args.clear();
+        config.use_stdbuf = false;
+        config.env.insert(
+            "CK_CAPTURE_PID_LOG".into(),
+            pid_log.to_string_lossy().into_owned(),
+        );
+        let voice = VoiceLoop::start_with(
+            Arc::new(RecEmitter(rec.clone())),
+            ctx.metro,
+            ctx.store,
+            ctx.rep,
+            ctx.sessions,
+            config,
+            None,
+            move |_m, _g, _mu, _cs, _sm| Box::new(RecConfirm(rec)),
+        );
+
+        let read_pids = || -> Vec<i32> {
+            std::fs::read_to_string(&pid_log)
+                .unwrap_or_default()
+                .lines()
+                .filter_map(|line| line.parse().ok())
+                .collect()
+        };
+        let wait_for_pid_count = |count: usize| -> Vec<i32> {
+            for _ in 0..100 {
+                let pids = read_pids();
+                if pids.len() >= count {
+                    return pids;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            panic!("fake recognizer did not reach spawn count {count}");
+        };
+
+        let original_pid = wait_for_pid_count(1)[0];
+        assert!(!voice.resume_capture("already-unmounted").unwrap());
+        assert_eq!(
+            voice.suspend_capture("already-unmounted").unwrap(),
+            0,
+            "a late suspend cannot outrun an unmount release"
+        );
+        assert_eq!(read_pids().len(), 1);
+        // User mute is independent state and must survive the physical capture
+        // handoff exactly as it was.
+        voice.set_muted(true);
+        let first = voice.suspend_capture("review-a").unwrap();
+        assert_eq!(
+            voice.suspend_capture("review-a").unwrap(),
+            first,
+            "a lost suspend reply can retry without leaking another lease"
+        );
+        let second = voice.suspend_capture("review-b").unwrap();
+        assert!(second > first, "overlapping owners receive ordered epochs");
+        assert!(voice.capture_suspended.load(Ordering::Acquire));
+        assert_eq!(
+            unsafe { libc::kill(original_pid, 0) },
+            -1,
+            "suspend must terminate and reap the process that owned the mic"
+        );
+
+        assert!(!voice.resume_capture("review-a").unwrap());
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(read_pids().len(), 1, "one live lease keeps capture down");
+        assert!(voice.resume_capture("review-b").unwrap());
+        let pids = wait_for_pid_count(2);
+        assert_ne!(pids[0], pids[1], "resume starts a fresh recognizer owner");
+        assert!(voice.state().muted, "review must preserve the user's mute");
+        assert!(
+            !voice.gate.load(Ordering::Acquire),
+            "a resumed recognizer stays gated while the user remains muted"
+        );
+
+        assert!(
+            !voice.resume_capture("review-b").unwrap(),
+            "a duplicate/stale release cannot restart capture again"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(read_pids().len(), 2, "capture was restored exactly once");
+
+        voice.set_muted(false);
+        assert!(voice.gate.load(Ordering::Acquire));
+        voice.shutdown();
+        let _ = std::fs::remove_file(&script);
+        let _ = std::fs::remove_file(&pid_log);
+    }
+
+    #[test]
+    fn capture_suspension_drops_a_queued_tail_before_it_can_act() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.capture_suspended.store(true, Ordering::Release);
+        ctx.handle_final(&final_t("metronome ninety six"));
+        assert!(!ctx.metro.snapshot().running);
+        assert!(
+            rec.events.lock().unwrap().is_empty(),
+            "a final already queued at the capture boundary stays inert"
+        );
     }
 
     #[test]
@@ -3099,7 +3624,7 @@ mod tests {
         assert!(rec.said.lock().unwrap().is_empty());
 
         rep(&mut ctx, "again"); // a miss: streak reset — news
-        assert_eq!(rec.chimes(), 1, "a miss does not chime");
+        assert_eq!(rec.chimes(), 2, "a miss chimes immediately before detail");
         assert_eq!(
             rec.said.lock().unwrap().len(),
             1,
@@ -3109,9 +3634,9 @@ mod tests {
 
         rep(&mut ctx, "done"); // 1 of 4
         rep(&mut ctx, "done"); // 2 of 4
-        assert_eq!(rec.chimes(), 3, "routine cleans keep chiming");
+        assert_eq!(rec.chimes(), 4, "every verdict chimes");
         rep(&mut ctx, "done"); // 3 of 4 — one away, the "three in a row" cue
-        assert_eq!(rec.chimes(), 3, "the one-away rep speaks instead");
+        assert_eq!(rec.chimes(), 5, "one-away chimes, then speaks");
         rep(&mut ctx, "done"); // 4 of 4 — mastery
         let said = rec.said.lock().unwrap();
         assert_eq!(said.len(), 3, "miss + one-away + mastery: {said:?}");
@@ -3119,6 +3644,78 @@ mod tests {
             said.last().unwrap().starts_with("Mastery earned"),
             "said: {said:?}"
         );
+    }
+
+    #[test]
+    fn default_off_rep_ack_is_one_immediate_chime_with_no_spoken_followup() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        ctx.speaker = Box::new(QuietRecConfirm(rec.clone()));
+        open_test_block(&ctx);
+        ctx.handle_final(&final_t("again"));
+        assert_eq!(rec.chimes(), 1);
+        assert!(rec.said.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn voice_can_add_and_undo_counted_reps_through_the_native_engine() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        open_test_block(&ctx);
+        let at = Instant::now();
+
+        ctx.handle_final(&final_at("add three cleans", at));
+        let added = ctx.rep.snapshot().unwrap();
+        assert_eq!(added.tries, 3);
+        assert_eq!(added.attempts_recorded, 3);
+        assert_eq!(added.verdicts.clean, 3);
+        let add_event = rec
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(event, payload)| {
+                event == "voice://intent" && payload["kind"] == json!("rep_add")
+            })
+            .cloned()
+            .expect("counted add intent");
+        assert_eq!(add_event.1["count"], json!(3));
+
+        ctx.handle_final(&final_at("take two back", at + Duration::from_secs(3)));
+        let undone = ctx.rep.snapshot().unwrap();
+        assert_eq!(undone.attempts_recorded, 3, "undo stays append-only");
+        assert_eq!(undone.tries, 1);
+        assert_eq!(undone.voided_attempts, 2);
+        assert_eq!(undone.verdicts.clean, 1);
+        let undo_event = rec
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(event, payload)| {
+                event == "voice://intent" && payload["kind"] == json!("rep_undo")
+            })
+            .cloned()
+            .expect("counted undo intent");
+        assert_eq!(undo_event.1["count"], json!(2));
+        assert_eq!(rec.chimes(), 2, "one immediate chime per spoken command");
+    }
+
+    #[test]
+    fn counted_undo_rejects_without_partially_mutating_the_set() {
+        let rec = Arc::new(Recorder::default());
+        let mut ctx = test_ctx(&rec);
+        open_test_block(&ctx);
+        let at = Instant::now();
+        ctx.handle_final(&final_at("count that", at));
+        ctx.handle_final(&final_at("take two back", at + Duration::from_secs(3)));
+
+        let snap = ctx.rep.snapshot().unwrap();
+        assert_eq!(snap.tries, 1);
+        assert_eq!(snap.voided_attempts, 0);
+        assert!(rec.events.lock().unwrap().iter().any(|(event, payload)| {
+            event == "voice://intent" && payload["kind"] == json!("rep_undo_rejected")
+        }));
     }
 
     #[test]
@@ -3176,7 +3773,7 @@ mod tests {
             sessions,
             cfg,
             None,
-            move |_m, _g, _mu, _sm| Box::new(RecConfirm(rec_for_speaker)),
+            move |_m, _g, _mu, _cs, _sm| Box::new(RecConfirm(rec_for_speaker)),
         );
 
         // Poll until the metronome starts (or time out).
@@ -3275,7 +3872,7 @@ mod tests {
             sessions,
             cfg,
             None,
-            move |_m, _g, _mu, _sm| Box::new(RecConfirm(rec_for_speaker)),
+            move |_m, _g, _mu, _cs, _sm| Box::new(RecConfirm(rec_for_speaker)),
         );
 
         // Poll until both reps are recorded (or time out ~15s covering the sleeps).
@@ -3323,7 +3920,7 @@ mod tests {
                 .any(|s| s == "Attempt 2 saved — clean. Rung 2 of 3."),
             "the one-away rep still speaks: {said:?}"
         );
-        assert_eq!(rec.chimes(), 1, "exactly the routine rep chimed");
+        assert_eq!(rec.chimes(), 2, "both verdicts chime immediately");
     }
 
     /// LIVE on-device smoke (needs an output device + `say`): fake `hear` →
@@ -3375,11 +3972,15 @@ mod tests {
             sessions,
             cfg,
             None,
-            |m, g, mu, sm| {
+            |m, g, mu, cs, sm| {
                 let provider: Box<dyn crate::tts::TtsProvider> =
                     Box::new(crate::tts::say::SayTts::new());
                 let sink: Arc<dyn PcmSink> = Arc::new(MetroSink(m));
-                let gate: Arc<dyn Gate> = Arc::new(AtomicGate { gate: g, muted: mu });
+                let gate: Arc<dyn Gate> = Arc::new(AtomicGate {
+                    gate: g,
+                    muted: mu,
+                    capture_suspended: cs,
+                });
                 let config = SpeakerConfig::default();
                 Box::new(AckPlayer {
                     speaker: Speaker::spawn(provider, sink.clone(), gate.clone(), config.clone()),
@@ -3605,7 +4206,7 @@ mod tests {
             sessions,
             cfg,
             None,
-            move |_m, _g, _mu, _sm| {
+            move |_m, _g, _mu, _cs, _sm| {
                 // A slow provider-builder: sleeps well past the 50ms budget.
                 std::thread::sleep(Duration::from_millis(500));
                 Box::new(RecConfirm(rec)) as Box<dyn Confirm>
@@ -3631,9 +4232,11 @@ mod tests {
         // reopens it.
         let gate = Arc::new(AtomicBool::new(false)); // closed, as if speech is in flight
         let muted = Arc::new(AtomicBool::new(false));
+        let capture_suspended = Arc::new(AtomicBool::new(false));
         let ag = AtomicGate {
             gate: gate.clone(),
             muted: muted.clone(),
+            capture_suspended: capture_suspended.clone(),
         };
 
         // User mutes mid-utterance.

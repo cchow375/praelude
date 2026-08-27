@@ -575,6 +575,86 @@ describe("ScoreView", () => {
     );
   });
 
+  it("scopes PDF browsing and anchored sections to the selected movement", async () => {
+    const anchored = (id: number, name: string, page: number) => ({
+      id,
+      piece_id: 7,
+      name,
+      notes: null,
+      m_start: id * 10,
+      m_end: id * 10 + 2,
+      kind: "hard_spot",
+      order: id,
+      color: null,
+      pdf_anchor: {
+        v: 1 as const,
+        editions: {
+          urtext: {
+            fingerprint: "a",
+            rects: [{ page, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+          },
+        },
+      },
+    });
+    const api = makeApi({
+      movements: vi.fn().mockResolvedValue([
+        {
+          id: 1,
+          piece_id: 7,
+          title: "I · Allegro",
+          start_page: 1,
+          display_order: 0,
+        },
+        {
+          id: 2,
+          piece_id: 7,
+          title: "II · Largo",
+          start_page: 3,
+          display_order: 1,
+        },
+        {
+          id: 3,
+          piece_id: 7,
+          title: "III · Presto",
+          start_page: 6,
+          display_order: 2,
+        },
+      ]),
+      regions: vi
+        .fn()
+        .mockResolvedValue([
+          anchored(1, "Opening call", 1),
+          anchored(2, "Largo cadence", 4),
+        ]),
+    });
+
+    render(<ScoreView pieceId={7} api={api} adapter={makePdf(8).adapter} />);
+
+    const movement = await screen.findByRole("combobox", {
+      name: "Score movement",
+    });
+    await waitFor(() =>
+      expect((movement as HTMLSelectElement).value).toBe("1"),
+    );
+    expect(screen.getByText("Opening call")).toBeTruthy();
+    expect(screen.queryByText("Largo cadence")).toBeNull();
+
+    fireEvent.change(movement, { target: { value: "2" } });
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Page number") as HTMLInputElement).value,
+      ).toBe("3"),
+    );
+    expect(await screen.findByText("Largo cadence")).toBeTruthy();
+    expect(screen.queryByText("Opening call")).toBeNull();
+    expect(screen.getByText(/of 5 · pp\. 3–5/)).toBeTruthy();
+
+    fireEvent.change(movement, { target: { value: "" } });
+    await waitFor(() => expect(screen.getByText("Opening call")).toBeTruthy());
+    expect(screen.getByText("Largo cadence")).toBeTruthy();
+    expect(screen.getByText("of 8")).toBeTruthy();
+  });
+
   it("offers whole-page, two-page, slider, and section visibility controls", async () => {
     render(
       <ScoreView pieceId={7} api={makeApi()} adapter={makePdf(2).adapter} />,
@@ -803,7 +883,7 @@ describe("ScoreView", () => {
     fireEvent.change(screen.getByLabelText("Tricky section title"), {
       target: { value: "LH leap" },
     });
-    fireEvent.change(screen.getByLabelText("Tricky section practice notes"), {
+    fireEvent.change(screen.getByLabelText("Tricky section sound target"), {
       target: { value: "Look before landing" },
     });
     fireEvent.change(screen.getByLabelText("Tricky section start measure"), {
@@ -2450,16 +2530,16 @@ describe("ScoreView measure mapping", () => {
           /Drag a small box inside Rolled Chords on the score\. Esc to cancel\./i,
         ),
       ).toBeTruthy();
-      expect(
-        window.document.querySelector(".score-view")?.className,
-      ).toContain("is-spot-armed");
+      expect(window.document.querySelector(".score-view")?.className).toContain(
+        "is-spot-armed",
+      );
 
       fireEvent.keyDown(window, { key: "Escape" });
       await waitFor(() =>
         expect(
-          screen.getByRole("button", { name: "⊕ Isolate a spot" }).getAttribute(
-            "aria-pressed",
-          ),
+          screen
+            .getByRole("button", { name: "⊕ Isolate a spot" })
+            .getAttribute("aria-pressed"),
         ).toBe("false"),
       );
       expect(
@@ -2531,9 +2611,7 @@ describe("ScoreView measure mapping", () => {
       const api = makeApi({
         regions: vi.fn().mockResolvedValue([spotParent()]),
       });
-      render(
-        <ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />,
-      );
+      render(<ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />);
       await screen.findByLabelText("Score page 1");
       await selectParent();
       await dragOnPageOne();
@@ -2562,9 +2640,7 @@ describe("ScoreView measure mapping", () => {
             editions: {
               urtext: {
                 fingerprint: "a",
-                rects: [
-                  { page: 1, x: 0.1, y: 0.125, w: 0.4, h: 0.375 },
-                ],
+                rects: [{ page: 1, x: 0.1, y: 0.125, w: 0.4, h: 0.375 }],
               },
             },
           },
@@ -2575,9 +2651,11 @@ describe("ScoreView measure mapping", () => {
       expect(
         screen.queryByLabelText("New score tricky section title"),
       ).toBeNull();
-      expect(screen.queryByRole("tab", { name: "Score marks" })?.getAttribute(
-        "aria-selected",
-      )).not.toBe("true");
+      expect(
+        screen
+          .queryByRole("tab", { name: "Score marks" })
+          ?.getAttribute("aria-selected"),
+      ).not.toBe("true");
     });
 
     it("C2: uses exactly one atomic write for linkage, colour, range, and dragged anchor", async () => {
@@ -2585,9 +2663,7 @@ describe("ScoreView measure mapping", () => {
       const api = makeApi({
         regions: vi.fn().mockResolvedValue([spotParent()]),
       });
-      render(
-        <ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />,
-      );
+      render(<ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />);
       await screen.findByLabelText("Score page 1");
       await selectParent();
       await dragOnPageOne();
@@ -2603,6 +2679,46 @@ describe("ScoreView measure mapping", () => {
         invokeMock.mock.calls.some(([cmd]) => cmd === "region_create"),
       ).toBe(false);
       expect(api.updateRegion).not.toHaveBeenCalled();
+    });
+
+    it("C2: replays the same command identity once when a committed response is lost", async () => {
+      let attempt = 0;
+      invokeMock.mockImplementation((command: string, payload?: unknown) => {
+        if (command !== "score_micro_target_create") {
+          return Promise.resolve(undefined);
+        }
+        attempt += 1;
+        const args = (payload as { args: Record<string, unknown> }).args;
+        if (attempt === 1) return Promise.reject(new Error("response lost"));
+        return Promise.resolve(
+          spotChild({ ...args, id: 99, notes: null, kind: "hard_spot" }),
+        );
+      });
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({ regions: vi.fn().mockResolvedValue([spotParent()]) })}
+          adapter={makePdf(1).adapter}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+      await dragOnPageOne();
+
+      await waitFor(() =>
+        expect(
+          invokeMock.mock.calls.filter(
+            ([cmd]) => cmd === "score_micro_target_create",
+          ),
+        ).toHaveLength(2),
+      );
+      const payloads = invokeMock.mock.calls
+        .filter(([cmd]) => cmd === "score_micro_target_create")
+        .map(([, payload]) => payload as { args: { command_id: string } });
+      expect(payloads[0].args.command_id).toMatch(
+        /^ui:score-micro-target:/,
+      );
+      expect(payloads[1].args.command_id).toBe(payloads[0].args.command_id);
     });
 
     it("C2: an armed drag outside the parent creates nothing, stays armed, and explains why", async () => {
@@ -2625,9 +2741,7 @@ describe("ScoreView measure mapping", () => {
           }),
         ]),
       });
-      render(
-        <ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />,
-      );
+      render(<ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />);
       await screen.findByLabelText("Score page 1");
       await selectParent();
 
@@ -2642,9 +2756,11 @@ describe("ScoreView measure mapping", () => {
         await screen.findByText(/Keep the whole box inside Rolled Chords/),
       ).toBeTruthy();
       expect(
-        screen.getByRole("button", {
-          name: "Cancel — drag inside Rolled Chords",
-        }).getAttribute("aria-pressed"),
+        screen
+          .getByRole("button", {
+            name: "Cancel — drag inside Rolled Chords",
+          })
+          .getAttribute("aria-pressed"),
       ).toBe("true");
       expect(
         screen.queryByLabelText("New score tricky section title"),
@@ -2785,9 +2901,7 @@ describe("ScoreView measure mapping", () => {
           editions: {
             urtext: {
               fingerprint: "a",
-              rects: [
-                { page: 19, x: 0.1, y: 0.81, w: 0.08, h: 0.08 },
-              ],
+              rects: [{ page: 19, x: 0.1, y: 0.81, w: 0.08, h: 0.08 }],
             },
           },
         },
@@ -3101,11 +3215,13 @@ describe("ScoreView measure mapping", () => {
         <ScoreView
           pieceId={7}
           api={makeApi({
-            regions: vi.fn().mockResolvedValue([
-              spotParent(),
-              spotChild(),
-              spotChild({ id: 56, name: "Spot 2" }),
-            ]),
+            regions: vi
+              .fn()
+              .mockResolvedValue([
+                spotParent(),
+                spotChild(),
+                spotChild({ id: 56, name: "Spot 2" }),
+              ]),
             blocks,
           })}
           adapter={makePdf(1).adapter}

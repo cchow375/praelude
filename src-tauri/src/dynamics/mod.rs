@@ -105,7 +105,8 @@ impl SharedLevels {
     #[inline(always)]
     pub fn publish(&self, rms_db: f32, peak_db: f32) {
         self.rms_db_bits.store(rms_db.to_bits(), Ordering::Relaxed);
-        self.peak_db_bits.store(peak_db.to_bits(), Ordering::Relaxed);
+        self.peak_db_bits
+            .store(peak_db.to_bits(), Ordering::Relaxed);
         self.seq.fetch_add(1, Ordering::Release);
     }
 
@@ -573,7 +574,7 @@ mod tests {
     #[test]
     fn rms_ring_peak_decays_once_the_loud_sample_leaves_the_window() {
         let mut ring = RmsRing::new(1_000, 10); // 10 samples
-        // One bang, then silence for a full window.
+                                                // One bang, then silence for a full window.
         let loud = ring.push(1.0, 1.0);
         assert!((loud.1 - 0.0).abs() < 0.01, "peak {} want 0 dBFS", loud.1);
         let mut last = loud;

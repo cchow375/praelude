@@ -214,6 +214,19 @@ describe("pieceAttention", () => {
   it("cannot judge staleness without a reference stamp", () => {
     expect(pieceAttention(piece({ last_practiced: iso(90) }), null)).toBeNull();
   });
+
+  it("keeps archived history out of active attention", () => {
+    expect(
+      pieceAttention(
+        piece({
+          archived_at: 1_787_000_000,
+          last_practiced: null,
+          open_recovery_debt: 4,
+        }),
+        NOW,
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("attentionList", () => {

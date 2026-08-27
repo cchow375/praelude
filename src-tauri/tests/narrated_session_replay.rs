@@ -42,7 +42,9 @@ mod replay_common;
 
 use codakiller_lib::intent::{Intent, Verdict};
 use codakiller_lib::protocol::MasteryStatus;
-use replay_common::{assert_full_session_replay, load, Classification, Outcome, SessionReplay, StateCheckpoint};
+use replay_common::{
+    assert_full_session_replay, load, Classification, Outcome, SessionReplay, StateCheckpoint,
+};
 
 // ---------------------------------------------------------------------------
 // Griffes: the proving fixture (79 real ordered segments).
@@ -61,13 +63,16 @@ fn griffes_session_replays_with_zero_false_mutations() {
     assert_eq!(fx.session_id, "griffes");
     assert_eq!(fx.piece_alias_hint.as_deref(), Some("Griffes"));
     assert_eq!(
-        fx.source_wav_sha256,
-        "48f2780ce73b70bca71783a82890e88a5a29d5a20fab667042a2f16922a1b42b",
+        fx.source_wav_sha256, "48f2780ce73b70bca71783a82890e88a5a29d5a20fab667042a2f16922a1b42b",
         "WAV hash must match the corpus manifest"
     );
     assert!(fx.source_narration_json.ends_with("griffes_narration.json"));
     assert!(!fx.honesty_note.trim().is_empty());
-    assert_eq!(fx.segment_count, fx.segments.len(), "declared count matches");
+    assert_eq!(
+        fx.segment_count,
+        fx.segments.len(),
+        "declared count matches"
+    );
     assert_eq!(fx.segments.len(), 79, "griffes has 79 narration segments");
 
     let replay = assert_full_session_replay(&fx);
@@ -190,7 +195,10 @@ fn stateful_rep_flow_collapses_resends_resets_streak_and_masters_by_contract() {
 
     // Five consecutive cleans after the reset master the block on the FIFTH — by
     // the declared consecutive-clean(5) contract, not merely attempt count.
-    for (i, at) in [30_000, 35_000, 40_000, 45_000, 50_000].into_iter().enumerate() {
+    for (i, at) in [30_000, 35_000, 40_000, 45_000, 50_000]
+        .into_iter()
+        .enumerate()
+    {
         assert!(matches!(r.drive("done", at), Outcome::Acted(_)));
         let expected_streak = (i + 1) as u32;
         assert_eq!(r.current_clean_streak(), expected_streak);
@@ -211,7 +219,10 @@ fn stateful_rep_flow_collapses_resends_resets_streak_and_masters_by_contract() {
 
     // Mastery does not auto-close; an explicit close ends the block (contract:
     // block completion is explicit).
-    assert!(matches!(r.drive("close the block", 55_000), Outcome::Acted(Intent::RepClose)));
+    assert!(matches!(
+        r.drive("close the block", 55_000),
+        Outcome::Acted(Intent::RepClose)
+    ));
     assert!(!r.block_is_open());
 }
 
@@ -245,7 +256,10 @@ fn live_mode_is_threaded_between_segments() {
         Outcome::Acted(Intent::RepCheck(Verdict::Pass, None))
     ));
     // A bare stop now stops the metronome (it is running).
-    assert!(matches!(r.drive("stop", 4_000), Outcome::Acted(Intent::MetroStop)));
+    assert!(matches!(
+        r.drive("stop", 4_000),
+        Outcome::Acted(Intent::MetroStop)
+    ));
     assert!(!r.metro_running());
     // ...and once stopped, a second bare stop is inert again.
     assert_eq!(r.drive("stop", 5_000), Outcome::Ignored);

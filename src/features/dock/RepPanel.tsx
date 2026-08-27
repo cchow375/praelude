@@ -7,6 +7,7 @@ import {
   NAV_RAIL_WIDTH,
 } from "./dockState";
 import { RepHud, type RepHudProps } from "../rep/RepHud";
+import { HeardPill, type HeardDelivery } from "../voice/HeardPill";
 
 /** Fix wave item 9: the previous `x: 24` sat INSIDE the 148px-wide nav rail
  * (shell.css), so an auto-opened rep panel covered it. `NAV_RAIL_WIDTH + s-3`
@@ -124,7 +125,10 @@ export const ASSUMED_MAX_HEIGHT = dockPanelMaxHeight(
  * `set_state` (never on every render), so a panel the user minimized mid-set
  * stays minimized. Shows a subdued empty state when no set is active.
  */
-export function RepPanel(props: RepHudProps) {
+export function RepPanel({
+  heardDelivery = null,
+  ...props
+}: RepHudProps & { heardDelivery?: HeardDelivery | null }) {
   const dock = useDock("rep");
   const wasActive = useRef(false);
 
@@ -152,6 +156,7 @@ export function RepPanel(props: RepHudProps) {
       ) : (
         <p className="dock-empty-state">No active set</p>
       )}
+      <HeardPill delivery={heardDelivery} />
     </DockPanel>
   );
 }

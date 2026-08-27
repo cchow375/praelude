@@ -107,6 +107,7 @@ export function pieceAttention(
   piece: UniversePiece,
   reference: string | null | undefined,
 ): Attention | null {
+  if (piece.archived_at != null) return null;
   const debt = piece.open_recovery_debt ?? 0;
   if (debt > 0) {
     return {

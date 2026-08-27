@@ -10,6 +10,10 @@ import type { RepOpenArgs } from "../rep/useRep";
 import type { PieceDetailData } from "./types";
 import { PieceDetail } from "./PieceDetail";
 
+const invokeMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
+}));
 vi.mock("../rep/useCrud", () => ({
   useCrud: () => ({
     pieceFieldUpdate: vi.fn(),
@@ -21,6 +25,7 @@ vi.mock("../references/ReferenceButtons", () => ({
   ReferenceButtons: () => null,
 }));
 vi.mock("../score/ScoreView", () => ({ ScoreView: () => null }));
+vi.mock("./MovementEditor", () => ({ MovementEditor: () => null }));
 vi.mock("../notebook/usePiecePlan", () => ({
   usePiecePlan: () => ({
     bodyText: "",
@@ -84,6 +89,31 @@ const piece: PieceDetailData = {
 afterEach(cleanup);
 
 describe("PieceDetail block-open history revision", () => {
+  it("archives the library record reversibly without deleting score files", async () => {
+    invokeMock.mockClear();
+    const onArchived = vi.fn();
+    const onBack = vi.fn();
+    render(
+      <PieceDetail
+        piece={piece}
+        onBack={onBack}
+        onOpenBlock={vi.fn()}
+        onArchived={onArchived}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("piece_archive_set", {
+        id: 7,
+        archived: true,
+      }),
+    );
+    expect(onArchived).toHaveBeenCalledWith(7);
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
   it("provides keyboard navigation and tabpanel semantics for Score and Details", async () => {
     render(
       <PieceDetail

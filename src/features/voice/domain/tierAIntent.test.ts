@@ -279,8 +279,8 @@ describe("Tier A parser boundaries", () => {
 
   it("gates duplicate confirmation, correction, and retention on explicit state", () => {
     expect(parseTierAIntent(delivery("count that"), ACTIVE)).toMatchObject({
-      classification: "rejected",
-      reason: "no_pending_attempt",
+      classification: "matched",
+      intent: { kind: "add_clean_reps", count: 1 },
     });
     expect(
       parseTierAIntent(delivery("count that"), {
@@ -303,6 +303,43 @@ describe("Tier A parser boundaries", () => {
     expect(parseTierAIntent(delivery("reopen target"), ACTIVE)).toMatchObject({
       classification: "rejected",
       reason: "retention_not_due",
+    });
+  });
+
+  it.each([
+    ["add a clean", "add_clean_reps", 1],
+    ["add two cleans", "add_clean_reps", 2],
+    ["take one back", "undo_last_attempt", 1],
+    ["take three away", "undo_last_attempt", 3],
+    ["remove two reps", "undo_last_attempt", 2],
+    ["undo four reps", "undo_last_attempt", 4],
+  ])("routes the bounded multi-word rep adjustment %s", (text, kind, count) => {
+    expect(parseTierAIntent(delivery(text), ACTIVE)).toMatchObject({
+      classification: "matched",
+      intent: { kind, count },
+    });
+  });
+
+  it.each([
+    "add two cleans to the plan",
+    "take one back to the store",
+    "undo that thought",
+    "remove reps",
+  ])("keeps adjustment-shaped conversation inert: %s", (text) => {
+    expect(parseTierAIntent(delivery(text), ACTIVE)).toMatchObject({
+      classification: "ignored",
+    });
+  });
+
+  it.each([
+    ["mark done", "clean"],
+    ["rep done", "clean"],
+    ["mark sloppy", "flawed"],
+    ["mark again", "miss"],
+  ])("accepts approved two-word verdict phrase %s", (text, verdict) => {
+    expect(parseTierAIntent(delivery(text), ACTIVE)).toMatchObject({
+      classification: "matched",
+      intent: { kind: "record_attempt", verdict },
     });
   });
 

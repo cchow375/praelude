@@ -298,3 +298,30 @@ export function useDock(id: string): {
     isMinimized: panel?.minimized ?? false,
   };
 }
+
+/**
+ * The same panel-scoped controls when a feature may also be rendered in a
+ * standalone harness. Production Shell always supplies DockProvider; returning
+ * null here keeps read-only workspaces independently renderable in tests and
+ * browser fixtures without creating a second fake provider.
+ */
+export function useOptionalDock(id: string): {
+  open: () => void;
+  close: () => void;
+  minimize: () => void;
+  flash: () => void;
+  isOpen: boolean;
+  isMinimized: boolean;
+} | null {
+  const ctx = useContext(DockContext);
+  if (!ctx) return null;
+  const panel = ctx.state[id];
+  return {
+    open: () => ctx.open(id),
+    close: () => ctx.close(id),
+    minimize: () => ctx.minimize(id),
+    flash: () => ctx.flash(id),
+    isOpen: panel?.open ?? false,
+    isMinimized: panel?.minimized ?? false,
+  };
+}

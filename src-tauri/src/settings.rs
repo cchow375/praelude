@@ -61,6 +61,9 @@ pub struct VerdictAliases {
 /// validation. The two differ for different reasons, so the relationship is
 /// pinned at COMPILE time below rather than asserted at runtime (fix-wave S1).
 pub const STREAK_THRESHOLD_MAX_MINUTES: u32 = 240;
+pub const STT_SETTLE_DEFAULT_MS: u32 = 600;
+pub const STT_SETTLE_MIN_MS: u32 = 300;
+pub const STT_SETTLE_MAX_MS: u32 = 2_000;
 
 const _: () = assert!(
     STREAK_THRESHOLD_MAX_MINUTES as i64 <= crate::store::STREAK_THRESHOLD_DEFENSIVE_MAX_MINUTES,
@@ -84,6 +87,8 @@ pub struct SettingsSnapshot {
     /// say again or restart sets"). Off does not mean silent — the ack chime
     /// still plays, so a command he speaks still answers back.
     pub speak_acks: bool,
+    /// Quiet gap used to turn progressive hypotheses into a final transcript.
+    pub stt_settle_ms: u32,
     pub metronome_sound: String,
     pub metronome_boost: bool,
     pub metronome_boost_level: u8,
@@ -122,6 +127,7 @@ pub struct SettingsPatch {
     pub wake_word_enabled: Option<bool>,
     pub wake_word: Option<String>,
     pub speak_acks: Option<bool>,
+    pub stt_settle_ms: Option<u32>,
     pub metronome_sound: Option<String>,
     pub metronome_boost: Option<bool>,
     pub metronome_boost_level: Option<u8>,
@@ -167,6 +173,7 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
         wake_word_enabled: boolean(store, "voice.wake_word_enabled", false),
         wake_word,
         speak_acks: speak_acks(store),
+        stt_settle_ms: stt_settle_ms(store),
         metronome_sound: choice(store, "metronome.sound", "woodblock", SOUNDS),
         metronome_boost: boolean(store, "metronome.boost", false),
         metronome_boost_level: integer(store, "metronome.boost_level", 85, 0, 100) as u8,
@@ -217,6 +224,16 @@ pub fn speak_acks(store: &Store) -> bool {
     boolean(store, "voice.speak_acks", false)
 }
 
+pub fn stt_settle_ms(store: &Store) -> u32 {
+    integer(
+        store,
+        "stt.settle_ms",
+        STT_SETTLE_DEFAULT_MS,
+        STT_SETTLE_MIN_MS,
+        STT_SETTLE_MAX_MS,
+    )
+}
+
 pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, String> {
     let current = snapshot(store);
     let mut writes = Vec::<(&str, String)>::new();
@@ -263,6 +280,18 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
     }
     if let Some(value) = patch.speak_acks {
         writes.push(("voice.speak_acks", value.to_string()));
+    }
+    if let Some(value) = patch.stt_settle_ms {
+        writes.push((
+            "stt.settle_ms",
+            bounded(
+                value,
+                STT_SETTLE_MIN_MS,
+                STT_SETTLE_MAX_MS,
+                "Voice settle delay",
+            )?
+            .to_string(),
+        ));
     }
     if let Some(value) = patch.wake_word {
         writes.push(("voice.wake_word", validate_wake_word(&value)?));
@@ -684,6 +713,7 @@ mod tests {
             !value.speak_acks,
             "spoken acks are OFF by default — Christian asked for the narration to stop"
         );
+        assert_eq!(value.stt_settle_ms, STT_SETTLE_DEFAULT_MS);
         assert_eq!(value.demote_first, 3);
         assert_eq!(value.demote_repeat, 2);
         assert!(value
@@ -726,6 +756,34 @@ mod tests {
     }
 
     #[test]
+    fn stt_settle_delay_is_bounded_persisted_and_defaults_safely() {
+        let store = Store::open(":memory:").unwrap();
+        assert_eq!(stt_settle_ms(&store), 600);
+        store.set_setting("stt.settle_ms", "299").unwrap();
+        assert_eq!(stt_settle_ms(&store), 600, "bad disk value falls back");
+        let saved = update(
+            &store,
+            SettingsPatch {
+                stt_settle_ms: Some(350),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(saved.stt_settle_ms, 350);
+        assert_eq!(stt_settle_ms(&store), 350);
+        for invalid in [299, 2_001] {
+            assert!(update(
+                &store,
+                SettingsPatch {
+                    stt_settle_ms: Some(invalid),
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
     fn update_validates_then_writes_as_one_typed_projection() {
         let store = Store::open(":memory:").unwrap();
         let result = update(
@@ -740,6 +798,7 @@ mod tests {
                 ladder_bpm_step: Some(6),
                 calendar_capacity_minutes: Some(90),
                 speak_acks: Some(true),
+                stt_settle_ms: Some(400),
                 demote_enabled: Some(false),
                 demote_first: Some(4),
                 demote_repeat: Some(3),
@@ -756,6 +815,7 @@ mod tests {
         assert_eq!(result.ladder_bpm_step, 6);
         assert_eq!(result.calendar_capacity_minutes, 90);
         assert!(result.speak_acks, "the patch round-trips through the store");
+        assert_eq!(result.stt_settle_ms, 400);
         assert!(!result.demote_enabled);
         assert_eq!(result.demote_first, 4);
         assert_eq!(result.demote_repeat, 3);

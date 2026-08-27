@@ -39,7 +39,7 @@ const other: Region = {
 describe("RegionEditor", () => {
   beforeEach(() => invokeMock.mockReset().mockResolvedValue(region));
 
-  it("saves the canonical title, practice notes, and measures in one region_update", async () => {
+  it("saves the canonical title, Sound target, and measures in one region_update", async () => {
     render(
       <RegionEditor
         region={region}
@@ -51,7 +51,7 @@ describe("RegionEditor", () => {
     fireEvent.change(screen.getByLabelText("Tricky section title"), {
       target: { value: "bridge" },
     });
-    fireEvent.change(screen.getByLabelText("Tricky section practice notes"), {
+    fireEvent.change(screen.getByLabelText("Tricky section sound target"), {
       target: { value: "Read ahead" },
     });
     fireEvent.change(screen.getByLabelText("Tricky section start measure"), {
@@ -131,7 +131,7 @@ describe("RegionEditor", () => {
         onChanged={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Tricky section practice notes"), {
+    fireEvent.change(screen.getByLabelText("Tricky section sound target"), {
       target: { value: "New cue" },
     });
     fireEvent.click(screen.getByText("Save section"));
@@ -148,7 +148,7 @@ describe("RegionEditor", () => {
     );
   });
 
-  it("sends null when practice notes are deliberately cleared", async () => {
+  it("sends null when the Sound target is deliberately cleared", async () => {
     render(
       <RegionEditor
         region={region}
@@ -157,7 +157,7 @@ describe("RegionEditor", () => {
         onChanged={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Tricky section practice notes"), {
+    fireEvent.change(screen.getByLabelText("Tricky section sound target"), {
       target: { value: "" },
     });
     fireEvent.click(screen.getByText("Save section"));
@@ -321,6 +321,46 @@ describe("RegionEditor", () => {
         (item) => item.textContent,
       ),
     ).toEqual(["Earlier", "Later"]);
+  });
+
+  it("groups anchored sections under PDF movements and keeps unmapped work visible", async () => {
+    const anchored = {
+      ...region,
+      id: 12,
+      name: "Second movement color",
+      pdf_anchor: {
+        v: 1 as const,
+        editions: {
+          urtext: {
+            fingerprint: "fp",
+            rects: [{ page: 8, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+          },
+        },
+      },
+    };
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "region_list") return Promise.resolve([region, anchored]);
+      if (command === "rep_blocks_for_piece") return Promise.resolve([]);
+      if (command === "piece_movement_list")
+        return Promise.resolve([
+          { id: 1, piece_id: 2, title: "I", start_page: 1, display_order: 0 },
+          { id: 2, piece_id: 2, title: "II", start_page: 7, display_order: 1 },
+        ]);
+      return Promise.resolve(undefined);
+    });
+
+    const { container } = render(<TrickySectionsPanel pieceId={2} />);
+
+    await screen.findByText("Second movement color");
+    expect(
+      [...container.querySelectorAll(".tricky-section-movement h4")].map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["I", "II", "Not mapped to a movement"]);
+    const groups = container.querySelectorAll(".tricky-section-movement");
+    expect(groups[0].textContent).toContain("No anchored sections");
+    expect(groups[1].textContent).toContain("Second movement color");
+    expect(groups[2].textContent).toContain("legato");
   });
 });
 

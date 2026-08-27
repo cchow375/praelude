@@ -3,12 +3,14 @@ import "./MicToggle.css";
 export type MicToggleProps = {
   status: "live" | "muted" | "down";
   onToggle: (muted: boolean) => void;
+  /** A temporary practice mode may own the mic gate to prevent voice writes. */
+  lockedReason?: string | null;
 };
 
 /** The mic mute control. Always visible in the nav rail — §4b: the thing you
  * practise with is not allowed to hide. The backend has been able to mute
  * since v6 (`voice_loop.rs:1300`); until now nothing could reach it. */
-export function MicToggle({ status, onToggle }: MicToggleProps) {
+export function MicToggle({ status, onToggle, lockedReason = null }: MicToggleProps) {
   const muted = status === "muted";
   const down = status === "down";
   return (
@@ -19,8 +21,8 @@ export function MicToggle({ status, onToggle }: MicToggleProps) {
       aria-label={
         muted ? "Mic muted — click to unmute" : "Mic listening — click to mute"
       }
-      disabled={down}
-      title={down ? "Voice is not running" : undefined}
+      disabled={down || lockedReason != null}
+      title={down ? "Voice is not running" : (lockedReason ?? undefined)}
       onClick={() => onToggle(!muted)}
     >
       <span className="mic-toggle-glyph" aria-hidden="true">

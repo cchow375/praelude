@@ -82,6 +82,7 @@ export function useCrud() {
     },
     /** Create a complete score micro-target in one native transaction. */
     microTargetCreate: (args: {
+      command_id: string;
       piece_id: number;
       parent_region_id: number;
       name: string;

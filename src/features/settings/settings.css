@@ -131,6 +131,9 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--s-5);
 }
+.settings-guide-lanes.is-single {
+  grid-template-columns: 1fr;
+}
 .settings-guide-lanes > section {
   display: grid;
   align-content: start;

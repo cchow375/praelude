@@ -12,6 +12,18 @@ export interface PieceSummary {
   has_xml: boolean;
   has_pdf: boolean;
   intake_done: boolean;
+  /** Unix seconds; absent on legacy/dev fixtures and null for active pieces. */
+  archived_at?: number | null;
+  /** ISO timestamp of the most recent recorded attempt. */
+  last_practiced?: string | null;
+}
+
+export interface PieceMovement {
+  id: number;
+  piece_id: number;
+  title: string;
+  start_page: number;
+  display_order: number;
 }
 
 export interface HardSpot {

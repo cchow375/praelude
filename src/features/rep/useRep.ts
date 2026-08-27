@@ -85,6 +85,10 @@ export interface RepSnapshot {
   block_id: number;
   piece_id: number;
   piece_title: string;
+  /** Canonical Region for this set; absent/null for a free measure-range set. */
+  region_id?: number | null;
+  /** Persistent Region sound target (`region.notes`). */
+  sound_target?: string | null;
   m_start: number;
   m_end: number;
   label: string | null;
@@ -355,6 +359,12 @@ export interface RepOpenArgs {
   tuning?: SetTuning;
 }
 
+export interface DemotionOverride {
+  enabled: boolean;
+  first: number;
+  repeat: number;
+}
+
 export interface SetFocusContextInput {
   intention?: string | null;
   judging_axis?: string | null;
@@ -378,6 +388,7 @@ const REP_OPEN = defineCommand<
   {
     args: RepOpenArgs;
     context: SetFocusContextInput | null;
+    demotion?: DemotionOverride | null;
   },
   RepSnapshot
 >("rep_open", "The practice set could not be opened.");
@@ -411,7 +422,7 @@ const REP_RESTART = defineCommand<
   RepSnapshot
 >("rep_restart", "The practice set could not be restarted.");
 const REP_PAUSE = defineCommand<
-  { commandId: string },
+  { commandId: string; expectedSetId?: number },
   MutationReceipt<RepSnapshot>
 >("rep_pause", "The practice timer could not be paused.");
 const REP_RESUME = defineCommand<
@@ -508,9 +519,10 @@ export interface UseRep {
   open: (
     args: RepOpenArgs,
     context?: SetFocusContextInput | null,
-  ) => Promise<void>;
+    demotion?: DemotionOverride | null,
+  ) => Promise<RepSnapshot>;
   /** Record a verdict (same path as a voice ack). */
-  check: (verdict: Verdict, note?: string | null) => Promise<void>;
+  check: (verdict: Verdict, note?: string | null) => Promise<CheckOutcome>;
   /** Append a reversal for the latest attempt. No attempt row is deleted. */
   undo: () => Promise<void>;
   /** Append a correction, defaulting to the latest attempt when id is null. */
@@ -525,6 +537,8 @@ export interface UseRep {
   restart: (requiredCleanStreak?: number | null) => Promise<void>;
   /** Close the active timing interval without closing the set. */
   pause: () => Promise<void>;
+  /** Pause only if this exact set is still active. */
+  pauseSet: (expectedSetId: number) => Promise<void>;
   /** Start a fresh focused timing interval on the same set. */
   resume: () => Promise<void>;
   /** Resume one specific paused set, even when several paused rows exist. */
@@ -932,16 +946,24 @@ export function useRep(): UseRep {
   }, [metroReadiness]);
 
   const open = useCallback(
-    async (args: RepOpenArgs, context?: SetFocusContextInput | null) => {
+    async (
+      args: RepOpenArgs,
+      context?: SetFocusContextInput | null,
+      demotion?: DemotionOverride | null,
+    ) => {
       clearError();
       const eventsAtStart = eventRevision.current;
       const metroAtStart = captureMetroCommandGuard(metroRevision.current);
       let openedBlockId: number | null = null;
+      let openedSnapshot: RepSnapshot | null = null;
       try {
-        const s = await executeCommand(REP_OPEN, {
-          args,
-          context: context ?? null,
-        });
+        const s = await executeCommand(
+          REP_OPEN,
+          demotion
+            ? { args, context: context ?? null, demotion }
+            : { args, context: context ?? null },
+        );
+        openedSnapshot = s;
         openedBlockId = s.block_id;
         const noNewerEvent = eventRevision.current === eventsAtStart;
         // A rep_open return is only the no-event-bus fallback. In native use,
@@ -1006,6 +1028,15 @@ export function useRep(): UseRep {
           receipts.error(cause, message);
         }
       }
+
+      // Return the exact set identity to workflow owners such as Practice
+      // Rotation and Warmups. Prefer a newer same-block event snapshot when
+      // voice or another native event already advanced the just-opened set;
+      // otherwise the command result remains the authoritative open receipt.
+      const observed = snapRef.current;
+      if (observed?.block_id === openedBlockId) return observed;
+      if (openedSnapshot) return openedSnapshot;
+      throw new Error("The practice engine returned no opened set.");
     },
     [applySnapshot, clearError, metroReadiness, receipts, showError],
   );
@@ -1045,6 +1076,7 @@ export function useRep(): UseRep {
           metroAtStart,
         );
         // The authoritative `rep://state` event reconciles snap + feed.
+        return outcome;
       } catch (cause) {
         const message = commandErrorMessage(
           cause,
@@ -1269,13 +1301,19 @@ export function useRep(): UseRep {
     [applySnapshot, clearError, metroReadiness, receipts, showError],
   );
 
-  const pause = useCallback(async () => {
+  const pauseBlock = useCallback(async (expectedSetId?: number) => {
     const blockAtStart = snapRef.current?.block_id ?? null;
     const metroAtStart = captureMetroCommandGuard(metroRevision.current);
     const next = await runSnapshotReceiptMutation(
       `rep-pause:${snapRef.current?.block_id ?? "none"}`,
       "The practice timer could not be paused.",
-      (id) => executeCommand(REP_PAUSE, { commandId: id }),
+      (id) =>
+        executeCommand(
+          REP_PAUSE,
+          expectedSetId == null
+            ? { commandId: id }
+            : { commandId: id, expectedSetId },
+        ),
     );
     if (
       blockAtStart != null &&
@@ -1296,6 +1334,12 @@ export function useRep(): UseRep {
       }
     }
   }, [receipts, runSnapshotReceiptMutation, showError]);
+
+  const pause = useCallback(() => pauseBlock(), [pauseBlock]);
+  const pauseSet = useCallback(
+    (expectedSetId: number) => pauseBlock(expectedSetId),
+    [pauseBlock],
+  );
 
   const resumeBlock = useCallback(
     async (requestedSetId?: number) => {
@@ -1514,6 +1558,7 @@ export function useRep(): UseRep {
     reverseAdjustment,
     restart,
     pause,
+    pauseSet,
     resume,
     resumeSet,
     checkpoint,

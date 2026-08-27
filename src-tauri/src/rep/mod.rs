@@ -21,9 +21,9 @@ use crate::ledger::MutationSource;
 use crate::protocol::PracticeContract;
 use crate::sessions::{RolloverPauseHook, SessionService, StateEmitter};
 use crate::store::model::{
-    CheckOutcome, DemotionConfig, ExportResult, IncrementRule, MutationReceipt, PausedSetRow,
-    RecoveryActionRequest, RepOpenArgs, RepSnapshot, RetentionCheckView, RetentionResult,
-    SetFocusContextInput,
+    CheckOutcome, DemotionConfig, DemotionOverride, ExportResult, IncrementRule, MutationReceipt,
+    PausedSetRow, RecoveryActionRequest, RepOpenArgs, RepSnapshot, RetentionCheckView,
+    RetentionResult, SetFocusContextInput,
 };
 use crate::store::{
     v2_command_id, v2_validate_open, EventKind, SessionPlanStartOutcome, SessionPlanStartPayload,
@@ -245,7 +245,7 @@ impl RepEngine {
     /// abandoning a block mid-practice). Resolves an "auto" ladder to concrete
     /// numbers, persists the block, and emits/logs the fresh snapshot.
     pub fn open(&self, args: RepOpenArgs) -> Result<RepSnapshot, String> {
-        self.open_from(args, None, MutationSource::UserClick)
+        self.open_from(args, None, MutationSource::UserClick, None)
     }
 
     pub fn open_with_context(
@@ -253,11 +253,20 @@ impl RepEngine {
         args: RepOpenArgs,
         context: Option<SetFocusContextInput>,
     ) -> Result<RepSnapshot, String> {
-        self.open_from(args, context, MutationSource::UserClick)
+        self.open_from(args, context, MutationSource::UserClick, None)
+    }
+
+    pub fn open_with_demotion(
+        &self,
+        args: RepOpenArgs,
+        context: Option<SetFocusContextInput>,
+        demotion: Option<DemotionOverride>,
+    ) -> Result<RepSnapshot, String> {
+        self.open_from(args, context, MutationSource::UserClick, demotion)
     }
 
     pub fn open_voice(&self, args: RepOpenArgs) -> Result<RepSnapshot, String> {
-        self.open_from(args, None, MutationSource::VoiceHotLoop)
+        self.open_from(args, None, MutationSource::VoiceHotLoop, None)
     }
 
     fn open_from(
@@ -265,6 +274,7 @@ impl RepEngine {
         args: RepOpenArgs,
         context: Option<SetFocusContextInput>,
         source: MutationSource,
+        demotion_override: Option<DemotionOverride>,
     ) -> Result<RepSnapshot, String> {
         if let Some(error) = &self.restore_error {
             return Err(error.clone());
@@ -336,7 +346,19 @@ impl RepEngine {
             default_ladder_budget,
             bpm_step,
         );
-        let rule = args.increment.clone().unwrap_or(auto_rule);
+        let mut rule = args.increment.clone().unwrap_or(auto_rule);
+        if let Some(demotion_override) = demotion_override {
+            if !(2..=10).contains(&demotion_override.first)
+                || !(1..=10).contains(&demotion_override.repeat)
+            {
+                return Err(
+                    "Per-set demotion thresholds must be first 2–10 and repeat 1–10.".to_string(),
+                );
+            }
+            rule.demote_enabled = Some(demotion_override.enabled);
+            rule.demote_first = Some(demotion_override.first);
+            rule.demote_repeat = Some(demotion_override.repeat);
+        }
         // Resolved BEFORE the store call (and before `with_session_locked`) —
         // see `resolve_demotion_config`'s lock-trap note.
         let demotion = self.resolve_demotion_config(&rule);
@@ -609,6 +631,14 @@ impl RepEngine {
     }
 
     pub fn undo(&self) -> Result<CheckOutcome, String> {
+        self.undo_from(MutationSource::UserClick)
+    }
+
+    pub fn undo_voice(&self) -> Result<CheckOutcome, String> {
+        self.undo_from(MutationSource::VoiceHotLoop)
+    }
+
+    fn undo_from(&self, source: MutationSource) -> Result<CheckOutcome, String> {
         // Quick peek, no side effects (fix round 2, N1): a failing undo with
         // nothing active must never mint/roll a session — see `open_from`.
         // Also resolves the demotion config from the active block's rule,
@@ -618,7 +648,7 @@ impl RepEngine {
         };
         // B56 residual fix: session resolution and the `active` mutation
         // happen inside ONE `with_session_locked` closure — see `open_from`.
-        let command_id = v2_command_id(MutationSource::UserClick, "undo");
+        let command_id = v2_command_id(source, "undo");
         let now = self.now()?;
         let (snap, feed_id, new_bpm) =
             self.sessions
@@ -632,14 +662,7 @@ impl RepEngine {
                         .block_id;
                     let mutation = self
                         .store
-                        .v2_undo(
-                            sid,
-                            block_id,
-                            MutationSource::UserClick,
-                            &command_id,
-                            Some(&now),
-                            demotion,
-                        )
+                        .v2_undo(sid, block_id, source, &command_id, Some(&now), demotion)
                         .map_err(|error| error.to_string())?;
                     let snap = mutation.snapshot;
                     *active = Some(snap.clone());
@@ -889,6 +912,17 @@ impl RepEngine {
     }
 
     pub fn pause(&self, command_id: &str) -> Result<MutationReceipt<RepSnapshot>, String> {
+        self.pause_expected(command_id, None)
+    }
+
+    /// Pause only when the engine still owns the set the caller observed.
+    /// Workflow runners use this compare-and-mutate seam so an unrelated set
+    /// opened at the handoff boundary can never be paused accidentally.
+    pub fn pause_expected(
+        &self,
+        command_id: &str,
+        expected_set_id: Option<i64>,
+    ) -> Result<MutationReceipt<RepSnapshot>, String> {
         // Quick peek, no side effects (fix round 2, N1): a failing pause
         // with nothing active must never mint/roll a session — see
         // `open_from`. Also resolves the demotion config from the active
@@ -911,6 +945,11 @@ impl RepEngine {
                         .as_ref()
                         .ok_or_else(|| "no live practice set".to_string())?
                         .block_id;
+                    if expected_set_id.is_some_and(|expected| expected != block_id) {
+                        return Err(
+                            "the active practice set changed; nothing was paused".to_string()
+                        );
+                    }
                     let mut receipt = self
                         .store
                         .v2_pause(
@@ -1966,6 +2005,20 @@ mod tests {
             focus: "notes".into(),
             use_metronome: false,
         }
+    }
+
+    #[test]
+    fn hidden_warmup_system_piece_can_open_a_real_rep_set_at_reserved_id_zero() {
+        let store = Arc::new(Store::open(":memory:").expect("memory store"));
+        let system = store.warmup_system_piece().unwrap();
+        assert_eq!(system.piece_id, 0);
+        let sessions = Arc::new(SessionService::new(store.clone()));
+        let engine = RepEngine::new(store, sessions);
+
+        let opened = engine.open(strict_notes_args(system.piece_id, 3)).unwrap();
+        assert_eq!(opened.piece_id, system.piece_id);
+        assert_eq!(opened.required_clean_streak, 3);
+        assert_eq!(opened.set_state, "active");
     }
 
     fn retention_condition(bpm: f64) -> RetentionCondition {
@@ -4866,6 +4919,34 @@ mod tests {
     }
 
     #[test]
+    fn per_set_demotion_override_layers_over_an_auto_ladder() {
+        let (engine, pid, _store, _rec) = engine_with_piece();
+        let opened = engine
+            .open_with_demotion(
+                open_args(pid),
+                None,
+                Some(DemotionOverride {
+                    enabled: true,
+                    first: 2,
+                    repeat: 1,
+                }),
+            )
+            .unwrap();
+        assert_eq!(
+            opened.rule.clean_needed, 3,
+            "auto ladder still resolved natively"
+        );
+        assert_eq!(opened.rule.demote_first, Some(2));
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(engine.snapshot().unwrap().bpm, Some(84.0));
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        let demoted = engine.check(RepVerdict::Flawed, None).unwrap();
+        assert_eq!(demoted.new_bpm, Some(80.0));
+    }
+
+    #[test]
     fn legacy_variants_without_clean_streak_use_reps_as_the_stage_requirement() {
         let (engine, pid, store, _rec) = engine_with_piece();
         let args = RepOpenArgs {
@@ -6162,6 +6243,34 @@ mod tests {
             0
         );
         assert_eq!(engine.snapshot().unwrap().tries, 0);
+    }
+
+    #[test]
+    fn exact_pause_rejects_a_changed_active_set_without_writes() {
+        let (engine, pid, store, _rec) = engine_with_piece();
+        let opened = engine.open(strict_notes_args(pid, 5)).unwrap();
+        let events_before = store.test_scalar_i64("SELECT count(*) FROM event").unwrap();
+        let operations_before = store
+            .test_scalar_i64("SELECT count(*) FROM practice_operation")
+            .unwrap();
+
+        let error = engine
+            .pause_expected("rotation-stale-pause", Some(opened.block_id + 1))
+            .unwrap_err();
+
+        assert!(error.contains("active practice set changed"));
+        assert_eq!(engine.snapshot().unwrap().block_id, opened.block_id);
+        assert_eq!(engine.snapshot().unwrap().set_state, "active");
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM event").unwrap(),
+            events_before
+        );
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM practice_operation")
+                .unwrap(),
+            operations_before
+        );
     }
 
     fn tempo_args(piece_id: i64, target_bpm: f64) -> RepOpenArgs {

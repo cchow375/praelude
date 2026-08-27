@@ -30,6 +30,7 @@ fn test_config(env: Vec<(&str, String)>) -> SttConfig {
             .collect::<HashMap<_, _>>(),
         use_stdbuf: false,
         settle: Duration::from_millis(200),
+        settle_control: None,
         backoff: Duration::from_millis(80),
         max_restarts: 5,
         restart_window: Duration::from_secs(3),

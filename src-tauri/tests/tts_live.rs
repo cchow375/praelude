@@ -11,9 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use codakiller_lib::audio::{Engine, EngineConfig, EngineHandle};
-use codakiller_lib::tts::{
-    select_provider, Gate, PcmSink, Speaker, SpeakerConfig, TtsProvider,
-};
+use codakiller_lib::tts::{select_provider, Gate, PcmSink, Speaker, SpeakerConfig, TtsProvider};
 
 /// A gate that just logs transitions (no real STT needed to prove audio output).
 struct LogGate {

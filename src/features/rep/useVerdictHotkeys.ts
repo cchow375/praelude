@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { DEFAULT_SETTINGS, readSettings } from "../../state/settings";
+import {
+  DEFAULT_SETTINGS,
+  readSettings,
+  subscribeCommittedSettings,
+  type Settings,
+} from "../../state/settings";
 import type { Verdict } from "./useRep";
 
 // -----------------------------------------------------------------------------
@@ -103,38 +108,56 @@ function blockingDialogIsOpen(): boolean {
  */
 export function useVerdictHotkeyConfig(): VerdictHotkeyConfig {
   const [config, setConfig] = useState<VerdictHotkeyConfig>(
-    DEFAULT_VERDICT_HOTKEYS,
+    // Never let the confirmed defaults act as a speculative mapping. A user
+    // may have persisted different keys (or disabled hotkeys), and an active
+    // set can already exist while this asynchronous snapshot is in flight.
+    { ...DEFAULT_VERDICT_HOTKEYS, enabled: false },
   );
 
   useEffect(() => {
     let active = true;
+    let committedUpdateSeen = false;
+    const apply = (settings: Settings) => {
+      const next: VerdictHotkeyConfig = {
+        enabled: settings.hotkeys_enabled,
+        clean: settings.hotkey_verdict_clean,
+        sloppy: settings.hotkey_verdict_sloppy,
+        again: settings.hotkey_verdict_again,
+      };
+      // Identity-stable when nothing was remapped: opening a set must not
+      // cost the HUD a re-render just to rediscover the same mapping.
+      setConfig((current) =>
+        current.enabled === next.enabled &&
+        current.clean === next.clean &&
+        current.sloppy === next.sloppy &&
+        current.again === next.again
+          ? current
+          : next,
+      );
+    };
+    // Subscribe before starting the snapshot read. If Settings saves while an
+    // older read is in flight, the committed projection wins and the stale
+    // response is ignored rather than restoring the previous keys.
+    const unsubscribe = subscribeCommittedSettings((settings) => {
+      if (!active) return;
+      committedUpdateSeen = true;
+      apply(settings);
+    });
     void (async () => {
       try {
         const settings = await readSettings();
-        if (!active) return;
-        const next: VerdictHotkeyConfig = {
-          enabled: settings.hotkeys_enabled,
-          clean: settings.hotkey_verdict_clean,
-          sloppy: settings.hotkey_verdict_sloppy,
-          again: settings.hotkey_verdict_again,
-        };
-        // Identity-stable when nothing was remapped: opening a set must not
-        // cost the HUD a re-render just to rediscover the default mapping.
-        setConfig((current) =>
-          current.enabled === next.enabled &&
-          current.clean === next.clean &&
-          current.sloppy === next.sloppy &&
-          current.again === next.again
-            ? current
-            : next,
-        );
+        if (!active || committedUpdateSeen) return;
+        apply(settings);
       } catch {
-        // readSettings already falls back internally; this is belt and braces
-        // so an unreadable projection can never disable the hotkeys silently.
+        // readSettings already falls back internally. A mocked or unexpected
+        // rejection still resolves the loading gate to the confirmed defaults
+        // rather than leaving hotkeys silently disabled forever.
+        if (active && !committedUpdateSeen) apply(DEFAULT_SETTINGS);
       }
     })();
     return () => {
       active = false;
+      unsubscribe();
     };
   }, []);
 

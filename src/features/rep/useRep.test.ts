@@ -294,7 +294,7 @@ describe("useRep — IPC wiring", () => {
     expect(calls[0][1].commandId).toBe(calls[1][1].commandId);
   });
 
-  it("applies a committed pause receipt and exposes its durable identity", async () => {
+  it("applies an exact-set pause receipt and exposes its durable identity", async () => {
     const active = makeSnap({ timer_state: "active", active_seconds: 11 });
     const paused = makeSnap({
       timer_state: "paused",
@@ -327,12 +327,13 @@ describe("useRep — IPC wiring", () => {
     );
 
     await act(async () => {
-      await result.current.pause();
+      await result.current.pauseSet(1);
     });
 
     expect(result.current.snap?.timer_state).toBe("paused");
     expect(invokeMock).toHaveBeenCalledWith("rep_pause", {
       commandId: expect.stringMatching(/^ui:rep-pause/),
+      expectedSetId: 1,
     });
     expect(invokeMock).toHaveBeenCalledWith("metro_practice_pause", {
       setId: 1,
@@ -936,7 +937,11 @@ describe("useRep — IPC wiring", () => {
     await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
 
     await act(async () => {
-      await expect(result.current.open(args)).resolves.toBeUndefined();
+      await expect(result.current.open(args)).resolves.toMatchObject({
+        block_id: 44,
+        m_start: 9,
+        m_end: 16,
+      });
     });
 
     expect(result.current.snap?.block_id).toBe(44);

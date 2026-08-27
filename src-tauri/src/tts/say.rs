@@ -403,7 +403,11 @@ mod tests {
                 calls: std::sync::atomic::AtomicUsize::new(0),
             }),
         );
-        assert_eq!(tts.resolved_voice(), None, "first probe failed -> no voice yet");
+        assert_eq!(
+            tts.resolved_voice(),
+            None,
+            "first probe failed -> no voice yet"
+        );
         assert_eq!(
             tts.resolved_voice(),
             Some("Samantha".to_string()),
@@ -442,7 +446,10 @@ mod tests {
         };
         let reason = hollow_synth_reason("test one two", &pcm)
             .expect("118 samples for 12 characters must be classified hollow");
-        assert!(reason.contains("118 samples"), "reason names what it got: {reason}");
+        assert!(
+            reason.contains("118 samples"),
+            "reason names what it got: {reason}"
+        );
     }
 
     #[test]
@@ -471,7 +478,6 @@ mod tests {
         assert!(hollow_synth_reason(long, &pcm_of(0.2)).is_some());
         assert!(hollow_synth_reason(long, &pcm_of(1.5)).is_none());
     }
-
 
     // Real `say` invocation (macOS only, needs the binary). Not #[ignore]d: `say`
     // is always present on macOS and this is the fastest way to guard the decode

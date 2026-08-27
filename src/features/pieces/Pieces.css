@@ -237,6 +237,40 @@
   font-size: var(--text-lg);
 }
 
+.pieces-archived {
+  margin-top: var(--space-5);
+  border-top: 1px solid var(--hairline-strong);
+}
+.pieces-archived > summary {
+  padding: var(--space-3) 0;
+  color: var(--ink-tertiary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.piece-row-archived {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 4.5rem;
+  padding: var(--space-3);
+  opacity: 0.65;
+}
+.piece-row-archived .piece-row-main {
+  flex: 1;
+}
+.piece-restore {
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink-primary);
+  background: transparent;
+  cursor: pointer;
+}
+.piece-restore:hover {
+  background: var(--surface-hover);
+}
+
 @media (max-width: 620px) {
   .pieces-view {
     padding: var(--space-4);
@@ -797,6 +831,19 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+.tricky-section-movement {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.tricky-section-movement > h4 {
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
 }
 .tricky-section-card {
   padding: var(--space-3);
@@ -1536,8 +1583,8 @@
   color: var(--ink-tertiary);
 }
 
+.piece-archive,
 .piece-remove {
-  margin-left: auto;
   align-self: center;
   height: 34px;
   padding: 0 var(--space-3);
@@ -1548,9 +1595,81 @@
   font-size: var(--text-sm);
   cursor: pointer;
 }
+.piece-archive {
+  margin-left: auto;
+  border: 1px solid var(--hairline-strong);
+  color: var(--ink-secondary);
+}
+.piece-archive:hover {
+  color: var(--ink-primary);
+  background: var(--surface-hover);
+}
 .piece-remove:hover {
   color: var(--danger);
   background: var(--surface-hover);
+}
+
+.movement-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.movement-add,
+.movement-row {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(8rem, 0.45fr) auto auto auto;
+  align-items: end;
+  gap: var(--space-3);
+}
+.movement-add label,
+.movement-row label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.movement-add input,
+.movement-row input {
+  min-height: 36px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink-primary);
+  background: var(--surface-app);
+}
+.movement-add button,
+.movement-row button {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink-primary);
+  background: transparent;
+  cursor: pointer;
+}
+.movement-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.movement-row {
+  padding: var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+}
+.movement-range {
+  align-self: center;
+  color: var(--ink-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.movement-row .movement-delete:hover {
+  color: var(--danger);
+}
+@media (max-width: 760px) {
+  .movement-add,
+  .movement-row {
+    grid-template-columns: 1fr 8rem;
+  }
 }
 
 /* The long-term piece schedule (usePiecePlan): one quiet free-text plan. */

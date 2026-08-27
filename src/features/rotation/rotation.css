@@ -1,0 +1,141 @@
+.rotation-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.rotation-panel header {
+  display: grid;
+  gap: 3px;
+}
+
+.rotation-panel header p,
+.rotation-panel header strong,
+.rotation-empty,
+.rotation-notice {
+  margin: 0;
+}
+
+.rotation-panel header p,
+.rotation-targets small,
+.rotation-notice {
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+}
+
+.rotation-panel header strong {
+  font: 650 1rem/1.2 var(--font-display);
+}
+
+.rotation-progress {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+.rotation-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ink);
+  transition: width 400ms linear;
+}
+
+.rotation-targets {
+  display: grid;
+  gap: 6px;
+  max-height: 190px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rotation-targets li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 7px;
+  padding: 7px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+.rotation-targets li > span {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 0.65rem;
+}
+
+.rotation-targets li div {
+  display: grid;
+  min-width: 0;
+}
+
+.rotation-targets strong,
+.rotation-targets small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rotation-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 7px;
+}
+
+.rotation-options label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.7rem;
+}
+
+.rotation-options label:first-child {
+  grid-row: span 2;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.rotation-options input[type="number"] {
+  width: 68px;
+}
+
+.rotation-start,
+.rotation-run-actions button {
+  min-height: 34px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 650;
+}
+
+.rotation-run-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.rotation-run-actions button:last-child {
+  background: transparent;
+  color: var(--ink);
+}
+
+@media (max-width: 760px) {
+  .rotation-options {
+    grid-template-columns: 1fr;
+  }
+
+  .rotation-options label:first-child {
+    grid-row: auto;
+    flex-direction: row;
+    align-items: center;
+  }
+}

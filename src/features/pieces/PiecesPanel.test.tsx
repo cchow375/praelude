@@ -5,6 +5,7 @@ import {
   screen,
   fireEvent,
   waitFor,
+  within,
 } from "@testing-library/react";
 
 // ---------------------------------------------------------------------------
@@ -87,9 +88,13 @@ describe("PiecesPanel", () => {
   });
 
   it("rescans via pieces_scan when the scan button is clicked", async () => {
+    let scanned = false;
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "pieces_list") return Promise.resolve([]);
-      if (cmd === "pieces_scan") return Promise.resolve([SATIE]);
+      if (cmd === "pieces_list") return Promise.resolve(scanned ? [SATIE] : []);
+      if (cmd === "pieces_scan") {
+        scanned = true;
+        return Promise.resolve([SATIE]);
+      }
       return Promise.resolve([]);
     });
 
@@ -106,6 +111,64 @@ describe("PiecesPanel", () => {
       expect(screen.getByText("Gymnopédie No. 1")).toBeTruthy(),
     );
     expect(invokeMock).toHaveBeenCalledWith("pieces_scan");
+  });
+
+  it("sorts active pieces by recent practice and restores from Archived", async () => {
+    const older = {
+      ...LISZT,
+      last_practiced: "2026-08-20 10:00:00",
+    };
+    const newer = {
+      ...SATIE,
+      last_practiced: "2026-08-26 18:00:00",
+    };
+    const archived = {
+      id: 3,
+      title: "Old étude",
+      composer: "Chopin",
+      has_xml: false,
+      has_pdf: true,
+      intake_done: true,
+      archived_at: 1_724_745_600,
+      last_practiced: "2026-08-27 08:00:00",
+    } satisfies PieceSummary;
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "pieces_list")
+        return Promise.resolve([older, archived, newer]);
+      if (cmd === "piece_archive_set")
+        return Promise.resolve([
+          { ...archived, archived_at: null },
+          newer,
+          older,
+        ]);
+      return Promise.resolve([]);
+    });
+
+    render(<PiecesPanel onOpenBlock={vi.fn()} />);
+
+    const active = await screen.findByRole("list", { name: "Active pieces" });
+    const activeTitles = within(active)
+      .getAllByRole("button")
+      .map((button) => button.textContent);
+    expect(activeTitles[0]).toContain("Gymnopédie No. 1");
+    expect(activeTitles[1]).toContain("Liebestraum No. 3");
+    expect(within(active).queryByText("Old étude")).toBeNull();
+
+    fireEvent.click(screen.getByText("Archived (1)"));
+    expect(screen.getByText("Old étude")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("piece_archive_set", {
+        id: 3,
+        archived: false,
+      }),
+    );
+    expect(screen.queryByText("Archived (1)")).toBeNull();
+    expect(
+      within(screen.getByRole("list", { name: "Active pieces" })).getByText(
+        "Old étude",
+      ),
+    ).toBeTruthy();
   });
 
   it("selects a piece: piece_select + piece_get, then shows the intake form when intake is undone", async () => {

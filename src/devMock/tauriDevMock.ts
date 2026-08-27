@@ -40,6 +40,7 @@ import type {
   BlockHistory,
   Goal,
   PieceDetailData,
+  PieceMovement,
   PieceSummary,
   ProgressSummary,
   Region,
@@ -140,6 +141,43 @@ const PIECES: PieceSummary[] = [
     intake_done: true,
   },
 ];
+
+// Mutable library state for the reversible Archive group and PDF movement
+// editor. Reset on every mock install so tests and browser-QA runs never leak
+// library mutations into one another.
+const MOCK_ARCHIVED_PIECES = new Map<number, number>();
+const MOCK_DELETED_PIECES = new Set<number>();
+const SEED_MOVEMENTS: Record<number, PieceMovement[]> = {
+  1: [
+    {
+      id: 1,
+      piece_id: 1,
+      title: "I · Presto",
+      start_page: 1,
+      display_order: 0,
+    },
+    {
+      id: 2,
+      piece_id: 1,
+      title: "II · Meno mosso",
+      start_page: 7,
+      display_order: 1,
+    },
+  ],
+};
+let mockMovements: Record<number, PieceMovement[]> = {};
+let mockMovementNextId = 20;
+
+function mockPieceList(includeArchived = false): PieceSummary[] {
+  return PIECES.filter(
+    (piece) =>
+      !MOCK_DELETED_PIECES.has(piece.id) &&
+      (includeArchived || !MOCK_ARCHIVED_PIECES.has(piece.id)),
+  ).map((piece) => ({
+    ...piece,
+    archived_at: MOCK_ARCHIVED_PIECES.get(piece.id) ?? null,
+  }));
+}
 
 // Canned IMSLP add-a-score data for the dev harness (no network). The search
 // snippet carries a highlight `<span>` on purpose so the panel's plain-text
@@ -363,6 +401,10 @@ let REGIONS: Record<number, Region[]> = SEED_REGIONS;
  * so `region_create`/`region_delete` behave like the real store (parent
  * validation, one-level nesting, cascade/promote) for offline QA. */
 let mockRegionNextId = 100;
+const mockMicroTargetReceipts = new Map<
+  string,
+  { fingerprint: string; region: Region }
+>();
 
 // Task B1: the generic settings key/value pair (`get_setting`/`set_setting`,
 // `store/mod.rs:137,190`) backing the sub-section hint's per-piece seen-flag.
@@ -789,22 +831,22 @@ function anomalies(): AnomalyReport {
 }
 
 function universeSnapshot(): UniverseSnapshot {
-  return {
+  const snapshot: UniverseSnapshot = {
     generated_at: new Date().toISOString(),
     definitions: [
       {
-        signal: "focused_time",
-        label: "System size",
+        signal: "star_radius",
+        label: "Focused time",
         definition: "Focused practice time after idle time is removed.",
       },
       {
-        signal: "continuity",
-        label: "Outer arc",
+        signal: "orbit_continuity",
+        label: "Active days",
         definition: "Distinct active days in the inclusive 28-day window.",
       },
       {
-        signal: "mastery",
-        label: "Mastery ring",
+        signal: "mastery_ring",
+        label: "Verified mastery",
         definition:
           "Only verified consecutive-clean contracts; never raw click totals.",
       },
@@ -819,13 +861,24 @@ function universeSnapshot(): UniverseSnapshot {
       maturity_formula: "coverage × verified mastery × continuity",
     },
     totals: {
-      focused_seconds: 11600,
+      focused_seconds: 12500,
+      lifetime_focused_seconds: 98400,
       active_days_28: 6,
+      lifetime_active_days: 41,
+      best_streak_days: 9,
       regions_practiced: 3,
       regions_revisited: 1,
+      revisited_targets: 1,
       mastered_targets: 1,
       recovered_targets: 0,
-      practice_sessions: 7,
+      practice_sessions: 8,
+    },
+    technique: {
+      focused_seconds: 900,
+      active_days_28: 3,
+      completed_warmups: 4,
+      practice_sessions: 3,
+      last_practiced: isoDaysAgo(1),
     },
     pieces: [
       {
@@ -958,6 +1011,100 @@ function universeSnapshot(): UniverseSnapshot {
       },
     ],
   };
+
+  // Browser-ready visual QA states for the evidence-first Universe. The
+  // default (and `?qaUniverse=momentum`) is the dense, earned fixture above;
+  // `shelf` keeps mapped targets but removes every practice signal; `empty`
+  // removes the repertoire itself. Query parameters are read only inside this
+  // VITE_DEV_MOCK module and never affect the native application.
+  const qaState = new URLSearchParams(window.location.search).get("qaUniverse");
+  if (qaState === "empty") {
+    return {
+      ...snapshot,
+      totals: {
+        focused_seconds: 0,
+        lifetime_focused_seconds: 0,
+        active_days_28: 0,
+        lifetime_active_days: 0,
+        best_streak_days: 0,
+        regions_practiced: 0,
+        regions_revisited: 0,
+        revisited_targets: 0,
+        mastered_targets: 0,
+        recovered_targets: 0,
+        practice_sessions: 0,
+      },
+      technique: {
+        focused_seconds: 0,
+        active_days_28: 0,
+        completed_warmups: 0,
+        practice_sessions: 0,
+        last_practiced: null,
+      },
+      pieces: [],
+    };
+  }
+  if (qaState === "shelf") {
+    const source = snapshot.pieces[0];
+    return {
+      ...snapshot,
+      totals: {
+        focused_seconds: 0,
+        lifetime_focused_seconds: 0,
+        active_days_28: 0,
+        lifetime_active_days: 0,
+        best_streak_days: 0,
+        regions_practiced: 0,
+        regions_revisited: 0,
+        revisited_targets: 0,
+        mastered_targets: 0,
+        recovered_targets: 0,
+        practice_sessions: 0,
+      },
+      technique: {
+        focused_seconds: 0,
+        active_days_28: 0,
+        completed_warmups: 0,
+        practice_sessions: 0,
+        last_practiced: null,
+      },
+      pieces: source
+        ? [
+            {
+              ...source,
+              focused_seconds: 0,
+              active_days_28: 0,
+              regions_practiced: 0,
+              regions_revisited: 0,
+              mastered_targets: 0,
+              recovered_targets: 0,
+              open_recovery_debt: 0,
+              practice_sessions: 0,
+              earned_maturity: 0,
+              last_practiced: null,
+              region_signals: source.region_signals.map((region) => ({
+                ...region,
+                focused_seconds: 0,
+                active_days_28: 0,
+                practiced: false,
+                revisited: false,
+                last_practiced: null,
+                practice_events: 0,
+                rated_rep_events: 0,
+                clean_rep_events: 0,
+                distinct_practice_dates: 0,
+                mastery_contracts_completed: 0,
+                recovery_resets: 0,
+                recovered: false,
+                open_recovery_debt: 0,
+                practice_sessions: 0,
+              })),
+            },
+          ]
+        : [],
+    };
+  }
+  return snapshot;
 }
 
 // Seed for the one live, ACTIVE set rendered by the static harness. Runtime
@@ -1028,9 +1175,7 @@ let mockRepIsOpen = true;
 /** Merge one native-like mutation into the authoritative dev-mock snapshot.
  * State/timer always travel together in this toy backend, just as every
  * pause/resume/check receipt below promises. */
-function updateMockRepSnapshot(
-  patch: Partial<RepSnapshot> = {},
-): RepSnapshot {
+function updateMockRepSnapshot(patch: Partial<RepSnapshot> = {}): RepSnapshot {
   mockRepSnapshot = {
     ...mockRepSnapshot,
     set_state: mockSetState,
@@ -1055,7 +1200,26 @@ function mockPausedRow(): PausedSetRow {
   };
 }
 
-function repPauseReceipt(commandId: string): MutationReceipt<RepSnapshot> {
+function repPauseReceipt(
+  commandId: string,
+  expectedSetId?: number,
+): MutationReceipt<RepSnapshot> {
+  if (expectedSetId != null && expectedSetId !== mockRepSnapshot.block_id) {
+    return {
+      receipt_id: `mock-receipt-pause-rejected-${Date.now()}`,
+      command_id: commandId,
+      status: "rejected",
+      summary: "The practice timer could not be paused.",
+      value: null,
+      entity_refs: [],
+      event_ids: [],
+      undo_action: null,
+      error_code: "practice_rejected",
+      error_detail: "the active practice set changed; nothing was paused",
+      replayed: false,
+      committed_ts: null,
+    };
+  }
   mockSetState = "paused";
   const paused = mockPausedRow();
   mockPausedSets = [
@@ -1226,6 +1390,188 @@ function repCheckpointReceipt(commandId: string): MutationReceipt<RepSnapshot> {
 // `setMockResumeRejects` above.
 let mockLastPassSeconds: number | null = null;
 
+interface MockWarmupRoutineItem {
+  catalog_id: string;
+  bpm: number;
+  clean_streak: number;
+}
+
+interface MockWarmupRoutine {
+  id: number;
+  name: string;
+  items: MockWarmupRoutineItem[];
+  created_at: string;
+  updated_at: string;
+}
+
+const MOCK_WARMUP_MAX_ITEMS = 40;
+const MOCK_WARMUP_MAX_NAME_CHARS = 120;
+const MOCK_WARMUP_MAX_CATALOG_ID_CHARS = 100;
+
+let mockWarmupRoutineSeq = 20;
+let mockWarmupRoutines: MockWarmupRoutine[] = [];
+let mockReplaySeq = 40;
+let mockRepReplays: Array<{
+  id: number;
+  rep_block_id: number;
+  attempt_id: number | null;
+  mime_type: string;
+  duration_ms: number;
+  byte_len: number;
+  verdict: "clean" | "flawed" | "failed" | null;
+  created_at: string;
+  bytes: number[];
+}> = [];
+let mockVoiceCaptureEpoch = 0;
+let mockVoiceCaptureRequests = new Map<string, number | null>();
+let mockVoiceCaptureLeases = new Set<number>();
+
+function mockVoiceCaptureSuspend(args: unknown): number {
+  const requestId = String(argsRecord(args).requestId ?? "").trim();
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId)) {
+    throw "Voice capture request id is invalid";
+  }
+  if (mockVoiceCaptureRequests.has(requestId)) {
+    return mockVoiceCaptureRequests.get(requestId) ?? 0;
+  }
+  mockVoiceCaptureEpoch += 1;
+  mockVoiceCaptureRequests.set(requestId, mockVoiceCaptureEpoch);
+  mockVoiceCaptureLeases.add(mockVoiceCaptureEpoch);
+  return mockVoiceCaptureEpoch;
+}
+
+function mockVoiceCaptureResume(args: unknown): boolean {
+  const requestId = String(argsRecord(args).requestId ?? "").trim();
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId)) {
+    throw "Voice capture request id is invalid";
+  }
+  const epoch = mockVoiceCaptureRequests.get(requestId);
+  if (epoch == null) {
+    mockVoiceCaptureRequests.set(requestId, null);
+    return false;
+  }
+  mockVoiceCaptureRequests.set(requestId, null);
+  mockVoiceCaptureLeases.delete(epoch);
+  return mockVoiceCaptureLeases.size === 0;
+}
+
+function mockWarmupSave(args: unknown): MockWarmupRoutine {
+  const input = (((args ?? {}) as { input?: unknown }).input ?? {}) as {
+    id?: number | null;
+    name?: string;
+    items?: MockWarmupRoutineItem[];
+  };
+  if (typeof input.name !== "string") throw "invalid warmup routine name";
+  const name = input.name.trim();
+  const items = Array.isArray(input.items) ? input.items : [];
+  if (
+    !name ||
+    [...name].length > MOCK_WARMUP_MAX_NAME_CHARS ||
+    items.length === 0 ||
+    items.length > MOCK_WARMUP_MAX_ITEMS
+  ) {
+    throw "invalid warmup routine name or items";
+  }
+  for (const item of items) {
+    const catalogId =
+      typeof item?.catalog_id === "string" ? item.catalog_id.trim() : "";
+    if (
+      !catalogId ||
+      [...catalogId].length > MOCK_WARMUP_MAX_CATALOG_ID_CHARS ||
+      !/^[a-z0-9-]+$/.test(catalogId) ||
+      !Number.isInteger(item?.bpm) ||
+      item.bpm < 20 ||
+      item.bpm > 300 ||
+      !Number.isInteger(item?.clean_streak) ||
+      item.clean_streak < 1 ||
+      item.clean_streak > 20
+    ) {
+      throw "invalid warmup routine item";
+    }
+  }
+  const now = new Date().toISOString();
+  const existing =
+    input.id == null
+      ? null
+      : (mockWarmupRoutines.find((routine) => routine.id === input.id) ?? null);
+  if (input.id != null && !existing)
+    throw `no warmup routine with id ${input.id}`;
+  const saved: MockWarmupRoutine = {
+    id: existing?.id ?? ++mockWarmupRoutineSeq,
+    name,
+    items: items.map((item) => ({
+      ...item,
+      catalog_id: item.catalog_id.trim(),
+    })),
+    created_at: existing?.created_at ?? now,
+    updated_at: now,
+  };
+  mockWarmupRoutines = [
+    saved,
+    ...mockWarmupRoutines.filter((routine) => routine.id !== saved.id),
+  ];
+  return saved;
+}
+
+function mockReplaySave(args: unknown) {
+  const input = (((args ?? {}) as { input?: unknown }).input ?? {}) as {
+    rep_block_id?: number;
+    attempt_id?: number;
+    mime_type?: string;
+    duration_ms?: number;
+    bytes_base64?: string;
+  };
+  let bytes: number[];
+  try {
+    const binary = globalThis.atob(String(input.bytes_base64 ?? ""));
+    bytes = Array.from(binary, (character) => character.charCodeAt(0));
+  } catch {
+    throw "review recording is not valid base64";
+  }
+  if (bytes.length === 0 || bytes.length > 12 * 1024 * 1024)
+    throw "review recording must be between 1 byte and 12 MB";
+  const mimeType = String(input.mime_type ?? "").toLowerCase();
+  if (!mimeType.startsWith("audio/webm") && !mimeType.startsWith("audio/mp4"))
+    throw "review recording must be compact WebM/Opus or MP4 audio";
+  const durationMs = Number(input.duration_ms);
+  if (!Number.isFinite(durationMs) || durationMs < 1 || durationMs > 600_000)
+    throw "review recording must be between 1 ms and 10 minutes";
+  const attemptId = Number(input.attempt_id);
+  const blockId = Number(input.rep_block_id);
+  if (!Number.isSafeInteger(blockId) || blockId !== mockRepSnapshot.block_id)
+    throw "review recording does not belong to this practice set";
+  const exactAttempt = mockAttemptLog.find(
+    (attempt) => attempt.id === attemptId,
+  );
+  const latestVerdict =
+    exactAttempt?.verdict ??
+    (attemptId === mockLedgerBaseLastAttemptId
+      ? mockLedgerBaseLast?.verdict
+      : null);
+  if (!Number.isSafeInteger(attemptId) || latestVerdict == null)
+    throw "review recording does not match an exact judged attempt";
+  const verdict: "clean" | "flawed" | "failed" | null =
+    latestVerdict === "clean" ||
+    latestVerdict === "flawed" ||
+    latestVerdict === "failed"
+      ? latestVerdict
+      : null;
+  const row = {
+    id: ++mockReplaySeq,
+    rep_block_id: blockId,
+    attempt_id: attemptId,
+    mime_type: mimeType,
+    duration_ms: durationMs,
+    byte_len: bytes.length,
+    verdict,
+    created_at: new Date().toISOString(),
+    bytes,
+  };
+  mockRepReplays = [row, ...mockRepReplays];
+  const { bytes: _bytes, ...meta } = row;
+  return meta;
+}
+
 /** Test-only: the most recent `rep_open` mock call's `context.pass_seconds`
  * (or `null` if the last open had none / none has happened yet). */
 export function mockLastOpenedPassSeconds(): number | null {
@@ -1244,9 +1590,7 @@ function repOpenSnapshot(args: unknown, context: unknown): RepSnapshot {
       : 5;
   const initialVariantStage = mockVariantStage(variants, []);
   const startBpm =
-    a.start_bpm === undefined
-      ? MOCK_REP_STATE.start_bpm
-      : (a.start_bpm ?? 0);
+    a.start_bpm === undefined ? MOCK_REP_STATE.start_bpm : (a.start_bpm ?? 0);
   mockLastPassSeconds = c.pass_seconds ?? null;
   mockSetState = "active";
   mockRepIsOpen = true;
@@ -1257,11 +1601,11 @@ function repOpenSnapshot(args: unknown, context: unknown): RepSnapshot {
   mockRepSnapshot = {
     ...MOCK_REP_STATE,
     piece_id: a.piece_id ?? MOCK_REP_STATE.piece_id,
+    piece_title: a.piece_id === 9_999 ? "Warm-ups" : MOCK_REP_STATE.piece_title,
     m_start: a.m_start ?? MOCK_REP_STATE.m_start,
     m_end: a.m_end ?? MOCK_REP_STATE.m_end,
     label: a.label === undefined ? MOCK_REP_STATE.label : a.label,
-    bpm:
-      a.start_bpm === undefined ? MOCK_REP_STATE.bpm : (a.start_bpm ?? null),
+    bpm: a.start_bpm === undefined ? MOCK_REP_STATE.bpm : (a.start_bpm ?? null),
     start_bpm: startBpm,
     target_bpm:
       a.target_bpm === undefined ? MOCK_REP_STATE.target_bpm : a.target_bpm,
@@ -1824,8 +2168,7 @@ function projectMockLedger(): {
       voided_attempts: mockVoided,
       current_clean_streak: mockCleanStreak,
       cleans_at_step: mockCleanStreak,
-      mastery_progress_streak:
-        variantStage?.cleans ?? mockCleanStreak,
+      mastery_progress_streak: variantStage?.cleans ?? mockCleanStreak,
       best_clean_streak: bestCleanStreak,
       accuracy: tries > 0 ? verdicts.clean / tries : null,
       mastery_status: masteryStatus,
@@ -2050,6 +2393,7 @@ const SETTINGS_SNAPSHOT = {
   // Muted, matching the real backend's default (Task A): the harness must not
   // show a toggle in a state the app never ships in.
   speak_acks: false,
+  stt_settle_ms: 600,
   metronome_sound: "woodblock",
   metronome_boost: false,
   metronome_boost_level: 85,
@@ -3192,6 +3536,17 @@ function trailingRun(days: string[], today: string): number {
 }
 
 function streakSummaryMock(): StreakSummary {
+  const universeQa = new URLSearchParams(window.location.search).get(
+    "qaUniverse",
+  );
+  if (universeQa === "shelf" || universeQa === "empty") {
+    return {
+      current_days: 0,
+      best_days: 0,
+      threshold_minutes: STREAK_THRESHOLD_MINUTES,
+      today_focused_seconds: 0,
+    };
+  }
   const qualifying = HISTORY_DAY_SUMMARIES.filter(
     (day) => day.focused_seconds >= STREAK_THRESHOLD_MINUTES * 60,
   )
@@ -3524,6 +3879,58 @@ function routeCommand(cmd: string, args: unknown): unknown {
           warnings: ["Browser mock response; native provider was not called."],
         },
       };
+    // Warmups: persisted routine-builder state plus one hidden system piece.
+    // The actual reps still run through the normal stateful rep_open/check
+    // handlers below, so browser QA exercises one practice engine, not a fake
+    // warmup-only counter.
+    case "warmup_routines_list":
+      return mockWarmupRoutines.map((routine) => ({
+        ...routine,
+        items: routine.items.map((item) => ({ ...item })),
+      }));
+    case "warmup_routine_save":
+      return mockWarmupSave(args);
+    case "warmup_routine_delete": {
+      const id = Number(((args ?? {}) as { id?: number }).id);
+      mockWarmupRoutines = mockWarmupRoutines.filter(
+        (routine) => routine.id !== id,
+      );
+      return null;
+    }
+    case "warmup_system_piece":
+      return { piece_id: 9_999, title: "Warm-ups" };
+
+    // Listen-back takes: only explicitly kept bytes reach this state. The
+    // temporary record/listen/discard path remains entirely in the component.
+    case "rep_replay_list": {
+      const record = (args ?? {}) as {
+        repBlockId?: number;
+        rep_block_id?: number;
+      };
+      const blockId = Number(record.repBlockId ?? record.rep_block_id);
+      return mockRepReplays
+        .filter((row) => row.rep_block_id === blockId)
+        .map(({ bytes: _bytes, ...meta }) => meta);
+    }
+    case "rep_replay_save":
+      return mockReplaySave(args);
+    case "rep_replay_read": {
+      const id = Number(((args ?? {}) as { id?: number }).id);
+      const row = mockRepReplays.find((replay) => replay.id === id);
+      if (!row) throw `no kept take with id ${id}`;
+      let binary = "";
+      for (let offset = 0; offset < row.bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(
+          ...row.bytes.slice(offset, offset + 0x8000),
+        );
+      }
+      return globalThis.btoa(binary);
+    }
+    case "rep_replay_delete": {
+      const id = Number(((args ?? {}) as { id?: number }).id);
+      mockRepReplays = mockRepReplays.filter((replay) => replay.id !== id);
+      return null;
+    }
     // Passage-helper (C4): canned strategies, one cited into the corpus so the
     // reader marker is exercised. In expand mode return one fuller ≤3-line row.
     case "assistant_suggest":
@@ -3580,10 +3987,16 @@ function routeCommand(cmd: string, args: unknown): unknown {
     // tray's Resume button both call these two commands — no separate mock
     // write path, matching the real backend.
     case "rep_pause": {
-      const commandId = String(
-        ((args ?? {}) as { commandId?: unknown }).commandId ?? "mock-pause",
-      );
-      return repPauseReceipt(commandId);
+      const record = (args ?? {}) as {
+        commandId?: unknown;
+        expectedSetId?: unknown;
+      };
+      const commandId = String(record.commandId ?? "mock-pause");
+      const expectedSetId =
+        typeof record.expectedSetId === "number"
+          ? record.expectedSetId
+          : undefined;
+      return repPauseReceipt(commandId, expectedSetId);
     }
     case "rep_resume": {
       const record = (args ?? {}) as { commandId?: unknown; setId?: unknown };
@@ -3624,11 +4037,16 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return mockSession();
     case "voice_state":
       return { muted: false, down: null };
+    case "voice_capture_suspend":
+      return mockVoiceCaptureSuspend(args);
+    case "voice_capture_resume":
+      return mockVoiceCaptureResume(args);
 
     // Repertoire / Atlas / Ledger.
     case "pieces_list":
+      return mockPieceList(Boolean(argsRecord(args).includeArchived));
     case "pieces_scan":
-      return PIECES;
+      return mockPieceList(false);
 
     // Add-a-score (IMSLP) flow. Canned data so the panel is fully browsable in
     // the dev harness without any network.
@@ -3666,8 +4084,121 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return IMSLP_FILE_INFO;
     case "piece_import_pdf":
       return "/vault/Pieces/Chopin - Nocturne";
-    case "piece_archive":
-      return PIECES.filter((p) => p.id !== pieceIdOf(args));
+    case "piece_archive_set": {
+      const record = argsRecord(args);
+      const id = Number(record.id);
+      if (
+        !PIECES.some((piece) => piece.id === id) ||
+        MOCK_DELETED_PIECES.has(id)
+      ) {
+        throw `piece ${id} not found`;
+      }
+      if (record.archived === true) {
+        MOCK_ARCHIVED_PIECES.set(id, Math.floor(Date.now() / 1000));
+      } else {
+        MOCK_ARCHIVED_PIECES.delete(id);
+      }
+      return mockPieceList(true);
+    }
+    case "piece_delete_files": {
+      const record = argsRecord(args);
+      const folderName = String(record.folderName ?? "").trim();
+      const typedName = String(record.typedName ?? "").trim();
+      const detail = Object.values(PIECE_DETAILS).find(
+        (candidate) =>
+          candidate.folder_path.split("/").filter(Boolean).slice(-1)[0] ===
+          folderName,
+      );
+      if (!detail) throw "piece folder not found";
+      if (typedName !== folderName && typedName !== detail.title) {
+        throw "typed name doesn't match the piece title or folder";
+      }
+      MOCK_DELETED_PIECES.add(detail.id);
+      MOCK_ARCHIVED_PIECES.delete(detail.id);
+      return mockPieceList(false);
+    }
+    case "piece_movement_list":
+      return [...(mockMovements[pieceIdOf(args)] ?? [])].sort(
+        (a, b) =>
+          a.start_page - b.start_page ||
+          a.display_order - b.display_order ||
+          a.id - b.id,
+      );
+    case "piece_movement_create": {
+      const input = argsRecord(argsRecord(args).input);
+      const pieceId = Number(input.piece_id);
+      const title = String(input.title ?? "").trim();
+      const startPage = Number(input.start_page);
+      if (!title || !Number.isInteger(startPage) || startPage < 1) {
+        throw "movement needs a title and a start page of 1 or later";
+      }
+      const current = mockMovements[pieceId] ?? [];
+      if (current.some((movement) => movement.start_page === startPage)) {
+        throw `PDF page ${startPage} already starts another movement`;
+      }
+      const movement: PieceMovement = {
+        id: (mockMovementNextId += 1),
+        piece_id: pieceId,
+        title,
+        start_page: startPage,
+        display_order:
+          current.reduce(
+            (maximum, candidate) => Math.max(maximum, candidate.display_order),
+            -1,
+          ) + 1,
+      };
+      mockMovements[pieceId] = [...current, movement];
+      return movement;
+    }
+    case "piece_movement_update": {
+      const record = argsRecord(args);
+      const id = Number(record.id);
+      const patch = argsRecord(record.patch);
+      const entry = Object.entries(mockMovements).find(([, movements]) =>
+        movements.some((movement) => movement.id === id),
+      );
+      if (!entry) throw `movement ${id} not found`;
+      const [pieceKey, movements] = entry;
+      const current = movements.find((movement) => movement.id === id)!;
+      const title =
+        "title" in patch ? String(patch.title ?? "").trim() : current.title;
+      const startPage =
+        "start_page" in patch ? Number(patch.start_page) : current.start_page;
+      if (!title || !Number.isInteger(startPage) || startPage < 1) {
+        throw "movement needs a title and a start page of 1 or later";
+      }
+      if (
+        movements.some(
+          (movement) => movement.id !== id && movement.start_page === startPage,
+        )
+      ) {
+        throw `PDF page ${startPage} already starts another movement`;
+      }
+      const updated: PieceMovement = {
+        ...current,
+        title,
+        start_page: startPage,
+        display_order:
+          "display_order" in patch
+            ? Number(patch.display_order)
+            : current.display_order,
+      };
+      mockMovements[Number(pieceKey)] = movements.map((movement) =>
+        movement.id === id ? updated : movement,
+      );
+      return updated;
+    }
+    case "piece_movement_delete": {
+      const id = Number(argsRecord(args).id);
+      for (const [pieceKey, movements] of Object.entries(mockMovements)) {
+        if (!movements.some((movement) => movement.id === id)) continue;
+        mockMovements[Number(pieceKey)] = movements.filter(
+          (movement) => movement.id !== id,
+        );
+        return null;
+      }
+      throw `movement ${id} not found`;
+    }
     case "piece_open_source_url":
       return null;
     case "downloads_list":
@@ -3678,9 +4209,13 @@ function routeCommand(cmd: string, args: unknown): unknown {
       const detail = PIECE_DETAILS[pieceIdOf(args)];
       if (!detail) return null;
       const id = pieceIdOf(args);
-      return MOCK_BANNERS.has(id)
-        ? { ...detail, banner_text: MOCK_BANNERS.get(id) ?? null }
-        : detail;
+      return {
+        ...detail,
+        ...(MOCK_BANNERS.has(id)
+          ? { banner_text: MOCK_BANNERS.get(id) ?? null }
+          : {}),
+        archived_at: MOCK_ARCHIVED_PIECES.get(id) ?? null,
+      };
     }
     // Task A11: the score goals banner. Length is bounded exactly as the Rust
     // command bounds it, so the browser harness rejects an over-long pin the
@@ -3705,6 +4240,18 @@ function routeCommand(cmd: string, args: unknown): unknown {
     // single in-memory mutation, mirroring the native transaction boundary.
     case "score_micro_target_create": {
       const created = argsRecord(argsRecord(args).args);
+      const commandId = String(created.command_id ?? "").trim();
+      const fingerprint = JSON.stringify(created);
+      if (!commandId || commandId.length + "score-micro-target:".length > 200) {
+        throw "a micro-target create needs a valid command id";
+      }
+      const prior = mockMicroTargetReceipts.get(commandId);
+      if (prior) {
+        if (prior.fingerprint !== fingerprint) {
+          throw "command id was already committed with a different operation payload";
+        }
+        return prior.region;
+      }
       const pieceId = Number(created.piece_id);
       const parentId = Number(created.parent_region_id);
       const mStart = Number(created.m_start);
@@ -3729,16 +4276,29 @@ function routeCommand(cmd: string, args: unknown): unknown {
       try {
         if (!parent) throw new Error("the parent section could not be found");
         if (parent.piece_id !== pieceId) {
-          throw new Error("a micro-target's parent must belong to the same piece");
+          throw new Error(
+            "a micro-target's parent must belong to the same piece",
+          );
         }
         if (parent.parent_region_id != null) {
-          throw new Error("a micro-target cannot be nested inside another micro-target");
+          throw new Error(
+            "a micro-target cannot be nested inside another micro-target",
+          );
         }
-        if (!name || mStart < parent.m_start || mEnd > parent.m_end || mEnd < mStart) {
-          throw new Error("a micro-target's measures must stay inside its parent");
+        if (
+          !name ||
+          mStart < parent.m_start ||
+          mEnd > parent.m_end ||
+          mEnd < mStart
+        ) {
+          throw new Error(
+            "a micro-target's measures must stay inside its parent",
+          );
         }
         if (!hasGeometry) {
-          throw new Error("a micro-target needs current-edition score geometry");
+          throw new Error(
+            "a micro-target needs current-edition score geometry",
+          );
         }
         const parentAnchor = argsRecord(parent.pdf_anchor);
         const parentEditions = argsRecord(parentAnchor.editions);
@@ -3792,6 +4352,7 @@ function routeCommand(cmd: string, args: unknown): unknown {
           parent_region_id: parentId,
         };
         REGIONS[pieceId] = [...(REGIONS[pieceId] ?? []), region];
+        mockMicroTargetReceipts.set(commandId, { fingerprint, region });
         return region;
       } catch (cause) {
         asRejectionString(cause);
@@ -3877,7 +4438,8 @@ function routeCommand(cmd: string, args: unknown): unknown {
       }
       if ("m_start" in patch) target.m_start = Number(patch.m_start);
       if ("m_end" in patch) target.m_end = Number(patch.m_end);
-      if ("color" in patch) target.color = (patch.color as string | null) ?? null;
+      if ("color" in patch)
+        target.color = (patch.color as string | null) ?? null;
       // `pdf_anchor` is replaced wholesale, never merged — the caller already
       // built the full map with `replaceEditionRects`, and merging here would
       // make clearing an edition's marks impossible.
@@ -4101,6 +4663,11 @@ function routeCommand(cmd: string, args: unknown): unknown {
     // Measure mapping (Plan C, task C4 + fix round 1) — canned scans + a
     // faithful bidirectional local reconcile + full measure_map CRUD, so the
     // scan → review → Apply flow is offline-QA-able end to end.
+    case "measure_mapping_status":
+      return [
+        { provider: "claude", configured: false, source: "none" },
+        { provider: "gemini", configured: true, source: "environment" },
+      ];
     case "measure_scan_page": {
       const record = argsRecord(args);
       const pieceId = pieceIdOf(args);
@@ -4233,8 +4800,22 @@ export function installTauriDevMock(
   // bleeds from one suite into the next.
   resetMockRepLedger();
   resetMockMetroState();
+  mockWarmupRoutineSeq = 20;
+  mockWarmupRoutines = [];
+  mockReplaySeq = 40;
+  mockRepReplays = [];
+  mockVoiceCaptureEpoch = 0;
+  mockVoiceCaptureRequests = new Map();
+  mockVoiceCaptureLeases = new Set();
   // Task A11: banner edits never bleed between installs.
   MOCK_BANNERS.clear();
+  MOCK_ARCHIVED_PIECES.clear();
+  MOCK_DELETED_PIECES.clear();
+  mockMovements = JSON.parse(JSON.stringify(SEED_MOVEMENTS)) as Record<
+    number,
+    PieceMovement[]
+  >;
+  mockMovementNextId = 20;
   // Task C4: applied measure maps never bleed between installs.
   MOCK_MEASURE_MAP.clear();
   // Task C4 fix round 1: the client-raster "once" gate resets too.
@@ -4246,6 +4827,7 @@ export function installTauriDevMock(
     Region[]
   >;
   mockRegionNextId = 100;
+  mockMicroTargetReceipts.clear();
   // Task B1: fresh generic-settings state per install (the sub-section
   // hint's seen-flag never bleeds between installs/tests).
   mockGenericSettings.clear();

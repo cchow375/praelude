@@ -2,17 +2,28 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
 import { useCrud } from "../rep/useCrud";
-import type { BlockHistory, Region } from "./types";
+import type { BlockHistory, PieceMovement, Region } from "./types";
+import {
+  movementForStoredStarts,
+  regionAnyAnchorPage,
+} from "../score/movements";
 
-export const REGION_COLORS = [
-  "#5b5bd6",
-  "#2f8f5b",
-  "#a86f16",
-  "#c93d45",
-  "#8a5bc7",
-  "#2f7ea8",
-  "#c05a5a",
-];
+export const REGION_PALETTE = [
+  { name: "Indigo", color: "#4f46b8" },
+  { name: "Forest", color: "#237a4b" },
+  { name: "Amber", color: "#9a640c" },
+  { name: "Crimson", color: "#b92f3b" },
+  { name: "Violet", color: "#7747b5" },
+  { name: "Ocean", color: "#1c719b" },
+  { name: "Coral", color: "#bd514c" },
+  { name: "Teal", color: "#087c78" },
+  { name: "Magenta", color: "#a83f7f" },
+  { name: "Cobalt", color: "#285cc4" },
+  { name: "Olive", color: "#68751d" },
+  { name: "Umber", color: "#805039" },
+] as const;
+
+export const REGION_COLORS = REGION_PALETTE.map((swatch) => swatch.color);
 
 const REGION_TITLE_MAX = 500;
 const REGION_NOTES_MAX = 10_000;
@@ -138,14 +149,14 @@ export function RegionEditor({
           />
         </label>
         <label className="region-notes-field">
-          <span className="ck-label">Practice notes</span>
+          <span className="ck-label">Sound target</span>
           <textarea
             className="ck-input"
-            aria-label="Tricky section practice notes"
+            aria-label="Tricky section sound target"
             value={notes}
             maxLength={REGION_NOTES_MAX}
             rows={3}
-            placeholder="What breaks here? What should you remember?"
+            placeholder="sotto voce · grand · like bells"
             onChange={(event) => setNotes(event.target.value)}
           />
         </label>
@@ -183,11 +194,12 @@ export function RegionEditor({
       <div className="region-editor-row">
         <span className="ck-label">Shared color</span>
         <div className="region-colors" aria-label="Tricky section color">
-          {REGION_COLORS.map((color) => (
+          {REGION_PALETTE.map(({ color, name }) => (
             <button
               key={color}
               type="button"
-              aria-label={`Set tricky section color ${color}`}
+              aria-label={`Set tricky section color ${name}`}
+              title={name}
               className={
                 region.color === color ? "region-color is-on" : "region-color"
               }
@@ -365,6 +377,7 @@ export function TrickySectionsPanel({
   const crud = useCrud();
   const [regions, setRegions] = useState<Region[]>([]);
   const [blocks, setBlocks] = useState<BlockHistory[]>([]);
+  const [movements, setMovements] = useState<PieceMovement[]>([]);
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
@@ -397,12 +410,16 @@ export function TrickySectionsPanel({
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [nextRegions, nextBlocks] = await Promise.all([
+      const [nextRegions, nextBlocks, nextMovements] = await Promise.all([
         invoke<Region[]>("region_list", { pieceId }),
         invoke<BlockHistory[]>("rep_blocks_for_piece", { pieceId }),
+        invoke<PieceMovement[]>("piece_movement_list", { pieceId }).catch(
+          () => [],
+        ),
       ]);
       setRegions(nextRegions ?? []);
       setBlocks(nextBlocks ?? []);
+      setMovements(nextMovements ?? []);
     } catch (reason) {
       setError(messageOf(reason));
     } finally {
@@ -432,6 +449,43 @@ export function TrickySectionsPanel({
       ),
     [regions],
   );
+  const regionGroups = useMemo(() => {
+    if (movements.length === 0) {
+      return [
+        { id: "all", title: null as string | null, regions: sortedRegions },
+      ];
+    }
+    const ordered = [...movements].sort(
+      (a, b) =>
+        a.start_page - b.start_page ||
+        a.display_order - b.display_order ||
+        a.id - b.id,
+    );
+    const grouped = ordered.map((movement) => ({
+      id: String(movement.id),
+      title: movement.title as string | null,
+      regions: [] as Region[],
+    }));
+    const unassigned: Region[] = [];
+    for (const region of sortedRegions) {
+      const page = regionAnyAnchorPage(region);
+      const movement =
+        page == null ? null : movementForStoredStarts(ordered, page);
+      const group = movement
+        ? grouped.find((candidate) => candidate.id === String(movement.id))
+        : null;
+      if (group) group.regions.push(region);
+      else unassigned.push(region);
+    }
+    if (unassigned.length > 0) {
+      grouped.push({
+        id: "unmapped",
+        title: "Not mapped to a movement",
+        regions: unassigned,
+      });
+    }
+    return grouped;
+  }, [movements, sortedRegions]);
 
   const changed = async () => {
     await load();
@@ -483,7 +537,7 @@ export function TrickySectionsPanel({
         <div>
           <span className="ck-label">Tricky sections</span>
           <p>
-            One shared title, practice note, measure range, color, score
+            One shared title, sound target, measure range, color, score
             annotation, and history.
           </p>
         </div>
@@ -515,10 +569,11 @@ export function TrickySectionsPanel({
             />
           </label>
           <label className="tricky-section-add-notes">
-            <span className="ck-label">Practice notes</span>
+            <span className="ck-label">Sound target</span>
             <textarea
               className="ck-input"
-              aria-label="New tricky section practice notes"
+              aria-label="New tricky section sound target"
+              placeholder="sotto voce · grand · like bells"
               maxLength={REGION_NOTES_MAX}
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
@@ -555,40 +610,50 @@ export function TrickySectionsPanel({
         </p>
       ) : (
         <div className="tricky-section-list">
-          {sortedRegions.map((region) => (
-            <article
-              className="tricky-section-card"
-              key={region.id}
-              style={
-                {
-                  "--region-color": region.color ?? "var(--accent)",
-                } as React.CSSProperties
-              }
-            >
-              <div className="tricky-section-card-head">
-                <span className="tricky-section-dot" aria-hidden="true" />
-                <strong className="ck-fit">{region.name}</strong>
-                <span>
-                  mm. {region.m_start}–{region.m_end}
-                </span>
-                {(childCounts.get(region.id) ?? 0) > 0 && (
-                  <span className="tricky-section-subsection-badge">
-                    {childCounts.get(region.id)} sub-section
-                    {childCounts.get(region.id) === 1 ? "" : "s"}
-                  </span>
-                )}
-                {region.notes && <p>{region.notes}</p>}
-                <small>
-                  {blocksByRegion.get(region.id)?.length ?? 0} practice blocks
-                </small>
-              </div>
-              <RegionEditor
-                region={region}
-                regions={sortedRegions}
-                blocks={blocksByRegion.get(region.id) ?? []}
-                onChanged={changed}
-              />
-            </article>
+          {regionGroups.map((group) => (
+            <section className="tricky-section-movement" key={group.id}>
+              {group.title && <h4>{group.title}</h4>}
+              {group.regions.length === 0 ? (
+                <p className="history-empty">No anchored sections.</p>
+              ) : (
+                group.regions.map((region) => (
+                  <article
+                    className="tricky-section-card"
+                    key={region.id}
+                    style={
+                      {
+                        "--region-color": region.color ?? "var(--accent)",
+                      } as React.CSSProperties
+                    }
+                  >
+                    <div className="tricky-section-card-head">
+                      <span className="tricky-section-dot" aria-hidden="true" />
+                      <strong className="ck-fit">{region.name}</strong>
+                      <span>
+                        mm. {region.m_start}–{region.m_end}
+                      </span>
+                      {(childCounts.get(region.id) ?? 0) > 0 && (
+                        <span className="tricky-section-subsection-badge">
+                          {childCounts.get(region.id)} sub-section
+                          {childCounts.get(region.id) === 1 ? "" : "s"}
+                        </span>
+                      )}
+                      {region.notes && <p>{region.notes}</p>}
+                      <small>
+                        {blocksByRegion.get(region.id)?.length ?? 0} practice
+                        blocks
+                      </small>
+                    </div>
+                    <RegionEditor
+                      region={region}
+                      regions={sortedRegions}
+                      blocks={blocksByRegion.get(region.id) ?? []}
+                      onChanged={changed}
+                    />
+                  </article>
+                ))
+              )}
+            </section>
           ))}
         </div>
       )}

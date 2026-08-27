@@ -1123,6 +1123,25 @@
   background: var(--surface-raised);
 }
 
+.score-add-rotation {
+  width: 100%;
+  min-height: 34px;
+  margin: var(--space-2) 0 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--ink-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.score-add-rotation:hover {
+  border-color: var(--ink-tertiary);
+  color: var(--ink-primary);
+  background: var(--surface-hover);
+}
+
 .score-state {
   display: flex;
   min-height: 240px;

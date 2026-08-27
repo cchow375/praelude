@@ -106,7 +106,7 @@ function zIndexValuesIn(absPath: string): number[] {
  * dock's own ceiling (`DOCK_Z_CEILING`, 39) — i.e. every value that could
  * either collide with the dock's reserved 10-39 window or be mistaken for
  * "ordinary content" instead of the already-established >=40 overlay band
- * (scrims at 40, heard pill/toast at 50, ...). Excludes the dock's OWN
+ * (scrims at 40, transient voice feedback at 50, ...). Excludes the dock's OWN
  * stylesheet(s), which legitimately live inside 10-39 by design.
  */
 function pageContentMax(): number {
@@ -161,13 +161,9 @@ describe("dock stacking contract", () => {
   });
 
   it("renders every panel BELOW the global transient overlays", () => {
-    // The heard pill must stay on top of everything the dock does (v6 S9
-    // "visible hearing"), and so must the modal/dialog/receipt layers. The
-    // lowest of them all is the 40 band, so that is the binding ceiling.
-    const heardPill = zIndexOfRule(
-      "features/voice/HeardPill.css",
-      ".heard-pill",
-    );
+    // The persistent heard feed now lives inside the Rep Counter itself.
+    // Transient voice feedback and modal/dialog/receipt layers remain above
+    // every dock panel. The lowest of them is the 40 band, the binding ceiling.
     const voiceToast = zIndexOfRule(
       "features/voice/VoiceToast.css",
       ".voice-feedback",
@@ -183,7 +179,6 @@ describe("dock stacking contract", () => {
       ".receipt-center",
     );
     const lowestOverlay = Math.min(
-      heardPill,
       voiceToast,
       pickerScrim,
       dialogBackdrop,
@@ -204,7 +199,7 @@ describe("dock stacking contract", () => {
       const z = dockPanelZIndex(hammered, id);
       expect(z).toBeGreaterThanOrEqual(DOCK_Z_BASE);
       expect(z).toBeLessThanOrEqual(DOCK_Z_CEILING);
-      expect(z).toBeLessThan(heardPill);
+      expect(z).toBeLessThan(lowestOverlay);
     }
   });
 

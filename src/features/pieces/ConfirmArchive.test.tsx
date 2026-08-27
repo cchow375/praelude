@@ -24,14 +24,11 @@ function open(
 }
 
 describe("ConfirmArchive typed-name gate", () => {
-  it("keeps Remove disabled until the exact name is typed", async () => {
+  it("keeps Delete files disabled until the exact name is typed", async () => {
     const onConfirm = open("Scherzo No. 2");
-    // After opening there are two "Remove" buttons: the trigger + the popover
-    // gate. The gate is the disabled one (identity stable across re-renders, so
-    // its `disabled` reflects later state updates).
-    const gate = screen
-      .getAllByRole("button", { name: "Remove" })
-      .find((b) => (b as HTMLButtonElement).disabled) as HTMLButtonElement;
+    const gate = screen.getByRole("button", {
+      name: "Delete files",
+    }) as HTMLButtonElement;
     expect(gate).toBeTruthy();
     expect(gate.disabled).toBe(true);
 
@@ -50,9 +47,9 @@ describe("ConfirmArchive typed-name gate", () => {
     const onConfirm = open("Scherzo No. 2");
     const input = screen.getByLabelText("Type the piece name to confirm");
     fireEvent.change(input, { target: { value: "wrong name" } });
-    const gate = screen
-      .getAllByRole("button", { name: "Remove" })
-      .find((b) => (b as HTMLButtonElement).disabled) as HTMLButtonElement;
+    const gate = screen.getByRole("button", {
+      name: "Delete files",
+    }) as HTMLButtonElement;
     fireEvent.click(gate);
     expect(onConfirm).not.toHaveBeenCalled();
   });

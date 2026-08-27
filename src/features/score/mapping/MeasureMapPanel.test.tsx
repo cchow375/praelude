@@ -194,6 +194,65 @@ describe("MeasureMapPanel", () => {
     expect(screen.getByText(/3 pages/)).toBeTruthy();
   });
 
+  it("blocks the scan before any page leaves the Mac when no provider key exists", async () => {
+    const scanPage = vi.fn();
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={3}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={makeApi({
+          scanPage,
+          status: vi.fn().mockResolvedValue([
+            { provider: "claude", configured: false, source: "none" },
+            { provider: "gemini", configured: false, source: "none" },
+          ]),
+        })}
+      />,
+    );
+
+    expect(
+      await screen.findByText(/No Anthropic or Gemini key is configured/),
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Start scan" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(scanPage).not.toHaveBeenCalled();
+  });
+
+  it("honestly identifies the configured Gemini fallback when Anthropic is absent", async () => {
+    render(
+      <MeasureMapPanel
+        pieceId={1}
+        editionId="score/score.pdf"
+        editionFingerprint="fp-1"
+        pageCount={2}
+        onClose={vi.fn()}
+        rasterizePage={rasterizePage}
+        api={makeApi({
+          status: vi.fn().mockResolvedValue([
+            { provider: "claude", configured: false, source: "none" },
+            { provider: "gemini", configured: true, source: "keychain" },
+          ]),
+        })}
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        /No Anthropic key is configured\. Gemini fallback is ready/,
+      ),
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Start scan" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
   it("reports per-page progress while scanning", async () => {
     let resolvePage2: (value: ScanPageOutput) => void = () => undefined;
     const scanPage = vi

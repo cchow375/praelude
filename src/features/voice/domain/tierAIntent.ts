@@ -31,9 +31,10 @@ export type TierAIntent =
       readonly kind: "report_attempt_count";
       readonly count: number;
     }
+  | { readonly kind: "add_clean_reps"; readonly count: number }
   | { readonly kind: "confirm_pending_attempt" }
   | { readonly kind: "report_last_attempt" }
-  | { readonly kind: "undo_last_attempt" }
+  | { readonly kind: "undo_last_attempt"; readonly count?: number }
   | {
       readonly kind: "correct_last_attempt";
       readonly verdict: SelfReportedVerdict;
@@ -349,14 +350,19 @@ export function parseTierAIntent(
   }
 
   const verdict = (
-    text === "clean" || text === "got it" || text === "done"
+    text === "clean" ||
+    text === "got it" ||
+    text === "done" ||
+    text === "mark done" ||
+    text === "rep done"
       ? "clean"
-      : text === "flawed" || text === "sloppy"
+      : text === "flawed" || text === "sloppy" || text === "mark sloppy"
         ? "flawed"
         : text === "miss" ||
             text === "missed" ||
             text === "no" ||
-            text === "again"
+            text === "again" ||
+            text === "mark again"
           ? "miss"
           : null
   ) satisfies SelfReportedVerdict | null;
@@ -372,9 +378,11 @@ export function parseTierAIntent(
   }
 
   if (text === "count that") {
-    if (!context.pending_duplicate_attempt)
-      return reject("no_pending_attempt", evidence);
-    return match({ kind: "confirm_pending_attempt" }, evidence);
+    if (context.pending_duplicate_attempt)
+      return match({ kind: "confirm_pending_attempt" }, evidence);
+    if (context.practice_state === "active")
+      return match({ kind: "add_clean_reps", count: 1 }, evidence);
+    return reject("no_active_set", evidence);
   }
   if (text === "did that count") {
     if (!context.last_attempt_available)
@@ -408,7 +416,54 @@ export function parseTierAIntent(
     );
   }
 
-  if (["undo", "undo that", "undo last", "undo last rep"].includes(text)) {
+  const addClean = /^add (.+) (?:clean|cleans|rep|reps)$/u.exec(text);
+  if (addClean) {
+    const countText = addClean[1] === "a" ? "one" : addClean[1];
+    const count = parseBoundedParameter(
+      countText,
+      TIER_A_COUNT_MIN,
+      TIER_A_COUNT_MAX,
+      parseSpokenCountInteger,
+    );
+    if (count.value === null) return reject("invalid_count", evidence);
+    if (!count.valid) return reject("count_out_of_range", evidence);
+    if (context.practice_state === "paused")
+      return reject("practice_paused", evidence);
+    if (context.practice_state !== "active")
+      return reject("no_active_set", evidence);
+    return match({ kind: "add_clean_reps", count: count.value }, evidence);
+  }
+
+  const countedUndo = /^(?:take (.+) (?:back|away)|(?:remove|undo) (.+) reps?)$/u.exec(
+    text,
+  );
+  if (countedUndo) {
+    const count = parseBoundedParameter(
+      countedUndo[1] ?? countedUndo[2],
+      TIER_A_COUNT_MIN,
+      TIER_A_COUNT_MAX,
+      parseSpokenCountInteger,
+    );
+    if (count.value !== null) {
+      if (!count.valid) return reject("count_out_of_range", evidence);
+      if (!setAvailable(context)) return reject("no_active_set", evidence);
+      if (!context.last_attempt_available)
+        return reject("no_last_attempt", evidence);
+      return match({ kind: "undo_last_attempt", count: count.value }, evidence);
+    }
+  }
+
+  if (
+    [
+      "undo that",
+      "undo last",
+      "undo last rep",
+      "remove last rep",
+      "remove the last rep",
+      "take one back",
+      "take one away",
+    ].includes(text)
+  ) {
     if (!setAvailable(context)) return reject("no_active_set", evidence);
     if (!context.last_attempt_available)
       return reject("no_last_attempt", evidence);

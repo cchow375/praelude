@@ -483,7 +483,16 @@ impl Metronome {
         if beats_per_bar.is_none() && subdivision.is_none() {
             return Ok(());
         }
-        let (_, result) = self.do_set(store, None, beats_per_bar, subdivision, None, None, None, None);
+        let (_, result) = self.do_set(
+            store,
+            None,
+            beats_per_bar,
+            subdivision,
+            None,
+            None,
+            None,
+            None,
+        );
         result
     }
 
@@ -1469,7 +1478,8 @@ mod tests {
             metro.do_stop();
             metro.claim_manual();
         });
-        let (owned, result) = metro.serialized(|| metro.do_practice_start(&store, 41, 64.0, None, None));
+        let (owned, result) =
+            metro.serialized(|| metro.do_practice_start(&store, 41, 64.0, None, None));
         assert!(result.is_ok());
         assert_eq!(owned.owner, Some(MetroOwner::Practice { set_id: 41 }));
         let paused = metro.serialized(|| metro.do_practice_pause(41));
@@ -1480,7 +1490,8 @@ mod tests {
             metro.serialized(|| metro.do_practice_resume(&store, 99, 68.0, None, None));
         assert!(result.is_ok());
         assert!(!wrong_resume.running);
-        let (resumed, result) = metro.serialized(|| metro.do_practice_resume(&store, 41, 68.0, None, None));
+        let (resumed, result) =
+            metro.serialized(|| metro.do_practice_resume(&store, 41, 68.0, None, None));
         assert!(result.is_ok());
         assert!(resumed.running);
         assert_eq!(resumed.bpm, 68.0);
@@ -1500,7 +1511,8 @@ mod tests {
 
         // Manual intervention revokes the practice lease; safety stops every
         // owner and deliberately leaves no automatic-resume association.
-        let (owned_again, result) = metro.serialized(|| metro.do_practice_start(&store, 50, 80.0, None, None));
+        let (owned_again, result) =
+            metro.serialized(|| metro.do_practice_start(&store, 50, 80.0, None, None));
         assert!(result.is_ok());
         assert_eq!(owned_again.owner, Some(MetroOwner::Practice { set_id: 50 }));
         metro.serialized(|| {
@@ -1561,8 +1573,16 @@ mod tests {
         // Establish a non-default tuning via metro_set's path (do_set), as the
         // standalone popover would.
         metro.serialized(|| {
-            let (_, result) =
-                metro.do_set(&store, Some(100.0), Some(5), Some(4), None, None, None, None);
+            let (_, result) = metro.do_set(
+                &store,
+                Some(100.0),
+                Some(5),
+                Some(4),
+                None,
+                None,
+                None,
+                None,
+            );
             assert!(result.is_ok());
         });
         assert_eq!(metro.snapshot().beats_per_bar, 5);
@@ -1571,7 +1591,10 @@ mod tests {
         let (started, result) =
             metro.serialized(|| metro.do_practice_start(&store, 7, 100.0, None, None));
         assert!(result.is_ok());
-        assert_eq!(started.beats_per_bar, 5, "None must not reset beats_per_bar");
+        assert_eq!(
+            started.beats_per_bar, 5,
+            "None must not reset beats_per_bar"
+        );
         assert_eq!(started.subdivision, 4, "None must not reset subdivision");
 
         let (resumed, result) = metro.serialized(|| {

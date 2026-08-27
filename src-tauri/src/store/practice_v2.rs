@@ -123,6 +123,8 @@ struct SetRow {
     block_id: i64,
     piece_id: i64,
     piece_title: String,
+    region_id: Option<i64>,
+    sound_target: Option<String>,
     m_start: u32,
     m_end: u32,
     label: Option<String>,
@@ -146,8 +148,10 @@ fn load_set_row(conn: &Connection, block_id: i64) -> rusqlite::Result<Option<Set
         .query_row(
             "SELECT b.id,b.piece_id,p.title,b.m_start,b.m_end,b.label,b.start_bpm,
                     b.target_bpm,b.planned_reps,b.status,b.variants,b.increment_rule,
-                    b.focus,b.use_metronome,b.tuning_json
-             FROM rep_block b JOIN piece p ON p.id=b.piece_id WHERE b.id=?1",
+                    b.focus,b.use_metronome,b.tuning_json,b.region_id,r.notes
+             FROM rep_block b JOIN piece p ON p.id=b.piece_id
+             LEFT JOIN region r ON r.id=b.region_id
+             WHERE b.id=?1",
             [block_id],
             |row| {
                 let variants: String = row.get(10)?;
@@ -160,6 +164,8 @@ fn load_set_row(conn: &Connection, block_id: i64) -> rusqlite::Result<Option<Set
                     block_id: row.get(0)?,
                     piece_id: row.get(1)?,
                     piece_title: row.get(2)?,
+                    region_id: row.get(15)?,
+                    sound_target: row.get(16)?,
                     m_start: u32::try_from(m_start.max(0)).unwrap_or(u32::MAX),
                     m_end: u32::try_from(m_end.max(0)).unwrap_or(u32::MAX),
                     label: row.get(5)?,
@@ -868,6 +874,8 @@ pub(super) fn project(
         block_id: row.block_id,
         piece_id: row.piece_id,
         piece_title: row.piece_title,
+        region_id: row.region_id,
+        sound_target: row.sound_target,
         m_start: row.m_start,
         m_end: row.m_end,
         label: row.label,

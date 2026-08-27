@@ -38,6 +38,7 @@ import { PausedSetsTray } from "../features/dock/PausedSetsTray";
 import { ClockPanel } from "../features/dock/ClockPanel";
 import { DynamicsPanel } from "../features/dock/DynamicsPanel";
 import { DockPillBar } from "../features/dock/DockPillBar";
+import { RotationPanel } from "../features/rotation/RotationPanel";
 import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
 import { DayPhotoCapture } from "../features/ritual/DayPhotoCapture";
@@ -46,7 +47,6 @@ import { detectMoment, useCompletionFx } from "../features/ritual/completionFx";
 import { useVoice } from "../features/voice/useVoice";
 import { useTtsDegraded } from "../features/voice/useTtsDegraded";
 import { VoiceToast } from "../features/voice/VoiceToast";
-import { HeardPill } from "../features/voice/HeardPill";
 import { MicToggle } from "../features/voice/MicToggle";
 import {
   ActionDraftCard,
@@ -72,7 +72,8 @@ import type { LedgerSurface } from "../features/ledger/LedgerCalendarWorkspace";
 import "./shell.css";
 
 /**
- * The v3 app shell: exactly FIVE workspace slots and one quiet text-button nav.
+ * The app shell: five core workspace slots, an optional Assistant slot, and
+ * one quiet text-button nav.
  * The active target is marked by ink weight, never a filled pill. Score/Brain/
  * Ledger/Universe are lazy-loaded (a WorkspaceStub stands in until each phase
  * rebuilds it); Today (Phase 5) is rendered directly so the shell can pass it
@@ -90,6 +91,7 @@ import "./shell.css";
 const WORKSPACES = [
   { id: "today", label: "Today" },
   { id: "score", label: "Score" },
+  { id: "warmups", label: "Warmups" },
   { id: "brain", label: ASSISTANT },
   // The Ledger/Calendar slot (Phase 6 fills both behind this one entry).
   { id: "ledger", label: HISTORY },
@@ -141,6 +143,15 @@ const NAV_ICONS: Record<WorkspaceId, ReactNode> = {
       <path d="M9 18V5l12-2v13" />
       <circle cx="6" cy="18" r="3" />
       <circle cx="18" cy="16" r="3" />
+    </ShellGlyph>
+  ),
+  warmups: (
+    <ShellGlyph>
+      <path d="M5 18.5c2.7-4.8 2.7-8.2 0-13" />
+      <path d="M19 18.5c-2.7-4.8-2.7-8.2 0-13" />
+      <line x1="8" y1="7" x2="16" y2="7" />
+      <line x1="7.2" y1="12" x2="16.8" y2="12" />
+      <line x1="6.2" y1="17" x2="17.8" y2="17" />
     </ShellGlyph>
   ),
   brain: (
@@ -200,6 +211,12 @@ const BrainWorkspace = lazy(() =>
 const ScoreWorkspace = lazy(() =>
   import("../features/score/ScoreWorkspace").then((m) => ({
     default: m.ScoreWorkspace,
+  })),
+);
+
+const WarmupsWorkspace = lazy(() =>
+  import("../features/warmups/WarmupsWorkspace").then((m) => ({
+    default: m.WarmupsWorkspace,
   })),
 );
 
@@ -449,6 +466,43 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     };
   }, [metronome.state.running, rep.snap]);
   const voice = useVoice(tierAContext);
+  const replayCaptureOwnership = useMemo(
+    () => ({
+      suspend: voice.suspendCapture,
+      resume: voice.resumeCapture,
+    }),
+    [voice.resumeCapture, voice.suspendCapture],
+  );
+  const [replayModeActive, setReplayModeActive] = useState(false);
+  const replayOwnedVoiceMute = useRef(false);
+  const voiceStatusRef = useRef(voice.status);
+  voiceStatusRef.current = voice.status;
+  const onReplayModeChange = useCallback(
+    (active: boolean) => {
+      setReplayModeActive(active);
+      // Immediate action firewall while the async physical-capture lease is
+      // being acquired. This is temporary ownership, not a user preference:
+      // only a mic that was live on entry is restored on exit.
+      if (active) {
+        if (voiceStatusRef.current === "live") {
+          replayOwnedVoiceMute.current = true;
+          voice.mute(true);
+        }
+        return;
+      }
+      if (replayOwnedVoiceMute.current) {
+        replayOwnedVoiceMute.current = false;
+        voice.mute(false);
+      }
+    },
+    [voice.mute],
+  );
+  useEffect(() => {
+    if (replayModeActive && voice.status === "live") {
+      replayOwnedVoiceMute.current = true;
+      voice.mute(true);
+    }
+  }, [replayModeActive, voice.mute, voice.status]);
   const ttsDegraded = useTtsDegraded();
   const session = useSession();
   const [ending, setEnding] = useState(false);
@@ -1061,7 +1115,19 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
           })}
         </nav>
 
-        <MicToggle status={voice.status} onToggle={voice.mute} />
+        <MicToggle
+          status={
+            replayModeActive && voice.status === "live"
+              ? "muted"
+              : voice.status
+          }
+          onToggle={voice.mute}
+          lockedReason={
+            replayModeActive
+              ? "Voice stays muted while Listen Back is judging a recorded take."
+              : null
+          }
+        />
 
         <button
           ref={metroButtonRef}
@@ -1129,6 +1195,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                       }));
                       setView("score");
                     }}
+                    onOpenWarmups={() => setView("warmups")}
                     onOpenCalendar={openCalendar}
                     onOpenPiecePlan={openPiecePlan}
                     onOpenBrain={() => setView("brain")}
@@ -1147,6 +1214,15 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                     streak={streak}
                   />
                 </div>
+              )}
+              {view === "warmups" && (
+                <WarmupsWorkspace
+                  activeRep={rep.snap}
+                  onOpenBlock={rep.open}
+                  onRoutineComplete={() =>
+                    fireCompletionFx("warmup_routine")
+                  }
+                />
               )}
               {view === "ledger" && (
                 <LedgerCalendarWorkspace
@@ -1251,10 +1327,6 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         deliveryDisposition={voice.deliveryDisposition}
         ttsDegraded={ttsDegraded}
       />
-      {/* Visible hearing (v6 S9): every accepted final flashes here, including
-          the ambient ones the router ignored, so a miss is a sentence you can
-          read instead of silence you have to guess at. */}
-      <HeardPill delivery={voice.acceptedFinalDelivery} />
       {/* A3: the day-close photo ritual. Shell-level, not SessionBar-level —
           the bar is a slim strip and must not grow a modal. */}
       {photoDay && (
@@ -1302,11 +1374,19 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     <DockProvider>
       <TodaySheetProvider>{shellTree}</TodaySheetProvider>
       <RepPanel
+        heardDelivery={voice.acceptedFinalDelivery}
+        hotkeysActive={view === "score" || view === "warmups"}
+        metroRunning={metronome.state.running}
+        runningSubdivision={metronome.state.subdivision}
+        onSetRunningSubdivision={metronome.setSubdivision}
         snap={rep.snap}
         feed={rep.feed}
         error={rep.error}
         collapsed={repHudCollapsed}
         onToggleCollapsed={() => setRepHudCollapsed((collapsed) => !collapsed)}
+        onReplayModeChange={onReplayModeChange}
+        replayCaptureOwnership={replayCaptureOwnership}
+        onKeptTake={() => fireCompletionFx("reference_take")}
         onCheck={rep.check}
         onUndo={rep.undo}
         onCorrect={rep.correct}
@@ -1325,6 +1405,13 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
       />
       <ClockPanel />
       <DynamicsPanel />
+      <RotationPanel
+        activeRep={rep.snap}
+        defaultCleanStreak={defaultCleanStreak}
+        onOpenBlock={rep.open}
+        onPause={rep.pauseSet}
+        onCycleComplete={() => fireCompletionFx("rotation_cycle")}
+      />
     </DockProvider>
   );
 }

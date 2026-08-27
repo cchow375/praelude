@@ -42,6 +42,27 @@ describe("detectMoment", () => {
     );
   });
 
+  it("marks only a forward intermediate variant-stage transition", () => {
+    expect(
+      detectMoment(
+        snap({ variant_stage_index: 0, variant_chain_complete: false }),
+        snap({ variant_stage_index: 1, variant_chain_complete: false }),
+      ),
+    ).toBe("variant_stage");
+    expect(
+      detectMoment(
+        snap({ variant_stage_index: 1, variant_chain_complete: false }),
+        snap({ variant_stage_index: 0, variant_chain_complete: false }),
+      ),
+    ).toBeNull();
+    expect(
+      detectMoment(
+        snap({ variant_stage_index: 1, variant_chain_complete: false }),
+        snap({ variant_stage_index: 1, variant_chain_complete: true }),
+      ),
+    ).toBeNull();
+  });
+
   it("fires nothing without a transition — no evidence, no visual", () => {
     expect(detectMoment(null, null)).toBeNull();
     expect(detectMoment(snap({}), snap({}))).toBeNull();

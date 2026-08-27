@@ -33,14 +33,23 @@ fn scherzo3_session_replays_with_zero_false_mutations() {
     assert_eq!(fx.session_id, "scherzo3");
     assert_eq!(fx.piece_alias_hint.as_deref(), Some("Scherzo"));
     assert_eq!(
-        fx.source_wav_sha256,
-        "03b294f5a2c57e23eb06c4122f3799c7697abbc9abbd767e509231b7df21de63",
+        fx.source_wav_sha256, "03b294f5a2c57e23eb06c4122f3799c7697abbc9abbd767e509231b7df21de63",
         "WAV hash must match the corpus manifest"
     );
-    assert!(fx.source_narration_json.ends_with("scherzo3_narration.json"));
+    assert!(fx
+        .source_narration_json
+        .ends_with("scherzo3_narration.json"));
     assert!(!fx.honesty_note.trim().is_empty());
-    assert_eq!(fx.segment_count, fx.segments.len(), "declared count matches");
-    assert_eq!(fx.segments.len(), 308, "scherzo3 has 308 narration segments");
+    assert_eq!(
+        fx.segment_count,
+        fx.segments.len(),
+        "declared count matches"
+    );
+    assert_eq!(
+        fx.segments.len(),
+        308,
+        "scherzo3 has 308 narration segments"
+    );
 
     // Honest bucket tally (documentation metadata; the runner asserts the routed
     // outcome regardless). Every segment carries a non-empty adjudication basis.
@@ -73,8 +82,14 @@ fn scherzo3_session_replays_with_zero_false_mutations() {
         command, 0,
         "scherzo3 meta-narration issues no clean hot-loop command"
     );
-    assert_eq!(review, 3, "three genuinely ambiguous items escalated, not guessed");
-    assert_eq!(ambient + firewall + asr + command + correction + review, 308);
+    assert_eq!(
+        review, 3,
+        "three genuinely ambiguous items escalated, not guessed"
+    );
+    assert_eq!(
+        ambient + firewall + asr + command + correction + review,
+        308
+    );
 
     let replay = assert_full_session_replay(&fx);
 

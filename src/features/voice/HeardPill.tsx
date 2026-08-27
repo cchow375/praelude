@@ -1,46 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./HeardPill.css";
 
-// ---------------------------------------------------------------------------
-// Visible hearing (v6 S9).
-//
-// Christian, July 31: commands "barely work" — but from the outside a command
-// that was misheard and a command that was never heard look identical. Both are
-// silence. This pill removes that ambiguity: EVERY final the app accepts flashes
-// its raw text here, including the ambient ones the router deliberately ignored.
-// A miss stops being a mystery and becomes a sentence you can read.
-//
-// It is not the toast. `VoiceToast`'s SILENT_KINDS still suppresses the
-// confirmation toast for `question`/`ignored`, and it should: those actioned
-// nothing. What was wrong was letting "no toast" also mean "no evidence you were
-// heard at all". The two surfaces answer different questions — the toast says
-// what the app DID, the pill says what the app HEARD.
-//
-// Anchored rather than nested inside the Rep Counter panel: that panel is
-// draggable, minimizable, and empty when no set is open, and a hearing indicator
-// that can be closed is worse than none. It sits low-left, clear of the dock's
-// own pill bar (right) and the toast stack (bottom-centre).
-// ---------------------------------------------------------------------------
-
-/**
- * The honest limit, stated in-app (Settings ▸ Voice & wake-word).
- *
- * There is no quiet-speech sensitivity control to build: recognition happens
- * inside the macOS speech engine and the app receives finished text, never
- * audio. A mic-level meter would need a SECOND audio input stream alongside
- * `hear`'s — memory this machine does not have to spare — and it still would not
- * make the engine hear better. So the app promises only what it can deliver:
- * showing exactly what it was given.
- */
 export const QUIET_SPEECH_NOTE =
   "Quiet-speech sensitivity belongs to the macOS speech engine — the app shows what it heard; it can't hear better.";
 
-/** How long a heard line stays up. Short — this is a flash, not a log. */
-export const HEARD_MS = 1800;
-
-/** Longest text rendered; anything past this is elided. A dictated sentence can
- * run long, and the pill must never become a wall of text over the score. */
 const MAX_CHARS = 72;
+const MAX_HEARD_LINES = 3;
 
 export function truncateHeard(text: string): string {
   const trimmed = text.trim().replace(/\s+/gu, " ");
@@ -48,55 +13,69 @@ export function truncateHeard(text: string): string {
   return `${trimmed.slice(0, MAX_CHARS - 1).trimEnd()}…`;
 }
 
-interface HeardPillProps {
-  /**
-   * The latest accepted final transcript. A NEW object reference per delivery,
-   * so two identical utterances still re-flash. `null` before anything is heard.
-   */
-  readonly delivery: {
-    readonly text: string;
-    readonly is_final: boolean;
-    /**
-     * D1 latency instrument: ms from the utterance's FIRST PARTIAL to the
-     * action completing (or, for an ignored final, to that decision). This is
-     * the ONLY span the app can measure — NOT utterance→action, since the
-     * Mac's own recognition delay happens upstream of every timestamp the app
-     * can see. Absent on legacy/interim events.
-     */
-    readonly app_ms?: number;
-  } | null;
+export interface HeardDelivery {
+  readonly text: string;
+  readonly is_final: boolean;
+  /** Honest app-side latency: first partial received to action/ignore decision. */
+  readonly app_ms?: number;
+  readonly delivery_id?: string | number;
+  readonly revision?: number;
 }
 
-export function HeardPill({ delivery }: HeardPillProps) {
-  const [heard, setHeard] = useState<string | null>(null);
-  const [appMs, setAppMs] = useState<number | undefined>(undefined);
+interface HeardLine {
+  key: string | number;
+  text: string;
+  appMs?: number;
+}
+
+/** Persistent, bounded evidence of the last three final transcripts.
+ * Every final is retained, including ignored ambient speech. */
+export function HeardPill({
+  delivery,
+}: {
+  readonly delivery: HeardDelivery | null;
+}) {
+  const [heard, setHeard] = useState<HeardLine[]>([]);
+  const fallbackKey = useRef(0);
 
   useEffect(() => {
-    if (!delivery || !delivery.is_final) return;
+    if (!delivery?.is_final) return;
     const text = truncateHeard(delivery.text);
     if (!text) return;
-    setHeard(text);
-    setAppMs(delivery.app_ms);
-    const timer = setTimeout(() => {
-      setHeard(null);
-      setAppMs(undefined);
-    }, HEARD_MS);
-    return () => clearTimeout(timer);
+    fallbackKey.current += 1;
+    const key = delivery.delivery_id ?? fallbackKey.current;
+    setHeard((previous) =>
+      [...previous, { key, text, appMs: delivery.app_ms }].slice(
+        -MAX_HEARD_LINES,
+      ),
+    );
   }, [delivery]);
 
-  if (!heard) return null;
   return (
-    <div className="heard-pill" role="status" aria-live="polite">
-      <span className="heard-pill-ear" aria-hidden="true" />
-      <span className="heard-pill-text">{heard}</span>
-      {typeof appMs === "number" && (
-        <span
-          className="heard-pill-latency"
-          title="Time from the first words the Mac gave the app to the action being done. It does not include how long the Mac itself took to hear you — the app cannot see that."
-        >
-          app {(appMs / 1000).toFixed(1)}s
-        </span>
+    <section className="heard-feed" aria-label="Recently heard">
+      <div className="heard-feed-heading">
+        <span className="heard-pill-ear" aria-hidden="true" />
+        Heard
+      </div>
+      {heard.length === 0 ? (
+        <p className="heard-feed-empty">No final speech heard yet.</p>
+      ) : (
+        <ol className="heard-feed-lines" role="log" aria-live="polite">
+          {heard.map((line, index) => (
+            <li key={`${line.key}-${index}`}>
+              <span className="heard-pill-text">{line.text}</span>
+              {typeof line.appMs === "number" && (
+                <span
+                  className="heard-pill-latency"
+                  title="Time from the first words the Mac gave the app to the action being done. It does not include how long the Mac itself took to hear you — the app cannot see that."
+                >
+                  app {(line.appMs / 1000).toFixed(1)}s
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
       )}
-    </div>
+    </section>
   );
 }

@@ -112,6 +112,10 @@ pub enum Intent {
     /// A practice-rep self-assessment (rep mode). The `String` is an optional
     /// note captured after a leading fail/flawed token.
     RepCheck(Verdict, Option<String>),
+    /// Add one or more clean reps through the same authoritative rep engine.
+    RepAdd(u32),
+    /// Void the latest one or more effective reps (append-only undo).
+    RepUndo(u32),
     /// Open a rep block (any mode). See [`RepOpenSpec`].
     RepOpen(RepOpenSpec),
     /// "Where are we / how many left / status" — report the active block (rep mode).
@@ -206,6 +210,9 @@ impl Router {
             }
             if is_rep_close(&words) {
                 return Intent::RepClose;
+            }
+            if let Some(adjustment) = rep_adjustment(&words) {
+                return adjustment;
             }
             if let Some((v, note)) = rep_check(&words) {
                 return Intent::RepCheck(v, note);
@@ -341,6 +348,8 @@ fn rep_check(words: &[&str]) -> Option<(Verdict, Option<String>)> {
         "good",
         "yes",
         "yep",
+        "mark done",
+        "rep done",
     ];
     if PASS.contains(&joined.as_str()) {
         return Some((Verdict::Pass, None));
@@ -355,19 +364,23 @@ fn rep_check(words: &[&str]) -> Option<(Verdict, Option<String>)> {
         return None;
     }
 
-    // Leading verdict token(s): two-word forms first, then single tokens.
-    let (verdict, lead) =
-        if words.starts_with(&["messed", "up"]) || words.starts_with(&["mess", "up"]) {
-            (Verdict::Fail, 2)
-        } else {
-            match words.first().copied() {
-                Some("again" | "nope" | "no" | "failed" | "fail" | "miss" | "missed" | "retry") => {
-                    (Verdict::Fail, 1)
-                }
-                Some("sloppy" | "rough" | "shaky" | "almost") => (Verdict::Flawed, 1),
-                _ => return None,
+    // Leading verdict token(s): two-word fast forms first, then single tokens.
+    let (verdict, lead) = if words == ["mark", "sloppy"] {
+        (Verdict::Flawed, 2)
+    } else if words == ["mark", "again"]
+        || words.starts_with(&["messed", "up"])
+        || words.starts_with(&["mess", "up"])
+    {
+        (Verdict::Fail, 2)
+    } else {
+        match words.first().copied() {
+            Some("again" | "nope" | "no" | "failed" | "fail" | "miss" | "missed" | "retry") => {
+                (Verdict::Fail, 1)
             }
-        };
+            Some("sloppy" | "rough" | "shaky" | "almost") => (Verdict::Flawed, 1),
+            _ => return None,
+        }
+    };
 
     let rest = &words[lead..];
     if rest.is_empty() {
@@ -379,6 +392,58 @@ fn rep_check(words: &[&str]) -> Option<(Verdict, Option<String>)> {
         return None;
     }
     Some((verdict, Some(rest.join(" "))))
+}
+
+const MAX_REP_ADJUSTMENT: u32 = 100;
+
+fn rep_count(words: &[&str]) -> Option<u32> {
+    if words.is_empty() {
+        return None;
+    }
+    let value = numbers::parse_number(&words.join(" "))?;
+    if !value.is_finite()
+        || value.fract() != 0.0
+        || !(1.0..=f64::from(MAX_REP_ADJUSTMENT)).contains(&value)
+    {
+        return None;
+    }
+    Some(value as u32)
+}
+
+/// Safe, all-in-grammar rep adjustment commands. Every accepted shape has at
+/// least two words and consumes the whole utterance; nearby conversation stays
+/// inert even while a set is open.
+fn rep_adjustment(words: &[&str]) -> Option<Intent> {
+    match words {
+        ["count", "that"] | ["add", "a", "clean"] | ["add", "one", "clean"] => {
+            return Some(Intent::RepAdd(1));
+        }
+        ["take", "one", "back"]
+        | ["take", "one", "away"]
+        | ["remove", "last", "rep"]
+        | ["remove", "the", "last", "rep"]
+        | ["undo", "last", "rep"]
+        | ["undo", "that"] => return Some(Intent::RepUndo(1)),
+        _ => {}
+    }
+
+    if let ["add", count @ .., noun] = words {
+        if matches!(*noun, "clean" | "cleans" | "rep" | "reps") {
+            return rep_count(count).map(Intent::RepAdd);
+        }
+    }
+    if let ["take", count @ .., direction] = words {
+        if matches!(*direction, "back" | "away") {
+            return rep_count(count).map(Intent::RepUndo);
+        }
+    }
+    if let [verb @ ("remove" | "undo"), count @ .., noun] = words {
+        let _ = verb;
+        if matches!(*noun, "rep" | "reps") {
+            return rep_count(count).map(Intent::RepUndo);
+        }
+    }
+    None
 }
 
 /// Observed conversational phrases that happen to begin with a fail verdict.
@@ -1368,6 +1433,56 @@ mod tests {
         assert_eq!(r("no", &m), Intent::RepCheck(Verdict::Fail, None));
         assert_eq!(r("messed up", &m), Intent::RepCheck(Verdict::Fail, None));
         assert_eq!(r("failed", &m), Intent::RepCheck(Verdict::Fail, None));
+        assert_eq!(r("mark done", &m), Intent::RepCheck(Verdict::Pass, None));
+        assert_eq!(r("rep done", &m), Intent::RepCheck(Verdict::Pass, None));
+        assert_eq!(
+            r("mark sloppy", &m),
+            Intent::RepCheck(Verdict::Flawed, None)
+        );
+        assert_eq!(r("mark again", &m), Intent::RepCheck(Verdict::Fail, None));
+    }
+
+    #[test]
+    fn counted_rep_adjustments_are_multi_word_set_gated_and_bounded() {
+        let m = rep_mode();
+        assert_eq!(r("count that", &m), Intent::RepAdd(1));
+        assert_eq!(r("add a clean", &m), Intent::RepAdd(1));
+        assert_eq!(r("add two cleans", &m), Intent::RepAdd(2));
+        assert_eq!(r("add twenty one reps", &m), Intent::RepAdd(21));
+        assert_eq!(r("take one back", &m), Intent::RepUndo(1));
+        assert_eq!(r("take three away", &m), Intent::RepUndo(3));
+        assert_eq!(r("remove the last rep", &m), Intent::RepUndo(1));
+        assert_eq!(r("undo four reps", &m), Intent::RepUndo(4));
+
+        for phrase in [
+            "count that as evidence",
+            "add two cleans to the plan",
+            "take one back to the store",
+            "undo that thought",
+            "add zero cleans",
+            "add one hundred one cleans",
+            "remove reps",
+        ] {
+            assert_eq!(
+                r(phrase, &m),
+                Intent::Ignored,
+                "near-miss adjustment must remain inert: {phrase:?}"
+            );
+        }
+
+        for phrase in [
+            "count that",
+            "add two cleans",
+            "take one back",
+            "undo four reps",
+            "mark done",
+        ] {
+            assert_eq!(
+                r(phrase, &stopped()),
+                Intent::Ignored,
+                "rep command must be ignored without an active set: {phrase:?}"
+            );
+        }
     }
 
     #[test]
