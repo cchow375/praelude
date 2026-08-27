@@ -26,10 +26,24 @@ const COMPACT_VIEWPORT_HEIGHT = 520;
 type RepTuckPhase = "idle" | "pending" | "owned" | "released";
 
 function isCompactWarmupsViewport(): boolean {
+  if (typeof window === "undefined") return false;
+
+  // App.tsx applies the saved WebView zoom (90% by default). At that zoom a
+  // physical 720x520 NSWindow reports an inner viewport around 800x578, while
+  // outerWidth/outerHeight stay tied to the unzoomed native window. Prefer
+  // those physical bounds; browsers/jsdom that omit them or report zero fall
+  // back to the content viewport instead of disabling the guard entirely.
+  const width =
+    Number.isFinite(window.outerWidth) && window.outerWidth > 0
+      ? window.outerWidth
+      : window.innerWidth;
+  const height =
+    Number.isFinite(window.outerHeight) && window.outerHeight > 0
+      ? window.outerHeight
+      : window.innerHeight;
+
   return (
-    typeof window !== "undefined" &&
-    window.innerWidth <= COMPACT_VIEWPORT_WIDTH &&
-    window.innerHeight <= COMPACT_VIEWPORT_HEIGHT
+    width <= COMPACT_VIEWPORT_WIDTH && height <= COMPACT_VIEWPORT_HEIGHT
   );
 }
 

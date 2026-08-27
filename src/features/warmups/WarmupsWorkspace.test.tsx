@@ -19,18 +19,33 @@ import { DockPanel } from "../dock/DockPanel";
 import { DOCK_STORAGE_KEY } from "../dock/dockState";
 
 const ORIGINAL_VIEWPORT = {
-  width: window.innerWidth,
-  height: window.innerHeight,
+  innerWidth: window.innerWidth,
+  innerHeight: window.innerHeight,
+  outerWidth: window.outerWidth,
+  outerHeight: window.outerHeight,
 };
 
-function setViewport(width: number, height: number) {
+function setViewport(
+  innerWidth: number,
+  innerHeight: number,
+  outerWidth = innerWidth,
+  outerHeight = innerHeight,
+) {
   Object.defineProperty(window, "innerWidth", {
     configurable: true,
-    value: width,
+    value: innerWidth,
   });
   Object.defineProperty(window, "innerHeight", {
     configurable: true,
-    value: height,
+    value: innerHeight,
+  });
+  Object.defineProperty(window, "outerWidth", {
+    configurable: true,
+    value: outerWidth,
+  });
+  Object.defineProperty(window, "outerHeight", {
+    configurable: true,
+    value: outerHeight,
   });
   window.dispatchEvent(new Event("resize"));
 }
@@ -192,13 +207,18 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   window.localStorage.removeItem(DOCK_STORAGE_KEY);
-  setViewport(ORIGINAL_VIEWPORT.width, ORIGINAL_VIEWPORT.height);
+  setViewport(
+    ORIGINAL_VIEWPORT.innerWidth,
+    ORIGINAL_VIEWPORT.innerHeight,
+    ORIGINAL_VIEWPORT.outerWidth,
+    ORIGINAL_VIEWPORT.outerHeight,
+  );
   vi.restoreAllMocks();
 });
 
 describe("WarmupsWorkspace", () => {
-  it("tucks the open Rep Counter at exactly 720x520 without touching the active set, then restores it on exit", async () => {
-    setViewport(720, 520);
+  it("uses physical 720x520 bounds at default 90% zoom without touching the active set, then restores on exit", async () => {
+    setViewport(800, 578, 720, 520);
     seedShownRepPanel();
     const onOpenBlock = vi.fn();
     const activeRep = Object.freeze(
@@ -248,7 +268,7 @@ describe("WarmupsWorkspace", () => {
   });
 
   it("leaves the open Rep Counter visible above the compact boundary", async () => {
-    setViewport(900, 700);
+    setViewport(889, 667, 800, 600);
     seedShownRepPanel();
 
     render(
@@ -266,8 +286,26 @@ describe("WarmupsWorkspace", () => {
     ).toBeNull();
   });
 
+  it("falls back to inner bounds when a browser does not expose usable outer bounds", async () => {
+    setViewport(720, 520, 0, 0);
+    seedShownRepPanel();
+
+    render(
+      <DockProvider>
+        <WarmupsDockHarness />
+      </DockProvider>,
+    );
+
+    expect(
+      await screen.findByText(/Rep Counter is tucked into Tools/),
+    ).toBeTruthy();
+    expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
+      "open:minimized",
+    );
+  });
+
   it("restores its owned tuck immediately when the viewport grows out of compact mode", async () => {
-    setViewport(720, 520);
+    setViewport(800, 578, 720, 520);
     seedShownRepPanel();
 
     render(
@@ -283,7 +321,7 @@ describe("WarmupsWorkspace", () => {
       "open:minimized",
     );
 
-    act(() => setViewport(900, 700));
+    act(() => setViewport(889, 667, 800, 600));
 
     await waitFor(() =>
       expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
@@ -296,7 +334,7 @@ describe("WarmupsWorkspace", () => {
   });
 
   it("respects a user restore and close instead of reopening that override on exit", async () => {
-    setViewport(720, 520);
+    setViewport(800, 578, 720, 520);
     seedShownRepPanel();
 
     render(
