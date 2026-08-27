@@ -13,8 +13,10 @@
   local seal (not Developer ID/not notarized), CDHash
   `8655e9a45d83b7bb56e83a9d14bb477da7da39a9`. DMG
   `releases/v8.1.0/CodaKiller-8.1.0.dmg` is 10,892,054 bytes, SHA-256
-  `e828b861b31d771fde66cd66d48987eb66110f0fd455306a6a12c2f80eb0a271`. Tag/push remain
-  bookkeeping. Installed-native Universe and Warmups passed at 720×520; the latter rendered
+  `e828b861b31d771fde66cd66d48987eb66110f0fd455306a6a12c2f80eb0a271`. Release tag `v8.1.0`
+  points to `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; private `origin/main` is current
+  through the post-tag documentation correction. Installed-native Universe and Warmups passed at
+  720×520; the latter rendered
   without overlay/clipping, exposed **Restore Rep Counter** in Tools and preserved the active set.
   Real-provider B5 and real WKWebView microphone/Steinway audio remain acceptance boundaries.
 

@@ -19,8 +19,9 @@ are fixed. Final source HEAD `1a1e38bb7a3757cf90ee6ea814e93d5971c595d6`; fronten
 2,650 passed / 1 skipped / 0 failed and native 1,100 passed / 19 ignored / 0 failed; all eight
 release gates passed. The installed
 ad-hoc locally signed app and DMG verified; schema 16→19 preserved the live graph, adding only the
-hidden Warm-ups system piece. Installed-native Universe and Warmups both passed at 720×520;
-tag and push remain release bookkeeping.
+hidden Warm-ups system piece. Installed-native Universe and Warmups both passed at 720×520.
+Release tag `v8.1.0` points to `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed;
+private `origin/main` is current through the post-tag documentation correction.
 Assistant work remains out of scope: it stays switched off and gated as Christian's accepted
 cleanup, with a practice-only off-state Settings guide and Books/provider furniture hidden. See:
 

@@ -90,7 +90,9 @@ Final source HEAD `1a1e38bb7a3757cf90ee6ea814e93d5971c595d6`; frontend
 corpora and all eight release gates passed. The installed ad-hoc locally signed 8.1.0 app/DMG
 verified, and fresh launch migrated schema 16→19 with integrity/FKs clean and the historical graph
 preserved; only hidden `id=0` Warm-ups was added. Installed-native Universe and Warmups passed at
-720×520 without losing the active set. Tag/push remain bookkeeping. Browser/devMock and scoped
+720×520 without losing the active set. Release tag `v8.1.0` points to
+`0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; private `origin/main` is current through
+the post-tag documentation correction. Browser/devMock and scoped
 native visual evidence cannot prove microphone or Steinway behavior. B67/B75 remain open: no
 Anthropic key and no live measure mapping. Packaged-native Listen Back/voice and at-piano
 acceptance remain owed. The 23-ask boundary is **22 delivered / 1 external-only (B5) / 0 absent**;

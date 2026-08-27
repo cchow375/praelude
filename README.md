@@ -45,8 +45,9 @@ DMG `releases/v8.1.0/CodaKiller-8.1.0.dmg` is 10,892,054 bytes, SHA-256
 
 Fresh launch migrated schema 16→19 with integrity/FKs clean. Pieces changed 10→11 only for hidden
 `id=0` Warm-ups; 230 blocks / 2,034 reps / 46 sessions / 7,873 events / 1 open session were
-preserved, and movement/routine/replay tables plus `measure_map` remain empty. Release tag and
-private-remote push are the remaining bookkeeping. Real-provider measure mapping is still
+preserved, and movement/routine/replay tables plus `measure_map` remain empty. Release tag
+`v8.1.0` points to `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; private
+`origin/main` is current through the post-tag documentation correction. Real-provider measure mapping is still
 unproven on Christian's live scores (no Anthropic key and zero live `measure_map` rows at the last
 audit), and Listen Back/voice still require packaged-native microphone and Steinway acceptance.
 

@@ -2,7 +2,9 @@
 
 > **Status:** APPROVED rev 3 as-built truth. P0–P2 shipped in v7.0.1–v7.2.0; P3–P6 and the
 > earned-motivation redesign shipped together in **v8.1.0/schema 19 on 2026-08-27**. Exact final
-> source/artifact facts are recorded in the v8.1 version record; tag and push remain bookkeeping.
+> source/artifact facts are recorded in the v8.1 version record. Release tag `v8.1.0` points to
+> `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; private `origin/main` is current
+> through the post-tag documentation correction.
 > Real-provider B5 and packaged-native microphone/Steinway acceptance remain explicitly open.
 > **Rev 3 (2026-08-27):** corrects the denominator from 21 to **23** (the table always contained
 > 23 IDs), records Christian's final decisions (Assistant OFF; archive + recent-first, no folders;
@@ -589,7 +591,9 @@ flow P6. He can reorder P2–P6 at any gate.
 
 ## 9. Spec self-review (rev 3, done inline)
 
-Rev-3 release facts are measured in the version record; only tag/push bookkeeping remains.
+Rev-3 release facts are measured in the version record. Tag `v8.1.0` is pushed at
+`0a3d6a5d339955fd7e7318299eaa6c3063674415`; private `origin/main` is current through the
+post-tag documentation correction.
 Consistency: the **23** statuses in §1 match the installed release; phase
 labels match §6 everywhere (P2 = micro-targets, P3 = voice, P4 = score map, P5 =
 warmups, P6 = review & flow); future schemas v17/v18/v19 assigned once each. The visibility
