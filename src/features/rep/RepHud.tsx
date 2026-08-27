@@ -11,6 +11,7 @@ import {
   useVerdictHotkeyConfig,
   useVerdictHotkeys,
 } from "./useVerdictHotkeys";
+import { useSetCompletion } from "./useSetCompletion";
 import { Button, type ButtonVariant } from "../../ui";
 import "./RepHud.css";
 
@@ -80,6 +81,22 @@ interface RungCelebration {
 const RUNG_CELEBRATION_MS = 1200;
 
 /**
+ * B3 — the same guarantee, for the CHAIN stage.
+ *
+ * While a variant chain is running the stage counter IS the headline (see
+ * below), and clearing a stage resets it to 0 in the very same snapshot —
+ * "5/5 → 0/5". Held for a beat, that reads as the advance Christian asked for
+ * ("then it automatically moves me onto the next variation"); unheld, it reads
+ * as the number he watched freeze and then vanish.
+ */
+interface StageCelebration {
+  /** The stage requirement, rendered filled as `filled/filled`. */
+  filled: number;
+  /** The variant that was just cleared — the name the receipt belongs to. */
+  name: string | null;
+}
+
+/**
  * A1 "the punishment": how long the demotion moment holds. A demotion is not
  * a celebration (it never touches `fireCompletionFx`/the confetti layer) —
  * just a calm, ink-colored line naming the new tempo, plus the same chime
@@ -141,6 +158,8 @@ export function RepHud({
   const [restartConfirm, setRestartConfirm] = useState(false);
   const [resetPulse, setResetPulse] = useState(false);
   const [celebration, setCelebration] = useState<RungCelebration | null>(null);
+  const [stageCelebration, setStageCelebration] =
+    useState<StageCelebration | null>(null);
   // A1 "the punishment": the new (lower) tempo while the demotion moment
   // holds, or `null` when none is showing.
   const [demotionBpm, setDemotionBpm] = useState<number | null>(null);
@@ -157,6 +176,10 @@ export function RepHud({
   // state (the streak/tempo before the clean that changed them).
   const prevBpmRef = useRef<number | null>(null);
   const prevStreakRef = useRef<number | undefined>(undefined);
+  // B3: the same "read prior, then commit" discipline for the chain stage.
+  const prevStageCleansRef = useRef<number | null>(null);
+  const prevStageRequiredRef = useRef<number | null>(null);
+  const prevStageNameRef = useRef<string | null>(null);
   const restartTriggerRef = useRef<HTMLButtonElement>(null);
   const restartConfirmRef = useRef<HTMLButtonElement>(null);
   // React state does not update until the next render, so keep a same-tick
@@ -168,6 +191,12 @@ export function RepHud({
   // identical to a click. `submit` is defined below the `!snap` early return,
   // so the listener reaches it through this ref rather than a second write path.
   const submitRef = useRef<((verdict: Verdict) => Promise<void>) | null>(null);
+
+  // B2: a satisfied set closes itself after a visible six-second countdown.
+  // Placed with the other hooks (above the `!snap` early return) so the
+  // countdown is governed by the snapshot alone and cannot be skipped by a
+  // render that happens to have no set.
+  const completion = useSetCompletion(snap, onClose);
 
   const hotkeys = useVerdictHotkeyConfig();
   const { used: hotkeyUsed } = useVerdictHotkeys({
@@ -276,12 +305,52 @@ export function RepHud({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastAttemptId]);
 
+  // B3: hold the FILLED stage when a clean clears one. The stage counter drops
+  // to 0 in the same snapshot that advances the chain (and again when a
+  // completed chain restarts at a stepped tempo), so without this the headline
+  // would fall to 0 as the direct consequence of a clean — the exact defect the
+  // rung celebration above exists to prevent, one level down.
+  useEffect(() => {
+    if (!snap || snap.variant_stage_index == null) {
+      setStageCelebration(null);
+      return;
+    }
+    const prevCleans = prevStageCleansRef.current;
+    const cleared =
+      prevCleans != null &&
+      (snap.variant_stage_cleans ?? 0) <= prevCleans &&
+      snap.last?.verdict === "clean";
+    if (!cleared) {
+      setStageCelebration(null);
+      return;
+    }
+    setStageCelebration({
+      filled: prevStageRequiredRef.current ?? prevCleans,
+      name: prevStageNameRef.current,
+    });
+    const timer = window.setTimeout(
+      () => setStageCelebration(null),
+      RUNG_CELEBRATION_MS,
+    );
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastAttemptId]);
+
   // Commit the current snapshot's tempo/streak as "previous" AFTER the effects
   // above have read the prior values. No dependency array: it must trail every
   // render so the next transition compares against the state just displayed.
   useEffect(() => {
     prevBpmRef.current = snap?.bpm ?? null;
     prevStreakRef.current = snap?.current_clean_streak;
+    const stageIndex = snap?.variant_stage_index ?? null;
+    prevStageCleansRef.current =
+      stageIndex == null ? null : (snap?.variant_stage_cleans ?? 0);
+    prevStageRequiredRef.current =
+      stageIndex == null ? null : (snap?.variant_stage_required ?? 0);
+    prevStageNameRef.current =
+      stageIndex == null
+        ? null
+        : (snap?.variants?.[stageIndex]?.name ?? snap?.variant ?? null);
   });
 
   // The recovery desk stays closed until the pianist opens it — auto-opening
@@ -454,10 +523,33 @@ export function RepHud({
   // is the guarantee that the big number never drops as the direct result of a
   // clean: it fills up to N/N, holds the step receipt, then the live 0/N at the
   // new tempo takes over once the hold releases.
-  const headlineStreak = celebration ? celebration.filledStreak : streakValue;
-  const headlineRequired = celebration
-    ? celebration.filledStreak
-    : streakRequired;
+  // B3: while a variant chain is running, the STAGE counter is the headline.
+  // The mastery streak is the wrong number to make big here — with a chain it
+  // is no longer what ends the set (see B1), and rendering it meant the
+  // advance from one variant to the next showed up only in a small span, which
+  // is why Christian experienced the chain as "it just stays 5/5" rather than
+  // as the automatic move to the next variation he asked for. With no chain,
+  // the headline is exactly what it was.
+  const stageIndex = snap.variant_stage_index ?? null;
+  const chainComplete = snap.variant_chain_complete === true;
+  const chained = stageIndex != null && !chainComplete;
+  const liveStageName =
+    (stageIndex != null ? snap.variants?.[stageIndex]?.name : null) ??
+    snap.variant ??
+    null;
+  const stageName = stageCelebration
+    ? (stageCelebration.name ?? liveStageName)
+    : liveStageName;
+  const headlineStreak = chained
+    ? (stageCelebration?.filled ?? snap.variant_stage_cleans ?? 0)
+    : celebration
+      ? celebration.filledStreak
+      : streakValue;
+  const headlineRequired = chained
+    ? (stageCelebration?.filled ?? snap.variant_stage_required ?? 0)
+    : celebration
+      ? celebration.filledStreak
+      : streakRequired;
   const headlineBpm = celebration ? celebration.atBpm : snap.bpm;
   const verified = repMasteryVerified(snap);
   const mastery = repMasteryStatus(snap);
@@ -543,15 +635,52 @@ export function RepHud({
         </span>
       </div>
 
+      {/* B2: the set finishes itself. Christian had to close every mastered
+          set by hand — "it just stays at 5/5 and i have to like manially x out
+          of it". This is the visible half of that fix: what happened, how long
+          until it closes, and a one-click way to stop it.
+
+          `data-compact-visible` is NOT optional here. `RepHud.css` hides every
+          direct child of `.rep-hud.is-collapsed` that is not the context row,
+          the main row, or explicitly marked — so without the mark this banner
+          would be a feature that "shipped" and was invisible at the app's own
+          720x520 floor, which is exactly B82. It is a top-level row (it must
+          not compete with the headline inside `.rep-hud-main`), so the mark is
+          load-bearing rather than belt-and-braces. */}
+      {completion.secondsLeft != null && (
+        <div
+          className="rep-hud-complete"
+          data-compact-visible="true"
+          role="status"
+        >
+          <span className="rep-hud-complete-text">
+            Set complete · closing in {completion.secondsLeft}…
+          </span>
+          <button
+            type="button"
+            className="rep-hud-chip rep-hud-stay-open"
+            onClick={completion.cancel}
+          >
+            Stay open
+          </button>
+        </div>
+      )}
+
       <div className="rep-hud-main">
         <div
           className={`rep-hud-streak ${celebration ? "is-rung-complete" : ""}`}
           aria-label={
-            celebration
-              ? `Rung ${celebration.filledStreak} of ${celebration.filledStreak} clean at ♩${celebration.atBpm} — stepping to ♩${celebration.nextBpm}`
-              : climbingToTarget
-                ? `Clean streak at this rung ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}, climbing to ${snap.target_bpm} BPM`
-                : `${tempoMastery ? "Mastery proof at target" : "Current clean streak"} ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}`
+            chained
+              ? `${stageName ?? "Variant"} ${headlineStreak} of ${headlineRequired} clean${
+                  snap.next_variant_stage_name
+                    ? `, next variation ${snap.next_variant_stage_name}`
+                    : ", last variation in the chain"
+                }`
+              : celebration
+                ? `Rung ${celebration.filledStreak} of ${celebration.filledStreak} clean at ♩${celebration.atBpm} — stepping to ♩${celebration.nextBpm}`
+                : climbingToTarget
+                  ? `Clean streak at this rung ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}, climbing to ${snap.target_bpm} BPM`
+                  : `${tempoMastery ? "Mastery proof at target" : "Current clean streak"} ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}`
           }
         >
           <span className="rep-hud-streak-value">
@@ -559,6 +688,13 @@ export function RepHud({
             <span aria-hidden="true">/</span>
             <span>{headlineRequired ?? "—"}</span>
           </span>
+          {/* B3: the headline number belongs to a NAMED variant while a chain
+              is running, so the name rides with it. Without this, "0/5" right
+              after "5/5" reads as a reset rather than as the move to the next
+              variation. */}
+          {chained && stageName && (
+            <span className="rep-hud-stage-name">{stageName}</span>
+          )}
           {snap.focus === "tempo" || snap.use_metronome ? (
             headlineBpm != null && (
               <span className="rep-hud-tempo">

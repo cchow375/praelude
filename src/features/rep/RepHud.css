@@ -318,6 +318,38 @@
   color: var(--ink-dim);
 }
 
+/* B2: the completion banner. A finished set used to sit at 5/5 until it was
+   dismissed by hand; now it announces itself, counts down, and closes. Sized
+   as a single quiet row so it costs almost no vertical space at the 720x520
+   floor — it must be readable there, which is why the element also carries
+   `data-compact-visible` (see the .rep-hud.is-collapsed rule above: without
+   the mark this row would be display:none the moment the HUD contracts, i.e.
+   shipped-and-invisible, which is B82). */
+.rep-hud-complete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-sm);
+}
+.rep-hud-complete-text {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--signal-success);
+  font-variant-numeric: tabular-nums;
+}
+
+/* B3: the variant the headline number belongs to, set beside it so "0/5"
+   right after "5/5" reads as the move to the next variation rather than as a
+   reset. Same quiet idiom as the other headline asides. */
+.rep-hud-stage-name {
+  font-size: 0.9375rem;
+  color: var(--ink);
+}
+
 /* A2: the variant chain's current stage. A headline element, not an aside —
    during a hands-free chain this is the line that tells him which variant he
    is playing and what clears it, so it reads at the same weight as the climb

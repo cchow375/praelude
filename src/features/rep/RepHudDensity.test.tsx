@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RepHud } from "./RepHud";
 import type { RepSnapshot } from "./useRep";
@@ -211,5 +211,66 @@ describe("D3 — the strip is dense but the verdicts stay large", () => {
     ]) {
       expect(ruleBody(selector)).toMatch(/outline:[^;]*var\(--focus-ring\)/);
     }
+  });
+});
+
+describe("B2 — the completion banner survives the 720x520 collapsed floor", () => {
+  const satisfied = {
+    ...snap,
+    mastery_status: "satisfied",
+  } as unknown as RepSnapshot;
+
+  const unfinished = {
+    ...snap,
+    mastery_status: "not_satisfied",
+  } as unknown as RepSnapshot;
+
+  it("renders the banner, marked compact-visible, with the HUD collapsed", () => {
+    // Watch it FINISH: only the set he just completed counts down, so a
+    // straight render of an already-satisfied snapshot shows no banner at all.
+    const { container, rerender } = render(
+      <RepHud
+        snap={unfinished}
+        feed={[]}
+        error={null}
+        collapsed
+        onToggleCollapsed={() => {}}
+        {...handlers}
+      />,
+    );
+    act(() => {
+      rerender(
+        <RepHud
+          snap={satisfied}
+          feed={[]}
+          error={null}
+          collapsed
+          onToggleCollapsed={() => {}}
+          {...handlers}
+        />,
+      );
+    });
+    const hud = container.querySelector(".rep-hud")!;
+    expect(hud.classList.contains("is-collapsed")).toBe(true);
+
+    const banner = hud.querySelector(".rep-hud-complete") as HTMLElement;
+    expect(banner, "the completion banner is rendered when collapsed").not.toBeNull();
+    // It is a DIRECT child of .rep-hud — precisely the position the collapsed
+    // rule hides — so the mark is load-bearing, not belt-and-braces (B82).
+    expect(banner.parentElement).toBe(hud);
+    expect(banner.getAttribute("data-compact-visible")).toBe("true");
+    expect(screen.getByText(/Set complete · closing in/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stay open" })).toBeTruthy();
+  });
+
+  it("pins the CSS rule that makes that mark mean something", () => {
+    // The rule hides every direct child of a collapsed HUD except the context
+    // row, the main row, and anything carrying [data-compact-visible]. If this
+    // exemption is ever dropped, the banner silently becomes display:none.
+    const at = css.indexOf(".rep-hud.is-collapsed\n  > :not(");
+    expect(at, "the collapsed-HUD hiding rule still exists").toBeGreaterThan(-1);
+    const collapsedRule = css.slice(at, css.indexOf("}", at));
+    expect(collapsedRule).toContain("[data-compact-visible]");
+    expect(collapsedRule).toContain("display: none");
   });
 });

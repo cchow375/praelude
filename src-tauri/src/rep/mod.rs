@@ -4516,6 +4516,113 @@ mod tests {
         assert_eq!(out.snap.bpm, Some(60.0), "no ladder — tempo never moves");
     }
 
+    /// B1: like `open_args_chain`, but the target tempo EQUALS the start
+    /// tempo, so the ladder is already at target from rep one. That is what
+    /// makes the mastery streak "eligible" immediately and exposes the bug —
+    /// the old rule satisfied the set at the end of stage ONE.
+    fn open_args_chain_at_target() -> RepOpenArgs {
+        RepOpenArgs {
+            start_bpm: 60.0,
+            target_bpm: Some(60.0),
+            required_clean_streak: Some(2),
+            ..open_args_chain(Some(60.0))
+        }
+    }
+
+    #[test]
+    fn b1_a_chained_set_with_a_target_tempo_is_not_satisfied_at_the_end_of_stage_one() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_chain_at_target()).unwrap();
+        // Two cleans clear stage 0 ("dotted") AND meet the generic
+        // trailing-clean mastery streak of 2 at the target tempo.
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let out = engine.check(RepVerdict::Clean, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(
+            snap.variant_stage_index,
+            Some(1),
+            "the chain advanced to 'reverse dotted'"
+        );
+        assert!(!snap.variant_chain_complete);
+        assert_ne!(
+            snap.mastery_status, "satisfied",
+            "the chain governs: stage one is not the whole set"
+        );
+        assert!(!out.block_done, "the set must stay open for the next stage");
+    }
+
+    #[test]
+    fn b1_chain_completion_satisfies_with_a_target_tempo() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_chain_at_target()).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap(); // clears "dotted"
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let out = engine.check(RepVerdict::Clean, None).unwrap(); // clears the chain
+        assert!(out.snap.variant_chain_complete);
+        assert_eq!(out.snap.mastery_status, "satisfied");
+        assert!(out.block_done);
+    }
+
+    #[test]
+    fn b1_chain_completion_satisfies_without_a_target_tempo() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_chain(None)).unwrap();
+        for _ in 0..3 {
+            engine.check(RepVerdict::Clean, None).unwrap();
+        }
+        assert_ne!(engine.snapshot().unwrap().mastery_status, "satisfied");
+        let out = engine.check(RepVerdict::Clean, None).unwrap();
+        assert!(out.snap.variant_chain_complete);
+        assert_eq!(out.snap.mastery_status, "satisfied");
+    }
+
+    #[test]
+    fn b1_a_non_tempo_chained_set_is_also_governed_by_the_chain() {
+        // He chains dotted / reverse-dotted / staccato on phrasing and
+        // dynamics work too, and those sets never enter the tempo branch —
+        // so the chain rule must live outside it.
+        let (engine, pid, _store, _rec) = engine_with_piece();
+        engine
+            .open(RepOpenArgs {
+                variants: open_args_chain(None).variants,
+                ..strict_notes_args(pid, 2)
+            })
+            .unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let out = engine.check(RepVerdict::Clean, None).unwrap(); // clears stage 0 AND the streak of 2
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(snap.variant_stage_index, Some(1), "on to stage two");
+        assert_ne!(
+            snap.mastery_status, "satisfied",
+            "a notes-focus chain is not done after its first variant either"
+        );
+        assert!(!out.block_done);
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let out = engine.check(RepVerdict::Clean, None).unwrap();
+        assert!(out.snap.variant_chain_complete);
+        assert_eq!(out.snap.mastery_status, "satisfied");
+    }
+
+    #[test]
+    fn b1_a_set_with_no_variants_is_unaffected_by_the_chain_rule() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine
+            .open(RepOpenArgs {
+                variants: vec![],
+                ..open_args_chain_at_target()
+            })
+            .unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let snap = engine.snapshot().unwrap();
+        assert_eq!(snap.variant_stage_index, None);
+        assert_ne!(snap.mastery_status, "satisfied", "one of two cleans");
+        // The generic trailing-clean rule still satisfies at the required
+        // streak, exactly as before B1.
+        let out = engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(out.snap.mastery_status, "satisfied");
+    }
+
     #[test]
     fn a1_demotion_operates_within_the_current_variant_not_the_chain() {
         let (engine, _pid, _store, _rec) = engine_with_piece();

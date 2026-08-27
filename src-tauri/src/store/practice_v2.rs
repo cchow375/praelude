@@ -703,16 +703,51 @@ pub(super) fn project(
         } else {
             MasteryStatus::NotSatisfied
         };
-        // A2 "ladder interplay" (spec §5.2): WITHOUT a ladder (no target_bpm),
-        // one full chain pass completes the set outright — it does not wait
-        // on the generic trailing-clean-streak mastery rule above, which has
-        // no notion of the chain's own per-stage requirements.
-        if row.target_bpm.is_none()
-            && !row.variants.is_empty()
-            && tempo.variant_stage.is_some_and(|stage| stage.complete)
-        {
-            summary.contract.mastery = MasteryStatus::Satisfied;
-        }
+    }
+    // B1 (P2): when a set HAS a variant chain, the chain governs completion —
+    // for EVERY focus, with or without a target tempo. This is deliberately
+    // the LAST word on `summary.contract.mastery`.
+    //
+    // WHY: the chain IS the set. Christian's Aug 8 note: "after I do like five
+    // in a row for the first variation(dotted) then it automatically moves me
+    // onto the next variation(reverse dotted), then the next(stacatto), and so
+    // on". Every generic mastery rule above (trailing clean streak, total
+    // clean, timed exposure, and the tempo rule) has no notion of the chain's
+    // per-stage requirements, so each of them declares the WHOLE set mastered
+    // at the end of stage ONE — the set freezes at "5/5" and he has to close
+    // it and delete the finished variant chip by hand to continue.
+    //
+    // The rule this replaces was gated on `row.target_bpm.is_none()` and lived
+    // inside the tempo branch. Both gates were wrong: he always sets a target
+    // tempo, and he chains dotted/reverse-dotted/staccato on phrasing and
+    // dynamics sets too, which never enter the tempo branch at all.
+    //
+    // Direction of travel is one-way: with a chain, mastery now requires
+    // clearing EVERY stage (and, with a ladder, clearing them at the target
+    // tempo, since a tempo step restarts the chain). It can only turn a
+    // Satisfied into a NotSatisfied, never the reverse — the earned-only law
+    // holds. Sets with NO variants are byte-identical to before.
+    //
+    // Two exclusions, both about not rewriting verdicts this rule never
+    // governed:
+    //   * `migration_legacy` contracts — historical sets never asserted chain
+    //     semantics (same reasoning as `project_tempo`'s legacy branch), so a
+    //     rule invented afterwards must not retroactively unsatisfy them.
+    //   * contracts that make no mastery claim at all — `NotApplicable`
+    //     (exploratory) and `UnverifiedLegacy`. Those are statements that
+    //     mastery is not being judged; the chain does not start judging it.
+    if !row.variants.is_empty()
+        && row.contract_source != "migration_legacy"
+        && matches!(
+            summary.contract.mastery,
+            MasteryStatus::Satisfied | MasteryStatus::NotSatisfied
+        )
+    {
+        summary.contract.mastery = if tempo.variant_stage.is_some_and(|stage| stage.complete) {
+            MasteryStatus::Satisfied
+        } else {
+            MasteryStatus::NotSatisfied
+        };
     }
     let effective = summary
         .effective_attempts

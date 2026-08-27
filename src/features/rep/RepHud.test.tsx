@@ -715,6 +715,179 @@ describe("RepHud", () => {
     });
   });
 
+  describe("B3 — the stage counter is the headline while a chain runs", () => {
+    const headline = (c: HTMLElement | Element) =>
+      c.querySelector(".rep-hud-streak-value strong")?.textContent;
+    const required = (c: HTMLElement | Element) =>
+      c.querySelector(".rep-hud-streak-value span:last-of-type")?.textContent;
+
+    function chainSnap(over: Partial<RepSnapshot> = {}): RepSnapshot {
+      return makeSnap({
+        variant: "dotted",
+        variants: [
+          { name: "dotted", reps: 30 },
+          { name: "reverse dotted", reps: 30 },
+          { name: "staccato", reps: 30 },
+        ],
+        variant_stage_index: 0,
+        variant_stage_cleans: 4,
+        variant_stage_required: 5,
+        next_variant_stage_name: "reverse dotted",
+        variant_chain_complete: false,
+        current_clean_streak: 4,
+        mastery_progress_streak: 0,
+        last: { verdict: "flawed", note: null, bpm: 72 },
+        last_attempt_id: 200,
+        ...over,
+      });
+    }
+
+    it("shows the stage progress and the variant name, not the mastery streak", () => {
+      const { container } = render(
+        <RepHud snap={chainSnap()} feed={[]} error={null} {...callbacks()} />,
+      );
+      expect(headline(container)).toBe("4");
+      expect(required(container)).toBe("5");
+      expect(
+        container.querySelector(".rep-hud-stage-name")?.textContent,
+      ).toBe("dotted");
+      expect(
+        screen.getByLabelText(
+          "dotted 4 of 5 clean, next variation reverse dotted",
+        ),
+      ).toBeTruthy();
+    });
+
+    it("holds the filled stage, then shows the NEXT variant at 0 — the advance he asked for", () => {
+      vi.useFakeTimers();
+      const { container, rerender } = render(
+        <RepHud snap={chainSnap()} feed={[]} error={null} {...callbacks()} />,
+      );
+      expect(headline(container)).toBe("4");
+
+      // The clean that CLEARS "dotted": the engine advances the chain and
+      // resets the stage counter to 0 in the same snapshot.
+      act(() => {
+        rerender(
+          <RepHud
+            snap={chainSnap({
+              variant: "reverse dotted",
+              variant_stage_index: 1,
+              variant_stage_cleans: 0,
+              next_variant_stage_name: "staccato",
+              last: { verdict: "clean", note: null, bpm: 72 },
+              last_attempt_id: 201,
+            })}
+            feed={[]}
+            error={null}
+            {...callbacks()}
+          />,
+        );
+      });
+      // The big number moved UP to the filled 5/5 of the stage just cleared —
+      // never the downward 4 -> 0 the raw snapshot would show.
+      expect(headline(container)).toBe("5");
+      expect(required(container)).toBe("5");
+      expect(
+        container.querySelector(".rep-hud-stage-name")?.textContent,
+      ).toBe("dotted");
+
+      // Then the next variation takes over at 0/5 — "5/5 -> 0/5 · reverse dotted".
+      act(() => vi.advanceTimersByTime(1200));
+      expect(headline(container)).toBe("0");
+      expect(
+        container.querySelector(".rep-hud-stage-name")?.textContent,
+      ).toBe("reverse dotted");
+      vi.useRealTimers();
+    });
+
+    it("leaves the headline exactly as before for a set with no chain", () => {
+      const { container } = render(
+        <RepHud
+          snap={makeSnap({
+            variant_stage_index: null,
+            bpm: 84,
+            target_bpm: 84,
+            mastery_progress_streak: 3,
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+        />,
+      );
+      expect(headline(container)).toBe("3");
+      expect(container.querySelector(".rep-hud-stage-name")).toBeNull();
+    });
+  });
+
+  describe("B2 — a finished set closes itself", () => {
+    const unfinished = () =>
+      makeSnap({ mastery_status: "not_satisfied", mastery_verified: true });
+    const satisfied = () =>
+      makeSnap({ mastery_status: "satisfied", mastery_verified: true });
+
+    /** Render the HUD watching the set FINISH, which is the only case that
+     * counts down — a set already satisfied on first render is the
+     * re-opened-from-the-tray case and is deliberately left alone. */
+    function renderFinishing(props: ReturnType<typeof callbacks>) {
+      const view = render(
+        <RepHud snap={unfinished()} feed={[]} error={null} {...props} />,
+      );
+      act(() => {
+        view.rerender(
+          <RepHud snap={satisfied()} feed={[]} error={null} {...props} />,
+        );
+      });
+      return view;
+    }
+
+    it("counts down and calls onClose after six seconds — not instantly", () => {
+      vi.useFakeTimers();
+      const props = callbacks();
+      renderFinishing(props);
+      expect(screen.getByText(/Set complete · closing in 6/)).toBeTruthy();
+      act(() => vi.advanceTimersByTime(5000));
+      expect(screen.getByText(/Set complete · closing in 1/)).toBeTruthy();
+      expect(props.onClose).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(1000));
+      expect(props.onClose).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it("offers Stay open, which cancels the close for good", () => {
+      vi.useFakeTimers();
+      const props = callbacks();
+      renderFinishing(props);
+      act(() => {
+        fireEvent.click(screen.getByRole("button", { name: "Stay open" }));
+      });
+      expect(screen.queryByText(/Set complete/)).toBeNull();
+      act(() => vi.advanceTimersByTime(60000));
+      expect(props.onClose).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+
+    it("shows no banner for a set that is not satisfied", () => {
+      render(
+        <RepHud snap={makeSnap()} feed={[]} error={null} {...callbacks()} />,
+      );
+      expect(screen.queryByText(/Set complete/)).toBeNull();
+    });
+
+    it("leaves a set that was already finished when it opened alone", () => {
+      // Re-opened from the paused-sets tray. He asked for the set he just
+      // finished to close itself, not for one he deliberately re-opened to be
+      // taken away from him.
+      vi.useFakeTimers();
+      const props = callbacks();
+      render(<RepHud snap={satisfied()} feed={[]} error={null} {...props} />);
+      expect(screen.queryByText(/Set complete/)).toBeNull();
+      act(() => vi.advanceTimersByTime(60000));
+      expect(props.onClose).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+  });
+
   describe("A1 demotion moment (display + chime, not a celebration)", () => {
     afterEach(() => vi.useRealTimers());
 
