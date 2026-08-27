@@ -1792,6 +1792,9 @@ const SETTINGS_SNAPSHOT = {
   assistant_enabled: true,
   wake_word_enabled: false,
   wake_word: "coda",
+  // Muted, matching the real backend's default (Task A): the harness must not
+  // show a toggle in a state the app never ships in.
+  speak_acks: false,
   metronome_sound: "woodblock",
   metronome_boost: false,
   metronome_boost_level: 85,

@@ -320,10 +320,25 @@ struct AckPlayer {
     sink: Arc<dyn PcmSink>,
     gate: Arc<dyn Gate>,
     config: SpeakerConfig,
+    /// Shared with [`VoiceLoop`] so a settings write silences the app on the
+    /// next ack rather than on the next relaunch — a mute you cannot verify
+    /// immediately is a mute you do not trust.
+    speech_muted: Arc<AtomicBool>,
 }
 
 impl Confirm for AckPlayer {
+    /// Muted, this falls through to [`Self::chime`] instead of going silent.
+    /// The words were never the point of an ack — the point is "heard you", and
+    /// the blip carries that without narrating. Going quiet outright would cost
+    /// the only feedback that a spoken command registered at all.
+    ///
+    /// Either branch runs one complete gate cycle, so the half-duplex contract
+    /// (module docs) and the dedup window are unchanged by the flag.
     fn say(&self, text: &str) {
+        if self.speech_muted.load(Ordering::Relaxed) {
+            self.chime();
+            return;
+        }
         let _ = self.speaker.speak_blocking(text.to_string());
     }
 
@@ -1211,6 +1226,9 @@ pub struct VoiceLoop {
     action_thread: Mutex<Option<JoinHandle<()>>>,
     gate: Arc<AtomicBool>,
     muted: Arc<AtomicBool>,
+    /// "Stay quiet": shared with the [`AckPlayer`] on the action thread, so a
+    /// settings write takes effect on the very next ack without a relaunch.
+    speech_muted: Arc<AtomicBool>,
     status: Arc<Mutex<VoiceStatus>>,
     emitter: Arc<dyn VoiceEmitter>,
 }
@@ -1243,7 +1261,7 @@ impl VoiceLoop {
             sessions,
             stt_config,
             wake_word,
-            move |m, g, mu| Self::build_speaker(m, g, mu, provider, voice),
+            move |m, g, mu, sm| Self::build_speaker(m, g, mu, sm, provider, voice),
         )
     }
 
@@ -1258,6 +1276,7 @@ impl VoiceLoop {
         metro: Arc<Metronome>,
         gate: Arc<AtomicBool>,
         muted: Arc<AtomicBool>,
+        speech_muted: Arc<AtomicBool>,
         provider_override: Option<String>,
         voice: Option<String>,
     ) -> Box<dyn Confirm> {
@@ -1272,6 +1291,7 @@ impl VoiceLoop {
             sink,
             gate: gate_seam,
             config,
+            speech_muted,
         })
     }
 
@@ -1301,11 +1321,20 @@ impl VoiceLoop {
         sessions: Arc<SessionService>,
         stt_config: SttConfig,
         wake_word: Option<String>,
-        make_speaker: impl FnOnce(Arc<Metronome>, Arc<AtomicBool>, Arc<AtomicBool>) -> Box<dyn Confirm>
+        make_speaker: impl FnOnce(
+                Arc<Metronome>,
+                Arc<AtomicBool>,
+                Arc<AtomicBool>,
+                Arc<AtomicBool>,
+            ) -> Box<dyn Confirm>
             + Send
             + 'static,
     ) -> Arc<VoiceLoop> {
         let muted = Arc::new(AtomicBool::new(false));
+        // Read before the store moves onto the action thread. Inverted here, at
+        // the app boundary, because `tts` knows nothing about muting: the flag
+        // it hands out is "speak acks", the flag the loop holds is "stay quiet".
+        let speech_muted = Arc::new(AtomicBool::new(!crate::settings::speak_acks(&store)));
         let status = Arc::new(Mutex::new(VoiceStatus {
             muted: false,
             down: None,
@@ -1381,6 +1410,7 @@ impl VoiceLoop {
         let action_emitter = emitter.clone();
         let action_muted = muted.clone();
         let action_gate = gate.clone();
+        let action_speech_muted = speech_muted.clone();
         let action_thread = std::thread::Builder::new()
             .name("codakiller-voice".into())
             .spawn(move || {
@@ -1388,7 +1418,12 @@ impl VoiceLoop {
                 // provider/network/Keychain work) here, on the action thread —
                 // NOT on the caller of `start_with` — so app startup never waits
                 // on it. See the doc comment above for the full rationale.
-                let speaker = make_speaker(metro.clone(), action_gate, action_muted.clone());
+                let speaker = make_speaker(
+                    metro.clone(),
+                    action_gate,
+                    action_muted.clone(),
+                    action_speech_muted,
+                );
                 let mut ctx = ActionCtx {
                     metro,
                     store,
@@ -1423,9 +1458,22 @@ impl VoiceLoop {
             action_thread: Mutex::new(Some(action_thread)),
             gate,
             muted,
+            speech_muted,
             status,
             emitter,
         })
+    }
+
+    /// Silence (`true`) or restore spoken acknowledgements. The ack chime is
+    /// unaffected either way — see [`AckPlayer::say`]. Called from
+    /// `settings_update` so the change is audible on the next command.
+    pub fn set_speech_muted(&self, muted: bool) {
+        self.speech_muted.store(muted, Ordering::Relaxed);
+    }
+
+    /// Whether spoken acknowledgements are currently silenced.
+    pub fn speech_muted(&self) -> bool {
+        self.speech_muted.load(Ordering::Relaxed)
     }
 
     /// Mute (`true`) or unmute the mic. Closes the STT gate AND flips the
@@ -2765,6 +2813,7 @@ mod tests {
             action_thread: Mutex::new(None),
             gate: Arc::new(AtomicBool::new(true)),
             muted: Arc::new(AtomicBool::new(false)),
+            speech_muted: Arc::new(AtomicBool::new(true)),
             status: Arc::new(Mutex::new(VoiceStatus {
                 muted: false,
                 down: None,
@@ -2864,6 +2913,148 @@ mod tests {
             log.iter().filter(|l| l.starts_with("gate")).count(),
             2,
             "exactly one close and one reopen"
+        );
+    }
+
+    // ------------------------------------------------------- SPEECH MUTE (A)
+    // Christian: "i dont want the voice to talk when i say again or restart
+    // sets or anything just have that turned off for now." Muting must not cost
+    // him the acknowledgement itself, so `say` degrades to the chime rather than
+    // to silence. These exercise the REAL `AckPlayer` — the flag lives on the
+    // production impl, so a recording double would prove nothing.
+
+    /// Records everything an [`AckPlayer`] does to the world: what the provider
+    /// was asked to synthesize, how many samples reached the sink, and every
+    /// gate transition.
+    #[derive(Default)]
+    struct AckSpy {
+        synthesized: Mutex<Vec<String>>,
+        enqueued: AtomicUsize,
+        gate: Mutex<Vec<bool>>,
+    }
+
+    /// One short buffer, whatever the text — this test is about which path ran,
+    /// not about audio content.
+    const SPY_SYNTH_SAMPLES: usize = 32;
+
+    struct SpyProvider(Arc<AckSpy>);
+    impl crate::tts::TtsProvider for SpyProvider {
+        fn synth(&self, text: &str) -> crate::tts::Result<crate::tts::Pcm> {
+            self.0.synthesized.lock().unwrap().push(text.to_string());
+            Ok(crate::tts::Pcm {
+                rate: 24_000,
+                mono_f32: vec![0.0; SPY_SYNTH_SAMPLES],
+            })
+        }
+    }
+
+    struct SpySink(Arc<AckSpy>);
+    impl PcmSink for SpySink {
+        fn enqueue(&self, samples: &[f32], _rate: u32) -> Result<(), PcmError> {
+            self.0.enqueued.fetch_add(samples.len(), Ordering::Relaxed);
+            Ok(())
+        }
+        fn done(&self) -> bool {
+            true
+        }
+    }
+
+    struct SpyGate(Arc<AckSpy>);
+    impl Gate for SpyGate {
+        fn set_gate(&self, open: bool) {
+            self.0.gate.lock().unwrap().push(open);
+        }
+    }
+
+    /// A production [`AckPlayer`] with the audio device and the network replaced
+    /// by `spy`, and its mute flag preset.
+    fn spy_ack_player(spy: &Arc<AckSpy>, muted: bool) -> AckPlayer {
+        let sink: Arc<dyn PcmSink> = Arc::new(SpySink(spy.clone()));
+        let gate: Arc<dyn Gate> = Arc::new(SpyGate(spy.clone()));
+        let config = SpeakerConfig {
+            reopen_delay: Duration::from_millis(1),
+            poll_interval: Duration::from_millis(1),
+            retry_delay: Duration::from_millis(1),
+            chunk_samples: 4096,
+        };
+        AckPlayer {
+            speaker: Speaker::spawn(
+                Box::new(SpyProvider(spy.clone())),
+                sink.clone(),
+                gate.clone(),
+                config.clone(),
+            ),
+            sink,
+            gate,
+            config,
+            speech_muted: Arc::new(AtomicBool::new(muted)),
+        }
+    }
+
+    #[test]
+    fn muted_say_chimes_instead_of_speaking() {
+        let spy = Arc::new(AckSpy::default());
+        let player = spy_ack_player(&spy, true);
+        player.say("Ninety-six.");
+
+        assert!(
+            spy.synthesized.lock().unwrap().is_empty(),
+            "muted, no text may reach a TTS provider"
+        );
+        assert_eq!(
+            spy.enqueued.load(Ordering::Relaxed),
+            crate::audio::chime::ack_chime().len(),
+            "the ack is not lost — the whole chime played in the words' place"
+        );
+        let gate = spy.gate.lock().unwrap();
+        assert_eq!(
+            gate.as_slice(),
+            [false, true],
+            "the chime runs the same single close/reopen half-duplex cycle speech does"
+        );
+    }
+
+    #[test]
+    fn unmuted_say_still_speaks_the_words_verbatim() {
+        let spy = Arc::new(AckSpy::default());
+        let player = spy_ack_player(&spy, false);
+        player.say("Ninety-six.");
+
+        assert_eq!(
+            spy.synthesized.lock().unwrap().as_slice(),
+            ["Ninety-six.".to_string()],
+            "unmuted behaviour is unchanged: the exact ack text is synthesized"
+        );
+        assert_eq!(
+            spy.enqueued.load(Ordering::Relaxed),
+            SPY_SYNTH_SAMPLES,
+            "the utterance played, not the chime"
+        );
+        assert_eq!(
+            spy.gate.lock().unwrap().as_slice(),
+            [false, true],
+            "one gate cycle either way — the flag cannot strand the mic"
+        );
+    }
+
+    /// The flag is shared, not copied: flipping it on the [`VoiceLoop`] reaches
+    /// an `AckPlayer` already living on the action thread, which is what makes
+    /// the settings toggle apply without a relaunch.
+    #[test]
+    fn the_mute_flag_is_shared_with_the_live_ack_player() {
+        let spy = Arc::new(AckSpy::default());
+        let flag = Arc::new(AtomicBool::new(false));
+        let mut player = spy_ack_player(&spy, false);
+        player.speech_muted = flag.clone();
+
+        player.say("Ninety-six.");
+        flag.store(true, Ordering::Relaxed);
+        player.say("One hundred twenty.");
+
+        assert_eq!(
+            spy.synthesized.lock().unwrap().len(),
+            1,
+            "only the pre-mute ack was spoken; the flip took effect immediately"
         );
     }
 
@@ -2985,7 +3176,7 @@ mod tests {
             sessions,
             cfg,
             None,
-            move |_m, _g, _mu| Box::new(RecConfirm(rec_for_speaker)),
+            move |_m, _g, _mu, _sm| Box::new(RecConfirm(rec_for_speaker)),
         );
 
         // Poll until the metronome starts (or time out).
@@ -3084,7 +3275,7 @@ mod tests {
             sessions,
             cfg,
             None,
-            move |_m, _g, _mu| Box::new(RecConfirm(rec_for_speaker)),
+            move |_m, _g, _mu, _sm| Box::new(RecConfirm(rec_for_speaker)),
         );
 
         // Poll until both reps are recorded (or time out ~15s covering the sleeps).
@@ -3184,7 +3375,7 @@ mod tests {
             sessions,
             cfg,
             None,
-            |m, g, mu| {
+            |m, g, mu, sm| {
                 let provider: Box<dyn crate::tts::TtsProvider> =
                     Box::new(crate::tts::say::SayTts::new());
                 let sink: Arc<dyn PcmSink> = Arc::new(MetroSink(m));
@@ -3195,6 +3386,9 @@ mod tests {
                     sink,
                     gate,
                     config,
+                    // This test asserts real speech reaches the engine, so it
+                    // wires the flag through rather than hard-coding it.
+                    speech_muted: sm,
                 })
             },
         );
@@ -3411,7 +3605,7 @@ mod tests {
             sessions,
             cfg,
             None,
-            move |_m, _g, _mu| {
+            move |_m, _g, _mu, _sm| {
                 // A slow provider-builder: sleeps well past the 50ms budget.
                 std::thread::sleep(Duration::from_millis(500));
                 Box::new(RecConfirm(rec)) as Box<dyn Confirm>

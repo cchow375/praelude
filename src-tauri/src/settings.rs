@@ -79,6 +79,11 @@ pub struct SettingsSnapshot {
     pub assistant_enabled: bool,
     pub wake_word_enabled: bool,
     pub wake_word: String,
+    /// Whether command acknowledgements are spoken. Off by default: Christian
+    /// asked for the narration to stop ("i dont want the voice to talk when i
+    /// say again or restart sets"). Off does not mean silent — the ack chime
+    /// still plays, so a command he speaks still answers back.
+    pub speak_acks: bool,
     pub metronome_sound: String,
     pub metronome_boost: bool,
     pub metronome_boost_level: u8,
@@ -116,6 +121,7 @@ pub struct SettingsPatch {
     pub assistant_enabled: Option<bool>,
     pub wake_word_enabled: Option<bool>,
     pub wake_word: Option<String>,
+    pub speak_acks: Option<bool>,
     pub metronome_sound: Option<String>,
     pub metronome_boost: Option<bool>,
     pub metronome_boost_level: Option<u8>,
@@ -160,6 +166,7 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
         assistant_enabled: boolean(store, "assistant.enabled", false),
         wake_word_enabled: boolean(store, "voice.wake_word_enabled", false),
         wake_word,
+        speak_acks: speak_acks(store),
         metronome_sound: choice(store, "metronome.sound", "woodblock", SOUNDS),
         metronome_boost: boolean(store, "metronome.boost", false),
         metronome_boost_level: integer(store, "metronome.boost_level", 85, 0, 100) as u8,
@@ -200,6 +207,14 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
             api_key_status(ApiKeyProvider::Gemini),
         ],
     }
+}
+
+/// The live value of `voice.speak_acks`, readable without building a whole
+/// [`SettingsSnapshot`] — `snapshot` also probes the Keychain for API-key
+/// status, which is far too expensive for a flag the voice loop reads at
+/// startup. One function so the default cannot drift between the two callers.
+pub fn speak_acks(store: &Store) -> bool {
+    boolean(store, "voice.speak_acks", false)
 }
 
 pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, String> {
@@ -245,6 +260,9 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
     }
     if let Some(value) = patch.wake_word_enabled {
         writes.push(("voice.wake_word_enabled", value.to_string()));
+    }
+    if let Some(value) = patch.speak_acks {
+        writes.push(("voice.speak_acks", value.to_string()));
     }
     if let Some(value) = patch.wake_word {
         writes.push(("voice.wake_word", validate_wake_word(&value)?));
@@ -662,6 +680,10 @@ mod tests {
         assert_eq!(value.practice_default_clean_streak, 5);
         assert_eq!(value.ladder_bpm_step, 4);
         assert!(value.demote_enabled, "A1 demotion is on by default");
+        assert!(
+            !value.speak_acks,
+            "spoken acks are OFF by default — Christian asked for the narration to stop"
+        );
         assert_eq!(value.demote_first, 3);
         assert_eq!(value.demote_repeat, 2);
         assert!(value
@@ -691,6 +713,19 @@ mod tests {
     }
 
     #[test]
+    fn speak_acks_falls_back_to_muted() {
+        let store = Store::open(":memory:").unwrap();
+        store.set_setting("voice.speak_acks", "yes please").unwrap();
+        assert!(
+            !snapshot(&store).speak_acks,
+            "a junk stored value must not un-mute the voice behind his back"
+        );
+        assert!(!speak_acks(&store));
+        store.set_setting("voice.speak_acks", "true").unwrap();
+        assert!(speak_acks(&store), "an explicit opt-in is honoured");
+    }
+
+    #[test]
     fn update_validates_then_writes_as_one_typed_projection() {
         let store = Store::open(":memory:").unwrap();
         let result = update(
@@ -704,6 +739,7 @@ mod tests {
                 practice_default_clean_streak: Some(7),
                 ladder_bpm_step: Some(6),
                 calendar_capacity_minutes: Some(90),
+                speak_acks: Some(true),
                 demote_enabled: Some(false),
                 demote_first: Some(4),
                 demote_repeat: Some(3),
@@ -719,6 +755,7 @@ mod tests {
         assert_eq!(result.practice_default_clean_streak, 7);
         assert_eq!(result.ladder_bpm_step, 6);
         assert_eq!(result.calendar_capacity_minutes, 90);
+        assert!(result.speak_acks, "the patch round-trips through the store");
         assert!(!result.demote_enabled);
         assert_eq!(result.demote_first, 4);
         assert_eq!(result.demote_repeat, 3);

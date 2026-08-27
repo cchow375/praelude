@@ -50,6 +50,7 @@ export interface SettingsSnapshot {
   assistant_enabled: boolean;
   wake_word_enabled: boolean;
   wake_word: string;
+  speak_acks: boolean;
   metronome_sound: string;
   metronome_boost: boolean;
   metronome_boost_level: number;
@@ -129,6 +130,7 @@ export function SettingsPanel({
             hotkey_verdict_sloppy: next.hotkey_verdict_sloppy || "ShiftRight",
             hotkey_verdict_again: next.hotkey_verdict_again || "Enter",
             assistant_enabled: next.assistant_enabled ?? false,
+            speak_acks: next.speak_acks ?? false,
             practice_default_clean_streak:
               Number.isInteger(next.practice_default_clean_streak) &&
               next.practice_default_clean_streak >= 1 &&
@@ -166,6 +168,7 @@ export function SettingsPanel({
         assistant_enabled: value.assistant_enabled,
         wake_word_enabled: value.wake_word_enabled,
         wake_word: value.wake_word,
+        speak_acks: value.speak_acks,
         metronome_sound: value.metronome_sound,
         metronome_boost: value.metronome_boost,
         metronome_boost_level: value.metronome_boost_level,
@@ -492,6 +495,21 @@ export function SettingsPanel({
               cheaper than letting Christian hunt for a setting that cannot
               exist. */}
           <p className="settings-note">{QUIET_SPEECH_NOTE}</p>
+          <label className="settings-check settings-wide">
+            <input
+              type="checkbox"
+              checked={value.speak_acks}
+              onChange={(event) =>
+                setValue({ ...value, speak_acks: event.target.checked })
+              }
+            />
+            <span>
+              <strong>Speak confirmations aloud</strong>
+              <small>
+                Off: the app plays the short ack chime instead of talking.
+              </small>
+            </span>
+          </label>
           <label className="settings-check">
             <input
               type="checkbox"

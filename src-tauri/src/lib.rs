@@ -87,8 +87,15 @@ fn settings_snapshot(store: State<'_, Arc<Store>>) -> settings::SettingsSnapshot
 fn settings_update(
     patch: settings::SettingsPatch,
     store: State<'_, Arc<Store>>,
+    voice: State<'_, Arc<VoiceLoop>>,
 ) -> Result<settings::SettingsSnapshot, String> {
-    settings::update(&store, patch)
+    let next = settings::update(&store, patch)?;
+    // Pushed from the saved snapshot rather than from the patch: the live loop
+    // then agrees with the store no matter which write got us here, and the very
+    // next command he speaks proves the toggle worked. Waiting for a relaunch
+    // would leave him testing a mute he cannot hear take effect.
+    voice.set_speech_muted(!next.speak_acks);
+    Ok(next)
 }
 
 #[tauri::command]
@@ -2457,6 +2464,13 @@ fn tts_degraded() -> bool {
 /// intent or mutate practice state.
 #[tauri::command]
 fn voice_speak(text: String, voice: State<'_, Arc<VoiceLoop>>) -> Result<(), String> {
+    // A Brain answer is speech he asked to be turned off, and unlike a command
+    // ack it has no chime shorthand — there is nothing to substitute, so the
+    // answer simply is not spoken. Reported as success: nothing failed, and the
+    // caller has already rendered the text.
+    if voice.speech_muted() {
+        return Ok(());
+    }
     voice.speak_brain_answer(&text)
 }
 

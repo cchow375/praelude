@@ -48,6 +48,7 @@ const snapshot: SettingsSnapshot = {
   assistant_enabled: true,
   wake_word_enabled: false,
   wake_word: "coda",
+  speak_acks: false,
   metronome_sound: "woodblock",
   metronome_boost: false,
   metronome_boost_level: 85,
@@ -381,6 +382,30 @@ describe("SettingsPanel", () => {
           hotkey_verdict_sloppy: "KeyZ",
           hotkey_verdict_again: "Enter",
         }),
+      ),
+    );
+  });
+
+  it("shows the spoken-ack toggle off, and says the chime still plays", async () => {
+    const settingsApi = api();
+    render(<SettingsPanel api={settingsApi} />);
+    await screen.findByText(/dark practice-room interface/i);
+
+    const toggle = screen.getByRole("checkbox", {
+      name: /Speak confirmations aloud/,
+    }) as HTMLInputElement;
+    // Off is the shipped state, and it must SAY it is off rather than just be
+    // absent — otherwise a silent app reads as a broken one.
+    expect(toggle.checked).toBe(false);
+    expect(
+      screen.getByText(/plays the short ack chime instead of talking/i),
+    ).toBeTruthy();
+
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(settingsApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({ speak_acks: true }),
       ),
     );
   });
