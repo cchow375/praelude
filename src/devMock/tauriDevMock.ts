@@ -3486,6 +3486,45 @@ function routeCommand(cmd: string, args: unknown): unknown {
       }
       break;
     }
+    // B84 gap closed alongside the micro-target rebuild: `region_update` is
+    // how a spot's box reaches the store (ScoreView's `api.updateRegion` sends
+    // `{id, patch:{pdf_anchor}}`), and it also carries the colour write every
+    // freshly created section makes. Without a handler here the dev-mock
+    // browser accepted the create and then silently dropped the geometry, so
+    // the one thing the rebuild exists to deliver — a box that stays on the
+    // score — was exactly the thing offline QA could not see.
+    case "region_update": {
+      const record = argsRecord(args);
+      const id = Number(record.id);
+      const patch = argsRecord(record.patch);
+      const target = mockFindRegion(id);
+      if (!target) {
+        asRejectionString(new Error("the section could not be found"));
+        break;
+      }
+      if ("name" in patch) {
+        const name = String(patch.name ?? "").trim();
+        if (!name) {
+          asRejectionString(new Error("a section needs a title"));
+          break;
+        }
+        target.name = name;
+      }
+      if ("notes" in patch) {
+        const notes = (patch.notes as string | null) ?? null;
+        target.notes = notes && notes.trim() ? notes.trim() : null;
+      }
+      if ("m_start" in patch) target.m_start = Number(patch.m_start);
+      if ("m_end" in patch) target.m_end = Number(patch.m_end);
+      if ("color" in patch) target.color = (patch.color as string | null) ?? null;
+      // `pdf_anchor` is replaced wholesale, never merged — the caller already
+      // built the full map with `replaceEditionRects`, and merging here would
+      // make clearing an edition's marks impossible.
+      if ("pdf_anchor" in patch) {
+        target.pdf_anchor = (patch.pdf_anchor as Region["pdf_anchor"]) ?? null;
+      }
+      return target;
+    }
     case "region_delete": {
       const record = argsRecord(args);
       const id = Number(record.id);
