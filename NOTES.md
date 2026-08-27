@@ -3,6 +3,7 @@
 ## Decisions
 
 - **v7.2.0 shipped and was installed on 2026-08-27.**
+  Tag `v7.2.0` points to release commit `7a5061d57fc6197b53e2601ca788f186d1fc7c83`.
   Schema remains 16 and `migrations.rs` is unchanged, so no migration or rehearsal ran. The source
   passed **2,499 frontend tests / 1 skipped / 0 failed** and **1,049 native tests / 19 ignored /
   0 failed**, with `filtered out: 0` on every native target; `tsc --noEmit` and strict

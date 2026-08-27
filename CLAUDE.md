@@ -81,7 +81,8 @@ passed. The installed plist/version and identifier are correct, codesign and the
 verify, a fresh installed process launched, and the live DB stayed schema 16/integrity OK with
 identical counts (10 pieces / 228 blocks / 2,026 reps / 44 sessions / 0 open). No migration or
 rehearsal ran. Browser-mock QA at 720×520 is in `docs/qa/v7.2.0/README.md`; it does not substitute
-for native speech/audio or Christian's at-piano acceptance verdict.
+for native speech/audio or Christian's at-piano acceptance verdict. Tag `v7.2.0` points to release
+commit `7a5061d57fc6197b53e2601ca788f186d1fc7c83`.
 
 **Assistant stays OFF and gated.** Off is enforced in Rust for provider-reaching commands, and
 the voice→LLM fallback lives in `Shell.tsx`, not `voice_loop.rs`. Plan C remains on hold and must

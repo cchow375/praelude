@@ -21,8 +21,8 @@ codesign verifies, the DMG checksum matches, a fresh installed process launched,
 database stayed schema 16 with integrity OK and identical before/after counts. The release did
 not require a migration or migration rehearsal. Honest residuals: the composer still has no
 per-set demotion override, the running HUD has no quick-subdivision control, and the browser QA
-does not substitute for Christian's native/at-piano acceptance verdict. Final tag/commit metadata
-is recorded by the release operator after finalization.
+does not substitute for Christian's native/at-piano acceptance verdict. Release tag `v7.2.0`
+points to commit `7a5061d57fc6197b53e2601ca788f186d1fc7c83`.
 
 The Assistant remains switched off and gated at Christian's request. Canonical product truth
 lives in the Obsidian vault; start at

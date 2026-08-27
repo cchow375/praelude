@@ -14,6 +14,7 @@ native or at-piano acceptance.
 
 ## Release verification
 
+Tag `v7.2.0` points to release commit `7a5061d57fc6197b53e2601ca788f186d1fc7c83`.
 All eight release-script gates passed. The installed plist reports 7.2.0 with the expected app
 identifier, codesign verifies, the DMG checksum verifies and a fresh installed process launched.
 The DMG is `releases/v7.2.0/CodaKiller-7.2.0.dmg` (10,739,055 bytes), SHA-256

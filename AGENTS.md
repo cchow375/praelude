@@ -13,7 +13,8 @@ Current boundary: `/Applications/CodaKiller.app` is **v7.2.0**, installed 2026-0
 schema 16. Its source gates are green (frontend 2,499 pass / 1 skip; native 1,049 pass / 19
 ignored; TypeScript and strict clippy clean; five narrated corpora at zero false mutations), all
 eight release-script gates passed, the installed bundle/signature/DMG were verified and the live
-database was identical before/after. Christian's native/at-piano acceptance verdict remains owed.
+database was identical before/after. Tag `v7.2.0` points to release commit
+`7a5061d57fc6197b53e2601ca788f186d1fc7c83`. Christian's native/at-piano acceptance verdict remains owed.
 Assistant work remains out of scope:
 it stays switched off and gated until Christian explicitly resumes it. See:
 
