@@ -1,5 +1,9 @@
 # CodaKiller v6.0.1 "Real-Use Fixes" Implementation Plan
 
+> **Status:** Historical/as built; v6.0.1 shipped. The private GitHub remote was subsequently
+> created and pushed on 2026-08-23, resolving this plan's old backup-remote deferral for the code
+> repo (the separate Obsidian vault is still not backed up off-disk).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the schema-free v6.0.1 patch: score toolbar overlap fix, dock ergonomics (mount clamp + defaults + reset), B70 voice tail-guard suppress-by-routed-intent, B72 nested-form fix.

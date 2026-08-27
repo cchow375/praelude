@@ -128,9 +128,11 @@ the two-scout diagnosis explains why he is right:
 3. **Voice-router law (B70):** every router/fast-path touchpoint re-passes the full
    narrated corpus (finals AND partial-stream) with zero false mutations; no bare
    prefix word ever joins the fast-path allowlist.
-4. **Earned-only motivation law:** nothing grantable, buyable, backfillable, fakeable;
-   no points, coins, levels, social. (Teaching empty states are lawful: they promise,
-   they never display unearned progress.)
+4. **Earned-only motivation law:** nothing grantable, buyable, backfillable or fakeable. Practice
+   XP is only the transparent name for completed focused minutes, and deterministic levels/badges
+   are read-only projections of canonical evidence. No coins, quality scoring, randomness or
+   social pressure. (Teaching empty states are lawful: they promise; they never display unearned
+   progress.)
 5. **8 GB M2 Air:** no local ML runtimes, no FFT; fixed-size audio buffers; tiny
    bounded recordings.
 6. **Live DB is sacred:** migrations rehearse on a fresh copy via
@@ -438,10 +440,10 @@ routines. **Runner = the existing rep engine:** schema adds `piece.kind` ('reper
 on it — ladders, chains, demotion, hotkeys, voice, streaks, celebrations all work on
 day one. Tables: `warmup_routine(id, name, created_at)`,
 `warmup_routine_item(id, routine_id FK CASCADE, catalog_id TEXT, display_order,
-params_json)`; catalog stays in code. System pieces excluded from PiecesPanel, the
-galaxy (property test: never a star), and score surfaces; warmup time counts toward
-day streaks (derived, real, lawful). Visuals v1: SVG keyboard figures + tight how-to
-text; engraved notation = Q3. Tests: migration rehearsal + idempotent seed; routine
+params_json)`; catalog stays in code. System pieces are excluded from PiecesPanel, active
+repertoire rails and score surfaces; their warmup time counts toward day streaks and appears only
+in Universe's separate technique aggregate (derived, real, lawful). Visuals v1: SVG keyboard
+figures + tight how-to text; engraved notation = Q3. Tests: migration rehearsal + idempotent seed; routine
 CRUD; runner opens blocks on the system piece; exclusion property tests; catalog
 lint; devMock; screenshots. Acceptance: "octave day" → targeted 3-item routine built
 in <30 s, run hands-free, counted in the streak.
@@ -497,9 +499,9 @@ because Christian chose archive + recent-first. The active HUD exposes an editab
 target**. Historical practice remains visible in the Universe even when files are deleted.
 
 **E1.** Schema: `piece.archived_at INTEGER NULL`. Archived pieces collapse into an
-"Archived (n)" group at the bottom (one click, unarchive in place); excluded from
-Today suggestions; dimmed-not-hidden in the galaxy (history is real). "Recently
-practiced first" sort joins alphabetical (derived; `store/mod.rs:268-277`). The
+"Archived (n)" group at the bottom (one click, unarchive in place); excluded from Today
+suggestions while retained in Universe's historical repertoire evidence (history is real).
+"Recently practiced first" sort joins alphabetical (derived; `store/mod.rs:268-277`). The
 existing trash-move `archive()` (`pieces.rs:177-232`) is renamed to what it is
 ("Delete files…"). Folders deferred (Q5). **E2.** The section's free-text becomes
 **"Sound target"** (placeholder: _sotto voce · grand · like bells_) and renders as
@@ -532,8 +534,9 @@ UI-grantable progress.
 
 ## 6. Plan of attack — the release train (rev 3 truth pass)
 
-Phases are releases; each ships installed and is judged by Christian's normal use
-before the next starts. Rev 2 changes: **P0 gains the sub-section unlock + a
+The original plan treated phases as separate releases, but as-built truth combined P3–P6 and the
+motivation correction in installed v8.1.0; each external evidence gate remains separate. Rev 2
+changes: **P0 gains the sub-section unlock + a
 default-visibility pass; the micro-target rebuild is promoted to P2** (he called it
 fundamental); voice slides to P3; movements + mapping to P4; warmups P5; review &
 flow P6. He can reorder P2–P6 at any gate.
@@ -565,8 +568,10 @@ flow P6. He can reorder P2–P6 at any gate.
 - **Q7 decided:** Space / Right Shift / Return defaults, all remappable.
 - **Q8 unresolved externally:** no Anthropic key is configured. Gemini may be available, but B5
   stays open until a real current-edition mapping is applied to the live DB.
-- **Acceptance still owed:** packaged-native 720×520 interaction, native microphone ownership,
-  Listen Back usefulness on the piano, and the whole voice path over the Steinway.
+- **Acceptance still owed:** installed-native interactions beyond the accepted Universe/Warmups
+  720×520 frames, native microphone ownership, Listen Back usefulness on the piano, the whole
+  voice path over the Steinway, one authorized/provider-backed measure map and sustained-use
+  motivation. Universe and Warmups at the supported floor are already accepted.
 
 ## 8. Execution protocol (binding for every phase, sized for any executor)
 
@@ -593,7 +598,7 @@ flow P6. He can reorder P2–P6 at any gate.
 
 Rev-3 release facts are measured in the version record. Tag `v8.1.0` is pushed at
 `0a3d6a5d339955fd7e7318299eaa6c3063674415`; private `origin/main` is current through the
-post-tag documentation correction.
+first post-tag documentation finalization `da71efb5509afa36beb073050719ac1094751b98`.
 Consistency: the **23** statuses in §1 match the installed release; phase
 labels match §6 everywhere (P2 = micro-targets, P3 = voice, P4 = score map, P5 =
 warmups, P6 = review & flow); future schemas v17/v18/v19 assigned once each. The visibility

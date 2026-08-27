@@ -1,5 +1,9 @@
 # CodaKiller v7.0.0 Foundations — B0 Mic-Coexistence Spike + Schema v15
 
+> **Status:** Historical/as built; schema 15 and the bounded v7 foundations shipped in v7.0.0.
+> Current installed schema is 19. Real Listen Back/voice microphone acceptance remains a distinct
+> v8.1 external gate.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.

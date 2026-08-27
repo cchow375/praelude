@@ -1,6 +1,8 @@
 # CodaKiller v2 — Practice OS Transformation Design
 
-> **Status:** Approved working boundary / implementation in progress — **not shipped**  
+> **Status:** Historical/superseded boundary. The standalone `v2.0.0` target was not tagged;
+> its P7 implementation lineage shipped through the v3.0.0 transformation and later releases.
+> Do not resume this document's old `NEXT` work as the current roadmap; use the v8.1 spec/plan.
 > **Date:** 2026-07-15  
 > **Release target:** v2.0.0 / P7  
 > **Source contracts:** (C) v2 Transformation Brief · (C) v2 Acceptance Matrix  

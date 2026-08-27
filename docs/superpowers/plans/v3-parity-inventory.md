@@ -1,5 +1,8 @@
 # v3 Parity Inventory — what the rewrite must not silently drop
 
+> **Status:** Historical v3.0 audit artifact. It is not the current capability registry; use the
+> Aug 8 rev-3 matrix and v8.1 completion plan for present status and acceptance gaps.
+
 > Source of truth for Phase 8's audit. Every row must be reachable in the v3 frontend or carry an explicit **[approved removal]**. Derived from the v2.0.0 frontend (`src/features/*`) + the backend IPC contract (`src-tauri/src/lib.rs` handler registry). Status column filled during Phase 8.
 
 **Audit run: 2026-07-16 (Task 8.1, Opus).** Method: adversarial — every capability located by grep/read against the CURRENT mounted tree (`src/shell/Shell.tsx` → `App.tsx`), not trusted from phase reports. A component that merely EXISTS is not parity; it must be reachable from a mounted workspace. Legend: ✅ reachable (component / mount site) · ❌ gap (what is missing) · **[approved removal]** (recorded decision cited).

@@ -1,5 +1,10 @@
 # CodaKiller Hands-Free Practice Operator — Design
 
+> **Current-status note (2026-08-27):** The v3.1/v3.2 stabilization slices shipped, and v8.1.0
+> added the bounded P3 voice work. The broader Practice Operator capability set is still not fully
+> built. This is a historical design/reference, not authority to resume it ahead of the explicit
+> v8.1 external acceptance gates.
+
 **Date:** 2026-07-19
 **Release target:** v3.1.0 stabilization, followed by the complete Practice Operator capability set
 **Product sentence:** Less work for Christian; more reliable practice truth.

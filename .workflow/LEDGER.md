@@ -1,5 +1,17 @@
 # v7.0.0 Motivation Layer — Requirements Ledger (2026-08-23)
 
+> **HISTORICAL / SUPERSEDED BY v8.1.0 (2026-08-27).** This ledger records the v7.0.0
+> implementation boundary; its “no points/coins/levels” constraint below was binding for that
+> release only. Christian later rejected the galaxy because progress remained hard to see.
+> Installed v8.1.0 deliberately replaces it with canonical-evidence motivation: 1 Practice XP per
+> completed focused minute, deterministic levels, six earned badge/next-milestone tracks, a 28-day
+> cadence and repertoire/technique progress. It still forbids fake/UI-granted progress, quality
+> scoring, coins and social pressure. Current truth:
+> `docs/superpowers/specs/2026-08-24-aug8-practice-overhaul-design.md`,
+> `docs/superpowers/plans/2026-08-27-v8.1.0-p3-p6-completion.md`, and
+> `docs/qa/v8.1.0/README.md`. Preserve the body below as historical evidence; do not use it to
+> remove v8.1 XP or levels.
+
 Spec: docs/superpowers/specs/2026-08-20-codakiller-v6.0.1-fixes-v7-motivation-layer.md (approved; Christian's "push to v7" 2026-08-23 clears the spec-review gate)
 
 ## Schema v15

@@ -1,7 +1,9 @@
 # CodaKiller v6.0.1 "Real-Use Fixes" + v7.0.0 "Motivation Layer" (approved design)
 
-> **Status:** Approved by Christian 2026-08-20 (brainstorming session; all recommended
-> options taken). Drives two releases: the **v6.0.1 patch** (ships first, no schema
+> **Status:** Historical/as built. Approved 2026-08-20; v6.0.1 and v7.0.0 both shipped. The
+> galaxy portion was later rejected in lived feedback and replaced by v8.1.0's evidence-based
+> Universe. This document records the earlier rationale, not the current roadmap. It drove two
+> releases: the **v6.0.1 patch** (ships first, no schema
 > change) and **v7.0.0** (three plans, schema v15).
 > **Source:** Christian's 2026-08-20 acceptance-with-issues verdict on v6.0.0 (four issue
 > areas: score top-row overlap, voice misfires, Assistant not worth asking, dock/panel

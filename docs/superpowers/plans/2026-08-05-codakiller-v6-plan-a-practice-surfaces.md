@@ -1,5 +1,8 @@
 # CodaKiller v6.0 Plan A — Practice Surfaces (S3 Dock · S4 Pause/Day-Close · S5 Plans+Time · S8 Banner)
 
+> **Status:** Historical/as built; this slice shipped in v6.0.0. Current installed truth is
+> v8.1.0/schema 19; use the Aug 8 rev-3 spec and v8.1 completion plan for current work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.

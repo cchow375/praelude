@@ -1,5 +1,9 @@
 # CodaKiller v6.0 Plan C — Score Intelligence (S1 Measure Mapping · S2 Sub-Sections)
 
+> **Status:** Historical/as-built source boundary. Mapping transport/review and sub-section source
+> exist, and v8.1.0 makes the mapping flow honestly reachable, but real-provider effectiveness is
+> still unaccepted: no Anthropic key and zero live `measure_map` rows at the last audit.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.

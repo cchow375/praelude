@@ -1,5 +1,8 @@
 # CodaKiller P3 Implementation Plan (Pieces · Rep Engine · Sessions) → v0.2.0
 
+> **Status:** Historical/as built; v0.2.0 shipped. This is the original P3 naming, not the Aug 8
+> train's P3 Voice phase. Use the v8.1 completion plan for current phase truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Task numbering continues the P0–P2 ledger (`.superpowers/sdd/progress.md`).
 
 **Goal:** The actual product begins: pieces seeded from the vault, an intake interview, the rep tracker (blocks / ladders / variants / verbal check-off), practice sessions with vault export — plus the two P2 debts (runtime TTS fallback, mic-permission guidance). Ships as **v0.2.0**, usable at the piano tonight.

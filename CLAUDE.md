@@ -41,8 +41,8 @@ version history live in the Obsidian vault**, not here:
   release-train spec.
 - `docs/superpowers/plans/2026-08-25-p1-v7.1.0-practice-set-core.md` — shipped P1 plan and its
   explicit v7.1 A1/A5 scope correction.
-- `docs/superpowers/plans/2026-08-26-p2-micro-targets-v2-and-set-completion.md` — current v7.2
-  corrective plan and verifier amendments; its B89 residual is now fixed in the v8.1 source.
+- `docs/superpowers/plans/2026-08-26-p2-micro-targets-v2-and-set-completion.md` — historical v7.2
+  corrective plan and verifier amendments; its B89 residual is fixed in the installed v8.1 source.
 - `docs/superpowers/plans/2026-08-27-v8.1.0-p3-p6-completion.md` — shipped ledger for the
   combined P3–P6 release and its remaining external acceptance facts.
 - `docs/qa/v7.2.0/README.md` — source-candidate 720×520 evidence and its native/at-piano limits.
@@ -51,8 +51,24 @@ version history live in the Obsidian vault**, not here:
 - `docs/qa/(C) v2-narrated-replay-contract.md` — old-session speech/state-machine regression
   boundary; never a piano-grading benchmark.
 - `docs/qa/` — acceptance records, regression contracts and screenshots.
-- `.superpowers/sdd/progress.md` — per-task ledger + carry-notes.
+- `.superpowers/sdd/progress.md` — local/gitignored per-task ledger + carry-notes. Its v8.1
+  cold-start header is useful on this machine, but a clone may not contain it and it never
+  outranks the tracked spec/plan or vault truth.
 - `README.md` — user-facing build/run/first-launch.
+
+## Cold-start guard for Claude Code
+
+Work from the main worktree unless Christian explicitly assigns a historical lane. The registered
+trees under `.claude/worktrees/` and `~/.ck-lanes/`, `.superpowers/sdd/task-*`, the old Foundation
+context, and `.workflow/LEDGER.md` are retained phase evidence; their local status blocks do not
+override this file or the vault. Do not restart P3–P6, restore the v7 galaxy, or resume Assistant
+Plan C from those records.
+
+The next honest work is external acceptance, not another hidden implementation train: one
+explicitly authorized real-provider/current-edition measure map; real WKWebView Listen Back and
+voice-over-Steinway use; and a sustained-use verdict on v8.1 XP, levels, milestones and cadence.
+Never upload a score merely to close B5—confirm the provider/key and Christian's authorization for
+whole-edition egress first. Assistant remains OFF unless Christian explicitly reopens it.
 
 ## Build / run / test
 

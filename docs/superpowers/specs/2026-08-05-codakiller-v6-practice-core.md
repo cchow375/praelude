@@ -1,7 +1,8 @@
 # CodaKiller v6.0 — Practice Core (approved design)
 
-> **Status:** Approved by Christian 2026-08-05 (brainstorming session; all four direction
-> questions answered with the recommended option). Drives the v6.0.0 release.
+> **Status:** Historical/as built. Approved 2026-08-05 and shipped in v6.0.0; later v8.1.0
+> source is the current installed boundary. Unproven real-provider measure mapping and
+> voice/Steinway acceptance remain external gaps rather than unfinished v6 implementation.
 > **Source:** Christian's July 31 goal dump (quoted in `(C) Changelog` on processing), the
 > fifth real-use feedback round. **Sibling decision:** v7.0 "Motivation Layer" scope is
 > agreed-deferred (see Non-goals) — do not build any of it in v6.

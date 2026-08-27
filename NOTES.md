@@ -2,6 +2,16 @@
 
 ## Decisions
 
+- **Cold-start authority lives in the tracked main/vault entry points, never an old lane or
+  unchecked historical plan (2026-08-27).** A post-release audit found that correct v8.1 banners
+  coexisted with buried v6/v7 “current” prose, an old galaxy no-levels rule, and a gitignored SDD
+  ledger that still opened at P0–P2. `AGENTS.md`, `CLAUDE.md`, the vault Command Center/Roadmap,
+  the Aug 8 rev-3 spec, v8.1 completion plan and v8.1 QA record now form the cold-start chain.
+  Older plans/specs and `.workflow/LEDGER.md` carry explicit historical/superseded banners;
+  `.superpowers/sdd/progress.md` has a local v8.1 header but is gitignored and cannot outrank
+  tracked truth. Registered `.claude/worktrees/` and `~/.ck-lanes/` remain branch evidence, not
+  current work. Do not resume P3–P6, the galaxy, B88/B89 or Assistant Plan C from those files.
+
 - **v8.1.0 / schema 19 shipped and was installed on 2026-08-27.** The Aug 8 denominator is **23
   asks**, not 21: A1–A7 (7), B1–B5 (5), C1–C3 (3), D1–D2 (2), E1–E6 (6). All 23 have an
   installed answer or explicit accepted boundary: **22 delivered / 1 external-only (B5) / 0
@@ -15,8 +25,10 @@
   `releases/v8.1.0/CodaKiller-8.1.0.dmg` is 10,892,054 bytes, SHA-256
   `e828b861b31d771fde66cd66d48987eb66110f0fd455306a6a12c2f80eb0a271`. Release tag `v8.1.0`
   points to `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; private `origin/main` is current
-  through the post-tag documentation correction. Installed-native Universe and Warmups passed at
-  720×520; the latter rendered
+  through the first post-tag documentation correction
+  `da71efb5509afa36beb073050719ac1094751b98` (later docs-only cold-start corrections may advance
+  the branch without changing the release tag/source freeze). Installed-native Universe and
+  Warmups passed at 720×520; the latter rendered
   without overlay/clipping, exposed **Restore Rep Counter** in Tools and preserved the active set.
   Real-provider B5 and real WKWebView microphone/Steinway audio remain acceptance boundaries.
 

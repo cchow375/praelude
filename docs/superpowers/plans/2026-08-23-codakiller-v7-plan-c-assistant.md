@@ -1,5 +1,9 @@
 # CodaKiller v7.0.0 Plan C — Assistant Usefulness Implementation Plan
 
+> **Status:** **ON HOLD / DO NOT RESUME.** This plan did not ship. Christian chose Assistant OFF,
+> hidden and Rust-gated; v8.1.0 completes that cleanup boundary. Resume only on an explicit future
+> request, as a separate project—not as unfinished Aug 8 work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps
 > use checkbox (`- [ ]`) syntax for tracking.

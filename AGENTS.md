@@ -32,6 +32,14 @@ cleanup, with a practice-only off-state Settings guide and Books/provider furnit
 - `docs/qa/v7.2.0/README.md`
 - `NOTES.md` (newest decision block first)
 
+**Cold-start guard:** work only from this main worktree unless Christian explicitly assigns a
+historical lane. `.claude/worktrees/`, `~/.ck-lanes/`, `.superpowers/sdd/task-*`, the old
+Foundation context, and `.workflow/LEDGER.md` are retained phase evidence, not the current
+roadmap. Do not restart P3–P6 or the v7 galaxy from those files. Current next work is external
+acceptance: an explicitly authorized real-provider measure map, real WKWebView Listen Back and
+voice-over-Steinway use, and a sustained-use verdict on the v8.1 motivation dashboard. Assistant
+Plan C remains on hold unless Christian explicitly reopens it.
+
 Preserve the user-as-sensor boundary: speech may describe practice; the app never interprets piano
 audio as musical evidence. Preserve Christian's live history and rehearse schema changes only on
 verified disposable copies before touching the installed database. v7.2.0 kept schema 16, so no

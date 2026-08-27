@@ -1,5 +1,6 @@
 # CodaKiller Foundation — Design Spec (P3.5)
-**Date:** 2026-07-12 · **Status:** Proposed — pending Christian's review
+**Date:** 2026-07-12 · **Status:** Historical/as built — shipped as v0.3.0. The old proposal
+language below records the design process; it is not a pending review or current roadmap.
 **Builds on:** `2026-07-09-codakiller-design.md` (the approved product spec). Nothing here changes the core thesis (*user is the sensor, app is the memory*; deterministic hot loop; no audio interpretation). This spec is about making the app you already use **editable, non-blocking, organized, and flexible** — and laying the structured, honest data foundation that the score viewer, brain, planner, and reward system will stand on.
 
 ## 1. Why now (the friction, from real at-piano use)

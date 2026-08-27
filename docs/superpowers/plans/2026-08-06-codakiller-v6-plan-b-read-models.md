@@ -1,5 +1,8 @@
 # CodaKiller v6.0 Plan B — Read Models (S6 History Day-Timeline · S7 Calendar Planned-vs-Done)
 
+> **Status:** Historical/as built; this slice shipped in v6.0.0. Checkboxes below are retained as
+> execution evidence, not current roadmap state.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.

@@ -1,5 +1,9 @@
 # CodaKiller Frontend Rework — Design Spec
 
+> **Current-status note (2026-08-27):** Historical design; v3.0.0 and its stabilization releases
+> shipped. The force-graph Universe described here was replaced by v8.1.0's canonical-evidence
+> XP/level/badge/cadence dashboard. Use the Aug 8 rev-3 spec for current product truth.
+
 **Date:** 2026-07-16 · **Status:** approved by Christian (section-by-section, this session)
 **Target release:** v3.0.0 (full frontend replacement; backend unchanged)
 **Baseline:** installed v2.0.0 dogfood build (HEAD `ce8dd35`), live DB schema 7→10 migration pending Christian's first launch.

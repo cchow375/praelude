@@ -1,5 +1,9 @@
 # CodaKiller v3 Frontend Rework — Implementation Plan
 
+> **Status:** Historical/as built; v3.0.0 and its patch train shipped. The old force-graph
+> Universe was subsequently replaced in v8.1.0. Checkboxes below are execution history, not the
+> current roadmap.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the CodaKiller frontend with a pure black-and-white, de-cluttered UI on the frozen Rust backend, fixing the offline-brain bug, adding a working score-mapping wizard, and turning the Universe into a draggable Obsidian-style force graph.

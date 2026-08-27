@@ -67,7 +67,8 @@ above is accepted release evidence; intermediate screenshots/builds remain diagn
       production build, five narrated corpora and all eight release-script gates passed.
 - [x] Installed-native Universe at 720×520.
 - [x] Rebuilt installed-native Warmups at 720×520 after the recorded overlap correction.
-- [ ] Remaining packaged-native critical interaction walkthroughs.
+- [ ] Remaining packaged-native interaction walkthroughs beyond the two accepted release frames;
+      this is follow-up evidence, not a claim that Universe or Warmups remain unaccepted.
 - [ ] Native Listen Back permission/capture/record/review/keep/delete/relaunch playback.
 - [ ] Voice-over-Steinway and piano-useful playback verdict from Christian.
 - [x] Live schema-19 graph verified after backup/install: integrity/FKs clean; only hidden Warm-ups
@@ -76,6 +77,8 @@ above is accepted release evidence; intermediate screenshots/builds remain diagn
 
 ## Next steps
 
-Keep the two evidence classes distinct. Extend installed/native evidence only with exact observed
-facts; never upgrade these frames into microphone, Steinway, provider-mapping or sustained-use
-evidence they cannot provide.
+Keep the two evidence classes distinct. Next, run Listen Back and the voice path at the Steinway;
+with explicit score-upload authorization and a configured provider, review and Apply one real
+current-edition mapping; then record a sustained-use motivation verdict. Extend installed/native
+evidence only with exact observed facts—never upgrade these frames into microphone, Steinway,
+provider-mapping or sustained-use evidence they cannot provide.

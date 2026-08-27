@@ -1,6 +1,7 @@
 # v6 Plan D — Voice & Brain (S9 + S10) + ship gate repair
 
-> **Status:** Executing 2026-08-11. The last plan before v6.0.0 ships. Spec:
+> **Status:** Historical/as built; v6.0.0 shipped. The Assistant now stays OFF/Rust-gated by
+> explicit product decision, while v8.1.0's deterministic voice work ships separately. Spec:
 > `docs/superpowers/specs/2026-08-05-codakiller-v6-practice-core.md` §S9 + §S10.
 > Schema: **unchanged** (stays v14).
 

@@ -1,5 +1,8 @@
 # CodaKiller P0–P2 Implementation Plan (Skeleton · Metronome · Voice Loop)
 
+> **Status:** Historical/as built; shipped in the initial release train. Do not treat unchecked
+> boxes or old `NEXT` lines as current. Installed truth is v8.1.0/schema 19.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A launchable, publishable Tauri v2 macOS app with a production-grade metronome and a voice loop (on-device STT + API TTS) that provably never hears itself and never mistakes piano for speech.

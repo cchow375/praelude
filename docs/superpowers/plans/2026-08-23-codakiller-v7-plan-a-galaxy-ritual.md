@@ -1,5 +1,9 @@
 # CodaKiller v7.0.0 Plan A — Galaxy & Ritual (A1 living galaxy · A2 day streak · A3 photo calendar · A4 completion animations)
 
+> **Status:** Historical. This plan shipped in v7.0.0, but the galaxy itself failed Christian's
+> motivation/progress test and was intentionally removed in v8.1.0. Current Universe truth is the
+> canonical-evidence XP/level/badge/cadence dashboard in the Aug 8 rev-3 spec.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.

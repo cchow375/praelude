@@ -15,6 +15,9 @@ rep engine; and P6 Listen Back, timed section rotation, reversible archive/recen
 and visible Sound targets. The old galaxy has been replaced by an evidence dashboard with one
 Practice XP per completed focused minute, deterministic levels, earned badges, exact next-badge
 rails, a 28-day cadence and repertoire/technique progress. Quality verdicts never award XP.
+The audited denominator is **23 asks: 22 delivered / 1 B5 external-only / 0 absent**. “External”
+means the mapping flow is installed but a real provider-backed map still needs authorization,
+provider readiness and one reviewed Apply; it does not mean the source path is missing.
 
 The final corrective edges are installed too: verdict-hotkey remaps apply to the live HUD after
 Save; every set can override tempo demotion; the running HUD has a quick subdivision control; and
@@ -47,7 +50,10 @@ Fresh launch migrated schema 16→19 with integrity/FKs clean. Pieces changed 10
 `id=0` Warm-ups; 230 blocks / 2,034 reps / 46 sessions / 7,873 events / 1 open session were
 preserved, and movement/routine/replay tables plus `measure_map` remain empty. Release tag
 `v8.1.0` points to `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; private
-`origin/main` is current through the post-tag documentation correction. Real-provider measure mapping is still
+`origin/main` was verified through post-tag documentation finalization
+`da71efb5509afa36beb073050719ac1094751b98` before this cold-start documentation sweep. Later
+documentation-only commits may advance the branch; the immutable release tag and source-freeze
+hash above remain the release identities. Real-provider measure mapping is still
 unproven on Christian's live scores (no Anthropic key and zero live `measure_map` rows at the last
 audit), and Listen Back/voice still require packaged-native microphone and Steinway acceptance.
 

@@ -1,5 +1,9 @@
 # CodaKiller v7.0.0 Plan B — Dynamics Checker (B1 meter core · B2 calibration · B3 live readout · B4 target mode)
 
+> **Status:** Historical/as built; the loudness-only Dynamics Checker shipped in v7.0.0. The
+> preamble's original B0 hold is superseded by the completed spike/release evidence. It remains a
+> loudness aid, never an interpreter or grader of piano playing.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
