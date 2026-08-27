@@ -8,21 +8,47 @@ metronome — hands-free.
 
 ## Status
 
-The installed release is **v7.2.0** (2026-08-27, schema 16 unchanged). It resolves B85–B87:
-parent-scoped micro-targets are created by one contained drag with no form, practice starts or
-resumes from the score, variant chains govern mastery and completed sets close after a visible
-six-second pause, and spoken deterministic acknowledgements are opt-in while the short chime
-remains. It also unifies the score overlay (B3), teaches the earned-only Universe at low data (E3),
-exposes global demotion settings and exposes per-set beat value / beats-per-bar / subdivision
-controls.
+**v8.1.0 / schema 19 shipped and was installed on 2026-08-27.** The complete Aug 8
+overhaul is now in the installed app: P3 voice reliability and counted voice adjustments; P4
+PDF movements and honest measure-map activation; P5 visual warmup catalog/routines on the real
+rep engine; and P6 Listen Back, timed section rotation, reversible archive/recent-first pieces,
+and visible Sound targets. The old galaxy has been replaced by an evidence dashboard with one
+Practice XP per completed focused minute, deterministic levels, earned badges, exact next-badge
+rails, a 28-day cadence and repertoire/technique progress. Quality verdicts never award XP.
 
-All source and release gates passed; the installed plist/version and identifier are correct,
-codesign verifies, the DMG checksum matches, a fresh installed process launched, and the live
-database stayed schema 16 with integrity OK and identical before/after counts. The release did
-not require a migration or migration rehearsal. Honest residuals: the composer still has no
-per-set demotion override, the running HUD has no quick-subdivision control, and the browser QA
-does not substitute for Christian's native/at-piano acceptance verdict. Release tag `v7.2.0`
-points to commit `7a5061d57fc6197b53e2601ca788f186d1fc7c83`.
+The final corrective edges are installed too: verdict-hotkey remaps apply to the live HUD after
+Save; every set can override tempo demotion; the running HUD has a quick subdivision control; and
+`score_micro_target_create` uses a durable command identity plus one bounded same-identity retry,
+so a lost reply replays the original spot instead of duplicating it. The Assistant remains
+switched off and fully gated as the accepted cleanup; its off-state Settings guide now teaches
+only the hands-free practice lane, hides Books/provider-only furniture, and leaves the settle
+control under Voice plus the enable switch discoverable. Piece folders remain deliberately
+deferred in favor of archive + recent-first sort.
+
+At the supported 720×520 floor, Warmups shrinks within the effective 480px stage and tucks only
+the expanded Rep Counter into Tools without touching the active set; Rotation clamps an unsafe
+restored/collision position to `y=164`, leaving a 56px Tools reserve. Browser/devMock evidence
+and installed-native evidence remain labelled separately in `docs/qa/v8.1.0/README.md`. The final
+installed-native pass accepted both Universe and Warmups: the Rep Counter tucks into Tools without
+ending or changing the active set, and both views remain clear of overlay and clipping.
+
+**Release evidence:** final source HEAD
+`1a1e38bb7a3757cf90ee6ea814e93d5971c595d6` (the `9a4aeba…` release commit plus compact-Warmups
+corrections); frontend **2,650 passed / 1 skipped / 0 failed** (209 files passed / 1 skipped);
+native **1,100 passed / 19 ignored / 0 failed**; TypeScript, format, strict Clippy, production build, five
+narrated corpora and all eight release-script gates passed. The installed ad-hoc locally signed
+app at `/Applications/CodaKiller.app` has version/build 8.1.0, bundle id
+`com.christian.codakiller`, strict signature PASS and CDHash
+`8655e9a45d83b7bb56e83a9d14bb477da7da39a9`; it is not Developer ID signed or notarized.
+DMG `releases/v8.1.0/CodaKiller-8.1.0.dmg` is 10,892,054 bytes, SHA-256
+`e828b861b31d771fde66cd66d48987eb66110f0fd455306a6a12c2f80eb0a271`.
+
+Fresh launch migrated schema 16→19 with integrity/FKs clean. Pieces changed 10→11 only for hidden
+`id=0` Warm-ups; 230 blocks / 2,034 reps / 46 sessions / 7,873 events / 1 open session were
+preserved, and movement/routine/replay tables plus `measure_map` remain empty. Release tag and
+private-remote push are the remaining bookkeeping. Real-provider measure mapping is still
+unproven on Christian's live scores (no Anthropic key and zero live `measure_map` rows at the last
+audit), and Listen Back/voice still require packaged-native microphone and Steinway acceptance.
 
 The Assistant remains switched off and gated at Christian's request. Canonical product truth
 lives in the Obsidian vault; start at
@@ -55,7 +81,8 @@ npm run dev:mock       # VITE_DEV_MOCK=1 vite — then open the printed localhos
 `dev:mock` runs the frontend in a plain browser with a flag-gated, backend-free
 Tauri mock (`src/devMock/tauriDevMock.ts`). It intercepts the single
 `window.__TAURI_INTERNALS__` seam so the current workspaces mount and render with coherent sample
-data (the Assistant surface remains hidden while its off switch is active). This is a
+data (including Warmups, Rotation, Listen Back and the evidence-based Universe; the Assistant
+surface remains hidden while its off switch is active). This is a
 **DEV-ONLY visual/design-review harness, not native functional acceptance**: it simulates the
 bounded reads/writes needed by checked-in UI scenarios, while real audio, speech recognition,
 Keychain, SQLite, and native event behavior still require Tauri/native gates. The mock activates

@@ -42,8 +42,12 @@ version history live in the Obsidian vault**, not here:
 - `docs/superpowers/plans/2026-08-25-p1-v7.1.0-practice-set-core.md` — shipped P1 plan and its
   explicit v7.1 A1/A5 scope correction.
 - `docs/superpowers/plans/2026-08-26-p2-micro-targets-v2-and-set-completion.md` — current v7.2
-  corrective plan and verifier amendments.
+  corrective plan and verifier amendments; its B89 residual is now fixed in the v8.1 source.
+- `docs/superpowers/plans/2026-08-27-v8.1.0-p3-p6-completion.md` — shipped ledger for the
+  combined P3–P6 release and its remaining external acceptance facts.
 - `docs/qa/v7.2.0/README.md` — source-candidate 720×520 evidence and its native/at-piano limits.
+- `docs/qa/v8.1.0/README.md` — current browser/devMock visual record; packaged-native microphone,
+  storage and Steinway acceptance are explicitly not inferred.
 - `docs/qa/(C) v2-narrated-replay-contract.md` — old-session speech/state-machine regression
   boundary; never a piano-grading benchmark.
 - `docs/qa/` — acceptance records, regression contracts and screenshots.
@@ -65,26 +69,34 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**Installed: v7.2.0** (shipped and installed 2026-08-27, schema 16 unchanged). It is one
-corrective release, not a v7.1.1 + v7.2 split. It resolves B85 (one-drag, form-free, atomically
-persisted parent-scoped spots with direct start/resume), B86 (chain-aware mastery, stage-correct
-attribution, recovery-debt integrity and visible six-second auto-close) and B87 (spoken
-acknowledgements opt-in, short chime retained). It also unifies the score overlay (B3), adds the E3
-low-data Universe teaching pass, exposes global demotion settings and exposes beat-unit / beats-
-per-bar / subdivision controls in the composer. **Still absent:** a per-set demotion override and
-a RepHud quick-subdivision control.
+**v8.1.0 / schema 19 — SHIPPED + INSTALLED 2026-08-27.** The release closes the remaining Aug 8
+train in one coherent app: P3 voice chimes/feed/fast phrases/live settle and counted add/undo; P4
+movement CRUD/score scoping plus clear provider readiness for mapping; P5 the visual catalog,
+saved routines and real rep-engine runner; P6 Listen Back, prompt-only exact-block rotation,
+reversible archive/recent-first sort and Sound targets. It replaces the old galaxy with canonical
+focused-minute XP, levels, six badge tracks, exact next milestones, a 28-day cadence, repertoire
+progress and technique evidence. Warmup and rotation completions use earned completion moments.
 
-Release gates: **2,499 frontend passed / 1 skipped / 0 failed**; **1,049 native passed / 19
-ignored / 0 failed**, with `filtered out: 0` on every target; `tsc --noEmit` and strict clippy
-clean; all five narrated corpus suites at zero false mutations; all eight release-script gates
-passed. The installed plist/version and identifier are correct, codesign and the DMG checksum
-verify, a fresh installed process launched, and the live DB stayed schema 16/integrity OK with
-identical counts (10 pieces / 228 blocks / 2,026 reps / 44 sessions / 0 open). No migration or
-rehearsal ran. Browser-mock QA at 720×520 is in `docs/qa/v7.2.0/README.md`; it does not substitute
-for native speech/audio or Christian's at-piano acceptance verdict. Tag `v7.2.0` points to release
-commit `7a5061d57fc6197b53e2601ca788f186d1fc7c83`.
+The release closes **B88** (per-set demotion override and live-HUD subdivision)
+and **B89** (durable micro-target command identity, payload-fingerprint conflict check
+and one bounded same-identity retry). Verdict-hotkey remaps publish after Settings Save, so the
+already-mounted HUD uses the new keys without a reload. The Assistant remains OFF and gated;
+its off-state Settings guide is practice-only, Books/provider furniture is hidden, and settle
+timing remains under Voice. Folders remain a deliberate non-goal in favor of archive + recent-first.
+
+Final source HEAD `1a1e38bb7a3757cf90ee6ea814e93d5971c595d6`; frontend
+**2,650 passed / 1 skipped / 0 failed** (209 files passed / 1 skipped), native
+**1,100 passed / 19 ignored / 0 failed**; TypeScript, format, strict Clippy, build, five
+corpora and all eight release gates passed. The installed ad-hoc locally signed 8.1.0 app/DMG
+verified, and fresh launch migrated schema 16→19 with integrity/FKs clean and the historical graph
+preserved; only hidden `id=0` Warm-ups was added. Installed-native Universe and Warmups passed at
+720×520 without losing the active set. Tag/push remain bookkeeping. Browser/devMock and scoped
+native visual evidence cannot prove microphone or Steinway behavior. B67/B75 remain open: no
+Anthropic key and no live measure mapping. Packaged-native Listen Back/voice and at-piano
+acceptance remain owed. The 23-ask boundary is **22 delivered / 1 external-only (B5) / 0 absent**;
+C2 source is delivered, while real WKWebView microphone and Steinway acceptance remains external.
 
 **Assistant stays OFF and gated.** Off is enforced in Rust for provider-reaching commands, and
 the voice→LLM fallback lives in `Shell.tsx`, not `voice_loop.rs`. Plan C remains on hold and must
 not be resumed without Christian's explicit word. B67 (no Anthropic key), B75 (no live measure-map
-rows), broader B84 mock parity and the installed/at-piano v7.2 verdict remain open.
+rows), broader B84 mock parity and the remaining installed/at-piano acceptance verdicts remain open.

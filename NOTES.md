@@ -2,6 +2,170 @@
 
 ## Decisions
 
+- **v8.1.0 / schema 19 shipped and was installed on 2026-08-27.** The Aug 8 denominator is **23
+  asks**, not 21: A1–A7 (7), B1–B5 (5), C1–C3 (3), D1–D2 (2), E1–E6 (6). All 23 have an
+  installed answer or explicit accepted boundary: **22 delivered / 1 external-only (B5) / 0
+  absent**. Final source HEAD `1a1e38bb7a3757cf90ee6ea814e93d5971c595d6`; frontend 2,650
+  passed / 1 skipped / 0 failed (209 files passed / 1 skipped), native 1,100
+  passed / 19 ignored / 0 failed; TypeScript, format, strict Clippy, production build, five narrated corpora
+  and all eight release gates passed. The installed app at `/Applications/CodaKiller.app` is
+  version/build 8.1.0, bundle id `com.christian.codakiller`, strict signature PASS with an ad-hoc
+  local seal (not Developer ID/not notarized), CDHash
+  `8655e9a45d83b7bb56e83a9d14bb477da7da39a9`. DMG
+  `releases/v8.1.0/CodaKiller-8.1.0.dmg` is 10,892,054 bytes, SHA-256
+  `e828b861b31d771fde66cd66d48987eb66110f0fd455306a6a12c2f80eb0a271`. Tag/push remain
+  bookkeeping. Installed-native Universe and Warmups passed at 720×520; the latter rendered
+  without overlay/clipping, exposed **Restore Rep Counter** in Tools and preserved the active set.
+  Real-provider B5 and real WKWebView microphone/Steinway audio remain acceptance boundaries.
+
+  Preinstall backup
+  `(C) pre-v8.1.0-install-2026-08-27-123548.db` is 21,708,800 bytes, SHA-256
+  `2d06307f35a42be5a1911cbc9fbbd1c48b356449a31180c7000c7c4636448ddb`; its integrity-OK
+  schema-16 snapshot held 10 pieces / 230 blocks / 2,034 reps / 46 sessions / 7,873 events /
+  **1 open session** / 0 mappings. Fresh launch migrated 16→19 with integrity/FKs clean: 10→11
+  pieces solely from hidden `id=0 · Warm-ups · system`; 230 blocks / 2,034 reps / 46 sessions /
+  7,873 events / 1 open session were unchanged; mapping/movement/routine/replay tables were empty.
+  The signed/identity-valid v7.2 rollback is 9,901,602 bytes,
+  SHA-256 `e5ec3460e38a9637600e0bbbb6557c952fec6ee7743d7bd158ec4d2bc18513a1`.
+  The open session remained unchanged through install.
+
+- **The combined P3–P6 schema sequence is v17 movements/archive, v18 warmups, v19 replay
+  storage (2026-08-27).** A disposable SQLite `.backup` of the live schema-16 database rehearsed
+  through v19 with integrity OK and the historical relationship graph preserved. The only new
+  piece was the reserved hidden system piece `id=0, title='Warm-ups', kind='system'`; movement,
+  routine and replay tables began empty. The installed migration later reproduced this graph
+  preservation exactly; the rehearsal is retained as pre-install evidence, not substituted for it.
+
+- **Listen Back owns the microphone physically, not only at the action router (2026-08-27).**
+  Review mode acquires a native voice-capture lease before `getUserMedia`; native STT is actually
+  suspended, pending/failure states synchronously firewall verdict actions, and teardown returns
+  the exact lease without overwriting a pre-existing user mute. Request tombstones and serialized
+  old-capture teardown prevent a late permission result or old block from reopening the device.
+  Capture disables echo cancellation, noise suppression and automatic gain, records mono, bounds
+  a take at ten minutes, and holds native ownership through review/playback. This is the safe
+  fallback chosen after three-way mic coexistence proved too risky. It still needs packaged-native
+  permission/device testing and Steinway judgment; browser tests cannot supply that verdict.
+
+- **Rep replay files are confined, transactional and deliberately temporary (2026-08-27).**
+  Exact attempt filenames live below app-data `rep_replays/YYYY-MM-DD`; metadata is schema v19.
+  Temporary bytes are discarded unless **Keep after verdict** is explicitly selected. Kept takes
+  are base64-read over IPC, decoded to an audio Blob and offered with output-only gain. Startup
+  recovery accepts only verifiable exact files, quarantines partial/unverifiable material under
+  `_recovery`, rejects symlinks/path escape, and makes delete file-first so a database failure
+  leaves a retryable ghost instead of an inaccessible recording. A kept reference take is an
+  earned completion moment, never piano-grading evidence.
+
+- **P3 voice reliability is a bounded deterministic expansion (2026-08-27).** `mark done`,
+  `rep done`, `mark sloppy` and `mark again` may act on a partial only while a set is live; the
+  routed-intent tail guard suppresses only that utterance's settled duplicate. Bare/natural forms
+  stay on the normal settle path. Settings exposes a live 300–2000 ms settle delay, verdicts retain
+  the short acknowledgement chime, and the Rep Counter holds the last three final transcripts
+  including ignored speech. Counted commands include `add two cleans`, `take three away`,
+  `remove the last rep` and `undo four reps`; add is Clean evidence and undo remains append-only.
+  Narrated corpora are still required because this touches the B70 firewall.
+
+- **Hotkey remapping is a live committed-settings channel (2026-08-27).** Settings Save publishes
+  the normalized committed settings to mounted consumers; `useVerdictHotkeyConfig` updates the
+  existing HUD without a reload. Space / Right Shift / Return remain defaults, the master switch
+  remains authoritative, duplicate/reserved keys are rejected, and the same focus/dialog/input
+  guards apply after a remap.
+
+- **B88 is fixed in source, with two separate ownership rules (2026-08-27).** The composer can
+  inherit global demotion, disable it for this set, or enable a set-local first/repeat sloppy
+  threshold. The running Rep HUD exposes `sub N` −/+ against the live metronome, bounded 1–16.
+  That quick control changes the current click pattern; durable next-start tuning remains the
+  set's stored tuning. Neither path converts BPM when the beat-unit label changes.
+
+- **B89 is fixed in source: micro-target retry identity is durable (2026-08-27).** Every spot
+  drag creates one `command_id`; the frontend may retry once after a lost reply with the exact
+  same payload and id. `practice_operation` stores the payload fingerprint and committed receipt;
+  a same-id replay returns the original Region, while same-id/different-geometry conflicts. The
+  devMock mirrors replay/conflict behavior. Transaction atomicity and retry idempotency are now
+  separate, both tested guarantees.
+
+- **P4 movement scoping is metadata, never PDF surgery (2026-08-27).** `piece_movement` stores
+  title + first PDF page; the next movement's start derives the prior end. Zero rows preserves
+  whole-score behavior. Piece Detail owns CRUD; the Score toolbar scopes pages and current-edition
+  section lists by the selected movement. Existing regions and history are not rewritten. The
+  Beethoven split is intentionally a UI action, not hardcoded data.
+
+- **B5 source activation is honest about the provider boundary (2026-08-27).** `Map measures`
+  is reachable after a loaded edition and explains loading/edition/page prerequisites. Its intro
+  shows Anthropic/Gemini readiness, refuses Start with neither key, states that the entire edition
+  is sent and writes nothing until reviewed Apply. No source change can manufacture live-provider
+  acceptance: no Anthropic key exists and the last live audit still had zero `measure_map` rows.
+
+- **Warmups are ordinary practice evidence on one hidden system piece (2026-08-27).** The
+  code-owned visual catalog is searchable/filterable, paged at 36 cards, supplies SVG keyboard
+  figures + how-to text, and supports named ordered routines with per-item BPM and clean streak.
+  The runner opens exact catalog-position sets on the reserved `Warm-ups` piece, verifies the
+  returned set identity, advances only from authoritative verified mastery and celebrates one
+  completed routine exactly once. System pieces stay out of repertoire/Score/Pieces while their
+  real focus time counts toward streaks and the Universe technique aggregate.
+
+- **Rotation is prompt-only and exact-block-owned (2026-08-27).** Add 2+ score targets, choose
+  station minutes and order/shuffle, then start. A deadline chimes and asks for **Next station**;
+  it never yanks a live set at zero. Transition may pause only the exact block the rotation opened,
+  validates that the next returned snapshot matches the requested piece/Region/measures, survives
+  async failure as a retryable prompt, and celebrates a full cycle exactly once.
+
+- **Archive and delete are now different verbs (2026-08-27).** Reversible Archive sets
+  `piece.archived_at`; archived pieces move into a collapsed group and may be restored. Active and
+  archived groups sort recently practiced first. **Delete files…** remains the typed-name move to
+  vault trash and preserves historical practice evidence. Folders are deliberately deferred per
+  Christian's answer; archive + recent-first is the accepted decluttering solution.
+
+- **The Universe is now an evidence dashboard, not a decorative galaxy (2026-08-27).** One
+  Practice XP equals one fully completed focused minute. Level thresholds are deterministic
+  triangular steps (30 XP more per level); six badge tracks cover active days, best streak,
+  focused hours, revisited targets, verified mastery and honest recovery. The UI shows the exact
+  next badge on each track, a zero-filled 28-day cadence, current progress rails, repertoire
+  evidence and a separate technique aggregate. Quality/verdict labels never add or remove XP.
+  Canonical SQLite totals win over earlier renders/local storage, including archived repertoire
+  and file-deleted history in lifetime time; system warmups appear only as technique. Entering
+  Universe tucks the floating Rep Counter at every size without ending the active set and restores
+  it on exit. First load is silent; only a same-mount threshold crossing announces progress.
+
+- **Assistant OFF is the completed E4 product decision, not an unimplemented checkbox
+  (2026-08-27).** Christian explicitly called it a separate project and asked it out of the way.
+  The tab, Today entry, passage helper and connection controls remain hidden while provider writes
+  are blocked in Rust. Settings now follows the same truth: when off, the default-open guide
+  teaches one hands-free practice-command lane, Assistant-only confirmation copy and Books are
+  absent, the settle control lives under Voice, and the enable switch remains discoverable. The
+  enabled state retains its two-lane/provider/books UI. The held Plan C branch must not be merged
+  as part of this train. Likewise, no piece-folder feature is owed: archive + recent-first was the
+  accepted answer.
+
+- **The v8.1 720×520 browser QA corrections are geometry contracts, not native proof
+  (2026-08-27).** Warmups explicitly permit every grid/heading child to shrink inside the 480px
+  effective stage while retaining the paged catalog. Rotation reserves 56px for the bottom Tools
+  band and clamps an unsafe restored/collision `y=360` to `y=164`; dragging and keyboard movement
+  remain bounded above that band. The accepted devMock frames prove this source presentation only.
+  They do not prove native dock persistence, IPC, database behavior or microphone/Steinway use.
+
+- **Installed-native Universe passed the 720×520 visual boundary (2026-08-27).** The actual
+  `/Applications/CodaKiller.app` rendered live Level 7 / 831 XP / 95% / 9 XP-to-Level-8 data,
+  real current-record milestones and no horizontal overflow; the active session remained safe and
+  Rep Counter tucked into Tools. Evidence:
+  `docs/qa/v8.1.0/universe-live-native-720x520.png`. This accepts packaged-native Universe at
+  the supported floor, not Listen Back microphone hardware, voice-over-Steinway or every native
+  interaction flow.
+
+- **Warmups compact-floor detection must use native logical window bounds (2026-08-27).**
+  Installed-native QA found the expanded Rep Counter covering Warmups hero/search at a physical
+  720×520 even though the catalog itself shrank correctly. Initial corrective `2d9bc33` added
+  the right ownership behavior—minimize only the dock panel, preserve active set/timer/engine,
+  teach **Show Rep Counter**, restore only its own tuck and yield to manual dock choices—but keyed
+  compactness to `window.innerWidth`. The WebView's default 90% interface zoom makes a physical
+  720px window report about 800 CSS px, so installed-native QA correctly refuted that detector.
+  Corrective `a5853b3` tried `outerWidth/outerHeight`; installed QA refuted those WebView
+  globals too. Final corrective `1a1e38b` reads Tauri's native physical `innerSize()` and
+  `scaleFactor()`, converts to logical points, listens to native resize, ignores stale async
+  measurements/listener registration after exit, and uses DOM sizing only when native calls
+  reject. The final installed 720×520 frame passed: the hero/search stayed clear with no clipping,
+  Tools exposed **Restore Rep Counter**, and the active set remained unchanged. The failed
+  intermediate builds remain diagnostic evidence, not release artifacts.
+
 - **v7.2.0 shipped and was installed on 2026-08-27.**
   Tag `v7.2.0` points to release commit `7a5061d57fc6197b53e2601ca788f186d1fc7c83`.
   Schema remains 16 and `migrations.rs` is unchanged, so no migration or rehearsal ran. The source
@@ -310,7 +474,8 @@ Option<Instant>`, set by `handle_partial` (`voice_loop.rs:492-496` — four line
 
 - **Aug 8 overhaul spec drafted (2026-08-24, planning only):**
   `docs/superpowers/specs/2026-08-24-aug8-practice-overhaul-design.md` — Christian's Aug 8 dump
-  organized into 21 asks, diffed against v6/v7 (sub-sections, voice fast path, mapping, galaxy
+  organized at the time as 21 asks—later denominator audit corrected this to **23** IDs—diffed
+  against v6/v7 (sub-sections, voice fast path, mapping, galaxy
   already shipped after the note was written), designed and phased P0–P5. Engineering facts the
   recon pinned that the spec builds on: **no demotion path exists** (`ladder.rs step()` only
   climbs; manual `tempo_backoff` recovery is the sole decrease); **variants are free-text lanes

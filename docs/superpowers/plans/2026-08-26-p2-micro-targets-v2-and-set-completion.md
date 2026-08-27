@@ -8,6 +8,11 @@ at-piano acceptance verdict remains owed.
 **Release:** one v7.2.0 release containing Tasks A + B + C. The earlier split-release idea
 was abandoned before either corrective slice shipped; there is no intermediate release/tag.
 
+> **Later installed status (v8.1.0, shipped 2026-08-27):** B89 is closed. Each
+> spot drag carries one durable command identity; the frontend may retry once with the exact same
+> identity/payload, the store replays the original Region receipt after a lost response, and
+> same-identity/different-geometry is rejected. The v7.2 historical release still lacked this.
+
 ---
 
 ## Why this plan exists
@@ -262,11 +267,11 @@ contract. These additions are part of the release, not optional polish:
   acceptance was too weak. The Rust transaction independently revalidates same piece,
   one-level nesting, contained measures, matching edition/fingerprint and full geometry
   containment. A synchronous pending ref prevents double pointer-up from creating two
-  `Spot 1` rows. Honest residual: `score_micro_target_create` has no independent request-
-  replay/idempotency key. If its transaction commits but the success response is lost, a
-  later retry could create a duplicate; the same-tick UI guard does not cover that case.
-  No duplicate was observed, and transactional atomicity is not being stretched into an
-  idempotency claim.
+  `Spot 1` rows. **Historical v7.2 residual:** `score_micro_target_create` had no independent
+  request-replay key, so a lost success reply plus retry could duplicate. **Later v8.1 source
+  closure:** `practice_operation` now stores the command identity, payload fingerprint and
+  receipt; exact replay returns the original Region and a conflicting reuse is rejected.
+  Transaction atomicity and retry idempotency are separate tested contracts.
 - **Practice means practice.** `Practice this` now takes the resume/start path described
   in C4; opening or scrolling the composer alone did not satisfy the acceptance bar. Paused
   matching uses exact `region_id`, not only the estimated measure range, so same-range sibling
