@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { nativeWarmupApi } from "./api";
 import {
   filterWarmups,
@@ -25,26 +26,15 @@ const COMPACT_VIEWPORT_HEIGHT = 520;
 
 type RepTuckPhase = "idle" | "pending" | "owned" | "released";
 
-function isCompactWarmupsViewport(): boolean {
-  if (typeof window === "undefined") return false;
-
-  // App.tsx applies the saved WebView zoom (90% by default). At that zoom a
-  // physical 720x520 NSWindow reports an inner viewport around 800x578, while
-  // outerWidth/outerHeight stay tied to the unzoomed native window. Prefer
-  // those physical bounds; browsers/jsdom that omit them or report zero fall
-  // back to the content viewport instead of disabling the guard entirely.
-  const width =
-    Number.isFinite(window.outerWidth) && window.outerWidth > 0
-      ? window.outerWidth
-      : window.innerWidth;
-  const height =
-    Number.isFinite(window.outerHeight) && window.outerHeight > 0
-      ? window.outerHeight
-      : window.innerHeight;
-
+function isCompactLogicalSize(width: number, height: number): boolean {
   return (
     width <= COMPACT_VIEWPORT_WIDTH && height <= COMPACT_VIEWPORT_HEIGHT
   );
+}
+
+function isCompactBrowserViewport(): boolean {
+  if (typeof window === "undefined") return false;
+  return isCompactLogicalSize(window.innerWidth, window.innerHeight);
 }
 
 interface ExpectedWarmupSet {
@@ -147,16 +137,103 @@ export function WarmupsWorkspace({
   const latestRepDock = useRef(repDock);
   const repTuckPhase = useRef<RepTuckPhase>("idle");
   const restoreRepTimer = useRef<number | null>(null);
-  const [compactViewport, setCompactViewport] = useState(
-    isCompactWarmupsViewport,
-  );
+  // Do not trust zoomed DOM dimensions while the native measurement is
+  // pending. Browser sizing is installed only if a Tauri window call rejects.
+  const [compactViewport, setCompactViewport] = useState(false);
   activeRepRef.current = activeRep;
   latestRepDock.current = repDock;
 
   useEffect(() => {
-    const update = () => setCompactViewport(isCompactWarmupsViewport());
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
+    let active = true;
+    let nativeAvailable = true;
+    let measurementRevision = 0;
+    let unlisten: (() => void) | null = null;
+
+    const applyBrowserFallback = () => {
+      if (active) setCompactViewport(isCompactBrowserViewport());
+    };
+
+    const abandonNativeBounds = () => {
+      if (!active || !nativeAvailable) return;
+      nativeAvailable = false;
+      measurementRevision += 1;
+      unlisten?.();
+      unlisten = null;
+      applyBrowserFallback();
+    };
+
+    const handleBrowserResize = () => {
+      if (!nativeAvailable) applyBrowserFallback();
+    };
+    window.addEventListener("resize", handleBrowserResize);
+
+    try {
+      const nativeWindow = getCurrentWindow();
+      const readNativeBounds = async () => {
+        const revision = ++measurementRevision;
+        try {
+          const [physical, scaleFactor] = await Promise.all([
+            nativeWindow.innerSize(),
+            nativeWindow.scaleFactor(),
+          ]);
+          if (
+            !active ||
+            !nativeAvailable ||
+            revision !== measurementRevision
+          ) {
+            return;
+          }
+          if (
+            !Number.isFinite(physical.width) ||
+            !Number.isFinite(physical.height) ||
+            !Number.isFinite(scaleFactor) ||
+            physical.width <= 0 ||
+            physical.height <= 0 ||
+            scaleFactor <= 0
+          ) {
+            abandonNativeBounds();
+            return;
+          }
+          setCompactViewport(
+            isCompactLogicalSize(
+              physical.width / scaleFactor,
+              physical.height / scaleFactor,
+            ),
+          );
+        } catch {
+          if (revision === measurementRevision) abandonNativeBounds();
+        }
+      };
+
+      // Read immediately and subscribe independently. Neither an unusually
+      // slow native measurement nor late listener registration may leave the
+      // other path blocked. Every completion is guarded by the mounted flag
+      // and measurement revision below.
+      void readNativeBounds();
+      void nativeWindow
+        .onResized(() => {
+          void readNativeBounds();
+        })
+        .then((stop) => {
+          if (!active || !nativeAvailable) {
+            stop();
+            return;
+          }
+          unlisten = stop;
+        })
+        .catch(abandonNativeBounds);
+    } catch {
+      abandonNativeBounds();
+    }
+
+    return () => {
+      active = false;
+      nativeAvailable = false;
+      measurementRevision += 1;
+      window.removeEventListener("resize", handleBrowserResize);
+      unlisten?.();
+      unlisten = null;
+    };
   }, []);
 
   // At the app's 720x520 floor the floating Rep Counter covers the warmup

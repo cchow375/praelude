@@ -10,6 +10,21 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const nativeWindowMocks = vi.hoisted(() => ({
+  innerSize: vi.fn(),
+  scaleFactor: vi.fn(),
+  onResized: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    innerSize: nativeWindowMocks.innerSize,
+    scaleFactor: nativeWindowMocks.scaleFactor,
+    onResized: nativeWindowMocks.onResized,
+  }),
+}));
+
 import { WarmupsWorkspace } from "./WarmupsWorkspace";
 import { WARMUP_CATALOG } from "./catalog";
 import type { WarmupApi, WarmupRoutine } from "./types";
@@ -24,6 +39,19 @@ const ORIGINAL_VIEWPORT = {
   outerWidth: window.outerWidth,
   outerHeight: window.outerHeight,
 };
+let nativeResizeHandler: (() => void) | null = null;
+const nativeUnlisten = vi.fn();
+
+function mockNativeBounds(width: number, height: number, scaleFactor: number) {
+  nativeWindowMocks.innerSize.mockResolvedValue({ width, height });
+  nativeWindowMocks.scaleFactor.mockResolvedValue(scaleFactor);
+  nativeWindowMocks.onResized.mockImplementation(
+    async (handler: () => void) => {
+      nativeResizeHandler = handler;
+      return nativeUnlisten;
+    },
+  );
+}
 
 function setViewport(
   innerWidth: number,
@@ -202,6 +230,20 @@ beforeEach(() => {
       },
     },
   });
+  nativeResizeHandler = null;
+  nativeUnlisten.mockReset();
+  nativeWindowMocks.innerSize.mockReset();
+  nativeWindowMocks.scaleFactor.mockReset();
+  nativeWindowMocks.onResized.mockReset();
+  nativeWindowMocks.innerSize.mockRejectedValue(
+    new Error("Native window bounds unavailable in jsdom"),
+  );
+  nativeWindowMocks.scaleFactor.mockRejectedValue(
+    new Error("Native scale factor unavailable in jsdom"),
+  );
+  nativeWindowMocks.onResized.mockRejectedValue(
+    new Error("Native resize listener unavailable in jsdom"),
+  );
 });
 
 afterEach(() => {
@@ -217,8 +259,9 @@ afterEach(() => {
 });
 
 describe("WarmupsWorkspace", () => {
-  it("uses physical 720x520 bounds at default 90% zoom without touching the active set, then restores on exit", async () => {
-    setViewport(800, 578, 720, 520);
+  it("uses native 1440x984 at scale 2 despite 90% DOM zoom without touching the active set, then restores on exit", async () => {
+    setViewport(800, 578, 1200, 900);
+    mockNativeBounds(1440, 984, 2);
     seedShownRepPanel();
     const onOpenBlock = vi.fn();
     const activeRep = Object.freeze(
@@ -268,7 +311,10 @@ describe("WarmupsWorkspace", () => {
   });
 
   it("leaves the open Rep Counter visible above the compact boundary", async () => {
-    setViewport(889, 667, 800, 600);
+    // DOM and outer bounds deliberately look compact: the authoritative
+    // native 1600x1200 / 2 = 800x600 logical points must still win.
+    setViewport(700, 500, 720, 520);
+    mockNativeBounds(1600, 1200, 2);
     seedShownRepPanel();
 
     render(
@@ -277,7 +323,10 @@ describe("WarmupsWorkspace", () => {
       </DockProvider>,
     );
 
-    await screen.findByText("C major scale");
+    await waitFor(() => {
+      expect(nativeWindowMocks.innerSize).toHaveBeenCalledOnce();
+      expect(nativeWindowMocks.scaleFactor).toHaveBeenCalledOnce();
+    });
     expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
       "open:shown",
     );
@@ -305,7 +354,8 @@ describe("WarmupsWorkspace", () => {
   });
 
   it("restores its owned tuck immediately when the viewport grows out of compact mode", async () => {
-    setViewport(800, 578, 720, 520);
+    setViewport(800, 578, 1200, 900);
+    mockNativeBounds(1440, 984, 2);
     seedShownRepPanel();
 
     render(
@@ -321,7 +371,12 @@ describe("WarmupsWorkspace", () => {
       "open:minimized",
     );
 
-    act(() => setViewport(889, 667, 800, 600));
+    nativeWindowMocks.innerSize.mockResolvedValue({
+      width: 1600,
+      height: 1200,
+    });
+    expect(nativeResizeHandler).not.toBeNull();
+    act(() => nativeResizeHandler?.());
 
     await waitFor(() =>
       expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
@@ -333,8 +388,55 @@ describe("WarmupsWorkspace", () => {
     ).toBeNull();
   });
 
+  it("ignores a stale native measurement and cleans up listener registration that resolves after exit", async () => {
+    setViewport(900, 700, 1200, 900);
+    seedShownRepPanel();
+    let resolveNativeSize!: (size: { width: number; height: number }) => void;
+    let resolveNativeListener!: (stop: () => void) => void;
+    nativeWindowMocks.innerSize.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveNativeSize = resolve;
+        }),
+    );
+    nativeWindowMocks.scaleFactor.mockResolvedValue(2);
+    nativeWindowMocks.onResized.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveNativeListener = resolve;
+        }),
+    );
+
+    render(
+      <DockProvider>
+        <WarmupsDockHarness />
+      </DockProvider>,
+    );
+    await waitFor(() => {
+      expect(nativeWindowMocks.innerSize).toHaveBeenCalledOnce();
+      expect(nativeWindowMocks.onResized).toHaveBeenCalledOnce();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave Warmups" }));
+    await act(async () => {
+      resolveNativeSize({ width: 1440, height: 984 });
+      resolveNativeListener(nativeUnlisten);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(nativeUnlisten).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("warmups-rep-dock-state").textContent).toBe(
+      "open:shown",
+    );
+    expect(
+      screen.queryByText(/Rep Counter is tucked into Tools/),
+    ).toBeNull();
+  });
+
   it("respects a user restore and close instead of reopening that override on exit", async () => {
-    setViewport(800, 578, 720, 520);
+    setViewport(800, 578, 1200, 900);
+    mockNativeBounds(1440, 984, 2);
     seedShownRepPanel();
 
     render(
