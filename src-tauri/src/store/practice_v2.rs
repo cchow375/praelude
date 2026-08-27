@@ -360,6 +360,51 @@ struct TempoProjection {
     /// verdicts recorded since the chain last restarted (at open, or at the
     /// most recent chain-driven tempo step). `None` with no variants.
     variant_stage: Option<ladder::VariantStage>,
+    /// Physical attempt that first completed the chain at the CURRENT rung.
+    /// A ladder step or explicit clean-proof reset clears this boundary.
+    variant_chain_completed_at_attempt_id: Option<i64>,
+}
+
+fn project_fixed_variant_chain(
+    variants: &[VariantSpec],
+    effective: &[EffectiveAttempt],
+    reset_after_attempt_id: Option<i64>,
+) -> (Option<ladder::VariantStage>, Option<i64>) {
+    if variants.is_empty() {
+        return (None, None);
+    }
+    let mut verdicts = Vec::new();
+    let mut completed_at = None;
+    for attempt in effective.iter().filter(|attempt| {
+        !attempt.voided && reset_after_attempt_id.is_none_or(|boundary| attempt.id > boundary)
+    }) {
+        verdicts.push(attempt.verdict);
+        let stage = ladder::variant_stage(variants, &verdicts)
+            .expect("non-empty variants always yield a stage");
+        if stage.complete && completed_at.is_none() {
+            completed_at = Some(attempt.id);
+        }
+    }
+    (ladder::variant_stage(variants, &verdicts), completed_at)
+}
+
+fn trailing_contract_clean_after(
+    effective: &[EffectiveAttempt],
+    boundary: i64,
+    contract: &PracticeContract,
+) -> u32 {
+    let mut streak = 0_u32;
+    for attempt in effective
+        .iter()
+        .filter(|attempt| !attempt.voided && attempt.id > boundary)
+    {
+        if attempt.verdict == AttemptVerdict::Clean {
+            streak = streak.saturating_add(1);
+        } else if contract.resets(attempt.verdict) {
+            streak = 0;
+        }
+    }
+    streak
 }
 
 /// Rebuild the current tempo from immutable attempt facts plus their effective
@@ -376,15 +421,9 @@ fn project_tempo(
     // A2: without a ladder (or with one not yet reached), a variant chain is
     // still resolved over the whole set's effective verdicts — there is no
     // tempo window to restart it against.
-    let whole_set_verdicts = || -> Vec<AttemptVerdict> {
-        effective
-            .iter()
-            .filter(|attempt| !attempt.voided)
-            .map(|attempt| attempt.verdict)
-            .collect()
-    };
-
     if row.focus != "tempo" {
+        let (variant_stage, variant_chain_completed_at_attempt_id) =
+            project_fixed_variant_chain(&row.variants, effective, reset_after_attempt_id);
         return Ok(TempoProjection {
             // The click is a factual practice condition even when tempo is not
             // the mastery focus. Preserve the captured tempo, but never run a
@@ -402,7 +441,8 @@ fn project_tempo(
             cleans_at_step: 0,
             sloppy_streak: 0,
             demoted_this_set: false,
-            variant_stage: ladder::variant_stage(&row.variants, &whole_set_verdicts()),
+            variant_stage,
+            variant_chain_completed_at_attempt_id,
         });
     }
 
@@ -410,6 +450,8 @@ fn project_tempo(
     // factual last effective attempt tempo (or start tempo) without inventing a
     // post-hoc step from legacy verdicts.
     if row.contract_source == "migration_legacy" {
+        let (variant_stage, variant_chain_completed_at_attempt_id) =
+            project_fixed_variant_chain(&row.variants, effective, reset_after_attempt_id);
         return Ok(TempoProjection {
             bpm: effective
                 .iter()
@@ -420,7 +462,8 @@ fn project_tempo(
             cleans_at_step: 0,
             sloppy_streak: 0,
             demoted_this_set: false,
-            variant_stage: ladder::variant_stage(&row.variants, &whole_set_verdicts()),
+            variant_stage,
+            variant_chain_completed_at_attempt_id,
         });
     }
 
@@ -454,11 +497,14 @@ fn project_tempo(
     // within the current variant, neither advancing nor resetting the chain.
     let has_variants = !row.variants.is_empty();
     let mut chain_verdicts: Vec<AttemptVerdict> = Vec::new();
+    let mut variant_chain_completed_at_attempt_id = None;
     for attempt in effective.iter().filter(|attempt| !attempt.voided) {
         if reset_after_attempt_id
             .is_some_and(|boundary| !recovery_reset_applied && attempt.id > boundary)
         {
             clean_streak = 0;
+            chain_verdicts.clear();
+            variant_chain_completed_at_attempt_id = None;
             recovery_reset_applied = true;
         }
         let attempt_bpm = attempt
@@ -510,7 +556,12 @@ fn project_tempo(
             if has_variants {
                 // The chain restarts at the new tempo.
                 chain_verdicts.clear();
+                variant_chain_completed_at_attempt_id = None;
             }
+        } else if chain_stage.is_some_and(|stage| stage.complete)
+            && variant_chain_completed_at_attempt_id.is_none()
+        {
+            variant_chain_completed_at_attempt_id = Some(attempt.id);
         }
         if demotion.enabled {
             let threshold = if demoted_this_set {
@@ -528,6 +579,8 @@ fn project_tempo(
     }
     if reset_after_attempt_id.is_some() && !recovery_reset_applied {
         clean_streak = 0;
+        chain_verdicts.clear();
+        variant_chain_completed_at_attempt_id = None;
     }
     if let Some(backoff) = tempo_backoff {
         if !backoff.is_finite() || backoff <= 0.0 {
@@ -550,6 +603,7 @@ fn project_tempo(
         sloppy_streak,
         demoted_this_set,
         variant_stage,
+        variant_chain_completed_at_attempt_id,
     })
 }
 
@@ -743,11 +797,49 @@ pub(super) fn project(
             MasteryStatus::Satisfied | MasteryStatus::NotSatisfied
         )
     {
-        summary.contract.mastery = if tempo.variant_stage.is_some_and(|stage| stage.complete) {
-            MasteryStatus::Satisfied
-        } else {
-            MasteryStatus::NotSatisfied
-        };
+        let chain_complete = tempo.variant_stage.is_some_and(|stage| stage.complete);
+
+        // A completed chain proves the captured BASE requirement, but an
+        // explicitly accepted recovery consequence remains additional work.
+        // Count that work only after BOTH the final-stage completion and the
+        // first clean-debt action. This keeps the chain visibly complete while
+        // asking for the extra cleans at its final stage; earlier-stage cleans
+        // can never pre-pay a debt accepted later.
+        let extra_recovery_required = summary
+            .contract
+            .effective_required_success
+            .saturating_sub(row.contract.required_success);
+        let first_clean_debt_boundary = loop_state
+            .recovery_actions
+            .iter()
+            .filter(|action| action.kind == "clean_debt")
+            .map(|action| action.after_attempt_id.unwrap_or(0))
+            .min();
+        let chain_recovery_remaining =
+            match (chain_complete, tempo.variant_chain_completed_at_attempt_id) {
+                (true, Some(completed_at)) => {
+                    let boundary = first_clean_debt_boundary
+                        .map_or(completed_at, |debt_at| completed_at.max(debt_at));
+                    extra_recovery_required.saturating_sub(trailing_contract_clean_after(
+                        &summary.effective_attempts,
+                        boundary,
+                        &row.contract,
+                    ))
+                }
+                _ => extra_recovery_required,
+            };
+        if extra_recovery_required > 0 {
+            summary.contract.recovery_remaining = chain_recovery_remaining;
+        }
+
+        // Earned-only direction: chain/recovery logic may withhold a generic
+        // Satisfied result, but it may never manufacture Satisfied from an
+        // underlying NotSatisfied contract projection.
+        if summary.contract.mastery == MasteryStatus::Satisfied
+            && (!chain_complete || chain_recovery_remaining > 0)
+        {
+            summary.contract.mastery = MasteryStatus::NotSatisfied;
+        }
     }
     let effective = summary
         .effective_attempts
@@ -757,8 +849,14 @@ pub(super) fn project(
     let last_effective = effective.last().copied();
     let last_adjustment_id = adjustments.iter().map(|adjustment| adjustment.id).max();
     let variants = row.variants.clone();
-    let next_variant = ladder::variant_index_for_rep(&variants, summary.tries.saturating_add(1))
-        .map(|index| variants[index].name.clone());
+    // A2/B86 follow-up: the displayed/current variant must come from the same
+    // clean-streak chain projection that governs advancement and mastery. The
+    // former attempt-count lane advanced on Sloppy/Again merely because `tries`
+    // increased, producing contradictory variant names for one set.
+    let current_variant = tempo
+        .variant_stage
+        .and_then(|stage| variants.get(stage.index))
+        .map(|variant| variant.name.clone());
     let next_variant_stage_name = tempo
         .variant_stage
         .filter(|stage| !stage.complete)
@@ -799,7 +897,7 @@ pub(super) fn project(
         last_adjustment_id,
         cleans_at_step: tempo.cleans_at_step,
         rule: row.rule,
-        variant: next_variant,
+        variant: current_variant,
         variants,
         verdicts: VerdictCounts {
             clean: summary.clean,
@@ -1015,6 +1113,12 @@ pub(crate) fn validate_open(
         return Err(invalid(
             "tempo or metronome sets require a positive finite BPM",
         ));
+    }
+    if !(1..=16).contains(&args.tuning.beats_per_bar) {
+        return Err(invalid("beats per bar must be between 1 and 16"));
+    }
+    if !(1..=16).contains(&args.tuning.subdivision) {
+        return Err(invalid("subdivision must be between 1 and 16"));
     }
     if args.focus != "tempo" && args.target_bpm.is_some() {
         return Err(invalid("target BPM is valid only for tempo-focus sets"));

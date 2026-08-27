@@ -170,6 +170,39 @@ describe("RepHud", () => {
     expect(screen.queryByText("4/30")).toBeNull();
   });
 
+  it.each([
+    ["eighth", "♪", "Eighth note"],
+    ["dotted_quarter", "♩.", "Dotted quarter note"],
+    ["half", "𝅗𝅥", "Half note"],
+  ] as const)(
+    "renders %s tuning truthfully without converting the BPM number",
+    (beatUnit, mark, spokenLabel) => {
+      const { container } = render(
+        <RepHud
+          snap={makeSnap({
+            tuning: {
+              beat_unit: beatUnit,
+              beats_per_bar: 6,
+              subdivision: 3,
+            },
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+        />,
+      );
+
+      const tempo = container.querySelector(".rep-hud-tempo");
+      expect(tempo?.textContent).toContain(`${mark} 72`);
+      expect(tempo?.textContent).toContain("6 beats/bar · subdivision 3");
+      expect(
+        screen.getByLabelText(
+          `${spokenLabel} 72 BPM, 6 beats/bar · subdivision 3`,
+        ),
+      ).toBeTruthy();
+    },
+  );
+
   it("switches to the N-in-a-row target proof once the working tempo reaches target", () => {
     render(
       <RepHud
@@ -758,29 +791,40 @@ describe("RepHud", () => {
       ).toBeTruthy();
     });
 
-    it("holds the filled stage, then shows the NEXT variant at 0 — the advance he asked for", () => {
+    it("plays one acknowledgement chime while holding the filled stage, then shows the next variant at 0", () => {
       vi.useFakeTimers();
+      const play = vi.fn().mockResolvedValue(undefined);
+      const factory = vi.fn().mockReturnValue({ play });
       const { container, rerender } = render(
-        <RepHud snap={chainSnap()} feed={[]} error={null} {...callbacks()} />,
+        <RepHud
+          snap={chainSnap()}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+          audioFactory={factory}
+        />,
       );
       expect(headline(container)).toBe("4");
+      expect(play).not.toHaveBeenCalled();
 
       // The clean that CLEARS "dotted": the engine advances the chain and
       // resets the stage counter to 0 in the same snapshot.
+      const advanced = chainSnap({
+        variant: "reverse dotted",
+        variant_stage_index: 1,
+        variant_stage_cleans: 0,
+        next_variant_stage_name: "staccato",
+        last: { verdict: "clean", note: null, bpm: 72 },
+        last_attempt_id: 201,
+      });
       act(() => {
         rerender(
           <RepHud
-            snap={chainSnap({
-              variant: "reverse dotted",
-              variant_stage_index: 1,
-              variant_stage_cleans: 0,
-              next_variant_stage_name: "staccato",
-              last: { verdict: "clean", note: null, bpm: 72 },
-              last_attempt_id: 201,
-            })}
+            snap={advanced}
             feed={[]}
             error={null}
             {...callbacks()}
+            audioFactory={factory}
           />,
         );
       });
@@ -791,6 +835,24 @@ describe("RepHud", () => {
       expect(
         container.querySelector(".rep-hud-stage-name")?.textContent,
       ).toBe("dotted");
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(factory).toHaveBeenCalledWith("/chime.wav");
+      expect(play).toHaveBeenCalledTimes(1);
+
+      // A parent re-render carrying the same committed attempt is not a new
+      // transition and must not acknowledge it again.
+      act(() => {
+        rerender(
+          <RepHud
+            snap={{ ...advanced }}
+            feed={[]}
+            error={null}
+            {...callbacks()}
+            audioFactory={factory}
+          />,
+        );
+      });
+      expect(play).toHaveBeenCalledTimes(1);
 
       // Then the next variation takes over at 0/5 — "5/5 -> 0/5 · reverse dotted".
       act(() => vi.advanceTimersByTime(1200));
@@ -799,6 +861,140 @@ describe("RepHud", () => {
         container.querySelector(".rep-hud-stage-name")?.textContent,
       ).toBe("reverse dotted");
       vi.useRealTimers();
+    });
+
+    it("does not chime when Undo moves the chain backward", () => {
+      const play = vi.fn().mockResolvedValue(undefined);
+      const factory = vi.fn().mockReturnValue({ play });
+      const { rerender } = render(
+        <RepHud
+          snap={chainSnap({
+            variant: "reverse dotted",
+            variant_stage_index: 1,
+            variant_stage_cleans: 1,
+            next_variant_stage_name: "staccato",
+            last: { verdict: "clean", note: null, bpm: 72 },
+            last_attempt_id: 202,
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+          audioFactory={factory}
+        />,
+      );
+
+      rerender(
+        <RepHud
+          snap={chainSnap({
+            variant_stage_index: 0,
+            variant_stage_cleans: 4,
+            last: { verdict: "clean", note: null, bpm: 72 },
+            last_attempt_id: 201,
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+          audioFactory={factory}
+        />,
+      );
+
+      expect(factory).not.toHaveBeenCalled();
+      expect(play).not.toHaveBeenCalled();
+    });
+
+    it("chimes when the first committed clean clears a one-clean opening stage", () => {
+      const play = vi.fn().mockResolvedValue(undefined);
+      const factory = vi.fn().mockReturnValue({ play });
+      const { rerender } = render(
+        <RepHud
+          snap={chainSnap({
+            variant_stage_index: 0,
+            variant_stage_cleans: 0,
+            variant_stage_required: 1,
+            last: null,
+            last_attempt_id: null,
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+          audioFactory={factory}
+        />,
+      );
+
+      rerender(
+        <RepHud
+          snap={chainSnap({
+            variant: "reverse dotted",
+            variant_stage_index: 1,
+            variant_stage_cleans: 0,
+            variant_stage_required: 5,
+            last: { verdict: "clean", note: null, bpm: 72 },
+            last_attempt_id: 1,
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+          audioFactory={factory}
+        />,
+      );
+
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(play).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not chime for final-chain completion or an extra clean after completion", () => {
+      const play = vi.fn().mockResolvedValue(undefined);
+      const factory = vi.fn().mockReturnValue({ play });
+      const { rerender } = render(
+        <RepHud
+          snap={chainSnap({
+            variant: "staccato",
+            variant_stage_index: 2,
+            variant_stage_cleans: 4,
+            variant_stage_required: 5,
+            next_variant_stage_name: null,
+            last: { verdict: "clean", note: null, bpm: 84 },
+            last_attempt_id: 300,
+          })}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+          audioFactory={factory}
+        />,
+      );
+
+      const complete = chainSnap({
+        variant: "staccato",
+        variant_stage_index: 2,
+        variant_stage_cleans: 5,
+        variant_stage_required: 5,
+        next_variant_stage_name: null,
+        variant_chain_complete: true,
+        mastery_status: "not_satisfied",
+        last: { verdict: "clean", note: null, bpm: 84 },
+        last_attempt_id: 301,
+      });
+      rerender(
+        <RepHud
+          snap={complete}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+          audioFactory={factory}
+        />,
+      );
+      rerender(
+        <RepHud
+          snap={{ ...complete, last_attempt_id: 302 }}
+          feed={[]}
+          error={null}
+          {...callbacks()}
+          audioFactory={factory}
+        />,
+      );
+
+      expect(factory).not.toHaveBeenCalled();
+      expect(play).not.toHaveBeenCalled();
     });
 
     it("leaves the headline exactly as before for a set with no chain", () => {
@@ -866,6 +1062,46 @@ describe("RepHud", () => {
       expect(props.onClose).not.toHaveBeenCalled();
       vi.useRealTimers();
     });
+
+    it.each([
+      [
+        "Reset clean proof",
+        {
+          kind: "reset_streak",
+          rationale:
+            "Pianist chose to restart the clean proof after an error.",
+        },
+      ],
+      [
+        "Add 2 recovery cleans",
+        {
+          kind: "clean_debt",
+          clean_count: 2,
+          rationale: "Pianist chose two additional recovery cleans.",
+        },
+      ],
+    ])(
+      "%s cancels a completion close synchronously at the deadline",
+      (buttonName, expectedAction) => {
+        vi.useFakeTimers();
+        const props = callbacks();
+        renderFinishing(props);
+        act(() => vi.advanceTimersByTime(5000));
+        expect(screen.getByText(/Set complete · closing in 1/)).toBeTruthy();
+
+        act(() => {
+          fireEvent.click(
+            screen.getByRole("button", { name: buttonName }),
+          );
+        });
+        expect(props.onRecover).toHaveBeenCalledWith(expectedAction);
+        expect(screen.queryByText(/Set complete/)).toBeNull();
+
+        act(() => vi.advanceTimersByTime(1000));
+        expect(props.onClose).not.toHaveBeenCalled();
+        vi.useRealTimers();
+      },
+    );
 
     it("shows no banner for a set that is not satisfied", () => {
       render(

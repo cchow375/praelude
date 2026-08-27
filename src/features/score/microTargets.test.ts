@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { estimateSpotMeasures, nextSpotName } from "./microTargets";
+import {
+  effectiveParentIds,
+  estimateSpotMeasures,
+  nextSpotName,
+  type ParentableRegion,
+} from "./microTargets";
 import type { PdfAnchorRect } from "./types";
 
 const box = (
@@ -12,6 +17,126 @@ const box = (
 
 // One system, measures 10–17 (eight measures across one rect).
 const oneSystem = [box(1, 0.1, 0.2, 0.8, 0.1)];
+
+function region(
+  id: number,
+  m_start: number,
+  m_end: number,
+  rects: PdfAnchorRect[],
+  parent_region_id: number | null = null,
+  edition = "ekier",
+  fingerprint = "fp-a",
+): ParentableRegion {
+  return {
+    id,
+    m_start,
+    m_end,
+    parent_region_id,
+    pdf_anchor: {
+      v: 1,
+      editions: { [edition]: { fingerprint, rects } },
+    },
+  };
+}
+
+describe("effectiveParentIds", () => {
+  it("recovers the live Rolled Chords legacy spot only under its one containing parent", () => {
+    const rolledChords = region(26, 552, 576, [
+      box(19, 0.0822, 0.0484, 0.9038, 0.1378),
+      box(19, 0.0557, 0.2039, 0.9363, 0.1732),
+      box(19, 0.039, 0.3901, 0.9225, 0.1824),
+      box(19, 0.096, 0.5934, 0.8881, 0.1541),
+      box(19, 0.0862, 0.7997, 0.121, 0.1209),
+    ]);
+    const endPart = region(83, 563, 573, [
+      box(19, 0.7386, 0.2503, 0.2375, 0.1107),
+      box(19, 0.1262, 0.4218, 0.839, 0.143),
+      box(19, 0.1625, 0.6212, 0.3318, 0.1125),
+    ]);
+    expect(effectiveParentIds([rolledChords, endPart], "ekier", "fp-a")).toEqual(
+      new Map([
+        [26, null],
+        [83, 26],
+      ]),
+    );
+  });
+
+  it("lets an explicit parent win even when geometric inference is ambiguous", () => {
+    const child = region(3, 4, 5, [box(1, 0.2, 0.2, 0.1, 0.1)], 1);
+    const first = region(1, 1, 8, [box(1, 0, 0, 1, 1)]);
+    const second = region(2, 1, 8, [box(1, 0, 0, 1, 1)]);
+    expect(effectiveParentIds([first, second, child], "ekier", "fp-a").get(3)).toBe(1);
+  });
+
+  it("refuses equal ranges, wrong fingerprints, outside geometry, and ambiguous parents", () => {
+    const parent = region(1, 1, 8, [box(1, 0, 0, 0.5, 0.5)]);
+    const sameRange = region(2, 1, 8, [box(1, 0.1, 0.1, 0.1, 0.1)]);
+    const wrongFingerprint = region(
+      3,
+      2,
+      3,
+      [box(1, 0.1, 0.1, 0.1, 0.1)],
+      null,
+      "ekier",
+      "fp-b",
+    );
+    const outside = region(4, 2, 3, [box(1, 0.8, 0.8, 0.1, 0.1)]);
+    const ambiguous = region(5, 2, 3, [box(1, 0.1, 0.1, 0.1, 0.1)]);
+    const secondParent = region(6, 1, 9, [box(1, 0, 0, 0.6, 0.6)]);
+    expect(effectiveParentIds([parent, sameRange], "ekier", "fp-a").get(2)).toBeNull();
+    expect(
+      effectiveParentIds([parent, wrongFingerprint], "ekier", "fp-a").get(3),
+    ).toBeNull();
+    expect(effectiveParentIds([parent, outside], "ekier", "fp-a").get(4)).toBeNull();
+    expect(
+      effectiveParentIds([parent, secondParent, ambiguous], "ekier", "fp-a").get(5),
+    ).toBeNull();
+  });
+
+  it("requires every child rect centre to be contained", () => {
+    const parent = region(1, 1, 8, [box(1, 0, 0, 0.5, 0.5)]);
+    const child = region(2, 2, 3, [
+      box(1, 0.1, 0.1, 0.1, 0.1),
+      box(1, 0.8, 0.8, 0.1, 0.1),
+    ]);
+    expect(effectiveParentIds([parent, child], "ekier", "fp-a").get(2)).toBeNull();
+  });
+
+  it("never turns an inferred child into another inferred parent", () => {
+    const outer = region(1, 1, 20, [box(1, 0, 0, 0.5, 0.5)]);
+    // Its centre is inside `outer`, but the rect extends beyond it.
+    const middle = region(2, 5, 15, [box(1, 0.4, 0.1, 0.2, 0.2)]);
+    // Its centre is inside only `middle`, producing a provisional 3-level
+    // chain unless the one-level invariant is applied globally.
+    const inner = region(3, 7, 8, [box(1, 0.55, 0.15, 0.04, 0.04)]);
+    const parents = effectiveParentIds(
+      [outer, middle, inner],
+      "ekier",
+      "fp-a",
+    );
+    expect(parents.get(2)).toBe(1);
+    expect(parents.get(3)).toBeNull();
+  });
+
+  it("never infers a Region with an explicit child under another parent", () => {
+    const outer = region(1, 1, 20, [box(1, 0, 0, 1, 1)]);
+    const explicitParent = region(2, 5, 15, [box(1, 0.2, 0.2, 0.6, 0.6)]);
+    const child = region(
+      3,
+      7,
+      8,
+      [box(1, 0.3, 0.3, 0.1, 0.1)],
+      explicitParent.id,
+    );
+    const parents = effectiveParentIds(
+      [outer, explicitParent, child],
+      "ekier",
+      "fp-a",
+    );
+    expect(parents.get(explicitParent.id)).toBeNull();
+    expect(parents.get(child.id)).toBe(explicitParent.id);
+  });
+});
 
 describe("estimateSpotMeasures", () => {
   it("puts a drag at the very start of the parent on the parent's first measure", () => {

@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { RepOpenArgs, SetFocusContextInput, VariantSpec } from "./useRep";
+import type {
+  BeatUnit,
+  RepOpenArgs,
+  SetFocusContextInput,
+  SetTuning,
+  VariantSpec,
+} from "./useRep";
 import {
   buildLadderPreview,
   estimateSetSeconds,
@@ -18,12 +24,12 @@ import "../../ui/forms.css";
 // for is because I don't see it" — the old single "More" disclosure buried
 // practice focus, the variant chain, the clean-streak target, the tempo
 // ladder and the review boundary behind one click. Now only the tempo ladder,
-// the review boundary and the "one pass ≈" estimate live behind a bottom
-// "Advanced" disclosure (there is room there for a later demotion override
-// and metronome beat-unit/subdivision steppers). Everything else — section,
+// the review boundary, the "one pass ≈" estimate, and per-set metronome tuning
+// live behind a bottom "Advanced" disclosure (with room for a later per-set
+// demotion override). Everything else — section,
 // target, focus, the variant chain, and the clean-streak target — is always
-// visible, zero clicks. The submitted RepOpenArgs shape is unchanged; only
-// the arrangement moved.
+// visible, zero clicks. Advanced also owns the per-set metronome tuning: its
+// beat value is a label for the entered BPM, never a hidden conversion.
 // ---------------------------------------------------------------------------
 
 interface BlockFormProps {
@@ -39,11 +45,12 @@ interface BlockFormProps {
   defaultLabel?: string;
   /** Persisted practice default; v2 defaults to five consecutive cleans. */
   defaultCleanStreak?: number;
+  /** Optional stored set tuning when a caller rehydrates an existing draft. */
+  defaultTuning?: Partial<SetTuning>;
   /**
    * Task A10: `context` is passed ONLY when the pianist entered a one-pass
-   * estimate — omitted (single-argument call) otherwise, so a caller wired
-   * directly to `rep.open` (which defaults a missing context to `null`) sees
-   * byte-identical args to before this field existed.
+   * estimate — omitted (single-argument call) otherwise. Per-set tuning lives
+   * inside the first argument and does not change that positional contract.
    */
   onOpen: (args: RepOpenArgs, context?: SetFocusContextInput) => void;
   opening?: boolean;
@@ -62,6 +69,39 @@ const VARIANT_PRESETS: Array<{ label: string; name: string }> = [
   { label: "Hands separate", name: "hands separate" },
   { label: "Blocked chords", name: "blocked chords" },
 ];
+
+const BEAT_UNIT_OPTIONS: Array<{ value: BeatUnit; label: string }> = [
+  { value: "quarter", label: "Quarter note (♩)" },
+  { value: "eighth", label: "Eighth note (♪)" },
+  { value: "dotted_quarter", label: "Dotted quarter note (♩.)" },
+  { value: "half", label: "Half note (𝅗𝅥)" },
+];
+
+const DEFAULT_TUNING: SetTuning = {
+  beat_unit: "quarter",
+  subdivision: 1,
+  beats_per_bar: 4,
+};
+
+function clampInteger(value: unknown, min: number, max: number, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed)
+    ? Math.min(max, Math.max(min, Math.round(parsed)))
+    : fallback;
+}
+
+function normalizeTuning(value?: Partial<SetTuning>): SetTuning {
+  const beatUnit = BEAT_UNIT_OPTIONS.some(
+    (option) => option.value === value?.beat_unit,
+  )
+    ? (value?.beat_unit as BeatUnit)
+    : DEFAULT_TUNING.beat_unit;
+  return {
+    beat_unit: beatUnit,
+    subdivision: clampInteger(value?.subdivision, 1, 16, 1),
+    beats_per_bar: clampInteger(value?.beats_per_bar, 1, 16, 4),
+  };
+}
 
 function parseIntOrNull(raw: string): number | null {
   const t = raw.trim();
@@ -95,6 +135,46 @@ function DisclosureCaret({ open }: { open: boolean }) {
   );
 }
 
+/** Same compact +/- idiom as the standalone metronome, scoped to a draft set. */
+function TuningStepper({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="ck-tuning-stepper" role="group" aria-label={label}>
+      <span className="ck-label">{label}</span>
+      <div className="ck-tuning-stepper-control">
+        <button
+          type="button"
+          aria-label={`Decrease ${label}`}
+          disabled={value <= min}
+          onClick={() => onChange(value - 1)}
+        >
+          −
+        </button>
+        <output aria-live="polite">{value}</output>
+        <button
+          type="button"
+          aria-label={`Increase ${label}`}
+          disabled={value >= max}
+          onClick={() => onChange(value + 1)}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function BlockForm({
   pieceId,
   regionId = null,
@@ -104,6 +184,7 @@ export function BlockForm({
   defaultMeasureEnd,
   defaultLabel,
   defaultCleanStreak = 5,
+  defaultTuning,
   onOpen,
   opening = false,
   blockedReason = null,
@@ -134,6 +215,11 @@ export function BlockForm({
   const [variants, setVariants] = useState<VariantSpec[]>([]);
   const [focus, setFocus] = useState("tempo");
   const [useMetronome, setUseMetronome] = useState(true);
+  const initialTuning = normalizeTuning(defaultTuning);
+  const [beatUnit, setBeatUnit] = useState<BeatUnit>(initialTuning.beat_unit);
+  const [subdivision, setSubdivision] = useState(initialTuning.subdivision);
+  const [beatsPerBar, setBeatsPerBar] = useState(initialTuning.beats_per_bar);
+  const tuningEdited = useRef(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   // Task A10: optional one-pass estimate. Empty by default — no field
   // touched means no context is sent and no estimate renders.
@@ -156,11 +242,26 @@ export function BlockForm({
     setCustomStreak(String(defaultCleanStreak));
   }, [defaultCleanStreak]);
 
+  // A stored draft/reopen may arrive after the surrounding view resolves its
+  // data. Adopt it until the pianist touches any tuning control; from then on,
+  // the in-progress draft wins over later prop refreshes.
+  useEffect(() => {
+    if (tuningEdited.current) return;
+    const next = normalizeTuning(defaultTuning);
+    setBeatUnit(next.beat_unit);
+    setSubdivision(next.subdivision);
+    setBeatsPerBar(next.beats_per_bar);
+  }, [
+    defaultTuning?.beat_unit,
+    defaultTuning?.beats_per_bar,
+    defaultTuning?.subdivision,
+  ]);
+
   const setVariant = (i: number, patch: Partial<VariantSpec>) =>
     setVariants((v) => v.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
   /** Tapping a preset (or submitting custom text) appends it to the chain. */
   const addVariant = (name: string = "") =>
-    setVariants((v) => [...v, { name, reps: 5 }]);
+    setVariants((v) => [...v, { name, reps: 5, clean_streak: 5 }]);
   const removeVariant = (i: number) =>
     setVariants((v) => v.filter((_, idx) => idx !== i));
   const moveVariant = (i: number, dir: -1 | 1) =>
@@ -194,6 +295,12 @@ export function BlockForm({
         ? "auto tempo ladder"
         : `+${parseNumOr(bpmStep, 4)} bpm every ${parseIntOrNull(cleanNeeded) ?? 3} clean`,
     );
+  }
+  if (useMetronome) {
+    const unit = BEAT_UNIT_OPTIONS.find(
+      (option) => option.value === beatUnit,
+    )?.label.replace(/\s*\([^)]*\)$/, "");
+    advancedParts.push(`${unit ?? "Quarter note"} pulse`);
   }
   const reviewAt = parseIntOrNull(plannedReps);
   if (reviewAt != null) advancedParts.push(`review at ${reviewAt}`);
@@ -251,13 +358,24 @@ export function BlockForm({
               bpm_step: parseNumOr(bpmStep, 4),
             },
       variants: variants
-        .map((v) => ({ name: v.name.trim(), reps: v.reps }))
+        .map((v) => ({
+          name: v.name.trim(),
+          // Keep `reps` populated for older stored/read paths while making
+          // the A2 consecutive-clean contract explicit for new sets.
+          reps: v.reps,
+          clean_streak: v.clean_streak ?? v.reps,
+        }))
         .filter((v) => v.name !== ""),
       focus,
       use_metronome: useMetronome,
+      tuning: {
+        beat_unit: beatUnit,
+        subdivision,
+        beats_per_bar: beatsPerBar,
+      },
     };
-    // Byte-compatibility (Task A10): an untouched field means a single-arg
-    // call, identical to every payload before this field existed.
+    // Task A10 compatibility: an untouched pass-time still means a single
+    // positional argument. A5's tuning is part of that RepOpenArgs object.
     if (parsedPassSeconds != null && parsedPassSeconds > 0) {
       onOpen(args, { pass_seconds: parsedPassSeconds });
     } else {
@@ -442,19 +560,25 @@ export function BlockForm({
                     aria-label={`Variant ${i + 1} name`}
                     onChange={(e) => setVariant(i, { name: e.target.value })}
                   />
-                  <input
-                    className="ck-input ck-input-reps"
-                    type="number"
-                    inputMode="numeric"
-                    min={1}
-                    value={v.reps}
-                    aria-label={`Variant ${i + 1} attempts`}
-                    onChange={(e) =>
-                      setVariant(i, {
-                        reps: parseIntOrNull(e.target.value) ?? 1,
-                      })
-                    }
-                  />
+                  <label className="ck-field ck-chain-requirement">
+                    <span className="ck-label">Consecutive cleans</span>
+                    <input
+                      className="ck-input ck-input-reps"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      value={v.clean_streak ?? v.reps}
+                      aria-label={`Variant ${i + 1} consecutive cleans`}
+                      onChange={(e) => {
+                        const requirement =
+                          parseIntOrNull(e.target.value) ?? 1;
+                        setVariant(i, {
+                          reps: requirement,
+                          clean_streak: requirement,
+                        });
+                      }}
+                    />
+                  </label>
                   <button
                     type="button"
                     className="ck-row-move"
@@ -527,9 +651,8 @@ export function BlockForm({
         </div>
 
         {/* One collapsed "Advanced" section at the bottom (§5.3): the tempo
-            ladder, the review boundary, and "one pass ≈" — leave room here
-            for the demotion override and the beat-unit/subdivision steppers
-            a later task adds. */}
+            ladder, one-pass estimate, set metronome tuning, and review
+            boundary. */}
         <div className="block-more">
           <button
             type="button"
@@ -634,6 +757,56 @@ export function BlockForm({
                 </fieldset>
               )}
 
+              {useMetronome && (
+                <fieldset className="ck-field ck-tuning">
+                  <legend className="ck-label">Metronome tuning</legend>
+                  <p className="ck-tuning-note">
+                    BPM counts the note value you choose. Changing this label
+                    never converts or changes the BPM number.
+                  </p>
+                  <div className="ck-tuning-grid">
+                    <label className="ck-field ck-tuning-unit">
+                      <span className="ck-label">BPM note value</span>
+                      <select
+                        className="ck-input"
+                        aria-label="BPM note value"
+                        value={beatUnit}
+                        onChange={(event) => {
+                          tuningEdited.current = true;
+                          setBeatUnit(event.target.value as BeatUnit);
+                        }}
+                      >
+                        {BEAT_UNIT_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <TuningStepper
+                      label="Beats per bar"
+                      value={beatsPerBar}
+                      min={1}
+                      max={16}
+                      onChange={(next) => {
+                        tuningEdited.current = true;
+                        setBeatsPerBar(next);
+                      }}
+                    />
+                    <TuningStepper
+                      label="Subdivision"
+                      value={subdivision}
+                      min={1}
+                      max={16}
+                      onChange={(next) => {
+                        tuningEdited.current = true;
+                        setSubdivision(next);
+                      }}
+                    />
+                  </div>
+                </fieldset>
+              )}
+
               <label className="ck-field">
                 <span className="ck-label">
                   Attempt review boundary (optional)
@@ -649,9 +822,6 @@ export function BlockForm({
                   onChange={(event) => setPlannedReps(event.target.value)}
                 />
               </label>
-              {/* Room for the demotion override and the metronome beat-unit
-                  / subdivision steppers (later tasks) — append additional
-                  ck-field / ck-field-grid blocks here. */}
             </div>
           )}
         </div>

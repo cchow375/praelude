@@ -8,16 +8,24 @@ metronome — hands-free.
 
 ## Status
 
-The installed release is **v3.1.0**: the schema-10 PracticeContract backend and five-workspace v3
-shell plus the July 20 hands-free stabilization. Routine receipts clear in 1.5 seconds;
-metronome/set transitions are state-aware and serialized; the compact HUD stays in page flow;
-Today has a plan box; Settings has the current guide; and Brain receives the visible Score context,
-accepts clearly assistant-directed no-wake questions, and can turn one selected-Region set request
-into an editable spoken draft requiring `confirm` or `cancel`.
+The installed release is **v7.2.0** (2026-08-27, schema 16 unchanged). It resolves B85–B87:
+parent-scoped micro-targets are created by one contained drag with no form, practice starts or
+resumes from the score, variant chains govern mastery and completed sets close after a visible
+six-second pause, and spoken deterministic acknowledgements are opt-in while the short chime
+remains. It also unifies the score overlay (B3), teaches the earned-only Universe at low data (E3),
+exposes global demotion settings and exposes per-set beat value / beats-per-bar / subdivision
+controls.
 
-This is the first safe Practice Operator slice, not arbitrary AI control. Page-only targeting,
-Goals/Calendar/session-plan voice actions, durable unfinished drafts, and real recognition over the
-Steinway remain open. Canonical status and contracts live in the Obsidian vault; start at
+All source and release gates passed; the installed plist/version and identifier are correct,
+codesign verifies, the DMG checksum matches, a fresh installed process launched, and the live
+database stayed schema 16 with integrity OK and identical before/after counts. The release did
+not require a migration or migration rehearsal. Honest residuals: the composer still has no
+per-set demotion override, the running HUD has no quick-subdivision control, and the browser QA
+does not substitute for Christian's native/at-piano acceptance verdict. Final tag/commit metadata
+is recorded by the release operator after finalization.
+
+The Assistant remains switched off and gated at Christian's request. Canonical product truth
+lives in the Obsidian vault; start at
 `~/Desktop/christian's universe/Piano Practice/CodaKiller/(C) CodaKiller Command Center.md`.
 
 ## Build / run
@@ -32,8 +40,11 @@ npm run tauri build -- --bundles app  # build only the .app; see NOTES.md
 ```
 
 For a versioned install/DMG release, use `npm run release:mac` only after the release plan, vault
-update protocol, real-data migration rehearsal, and complete gates are ready. The script enforces
-version agreement, tests, seal, rollback-safe install, checksum, and one-copy audit.
+update protocol, complete gates and (when the schema changes) a real-data migration rehearsal are
+ready. The script verifies version agreement, runs its test/build gates, signs and installs the
+bundle, creates the DMG/checksum and audits app copies. It does **not** make the pre-install
+database backup or outgoing-app rollback tarball, relaunch the installed app, tag the commit or
+push the release; the release operator must perform and record those steps separately.
 
 ## Dev mock (browser design-review harness)
 
@@ -43,8 +54,8 @@ npm run dev:mock       # VITE_DEV_MOCK=1 vite — then open the printed localhos
 
 `dev:mock` runs the frontend in a plain browser with a flag-gated, backend-free
 Tauri mock (`src/devMock/tauriDevMock.ts`). It intercepts the single
-`window.__TAURI_INTERNALS__` seam so the five v3 workspaces (Today, Score, Brain,
-Ledger/Calendar, Universe) mount and render with coherent sample data. This is a
+`window.__TAURI_INTERNALS__` seam so the current workspaces mount and render with coherent sample
+data (the Assistant surface remains hidden while its off switch is active). This is a
 **DEV-ONLY visual/design-review harness, not native functional acceptance**: it simulates the
 bounded reads/writes needed by checked-in UI scenarios, while real audio, speech recognition,
 Keychain, SQLite, and native event behavior still require Tauri/native gates. The mock activates

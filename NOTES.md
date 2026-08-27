@@ -2,6 +2,114 @@
 
 ## Decisions
 
+- **v7.2.0 shipped and was installed on 2026-08-27.**
+  Schema remains 16 and `migrations.rs` is unchanged, so no migration or rehearsal ran. The source
+  passed **2,499 frontend tests / 1 skipped / 0 failed** and **1,049 native tests / 19 ignored /
+  0 failed**, with `filtered out: 0` on every native target; `tsc --noEmit` and strict
+  `cargo clippy --all-targets --all-features -- -D warnings` are clean; all five narrated corpora
+  produced zero false mutations; all eight release-script gates passed. The installed plist
+  reports 7.2.0 with the expected identifier, codesign verifies, the fresh installed process
+  launched, and the DMG (`releases/v7.2.0/CodaKiller-7.2.0.dmg`, 10,739,055 bytes) verifies at
+  SHA-256 `532868f089241e64d134b2fb3b645f2ddf7db8df838d8706d3a39d7d5b7dc77f`.
+  The live DB was identical before/after: schema 16, integrity `ok`, 10 pieces / 228 blocks /
+  2,026 reps / 44 sessions / 0 open. Pre-install backup
+  `(C) pre-v7.2.0-install-2026-08-27-014755.db` (21,663,744 bytes), SHA-256
+  `dfafa80a6e58dd917b7a27e8692a8e55e3b81d1599399dcaada507c1e0a81820`; outgoing v7.1.0
+  rollback `CodaKiller-v7.1.0-rollback.app.tar.gz` (9,872,086 bytes), SHA-256
+  `a63bbf1ef3f1a48e5e1c683bb0b0540fe98bc5a77fca05a96041d08a3c522f85`.
+  The 720×520 browser-mock sweep is mapped in `docs/qa/v7.2.0/README.md`; it still does **not**
+  prove native speech/TTS/audio or at-piano behavior. Christian's acceptance verdict remains
+  owed. Assistant is unchanged: OFF, gated and out of scope.
+
+- **The v7.1 corrective slices shipped as one v7.2.0 release (2026-08-27).**
+  Spoken-ack silence, chain completion and Micro-Targets v2 were initially sequenced as a patch
+  followed by v7.2. Adversarial review found shared correctness work — dynamic mock state,
+  variant attribution, real resume/start behavior and live legacy geometry — that crosses those
+  boundaries. None of it was separately released, so manufacturing an intermediate version would
+  create a tag/documentation fiction. Tasks A–C therefore shipped together after their shared
+  source, package and installed-app gates passed.
+
+- **B3 has one score-overlay render path (v7.2.0, 2026-08-27).**
+  `ScoreView` now mounts one memoized `ScoreOverlay` per page for persisted Region parents/spots,
+  measure-mapping/create state and the atlas target draft; there is no separately mounted target
+  overlay to drift in geometry or repaint independently. The parity regression renders persisted
+  parent/child boxes and an atlas selection through that same DOM/pointer path, while the render-
+  count regression proves unchanged props do not repaint the memoized overlay. The tests, package
+  and installed-app checks passed with the v7.2.0 release.
+
+- **B85 requires a finished child, not a form or a three-write frontend sequence (v7.2.0,
+  2026-08-27).** `⊕ Isolate a spot` arms only an anchored top-level section; the whole
+  drawn rect must fit inside one of that section's current-edition rects. Pointer-up auto-names,
+  estimates/clamps measures and calls `score_micro_target_create`; no typing, dialog, marks mode
+  or second drag. A synchronous pending ref claims the gesture before React renders, preventing
+  two pointer-up events from both choosing `Spot 1`. The backend independently rechecks same
+  piece, one-level nesting, contained measures, edition/fingerprint and full rect containment.
+
+- **Legacy box recovery is a conservative read-model rule, never a silent migration (2026-08-27).**
+  The live Scherzo's unlinked `rolled chord end part` is visibly inside `Rolled Chords Accuracy`.
+  `effectiveParentIds` infers that relationship only when the child range is strictly contained,
+  both anchors match the selected edition + fingerprint, every child-rect centre lies in parent
+  geometry, and exactly one candidate qualifies. Explicit `parent_region_id` wins; ambiguity,
+  missing geometry and inferred-parent chains remain top-level. This restores old visible truth
+  without rewriting Christian's database on a geometric guess.
+
+- **A micro-target is one SQLite transaction (2026-08-27).** The dedicated
+  `score_micro_target_create` command writes Region, colour, exact `pdf_anchor`, `target_meta`
+  parent linkage and the region-change event together. The former create→colour→anchor sequence
+  could strand an anchorless child at either failure boundary. A test hook fails immediately
+  after Region insert and proves Region/meta/event all roll back; UI guards are convenience, the
+  store validations are the trust boundary. **Honest residual:** the command has no independent
+  request-replay/idempotency key. The synchronous pending ref prevents duplicate same-tick pointer
+  completion, but if the write succeeds and its response is lost, a later user/client retry could
+  create a second spot. No such case was observed; transaction atomicity must not be described as
+  retry idempotency.
+
+- **The final v7.2 verifier pinned four interaction boundaries (2026-08-27).** `Practice this`
+  matches a paused set by exact `region_id`, so two sibling spots with the same estimated measure
+  range cannot resume each other's work. Beginning recovery synchronously cancels a pending
+  auto-close, and the timer rechecks the live completion boundary immediately before firing, so a
+  stale callback cannot close recovered work. Each intermediate variant-stage advance emits its
+  chime exactly once; final set completion remains the separate completion boundary. While any
+  score pointer mode owns the page, the spot's `Practice this` chip is suppressed so it cannot
+  intercept the draw/map/target gesture.
+
+- **B86 uses one variant-stage projection for completion, display and attempt attribution
+  (v7.2.0, 2026-08-27).** A chain governs mastery regardless of target tempo or
+  practice focus; every stage must clear. The displayed/current variant and persisted attempt
+  provenance now come from `variant_stage.index`, not total tries — Sloppy/Again cannot advance
+  a label while the clean-streak engine remains on the prior stage. No-chain and migration-legacy
+  behavior remains pinned. Newly satisfied sets show a six-second countdown, offer **Stay open**,
+  cancel on a new attempt/pause and close at most once.
+
+- **B87 is an opt-in speech policy, not removal of acknowledgement (v7.2.0, 2026-08-27).**
+  `voice.speak_acks` defaults false. Muted `AckPlayer::say` performs the same gated
+  120 ms chime cycle instead of invoking TTS, so the pianist still knows the command registered;
+  the half-duplex invariant is unchanged. Settings writes update the shared atomic immediately.
+  `voice_speak` also returns without speaking while muted because a rendered Brain answer has no
+  honest nonverbal substitute.
+
+- **The devMock rep fixture is a seed, not state (2026-08-27).** One mutable
+  `mockRepSnapshot` now backs `rep_state`, verdict receipts, pause, resume, checkpoint and undo;
+  `block_done` is derived from its mastery status. Spreading the frozen fixture into a later
+  handler rewound browser-visible mastery and made completion QA impossible even though the UI
+  code was correct. The focused regression drives mastery, rereads it, pauses/resumes/checkpoints,
+  then undoes and proves every surface sees the same transition. This does not close broad B84.
+
+- **v7.1.0's A1/A5 user-facing scope was overstated; v7.2 supplies the missing controls
+  (2026-08-27).** v7.1 shipped A1's global/per-set fields and A5's `tuning_json`/wire model, but
+  neither Settings' demotion controls nor the composer's beat-unit/subdivision/beats-per-bar UI
+  existed. The correction exposes global demotion in Settings and per-set tuning under Advanced.
+  Beat unit remains a label for the entered click rate — changing it never multiplies BPM.
+  Honest residuals: the composer still has no per-set demotion override and RepHud has no quick
+  subdivision control; the correction must not be stretched to include those promises.
+
+- **E3 low-data teaching threshold (v7.2.0, 2026-08-27).** An imported shelf with
+  zero earned systems explains that hollow marks are not missing data; one or two earned systems
+  show a calm "taking shape" strip; at three the strip disappears. The empty shelf also states
+  that filled stars/rings come only from recorded focused practice. The threshold changes only
+  explanatory copy — it grants no star, ring, maturity, orbit or streak — and the strip stays in
+  normal flow at 720×520. The broader Universe layout/overlay criticism remains separate.
+
 - **B82 (v7.0.1, 2026-08-25) — the app did not render its verdict buttons at its own minimum
   window size, and no gate could have caught it.** `Shell.tsx` seeded `repHudCollapsed` from
   `window.innerWidth <= 800 || window.innerHeight <= 620`, and `RepHud.css:125-128` hides every
@@ -208,9 +316,10 @@ Option<Instant>`, set by `handle_partial` (`voice_loop.rs:492-496` — four line
   cycled per-rep** (`variant_index_for_rep`), so chains = streak-gated sequential stages, JSON
   shape extension with serde defaults; **mic mute backend is fully built but has no button**
   (`voice_loop.rs:1300-1310` + gate hardening `:414-427`); **"done" is grammar but not fast-path**
-  by B70 law (bare words banned) — two-word mode-gated phrases are the lawful lane; **two overlay
-  render paths coexist** (`RegionOverlay` + atlas `TargetDraftOverlay`, both mounted in
-  `ScoreView.tsx:2866/:2935`) — unify rendering, keep storage; **zero audio-recording code
+  by B70 law (bare words banned) — two-word mode-gated phrases are the lawful lane; **score
+  overlays now share one source-pending render path** (`ScoreOverlay`, mounted once per page by
+  `ScoreView`, with storage unchanged) for persisted boxes, mapping/create state and the atlas
+  target draft; **zero audio-recording code
   anywhere** (no MediaRecorder/rodio/encoders) — C2 designs on webview MediaRecorder with
   processing OFF (echoCancellation/noiseSuppression/autoGainControl false) for honest piano
   capture, three-way mic-coexistence spike required; **end-session Rust path is unwrap-clean and

@@ -344,16 +344,26 @@ describe("useRep — IPC wiring", () => {
     expect(item?.getAttribute("data-receipt-id")).toBe("receipt:pause:1");
   });
 
-  it("asks the native owner state machine to resume only the matching practice click", async () => {
+  it("resumes only the matching practice click with the set's stored tuning", async () => {
     const paused = makeSnap({
       timer_state: "paused",
       set_state: "paused",
       bpm: 72,
+      tuning: {
+        beat_unit: "eighth",
+        subdivision: 2,
+        beats_per_bar: 3,
+      },
     });
     const resumed = makeSnap({
       timer_state: "active",
       set_state: "active",
       bpm: 72,
+      tuning: {
+        beat_unit: "eighth",
+        subdivision: 2,
+        beats_per_bar: 3,
+      },
     });
     invokeMock.mockImplementation((command: string) => {
       if (command === "rep_state") return Promise.resolve(paused);
@@ -396,6 +406,64 @@ describe("useRep — IPC wiring", () => {
     expect(invokeMock).toHaveBeenCalledWith("metro_practice_resume", {
       setId: 1,
       bpm: 72,
+      beatsPerBar: 3,
+      subdivision: 2,
+    });
+  });
+
+  it("resumeSet targets one paused id and adopts its returned snapshot", async () => {
+    const current = makeSnap({
+      block_id: 1,
+      timer_state: "paused",
+      set_state: "paused",
+    });
+    const targeted = makeSnap({
+      block_id: 42,
+      m_start: 44,
+      m_end: 46,
+      timer_state: "active",
+      set_state: "active",
+      bpm: 68,
+    });
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "rep_state") return Promise.resolve(current);
+      if (command === "metro_state") return Promise.resolve(makeMetro());
+      if (command === "rep_resume") {
+        return Promise.resolve({
+          receipt_id: "receipt:resume:42",
+          command_id: "native:resume:42",
+          status: "committed",
+          summary: "Practice resumed.",
+          value: targeted,
+          entity_refs: [{ entity_type: "set", entity_id: 42 }],
+          event_ids: [142],
+          undo_action: null,
+          error_code: null,
+          error_detail: null,
+          replayed: false,
+          committed_ts: "2026-08-27T00:00:00Z",
+        });
+      }
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
+
+    await act(async () => {
+      await result.current.resumeSet(42);
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("rep_resume", {
+      commandId: expect.stringMatching(/^ui:rep-resume-42/),
+      setId: 42,
+    });
+    expect(result.current.snap?.block_id).toBe(42);
+    expect(result.current.snap?.timer_state).toBe("active");
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_resume", {
+      setId: 42,
+      bpm: 68,
+      beatsPerBar: undefined,
+      subdivision: undefined,
     });
   });
 
@@ -676,6 +744,66 @@ describe("useRep — IPC wiring", () => {
       "metro_practice_retune",
       expect.anything(),
     );
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "metro_practice_start",
+      expect.anything(),
+    );
+  });
+
+  it("retunes an already-running same-BPM metronome when the opened set has different tuning", async () => {
+    const args: RepOpenArgs = {
+      piece_id: 7,
+      m_start: 1,
+      m_end: 8,
+      label: null,
+      start_bpm: 60,
+      target_bpm: 84,
+      planned_reps: null,
+      increment: null,
+      variants: [],
+      focus: "tempo",
+      use_metronome: true,
+      tuning: {
+        beat_unit: "eighth",
+        subdivision: 2,
+        beats_per_bar: 3,
+      },
+    };
+    invokeMock.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "rep_open"
+          ? makeSnap({
+              block_id: 42,
+              bpm: 60,
+              tuning: {
+                beat_unit: "eighth",
+                subdivision: 2,
+                beats_per_bar: 3,
+              },
+            })
+          : command === "metro_state"
+            ? makeMetro({
+                running: true,
+                bpm: 60,
+                beats_per_bar: 4,
+                subdivision: 1,
+              })
+            : null,
+      ),
+    );
+
+    const { result } = renderHook(() => useRep());
+    await waitFor(() => expect(listeners["metro://state"]).toBeDefined());
+    await act(async () => {
+      await result.current.open(args);
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("metro_practice_retune", {
+      setId: 42,
+      bpm: 60,
+      beatsPerBar: 3,
+      subdivision: 2,
+    });
     expect(invokeMock).not.toHaveBeenCalledWith(
       "metro_practice_start",
       expect.anything(),
@@ -1672,6 +1800,34 @@ describe("useRep — IPC wiring", () => {
       setId: 1,
     });
     expect(result.current.snap).toBeNull();
+  });
+
+  it("close() rejects after reporting a native failure so auto-close can retry", async () => {
+    const initial = makeSnap({ reps_done: 5, mastery_status: "satisfied" });
+    const failure = {
+      code: "storage_busy",
+      message: "The practice database is briefly busy.",
+    };
+    invokeMock.mockImplementation((command: string) =>
+      command === "rep_state"
+        ? Promise.resolve(initial)
+        : command === "metro_state"
+          ? Promise.resolve(makeMetro())
+          : command === "rep_close"
+            ? Promise.reject(failure)
+            : Promise.resolve(null),
+    );
+    const { result } = renderHook(() => useRep(), { wrapper: receiptWrapper });
+    await waitFor(() => expect(result.current.snap?.block_id).toBe(1));
+
+    await act(async () => {
+      await expect(result.current.close()).rejects.toMatchObject(failure);
+    });
+
+    expect(result.current.snap?.block_id).toBe(1);
+    expect(screen.getByRole("alert").textContent).toBe(
+      "The practice database is briefly busy.",
+    );
   });
 
   it("builds a newest-first verdict feed (max 5) as reps_done advances", async () => {

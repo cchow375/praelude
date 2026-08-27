@@ -9,8 +9,9 @@
 //!   and the total planned rep count.
 //! * [`step`] — after a clean rep, decide whether the tempo advances and to what.
 //!
-//! plus [`variant_index_for_rep`], which maps a 1-based rep number onto its
-//! variant lane.
+//! The test-only [`variant_index_for_rep`] keeps the pre-chain, attempt-count
+//! lane arithmetic pinned as historical compatibility evidence. Production
+//! current-stage identity comes from [`variant_stage`], never raw tries.
 
 use crate::protocol::AttemptVerdict;
 use crate::store::model::{IncrementRule, VariantSpec};
@@ -122,7 +123,10 @@ pub fn step(
 /// The variant lane a 1-based rep number falls into, as an index into
 /// `variants`. Lanes are laid out by cumulative reps: with `[A:10, B:5]`, reps
 /// 1–10 are lane 0 (`A`) and 11–15 are lane 1 (`B`). A rep beyond the planned
-/// total clamps to the last lane. `None` when there are no variants.
+/// total clamps to the last lane. `None` when there are no variants. Retained
+/// only as a regression seam for the legacy arithmetic; production chain
+/// attribution must use [`variant_stage`].
+#[cfg(test)]
 pub fn variant_index_for_rep(variants: &[VariantSpec], rep_1based: u32) -> Option<usize> {
     if variants.is_empty() {
         return None;
@@ -165,7 +169,7 @@ fn stage_requirement(variants: &[VariantSpec], index: usize) -> u32 {
 /// Resolve the current stage of a variant chain from the sequence of
 /// verdicts recorded so far (oldest first) — a pure replay, exactly the way
 /// `project_tempo` replays the attempt ledger. `None` when there are no
-/// variants, exactly like [`variant_index_for_rep`] today.
+/// variants.
 ///
 /// Each stage is cleared by `required` CONSECUTIVE clean verdicts; clearing
 /// advances to the next stage, or completes the chain at the last one. A

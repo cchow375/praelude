@@ -195,6 +195,16 @@ const SNAPSHOT: UniverseSnapshot = {
   pieces: [PIECE, STALE_PIECE],
 };
 
+const THIRD_EARNED_PIECE: UniversePiece = {
+  ...PIECE,
+  piece_id: 11,
+  title: "Ballade No. 1",
+  region_signals: PIECE.region_signals.map((region) => ({
+    ...region,
+    region_id: region.region_id + 100,
+  })),
+};
+
 beforeEach(() => {
   invokeMock.mockReset();
   invokeMock.mockImplementation((command: string) =>
@@ -678,6 +688,73 @@ describe("UniverseWorkspace repertoire map", () => {
     expect(within(totals).getByText("Practice sessions")).toBeTruthy();
   });
 
+  it("teaches an existing but wholly unearned shelf without granting it a star", async () => {
+    invokeMock.mockResolvedValue({
+      ...SNAPSHOT,
+      pieces: [UNTOUCHED_PIECE],
+      totals: {
+        focused_seconds: 0,
+        active_days_28: 0,
+        regions_practiced: 0,
+        regions_revisited: 0,
+        mastered_targets: 0,
+        recovered_targets: 0,
+        practice_sessions: 0,
+      },
+    });
+    const { container } = await renderMap();
+
+    const guide = screen.getByTestId("universe-earned-guide");
+    expect(guide.textContent).toContain("Nothing is missing.");
+    expect(guide.textContent).toContain(
+      "Filled stars and rings appear only as real focused practice is recorded.",
+    );
+    expect(container.querySelector(".universe-star-disc")).toBeNull();
+    expect(container.querySelector(".universe-star-ring")).toBeNull();
+  });
+
+  it("keeps the earned-only explanation concise while one or two systems are growing", async () => {
+    invokeMock.mockResolvedValue({ ...SNAPSHOT, pieces: [PIECE, STALE_PIECE] });
+    await renderMap();
+
+    const guide = screen.getByTestId("universe-earned-guide");
+    expect(guide.textContent).toContain("Your universe is taking shape.");
+    expect(guide.textContent).toContain(
+      "This view stays deliberately sparse until that evidence exists.",
+    );
+  });
+
+  it("removes the teaching strip once three systems have earned real evidence", async () => {
+    invokeMock.mockResolvedValue({
+      ...SNAPSHOT,
+      pieces: [PIECE, STALE_PIECE, THIRD_EARNED_PIECE],
+    });
+    await renderMap();
+
+    expect(screen.queryByTestId("universe-earned-guide")).toBeNull();
+  });
+
+  it("keeps the sparse guide in normal flow and stacks its copy at the 720px floor", async () => {
+    const { container } = await renderMap();
+    const totals = container.querySelector(".universe-totals") as HTMLElement;
+    const guide = screen.getByTestId("universe-earned-guide");
+    const map = container.querySelector(".universe-map") as HTMLElement;
+    expect(
+      totals.compareDocumentPosition(guide) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      guide.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    const css = readFileSync(
+      resolve("src/features/universe/universe.css"),
+      "utf8",
+    );
+    const compact = css.slice(css.indexOf("@media (max-width: 760px)"));
+    expect(compact).toContain(".universe-earned-guide");
+    expect(compact).toContain("grid-template-columns: minmax(0, 1fr)");
+  });
+
   it("discloses how the numbers are earned", async () => {
     await renderMap();
     fireEvent.click(screen.getByText("How these numbers are earned"));
@@ -729,6 +806,7 @@ describe("UniverseWorkspace repertoire map", () => {
         name: "Your universe is quiet for now.",
       }),
     ).toBeTruthy();
+    expect(screen.getByText(/Filled stars and rings appear only/)).toBeTruthy();
     fireEvent.click(
       screen.getAllByRole("button", { name: "Open score map" })[1],
     );

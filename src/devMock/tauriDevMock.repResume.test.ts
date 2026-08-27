@@ -4,11 +4,9 @@ import type { MutationReceipt } from "../features/receipts/ReceiptCenter";
 import type { RepSnapshot } from "../features/rep/useRep";
 import type { PausedSetRow } from "../features/rep/pausedSets";
 
-// Task A4b fix round 1 (folded minor a): the mock's paused row now carries a
-// `set_id` deliberately distinct from `MOCK_REP_STATE.block_id`, so a
-// `rep_resume` call whose `setId` doesn't match it must be rejected — this
-// is what would catch a frontend regression that dropped `setId` off the
-// paused-sets tray's Resume call.
+// A targeted `rep_resume` must name a real paused row. This catches a frontend
+// regression that substitutes some other set id while keeping the mock
+// faithful to native: the paused row uses the actual current block id.
 
 function seamInvoke<T>(cmd: string, args?: unknown): Promise<T> {
   const internals = (
@@ -65,5 +63,34 @@ describe("dev-mock rep_resume setId handling", () => {
       { commandId: "test-resume-no-target" },
     );
     expect(receipt.status).toBe("committed");
+  });
+
+  it("pauses and target-resumes a newly opened custom set by its real block id", async () => {
+    const opened = await seamInvoke<RepSnapshot>("rep_open", {
+      args: {
+        piece_id: 7,
+        m_start: 44,
+        m_end: 46,
+        label: "Rolled Chords · Spot 1",
+        start_bpm: 60,
+        target_bpm: 96,
+        required_clean_streak: 3,
+        variants: [],
+        focus: "tempo",
+        use_metronome: true,
+      },
+      context: null,
+    });
+    await seamInvoke("rep_pause", { commandId: "custom-pause" });
+    const paused = await seamInvoke<PausedSetRow[]>("sets_paused_list");
+    expect(paused.some((row) => row.set_id === opened.block_id)).toBe(true);
+
+    const receipt = await seamInvoke<MutationReceipt<RepSnapshot>>(
+      "rep_resume",
+      { commandId: "custom-resume", setId: opened.block_id },
+    );
+    expect(receipt.status).toBe("committed");
+    expect(receipt.value?.block_id).toBe(opened.block_id);
+    expect(receipt.value?.timer_state).toBe("active");
   });
 });

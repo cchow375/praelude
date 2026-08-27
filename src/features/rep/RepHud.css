@@ -190,6 +190,12 @@
   font-size: 1.125rem;
   color: var(--ink-dim);
 }
+.rep-hud-tuning-detail {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
 
 /* --- Focus contract strip ---------------------------------------------- */
 .rep-focus-strip {

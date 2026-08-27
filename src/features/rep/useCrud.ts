@@ -80,6 +80,16 @@ export function useCrud() {
         parent_region_id: parent_region_id ?? null,
       });
     },
+    /** Create a complete score micro-target in one native transaction. */
+    microTargetCreate: (args: {
+      piece_id: number;
+      parent_region_id: number;
+      name: string;
+      m_start: number;
+      m_end: number;
+      color: string | null;
+      pdf_anchor: unknown;
+    }) => invoke<Region>("score_micro_target_create", { args }),
     regionUpdate: (
       id: number,
       patch: Partial<

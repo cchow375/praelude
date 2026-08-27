@@ -64,6 +64,12 @@ export interface SettingsSnapshot {
   hotkey_verdict_clean: string;
   hotkey_verdict_sloppy: string;
   hotkey_verdict_again: string;
+  /** Tempo-ladder "punishment": sloppy-only automatic step-down. */
+  demote_enabled: boolean;
+  /** Consecutive sloppy attempts before the first demotion (2–10). */
+  demote_first: number;
+  /** Consecutive sloppy attempts before later demotions (1–10). */
+  demote_repeat: number;
   verdict_aliases: VerdictAliases;
   api_keys: ApiKeyStatus[];
 }
@@ -131,6 +137,19 @@ export function SettingsPanel({
             hotkey_verdict_again: next.hotkey_verdict_again || "Enter",
             assistant_enabled: next.assistant_enabled ?? false,
             speak_acks: next.speak_acks ?? false,
+            demote_enabled: next.demote_enabled ?? true,
+            demote_first:
+              Number.isInteger(next.demote_first) &&
+              next.demote_first >= 2 &&
+              next.demote_first <= 10
+                ? next.demote_first
+                : 3,
+            demote_repeat:
+              Number.isInteger(next.demote_repeat) &&
+              next.demote_repeat >= 1 &&
+              next.demote_repeat <= 10
+                ? next.demote_repeat
+                : 2,
             practice_default_clean_streak:
               Number.isInteger(next.practice_default_clean_streak) &&
               next.practice_default_clean_streak >= 1 &&
@@ -181,6 +200,9 @@ export function SettingsPanel({
         hotkey_verdict_clean: value.hotkey_verdict_clean,
         hotkey_verdict_sloppy: value.hotkey_verdict_sloppy,
         hotkey_verdict_again: value.hotkey_verdict_again,
+        demote_enabled: value.demote_enabled,
+        demote_first: value.demote_first,
+        demote_repeat: value.demote_repeat,
         verdict_aliases: {
           clean: parseAliases(aliasDrafts.clean),
           flawed: parseAliases(aliasDrafts.flawed),
@@ -644,6 +666,44 @@ export function SettingsPanel({
               setValue({ ...value, ladder_bpm_step })
             }
           />
+          <label className="settings-check settings-wide">
+            <input
+              type="checkbox"
+              aria-label="Automatically lower tempo after sloppy reps"
+              checked={value.demote_enabled}
+              onChange={(event) =>
+                setValue({ ...value, demote_enabled: event.target.checked })
+              }
+            />
+            <span>
+              <strong>Lower tempo after repeated sloppy reps</strong>
+              <small>
+                Counts Sloppy only. Again neither counts nor clears the sloppy
+                run; a Clean clears it. The tempo never drops below the set's
+                starting BPM.
+              </small>
+            </span>
+          </label>
+          <NumberField
+            label="First demotion after sloppy reps"
+            value={value.demote_first}
+            min={2}
+            max={10}
+            disabled={!value.demote_enabled}
+            onChange={(demote_first) =>
+              setValue({ ...value, demote_first })
+            }
+          />
+          <NumberField
+            label="Later demotions after sloppy reps"
+            value={value.demote_repeat}
+            min={1}
+            max={10}
+            disabled={!value.demote_enabled}
+            onChange={(demote_repeat) =>
+              setValue({ ...value, demote_repeat })
+            }
+          />
         </div>
       </Disclosure>
 
@@ -854,12 +914,14 @@ function NumberField({
   value,
   min,
   max,
+  disabled,
   onChange,
 }: {
   label: string;
   value: number;
   min: number;
   max: number;
+  disabled?: boolean;
   onChange: (value: number) => void;
 }) {
   return (
@@ -871,6 +933,7 @@ function NumberField({
         value={value}
         min={min}
         max={max}
+        disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
       />
     </label>

@@ -47,6 +47,38 @@ const GALAXY_VIEWPORT = { width: 720, height: 520 };
 /** How many pieces the "Wants work" band names before it summarises the rest. */
 const ATTENTION_BAND_LIMIT = 6;
 
+/**
+ * A couple of earned systems can look like a failed render when the rest of
+ * the repertoire is deliberately hollow. Teach that earned-only rule while
+ * it is useful, then get out of the way once the map has enough evidence to
+ * explain itself.
+ */
+const SPARSE_EARNED_SYSTEM_LIMIT = 2;
+
+interface EarnedGuide {
+  title: string;
+  body: string;
+}
+
+function earnedGuideFor(galaxy: GalaxyLayout | null): EarnedGuide | null {
+  if (!galaxy || galaxy.stars.length === 0) return null;
+
+  const earnedSystems = galaxy.stars.filter((star) => star.earned).length;
+  if (earnedSystems === 0) {
+    return {
+      title: "Nothing is missing.",
+      body: "Hollow marks are pieces on the shelf. Filled stars and rings appear only as real focused practice is recorded.",
+    };
+  }
+  if (earnedSystems <= SPARSE_EARNED_SYSTEM_LIMIT) {
+    return {
+      title: "Your universe is taking shape.",
+      body: "Filled stars and rings grow only from recorded focused practice. This view stays deliberately sparse until that evidence exists.",
+    };
+  }
+  return null;
+}
+
 function messageOf(error: unknown): string {
   if (error instanceof Error) return error.message;
   return typeof error === "string"
@@ -125,6 +157,7 @@ export function UniverseWorkspace({
     () => (snapshot ? galaxyLayout(snapshot, GALAXY_VIEWPORT, streak ?? null) : null),
     [snapshot, streak],
   );
+  const earnedGuide = useMemo(() => earnedGuideFor(galaxy), [galaxy]);
 
   return (
     <main className="universe-workspace" data-testid="universe-workspace">
@@ -164,8 +197,9 @@ export function UniverseWorkspace({
         >
           <h2 id="universe-empty-title">Your universe is quiet for now.</h2>
           <p>
-            Import a piece and begin a session. Only recorded practice evidence
-            will appear here.
+            Import a piece and begin a focused session. Filled stars and rings
+            appear only from recorded practice; this view never fills itself in
+            for show.
           </p>
           <button
             type="button"
@@ -199,6 +233,17 @@ export function UniverseWorkspace({
               value={String(snapshot.totals.practice_sessions ?? 0)}
             />
           </section>
+
+          {earnedGuide && (
+            <aside
+              className="universe-earned-guide"
+              aria-label="How the Universe grows"
+              data-testid="universe-earned-guide"
+            >
+              <strong>{earnedGuide.title}</strong>
+              <p>{earnedGuide.body}</p>
+            </aside>
+          )}
 
           {attention.length > 0 && (
             <section

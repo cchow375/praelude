@@ -1046,6 +1046,18 @@ fn score_atlas_target_save(
         .map_err(|e| e.to_string())
 }
 
+/// Persist a zero-form micro-target child, including its exact score box, in
+/// one SQLite transaction.
+#[tauri::command]
+fn score_micro_target_create(
+    args: store::AtomicMicroTargetCreate,
+    store: State<'_, Arc<Store>>,
+) -> Result<Region, String> {
+    store
+        .score_micro_target_create(args)
+        .map_err(|error| error.to_string())
+}
+
 /// Persist one score edition's calibration (line anchors) so drawn boxes can be
 /// interpolated to measures. Method is fixed to `user_confirmed` server-side and
 /// `points_json` is validated before storage. UPSERTs on the unique
@@ -2747,6 +2759,7 @@ pub fn run() {
             region_delete,
             region_merge,
             region_split,
+            score_micro_target_create,
             score_atlas_target_save,
             score_calibration_save,
             score_calibration_get,

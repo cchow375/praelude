@@ -144,6 +144,31 @@
   color: var(--ink);
 }
 
+/* Earned-only teaching -------------------------------------------------- */
+
+.universe-earned-guide {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--s-3);
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  padding: var(--s-2) 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--ink-dim);
+}
+
+.universe-earned-guide strong {
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+}
+
+.universe-earned-guide p {
+  min-width: 0;
+  margin: 0;
+}
+
 /* Wants work ------------------------------------------------------------ */
 
 .universe-band-title {
@@ -668,6 +693,13 @@
     position: static;
     flex-basis: auto;
     width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .universe-earned-guide {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
   }
 }
 

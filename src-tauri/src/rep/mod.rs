@@ -470,8 +470,14 @@ impl RepEngine {
                     let snap = active
                         .as_ref()
                         .ok_or_else(|| "no active rep block".to_string())?;
-                    let cur_lane = ladder::variant_index_for_rep(&snap.variants, snap.tries + 1);
-                    let rep_variant = cur_lane.map(|i| snap.variants[i].name.clone());
+                    // A2/B86 follow-up: `snap.variant` is the authoritative
+                    // clean-streak chain stage. The old attempt-count lane
+                    // (`tries + 1`) advanced across Sloppy/Again attempts even
+                    // though those verdicts had not cleared the current stage,
+                    // so the ledger could label a dotted rep "reverse dotted"
+                    // while the HUD correctly remained on dotted. Record the
+                    // exact stage the pianist saw before this attempt instead.
+                    let rep_variant = snap.variant.clone();
                     let block_id = snap.block_id;
                     let mutation = self
                         .store
@@ -4080,6 +4086,28 @@ mod tests {
         );
     }
 
+    #[test]
+    fn open_rejects_out_of_range_metronome_tuning_without_writing_a_set() {
+        for (beats_per_bar, subdivision, expected) in [
+            (0, 1, "beats per bar must be between 1 and 16"),
+            (17, 1, "beats per bar must be between 1 and 16"),
+            (4, 0, "subdivision must be between 1 and 16"),
+            (4, 17, "subdivision must be between 1 and 16"),
+        ] {
+            let (engine, pid, store, _rec) = engine_with_piece();
+            let mut args = open_args(pid);
+            args.tuning.beats_per_bar = beats_per_bar;
+            args.tuning.subdivision = subdivision;
+
+            let error = engine.open(args).unwrap_err();
+            assert!(error.contains(expected), "unexpected rejection: {error}");
+            assert!(
+                store.block_history(pid).unwrap().is_empty(),
+                "invalid tuning must touch zero durable set rows"
+            );
+        }
+    }
+
     /// Restarting a set carries its tuning forward — restart has no tuning
     /// argument of its own, so the new set inherits the old one's.
     #[test]
@@ -4450,7 +4478,10 @@ mod tests {
             start_bpm: 60.0,
             target_bpm,
             planned_reps: Some(30),
-            required_clean_streak: None,
+            // The chain stages below each capture a two-clean proof. Keep the
+            // generic contract aligned so this fixture tests the chain rather
+            // than an unrelated five-clean default setting.
+            required_clean_streak: Some(2),
             increment: Some(IncrementRule {
                 clean_needed: 1,
                 bpm_step: 4.0,
@@ -4578,6 +4609,122 @@ mod tests {
     }
 
     #[test]
+    fn completed_chain_does_not_pre_pay_clean_debt_with_earlier_stage_cleans() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_chain_at_target()).unwrap();
+        for _ in 0..4 {
+            engine.check(RepVerdict::Clean, None).unwrap();
+        }
+        let completed = engine.snapshot().unwrap();
+        assert!(completed.variant_chain_complete);
+        assert_eq!(completed.mastery_status, "satisfied");
+
+        let debt = engine
+            .recover(
+                "chain-clean-debt-1",
+                &RecoveryActionRequest::CleanDebt {
+                    clean_count: 2,
+                    rationale: "Require two fresh cleans after the completed chain".into(),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert!(
+            debt.variant_chain_complete,
+            "clean debt keeps the final chain stage visibly complete"
+        );
+        assert_eq!(debt.variant_stage_index, Some(1));
+        assert_eq!(debt.variant_stage_cleans, 2);
+        assert_eq!(debt.recovery_remaining, 2);
+        assert_eq!(
+            debt.set_state, "active",
+            "accepted debt reactivates the completion-held set for repayment"
+        );
+        assert_eq!(debt.status, "open");
+        assert_eq!(
+            debt.mastery_status, "not_satisfied",
+            "cleans from earlier chain stages cannot pre-pay later debt"
+        );
+
+        let first = engine.check(RepVerdict::Clean, None).unwrap();
+        assert!(first.snap.variant_chain_complete);
+        assert_eq!(first.snap.recovery_remaining, 1);
+        assert_eq!(first.snap.mastery_status, "not_satisfied");
+
+        let paid = engine.check(RepVerdict::Clean, None).unwrap();
+        assert!(paid.snap.variant_chain_complete);
+        assert_eq!(paid.snap.recovery_remaining, 0);
+        assert_eq!(paid.snap.mastery_status, "satisfied");
+        assert_eq!(paid.snap.set_state, "mastered");
+        assert!(paid.block_done);
+    }
+
+    #[test]
+    fn reset_clean_proof_restarts_a_variant_chain_at_stage_zero() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        engine.open(open_args_chain_at_target()).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap(); // clear stage 0
+        let stage_two = engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(stage_two.snap.variant_stage_index, Some(1));
+        assert_eq!(stage_two.snap.variant_stage_cleans, 1);
+
+        let reset = engine
+            .recover(
+                "chain-reset-proof-1",
+                &RecoveryActionRequest::ResetStreak {
+                    rationale: "Restart the chain proof from scratch".into(),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(reset.variant.as_deref(), Some("dotted"));
+        assert_eq!(reset.variant_stage_index, Some(0));
+        assert_eq!(reset.variant_stage_cleans, 0);
+        assert!(!reset.variant_chain_complete);
+        assert_eq!(reset.current_clean_streak, 0);
+        assert_eq!(reset.mastery_status, "not_satisfied");
+
+        let fresh = engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(fresh.snap.variant_stage_index, Some(0));
+        assert_eq!(fresh.snap.variant_stage_cleans, 1);
+        assert_eq!(fresh.snap.variant.as_deref(), Some("dotted"));
+    }
+
+    #[test]
+    fn tempo_mastery_without_variants_still_honors_manual_clean_debt() {
+        let (engine, _pid, _store, _rec) = engine_with_piece();
+        let mut args = open_args_chain_at_target();
+        args.variants.clear();
+        engine.open(args).unwrap();
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let mastered = engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(mastered.snap.mastery_status, "satisfied");
+
+        let debt = engine
+            .recover(
+                "plain-tempo-clean-debt-1",
+                &RecoveryActionRequest::CleanDebt {
+                    clean_count: 2,
+                    rationale: "Require two additional clean attempts".into(),
+                },
+            )
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(debt.effective_required_clean_streak, 4);
+        assert_eq!(debt.mastery_progress_streak, 2);
+        assert_eq!(debt.mastery_status, "not_satisfied");
+
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let repaid = engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(repaid.snap.mastery_progress_streak, 4);
+        assert_eq!(repaid.snap.mastery_status, "satisfied");
+    }
+
+    #[test]
     fn b1_a_non_tempo_chained_set_is_also_governed_by_the_chain() {
         // He chains dotted / reverse-dotted / staccato on phrasing and
         // dynamics work too, and those sets never enter the tempo branch —
@@ -4605,6 +4752,63 @@ mod tests {
     }
 
     #[test]
+    fn b1_sloppy_and_again_do_not_advance_or_mislabel_the_variant_stage() {
+        let (engine, _pid, store, _rec) = engine_with_piece();
+        let mut args = open_args_chain_at_target();
+        // Keep the legacy `reps` value aligned with the explicit stage streak
+        // so the old attempt-count lane would advance after two total tries.
+        // Sloppy + Again therefore falsify the old code immediately while the
+        // clean-streak chain correctly remains on "dotted".
+        for variant in &mut args.variants {
+            variant.reps = 2;
+            variant.clean_streak = Some(2);
+        }
+        let opened = engine.open(args).unwrap();
+        let block_id = opened.block_id;
+        assert_eq!(opened.variant.as_deref(), Some("dotted"));
+
+        engine.check(RepVerdict::Flawed, None).unwrap();
+        let after_again = engine.check(RepVerdict::Failed, None).unwrap();
+        assert_eq!(after_again.snap.variant_stage_index, Some(0));
+        assert_eq!(after_again.snap.variant_stage_cleans, 0);
+        assert_eq!(
+            after_again.snap.variant.as_deref(),
+            Some("dotted"),
+            "total tries cannot move the displayed variant"
+        );
+
+        engine.check(RepVerdict::Clean, None).unwrap();
+        let advanced = engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(advanced.snap.variant_stage_index, Some(1));
+        assert_eq!(advanced.snap.variant.as_deref(), Some("reverse dotted"));
+
+        let stage_two_again = engine.check(RepVerdict::Failed, None).unwrap();
+        assert_eq!(stage_two_again.snap.variant_stage_index, Some(1));
+        assert_eq!(
+            stage_two_again.snap.variant.as_deref(),
+            Some("reverse dotted"),
+            "Again neither clears nor changes the current stage"
+        );
+
+        let recorded = store.reps_for_block(block_id).unwrap();
+        let variants = recorded
+            .iter()
+            .map(|rep| rep.variant.as_deref())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            variants,
+            vec![
+                Some("dotted"),
+                Some("dotted"),
+                Some("dotted"),
+                Some("dotted"),
+                Some("reverse dotted"),
+            ],
+            "the immutable attempt ledger must name the stage visible when each attempt began"
+        );
+    }
+
+    #[test]
     fn b1_a_set_with_no_variants_is_unaffected_by_the_chain_rule() {
         let (engine, _pid, _store, _rec) = engine_with_piece();
         engine
@@ -4616,6 +4820,7 @@ mod tests {
         engine.check(RepVerdict::Clean, None).unwrap();
         let snap = engine.snapshot().unwrap();
         assert_eq!(snap.variant_stage_index, None);
+        assert_eq!(snap.variant, None, "a no-chain set still has no variant");
         assert_ne!(snap.mastery_status, "satisfied", "one of two cleans");
         // The generic trailing-clean rule still satisfies at the required
         // streak, exactly as before B1.
@@ -4661,8 +4866,8 @@ mod tests {
     }
 
     #[test]
-    fn variants_lane_through_and_announce_next() {
-        let (engine, pid, _store, _rec) = engine_with_piece();
+    fn legacy_variants_without_clean_streak_use_reps_as_the_stage_requirement() {
+        let (engine, pid, store, _rec) = engine_with_piece();
         let args = RepOpenArgs {
             tuning: Default::default(),
             piece_id: pid,
@@ -4696,7 +4901,8 @@ mod tests {
 
         let o1 = engine.check(RepVerdict::Clean, None).unwrap();
         assert_eq!(o1.say, "Attempt 1 saved — clean. Streak 1 of 4.");
-        // rep 2 finishes lane 0; the next rep is lane 1 → announce it.
+        // Rep 2 clears stage 0 using the legacy `reps` fallback; stage 1 is
+        // now authoritative for both display and the next attempt label.
         let o2 = engine.check(RepVerdict::Clean, None).unwrap();
         assert_eq!(o2.say, "Attempt 2 saved — clean. Streak 2 of 4.");
         assert_eq!(o2.snap.variant.as_deref(), Some("hands together"));
@@ -4705,6 +4911,20 @@ mod tests {
         let o4 = engine.check(RepVerdict::Clean, None).unwrap();
         assert!(o4.block_done);
         assert_eq!(o4.say, "Mastery earned: 4 clean in a row.");
+        let recorded = store.reps_for_block(snap.block_id).unwrap();
+        assert_eq!(
+            recorded
+                .iter()
+                .map(|rep| rep.variant.as_deref())
+                .collect::<Vec<_>>(),
+            vec![
+                Some("hands separate"),
+                Some("hands separate"),
+                Some("hands together"),
+                Some("hands together"),
+            ],
+            "legacy variants without clean_streak retain their reps-based stage fallback"
+        );
     }
 
     #[test]

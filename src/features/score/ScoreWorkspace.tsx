@@ -45,6 +45,8 @@ function writeLastPieceId(id: number) {
 export interface ScoreWorkspaceProps {
   /** Shell's rep.open — without it ScoreView's Practice tab renders nothing. */
   onOpenBlock?: (args: RepOpenArgs) => Promise<void>;
+  /** Resume one exact paused set from an in-score micro-target chip. */
+  onResumeSet?: (setId: number) => Promise<void>;
   defaultCleanStreak?: number;
   /** Publishes the exact visible score target to the shell-owned Brain context. */
   onPracticeContextChange?: (context: PracticeBrainContext | null) => void;
@@ -68,6 +70,7 @@ export interface ScoreWorkspaceProps {
  */
 export function ScoreWorkspace({
   onOpenBlock,
+  onResumeSet,
   defaultCleanStreak,
   onPracticeContextChange,
   requestedPieceId = null,
@@ -121,6 +124,19 @@ export function ScoreWorkspace({
       }
     },
     [onOpenBlock],
+  );
+
+  const resumeSet = useCallback(
+    async (setId: number) => {
+      if (!onResumeSet) return;
+      setOpening(true);
+      try {
+        await onResumeSet(setId);
+      } finally {
+        setOpening(false);
+      }
+    },
+    [onResumeSet],
   );
 
   const load = useCallback(async () => {
@@ -383,7 +399,9 @@ export function ScoreWorkspace({
                 pieceId={selectedId}
                 isActive={isActive && tab === "score"}
                 onOpenBlock={onOpenBlock ? openBlock : undefined}
+                onResumeSet={onResumeSet ? resumeSet : undefined}
                 opening={opening}
+                activeRep={activeRep}
                 defaultCleanStreak={defaultCleanStreak}
                 onContextChange={publishScoreContext}
                 activeRange={

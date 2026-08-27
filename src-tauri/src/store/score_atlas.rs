@@ -25,6 +25,15 @@ use crate::ledger::MutationSource;
 /// selectable list.
 const TARGET_REGION_KIND: &str = "hard_spot";
 
+/// Minimal parent row needed to validate an atomic micro-target write.
+struct MicroTargetParentRow {
+    piece_id: i64,
+    m_start: u32,
+    m_end: u32,
+    parent_region_id: Option<i64>,
+    pdf_anchor: Option<String>,
+}
+
 /// One rectangle of edition-bound, zoom-independent normalized PDF geometry.
 /// Mirrors `PdfAnchorRect` in `src/features/score/types.ts`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -195,6 +204,22 @@ pub struct AtomicTargetSavePayload {
     pub asserted_measure_range: Option<MeasureRange>,
 }
 
+/// One zero-form micro-target write. Unlike the older frontend sequence
+/// (create Region, update colour, update anchor), this payload contains the
+/// complete durable child in one command so SQLite can commit it all-or-none.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AtomicMicroTargetCreate {
+    pub piece_id: i64,
+    pub parent_region_id: i64,
+    pub name: String,
+    pub m_start: u32,
+    pub m_end: u32,
+    #[serde(default)]
+    pub color: Option<String>,
+    pub pdf_anchor: serde_json::Value,
+}
+
 /// A payload validated into exactly the values one Region write needs.
 struct ValidatedTarget<'a> {
     piece_id: i64,
@@ -342,6 +367,68 @@ fn validate_rect(rect: &PdfAnchorRect) -> rusqlite::Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
+struct ValidatedRegionEdition {
+    id: String,
+    fingerprint: String,
+    rects: Vec<PdfAnchorRect>,
+}
+
+fn validate_region_anchor(
+    anchor: &serde_json::Value,
+) -> rusqlite::Result<Vec<ValidatedRegionEdition>> {
+    let object = anchor
+        .as_object()
+        .ok_or_else(|| invalid("a micro-target needs a PDF anchor object"))?;
+    if object.get("v").and_then(serde_json::Value::as_i64) != Some(1) {
+        return Err(invalid(
+            "the micro-target PDF anchor uses an unsupported version",
+        ));
+    }
+    let editions = object
+        .get("editions")
+        .and_then(serde_json::Value::as_object)
+        .filter(|editions| !editions.is_empty())
+        .ok_or_else(|| invalid("a micro-target needs current-edition score geometry"))?;
+    let mut validated = Vec::with_capacity(editions.len());
+    for (edition_id, edition) in editions {
+        let fingerprint = edition
+            .get("fingerprint")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| invalid("a micro-target anchor needs an edition fingerprint"))?
+            .to_string();
+        let rects = edition
+            .get("rects")
+            .and_then(serde_json::Value::as_array)
+            .filter(|rects| !rects.is_empty())
+            .ok_or_else(|| invalid("a micro-target anchor needs at least one rectangle"))?;
+        let mut parsed = Vec::with_capacity(rects.len());
+        for rect in rects {
+            let rect: PdfAnchorRect = serde_json::from_value(rect.clone())
+                .map_err(|_| invalid("a micro-target anchor has invalid rectangle fields"))?;
+            validate_rect(&rect)?;
+            parsed.push(rect);
+        }
+        validated.push(ValidatedRegionEdition {
+            id: edition_id.clone(),
+            fingerprint,
+            rects: parsed,
+        });
+    }
+    Ok(validated)
+}
+
+fn rect_fully_inside(parent: &PdfAnchorRect, child: &PdfAnchorRect) -> bool {
+    const EPSILON: f64 = 0.000_001;
+    parent.page == child.page
+        && child.x + EPSILON >= parent.x
+        && child.y + EPSILON >= parent.y
+        && child.x + child.w <= parent.x + parent.w + EPSILON
+        && child.y + child.h <= parent.y + parent.h + EPSILON
+}
+
 /// Build the legacy `region.pdf_anchor` v1 envelope from the persistent
 /// selection anchor, mirroring `selectionAnchorToPdfAnchorMap` in
 /// `atlas/selection.ts` so a saved target round-trips into a mapped Region.
@@ -358,6 +445,170 @@ fn pdf_anchor_map(edition: &EditionIdentity, rects: &[PdfAnchorRect]) -> serde_j
 }
 
 impl Store {
+    /// Atomically create a child Region with its linkage, colour, exact score
+    /// box, and region-change event. No intermediate anchorless child can
+    /// survive an error.
+    pub(crate) fn score_micro_target_create(
+        &self,
+        args: AtomicMicroTargetCreate,
+    ) -> rusqlite::Result<Region> {
+        self.score_micro_target_create_with_hook(args, |_| Ok(()))
+    }
+
+    fn score_micro_target_create_with_hook<F>(
+        &self,
+        args: AtomicMicroTargetCreate,
+        after_region_insert: F,
+    ) -> rusqlite::Result<Region>
+    where
+        F: FnOnce(&rusqlite::Transaction<'_>) -> rusqlite::Result<()>,
+    {
+        let name = args.name.trim().to_string();
+        if name.is_empty() || name.chars().count() > 500 {
+            return Err(invalid("a micro-target needs a short name"));
+        }
+        if args.piece_id < 1
+            || args.parent_region_id < 1
+            || args.m_start < 1
+            || args.m_end < args.m_start
+        {
+            return Err(invalid(
+                "the micro-target identity and measure range must be valid",
+            ));
+        }
+        let child_editions = validate_region_anchor(&args.pdf_anchor)?;
+        let anchor_sql = json_to_sql(&args.pdf_anchor)?;
+
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let tx = conn.transaction()?;
+        let parent: Option<MicroTargetParentRow> = tx
+            .query_row(
+                "SELECT r.piece_id, r.m_start, r.m_end, tm.parent_region_id, r.pdf_anchor
+                 FROM region r
+                LEFT JOIN target_meta tm ON tm.region_id = r.id
+                 WHERE r.id = ?1",
+                [args.parent_region_id],
+                |row| {
+                    Ok(MicroTargetParentRow {
+                        piece_id: row.get(0)?,
+                        m_start: row.get(1)?,
+                        m_end: row.get(2)?,
+                        parent_region_id: row.get(3)?,
+                        pdf_anchor: row.get(4)?,
+                    })
+                },
+            )
+            .optional()?;
+        let parent = parent.ok_or_else(|| invalid("the parent section could not be found"))?;
+        if parent.piece_id != args.piece_id {
+            return Err(invalid(
+                "a micro-target's parent must belong to the same piece",
+            ));
+        }
+        if parent.parent_region_id.is_some() {
+            return Err(invalid(
+                "a micro-target cannot be nested inside another micro-target",
+            ));
+        }
+        if args.m_start < parent.m_start || args.m_end > parent.m_end {
+            return Err(invalid(
+                "a micro-target's measures must stay inside its parent",
+            ));
+        }
+        let parent_anchor: serde_json::Value = parent
+            .pdf_anchor
+            .as_deref()
+            .and_then(|raw| serde_json::from_str(raw).ok())
+            .ok_or_else(|| invalid("the parent section needs a current score mark first"))?;
+        let parent_editions = validate_region_anchor(&parent_anchor)
+            .map_err(|_| invalid("the parent section needs a current score mark first"))?;
+        for child_edition in &child_editions {
+            let parent_edition = parent_editions
+                .iter()
+                .find(|parent| {
+                    parent.id == child_edition.id && parent.fingerprint == child_edition.fingerprint
+                })
+                .ok_or_else(|| {
+                    invalid("the micro-target and parent need matching current-edition score marks")
+                })?;
+            if !child_edition.rects.iter().all(|child| {
+                parent_edition
+                    .rects
+                    .iter()
+                    .any(|parent| rect_fully_inside(parent, child))
+            }) {
+                return Err(invalid(
+                    "the micro-target's score box must stay fully inside its parent mark",
+                ));
+            }
+        }
+
+        let (region_id, order): (i64, i64) = tx.query_row(
+            "INSERT INTO region
+                 (piece_id, name, notes, m_start, m_end, kind, sort_order, color, pdf_anchor)
+             VALUES (?1, ?2, NULL, ?3, ?4, 'hard_spot',
+                 COALESCE((SELECT MAX(sort_order) + 1 FROM region WHERE piece_id = ?1), 0),
+                 ?5, ?6)
+             RETURNING id, sort_order",
+            rusqlite::params![
+                args.piece_id,
+                name,
+                args.m_start,
+                args.m_end,
+                args.color.as_deref(),
+                &anchor_sql,
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        // Test seam: a forced failure here proves the Region insert rolls back
+        // together with every sidecar/event write.
+        after_region_insert(&tx)?;
+
+        tx.execute(
+            "INSERT INTO target_meta
+                 (region_id, parent_region_id, color, display_order, mapping_evidence_version)
+             VALUES (?1, ?2, ?3, ?4, 1)",
+            rusqlite::params![
+                region_id,
+                args.parent_region_id,
+                args.color.as_deref(),
+                order
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO event (kind, session_id, piece_id, payload)
+             VALUES ('region_change', NULL, ?1, ?2)",
+            rusqlite::params![
+                args.piece_id,
+                json_to_sql(&json!({
+                    "action": "create",
+                    "region_id": region_id,
+                    "parent_region_id": args.parent_region_id,
+                    "source": "score_micro_target_create",
+                }))?,
+            ],
+        )?;
+        tx.commit()?;
+
+        Ok(Region {
+            id: region_id,
+            piece_id: args.piece_id,
+            name,
+            notes: None,
+            m_start: args.m_start,
+            m_end: args.m_end,
+            kind: TARGET_REGION_KIND.into(),
+            order,
+            color: args.color,
+            pdf_anchor: Some(args.pdf_anchor),
+            parent_region_id: Some(args.parent_region_id),
+        })
+    }
+
     /// Persist a Score Atlas target as one Region (with edition-bound PDF
     /// geometry) plus its `target_meta` sidecar, in a single transaction. A
     /// repeated `command_id` replays the already-committed Region rather than
@@ -739,7 +990,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::model::ScanPiece;
+    use crate::store::model::{RegionCreate, RegionPatch, ScanPiece};
 
     fn memory_store_with_piece() -> Store {
         let store = Store::open(":memory:").expect("memory store");
@@ -808,6 +1059,65 @@ mod tests {
             }),
             asserted_measure_range: Some(range),
         }
+    }
+
+    fn micro_target_payload(parent_region_id: i64) -> AtomicMicroTargetCreate {
+        AtomicMicroTargetCreate {
+            piece_id: 1,
+            parent_region_id,
+            name: "Spot 1".into(),
+            m_start: 44,
+            m_end: 45,
+            color: Some("#4ab5f2".into()),
+            pdf_anchor: json!({
+                "v": 1,
+                "editions": {
+                    "urtext": {
+                        "fingerprint": "fp-a",
+                        "rects": [{"page": 2, "x": 0.25, "y": 0.3, "w": 0.08, "h": 0.05}]
+                    }
+                }
+            }),
+        }
+    }
+
+    fn create_unanchored_micro_target_parent(store: &Store) -> i64 {
+        store
+            .region_create_with_parent(
+                RegionCreate {
+                    piece_id: 1,
+                    name: "Rolled Chords Accuracy".into(),
+                    notes: None,
+                    m_start: 40,
+                    m_end: 56,
+                    kind: "hard_spot".into(),
+                },
+                None,
+            )
+            .unwrap()
+            .id
+    }
+
+    fn create_micro_target_parent(store: &Store) -> i64 {
+        let id = create_unanchored_micro_target_parent(store);
+        store
+            .region_update(
+                id,
+                RegionPatch {
+                    pdf_anchor: Some(Some(json!({
+                        "v": 1,
+                        "editions": {
+                            "urtext": {
+                                "fingerprint": "fp-a",
+                                "rects": [{"page": 2, "x": 0.1, "y": 0.2, "w": 0.8, "h": 0.5}]
+                            }
+                        }
+                    }))),
+                    ..RegionPatch::default()
+                },
+            )
+            .unwrap();
+        id
     }
 
     #[test]
@@ -921,6 +1231,91 @@ mod tests {
                 .unwrap(),
             1
         );
+    }
+
+    #[test]
+    fn micro_target_create_commits_region_link_colour_anchor_and_event_together() {
+        let store = memory_store_with_piece();
+        let parent_id = create_micro_target_parent(&store);
+        let events_before = store.test_scalar_i64("SELECT count(*) FROM event").unwrap();
+
+        let spot = store
+            .score_micro_target_create(micro_target_payload(parent_id))
+            .expect("micro-target saves atomically");
+
+        assert_eq!(spot.parent_region_id, Some(parent_id));
+        assert_eq!(spot.color.as_deref(), Some("#4ab5f2"));
+        assert_eq!(spot.pdf_anchor.as_ref().unwrap()["v"], 1);
+        assert_eq!(store.region_list(1).unwrap().len(), 2);
+        assert_eq!(
+            store
+                .test_scalar_i64(&format!(
+                    "SELECT parent_region_id FROM target_meta WHERE region_id={}",
+                    spot.id
+                ))
+                .unwrap(),
+            parent_id
+        );
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM event").unwrap(),
+            events_before + 1
+        );
+    }
+
+    #[test]
+    fn micro_target_create_rolls_back_a_fault_after_region_insert() {
+        let store = memory_store_with_piece();
+        let parent_id = create_micro_target_parent(&store);
+        let regions_before = store.region_list(1).unwrap().len();
+        let meta_before = store
+            .test_scalar_i64("SELECT count(*) FROM target_meta")
+            .unwrap();
+        let events_before = store.test_scalar_i64("SELECT count(*) FROM event").unwrap();
+
+        let error = store
+            .score_micro_target_create_with_hook(micro_target_payload(parent_id), |_| {
+                Err(rusqlite::Error::InvalidQuery)
+            })
+            .unwrap_err();
+        assert!(matches!(error, rusqlite::Error::InvalidQuery));
+        assert_eq!(store.region_list(1).unwrap().len(), regions_before);
+        assert_eq!(
+            store
+                .test_scalar_i64("SELECT count(*) FROM target_meta")
+                .unwrap(),
+            meta_before
+        );
+        assert_eq!(
+            store.test_scalar_i64("SELECT count(*) FROM event").unwrap(),
+            events_before
+        );
+    }
+
+    #[test]
+    fn micro_target_create_rejects_an_unanchored_parent_without_writing() {
+        let store = memory_store_with_piece();
+        let parent_id = create_unanchored_micro_target_parent(&store);
+        let regions_before = store.region_list(1).unwrap().len();
+
+        let error = store
+            .score_micro_target_create(micro_target_payload(parent_id))
+            .unwrap_err();
+        assert!(error.to_string().contains("current score mark"));
+        assert_eq!(store.region_list(1).unwrap().len(), regions_before);
+    }
+
+    #[test]
+    fn micro_target_create_rejects_geometry_outside_the_parent_mark() {
+        let store = memory_store_with_piece();
+        let parent_id = create_micro_target_parent(&store);
+        let regions_before = store.region_list(1).unwrap().len();
+        let mut payload = micro_target_payload(parent_id);
+        payload.pdf_anchor["editions"]["urtext"]["rects"] =
+            json!([{"page": 2, "x": 0.85, "y": 0.3, "w": 0.1, "h": 0.05}]);
+
+        let error = store.score_micro_target_create(payload).unwrap_err();
+        assert!(error.to_string().contains("fully inside"));
+        assert_eq!(store.region_list(1).unwrap().len(), regions_before);
     }
 
     // ----- Score edition calibration (line anchors) -----

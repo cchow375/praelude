@@ -44,8 +44,9 @@ interface Armed {
  * Counts a satisfied set down to its close.
  *
  * Everything that stops it is keyed on `block_id`, so a set that was cancelled
- * (or that already closed itself) can never be re-armed by a later re-render,
- * and `onClose` fires **at most once per set**.
+ * (or that already closed itself) can never be re-armed by a later re-render.
+ * One close sequence starts per set; `onClose` runs once normally and at most
+ * twice when the first async attempt rejects.
  *
  * A running countdown is cancelled permanently by:
  *   - `cancel()` — the "Stay open" button;
@@ -58,12 +59,16 @@ interface Armed {
  */
 export function useSetCompletion(
   snap: SetCompletionSnapshot | null,
-  onClose: () => void,
+  onClose: () => void | Promise<void>,
   seconds: number = SET_COMPLETION_SECONDS,
 ): SetCompletion {
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const cancelledRef = useRef<Set<number>>(new Set());
   const firedRef = useRef<Set<number>>(new Set());
+  // A close can reject after the countdown has already disappeared. Keep the
+  // set in-flight until that promise settles so a render cannot arm a second
+  // countdown behind the bounded retry below.
+  const closingRef = useRef<Set<number>>(new Set());
   // Sets this hook has actually watched go from unfinished to finished. The
   // countdown is for the set he JUST finished, so a set that was already
   // satisfied the first time we saw it — re-opened from the paused-sets tray,
@@ -87,6 +92,11 @@ export function useSetCompletion(
   const satisfied = snap?.mastery_status === "satisfied";
   const paused = snap?.timer_state === "paused" || snap?.set_state === "paused";
   const attemptId = snap?.last_attempt_id ?? null;
+  // Read at retry time, after the first async close attempt has rejected. A
+  // pause, another rep, or a different active set must cancel that retry just
+  // as surely as it cancels the visible countdown.
+  const liveRef = useRef({ blockId, satisfied, paused, attemptId });
+  liveRef.current = { blockId, satisfied, paused, attemptId };
 
   const cancel = useCallback(() => {
     if (blockId != null) cancelledRef.current.add(blockId);
@@ -117,7 +127,8 @@ export function useSetCompletion(
       paused ||
       !sawUnfinishedRef.current.has(blockId) ||
       cancelledRef.current.has(blockId) ||
-      firedRef.current.has(blockId)
+      firedRef.current.has(blockId) ||
+      closingRef.current.has(blockId)
     ) {
       armedRef.current = null;
       setSecondsLeft(null);
@@ -141,9 +152,55 @@ export function useSetCompletion(
       tickRef.current = null;
       armedRef.current = null;
       setSecondsLeft(null);
-      if (firedRef.current.has(blockId)) return;
-      firedRef.current.add(blockId);
-      onCloseRef.current();
+      if (
+        firedRef.current.has(blockId) ||
+        closingRef.current.has(blockId)
+      ) {
+        return;
+      }
+      // Re-check the live snapshot at the actual fire boundary. The render
+      // that made the set ineligible (a pause, another attempt, or a recovery
+      // action's synchronous cancellation) may have happened after this
+      // interval's final tick was queued but before its callback ran.
+      const live = liveRef.current;
+      const stillEligible =
+        live.blockId === blockId &&
+        live.satisfied &&
+        !live.paused &&
+        live.attemptId === attemptId &&
+        !cancelledRef.current.has(blockId);
+      if (!stillEligible) {
+        if (live.blockId === blockId) cancelledRef.current.add(blockId);
+        return;
+      }
+      closingRef.current.add(blockId);
+      void (async () => {
+        try {
+          await onCloseRef.current();
+        } catch {
+          const live = liveRef.current;
+          const stillSafeToClose =
+            live.blockId === blockId &&
+            live.satisfied &&
+            !live.paused &&
+            live.attemptId === attemptId &&
+            !cancelledRef.current.has(blockId);
+          if (stillSafeToClose) {
+            try {
+              // One retry, and only one. `finally` marks this set complete even
+              // if the retry rejects, so it can never spin or re-arm forever.
+              await onCloseRef.current();
+            } catch {
+              // `onClose` owns user-facing error reporting. This hook only
+              // owns retry policy, so the terminal rejection is intentionally
+              // absorbed after the second and final attempt.
+            }
+          }
+        } finally {
+          closingRef.current.delete(blockId);
+          firedRef.current.add(blockId);
+        }
+      })();
     }, 1000);
     tickRef.current = tick;
     return () => {

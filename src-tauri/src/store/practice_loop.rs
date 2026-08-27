@@ -1379,7 +1379,17 @@ impl Store {
         let session = resolve_practice_session(&tx, session_hint, source, command_id, now)?;
         pending.session_id = Some(session.id);
         let before = project(&tx, block_id, demotion)?;
-        if !matches!(before.set_state.as_str(), "active" | "paused") {
+        // A mastered snapshot remains visible during the completion hold. In
+        // that narrow window Christian may explicitly withdraw/extend the
+        // proof with ResetStreak or CleanDebt. Those two actions reactivate
+        // the SAME set atomically; every other terminal-set recovery still
+        // requires a linked restart.
+        let reopens_mastered = before.set_state == "mastered"
+            && matches!(
+                action,
+                RecoveryActionRequest::ResetStreak { .. } | RecoveryActionRequest::CleanDebt { .. }
+            );
+        if !matches!(before.set_state.as_str(), "active" | "paused") && !reopens_mastered {
             return Err(invalid(
                 "recovery cannot mutate a terminal set; restart it as a linked set first",
             ));
@@ -1550,6 +1560,14 @@ impl Store {
             ],
             |row| row.get(0),
         )?;
+        if reopens_mastered {
+            tx.execute(
+                "UPDATE set_contract SET set_state='active' WHERE set_id=?1",
+                [block_id],
+            )?;
+            tx.execute("UPDATE rep_block SET status='open' WHERE id=?1", [block_id])?;
+            start_interval(&tx, block_id, now, Some(pending.id))?;
+        }
         let event_payload = json!({
             "block_id": block_id,
             "piece_id": before.piece_id,
@@ -1558,6 +1576,7 @@ impl Store {
             "after_attempt_id": after_attempt_id,
             "payload": payload,
             "rationale": rationale,
+            "reopened_mastered_set": reopens_mastered,
             "command_id": command_id,
         });
         let (_, event_id) = insert_loop_event(

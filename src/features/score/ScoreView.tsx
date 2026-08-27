@@ -12,12 +12,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { PDFDocumentLoadingTask, PDFPageProxy } from "pdfjs-dist";
 import type { BlockHistory, Region } from "../pieces/types";
-import type { RepOpenArgs, SetFocusContextInput } from "../rep/useRep";
+import type {
+  RepOpenArgs,
+  RepSnapshot,
+  SetFocusContextInput,
+} from "../rep/useRep";
 import { BlockForm } from "../rep/BlockForm";
 import {
   anchorForEdition,
   anchorKind,
-  rectCentreIsInsideAnchor,
   replaceEditionRects,
   validAnchorMap,
 } from "./anchors";
@@ -28,8 +31,18 @@ import {
   neededLongEdge,
   pageImageBucket,
 } from "./pageImage";
-import { RegionOverlay, type RegionOverlayItem } from "./RegionOverlay";
-import { estimateSpotMeasures, nextSpotName } from "./microTargets";
+import {
+  ScoreOverlay,
+  type RegionCreateDrag,
+  type RegionMappingDraft,
+  type RegionOverlayItem,
+  type ScoreTargetDraft,
+} from "./RegionOverlay";
+import {
+  effectiveParentIds,
+  estimateSpotMeasures,
+  nextSpotName,
+} from "./microTargets";
 import { PencilOverlay } from "./marks/PencilOverlay";
 import { defaultMarksApi, type ScoreMarksApi } from "./marks/api";
 import type { Stroke } from "./marks/strokes";
@@ -44,7 +57,7 @@ import type {
   TargetMappingState,
 } from "./atlas/model";
 import type { AtomicTargetSavePayload } from "./atlas/savePayload";
-import { TargetDraftEditor, TargetDraftOverlay } from "./atlas/ui";
+import { TargetDraftEditor } from "./atlas/ui";
 import { MapScoreWizard } from "./atlas/mapping/MapScoreWizard";
 import { candidateFromAnchors } from "./atlas/mapping/candidate";
 import type { LineAnchor } from "./atlas/mapping/anchors";
@@ -458,7 +471,12 @@ export interface ScoreViewProps {
   activeRange?: { m_start: number; m_end: number } | null;
   defaultTargetBpm?: number | null;
   defaultCleanStreak?: number;
-  onOpenBlock?: (args: RepOpenArgs, context?: SetFocusContextInput) => void;
+  onOpenBlock?: (
+    args: RepOpenArgs,
+    context?: SetFocusContextInput,
+  ) => Promise<void> | void;
+  onResumeSet?: (setId: number) => Promise<void> | void;
+  activeRep?: RepSnapshot | null;
   opening?: boolean;
   onRegionsChanged?: () => void;
   onContextChange?: (context: ScoreFocusContext) => void;
@@ -614,6 +632,8 @@ export function ScoreView({
   defaultTargetBpm = null,
   defaultCleanStreak = 5,
   onOpenBlock,
+  onResumeSet,
+  activeRep = null,
   opening = false,
   onRegionsChanged,
   onContextChange,
@@ -631,6 +651,8 @@ export function ScoreView({
   const scoreMountedRef = useRef(false);
   const targetSaveGenerationRef = useRef(0);
   const targetSavePendingRef = useRef(false);
+  const spotSavePendingRef = useRef(false);
+  const createDragHandlerRef = useRef<(rect: PdfAnchorRect) => void>(() => {});
   const livePieceIdRef = useRef(pieceId);
   const liveEditionRef = useRef<PdfEdition | null>(null);
   const sectionsBeforeTargetRef = useRef(true);
@@ -694,6 +716,7 @@ export function ScoreView({
   // wanted"), so the button is the entrance and this is what it arms; the
   // bare drag-inside-a-selected-parent gesture still works unchanged.
   const [spotArmed, setSpotArmed] = useState(false);
+  const [spotSavePending, setSpotSavePending] = useState(false);
   // Parent region ids whose spots are hidden on the score, persisted per
   // piece through the same generic settings seam the sub-section hint uses.
   const [spotsHidden, setSpotsHidden] = useState<number[]>([]);
@@ -1156,8 +1179,34 @@ export function ScoreView({
     scale,
   ]);
 
+  const effectiveParents = useMemo(
+    () =>
+      effectiveParentIds(
+        regions,
+        edition?.id ?? null,
+        edition?.fingerprint ?? null,
+      ),
+    [edition?.fingerprint, edition?.id, regions],
+  );
+  const regionById = useMemo(
+    () => new Map(regions.map((region) => [region.id, region])),
+    [regions],
+  );
   const selectedRegion =
-    regions.find((region) => region.id === selectedRegionId) ?? null;
+    (selectedRegionId == null ? null : regionById.get(selectedRegionId)) ?? null;
+  const selectedParentId =
+    selectedRegion == null
+      ? null
+      : (effectiveParents.get(selectedRegion.id) ?? null);
+  const selectedLineageParentId = selectedParentId ?? selectedRegion?.id ?? null;
+  const contextualLabel = useCallback(
+    (region: Region) => {
+      const parentId = effectiveParents.get(region.id) ?? null;
+      const parent = parentId == null ? null : regionById.get(parentId);
+      return parent ? `${parent.name} · ${region.name}` : region.name;
+    },
+    [effectiveParents, regionById],
+  );
   // Task B1: read the per-piece sub-section hint seen-flag. Keyed on
   // pieceId so the hint reappears (and can be re-dismissed) for every piece
   // independently — it never leaks across pieces.
@@ -1581,7 +1630,7 @@ export function ScoreView({
       region: selectedRegion
         ? {
             id: selectedRegion.id,
-            name: selectedRegion.name,
+            name: contextualLabel(selectedRegion),
             notes: selectedRegion.notes,
             m_start: selectedRegion.m_start,
             m_end: selectedRegion.m_end,
@@ -1595,35 +1644,38 @@ export function ScoreView({
     currentPage,
     edition?.id,
     edition?.label,
+    contextualLabel,
     onContextChange,
     selectedRegion,
   ]);
-  // Task C5: child sub-sections (parent_region_id set) only render in this
-  // list while their parent is currently selected — keeps the list from
-  // ballooning with detail nobody asked to see yet.
+  // Explicit target_meta links and unambiguous legacy geometry share one
+  // effective hierarchy from here down. No consumer gets to independently
+  // guess whether an old nested box is a peer or a spot.
   const childCounts = useMemo(() => {
     const counts = new Map<number, number>();
     for (const region of regions) {
-      if (region.parent_region_id == null) continue;
-      counts.set(
-        region.parent_region_id,
-        (counts.get(region.parent_region_id) ?? 0) + 1,
-      );
+      const parentId = effectiveParents.get(region.id) ?? null;
+      if (parentId == null) continue;
+      counts.set(parentId, (counts.get(parentId) ?? 0) + 1);
     }
     return counts;
-  }, [regions]);
+  }, [effectiveParents, regions]);
   const displayedRegions = useMemo(() => {
     const query = regionQuery.trim().toLocaleLowerCase();
+    const compareRegion = (a: Region, b: Region) =>
+      a.m_start - b.m_start ||
+      a.m_end - b.m_end ||
+      a.name.localeCompare(b.name) ||
+      a.id - b.id;
     return [...regions]
-      .filter(
-        (region) =>
-          region.parent_region_id == null ||
-          region.parent_region_id === selectedRegionId ||
-          // Selecting the child moves the selection off its parent; without
-          // this the child would vanish the instant it was clicked and its
-          // own inspector (and practice set) could never be opened.
-          region.id === selectedRegionId,
-      )
+      .filter((region) => {
+        const parentId = effectiveParents.get(region.id) ?? null;
+        return (
+          parentId == null ||
+          parentId === selectedLineageParentId ||
+          region.id === selectedRegionId
+        );
+      })
       .filter(
         (region) =>
           !query ||
@@ -1631,13 +1683,27 @@ export function ScoreView({
             .toLocaleLowerCase()
             .includes(query),
       )
-      .sort(
-        (a, b) =>
-          a.m_start - b.m_start ||
-          a.m_end - b.m_end ||
-          a.name.localeCompare(b.name),
-      );
-  }, [regionQuery, regions, selectedRegionId]);
+      .sort((a, b) => {
+        const aParentId = effectiveParents.get(a.id) ?? null;
+        const bParentId = effectiveParents.get(b.id) ?? null;
+        const aRoot = aParentId == null ? a : (regionById.get(aParentId) ?? a);
+        const bRoot = bParentId == null ? b : (regionById.get(bParentId) ?? b);
+        const rootOrder = compareRegion(aRoot, bRoot);
+        if (rootOrder !== 0) return rootOrder;
+        // Keep each child immediately after its parent even when the child's
+        // tighter measure range would otherwise sort ahead of the parent.
+        if (aParentId == null && bParentId === a.id) return -1;
+        if (bParentId == null && aParentId === b.id) return 1;
+        return compareRegion(a, b);
+      });
+  }, [
+    effectiveParents,
+    regionById,
+    regionQuery,
+    regions,
+    selectedLineageParentId,
+    selectedRegionId,
+  ]);
 
   const resolveTargetMapping = useCallback(
     (anchor: PersistentPdfSelectionAnchor): TargetMappingState => {
@@ -1703,14 +1769,34 @@ export function ScoreView({
   const togglePencilMode = useCallback(() => {
     setConfirmClearPage(null);
     setPencilError(null);
-    setPencilMode((on) => {
-      if (on) return false;
-      // Entering the pencil leaves the rectangle tool, exactly as entering the
-      // rectangle tool leaves the pencil.
-      if (targetMode) cancelTargetDraft();
-      return true;
-    });
-  }, [cancelTargetDraft, targetMode]);
+    if (pencilMode) {
+      setPencilMode(false);
+      return;
+    }
+    if (mapping) {
+      setNavigationNotice(
+        "Save or cancel the open score-mark edits before using the pencil.",
+      );
+      return;
+    }
+    // Every page-pointer mode owns the surface exclusively.
+    if (targetMode) cancelTargetDraft();
+    setSpotArmed(false);
+    setPencilMode(true);
+  }, [cancelTargetDraft, mapping, pencilMode, targetMode]);
+
+  const toggleSpotMode = useCallback(() => {
+    if (mapping) {
+      setNavigationNotice(
+        "Save or cancel the open score-mark edits before isolating a spot.",
+      );
+      return;
+    }
+    if (targetMode) cancelTargetDraft();
+    setPencilMode(false);
+    setConfirmClearPage(null);
+    setSpotArmed((armed) => !armed);
+  }, [cancelTargetDraft, mapping, targetMode]);
 
   const toggleTargetMode = useCallback(() => {
     if (targetMode) {
@@ -1725,6 +1811,7 @@ export function ScoreView({
     }
     // The two drawing modes both own the pointer; entering one leaves the other.
     setPencilMode(false);
+    setSpotArmed(false);
     setConfirmClearPage(null);
     sectionsBeforeTargetRef.current = sectionsVisible;
     sectionsStashedRef.current = true;
@@ -2001,10 +2088,13 @@ export function ScoreView({
     return () => window.removeEventListener("keydown", onKey);
   }, [currentPage, document, isActive, jumpTo, phase, wizardOpen]);
 
-  // The mapping wizard takes the whole score over; the pencil must not be armed
-  // underneath it.
+  // The mapping wizard takes the whole score over; no page-pointer mode may be
+  // armed underneath it.
   useEffect(() => {
-    if (wizardOpen) setPencilMode(false);
+    if (wizardOpen) {
+      setPencilMode(false);
+      setSpotArmed(false);
+    }
   }, [wizardOpen]);
 
   // Escape ALWAYS leaves pencil mode — the escape hatch a modal drawing tool
@@ -2111,23 +2201,100 @@ export function ScoreView({
     };
   }, [edition, isActive, jumpTo, regions, selectRegion]);
 
-  // Task C4: one click from a spot box to its practice composer. The
-  // BlockForm this reveals already prefills the child's range/label and
-  // defaults sub-sections to 3-in-a-row, so nothing is duplicated here —
-  // this only makes sure it is reached.
-  const practiceSpot = useCallback((regionId: number) => {
-    setSelectedRegionId(regionId);
-    setExpandedRegionId(regionId);
-    setSectionTab("practice");
-    window.requestAnimationFrame(() => {
-      // `document` is shadowed by the PDF handle state in this component.
-      window.document
-        .querySelector<HTMLElement>(
-          `.score-practice-region[data-region-id="${regionId}"]`,
-        )
-        ?.scrollIntoView?.({ block: "nearest" });
-    });
-  }, []);
+  // The in-score chip is the zero-composer path. It resumes this exact spot's
+  // latest paused set when one exists; otherwise it opens the same sensible
+  // defaults the editable composer shows below. Selecting the sidebar row
+  // remains the customization path.
+  const practiceSpot = useCallback(
+    async (regionId: number) => {
+      const region = regionById.get(regionId);
+      if (!region) return;
+      setSelectedRegionId(regionId);
+      setExpandedRegionId(regionId);
+      setSectionTab("practice");
+      setGraphError(null);
+
+      const activeIsRunning = Boolean(
+        activeRep &&
+          activeRep.set_state !== "paused" &&
+          activeRep.timer_state !== "paused",
+      );
+      if (activeIsRunning) {
+        setNavigationNotice(
+          "Close or pause the active practice set before starting this spot.",
+        );
+        return;
+      }
+      if (opening) {
+        setNavigationNotice("The previous practice action is still saving.");
+        return;
+      }
+
+      try {
+        // ScoreView can stay mounted while the Practice Dock opens or pauses
+        // a set. Re-read here so an old graph snapshot can never turn Resume
+        // into a duplicate Open operation. This lookup is also the only safe
+        // way to identify the clicked spot: RepSnapshot does not carry a
+        // region_id, and distinct parent/child or sibling regions may share a
+        // measure range.
+        const currentBlocks = (await api.blocks(pieceId)) ?? [];
+        if (!scoreMountedRef.current) return;
+        setBlocks(currentBlocks);
+        const paused = currentBlocks
+          .filter(
+            (block) =>
+              block.region_id === region.id && block.set_state === "paused",
+          )
+          .sort((a, b) => b.block_id - a.block_id)[0];
+        if (paused) {
+          if (!onResumeSet) {
+            setNavigationNotice(
+              "This spot has a paused set, but resume controls are unavailable.",
+            );
+            return;
+          }
+          await onResumeSet(paused.block_id);
+          setNavigationNotice(`${contextualLabel(region)} resumed.`);
+          return;
+        }
+        if (!onOpenBlock) {
+          setNavigationNotice(
+            "Practice controls are unavailable until the practice engine is ready.",
+          );
+          return;
+        }
+        await onOpenBlock({
+          piece_id: pieceId,
+          region_id: region.id,
+          m_start: region.m_start,
+          m_end: region.m_end,
+          label: contextualLabel(region),
+          start_bpm: 60,
+          target_bpm: defaultTargetBpm,
+          planned_reps: null,
+          required_clean_streak: 3,
+          increment: null,
+          variants: [],
+          focus: "tempo",
+          use_metronome: true,
+        });
+        setNavigationNotice(`${contextualLabel(region)} started.`);
+      } catch (caught) {
+        setGraphError(messageOf(caught));
+      }
+    },
+    [
+      activeRep,
+      api,
+      contextualLabel,
+      defaultTargetBpm,
+      onOpenBlock,
+      onResumeSet,
+      opening,
+      pieceId,
+      regionById,
+    ],
+  );
 
   // Task C3: the score used to draw EVERY region unconditionally, which is
   // why the list's "children only under their selected parent" rule looked
@@ -2135,39 +2302,100 @@ export function ScoreView({
   const overlayItems: RegionOverlayItem[] = useMemo(() => {
     if (!edition) return [];
     const hidden = new Set(spotsHidden);
+    const selectedIsChild = selectedParentId != null;
     return regions
       .filter((region) => {
-        if (region.parent_region_id == null) return true;
+        const parentId = effectiveParents.get(region.id) ?? null;
+        if (parentId == null) return true;
         // An explicitly selected child always shows itself, even when its
         // parent's spots are hidden — otherwise selecting it from the list
         // would select something invisible.
         if (region.id === selectedRegionId) return true;
-        if (region.parent_region_id !== selectedRegionId) return false;
-        return !hidden.has(region.parent_region_id);
+        // Selecting a child preserves its parent context and every sibling.
+        if (selectedIsChild && parentId === selectedParentId) return true;
+        if (parentId !== selectedRegionId) return false;
+        return !hidden.has(parentId);
       })
       .map((region) => ({
         regionId: region.id,
-        label: region.notes ?? region.name,
+        label: contextualLabel(region),
         color: region.color,
         rects:
           anchorForEdition(region.pdf_anchor, edition.id, edition.fingerprint)
             ?.rects ?? [],
         selected: region.id === selectedRegionId,
         active: overlaps(region, activeRange),
-        isChild: region.parent_region_id != null,
+        isChild: (effectiveParents.get(region.id) ?? null) != null,
         onPractice:
-          region.parent_region_id != null
-            ? () => practiceSpot(region.id)
+          (effectiveParents.get(region.id) ?? null) != null
+            ? () => void practiceSpot(region.id)
             : undefined,
       }));
   }, [
     activeRange,
+    contextualLabel,
     edition,
+    effectiveParents,
     practiceSpot,
     regions,
+    selectedParentId,
     selectedRegionId,
     spotsHidden,
   ]);
+
+  const overlayMapping = useMemo<RegionMappingDraft | null>(() => {
+    if (!mapping) return null;
+    const region = regionById.get(mapping.regionId);
+    if (!region) return null;
+    return {
+      regionId: mapping.regionId,
+      label: contextualLabel(region),
+      color: region.color,
+      draftRects: mapping.rects,
+      tool: mapping.tool,
+      onAddRect: (rect) =>
+        setMapping((current) =>
+          current ? { ...current, rects: [...current.rects, rect] } : current,
+        ),
+      onUpdateRect: (index, rect) =>
+        setMapping((current) =>
+          current
+            ? {
+                ...current,
+                rects: current.rects.map((item, itemIndex) =>
+                  itemIndex === index ? rect : item,
+                ),
+              }
+            : current,
+        ),
+    };
+  }, [contextualLabel, mapping, regionById]);
+
+  const overlayTargetDraft = useMemo<ScoreTargetDraft | null>(
+    () =>
+      targetMode && targetDraftId && edition
+        ? {
+            edition: {
+              edition_id: edition.id,
+              edition_fingerprint: edition.fingerprint,
+            },
+            selectedAnchor: targetAnchor,
+            instructionsId: targetInstructionsId,
+            disabled: targetSavePending,
+            onSelection: acceptTargetSelection,
+            onSelectionError: (_code, message) => setTargetDrawError(message),
+          }
+        : null,
+    [
+      acceptTargetSelection,
+      edition,
+      targetAnchor,
+      targetDraftId,
+      targetInstructionsId,
+      targetMode,
+      targetSavePending,
+    ],
+  );
 
   const beginMapping = (region: Region) => {
     if (targetMode) {
@@ -2177,6 +2405,9 @@ export function ScoreView({
       return;
     }
     if (!edition) return;
+    setPencilMode(false);
+    setSpotArmed(false);
+    setConfirmClearPage(null);
     const existing =
       anchorForEdition(region.pdf_anchor, edition.id, edition.fingerprint)
         ?.rects ?? [];
@@ -2307,9 +2538,15 @@ export function ScoreView({
   // gesture — "it shouldnt require me to type anything at all" and "i
   // shouldnt have to name it at all". No form, no marks mode, no second drag.
   const createSpotFromDrag = async (rect: PdfAnchorRect, parent: Region) => {
-    if (!edition) return;
+    if (!edition) {
+      spotSavePendingRef.current = false;
+      setSpotSavePending(false);
+      return;
+    }
     const siblings = regions
-      .filter((region) => region.parent_region_id === parent.id)
+      .filter(
+        (region) => (effectiveParents.get(region.id) ?? null) === parent.id,
+      )
       .map((region) => region.name);
     const name = nextSpotName(siblings);
     const low = Math.min(parent.m_start, parent.m_end);
@@ -2329,30 +2566,22 @@ export function ScoreView({
     // that claims measures outside the section it lives in is a visible lie.
     const mStart = Math.min(high, Math.max(low, raw.m_start));
     const mEnd = Math.min(high, Math.max(mStart, raw.m_end));
-    setCreatingRegion(true);
     setGraphError(null);
     try {
-      const created = await crud.regionCreate({
+      const created = await crud.microTargetCreate({
         piece_id: pieceId,
+        parent_region_id: parent.id,
         name,
-        notes: null,
         m_start: mStart,
         m_end: mEnd,
-        kind: "hard_spot",
-        parent_region_id: parent.id,
-      });
-      await crud.regionUpdate(created.id, {
         color: REGION_COLORS[regions.length % REGION_COLORS.length],
+        pdf_anchor: replaceEditionRects(
+          null,
+          edition.id,
+          edition.fingerprint,
+          [rect],
+        ),
       });
-      // THE fix: the dragged rect becomes the child's anchor in the same
-      // flow. v7.1.0 left the child anchorless and dropped him into marks
-      // mode to draw the identical box a second time.
-      await api.updateRegion(
-        created.id,
-        replaceEditionRects(created.pdf_anchor, edition.id, edition.fingerprint, [
-          rect,
-        ]),
-      );
       await graphChanged();
       // Retire the teaching hint — the gesture has now been performed.
       if (subsectionHintKey) {
@@ -2364,6 +2593,7 @@ export function ScoreView({
       }
       setSelectedRegionId(created.id);
       setExpandedRegionId(created.id);
+      setSpotArmed(false);
       // Practice, not marks: the practice controls must be one click away.
       setSectionTab("practice");
       setSpotUndo({ regionId: created.id, name, parentId: parent.id });
@@ -2373,7 +2603,8 @@ export function ScoreView({
     } catch (caught) {
       setGraphError(messageOf(caught));
     } finally {
-      setCreatingRegion(false);
+      spotSavePendingRef.current = false;
+      setSpotSavePending(false);
     }
   };
 
@@ -2406,7 +2637,7 @@ export function ScoreView({
   };
 
   const handleCreateDragResolve = (rect: PdfAnchorRect) => {
-    if (targetMode) return;
+    if (targetMode || spotSavePendingRef.current) return;
     const snap = snapRangeForRect(rect);
     if (snap) {
       setNewRegionStart(String(snap.m_start));
@@ -2416,10 +2647,10 @@ export function ScoreView({
     // child of it. The hint this release ships says "Drag inside <name> on the
     // score to isolate a spot", so defaulting a drag on the far side of the
     // page to a sub-section would make the app's own instruction untrue — the
-    // user would be silently given a child they never asked for. Judged on the
-    // drag's centre point against the selected section's rects for this
-    // edition, which is forgiving of an imprecise drag while still meaning
-    // "inside". A section with no anchor on this edition has no box to be
+    // user would be silently given a child they never asked for. The complete
+    // drag box must fit within one selected-section rect on this edition, so a
+    // newly persisted spot can never visibly spill outside its parent. A
+    // section with no anchor on this edition has no box to be
     // inside of, so a drag cannot imply it; "+ Add" (which defaults to a
     // sub-section of the selection, with a visible opt-out) remains the way to
     // build one there.
@@ -2428,16 +2659,34 @@ export function ScoreView({
     // is the same intent stated out loud — the drag no longer opens a form at
     // all. It finishes the spot.
     const parent =
-      selectedRegion && selectedRegion.parent_region_id == null
+      selectedRegion &&
+      (effectiveParents.get(selectedRegion.id) ?? null) == null
         ? selectedRegion
         : null;
     const parentAnchor =
       parent && edition
         ? anchorForEdition(parent.pdf_anchor, edition.id, edition.fingerprint)
         : null;
-    const droppedInsideParent = rectCentreIsInsideAnchor(rect, parentAnchor);
-    if (parent && (droppedInsideParent || spotArmed)) {
-      setSpotArmed(false);
+    const droppedInsideParent = Boolean(
+      parentAnchor?.rects.some((parentRect) => rectContains(parentRect, rect)),
+    );
+    if (spotArmed && (!parent || !parentAnchor?.rects.length)) {
+      setNavigationNotice(
+        "This section has no score mark in the current edition. Mark it first, then isolate a spot.",
+      );
+      return;
+    }
+    if (spotArmed && !droppedInsideParent) {
+      setNavigationNotice(
+        `Keep the whole box inside ${parent?.name ?? "the selected section"}. Spot mode is still armed.`,
+      );
+      return;
+    }
+    if (parent && droppedInsideParent) {
+      // Claim the save synchronously, before React can render a pending state,
+      // so two pointer-up events can never both choose "Spot 1".
+      spotSavePendingRef.current = true;
+      setSpotSavePending(true);
       void createSpotFromDrag(rect, parent);
       return;
     }
@@ -2454,6 +2703,13 @@ export function ScoreView({
           : "This page isn't mapped yet — enter the measure range to create the section.",
     );
   };
+  createDragHandlerRef.current = handleCreateDragResolve;
+  const stableCreateDrag = useMemo<RegionCreateDrag>(
+    () => ({
+      onResolve: (rect) => createDragHandlerRef.current(rect),
+    }),
+    [],
+  );
 
   const persistMapping = async (rects: PdfAnchorRect[]) => {
     if (!selectedRegion || !edition) return;
@@ -2512,6 +2768,8 @@ export function ScoreView({
       edition.id,
       edition.fingerprint,
     );
+    const effectiveParentId = effectiveParents.get(region.id) ?? null;
+    const canIsolateSpot = Boolean(savedAnchor?.rects.length);
     const mappingThisRegion = mapping?.regionId === region.id ? mapping : null;
     return (
       <div
@@ -2560,7 +2818,7 @@ export function ScoreView({
           ))}
         </div>
 
-        {region.parent_region_id == null && region.id === selectedRegionId && (
+        {effectiveParentId == null && region.id === selectedRegionId && (
           // Task C1: "i should have a button within that thing". It sits
           // BELOW the tab strip and ABOVE the panel deliberately — it is
           // visible on every tab, not buried inside one of them.
@@ -2570,9 +2828,12 @@ export function ScoreView({
                 type="button"
                 className={`score-spot-arm ${spotArmed ? "is-armed" : ""}`}
                 aria-pressed={spotArmed}
-                onClick={() => setSpotArmed((armed) => !armed)}
+                disabled={!canIsolateSpot || spotSavePending}
+                onClick={toggleSpotMode}
               >
-                {spotArmed
+                {spotSavePending
+                  ? "Saving spot…"
+                  : spotArmed
                   ? `Cancel — drag inside ${region.name}`
                   : "⊕ Isolate a spot"}
               </button>
@@ -2588,6 +2849,11 @@ export function ScoreView({
                 </button>
               )}
             </div>
+            {!canIsolateSpot && (
+              <p className="score-spot-instruction">
+                Mark this section on the current score before isolating a spot.
+              </p>
+            )}
             {spotArmed && (
               <p className="score-spot-instruction" role="status">
                 Drag a small box inside {region.name} on the score. Esc to
@@ -2819,7 +3085,7 @@ export function ScoreView({
                 regionId={region.id}
                 defaultMeasureStart={region.m_start}
                 defaultMeasureEnd={region.m_end}
-                defaultLabel={region.name}
+                defaultLabel={contextualLabel(region)}
                 defaultTargetBpm={defaultTargetBpm}
                 // Task C5: a one-gesture start on a sub-section defaults to
                 // three consecutive cleans (BlockForm always sends an explicit
@@ -2828,7 +3094,7 @@ export function ScoreView({
                 // a top-level region keeps the persisted practice default
                 // exactly as before.
                 defaultCleanStreak={
-                  region.parent_region_id != null ? 3 : defaultCleanStreak
+                  effectiveParentId != null ? 3 : defaultCleanStreak
                 }
                 onOpen={onOpenBlock}
                 opening={opening}
@@ -3191,11 +3457,6 @@ export function ScoreView({
                 className={`score-pages ${scaleMode === "overview" ? "is-overview" : ""}`}
               >
                 {mountedPages.map((pageNumber) => {
-                  const mappingRegion = mapping
-                    ? (regions.find(
-                        (region) => region.id === mapping.regionId,
-                      ) ?? null)
-                    : null;
                   const buffered = !visiblePageList.includes(pageNumber);
                   return (
                     <PdfPage
@@ -3209,46 +3470,22 @@ export function ScoreView({
                       onSize={handlePageSize}
                       onRasterized={handleRasterized}
                     >
-                      <RegionOverlay
+                      <ScoreOverlay
                         pageNumber={pageNumber}
                         items={overlayItems}
-                        mapping={
-                          mapping && mappingRegion
-                            ? {
-                                regionId: mapping.regionId,
-                                label:
-                                  mappingRegion.notes ?? mappingRegion.name,
-                                color: mappingRegion.color,
-                                draftRects: mapping.rects,
-                                tool: mapping.tool,
-                                onAddRect: (rect) =>
-                                  setMapping((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          rects: [...current.rects, rect],
-                                        }
-                                      : current,
-                                  ),
-                                onUpdateRect: (index, rect) =>
-                                  setMapping((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          rects: current.rects.map(
-                                            (item, itemIndex) =>
-                                              itemIndex === index ? rect : item,
-                                          ),
-                                        }
-                                      : current,
-                                  ),
-                              }
+                        mapping={overlayMapping}
+                        createDrag={
+                          !mapping && !targetMode && edition && !spotSavePending
+                            ? stableCreateDrag
                             : null
                         }
-                        createDrag={
-                          !mapping && !targetMode && edition
-                            ? { onResolve: handleCreateDragResolve }
-                            : null
+                        targetDraft={overlayTargetDraft}
+                        practiceChipsEnabled={
+                          !targetMode &&
+                          !mapping &&
+                          !pencilMode &&
+                          !spotArmed &&
+                          !spotSavePending
                         }
                         onSelect={selectRegion}
                       />
@@ -3275,22 +3512,6 @@ export function ScoreView({
                             !buffered
                           }
                           onStroke={handleStroke}
-                        />
-                      )}
-                      {targetMode && targetDraftId && edition && (
-                        <TargetDraftOverlay
-                          pageNumber={pageNumber}
-                          edition={{
-                            edition_id: edition.id,
-                            edition_fingerprint: edition.fingerprint,
-                          }}
-                          selectedAnchor={targetAnchor}
-                          instructionsId={targetInstructionsId}
-                          disabled={targetSavePending}
-                          onSelection={acceptTargetSelection}
-                          onSelectionError={(_code, message) =>
-                            setTargetDrawError(message)
-                          }
                         />
                       )}
                     </PdfPage>
@@ -3345,7 +3566,7 @@ export function ScoreView({
                 </p>
               )}
               {selectedRegion &&
-                selectedRegion.parent_region_id == null &&
+                selectedParentId == null &&
                 !subsectionHintSeen && (
                   <p className="score-subsection-hint" role="status">
                     Open <strong>{selectedRegion.name}</strong> and press{" "}
@@ -3372,7 +3593,7 @@ export function ScoreView({
                         setNewRegionParentId(null);
                       } else if (
                         selectedRegion &&
-                        selectedRegion.parent_region_id == null
+                        selectedParentId == null
                       ) {
                         // §4b / spec 5.8: with a section selected, the
                         // obvious button must build INSIDE it. Opening the
@@ -3391,7 +3612,7 @@ export function ScoreView({
               </div>
               {addingRegion &&
                 selectedRegion &&
-                selectedRegion.parent_region_id == null && (
+                selectedParentId == null && (
                   <label className="score-subsection-choice">
                     <input
                       type="checkbox"
@@ -3474,6 +3695,10 @@ export function ScoreView({
               </p>
               <div className="score-region-list">
                 {displayedRegions.map((region) => {
+                  const effectiveParentId =
+                    effectiveParents.get(region.id) ?? null;
+                  const isChild = effectiveParentId != null;
+                  const regionLabel = contextualLabel(region);
                   const mapped =
                     edition &&
                     anchorForEdition(
@@ -3492,14 +3717,14 @@ export function ScoreView({
                       : null;
                   return (
                     <div
-                      className={`score-region-item ${expanded ? "is-expanded" : ""}`}
+                      className={`score-region-item ${expanded ? "is-expanded" : ""} ${isChild ? "is-child" : ""}`}
                       key={region.id}
                     >
                       <button
                         type="button"
                         className={`score-region-row ${selectedRegionId === region.id ? "is-selected" : ""}`}
                         aria-expanded={expanded}
-                        aria-label={`${region.name}, measures ${region.m_start} to ${region.m_end}`}
+                        aria-label={`${regionLabel}, measures ${region.m_start} to ${region.m_end}`}
                         onClick={() => {
                           if (expanded) {
                             if (mapping?.regionId === region.id) {
@@ -3521,7 +3746,7 @@ export function ScoreView({
                           }}
                         />
                         <span>
-                          <strong>{region.name}</strong>
+                          <strong>{regionLabel}</strong>
                           <small>
                             mm. {region.m_start}–{region.m_end}
                             {noteSummary ? ` · ${noteSummary}` : ""}

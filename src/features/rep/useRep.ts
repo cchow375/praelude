@@ -62,6 +62,9 @@ export interface IncrementRule {
 export interface VariantSpec {
   name: string;
   reps: number;
+  /** Consecutive cleans needed to clear this stage. Omitted/null preserves
+   * legacy payloads, where the backend falls back to `reps`. */
+  clean_streak?: number | null;
 }
 
 /** A5: the note value a set's bpm number counts. A LABEL only — the entered
@@ -93,6 +96,7 @@ export interface RepSnapshot {
   reps_done: number;
   cleans_at_step: number;
   rule: IncrementRule;
+  /** Current clean-streak variant stage; also labels the next recorded attempt. */
   variant: string | null;
   variants: VariantSpec[];
   verdicts: VerdictCounts;
@@ -411,7 +415,7 @@ const REP_PAUSE = defineCommand<
   MutationReceipt<RepSnapshot>
 >("rep_pause", "The practice timer could not be paused.");
 const REP_RESUME = defineCommand<
-  { commandId: string },
+  { commandId: string; setId?: number },
   MutationReceipt<RepSnapshot>
 >("rep_resume", "The practice timer could not be resumed.");
 const REP_CHECKPOINT = defineCommand<
@@ -523,6 +527,8 @@ export interface UseRep {
   pause: () => Promise<void>;
   /** Start a fresh focused timing interval on the same set. */
   resume: () => Promise<void>;
+  /** Resume one specific paused set, even when several paused rows exist. */
+  resumeSet: (setId: number) => Promise<void>;
   /** Persist elapsed focused time; internal checkpoints do not create UI noise. */
   checkpoint: () => Promise<void>;
   /** Save the pianist's own focus/quality reflection. */
@@ -766,6 +772,7 @@ export function useRep(): UseRep {
       fallbackMessage: string,
       invokeReceipt: (id: string) => Promise<MutationReceipt<RepSnapshot>>,
       publishCommitted = true,
+      allowBlockSwitch = false,
     ): Promise<RepSnapshot> => {
       clearError();
       const blockAtStart = snapRef.current?.block_id ?? null;
@@ -811,8 +818,10 @@ export function useRep(): UseRep {
         if (
           mutationRevision.current === mutationAtStart &&
           eventRevision.current === eventsAtStart &&
-          blockAtStart != null &&
-          snapRef.current?.block_id === blockAtStart
+          (allowBlockSwitch ||
+            (blockAtStart != null &&
+              next.block_id === blockAtStart &&
+              snapRef.current?.block_id === blockAtStart))
         ) {
           applySnapshot(next);
         }
@@ -968,7 +977,11 @@ export function useRep(): UseRep {
       if (authoritativeStartBpm != null && setId != null) {
         try {
           if (metro?.running === true) {
-            if (metro.bpm !== authoritativeStartBpm) {
+            const tuningDiffers =
+              current?.tuning != null &&
+              (metro.beats_per_bar !== current.tuning.beats_per_bar ||
+                metro.subdivision !== current.tuning.subdivision);
+            if (metro.bpm !== authoritativeStartBpm || tuningDiffers) {
               await executeCommand(METRO_SET, {
                 setId,
                 bpm: authoritativeStartBpm,
@@ -1284,40 +1297,55 @@ export function useRep(): UseRep {
     }
   }, [receipts, runSnapshotReceiptMutation, showError]);
 
-  const resume = useCallback(async () => {
-    const blockAtStart = snapRef.current?.block_id ?? null;
-    const metroAtStart = captureMetroCommandGuard(metroRevision.current);
-    const next = await runSnapshotReceiptMutation(
-      `rep-resume:${snapRef.current?.block_id ?? "none"}`,
-      "The practice timer could not be resumed.",
-      (id) => executeCommand(REP_RESUME, { commandId: id }),
-    );
-    const bpm = next.bpm ?? next.start_bpm;
-    if (
-      blockAtStart != null &&
-      next.block_id === blockAtStart &&
-      snapRef.current?.block_id === blockAtStart &&
-      next.use_metronome &&
-      Number.isFinite(bpm) &&
-      metroCommandGuardIsCurrent(metroAtStart, metroRevision.current)
-    ) {
-      try {
-        await executeCommand(METRO_RESUME, {
-          setId: blockAtStart,
-          bpm,
-          beatsPerBar: next.tuning?.beats_per_bar,
-          subdivision: next.tuning?.subdivision,
-        });
-      } catch (cause) {
-        const message = commandErrorMessage(
-          cause,
-          "Practice resumed, but the metronome could not be synchronized.",
-        );
-        showError(message);
-        receipts.error(cause, message);
+  const resumeBlock = useCallback(
+    async (requestedSetId?: number) => {
+      const blockAtStart = requestedSetId ?? snapRef.current?.block_id ?? null;
+      const metroAtStart = captureMetroCommandGuard(metroRevision.current);
+      const next = await runSnapshotReceiptMutation(
+        `rep-resume:${blockAtStart ?? "none"}`,
+        "The practice timer could not be resumed.",
+        (id) =>
+          executeCommand(REP_RESUME, {
+            commandId: id,
+            ...(requestedSetId == null ? {} : { setId: requestedSetId }),
+          }),
+        true,
+        requestedSetId != null,
+      );
+      const bpm = next.bpm ?? next.start_bpm;
+      if (
+        blockAtStart != null &&
+        next.block_id === blockAtStart &&
+        snapRef.current?.block_id === blockAtStart &&
+        next.use_metronome &&
+        Number.isFinite(bpm) &&
+        metroCommandGuardIsCurrent(metroAtStart, metroRevision.current)
+      ) {
+        try {
+          await executeCommand(METRO_RESUME, {
+            setId: blockAtStart,
+            bpm,
+            beatsPerBar: next.tuning?.beats_per_bar,
+            subdivision: next.tuning?.subdivision,
+          });
+        } catch (cause) {
+          const message = commandErrorMessage(
+            cause,
+            "Practice resumed, but the metronome could not be synchronized.",
+          );
+          showError(message);
+          receipts.error(cause, message);
+        }
       }
-    }
-  }, [receipts, runSnapshotReceiptMutation, showError]);
+    },
+    [receipts, runSnapshotReceiptMutation, showError],
+  );
+
+  const resume = useCallback(() => resumeBlock(), [resumeBlock]);
+  const resumeSet = useCallback(
+    (setId: number) => resumeBlock(setId),
+    [resumeBlock],
+  );
 
   const checkpoint = useCallback(async () => {
     await runSnapshotReceiptMutation(
@@ -1432,6 +1460,10 @@ export function useRep(): UseRep {
       );
       showError(message);
       receipts.error(cause, message);
+      // Auto-completion owns a single bounded retry, so it must be able to
+      // distinguish a failed close from a committed one. Manual callers still
+      // receive the same visible error/receipt before this rejection escapes.
+      throw cause;
     }
   }, [applySnapshot, clearError, receipts, showError]);
 
@@ -1483,6 +1515,7 @@ export function useRep(): UseRep {
     restart,
     pause,
     resume,
+    resumeSet,
     checkpoint,
     reflect,
     safetyStop,

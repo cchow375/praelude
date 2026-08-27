@@ -36,8 +36,18 @@ describe("dev-mock rep_open handler", () => {
         start_bpm: 72,
         target_bpm: 120,
         planned_reps: null,
+        required_clean_streak: 7,
+        variants: [
+          { name: "dotted", reps: 9, clean_streak: 2 },
+          { name: "staccato", reps: 3 },
+        ],
         focus: "tempo",
         use_metronome: true,
+        tuning: {
+          beat_unit: "dotted_quarter",
+          subdivision: 3,
+          beats_per_bar: 6,
+        },
       },
       context: null,
     });
@@ -48,6 +58,71 @@ describe("dev-mock rep_open handler", () => {
     expect(snap.target_bpm).toBe(120);
     expect(snap.reps_done).toBe(0);
     expect(snap.set_state).toBe("active");
+    expect(snap.required_clean_streak).toBe(7);
+    expect(snap.effective_required_clean_streak).toBe(7);
+    expect(snap.planned_reps).toBe(12);
+    expect(snap.variants).toEqual([
+      { name: "dotted", reps: 9, clean_streak: 2 },
+      { name: "staccato", reps: 3 },
+    ]);
+    expect(snap.variant).toBe("dotted");
+    expect(snap.variant_stage_index).toBe(0);
+    expect(snap.variant_stage_cleans).toBe(0);
+    expect(snap.variant_stage_required).toBe(2);
+    expect(snap.next_variant_stage_name).toBe("staccato");
+    expect(snap.variant_chain_complete).toBe(false);
+    expect(snap.tuning).toEqual({
+      beat_unit: "dotted_quarter",
+      subdivision: 3,
+      beats_per_bar: 6,
+    });
+  });
+
+  it("uses legacy variant reps as the stage requirement when clean_streak is absent", async () => {
+    const snap = await seamInvoke<RepSnapshot>("rep_open", {
+      args: {
+        piece_id: 1,
+        region_id: null,
+        m_start: 1,
+        m_end: 8,
+        label: null,
+        start_bpm: 60,
+        target_bpm: null,
+        planned_reps: null,
+        required_clean_streak: 1,
+        variants: [{ name: "legacy lane", reps: 4 }],
+        focus: "tempo",
+        use_metronome: true,
+      },
+      context: null,
+    });
+
+    expect(snap.variants).toEqual([{ name: "legacy lane", reps: 4 }]);
+    expect(snap.variant_stage_required).toBe(4);
+    expect(snap.target_bpm).toBeNull();
+  });
+
+  it("uses the native quarter / 1 / 4 tuning defaults when the caller omits tuning", async () => {
+    const snap = await seamInvoke<RepSnapshot>("rep_open", {
+      args: {
+        piece_id: 1,
+        region_id: null,
+        m_start: 1,
+        m_end: 8,
+        label: null,
+        start_bpm: 60,
+        target_bpm: null,
+        planned_reps: null,
+        focus: "tempo",
+        use_metronome: true,
+      },
+      context: null,
+    });
+    expect(snap.tuning).toEqual({
+      beat_unit: "quarter",
+      subdivision: 1,
+      beats_per_bar: 4,
+    });
   });
 
   it("round-trips context.pass_seconds when present, and clears to null when absent", async () => {

@@ -336,7 +336,21 @@ select.ck-input {
   list-style: none;
 }
 .ck-chain-item {
-  align-items: center;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+/* The score composer is only ~300 px wide at the app's 720 px floor. Let the
+   reorder controls wrap onto a second line before either the variant name or
+   its consecutive-clean requirement collapses into an unreadable sliver. */
+.ck-chain-item > .ck-input {
+  flex: 1 1 8rem;
+  width: auto;
+  min-width: 6rem;
+}
+.ck-chain-requirement {
+  flex: 1 1 7.5rem;
+  min-width: 7rem;
+  gap: var(--space-1);
 }
 .ck-chain-index {
   flex: 0 0 auto;
@@ -381,6 +395,76 @@ select.ck-input {
   color: var(--ink-secondary);
   font-size: var(--text-sm);
   white-space: nowrap;
+}
+
+/* A5: per-set metronome tuning lives inside Advanced, not on the already-dense
+   composer face. The grid collapses naturally in the narrow Score sidebar;
+   the form body's existing scroll keeps the pinned Start action reachable at
+   the 720×520 window floor. */
+.ck-tuning {
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--hairline);
+}
+.ck-tuning-note {
+  margin: 0;
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+.ck-tuning-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+.ck-tuning-stepper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ck-tuning-stepper-control {
+  display: grid;
+  grid-template-columns: 30px minmax(2rem, 1fr) 30px;
+  align-items: center;
+  min-height: 36px;
+  background: var(--surface-app);
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.ck-tuning-stepper-control button {
+  align-self: stretch;
+  color: var(--ink-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--text-lg);
+}
+.ck-tuning-stepper-control button:first-child {
+  border-right: 1px solid var(--hairline);
+}
+.ck-tuning-stepper-control button:last-child {
+  border-left: 1px solid var(--hairline);
+}
+.ck-tuning-stepper-control button:hover:not(:disabled) {
+  color: var(--ink-primary);
+  background: var(--surface-hover);
+}
+.ck-tuning-stepper-control button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.ck-tuning-stepper-control button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+.ck-tuning-stepper-control output {
+  color: var(--ink-primary);
+  font-size: var(--text-base);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 /* Primary action: the ink stamp — solid ink fill, paper text (16.8:1). On

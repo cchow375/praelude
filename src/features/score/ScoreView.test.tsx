@@ -25,6 +25,7 @@ import type {
   ScorePdfApi,
 } from "./types";
 import type { AtomicTargetSavePayload } from "./atlas/savePayload";
+import type { RepSnapshot } from "../rep/useRep";
 import { fitContextBucket, sharedFirstPageBitmaps } from "./firstPageCache";
 import {
   publishMeasureMap,
@@ -362,7 +363,7 @@ describe("ScoreView", () => {
         piece_id: 7,
         name: "Sticky run",
         notes: null,
-        m_start: 10,
+        m_start: 1,
         m_end: 14,
         kind: "hard_spot",
         order: 1,
@@ -413,7 +414,7 @@ describe("ScoreView", () => {
 
     expect(rowLabels()).toEqual([
       "Exposition, measures 1 to 100",
-      "Sticky run, measures 10 to 14",
+      "Exposition · Sticky run, measures 1 to 14",
       "Coda, measures 200 to 210",
     ]);
 
@@ -970,7 +971,9 @@ describe("ScoreView", () => {
       }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Sticky run, measures 10 to 14" }),
+      screen.getByRole("button", {
+        name: "Exposition · Sticky run, measures 10 to 14",
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Start set" }));
 
@@ -2387,14 +2390,24 @@ describe("ScoreView measure mapping", () => {
       };
     }
 
-    /** `region_create` has to hand back a real Region receipt — the anchor
-     * write chains off `created.id`, which is the whole fix. */
+    /** The atomic command hands back the already-linked, already-anchored
+     * Region. No follow-up write is part of this flow. */
     function mockCreateReturning(id = 99) {
-      invokeMock.mockImplementation((command: string) =>
-        command === "region_create"
-          ? Promise.resolve({ ...spotChild({ id, pdf_anchor: null }) })
-          : Promise.resolve(undefined),
-      );
+      invokeMock.mockImplementation((command: string, payload?: unknown) => {
+        if (command !== "score_micro_target_create") {
+          return Promise.resolve(undefined);
+        }
+        const args = (payload as { args: Record<string, unknown> }).args;
+        return Promise.resolve(
+          spotChild({
+            ...args,
+            id,
+            notes: null,
+            kind: "hard_spot",
+            order: 1,
+          }),
+        );
+      });
     }
 
     async function selectParent() {
@@ -2454,6 +2467,65 @@ describe("ScoreView measure mapping", () => {
       ).not.toContain("is-spot-armed");
     });
 
+    it("C1: spot mode takes the pointer from pencil and refuses an open mapping edit", async () => {
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([spotParent()]),
+          })}
+          adapter={makePdf(1).adapter}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+
+      fireEvent.click(screen.getByRole("button", { name: "Pencil" }));
+      expect(
+        screen
+          .getByRole("button", { name: "Put pencil down" })
+          .getAttribute("aria-pressed"),
+      ).toBe("true");
+      fireEvent.click(screen.getByRole("button", { name: "⊕ Isolate a spot" }));
+      expect(
+        screen
+          .getByRole("button", { name: "Pencil" })
+          .getAttribute("aria-pressed"),
+      ).toBe("false");
+      expect(
+        screen
+          .getByRole("button", { name: "Cancel — drag inside Rolled Chords" })
+          .getAttribute("aria-pressed"),
+      ).toBe("true");
+
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Cancel — drag inside Rolled Chords",
+        }),
+      );
+      fireEvent.click(screen.getByRole("tab", { name: "Score marks" }));
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Edit score annotations for Rolled Chords",
+        }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "⊕ Isolate a spot" }));
+
+      expect(
+        screen
+          .getByRole("button", { name: "⊕ Isolate a spot" })
+          .getAttribute("aria-pressed"),
+      ).toBe("false");
+      expect(
+        screen.getByText(
+          /Save or cancel the open score-mark edits before isolating a spot/,
+        ),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Save score annotations" }),
+      ).toBeTruthy();
+    });
+
     it("C2: a drag inside the selected parent creates the child outright — no form, no typing, no naming", async () => {
       mockCreateReturning(99);
       const api = makeApi({
@@ -2468,23 +2540,34 @@ describe("ScoreView measure mapping", () => {
 
       await waitFor(() =>
         expect(
-          invokeMock.mock.calls.some(([cmd]) => cmd === "region_create"),
+          invokeMock.mock.calls.some(
+            ([cmd]) => cmd === "score_micro_target_create",
+          ),
         ).toBe(true),
       );
       const create = invokeMock.mock.calls.find(
-        ([cmd]) => cmd === "region_create",
+        ([cmd]) => cmd === "score_micro_target_create",
       )!;
       expect(create[1]).toMatchObject({
-        parent_region_id: 4,
         args: {
           piece_id: 7,
+          parent_region_id: 4,
           name: "Spot 1",
-          notes: null,
-          kind: "hard_spot",
           // Interpolated from where the drag landed inside the parent's own
           // 40–56, with no measure map anywhere — B75's reality.
           m_start: 41,
           m_end: 48,
+          pdf_anchor: {
+            v: 1,
+            editions: {
+              urtext: {
+                fingerprint: "a",
+                rects: [
+                  { page: 1, x: 0.1, y: 0.125, w: 0.4, h: 0.375 },
+                ],
+              },
+            },
+          },
         },
       });
 
@@ -2497,7 +2580,7 @@ describe("ScoreView measure mapping", () => {
       )).not.toBe("true");
     });
 
-    it("C2: writes the dragged rect as the new child's anchor in the SAME flow (the bug that made v7.1.0 useless)", async () => {
+    it("C2: uses exactly one atomic write for linkage, colour, range, and dragged anchor", async () => {
       mockCreateReturning(99);
       const api = makeApi({
         regions: vi.fn().mockResolvedValue([spotParent()]),
@@ -2509,23 +2592,25 @@ describe("ScoreView measure mapping", () => {
       await selectParent();
       await dragOnPageOne();
 
-      await waitFor(() => expect(api.updateRegion).toHaveBeenCalled());
-      expect(api.updateRegion).toHaveBeenCalledWith(99, {
-        v: 1,
-        editions: {
-          urtext: {
-            fingerprint: "a",
-            rects: [{ page: 1, x: 0.1, y: 0.125, w: 0.4, h: 0.375 }],
-          },
-        },
-      });
+      await waitFor(() =>
+        expect(
+          invokeMock.mock.calls.filter(
+            ([cmd]) => cmd === "score_micro_target_create",
+          ),
+        ).toHaveLength(1),
+      );
+      expect(
+        invokeMock.mock.calls.some(([cmd]) => cmd === "region_create"),
+      ).toBe(false);
+      expect(api.updateRegion).not.toHaveBeenCalled();
     });
 
-    it("C2: the button arms creation for a drag that lands outside the parent's own box", async () => {
+    it("C2: an armed drag outside the parent creates nothing, stays armed, and explains why", async () => {
       mockCreateReturning(99);
       const api = makeApi({
-        // A parent with a mark that covers only the top strip: the drag below
-        // ends up outside it, so only the ARMED state can make this a spot.
+        // The drag's centre lands inside this mark, but its right edge spills
+        // out. New writes require the complete box, not legacy-style centre
+        // containment.
         regions: vi.fn().mockResolvedValue([
           spotParent({
             pdf_anchor: {
@@ -2533,7 +2618,7 @@ describe("ScoreView measure mapping", () => {
               editions: {
                 urtext: {
                   fingerprint: "a",
-                  rects: [{ page: 1, x: 0, y: 0, w: 1, h: 0.05 }],
+                  rects: [{ page: 1, x: 0, y: 0, w: 0.35, h: 1 }],
                 },
               },
             },
@@ -2546,28 +2631,80 @@ describe("ScoreView measure mapping", () => {
       await screen.findByLabelText("Score page 1");
       await selectParent();
 
-      // Unarmed, the same drag opens the ordinary top-level add form.
-      await dragOnPageOne();
-      expect(
-        await screen.findByLabelText("New score tricky section title"),
-      ).toBeTruthy();
-      expect(
-        invokeMock.mock.calls.some(([cmd]) => cmd === "region_create"),
-      ).toBe(false);
-
       fireEvent.click(screen.getByRole("button", { name: "⊕ Isolate a spot" }));
       await dragOnPageOne();
-      await waitFor(() =>
-        expect(
-          invokeMock.mock.calls.some(([cmd]) => cmd === "region_create"),
-        ).toBe(true),
+      expect(
+        invokeMock.mock.calls.some(
+          ([cmd]) => cmd === "score_micro_target_create",
+        ),
+      ).toBe(false);
+      expect(
+        await screen.findByText(/Keep the whole box inside Rolled Chords/),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", {
+          name: "Cancel — drag inside Rolled Chords",
+        }).getAttribute("aria-pressed"),
+      ).toBe("true");
+      expect(
+        screen.queryByLabelText("New score tricky section title"),
+      ).toBeNull();
+    });
+
+    it("C2: disables isolation with a plain reason when the parent has no current mark", async () => {
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi
+              .fn()
+              .mockResolvedValue([spotParent({ pdf_anchor: null })]),
+          })}
+          adapter={makePdf(1).adapter}
+        />,
       );
-      // And the arm is spent, not sticky.
-      await waitFor(() =>
-        expect(
-          window.document.querySelector(".score-view")?.className,
-        ).not.toContain("is-spot-armed"),
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+
+      expect(
+        screen.getByRole("button", { name: "⊕ Isolate a spot" }),
+      ).toHaveProperty("disabled", true);
+      expect(
+        screen.getByText(
+          /Mark this section on the current score before isolating a spot/,
+        ),
+      ).toBeTruthy();
+    });
+
+    it("C2: claims the save synchronously so two drags cannot create duplicate Spot 1 rows", async () => {
+      let finish!: (region: unknown) => void;
+      invokeMock.mockImplementation((command: string, payload?: unknown) => {
+        if (command !== "score_micro_target_create")
+          return Promise.resolve(undefined);
+        const args = (payload as { args: Record<string, unknown> }).args;
+        return new Promise((resolve) => {
+          finish = () => resolve(spotChild({ ...args, id: 99 }));
+        });
+      });
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([spotParent()]),
+          })}
+          adapter={makePdf(1).adapter}
+        />,
       );
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+      await dragOnPageOne();
+      await dragOnPageOne();
+      expect(
+        invokeMock.mock.calls.filter(
+          ([cmd]) => cmd === "score_micro_target_create",
+        ),
+      ).toHaveLength(1);
+      finish(spotChild({ id: 99 }));
     });
 
     it("C3: a spot is drawn on the score only while its parent is selected", async () => {
@@ -2582,15 +2719,125 @@ describe("ScoreView measure mapping", () => {
       );
       await screen.findByLabelText("Score page 1");
       expect(
-        screen.queryByRole("button", { name: "Spot 1, box on page 1" }),
+        screen.queryByRole("button", {
+          name: "Rolled Chords · Spot 1, box on page 1",
+        }),
       ).toBeNull();
 
       await selectParent();
       const box = await screen.findByRole("button", {
-        name: "Spot 1, box on page 1",
+        name: "Rolled Chords · Spot 1, box on page 1",
       });
       // Calm styling: a spot must never read as a full tricky section.
       expect(box.className).toContain("is-child");
+    });
+
+    it("C3: recovers the exact live Rolled Chords legacy spot under its parent and preserves sibling context", async () => {
+      const parent = spotParent({
+        id: 26,
+        name: "Rolled Chords Accuracy",
+        m_start: 552,
+        m_end: 576,
+        pdf_anchor: {
+          v: 1,
+          editions: {
+            urtext: {
+              fingerprint: "a",
+              rects: [
+                { page: 19, x: 0.0822, y: 0.0484, w: 0.9038, h: 0.1378 },
+                { page: 19, x: 0.0557, y: 0.2039, w: 0.9363, h: 0.1732 },
+                { page: 19, x: 0.039, y: 0.3901, w: 0.9225, h: 0.1824 },
+                { page: 19, x: 0.096, y: 0.5934, w: 0.8881, h: 0.1541 },
+                { page: 19, x: 0.0862, y: 0.7997, w: 0.121, h: 0.1209 },
+              ],
+            },
+          },
+        },
+      });
+      const legacySpot = spotChild({
+        id: 83,
+        name: "rolled chord end part",
+        m_start: 563,
+        m_end: 573,
+        parent_region_id: null,
+        pdf_anchor: {
+          v: 1,
+          editions: {
+            urtext: {
+              fingerprint: "a",
+              rects: [
+                { page: 19, x: 0.7386, y: 0.2503, w: 0.2375, h: 0.1107 },
+                { page: 19, x: 0.1262, y: 0.4218, w: 0.839, h: 0.143 },
+                { page: 19, x: 0.1625, y: 0.6212, w: 0.3318, h: 0.1125 },
+              ],
+            },
+          },
+        },
+      });
+      const explicitSibling = spotChild({
+        id: 84,
+        name: "last release",
+        m_start: 574,
+        m_end: 575,
+        parent_region_id: 26,
+        pdf_anchor: {
+          v: 1,
+          editions: {
+            urtext: {
+              fingerprint: "a",
+              rects: [
+                { page: 19, x: 0.1, y: 0.81, w: 0.08, h: 0.08 },
+              ],
+            },
+          },
+        },
+      });
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi
+              .fn()
+              .mockResolvedValue([parent, legacySpot, explicitSibling]),
+          })}
+          adapter={makePdf(19).adapter}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      expect(
+        screen.queryByRole("button", {
+          name: /Rolled Chords Accuracy · rolled chord end part, measures/,
+        }),
+      ).toBeNull();
+
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Rolled Chords Accuracy, measures 552 to 576",
+        }),
+      );
+      const legacyRow = await screen.findByRole("button", {
+        name: "Rolled Chords Accuracy · rolled chord end part, measures 563 to 573",
+      });
+      expect(legacyRow.closest(".score-region-item")?.className).toContain(
+        "is-child",
+      );
+      expect(
+        screen.getByRole("button", {
+          name: "Rolled Chords Accuracy · last release, measures 574 to 575",
+        }),
+      ).toBeTruthy();
+
+      fireEvent.click(legacyRow);
+      expect(
+        screen.getByRole("button", {
+          name: "Rolled Chords Accuracy, measures 552 to 576",
+        }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", {
+          name: "Rolled Chords Accuracy · last release, measures 574 to 575",
+        }),
+      ).toBeTruthy();
     });
 
     it("C3: Hide spots removes them from the score and persists per piece", async () => {
@@ -2605,12 +2852,16 @@ describe("ScoreView measure mapping", () => {
       );
       await screen.findByLabelText("Score page 1");
       await selectParent();
-      await screen.findByRole("button", { name: "Spot 1, box on page 1" });
+      await screen.findByRole("button", {
+        name: "Rolled Chords · Spot 1, box on page 1",
+      });
 
       fireEvent.click(screen.getByRole("button", { name: "Hide spots (1)" }));
       await waitFor(() =>
         expect(
-          screen.queryByRole("button", { name: "Spot 1, box on page 1" }),
+          screen.queryByRole("button", {
+            name: "Rolled Chords · Spot 1, box on page 1",
+          }),
         ).toBeNull(),
       );
       expect(invokeMock).toHaveBeenCalledWith("set_setting", {
@@ -2622,7 +2873,8 @@ describe("ScoreView measure mapping", () => {
       ).toBeTruthy();
     });
 
-    it("C4: Practice this appears only on a selected spot and reaches the practice panel", async () => {
+    it("C4: Practice this directly opens a 3-clean contextual set while the row keeps the composer available", async () => {
+      const onOpenBlock = vi.fn().mockResolvedValue(undefined);
       render(
         <ScoreView
           pieceId={7}
@@ -2630,7 +2882,8 @@ describe("ScoreView measure mapping", () => {
             regions: vi.fn().mockResolvedValue([spotParent(), spotChild()]),
           })}
           adapter={makePdf(1).adapter}
-          onOpenBlock={vi.fn()}
+          defaultTargetBpm={96}
+          onOpenBlock={onOpenBlock}
         />,
       );
       await screen.findByLabelText("Score page 1");
@@ -2641,7 +2894,9 @@ describe("ScoreView measure mapping", () => {
       ).toBeNull();
 
       fireEvent.click(
-        screen.getByRole("button", { name: "Spot 1, measures 44 to 46" }),
+        screen.getByRole("button", {
+          name: "Rolled Chords · Spot 1, measures 44 to 46",
+        }),
       );
       const chip = await screen.findByRole("button", {
         name: "Practice this",
@@ -2651,13 +2906,270 @@ describe("ScoreView measure mapping", () => {
 
       fireEvent.click(chip);
       await waitFor(() =>
-        expect(
-          (screen.getByLabelText("From measure") as HTMLInputElement).value,
-        ).toBe("44"),
+        expect(onOpenBlock).toHaveBeenCalledWith({
+          piece_id: 7,
+          region_id: 55,
+          m_start: 44,
+          m_end: 46,
+          label: "Rolled Chords · Spot 1",
+          start_bpm: 60,
+          target_bpm: 96,
+          planned_reps: null,
+          required_clean_streak: 3,
+          increment: null,
+          variants: [],
+          focus: "tempo",
+          use_metronome: true,
+        }),
       );
+      // Selecting the row still exposes the full composer for customization.
+      expect(
+        (screen.getByLabelText("From measure") as HTMLInputElement).value,
+      ).toBe("44");
       expect(
         (screen.getByLabelText("To measure") as HTMLInputElement).value,
       ).toBe("46");
+    });
+
+    it("C4: Practice this resumes the latest paused set for that spot", async () => {
+      const onOpenBlock = vi.fn().mockResolvedValue(undefined);
+      const onResumeSet = vi.fn().mockResolvedValue(undefined);
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([spotParent(), spotChild()]),
+            blocks: vi.fn().mockResolvedValue([
+              {
+                block_id: 901,
+                region_id: 55,
+                set_state: "paused",
+                m_start: 44,
+                m_end: 46,
+                label: "old",
+                start_bpm: 60,
+                bpm: 64,
+                target_bpm: 96,
+                planned_reps: 0,
+                reps_done: 2,
+                status: "open",
+                verdicts: { clean: 2, flawed: 0, failed: 0 },
+                focus: "tempo",
+                use_metronome: true,
+              },
+              {
+                block_id: 900,
+                region_id: 55,
+                set_state: "paused",
+                m_start: 44,
+                m_end: 46,
+                label: "older",
+                start_bpm: 56,
+                bpm: 60,
+                target_bpm: 90,
+                planned_reps: 0,
+                reps_done: 1,
+                status: "open",
+                verdicts: { clean: 1, flawed: 0, failed: 0 },
+                focus: "tempo",
+                use_metronome: true,
+              },
+            ]),
+          })}
+          adapter={makePdf(1).adapter}
+          onOpenBlock={onOpenBlock}
+          onResumeSet={onResumeSet}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Rolled Chords · Spot 1, measures 44 to 46",
+        }),
+      );
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Practice this" }),
+      );
+
+      await waitFor(() => expect(onResumeSet).toHaveBeenCalledWith(901));
+      expect(onOpenBlock).not.toHaveBeenCalled();
+    });
+
+    it("C4: Practice this refreshes blocks and resumes a set paused after Score mounted", async () => {
+      const onOpenBlock = vi.fn().mockResolvedValue(undefined);
+      const onResumeSet = vi.fn().mockResolvedValue(undefined);
+      const blocks = vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            block_id: 902,
+            region_id: 55,
+            set_state: "paused",
+            m_start: 44,
+            m_end: 46,
+            label: "just paused",
+            start_bpm: 60,
+            bpm: 64,
+            target_bpm: 96,
+            planned_reps: 0,
+            reps_done: 2,
+            status: "open",
+            verdicts: { clean: 2, flawed: 0, failed: 0 },
+            focus: "tempo",
+            use_metronome: true,
+          },
+        ]);
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([spotParent(), spotChild()]),
+            blocks,
+          })}
+          adapter={makePdf(1).adapter}
+          onOpenBlock={onOpenBlock}
+          onResumeSet={onResumeSet}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await waitFor(() => expect(blocks).toHaveBeenCalledTimes(1));
+      await selectParent();
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Rolled Chords · Spot 1, measures 44 to 46",
+        }),
+      );
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Practice this" }),
+      );
+
+      await waitFor(() => expect(onResumeSet).toHaveBeenCalledWith(902));
+      expect(blocks).toHaveBeenCalledTimes(2);
+      expect(onOpenBlock).not.toHaveBeenCalled();
+    });
+
+    it("C4: Practice this proves exact region identity before resuming a same-range paused snapshot", async () => {
+      const onOpenBlock = vi.fn().mockResolvedValue(undefined);
+      const onResumeSet = vi.fn().mockResolvedValue(undefined);
+      const blocks = vi.fn().mockResolvedValue([
+        {
+          block_id: 903,
+          region_id: 56,
+          set_state: "paused",
+          m_start: 44,
+          m_end: 46,
+          label: "Rolled Chords · Spot 2",
+          start_bpm: 60,
+          bpm: 64,
+          target_bpm: 96,
+          planned_reps: 0,
+          reps_done: 2,
+          status: "open",
+          verdicts: { clean: 2, flawed: 0, failed: 0 },
+          focus: "tempo",
+          use_metronome: true,
+        },
+        {
+          block_id: 904,
+          region_id: 55,
+          set_state: "paused",
+          m_start: 44,
+          m_end: 46,
+          label: "Rolled Chords · Spot 1",
+          start_bpm: 60,
+          bpm: 64,
+          target_bpm: 96,
+          planned_reps: 0,
+          reps_done: 2,
+          status: "open",
+          verdicts: { clean: 2, flawed: 0, failed: 0 },
+          focus: "tempo",
+          use_metronome: true,
+        },
+      ]);
+      const activeRep = {
+        block_id: 903,
+        piece_id: 7,
+        m_start: 44,
+        m_end: 46,
+        set_state: "paused",
+        timer_state: "paused",
+      } as unknown as RepSnapshot;
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([
+              spotParent(),
+              spotChild(),
+              spotChild({ id: 56, name: "Spot 2" }),
+            ]),
+            blocks,
+          })}
+          adapter={makePdf(1).adapter}
+          activeRep={activeRep}
+          onOpenBlock={onOpenBlock}
+          onResumeSet={onResumeSet}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await waitFor(() => expect(blocks).toHaveBeenCalledTimes(1));
+      await selectParent();
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Rolled Chords · Spot 1, measures 44 to 46",
+        }),
+      );
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Practice this" }),
+      );
+
+      await waitFor(() => expect(onResumeSet).toHaveBeenCalledWith(904));
+      expect(onResumeSet).not.toHaveBeenCalledWith(903);
+      expect(blocks).toHaveBeenCalledTimes(2);
+      expect(onOpenBlock).not.toHaveBeenCalled();
+    });
+
+    it("C4: Practice this explains an active-set conflict without mutating", async () => {
+      const onOpenBlock = vi.fn().mockResolvedValue(undefined);
+      const onResumeSet = vi.fn().mockResolvedValue(undefined);
+      const activeRep = {
+        piece_id: 8,
+        m_start: 1,
+        m_end: 8,
+        set_state: "active",
+        timer_state: "active",
+      } as unknown as RepSnapshot;
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([spotParent(), spotChild()]),
+          })}
+          adapter={makePdf(1).adapter}
+          activeRep={activeRep}
+          onOpenBlock={onOpenBlock}
+          onResumeSet={onResumeSet}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Rolled Chords · Spot 1, measures 44 to 46",
+        }),
+      );
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Practice this" }),
+      );
+
+      expect(
+        await screen.findByText(/Close or pause the active practice set/),
+      ).toBeTruthy();
+      expect(onOpenBlock).not.toHaveBeenCalled();
+      expect(onResumeSet).not.toHaveBeenCalled();
     });
 
     it("C2: an accidental spot can be undone immediately", async () => {

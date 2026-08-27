@@ -1,6 +1,17 @@
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { anchorKind, normalizeDrag } from "./anchors";
 import type { PdfAnchorKind, PdfAnchorRect } from "./types";
+import type {
+  EditionIdentity,
+  PersistentPdfSelectionAnchor,
+} from "./atlas/model";
+import {
+  dragToPersistentSelection,
+  normalizePageLocalDrag,
+  type AnchorError,
+  type DragError,
+  type PageLocalPointer,
+} from "./atlas/selection";
 
 export interface RegionOverlayItem {
   regionId: number;
@@ -34,17 +45,39 @@ export interface RegionCreateDrag {
   onResolve: (rect: PdfAnchorRect) => void;
 }
 
-interface RegionOverlayProps {
+/** The atlas draft now shares the same page layer as persisted Regions. */
+export interface ScoreTargetDraft {
+  edition: EditionIdentity;
+  selectedAnchor: PersistentPdfSelectionAnchor | null;
+  instructionsId: string;
+  disabled?: boolean;
+  onSelection: (anchor: PersistentPdfSelectionAnchor) => void;
+  onSelectionError: (code: DragError | AnchorError, message: string) => void;
+}
+
+export interface RegionOverlayProps {
   pageNumber: number;
   items: RegionOverlayItem[];
   mapping?: RegionMappingDraft | null;
   createDrag?: RegionCreateDrag | null;
+  targetDraft?: ScoreTargetDraft | null;
+  /** False while another score tool owns the page pointer path (for example
+   * pencil or armed spot drawing). Mapping and target drafts also suppress the
+   * chip intrinsically, so the unified overlay cannot route one gesture twice. */
+  practiceChipsEnabled?: boolean;
   onSelect: (regionId: number) => void;
+  /** Render-count seam used only by the memoization regression. */
+  onRenderForTest?: () => void;
 }
 
 interface Point {
   x: number;
   y: number;
+}
+
+interface TargetDrag {
+  pointerId: number;
+  start: PageLocalPointer;
 }
 
 function rectStyle(rect: PdfAnchorRect): React.CSSProperties {
@@ -195,15 +228,20 @@ function EditableDraft({
   );
 }
 
-export function RegionOverlay({
+function ScoreOverlayImpl({
   pageNumber,
   items,
   mapping,
   createDrag,
+  targetDraft,
+  practiceChipsEnabled = true,
   onSelect,
+  onRenderForTest,
 }: RegionOverlayProps) {
+  onRenderForTest?.();
   const [dragStart, setDragStart] = useState<Point | null>(null);
   const [preview, setPreview] = useState<PdfAnchorRect | null>(null);
+  const targetDrag = useRef<TargetDrag | null>(null);
   // `mapping` (editing an existing region's annotations) always wins over
   // `createDrag` (starting a brand-new section) when both are somehow set.
   const activeDrag = mapping
@@ -211,6 +249,19 @@ export function RegionOverlay({
     : createDrag
       ? { tool: "box" as const }
       : null;
+
+  const targetPointer = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ): PageLocalPointer => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return {
+      page: pageNumber,
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+      page_width: bounds.width,
+      page_height: bounds.height,
+    };
+  };
 
   const pointIn = (event: React.PointerEvent<HTMLDivElement>): Point => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -238,11 +289,67 @@ export function RegionOverlay({
     else createDrag?.onResolve(rect);
   };
 
+  const finishTarget = (event: React.PointerEvent<HTMLDivElement>) => {
+    const active = targetDrag.current;
+    if (
+      !targetDraft ||
+      targetDraft.disabled ||
+      !active ||
+      active.pointerId !== event.pointerId
+    ) {
+      return;
+    }
+    const result = dragToPersistentSelection(
+      active.start,
+      targetPointer(event),
+      targetDraft.edition,
+    );
+    targetDrag.current = null;
+    setPreview(null);
+    if (result.ok) targetDraft.onSelection(result.value);
+    else targetDraft.onSelectionError(result.code, result.message);
+  };
+
+  const selectedTargetAnchor = targetDraft?.selectedAnchor ?? null;
+  const visibleTargetSelection =
+    targetDraft &&
+    selectedTargetAnchor &&
+    selectedTargetAnchor.edition_id === targetDraft.edition.edition_id &&
+    selectedTargetAnchor.edition_fingerprint ===
+      targetDraft.edition.edition_fingerprint
+      ? (selectedTargetAnchor.rects.find(
+          (rect) => rect.page === pageNumber,
+        ) ?? null)
+      : null;
+
   return (
     <div
-      className={`score-page-overlay ${mapping ? "is-mapping" : ""} ${createDrag ? "is-create-dragging" : ""}`}
-      data-testid={`page-overlay-${pageNumber}`}
+      className={`score-page-overlay ${mapping ? "is-mapping" : ""} ${createDrag ? "is-create-dragging" : ""} ${targetDraft ? "is-targeting atlas-target-overlay" : ""}`}
+      data-testid={
+        targetDraft
+          ? `atlas-target-overlay-${pageNumber}`
+          : `page-overlay-${pageNumber}`
+      }
+      role={targetDraft ? "region" : undefined}
+      tabIndex={targetDraft ? (targetDraft.disabled ? -1 : 0) : undefined}
+      aria-disabled={targetDraft?.disabled || undefined}
+      aria-label={
+        targetDraft
+          ? `Draw a practice target on PDF page ${pageNumber}`
+          : undefined
+      }
+      aria-describedby={targetDraft?.instructionsId}
       onPointerDown={(event) => {
+        if (targetDraft) {
+          if (targetDraft.disabled || event.button !== 0) return;
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+          targetDrag.current = {
+            pointerId: event.pointerId,
+            start: targetPointer(event),
+          };
+          setPreview(null);
+          return;
+        }
         if (!activeDrag || event.button !== 0) return;
         event.currentTarget.setPointerCapture?.(event.pointerId);
         const point = pointIn(event);
@@ -250,6 +357,22 @@ export function RegionOverlay({
         setPreview(null);
       }}
       onPointerMove={(event) => {
+        if (targetDraft) {
+          const active = targetDrag.current;
+          if (
+            targetDraft.disabled ||
+            !active ||
+            active.pointerId !== event.pointerId
+          ) {
+            return;
+          }
+          const result = normalizePageLocalDrag(
+            active.start,
+            targetPointer(event),
+          );
+          setPreview(result.ok ? result.value : null);
+          return;
+        }
         if (activeDrag && dragStart) {
           const bounds = event.currentTarget.getBoundingClientRect();
           const end = pointIn(event);
@@ -267,8 +390,12 @@ export function RegionOverlay({
           );
         }
       }}
-      onPointerUp={finish}
+      onPointerUp={(event) => {
+        if (targetDraft) finishTarget(event);
+        else finish(event);
+      }}
       onPointerCancel={() => {
+        targetDrag.current = null;
         setDragStart(null);
         setPreview(null);
       }}
@@ -307,7 +434,15 @@ export function RegionOverlay({
         // inside a button is invalid HTML and browsers un-nest it, which
         // would leave the chip somewhere other than where it was drawn.
         const first = pageRects[0];
-        if (item.selected && item.isChild && item.onPractice && first) {
+        if (
+          practiceChipsEnabled &&
+          !mapping &&
+          !targetDraft &&
+          item.selected &&
+          item.isChild &&
+          item.onPractice &&
+          first
+        ) {
           nodes.push(
             <button
               type="button"
@@ -342,9 +477,17 @@ export function RegionOverlay({
             onUpdate={mapping.onUpdateRect}
           />
         ))}
+      {visibleTargetSelection && (
+        <span
+          className="score-region-draft is-target-selection"
+          style={rectStyle(visibleTargetSelection)}
+          data-testid="atlas-target-selection"
+          aria-hidden="true"
+        />
+      )}
       {preview && (
         <span
-          className={`score-region-draft is-live is-${anchorKind(preview)}`}
+          className={`score-region-draft is-live ${targetDraft ? "is-target-preview" : ""} is-${anchorKind(preview)}`}
           style={rectStyle(preview)}
           aria-hidden="true"
         />
@@ -352,3 +495,10 @@ export function RegionOverlay({
     </div>
   );
 }
+
+/** One memoized page overlay for persisted parents/spots and every draft mode. */
+export const ScoreOverlay = memo(ScoreOverlayImpl);
+ScoreOverlay.displayName = "ScoreOverlay";
+
+/** Compatibility export for focused overlay tests and downstream modules. */
+export const RegionOverlay = ScoreOverlay;

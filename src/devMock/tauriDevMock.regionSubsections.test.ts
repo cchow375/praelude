@@ -31,6 +31,29 @@ function createArgs(over: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+function microTargetArgs(over: Partial<Record<string, unknown>> = {}) {
+  return {
+    args: {
+      piece_id: 1,
+      parent_region_id: 11,
+      name: "Spot 1",
+      m_start: 2,
+      m_end: 3,
+      color: "#4ab5f2",
+      pdf_anchor: {
+        v: 1,
+        editions: {
+          "score/score.pdf": {
+            fingerprint: "mock-fp-1",
+            rects: [{ page: 1, x: 0.2, y: 0.2, w: 0.1, h: 0.1 }],
+          },
+        },
+      },
+      ...over,
+    },
+  };
+}
+
 describe("dev-mock region create/delete (Task C5)", () => {
   beforeEach(() => installTauriDevMock());
   afterEach(() => uninstallTauriDevMock());
@@ -45,6 +68,36 @@ describe("dev-mock region create/delete (Task C5)", () => {
     const list = await seamInvoke<Region[]>("region_list", { pieceId: 1 });
     const found = list.find((region) => region.id === created.id);
     expect(found?.parent_region_id).toBe(11);
+  });
+
+  it("creates one complete anchored micro-target through the atomic command", async () => {
+    const created = await seamInvoke<Region>(
+      "score_micro_target_create",
+      microTargetArgs(),
+    );
+    expect(created).toMatchObject({
+      parent_region_id: 11,
+      name: "Spot 1",
+      m_start: 2,
+      m_end: 3,
+      color: "#4ab5f2",
+    });
+    expect(created.pdf_anchor).toMatchObject({ v: 1 });
+
+    const list = await seamInvoke<Region[]>("region_list", { pieceId: 1 });
+    expect(list.filter((region) => region.id === created.id)).toEqual([created]);
+  });
+
+  it("leaves the region list unchanged when atomic validation rejects", async () => {
+    const before = await seamInvoke<Region[]>("region_list", { pieceId: 1 });
+    await expect(
+      seamInvoke(
+        "score_micro_target_create",
+        microTargetArgs({ m_start: 2, m_end: 99 }),
+      ),
+    ).rejects.toMatch(/inside its parent/);
+    const after = await seamInvoke<Region[]>("region_list", { pieceId: 1 });
+    expect(after).toEqual(before);
   });
 
   it("rejects a parent from a different piece", async () => {

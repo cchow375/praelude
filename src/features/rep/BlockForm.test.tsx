@@ -1,4 +1,6 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BlockForm } from "./BlockForm";
 
@@ -8,10 +10,9 @@ const openAdvanced = () =>
   fireEvent.click(screen.getByRole("button", { name: /advanced/i }));
 
 describe("BlockForm payload", () => {
-  // The A3 restructuring must NOT change the wire contract. These two
-  // assert the WHOLE RepOpenArgs object for the frictionless default and
-  // for a run that touches every capability, so any accidental payload
-  // drift fails loudly.
+  // These assert the WHOLE RepOpenArgs object for the frictionless default and
+  // a run that touches every capability. A5 deliberately adds only `tuning`;
+  // any other accidental payload drift still fails loudly.
   it("submits the full default payload with no interaction at all", () => {
     const onOpen = vi.fn();
     render(<BlockForm pieceId={7} onOpen={onOpen} />);
@@ -33,6 +34,11 @@ describe("BlockForm payload", () => {
       variants: [],
       focus: "tempo",
       use_metronome: true,
+      tuning: {
+        beat_unit: "quarter",
+        subdivision: 1,
+        beats_per_bar: 4,
+      },
     });
   });
 
@@ -66,11 +72,11 @@ describe("BlockForm payload", () => {
       target: { value: "8" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Hands separate" }));
-    fireEvent.change(screen.getByLabelText("Variant 1 attempts"), {
+    fireEvent.change(screen.getByLabelText("Variant 1 consecutive cleans"), {
       target: { value: "3" },
     });
 
-    // Only the tempo ladder and the review boundary stay behind "Advanced".
+    // The tempo ladder, review boundary, and metronome tuning stay Advanced.
     openAdvanced();
     fireEvent.click(screen.getByRole("radio", { name: "Manual" }));
     fireEvent.change(screen.getByLabelText("Cleans needed"), {
@@ -82,6 +88,21 @@ describe("BlockForm payload", () => {
     fireEvent.change(screen.getByLabelText("Attempt review boundary"), {
       target: { value: "30" },
     });
+    fireEvent.change(screen.getByLabelText("BPM note value"), {
+      target: { value: "dotted_quarter" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Increase Beats per bar" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Increase Beats per bar" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Increase Subdivision" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Increase Subdivision" }),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Start set" }));
 
@@ -97,9 +118,14 @@ describe("BlockForm payload", () => {
       planned_reps: 30,
       required_clean_streak: 8,
       increment: { clean_needed: 2, bpm_step: 6 },
-      variants: [{ name: "hands separate", reps: 3 }],
+      variants: [{ name: "hands separate", reps: 3, clean_streak: 3 }],
       focus: "tempo",
       use_metronome: true,
+      tuning: {
+        beat_unit: "dotted_quarter",
+        subdivision: 3,
+        beats_per_bar: 6,
+      },
     });
   });
 });
@@ -124,6 +150,14 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
     expect(
       (screen.getByLabelText("Variant 1 name") as HTMLInputElement).value,
     ).toBe("staccato");
+    expect(screen.getByText("Consecutive cleans")).toBeTruthy();
+    expect(
+      (
+        screen.getByLabelText(
+          "Variant 1 consecutive cleans",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("5");
   });
 
   it("adds a custom free-text variant and remembers it as a chip", () => {
@@ -178,12 +212,93 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
     expect(screen.queryByLabelText(/attempt review boundary/i)).toBeNull();
     expect(screen.queryByRole("radio", { name: "Manual" })).toBeNull();
     expect(screen.queryByLabelText("One pass seconds")).toBeNull();
+    expect(screen.queryByLabelText("BPM note value")).toBeNull();
 
     openAdvanced();
     expect(
       await screen.findByLabelText(/attempt review boundary/i),
     ).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Manual" })).toBeTruthy();
+    expect(screen.getByLabelText("BPM note value")).toBeTruthy();
+  });
+});
+
+describe("BlockForm per-set metronome tuning (A5)", () => {
+  it("labels BPM with a note value without converting the entered BPM", () => {
+    const onOpen = vi.fn();
+    render(<BlockForm pieceId={1} onOpen={onOpen} />);
+    fireEvent.change(screen.getByLabelText("Start bpm"), {
+      target: { value: "96" },
+    });
+    openAdvanced();
+    fireEvent.change(screen.getByLabelText("BPM note value"), {
+      target: { value: "eighth" },
+    });
+    expect(
+      screen.getByText(/Changing this label never converts or changes the BPM/i),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+
+    const args = onOpen.mock.calls[0][0];
+    expect(args.start_bpm).toBe(96);
+    expect(args.tuning).toEqual({
+      beat_unit: "eighth",
+      subdivision: 1,
+      beats_per_bar: 4,
+    });
+  });
+
+  it("rehydrates stored tuning and submits it unchanged on reopen", () => {
+    const onOpen = vi.fn();
+    render(
+      <BlockForm
+        pieceId={1}
+        defaultTuning={{
+          beat_unit: "dotted_quarter",
+          subdivision: 3,
+          beats_per_bar: 6,
+        }}
+        onOpen={onOpen}
+      />,
+    );
+    openAdvanced();
+
+    expect(
+      (screen.getByLabelText("BPM note value") as HTMLSelectElement).value,
+    ).toBe("dotted_quarter");
+    expect(
+      within(screen.getByRole("group", { name: "Beats per bar" })).getByText(
+        "6",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByRole("group", { name: "Subdivision" })).getByText(
+        "3",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+    expect(onOpen.mock.calls[0][0].tuning).toEqual({
+      beat_unit: "dotted_quarter",
+      subdivision: 3,
+      beats_per_bar: 6,
+    });
+  });
+
+  it("keeps Advanced in the scroll body and Start set pinned outside it at the dense floor", () => {
+    const { container } = render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    openAdvanced();
+    const body = container.querySelector(".block-form-body") as HTMLElement;
+    const start = screen.getByRole("button", { name: "Start set" });
+    expect(body.contains(screen.getByLabelText("BPM note value"))).toBe(true);
+    expect(body.contains(start)).toBe(false);
+
+    // jsdom has no layout engine, so pin the actual CSS contract that makes
+    // the structure safe at 720×520; screenshot QA remains the pixel proof.
+    const css = readFileSync(join(process.cwd(), "src/ui/forms.css"), "utf8");
+    expect(css).toMatch(/\.block-form\s*\{[^}]*max-height:\s*100vh/s);
+    expect(css).toMatch(/\.block-form-body\s*\{[^}]*overflow-y:\s*auto/s);
   });
 });
 
@@ -196,9 +311,8 @@ describe("BlockForm pass-seconds estimate (Task A10)", () => {
 
     expect(onOpen).toHaveBeenCalledTimes(1);
     // A single positional argument — no second `context` argument at all,
-    // not even `undefined` or `null` — so a caller wired straight to
-    // `rep.open` sees the exact same invoke args as before this field
-    // existed (rep.open defaults a missing context to `null` itself).
+    // not even `undefined` or `null`. A5's additive tuning stays inside that
+    // first RepOpenArgs object.
     expect(onOpen.mock.calls[0]).toHaveLength(1);
     expect(onOpen).toHaveBeenCalledWith({
       piece_id: 7,
@@ -214,6 +328,11 @@ describe("BlockForm pass-seconds estimate (Task A10)", () => {
       variants: [],
       focus: "tempo",
       use_metronome: true,
+      tuning: {
+        beat_unit: "quarter",
+        subdivision: 1,
+        beats_per_bar: 4,
+      },
     });
   });
 

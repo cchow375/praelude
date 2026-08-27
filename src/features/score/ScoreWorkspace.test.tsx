@@ -281,12 +281,16 @@ describe("ScoreWorkspace", () => {
       return Promise.resolve(undefined);
     });
     const onOpenBlock = vi.fn().mockResolvedValue(undefined);
+    const onResumeSet = vi.fn().mockResolvedValue(undefined);
+    const activeRep = { block_id: 77 } as never;
 
     render(
       <ScoreWorkspace
         onOpenBlock={onOpenBlock}
+        onResumeSet={onResumeSet}
         defaultCleanStreak={4}
         isActive={false}
+        activeRep={activeRep}
       />,
     );
 
@@ -295,6 +299,7 @@ describe("ScoreWorkspace", () => {
     expect(typeof props.onOpenBlock).toBe("function");
     expect(props.defaultCleanStreak).toBe(4);
     expect(props.isActive).toBe(false);
+    expect(props.activeRep).toBe(activeRep);
 
     // The forwarded handler must reach the shell's rep.open.
     const args = {
@@ -305,6 +310,8 @@ describe("ScoreWorkspace", () => {
     };
     await props.onOpenBlock?.(args as never);
     expect(onOpenBlock).toHaveBeenCalledWith(args);
+    await props.onResumeSet?.(901);
+    expect(onResumeSet).toHaveBeenCalledWith(901);
   });
 
   it("lifts the selected piece and exact Score focus into Brain context", async () => {

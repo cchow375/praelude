@@ -48,11 +48,19 @@ describe("dev-mock rep_undo handler", () => {
     const undone = await seamInvoke<CheckOutcome>("rep_undo");
 
     expect(undone.snap.block_id).toBe(102);
-    expect(undone.snap.attempts_recorded).toBe(first.snap.attempts_recorded);
+    // Undo appends a void adjustment; it does not erase the physical attempt.
+    expect(undone.snap.attempts_recorded).toBe(
+      second.snap.attempts_recorded,
+    );
+    expect(undone.snap.tries).toBe(first.snap.tries);
+    expect(undone.snap.reps_done).toBe(first.snap.reps_done);
+    expect(undone.snap.verdicts).toEqual(first.snap.verdicts);
+    expect(undone.snap.accuracy).toBe(first.snap.accuracy);
     // The undone attempt's streak contribution is given back, not guessed.
     expect(undone.snap.current_clean_streak).toBe(
       first.snap.current_clean_streak,
     );
+    expect(undone.snap.best_clean_streak).toBe(first.snap.best_clean_streak);
     // The HUD keys receipt de-dupe on last_attempt_id: it must fall back to the
     // attempt that is now latest, not stay on the one that was just voided.
     expect(undone.snap.last_attempt_id).toBe(first.snap.last_attempt_id);

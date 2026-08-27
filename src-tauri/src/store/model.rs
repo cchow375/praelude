@@ -772,7 +772,9 @@ pub struct RepSnapshot {
     /// Clean reps accumulated at the current rung; resets to 0 on a step.
     pub cleans_at_step: u32,
     pub rule: IncrementRule,
-    /// The variant the *next* rep belongs to, if the block has variants.
+    /// The current clean-streak chain stage, if the block has variants. This is
+    /// also the variant attributed to the next attempt; Sloppy/Again never move
+    /// it merely by increasing the raw attempt count.
     pub variant: Option<String>,
     pub variants: Vec<VariantSpec>,
     pub verdicts: VerdictCounts,

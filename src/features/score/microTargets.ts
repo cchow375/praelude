@@ -1,3 +1,4 @@
+import { anchorForEdition } from "./anchors";
 import type { PdfAnchorRect } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -28,6 +29,115 @@ import type { PdfAnchorRect } from "./types";
 export interface MeasureRange {
   m_start: number;
   m_end: number;
+}
+
+/** The minimum Region shape needed to recover legacy parent/spot relationships.
+ * Keeping this structural avoids coupling the pure geometry helper to the
+ * pieces UI module. */
+export interface ParentableRegion extends MeasureRange {
+  id: number;
+  parent_region_id: number | null;
+  pdf_anchor: unknown | null;
+}
+
+/**
+ * Resolve the effective parent of every Region for the visible score edition.
+ *
+ * Explicit `target_meta.parent_region_id` is authoritative. Older Regions have
+ * no such link, so an unparented Region is treated as a legacy spot only when
+ * all of the evidence is unambiguous:
+ *
+ * - its measure range is strictly contained by the candidate parent;
+ * - both Regions have anchors for this exact edition + fingerprint;
+ * - every child-rect centre falls inside a parent rect on the same page; and
+ * - exactly one candidate satisfies all three rules.
+ *
+ * Ambiguity deliberately resolves to top-level. Guessing a parent would hide a
+ * real tricky section under the wrong passage, which is worse than leaving the
+ * legacy row visible.
+ */
+export function effectiveParentIds(
+  regions: ParentableRegion[],
+  editionId: string | null | undefined,
+  fingerprint: string | null | undefined,
+): Map<number, number | null> {
+  const resolved = new Map<number, number | null>();
+  const inferred = new Map<number, number | null>();
+  const explicitParentIds = new Set(
+    regions.flatMap((region) =>
+      region.parent_region_id == null ? [] : [region.parent_region_id],
+    ),
+  );
+  for (const region of regions) {
+    if (region.parent_region_id != null) {
+      resolved.set(region.id, region.parent_region_id);
+      continue;
+    }
+    if (!editionId || !fingerprint) {
+      inferred.set(region.id, null);
+      continue;
+    }
+    // An explicit child already makes this Region a real parent. Never infer
+    // that parent under another legacy box: doing so would invent a second
+    // nesting level and make its authoritative child relationship impossible
+    // to present honestly.
+    if (explicitParentIds.has(region.id)) {
+      inferred.set(region.id, null);
+      continue;
+    }
+    const childAnchor = anchorForEdition(
+      region.pdf_anchor,
+      editionId,
+      fingerprint,
+    );
+    if (!childAnchor || childAnchor.rects.length === 0) {
+      inferred.set(region.id, null);
+      continue;
+    }
+    const candidates = regions.filter((candidate) => {
+      if (candidate.id === region.id || candidate.parent_region_id != null)
+        return false;
+      const rangeContained =
+        region.m_start >= candidate.m_start &&
+        region.m_end <= candidate.m_end &&
+        (region.m_start > candidate.m_start || region.m_end < candidate.m_end);
+      if (!rangeContained) return false;
+      const parentAnchor = anchorForEdition(
+        candidate.pdf_anchor,
+        editionId,
+        fingerprint,
+      );
+      if (!parentAnchor || parentAnchor.rects.length === 0) return false;
+      return childAnchor.rects.every((childRect) => {
+        const cx = childRect.x + childRect.w / 2;
+        const cy = childRect.y + childRect.h / 2;
+        return parentAnchor.rects.some(
+          (parentRect) =>
+            parentRect.page === childRect.page &&
+            cx >= parentRect.x &&
+            cx <= parentRect.x + parentRect.w &&
+            cy >= parentRect.y &&
+            cy <= parentRect.y + parentRect.h,
+        );
+      });
+    });
+    inferred.set(region.id, candidates.length === 1 ? candidates[0].id : null);
+  }
+  for (const region of regions) {
+    if (region.parent_region_id != null) continue;
+    const parentId = inferred.get(region.id) ?? null;
+    // Resolve a contrived geometry chain conservatively. A legacy Region that
+    // is itself inferred under another Region cannot simultaneously become a
+    // parent; otherwise presentation would invent a nesting level the native
+    // model deliberately cannot store.
+    resolved.set(
+      region.id,
+      parentId != null && (inferred.get(parentId) ?? null) != null
+        ? null
+        : parentId,
+    );
+  }
+  return resolved;
 }
 
 /** Reading order across a parent's annotation rects: page, then row, then

@@ -1174,6 +1174,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
             <div hidden={view !== "score"} data-testid="score-shell-cache">
               <ScoreWorkspace
                 onOpenBlock={rep.open}
+                onResumeSet={rep.resumeSet}
                 defaultCleanStreak={defaultCleanStreak}
                 onPracticeContextChange={setScorePracticeContext}
                 requestedPieceId={requestedScorePiece.pieceId}

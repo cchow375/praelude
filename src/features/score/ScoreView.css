@@ -437,6 +437,13 @@
   cursor: crosshair;
   pointer-events: auto;
 }
+.score-page-overlay.is-targeting {
+  cursor: crosshair;
+  pointer-events: auto;
+}
+.score-page-overlay.is-targeting .score-region-anchor {
+  pointer-events: none;
+}
 
 .score-region-anchor,
 .score-region-draft {
@@ -446,7 +453,7 @@
   border-radius: 4px;
   background: color-mix(
     in srgb,
-    var(--region-color, var(--accent)) 12%,
+    var(--region-color, var(--accent)) 10%,
     transparent
   );
 }
@@ -485,7 +492,7 @@
   opacity: 1;
   background: color-mix(
     in srgb,
-    var(--region-color, var(--accent)) 24%,
+    var(--region-color, var(--accent)) 18%,
     transparent
   );
   box-shadow: 0 0 0 3px
@@ -561,6 +568,23 @@
 
 .score-region-draft.is-live {
   --region-color: var(--accent);
+}
+
+/* B3: target drafts and persisted Regions now share the same overlay skin.
+   Committed selection is calm/solid; the transient drag is lighter/dashed. */
+.score-region-draft.is-target-selection,
+.score-region-draft.is-target-preview {
+  --region-color: var(--accent);
+  border-width: 2px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.score-region-draft.is-target-selection {
+  border-style: solid;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.score-region-draft.is-target-preview {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .score-region-panel {
@@ -738,6 +762,21 @@
 .score-region-item.is-expanded {
   border-color: color-mix(in srgb, var(--accent) 32%, var(--hairline));
   background: var(--surface-app);
+}
+.score-region-item.is-child {
+  margin-left: var(--space-4);
+  border-left-color: color-mix(in srgb, var(--accent) 24%, var(--hairline));
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.score-region-item.is-child .score-region-row {
+  min-height: 40px;
+  padding-left: var(--space-3);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+.score-region-item.is-child .score-region-dot {
+  width: 5px;
+  height: 20px;
+  opacity: 0.72;
 }
 
 .score-region-row {
@@ -1369,6 +1408,12 @@
 .score-spot-arm.is-armed {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, var(--surface-app));
+}
+.score-spot-arm:disabled {
+  border-color: var(--hairline);
+  color: var(--ink-tertiary);
+  background: var(--surface-hover);
+  cursor: not-allowed;
 }
 .score-spot-visibility {
   min-height: 32px;

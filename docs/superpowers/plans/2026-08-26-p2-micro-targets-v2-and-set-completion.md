@@ -1,9 +1,12 @@
 # P2 — Micro-targets v2, set completion, voice silence
 
 **Status:** approved by Christian's 2026-08-26 feedback message (which supersedes
-the P2 slot's original sequencing).
-**Releases:** v7.1.1 (Tasks A + B, ships first — they block practice today),
-then v7.2.0 (Task C, the headline rebuild).
+the P2 slot's original sequencing). Tasks A–C and the verifier corrections below
+shipped and were installed as v7.2.0 on 2026-08-27. All source and release-script gates,
+package/install verification and live before/after DB checks passed. Christian's native/
+at-piano acceptance verdict remains owed.
+**Release:** one v7.2.0 release containing Tasks A + B + C. The earlier split-release idea
+was abandoned before either corrective slice shipped; there is no intermediate release/tag.
 
 ---
 
@@ -13,8 +16,10 @@ Christian's verdict on what v7.1.0 shipped: *"the sub section selecgtion box is
 terrible. you didnt listen to what i wanted."* That is a correct judgement, and the
 plan below argues from his own words rather than from the spec's paraphrase of them.
 
-Three defects, in his priority order but not his fix order — A and B are small and
-block every set he runs today, so they ship first.
+Three defects, in his priority order but not his implementation order — A and B are
+small and block every set he runs today, so they were built first. Adversarial review
+then found correctness dependencies across all three slices, so they ship together as
+one verified v7.2.0 rather than manufacturing an intermediate release boundary.
 
 ### What he actually asked for (Aug 8 notes, verbatim)
 
@@ -63,7 +68,7 @@ friction problem, and the fix belongs almost entirely in `ScoreView.tsx`.
 
 ---
 
-## Task A — Silence the spoken acks (v7.1.1)
+## Task A — Silence the spoken acks (v7.2.0)
 
 **His ask:** *"i dont want the voice to talk when i say again or restart sets or
 anything just have that turned off for now."*
@@ -94,7 +99,7 @@ value falls back to muted. Existing `tts_gate.rs` / `tts_live.rs` are unaffected
 because the flag defaults to *unmuted* inside the `tts` crate boundary — only the app
 sets it false.
 
-## Task B — The set must finish itself (v7.1.1)
+## Task B — The set must finish itself (v7.2.0)
 
 **His ask:** *"when i hit 5 out of 5 it just stays at 5/5 and i have to close the set,
 manually X the one i just did and move onto the next variation it doesnt do it
@@ -142,7 +147,9 @@ count down from 6 s and then call the existing close path. The HUD shows a compl
 banner — "Set complete · closing in 4…" — with a **"Stay open"** button that cancels
 the countdown permanently for that set. Explicitly *not* instantaneous, per his
 parenthesis. The countdown is cancelled by any new attempt, by pausing, and by
-closing manually; it never fires twice for one set.
+closing manually; recovery cancels it synchronously. The fire path rechecks the live
+completion boundary immediately before close, so a callback already queued cannot overtake
+recovered work. It never fires twice for one set.
 
 The banner carries `data-compact-visible` so B82 cannot repeat — it must be visible
 at 720×520 collapsed, and the screenshot proves it.
@@ -156,7 +163,9 @@ why the advance was invisible. Promote it.
 **Tests.** Chain + target tempo does not satisfy at stage one (this test fails against
 today's code — that is the point); chain completion satisfies with or without a
 target; countdown fires once, cancels on "Stay open", cancels on a new attempt;
-headline shows stage progress while chained; density test at 720×520.
+recovery cancels synchronously and a fire-boundary recheck rejects stale completion;
+each intermediate stage chimes exactly once; headline shows stage progress while chained;
+density test at 720×520.
 
 ## Task C — Micro-targets v2 (v7.2.0)
 
@@ -189,8 +198,11 @@ On pointer-up the child **exists**. No form, no dialog.
   shouldnt even really matter what measure numbers it records"* — and it is the piece
   that makes zero typing possible on his real, unmapped scores.
 - **Anchor:** the dragged rect is written as the child's `pdf_anchor` for the current
-  edition **in the same operation**. No second drag. This is the single biggest
-  friction removal.
+  edition **in the same operation**. No second drag. The verifier strengthened this
+  from a frontend create→colour→anchor sequence to the dedicated
+  `score_micro_target_create` Rust command: Region, parent linkage, colour, anchor and
+  event commit in one SQLite transaction, with an injected-failure test proving no
+  anchorless orphan can survive. This is the single biggest friction removal.
 - **Undo:** a toast — "Spot 2 · Undo" — for ~8 s. An instant-create gesture needs an
   instant escape; without it an accidental drag leaves litter.
 
@@ -210,22 +222,86 @@ shown in a screenshot.
 
 ### C4 — One click to practise
 
-A selected child shows a **"Practice this"** chip on the box itself. It opens the
-composer prefilled — child's range, parent's context, 3-in-a-row (the existing
-sub-section default, `ScoreView.tsx:2553-2560`) — or resumes that child's paused set
-if one exists. Click box → click chip → first rep. Two gestures, which is the spec's
-stated acceptance bar.
+A selected child shows a **"Practice this"** chip on the box itself. The verifier
+rejected a first implementation that merely selected the child and opened the composer.
+The real action now resumes the latest paused set for that spot when one exists;
+otherwise it starts a 3-clean contextual set immediately. If another set is active it
+explains the conflict and performs no mutation. The row still opens the prefilled
+composer for customization. Resume identity is the exact Region ID, so siblings that share an
+estimated measure range cannot alias. The chip is absent while another score pointer mode owns the
+page. Click box → click chip → first rep. Two gestures, which is the spec's stated acceptance bar.
 
 **Tests.** Interpolation across single-rect, multi-rect and multi-page parents, and
 the clamp; name numbering including after a delete; creation writes the anchor in one
-call (asserted against the mock, since this is the bug that made the feature useless);
-score-side gating; hide toggle persists; "Practice this" prefill; undo removes the
-region; 720×520 screenshots **showing the button and a spot box**, per §4b.
+transaction with forced-failure rollback; score-side gating; hide toggle persists;
+"Practice this" direct-start, paused-set resume and active-set conflict; undo removes
+the region; 720×520 screenshots **showing the button and a spot box**, per §4b.
 
 **Acceptance (his words, not mine):** he selects Rolled Chords Accuracy, clicks the
 button, drags over half a measure, and is practising it — having typed nothing and
 named nothing. And tomorrow he selects Rolled Chords Accuracy and the spot is still
 there.
+
+---
+
+## Verifier additions and accepted corrections (shipped in v7.2.0)
+
+The first implementation satisfied its own tests but not the real-data/user-action
+contract. These additions are part of the release, not optional polish:
+
+- **Legacy contained-box recovery.** Christian's live Scherzo already has the small
+  `rolled chord end part` box geometrically inside `Rolled Chords Accuracy`, but both
+  rows predate parent linkage. An unparented Region is treated as a legacy spot only
+  when its measure range is strictly contained, both anchors match the current edition
+  and fingerprint, every child-rect centre lies in the candidate parent's rects, and
+  exactly one parent qualifies. Explicit linkage always wins; ambiguity stays
+  top-level; an inferred child cannot become an inferred parent. This is a read-model
+  compatibility rule, not a silent live-DB rewrite.
+- **Atomic + fully contained creation.** Armed mode requires an anchored top-level
+  parent and keeps the whole drawn rect inside one parent rect — centre-point-only
+  acceptance was too weak. The Rust transaction independently revalidates same piece,
+  one-level nesting, contained measures, matching edition/fingerprint and full geometry
+  containment. A synchronous pending ref prevents double pointer-up from creating two
+  `Spot 1` rows. Honest residual: `score_micro_target_create` has no independent request-
+  replay/idempotency key. If its transaction commits but the success response is lost, a
+  later retry could create a duplicate; the same-tick UI guard does not cover that case.
+  No duplicate was observed, and transactional atomicity is not being stretched into an
+  idempotency claim.
+- **Practice means practice.** `Practice this` now takes the resume/start path described
+  in C4; opening or scrolling the composer alone did not satisfy the acceptance bar. Paused
+  matching uses exact `region_id`, not only the estimated measure range, so same-range sibling
+  spots cannot resume one another. The chip is suppressed while any score pointer mode owns the
+  page, preventing it from intercepting a draw/map/target gesture.
+- **Variant attribution follows the chain stage.** The old attempt-count lane advanced a
+  displayed/snapshotted variant on Sloppy or Again while the clean-streak stage stayed
+  put. Production attribution now comes from `variant_stage.index`, the same projection
+  that governs advancement and mastery; regression tests pin Sloppy/Again and preserve
+  the no-chain/legacy behavior.
+- **Completion cannot overtake recovery.** Recovery synchronously cancels a pending auto-close,
+  and the timer performs a final live-boundary recheck before calling close. Intermediate variant
+  stages chime exactly once at their transition; final mastery remains the separate completion
+  boundary.
+- **The devMock keeps one dynamic rep snapshot.** `rep_state`, verdict receipts, pause,
+  resume, checkpoint and undo all read/update the same state; `block_done` tracks
+  mastery. No handler may spread the frozen fixture over a later mutation and rewind
+  the state the browser just produced.
+- **A1/A5 scope correction.** v7.1.0 shipped A1's settings fields and A5's tuning model
+  only in the backend/wire layer. v7.2.0 adds the missing Settings controls for
+  demotion and the Advanced composer controls for beat unit, beats per bar and
+  subdivision. Beat unit remains a label for the entered click rate, never a hidden BPM
+  conversion. This closes the user-facing overclaim recorded for v7.1.0, not every
+  wider P1 wish: a per-set demotion override and RepHud quick-subdivision control are
+  still absent and must not be described as delivered.
+- **E3 shipped in v7.2.0.** The Universe now teaches the
+  earned-only law when zero, one or two systems have evidence and removes the teaching
+  strip at three; it grants no stars, rings or progress. The 720×520 flow is verified.
+- **B3 shipped in v7.2.0.** `ScoreView` mounts one
+  memoized `ScoreOverlay` per page for persisted Region parents/spots, measure-mapping
+  and create state, and the atlas target draft. The parity regression renders persisted
+  parent/child boxes beside an atlas draft through the exact same DOM/pointer path and
+  completes a normalized target selection; the render-count regression proves unchanged
+  props do not repaint the memoized overlay. Both are green; package and installed-app
+  checks passed with the release.
 
 ---
 
@@ -237,6 +313,18 @@ partials zero false mutations (Task A touches the voice path, so this gate is li
 devMock covers every new command · 720×520 screenshots showing the affordance itself ·
 §4b 10-second find-it test.
 
-No schema change in either release — Task A is a setting, Task B is derived, Task C
-reuses `target_meta.parent_region_id`. So no migration rehearsal is required, and that
-claim is verified by diffing `migrations.rs` before release, not assumed.
+No schema change in v7.2.0 — Task A is a setting, Task B is derived, Task C reuses
+`target_meta.parent_region_id`, and A5 uses v7.1.0's existing `tuning_json`. So no
+migration rehearsal is required, and that claim is verified by diffing `migrations.rs`
+before release, not assumed.
+
+**Release result (2026-08-27):** vitest **2,499 passed / 1 skipped / 0 failed**; native
+tests **1,049 passed / 19 ignored / 0 failed**, with `filtered out: 0` on every target;
+`tsc --noEmit` clean; strict clippy clean; all five narrated corpora at zero false mutations;
+all eight release-script gates passed. The installed plist/version and identifier are correct,
+codesign and the DMG checksum verify, a fresh installed process launched, and the live DB was
+identical before/after (schema 16, integrity OK, 10 pieces / 228 blocks / 2,026 reps / 44
+sessions / 0 open). No migration or rehearsal ran. `docs/qa/v7.2.0/README.md` maps the accepted
+720×520 browser-mock frames and weaker exploratory frames. Those frames still do not prove native
+speech/TTS/audio or at-piano behavior. Assistant remains OFF and gated; this plan did no Assistant
+work.

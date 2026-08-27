@@ -372,4 +372,202 @@ describe("RegionOverlay", () => {
         .className,
     ).not.toContain("is-child");
   });
+
+  it("Task C4/B3: every pointer-owning mode suppresses the Practice chip on the unified overlay", () => {
+    const item = {
+      regionId: 55,
+      label: "Spot 1",
+      color: "#4ab5f2",
+      selected: true,
+      active: false,
+      isChild: true,
+      onPractice: vi.fn(),
+      rects: [{ page: 1, x: 0.1, y: 0.2, w: 0.2, h: 0.1 }],
+    };
+    const { rerender } = render(
+      <RegionOverlay pageNumber={1} items={[item]} onSelect={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: "Practice this" })).toBeTruthy();
+
+    // Mapping a different region still owns the whole page's pointer path.
+    rerender(
+      <RegionOverlay
+        pageNumber={1}
+        items={[item]}
+        mapping={{
+          regionId: 99,
+          label: "Other region",
+          color: null,
+          draftRects: [],
+          tool: "box",
+          onAddRect: vi.fn(),
+          onUpdateRect: vi.fn(),
+        }}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Practice this" })).toBeNull();
+
+    rerender(
+      <RegionOverlay
+        pageNumber={1}
+        items={[item]}
+        targetDraft={{
+          edition: { edition_id: "urtext", edition_fingerprint: "a" },
+          selectedAnchor: null,
+          instructionsId: "instructions",
+          onSelection: vi.fn(),
+          onSelectionError: vi.fn(),
+        }}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Practice this" })).toBeNull();
+
+    // ScoreView uses this shared gate for pencil and armed-spot modes.
+    rerender(
+      <RegionOverlay
+        pageNumber={1}
+        items={[item]}
+        practiceChipsEnabled={false}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Practice this" })).toBeNull();
+  });
+
+  it("B3: one overlay preserves persisted parent/child boxes while drawing an atlas draft", () => {
+    const onSelection = vi.fn();
+    const onSelectionError = vi.fn();
+    const { container } = render(
+      <RegionOverlay
+        pageNumber={1}
+        items={[
+          {
+            regionId: 4,
+            label: "Rolled Chords",
+            color: "#8b7cf6",
+            selected: true,
+            active: false,
+            isChild: false,
+            rects: [{ page: 1, x: 0.05, y: 0.1, w: 0.9, h: 0.7 }],
+          },
+          {
+            regionId: 55,
+            label: "Rolled Chords · Spot 1",
+            color: "#4ab5f2",
+            selected: false,
+            active: false,
+            isChild: true,
+            rects: [{ page: 1, x: 0.2, y: 0.2, w: 0.2, h: 0.1 }],
+          },
+        ]}
+        targetDraft={{
+          edition: { edition_id: "urtext", edition_fingerprint: "a" },
+          selectedAnchor: {
+            schema_version: 1,
+            edition_id: "urtext",
+            edition_fingerprint: "a",
+            rects: [{ page: 1, x: 0.6, y: 0.6, w: 0.1, h: 0.1 }],
+          },
+          instructionsId: "instructions",
+          onSelection,
+          onSelectionError,
+        }}
+        onSelect={vi.fn()}
+      />,
+    );
+    const overlay = screen.getByTestId("atlas-target-overlay-1");
+    // Region and atlas content share this exact DOM/pointer path — no sibling
+    // overlay can drift in geometry or repaint independently.
+    expect(container.querySelectorAll(".score-page-overlay")).toHaveLength(1);
+    expect(container.querySelectorAll(".atlas-target-overlay")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /Rolled Chords, box/ })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Rolled Chords · Spot 1, box/ })
+        .className,
+    ).toContain("is-child");
+    expect(screen.getByTestId("atlas-target-selection")).toBeTruthy();
+
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 800,
+      width: 1000,
+      height: 800,
+      toJSON: () => ({}),
+    } as DOMRect);
+    fireEvent.pointerDown(overlay, {
+      pointerId: 2,
+      button: 0,
+      clientX: 100,
+      clientY: 160,
+    });
+    fireEvent.pointerMove(overlay, {
+      pointerId: 2,
+      clientX: 300,
+      clientY: 320,
+    });
+    expect(container.querySelector(".is-target-preview")).toBeTruthy();
+    fireEvent.pointerUp(overlay, {
+      pointerId: 2,
+      clientX: 300,
+      clientY: 320,
+    });
+    expect(onSelection).toHaveBeenCalledWith({
+      schema_version: 1,
+      edition_id: "urtext",
+      edition_fingerprint: "a",
+      rects: [{ page: 1, x: 0.1, y: 0.2, w: 0.2, h: 0.2 }],
+    });
+    expect(onSelectionError).not.toHaveBeenCalled();
+  });
+
+  it("B3: memoization skips an unchanged overlay render", () => {
+    const onSelect = vi.fn();
+    const onRenderForTest = vi.fn();
+    const items = [
+      {
+        regionId: 7,
+        label: "Legacy box",
+        color: null,
+        selected: false,
+        active: false,
+        isChild: false,
+        rects: [{ page: 1, x: 0.1, y: 0.2, w: 0.3, h: 0.1 }],
+      },
+    ];
+    const view = render(
+      <RegionOverlay
+        pageNumber={1}
+        items={items}
+        onSelect={onSelect}
+        onRenderForTest={onRenderForTest}
+      />,
+    );
+    expect(onRenderForTest).toHaveBeenCalledTimes(1);
+
+    view.rerender(
+      <RegionOverlay
+        pageNumber={1}
+        items={items}
+        onSelect={onSelect}
+        onRenderForTest={onRenderForTest}
+      />,
+    );
+    expect(onRenderForTest).toHaveBeenCalledTimes(1);
+
+    view.rerender(
+      <RegionOverlay
+        pageNumber={2}
+        items={items}
+        onSelect={onSelect}
+        onRenderForTest={onRenderForTest}
+      />,
+    );
+    expect(onRenderForTest).toHaveBeenCalledTimes(2);
+  });
 });

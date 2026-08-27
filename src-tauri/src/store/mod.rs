@@ -41,7 +41,9 @@ pub use measure_map::{MapBar, MapBarSource, MapSystem, MeasureMapPage, MeasureMa
 // `pub(crate)` is enough and keeps it out of any external contract.
 pub(crate) use measure_map::measure_map_payload_defects;
 pub(crate) use practice_v2::{command_id as v2_command_id, validate_open as v2_validate_open};
-pub use score_atlas::{AtomicTargetSavePayload, CalibrationPoint, CalibrationView};
+pub use score_atlas::{
+    AtomicMicroTargetCreate, AtomicTargetSavePayload, CalibrationPoint, CalibrationView,
+};
 pub use score_marks::{ScoreMark, ScorePageMarks};
 pub use session_plan::{SessionPlanStartOutcome, SessionPlanStartPayload};
 pub use streaks::{

@@ -52,6 +52,31 @@ describe("dev-mock settings_update handler", () => {
     // suite inherits another suite's writes.
     expect(snapshot.theme).toBe("light");
   });
+
+  it("starts with the native demotion defaults and remembers an edited policy", async () => {
+    const initial =
+      await seamInvoke<MockSettingsSnapshot>("settings_snapshot");
+    expect(initial).toMatchObject({
+      demote_enabled: true,
+      demote_first: 3,
+      demote_repeat: 2,
+    });
+
+    await seamInvoke("settings_update", {
+      patch: {
+        demote_enabled: false,
+        demote_first: 4,
+        demote_repeat: 3,
+      },
+    });
+    const updated =
+      await seamInvoke<MockSettingsSnapshot>("settings_snapshot");
+    expect(updated).toMatchObject({
+      demote_enabled: false,
+      demote_first: 4,
+      demote_repeat: 3,
+    });
+  });
 });
 
 // Christian's 2026-08-24 request flipped the REAL backend's assistant_enabled

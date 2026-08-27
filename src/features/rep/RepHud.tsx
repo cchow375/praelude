@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type {
+  BeatUnit,
   LastRep,
   RecoveryActionRequest,
   RepSnapshot,
@@ -35,9 +36,9 @@ export interface RepHudProps {
   onReflect: (reflection: string) => Promise<void>;
   onSafetyStop: (reason?: string | null) => Promise<void>;
   onRecover: (action: RecoveryActionRequest) => Promise<void>;
-  onClose: () => void;
-  /** Test-only override for the A1 demotion-moment chime; production always
-   * uses `new Audio("/chime.wav")` — the same file `ClockPanel` plays. */
+  onClose: () => Promise<void>;
+  /** Test-only override for acknowledgement chimes; production always uses
+   * `new Audio("/chime.wav")` — the same file `ClockPanel` plays. */
   audioFactory?: AudioFactory;
 }
 
@@ -104,6 +105,16 @@ interface StageCelebration {
  * the rung celebration so it reads, not flashes.
  */
 const DEMOTION_MOMENT_MS = 1200;
+
+const BEAT_UNIT_DISPLAY: Record<
+  BeatUnit,
+  { mark: string; spokenLabel: string }
+> = {
+  quarter: { mark: "♩", spokenLabel: "Quarter note" },
+  eighth: { mark: "♪", spokenLabel: "Eighth note" },
+  dotted_quarter: { mark: "♩.", spokenLabel: "Dotted quarter note" },
+  half: { mark: "𝅗𝅥", spokenLabel: "Half note" },
+};
 
 /** Test-only override; production always uses `new Audio(...)` — same shape
  * as `ClockPanel`'s `AudioFactory`, not a new audio path. */
@@ -180,6 +191,8 @@ export function RepHud({
   const prevStageCleansRef = useRef<number | null>(null);
   const prevStageRequiredRef = useRef<number | null>(null);
   const prevStageNameRef = useRef<string | null>(null);
+  const prevStageIndexRef = useRef<number | null>(null);
+  const prevStageAttemptIdRef = useRef<number | null>(null);
   const restartTriggerRef = useRef<HTMLButtonElement>(null);
   const restartConfirmRef = useRef<HTMLButtonElement>(null);
   // React state does not update until the next render, so keep a same-tick
@@ -305,20 +318,26 @@ export function RepHud({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastAttemptId]);
 
-  // B3: hold the FILLED stage when a clean clears one. The stage counter drops
-  // to 0 in the same snapshot that advances the chain (and again when a
-  // completed chain restarts at a stepped tempo), so without this the headline
-  // would fall to 0 as the direct consequence of a clean — the exact defect the
-  // rung celebration above exists to prevent, one level down.
+  // B3: hold the FILLED stage when a newly committed clean advances forward
+  // to the next named variant. This is intentionally an intermediate-stage
+  // acknowledgement: Undo, final completion, same-stage recovery cleans, and
+  // a chain restart at a new tempo must not replay it.
   useEffect(() => {
     if (!snap || snap.variant_stage_index == null) {
       setStageCelebration(null);
       return;
     }
     const prevCleans = prevStageCleansRef.current;
+    const previousIndex = prevStageIndexRef.current;
+    const currentIndex = snap.variant_stage_index;
+    const previousAttemptId = prevStageAttemptIdRef.current;
     const cleared =
       prevCleans != null &&
-      (snap.variant_stage_cleans ?? 0) <= prevCleans &&
+      previousIndex != null &&
+      currentIndex > previousIndex &&
+      snap.variant_chain_complete !== true &&
+      lastAttemptId != null &&
+      (previousAttemptId == null || lastAttemptId > previousAttemptId) &&
       snap.last?.verdict === "clean";
     if (!cleared) {
       setStageCelebration(null);
@@ -328,6 +347,11 @@ export function RepHud({
       filled: prevStageRequiredRef.current ?? prevCleans,
       name: prevStageNameRef.current,
     });
+    void audioFactory("/chime.wav")
+      .play()
+      .catch(() => {
+        // A blocked acknowledgement must never interrupt the rep hot loop.
+      });
     const timer = window.setTimeout(
       () => setStageCelebration(null),
       RUNG_CELEBRATION_MS,
@@ -351,6 +375,8 @@ export function RepHud({
       stageIndex == null
         ? null
         : (snap?.variants?.[stageIndex]?.name ?? snap?.variant ?? null);
+    prevStageIndexRef.current = stageIndex;
+    prevStageAttemptIdRef.current = snap?.last_attempt_id ?? null;
   });
 
   // The recovery desk stays closed until the pianist opens it — auto-opening
@@ -477,6 +503,10 @@ export function RepHud({
 
   const runRecovery = async (action: RecoveryActionRequest) => {
     if (busy) return;
+    // Recovery means the pianist has explicitly chosen to keep working. Stop
+    // the completion timer synchronously, before the native mutation starts,
+    // so its final queued tick cannot race the recovery write with rep_close.
+    completion.cancel();
     setBusy("recovery");
     try {
       await onRecover(action);
@@ -551,6 +581,13 @@ export function RepHud({
       ? celebration.filledStreak
       : streakRequired;
   const headlineBpm = celebration ? celebration.atBpm : snap.bpm;
+  // A5: BPM is already the click rate for the note value captured on this
+  // set. This is display metadata only — never multiply or divide the number.
+  const beatUnit = BEAT_UNIT_DISPLAY[snap.tuning?.beat_unit ?? "quarter"];
+  const beatMark = beatUnit.mark;
+  const tuningDetail = snap.tuning
+    ? `${snap.tuning.beats_per_bar} beats/bar · subdivision ${snap.tuning.subdivision}`
+    : null;
   const verified = repMasteryVerified(snap);
   const mastery = repMasteryStatus(snap);
   const mastered = verified && mastery === "satisfied";
@@ -628,7 +665,13 @@ export function RepHud({
             className="rep-hud-chip rep-hud-close"
             aria-label="Close practice set"
             disabled={busy != null}
-            onClick={onClose}
+            // `useRep.close` rejects after publishing its visible error so the
+            // auto-completion hook can retry once. A manual click has no retry
+            // policy, so absorb that already-reported rejection here instead
+            // of leaving an unhandled promise in the browser.
+            onClick={() =>
+              void Promise.resolve(onClose()).catch(() => undefined)
+            }
           >
             Close
           </button>
@@ -677,7 +720,7 @@ export function RepHud({
                     : ", last variation in the chain"
                 }`
               : celebration
-                ? `Rung ${celebration.filledStreak} of ${celebration.filledStreak} clean at ♩${celebration.atBpm} — stepping to ♩${celebration.nextBpm}`
+                ? `Rung ${celebration.filledStreak} of ${celebration.filledStreak} clean at ${beatMark}${celebration.atBpm} — stepping to ${beatMark}${celebration.nextBpm}`
                 : climbingToTarget
                   ? `Clean streak at this rung ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}, climbing to ${snap.target_bpm} BPM`
                   : `${tempoMastery ? "Mastery proof at target" : "Current clean streak"} ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}`
@@ -697,11 +740,16 @@ export function RepHud({
           )}
           {snap.focus === "tempo" || snap.use_metronome ? (
             headlineBpm != null && (
-              <span className="rep-hud-tempo">
-                ♩ {headlineBpm}
+              <span
+                className="rep-hud-tempo"
+                aria-label={`${beatUnit.spokenLabel} ${headlineBpm} BPM${
+                  tuningDetail ? `, ${tuningDetail}` : ""
+                }`}
+              >
+                {beatMark} {headlineBpm}
                 {celebration ? (
                   <span className="rep-hud-step-receipt">
-                    {" ✓ → ♩"}
+                    {` ✓ → ${beatMark}`}
                     {celebration.nextBpm}
                   </span>
                 ) : (
@@ -712,6 +760,12 @@ export function RepHud({
                     </span>
                   )
                 )}
+                {tuningDetail && (
+                  <span className="rep-hud-tuning-detail">
+                    {" · "}
+                    {tuningDetail}
+                  </span>
+                )}
               </span>
             )
           ) : (
@@ -719,15 +773,17 @@ export function RepHud({
           )}
           {celebration ? (
             <span className="rep-hud-climb" role="status">
-              Rung cleared — stepping to ♩{celebration.nextBpm}
+              Rung cleared — stepping to {beatMark}
+              {celebration.nextBpm}
               {celebration.belowTarget && snap.target_bpm != null
-                ? `, climbing to ♩${snap.target_bpm}`
+                ? `, climbing to ${beatMark}${snap.target_bpm}`
                 : ""}
             </span>
           ) : (
             climbingToTarget && (
               <span className="rep-hud-climb" role="status">
-                Climbing to ♩{snap.target_bpm} — then {requiredStreak ?? "—"}{" "}
+                Climbing to {beatMark}
+                {snap.target_bpm} — then {requiredStreak ?? "—"}{" "}
                 clean in a row
               </span>
             )
@@ -747,7 +803,8 @@ export function RepHud({
               role="status"
               data-compact-visible="true"
             >
-              Tempo pulled back to ♩{demotionBpm}
+              Tempo pulled back to {beatMark}
+              {demotionBpm}
             </span>
           )}
           {/* A1: let him see a demotion coming instead of being surprised by

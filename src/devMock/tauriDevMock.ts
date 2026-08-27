@@ -50,6 +50,7 @@ import type {
   RepOpenArgs,
   RepSnapshot,
   RetentionCheckView,
+  VariantSpec,
   Verdict,
 } from "../features/rep/useRep";
 import type { MutationReceipt } from "../features/receipts/ReceiptCenter";
@@ -285,7 +286,15 @@ const SEED_REGIONS: Record<number, Region[]> = {
       kind: "phrase",
       order: 0,
       color: null,
-      pdf_anchor: null,
+      pdf_anchor: {
+        v: 1,
+        editions: {
+          "score/score.pdf": {
+            fingerprint: "mock-fp-1",
+            rects: [{ page: 1, x: 0.1, y: 0.1, w: 0.8, h: 0.8 }],
+          },
+        },
+      },
       parent_region_id: null,
     },
     {
@@ -951,9 +960,10 @@ function universeSnapshot(): UniverseSnapshot {
   };
 }
 
-// A live, PAUSED active set so the shell-level Rep HUD renders in the static
-// harness. Paused (timer_state) keeps the HUD's focused-time checkpoint interval
-// from firing against the mock (which has no rep_checkpoint receipt).
+// Seed for the one live, ACTIVE set rendered by the static harness. Runtime
+// mutations never spread this seed directly: `mockRepSnapshot` below is the
+// single current snapshot returned by reads and receipts, so a check/pause/
+// resume/checkpoint cannot silently rewind fields changed by an earlier command.
 const MOCK_REP_STATE: RepSnapshot = {
   block_id: 102,
   piece_id: 1,
@@ -975,6 +985,11 @@ const MOCK_REP_STATE: RepSnapshot = {
   status: "active",
   focus: "tempo",
   use_metronome: true,
+  tuning: {
+    beat_unit: "quarter",
+    subdivision: 1,
+    beats_per_bar: 4,
+  },
   attempts_recorded: 4,
   tries: 4,
   voided_attempts: 0,
@@ -992,7 +1007,7 @@ const MOCK_REP_STATE: RepSnapshot = {
   last_attempt_id: 4402,
   last_adjustment_id: null,
   active_seconds: 372,
-  timer_state: "paused",
+  timer_state: "active",
   intention: "Even development voicing",
   judging_axis: "pulse",
   hands: "together",
@@ -1005,24 +1020,36 @@ const MOCK_REP_STATE: RepSnapshot = {
 // counters below. Reset in `installTauriDevMock()` so tests don't bleed state.
 let mockSetState: "active" | "paused" = "active";
 let mockPausedSets: PausedSetRow[] = [];
+let mockRepSnapshot: RepSnapshot = { ...MOCK_REP_STATE };
+// Mirrors `RepEngine.active`: a terminal snapshot is returned once from
+// `rep_close`, then the engine holds no current set and `rep_state` reads null.
+let mockRepIsOpen = true;
 
-// Task A4b fix round 1 (folded minor a): deliberately DISTINCT from
-// `MOCK_REP_STATE.block_id` (102) — if the frontend ever dropped `setId` off
-// a paused-row Resume call (regressing back to the pre-A4b no-target
-// command), this mismatch would make the resume hit the rejection branch
-// below instead of silently "succeeding" against the wrong id.
-const MOCK_PAUSED_SET_ID = 5102;
+/** Merge one native-like mutation into the authoritative dev-mock snapshot.
+ * State/timer always travel together in this toy backend, just as every
+ * pause/resume/check receipt below promises. */
+function updateMockRepSnapshot(
+  patch: Partial<RepSnapshot> = {},
+): RepSnapshot {
+  mockRepSnapshot = {
+    ...mockRepSnapshot,
+    set_state: mockSetState,
+    timer_state: mockSetState,
+    ...patch,
+  };
+  return mockRepSnapshot;
+}
 
 function mockPausedRow(): PausedSetRow {
   return {
-    set_id: MOCK_PAUSED_SET_ID,
-    block_id: MOCK_PAUSED_SET_ID,
-    piece_id: MOCK_REP_STATE.piece_id,
-    piece_title: MOCK_REP_STATE.piece_title,
-    m_start: MOCK_REP_STATE.m_start,
-    m_end: MOCK_REP_STATE.m_end,
-    bpm: MOCK_REP_STATE.bpm ?? 0,
-    target_bpm: MOCK_REP_STATE.target_bpm ?? 0,
+    set_id: mockRepSnapshot.block_id,
+    block_id: mockRepSnapshot.block_id,
+    piece_id: mockRepSnapshot.piece_id,
+    piece_title: mockRepSnapshot.piece_title,
+    m_start: mockRepSnapshot.m_start,
+    m_end: mockRepSnapshot.m_end,
+    bpm: mockRepSnapshot.bpm ?? 0,
+    target_bpm: mockRepSnapshot.target_bpm ?? 0,
     paused_since_ts: new Date().toISOString(),
     current_clean_streak: mockCleanStreak,
   };
@@ -1030,12 +1057,12 @@ function mockPausedRow(): PausedSetRow {
 
 function repPauseReceipt(commandId: string): MutationReceipt<RepSnapshot> {
   mockSetState = "paused";
-  mockPausedSets = [mockPausedRow()];
-  const snap: RepSnapshot = {
-    ...MOCK_REP_STATE,
-    set_state: "paused",
-    timer_state: "paused",
-  };
+  const paused = mockPausedRow();
+  mockPausedSets = [
+    ...mockPausedSets.filter((row) => row.set_id !== paused.set_id),
+    paused,
+  ];
+  const snap = updateMockRepSnapshot();
   return {
     receipt_id: `mock-receipt-pause-${Date.now()}`,
     command_id: commandId,
@@ -1094,9 +1121,9 @@ export function setMockPausedSetsAfterResume(
 // passes the specific row's `set_id`; the rep HUD's own Resume chip still
 // omits it — that's `undefined`, not a mismatch, and is accepted). The mock
 // only ever simulates ONE live block, so there is no second set to
-// auto-pause here — a `setId` that doesn't match `MOCK_PAUSED_SET_ID`
-// simulates the real backend's "only a paused practice set can resume"
-// rejection rather than silently resuming the wrong thing.
+// auto-pause here. A targeted resume still has to name a row in the paused
+// store, exactly like native; this keeps custom sets opened during browser QA
+// resumable by their real block id instead of a frozen fixture id.
 function repResumeReceipt(
   commandId: string,
   setId?: number,
@@ -1117,7 +1144,10 @@ function repResumeReceipt(
       committed_ts: null,
     };
   }
-  if (setId != null && setId !== MOCK_PAUSED_SET_ID) {
+  if (
+    setId != null &&
+    !mockPausedSets.some((paused) => paused.set_id === setId)
+  ) {
     return {
       receipt_id: `mock-receipt-resume-rejected-${Date.now()}`,
       command_id: commandId,
@@ -1136,14 +1166,10 @@ function repResumeReceipt(
   mockSetState = "active";
   const autoPaused = mockPausedSetsAfterResume;
   mockPausedSets = autoPaused ?? [];
-  const snap: RepSnapshot = {
-    ...MOCK_REP_STATE,
-    set_state: "active",
-    timer_state: "active",
-  };
+  const snap = updateMockRepSnapshot();
   const summary =
     autoPaused != null && autoPaused.length > 0
-      ? `Paused ${autoPaused[0].piece_title} \u{b7} Resumed ${MOCK_REP_STATE.piece_title}`
+      ? `Paused ${autoPaused[0].piece_title} \u{b7} Resumed ${mockRepSnapshot.piece_title}`
       : "Practice resumed.";
   return {
     receipt_id: `mock-receipt-resume-${Date.now()}`,
@@ -1173,12 +1199,9 @@ let mockCheckpointedSeconds = MOCK_REP_STATE.active_seconds ?? 0;
 
 function repCheckpointReceipt(commandId: string): MutationReceipt<RepSnapshot> {
   mockCheckpointedSeconds += 15;
-  const snap: RepSnapshot = {
-    ...MOCK_REP_STATE,
-    set_state: mockSetState,
-    timer_state: mockSetState,
+  const snap = updateMockRepSnapshot({
     active_seconds: mockCheckpointedSeconds,
-  };
+  });
   return {
     receipt_id: `mock-receipt-checkpoint-${Date.now()}`,
     command_id: commandId,
@@ -1212,28 +1235,102 @@ export function mockLastOpenedPassSeconds(): number | null {
 function repOpenSnapshot(args: unknown, context: unknown): RepSnapshot {
   const a = (args ?? {}) as Partial<RepOpenArgs>;
   const c = (context ?? {}) as { pass_seconds?: number | null };
+  const variants = normalizeMockVariants(a.variants);
+  const requiredCleanStreak =
+    typeof a.required_clean_streak === "number" &&
+    Number.isFinite(a.required_clean_streak) &&
+    a.required_clean_streak >= 1
+      ? Math.round(a.required_clean_streak)
+      : 5;
+  const initialVariantStage = mockVariantStage(variants, []);
+  const startBpm =
+    a.start_bpm === undefined
+      ? MOCK_REP_STATE.start_bpm
+      : (a.start_bpm ?? 0);
   mockLastPassSeconds = c.pass_seconds ?? null;
   mockSetState = "active";
-  mockPausedSets = [];
-  return {
+  mockRepIsOpen = true;
+  // Native `rep_open` may replace a tracked PAUSED set with a new active set,
+  // but the old set remains durably paused and visible in the tray. Do not
+  // erase paused rows merely because another set opened.
+  mockCheckpointedSeconds = 0;
+  mockRepSnapshot = {
     ...MOCK_REP_STATE,
     piece_id: a.piece_id ?? MOCK_REP_STATE.piece_id,
     m_start: a.m_start ?? MOCK_REP_STATE.m_start,
     m_end: a.m_end ?? MOCK_REP_STATE.m_end,
-    label: a.label ?? MOCK_REP_STATE.label,
-    bpm: a.start_bpm ?? MOCK_REP_STATE.bpm,
-    start_bpm: a.start_bpm ?? MOCK_REP_STATE.start_bpm,
-    target_bpm: a.target_bpm ?? MOCK_REP_STATE.target_bpm,
-    planned_reps: a.planned_reps ?? MOCK_REP_STATE.planned_reps,
+    label: a.label === undefined ? MOCK_REP_STATE.label : a.label,
+    bpm:
+      a.start_bpm === undefined ? MOCK_REP_STATE.bpm : (a.start_bpm ?? null),
+    start_bpm: startBpm,
+    target_bpm:
+      a.target_bpm === undefined ? MOCK_REP_STATE.target_bpm : a.target_bpm,
+    planned_reps:
+      variants.length > 0
+        ? variants.reduce((sum, variant) => sum + variant.reps, 0)
+        : (a.planned_reps ?? requiredCleanStreak),
     focus: a.focus ?? MOCK_REP_STATE.focus,
     use_metronome: a.use_metronome ?? MOCK_REP_STATE.use_metronome,
+    tuning: a.tuning ?? MOCK_REP_STATE.tuning,
+    variants,
+    variant:
+      initialVariantStage == null
+        ? null
+        : (variants[initialVariantStage.index]?.name ?? null),
     reps_done: 0,
+    cleans_at_step: 0,
+    attempts_recorded: 0,
+    tries: 0,
+    voided_attempts: 0,
     verdicts: { clean: 0, flawed: 0, failed: 0 },
     last: null,
+    last_attempt_id: null,
+    current_clean_streak: 0,
+    mastery_progress_streak: 0,
+    best_clean_streak: 0,
+    reset_count: 0,
+    accuracy: null,
+    required_clean_streak: requiredCleanStreak,
+    effective_required_clean_streak: requiredCleanStreak,
+    mastery_status: "not_satisfied",
+    mastery_verified: true,
+    variant_stage_index: initialVariantStage?.index ?? null,
+    variant_stage_cleans: initialVariantStage?.cleans ?? 0,
+    variant_stage_required: initialVariantStage?.required ?? 0,
+    next_variant_stage_name:
+      initialVariantStage == null
+        ? null
+        : (variants[initialVariantStage.index + 1]?.name ?? null),
+    variant_chain_complete: initialVariantStage?.complete ?? false,
     set_state: "active",
     timer_state: "active",
     active_seconds: 0,
   };
+  // A newly opened set has a fresh effective ledger, while attempt ids remain
+  // globally increasing just as native database ids do.
+  configureMockRepLedger(mockRepSnapshot, false);
+  return mockRepSnapshot;
+}
+
+/** Native `rep_close` returns the final terminal projection once, clears the
+ * in-memory active slot, and excludes that set from the paused-set query. */
+function repCloseSnapshot(): RepSnapshot | null {
+  if (!mockRepIsOpen) return null;
+
+  if (mockSetState === "paused") {
+    mockPausedSets = mockPausedSets.filter(
+      (row) => row.set_id !== mockRepSnapshot.block_id,
+    );
+  }
+  const mastered = mockRepSnapshot.mastery_status === "satisfied";
+  mockRepSnapshot = {
+    ...mockRepSnapshot,
+    status: mastered ? "done" : "abandoned",
+    set_state: mastered ? "mastered" : "closed_unresolved",
+    timer_state: "stopped",
+  };
+  mockRepIsOpen = false;
+  return mockRepSnapshot;
 }
 
 // Sample attempt rows so a Ledger block drill-in (`reps_for_block`) shows real
@@ -1339,9 +1436,15 @@ const REPS_BY_BLOCK: Record<number, Rep[]> = {
 // Clean/Sloppy/Again clicks each advance the count and carry a distinct
 // attempt id (the receipt de-dupe keys on `last_attempt_id`).
 let mockAttemptSeq = MOCK_REP_STATE.last_attempt_id ?? 4402;
+/** Physical immutable attempt rows. Undo never decrements this count. */
 let mockAttempts = MOCK_REP_STATE.attempts_recorded ?? 4;
 let mockCleanStreak = MOCK_REP_STATE.current_clean_streak ?? 3;
 let mockVoided = MOCK_REP_STATE.voided_attempts ?? 0;
+let mockLedgerBaseTries = MOCK_REP_STATE.tries ?? MOCK_REP_STATE.reps_done;
+let mockLedgerBaseVerdicts = { ...MOCK_REP_STATE.verdicts };
+let mockLedgerBaseBestStreak = MOCK_REP_STATE.best_clean_streak ?? 0;
+let mockLedgerBaseLast = MOCK_REP_STATE.last;
+let mockLedgerBaseLastAttemptId = MOCK_REP_STATE.last_attempt_id ?? null;
 
 /** One recorded attempt, kept only so `rep_undo` can walk the ledger BACK. */
 interface MockAttemptEntry {
@@ -1350,6 +1453,8 @@ interface MockAttemptEntry {
   note: string | null;
   /** The clean streak as it stood BEFORE this attempt — what undo restores. */
   streakBefore: number;
+  /** The clean streak after this attempt, used to re-project best streak. */
+  streakAfter: number;
 }
 
 /**
@@ -1360,13 +1465,95 @@ interface MockAttemptEntry {
  */
 let mockAttemptLog: MockAttemptEntry[] = [];
 
+function normalizeMockVariants(
+  variants: VariantSpec[] | undefined,
+): VariantSpec[] {
+  return (variants ?? []).map((variant) => {
+    const reps = Number.isFinite(variant.reps)
+      ? Math.max(1, Math.round(variant.reps))
+      : 1;
+    const cleanStreak =
+      variant.clean_streak == null || !Number.isFinite(variant.clean_streak)
+        ? undefined
+        : Math.max(1, Math.round(variant.clean_streak));
+    return cleanStreak == null
+      ? { name: variant.name, reps }
+      : { name: variant.name, reps, clean_streak: cleanStreak };
+  });
+}
+
+interface MockVariantStage {
+  index: number;
+  cleans: number;
+  required: number;
+  complete: boolean;
+}
+
+function mockVariantRequirement(variant: VariantSpec): number {
+  const raw = variant.clean_streak ?? variant.reps;
+  return Number.isFinite(raw) ? Math.max(1, Math.round(raw)) : 1;
+}
+
+/** Native A2 replay semantics: Flawed resets this stage; Failed/Again is a
+ * mis-start and therefore neither advances nor resets it. */
+function mockVariantStage(
+  variants: VariantSpec[],
+  verdicts: Verdict[],
+): MockVariantStage | null {
+  if (variants.length === 0) return null;
+  let index = 0;
+  let cleans = 0;
+  let complete = false;
+  for (const verdict of verdicts) {
+    if (complete) break;
+    if (verdict === "clean") {
+      cleans += 1;
+      if (cleans >= mockVariantRequirement(variants[index])) {
+        if (index + 1 < variants.length) {
+          index += 1;
+          cleans = 0;
+        } else {
+          complete = true;
+        }
+      }
+    } else if (verdict === "flawed") {
+      cleans = 0;
+    }
+  }
+  return {
+    index,
+    cleans,
+    required: mockVariantRequirement(variants[index]),
+    complete,
+  };
+}
+
+function configureMockRepLedger(
+  base: RepSnapshot,
+  resetAttemptSequence: boolean,
+): void {
+  if (resetAttemptSequence) {
+    mockAttemptSeq = base.last_attempt_id ?? 4402;
+  }
+  mockAttempts = base.attempts_recorded ?? base.tries ?? base.reps_done;
+  mockCleanStreak = base.current_clean_streak ?? 0;
+  mockVoided = base.voided_attempts ?? 0;
+  mockLedgerBaseTries = base.tries ?? base.reps_done;
+  mockLedgerBaseVerdicts = { ...base.verdicts };
+  mockLedgerBaseBestStreak = base.best_clean_streak ?? 0;
+  mockLedgerBaseLast = base.last;
+  mockLedgerBaseLastAttemptId = base.last_attempt_id ?? null;
+  mockAttemptLog = [];
+}
+
 /** Restore the rep ledger counters to their seeded values (per install). */
 function resetMockRepLedger(): void {
-  mockAttemptSeq = MOCK_REP_STATE.last_attempt_id ?? 4402;
-  mockAttempts = MOCK_REP_STATE.attempts_recorded ?? 4;
-  mockCleanStreak = MOCK_REP_STATE.current_clean_streak ?? 3;
-  mockVoided = MOCK_REP_STATE.voided_attempts ?? 0;
-  mockAttemptLog = [];
+  configureMockRepLedger(MOCK_REP_STATE, true);
+  mockRepSnapshot = {
+    ...MOCK_REP_STATE,
+    set_state: mockSetState,
+    timer_state: mockSetState,
+  };
 }
 
 // Books panel (D3): the four built-ins the native manifest bootstraps, plus any
@@ -1558,11 +1745,103 @@ function mockBookExcerpt(args: unknown): {
 
 /**
  * A committed CheckOutcome consistent with the `rep_state` mock (block 102).
- * This is a MOCK, not a simulation: it advances the attempt ledger just enough
- * for the HUD to reconcile the returned snapshot and land a GREEN receipt. No
- * mastery/tempo logic is emulated — `new_bpm` stays null so no metronome side
- * effect fires, and `block_done` stays false.
+ * This is a deliberately small simulation: it advances the attempt ledger and
+ * derives streak mastery so finished-set UI is reachable in offline QA. Tempo
+ * ladder/demotion logic is still out of scope, so `new_bpm` remains null and no
+ * metronome side effect fires.
  */
+/** Consecutive cleans this mocked set needs to be finished. Mirrors the real
+ * projection's preference for the EFFECTIVE requirement over the contracted
+ * one, so a recovery bump would be honoured here the way it is natively. */
+function masteryRequirement(): number {
+  return (
+    mockRepSnapshot.effective_required_clean_streak ??
+    mockRepSnapshot.required_clean_streak ??
+    5
+  );
+}
+
+function projectMockLedger(): {
+  patch: Partial<RepSnapshot>;
+  masteryStatus: "satisfied" | "not_satisfied";
+} {
+  const verdicts = { ...mockLedgerBaseVerdicts };
+  for (const attempt of mockAttemptLog) {
+    verdicts[attempt.verdict] += 1;
+  }
+  const tries = mockLedgerBaseTries + mockAttemptLog.length;
+  const bestCleanStreak = Math.max(
+    mockLedgerBaseBestStreak,
+    ...mockAttemptLog.map((attempt) => attempt.streakAfter),
+  );
+  const latest = mockAttemptLog[mockAttemptLog.length - 1] ?? null;
+  const variants = mockRepSnapshot.variants ?? [];
+  const variantStage = mockVariantStage(
+    variants,
+    mockAttemptLog.map((attempt) => attempt.verdict),
+  );
+  // A chain can withhold ordinary/effective mastery until every stage clears,
+  // but it cannot manufacture mastery when that underlying proof is still
+  // short (including an effective requirement raised by recovery).
+  const ordinaryMasterySatisfied = mockCleanStreak >= masteryRequirement();
+  const masteryStatus =
+    variantStage != null
+      ? variantStage.complete && ordinaryMasterySatisfied
+        ? "satisfied"
+        : "not_satisfied"
+      : ordinaryMasterySatisfied
+        ? "satisfied"
+        : "not_satisfied";
+  const variantPatch: Partial<RepSnapshot> =
+    variantStage == null
+      ? {
+          variant_stage_index: null,
+          variant_stage_cleans: 0,
+          variant_stage_required: 0,
+          next_variant_stage_name: null,
+          variant_chain_complete: false,
+        }
+      : {
+          variant: variants[variantStage.index]?.name ?? null,
+          variant_stage_index: variantStage.index,
+          variant_stage_cleans: variantStage.cleans,
+          variant_stage_required: variantStage.required,
+          next_variant_stage_name: variantStage.complete
+            ? null
+            : (variants[variantStage.index + 1]?.name ?? null),
+          variant_chain_complete: variantStage.complete,
+        };
+
+  return {
+    masteryStatus,
+    patch: {
+      verdicts,
+      // Append-only fidelity: this counts physical attempt rows, including a
+      // row later voided by Undo. Effective counters below exclude voids.
+      attempts_recorded: mockAttempts,
+      tries,
+      reps_done: tries,
+      voided_attempts: mockVoided,
+      current_clean_streak: mockCleanStreak,
+      cleans_at_step: mockCleanStreak,
+      mastery_progress_streak:
+        variantStage?.cleans ?? mockCleanStreak,
+      best_clean_streak: bestCleanStreak,
+      accuracy: tries > 0 ? verdicts.clean / tries : null,
+      mastery_status: masteryStatus,
+      last_attempt_id: latest?.id ?? mockLedgerBaseLastAttemptId,
+      last: latest
+        ? {
+            verdict: latest.verdict,
+            note: latest.note,
+            bpm: mockRepSnapshot.bpm,
+          }
+        : mockLedgerBaseLast,
+      ...variantPatch,
+    },
+  };
+}
+
 function repCheckOutcome(args: unknown): CheckOutcome {
   const record = (args ?? {}) as Record<string, unknown>;
   const verdict: Verdict =
@@ -1575,26 +1854,15 @@ function repCheckOutcome(args: unknown): CheckOutcome {
   mockAttempts += 1;
   const streakBefore = mockCleanStreak;
   mockCleanStreak = verdict === "clean" ? mockCleanStreak + 1 : 0;
-  mockAttemptLog.push({ id: attemptId, verdict, note, streakBefore });
-  const nextVerdicts = {
-    ...MOCK_REP_STATE.verdicts,
-    [verdict]: (MOCK_REP_STATE.verdicts[verdict] ?? 0) + 1,
-  };
-  const snap: RepSnapshot = {
-    ...MOCK_REP_STATE,
-    verdicts: nextVerdicts,
-    attempts_recorded: mockAttempts,
-    tries: mockAttempts,
-    reps_done: mockAttempts,
-    current_clean_streak: mockCleanStreak,
-    mastery_progress_streak: mockCleanStreak,
-    best_clean_streak: Math.max(
-      MOCK_REP_STATE.best_clean_streak ?? 0,
-      mockCleanStreak,
-    ),
-    last_attempt_id: attemptId,
-    last: { verdict, note, bpm: MOCK_REP_STATE.bpm },
-  };
+  mockAttemptLog.push({
+    id: attemptId,
+    verdict,
+    note,
+    streakBefore,
+    streakAfter: mockCleanStreak,
+  });
+  const projected = projectMockLedger();
+  const snap = updateMockRepSnapshot(projected.patch);
   const receipt: MutationReceipt<RepSnapshot> = {
     receipt_id: `mock-receipt-${attemptId}`,
     command_id: commandId,
@@ -1609,7 +1877,13 @@ function repCheckOutcome(args: unknown): CheckOutcome {
     replayed: false,
     committed_ts: new Date().toISOString(),
   };
-  return { snap, new_bpm: null, block_done: false, say: "", receipt };
+  return {
+    snap,
+    new_bpm: null,
+    block_done: projected.masteryStatus === "satisfied",
+    say: "",
+    receipt,
+  };
 }
 
 /**
@@ -1623,40 +1897,15 @@ function repCheckOutcome(args: unknown): CheckOutcome {
 function repUndoOutcome(): CheckOutcome {
   const undone = mockAttemptLog.pop();
   if (!undone) throw "there is nothing to undo in this set";
-  mockAttempts = Math.max(0, mockAttempts - 1);
   mockCleanStreak = undone.streakBefore;
   mockVoided += 1;
-  const previous = mockAttemptLog[mockAttemptLog.length - 1] ?? null;
-  const nextVerdicts = {
-    ...MOCK_REP_STATE.verdicts,
-    [undone.verdict]: Math.max(
-      0,
-      (MOCK_REP_STATE.verdicts[undone.verdict] ?? 0) - 1,
-    ),
-  };
-  const snap: RepSnapshot = {
-    ...MOCK_REP_STATE,
-    verdicts: nextVerdicts,
-    attempts_recorded: mockAttempts,
-    tries: mockAttempts,
-    reps_done: mockAttempts,
-    current_clean_streak: mockCleanStreak,
-    mastery_progress_streak: mockCleanStreak,
-    voided_attempts: mockVoided,
-    last_attempt_id: previous?.id ?? MOCK_REP_STATE.last_attempt_id ?? null,
-    last: previous
-      ? {
-          verdict: previous.verdict,
-          note: previous.note,
-          bpm: MOCK_REP_STATE.bpm,
-        }
-      : MOCK_REP_STATE.last,
-  };
+  const projected = projectMockLedger();
+  const snap = updateMockRepSnapshot(projected.patch);
   const receipt: MutationReceipt<RepSnapshot> = {
     receipt_id: `mock-receipt-undo-${undone.id}`,
     command_id: `mock-undo-${undone.id}`,
     status: "committed",
-    summary: `Attempt ${mockAttempts + 1} undone.`,
+    summary: `Attempt ${mockAttempts} undone.`,
     value: snap,
     entity_refs: [{ entity_type: "set", entity_id: snap.block_id }],
     event_ids: [undone.id],
@@ -1666,7 +1915,13 @@ function repUndoOutcome(): CheckOutcome {
     replayed: false,
     committed_ts: new Date().toISOString(),
   };
-  return { snap, new_bpm: null, block_done: false, say: "", receipt };
+  return {
+    snap,
+    new_bpm: null,
+    block_done: projected.masteryStatus === "satisfied",
+    say: "",
+    receipt,
+  };
 }
 
 function mockSession(): SessionView {
@@ -1801,6 +2056,12 @@ const SETTINGS_SNAPSHOT = {
   ladder_default_reps: 30,
   practice_default_clean_streak: 5,
   ladder_bpm_step: 4,
+  // A1's native defaults. Keep these visible in browser QA: SettingsPanel is
+  // now a real control surface for the engine settings, not a hidden backend
+  // capability.
+  demote_enabled: true,
+  demote_first: 3,
+  demote_repeat: 2,
   calendar_capacity_minutes: 60,
   streak_threshold_minutes: 10,
   vault_pieces_dir: "/dev-mock/Pieces",
@@ -3293,11 +3554,7 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "book_excerpt":
       return mockBookExcerpt(args);
     case "rep_state":
-      return {
-        ...MOCK_REP_STATE,
-        set_state: mockSetState,
-        timer_state: mockSetState,
-      };
+      return mockRepIsOpen ? { ...mockRepSnapshot } : null;
     // Task A10: the composer/block-open flow's single write. Round-trips
     // `context.pass_seconds` (see `mockLastOpenedPassSeconds`) without
     // otherwise changing any other mocked read/write path.
@@ -3305,6 +3562,8 @@ function routeCommand(cmd: string, args: unknown): unknown {
       const record = (args ?? {}) as { args?: unknown; context?: unknown };
       return repOpenSnapshot(record.args, record.context);
     }
+    case "rep_close":
+      return repCloseSnapshot();
     // Clean/Sloppy/Again in the HUD: return a committed CheckOutcome so the
     // receipt lands GREEN (previously unmapped → null → red error receipt).
     case "rep_check":
@@ -3440,6 +3699,105 @@ function routeCommand(cmd: string, args: unknown): unknown {
     }
     case "region_list":
       return REGIONS[pieceIdOf(args)] ?? [];
+
+    // Micro-targets use one command so a browser-QA failure can never leave
+    // behind the anchorless half of a spot. Validate everything before the
+    // single in-memory mutation, mirroring the native transaction boundary.
+    case "score_micro_target_create": {
+      const created = argsRecord(argsRecord(args).args);
+      const pieceId = Number(created.piece_id);
+      const parentId = Number(created.parent_region_id);
+      const mStart = Number(created.m_start);
+      const mEnd = Number(created.m_end);
+      const name = String(created.name ?? "").trim();
+      const parent = mockFindRegion(parentId);
+      const anchor = argsRecord(created.pdf_anchor);
+      const editions = argsRecord(anchor.editions);
+      const childEditionEntries = Object.entries(editions);
+      const hasGeometry =
+        anchor.v === 1 &&
+        childEditionEntries.length > 0 &&
+        childEditionEntries.every(([, value]) => {
+          const edition = argsRecord(value);
+          return (
+            typeof edition.fingerprint === "string" &&
+            edition.fingerprint.trim().length > 0 &&
+            Array.isArray(edition.rects) &&
+            edition.rects.length > 0
+          );
+        });
+      try {
+        if (!parent) throw new Error("the parent section could not be found");
+        if (parent.piece_id !== pieceId) {
+          throw new Error("a micro-target's parent must belong to the same piece");
+        }
+        if (parent.parent_region_id != null) {
+          throw new Error("a micro-target cannot be nested inside another micro-target");
+        }
+        if (!name || mStart < parent.m_start || mEnd > parent.m_end || mEnd < mStart) {
+          throw new Error("a micro-target's measures must stay inside its parent");
+        }
+        if (!hasGeometry) {
+          throw new Error("a micro-target needs current-edition score geometry");
+        }
+        const parentAnchor = argsRecord(parent.pdf_anchor);
+        const parentEditions = argsRecord(parentAnchor.editions);
+        const geometryFitsParent = childEditionEntries.every(
+          ([editionId, value]) => {
+            const childEdition = argsRecord(value);
+            const parentEdition = argsRecord(parentEditions[editionId]);
+            const childRects = childEdition.rects;
+            const parentRects = parentEdition.rects;
+            if (
+              childEdition.fingerprint !== parentEdition.fingerprint ||
+              !Array.isArray(childRects) ||
+              !Array.isArray(parentRects)
+            ) {
+              return false;
+            }
+            return childRects.every((childValue) => {
+              const child = argsRecord(childValue);
+              return parentRects.some((parentValue) => {
+                const parentRect = argsRecord(parentValue);
+                const epsilon = 0.000_001;
+                return (
+                  Number(parentRect.page) === Number(child.page) &&
+                  Number(child.x) + epsilon >= Number(parentRect.x) &&
+                  Number(child.y) + epsilon >= Number(parentRect.y) &&
+                  Number(child.x) + Number(child.w) <=
+                    Number(parentRect.x) + Number(parentRect.w) + epsilon &&
+                  Number(child.y) + Number(child.h) <=
+                    Number(parentRect.y) + Number(parentRect.h) + epsilon
+                );
+              });
+            });
+          },
+        );
+        if (!geometryFitsParent) {
+          throw new Error(
+            "the micro-target's score box must stay fully inside its matching parent mark",
+          );
+        }
+        const region: Region = {
+          id: mockRegionNextId++,
+          piece_id: pieceId,
+          name,
+          notes: null,
+          m_start: mStart,
+          m_end: mEnd,
+          kind: "hard_spot",
+          order: (REGIONS[pieceId] ?? []).length,
+          color: (created.color as string | null) ?? null,
+          pdf_anchor: created.pdf_anchor as Region["pdf_anchor"],
+          parent_region_id: parentId,
+        };
+        REGIONS[pieceId] = [...(REGIONS[pieceId] ?? []), region];
+        return region;
+      } catch (cause) {
+        asRejectionString(cause);
+      }
+      break;
+    }
 
     // Task C5: full region_create/region_delete coverage (parent-linkage
     // validation + cascade/promote) so the snap-selection + sub-sections
@@ -3862,6 +4220,7 @@ export function installTauriDevMock(
   // Task A4: fresh paused-sets tray state per install.
   mockSetState = "active";
   mockPausedSets = [];
+  mockRepIsOpen = true;
   mockResumeRejects = false;
   // Task A4b fix round 1: fresh auto-pause-simulation state per install.
   mockPausedSetsAfterResume = null;

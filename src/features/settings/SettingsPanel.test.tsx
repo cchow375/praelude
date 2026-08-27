@@ -56,7 +56,15 @@ const snapshot: SettingsSnapshot = {
   practice_default_clean_streak: 5,
   ladder_bpm_step: 4,
   calendar_capacity_minutes: 60,
+  streak_threshold_minutes: 10,
   vault_pieces_dir: "/vault/Pieces",
+  hotkeys_enabled: true,
+  hotkey_verdict_clean: "Space",
+  hotkey_verdict_sloppy: "ShiftRight",
+  hotkey_verdict_again: "Enter",
+  demote_enabled: true,
+  demote_first: 3,
+  demote_repeat: 2,
   verdict_aliases: { clean: [], flawed: [], failed: [] },
   api_keys: [
     { provider: "claude", configured: false, source: "none" },
@@ -160,6 +168,79 @@ describe("SettingsPanel", () => {
     expect(settingsApi.update).toHaveBeenCalledTimes(1);
     expect(onInterfaceScaleSaved).toHaveBeenCalledWith(80);
     expect(onPracticeDefaultCleanStreakSaved).toHaveBeenCalledWith(7);
+  });
+
+  it("exposes the sloppy-only demotion defaults with native bounds and saves them", async () => {
+    const settingsApi = api();
+    render(<SettingsPanel api={settingsApi} />);
+    await screen.findByText(/dark practice-room interface/i);
+
+    fireEvent.click(screen.getByText("Ladder defaults"));
+    const enabled = screen.getByRole("checkbox", {
+      name: "Automatically lower tempo after sloppy reps",
+    }) as HTMLInputElement;
+    const first = screen.getByLabelText(
+      "First demotion after sloppy reps",
+    ) as HTMLInputElement;
+    const repeat = screen.getByLabelText(
+      "Later demotions after sloppy reps",
+    ) as HTMLInputElement;
+
+    expect(enabled.checked).toBe(true);
+    expect(first.value).toBe("3");
+    expect(first.min).toBe("2");
+    expect(first.max).toBe("10");
+    expect(repeat.value).toBe("2");
+    expect(repeat.min).toBe("1");
+    expect(repeat.max).toBe("10");
+    expect(
+      screen.getByText(/Again neither counts nor clears the sloppy run/i),
+    ).toBeTruthy();
+
+    fireEvent.change(first, { target: { value: "4" } });
+    fireEvent.change(repeat, { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(settingsApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          demote_enabled: true,
+          demote_first: 4,
+          demote_repeat: 3,
+        }),
+      ),
+    );
+  });
+
+  it("falls back to the native demotion defaults for an older snapshot", async () => {
+    const legacy = { ...snapshot } as Partial<SettingsSnapshot>;
+    delete legacy.demote_enabled;
+    delete legacy.demote_first;
+    delete legacy.demote_repeat;
+    const settingsApi = api();
+    settingsApi.snapshot = vi
+      .fn()
+      .mockResolvedValue(legacy as SettingsSnapshot);
+
+    render(<SettingsPanel api={settingsApi} />);
+    await screen.findByText(/dark practice-room interface/i);
+    fireEvent.click(screen.getByText("Ladder defaults"));
+
+    expect(
+      (
+        screen.getByRole("checkbox", {
+          name: "Automatically lower tempo after sloppy reps",
+        }) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("First demotion after sloppy reps") as HTMLInputElement)
+        .value,
+    ).toBe("3");
+    expect(
+      (screen.getByLabelText("Later demotions after sloppy reps") as HTMLInputElement)
+        .value,
+    ).toBe("2");
   });
 
   it("clears a secret input immediately after native write begins", async () => {

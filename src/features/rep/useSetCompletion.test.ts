@@ -35,7 +35,7 @@ type Props = { s: SetCompletionSnapshot | null };
  * testing the thing it says it is.
  */
 function renderFinishing(
-  onClose: () => void,
+  onClose: () => void | Promise<void>,
   over: Partial<SetCompletionSnapshot> = {},
 ) {
   const view = renderHook(
@@ -78,6 +78,41 @@ describe("useSetCompletion", () => {
     // And it stays closed exactly once, however long the HUD lingers.
     advance(30);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries once when the first auto-close attempt transiently rejects", async () => {
+    const onClose = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("transient close failure"))
+      .mockResolvedValueOnce(undefined);
+    renderFinishing(onClose);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SET_COMPLETION_SECONDS * 1000);
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(onClose, "a successful retry remains final").toHaveBeenCalledTimes(2);
+  });
+
+  it("stops after one retry when auto-close keeps rejecting", async () => {
+    const onClose = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValue(new Error("persistent close failure"));
+    renderFinishing(onClose);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SET_COMPLETION_SECONDS * 1000);
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(onClose, "the retry policy is bounded").toHaveBeenCalledTimes(2);
   });
 
   it("does not count down while the set is unsatisfied", () => {
