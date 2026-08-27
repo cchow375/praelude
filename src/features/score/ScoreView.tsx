@@ -29,6 +29,7 @@ import {
   pageImageBucket,
 } from "./pageImage";
 import { RegionOverlay, type RegionOverlayItem } from "./RegionOverlay";
+import { estimateSpotMeasures, nextSpotName } from "./microTargets";
 import { PencilOverlay } from "./marks/PencilOverlay";
 import { defaultMarksApi, type ScoreMarksApi } from "./marks/api";
 import type { Stroke } from "./marks/strokes";
@@ -688,6 +689,21 @@ export function ScoreView({
   // Assume seen until told otherwise so the hint never flashes on before the
   // read resolves.
   const [subsectionHintSeen, setSubsectionHintSeen] = useState(true);
+  // Task C: the "⊕ Isolate a spot" arming flag. Christian's verdict on
+  // v7.1.0 was that the gesture was secret ("you didnt listen to what i
+  // wanted"), so the button is the entrance and this is what it arms; the
+  // bare drag-inside-a-selected-parent gesture still works unchanged.
+  const [spotArmed, setSpotArmed] = useState(false);
+  // Parent region ids whose spots are hidden on the score, persisted per
+  // piece through the same generic settings seam the sub-section hint uses.
+  const [spotsHidden, setSpotsHidden] = useState<number[]>([]);
+  // A just-created spot, offered for ~8s as an instant escape. An
+  // instant-create gesture without an instant undo leaves litter.
+  const [spotUndo, setSpotUndo] = useState<{
+    regionId: number;
+    name: string;
+    parentId: number;
+  } | null>(null);
   const [targetMode, setTargetMode] = useState(false);
   const [targetDraftId, setTargetDraftId] = useState<string | null>(null);
   const [targetAnchor, setTargetAnchor] =
@@ -1161,6 +1177,59 @@ export function ScoreView({
       cancelled = true;
     };
   }, [subsectionHintKey]);
+
+  // Task C3: "these mini selection boxes should only appear when you click on
+  // the passage they are apart of, and you should be able to hide them".
+  // Hidden-ness is per parent and per piece; stored as a comma-separated id
+  // list through the same `get_setting`/`set_setting` pair as the hint flag,
+  // so there is no schema change.
+  const spotsHiddenKey =
+    pieceId != null ? `score.piece.${pieceId}.spots_hidden` : null;
+  useEffect(() => {
+    if (!spotsHiddenKey) return;
+    let cancelled = false;
+    void invoke<string | null>("get_setting", { key: spotsHiddenKey })
+      .then((value) => {
+        if (cancelled) return;
+        setSpotsHidden(
+          (value ?? "")
+            .split(",")
+            .map((part) => Number(part.trim()))
+            .filter((id) => Number.isInteger(id) && id > 0),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setSpotsHidden([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [spotsHiddenKey]);
+
+  // Escape disarms. A mode the keyboard cannot leave is a trap, and this one
+  // repaints the whole score surface with a crosshair.
+  useEffect(() => {
+    if (!spotArmed) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSpotArmed(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [spotArmed]);
+
+  // Moving the selection abandons the arm — the instruction line names one
+  // section, so it must not survive that section going away.
+  useEffect(() => {
+    setSpotArmed(false);
+  }, [selectedRegionId]);
+
+  // The undo offer is deliberately short-lived: it is an escape from a
+  // mis-drag, not a second delete affordance (the inspector already has one).
+  useEffect(() => {
+    if (!spotUndo) return;
+    const timer = window.setTimeout(() => setSpotUndo(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [spotUndo]);
   useLayoutEffect(() => {
     livePieceIdRef.current = pieceId;
     liveEditionRef.current = edition;
@@ -2042,19 +2111,63 @@ export function ScoreView({
     };
   }, [edition, isActive, jumpTo, regions, selectRegion]);
 
+  // Task C4: one click from a spot box to its practice composer. The
+  // BlockForm this reveals already prefills the child's range/label and
+  // defaults sub-sections to 3-in-a-row, so nothing is duplicated here —
+  // this only makes sure it is reached.
+  const practiceSpot = useCallback((regionId: number) => {
+    setSelectedRegionId(regionId);
+    setExpandedRegionId(regionId);
+    setSectionTab("practice");
+    window.requestAnimationFrame(() => {
+      // `document` is shadowed by the PDF handle state in this component.
+      window.document
+        .querySelector<HTMLElement>(
+          `.score-practice-region[data-region-id="${regionId}"]`,
+        )
+        ?.scrollIntoView?.({ block: "nearest" });
+    });
+  }, []);
+
+  // Task C3: the score used to draw EVERY region unconditionally, which is
+  // why the list's "children only under their selected parent" rule looked
+  // like a lie the moment you glanced at the page. Same rule, both places.
   const overlayItems: RegionOverlayItem[] = useMemo(() => {
     if (!edition) return [];
-    return regions.map((region) => ({
-      regionId: region.id,
-      label: region.notes ?? region.name,
-      color: region.color,
-      rects:
-        anchorForEdition(region.pdf_anchor, edition.id, edition.fingerprint)
-          ?.rects ?? [],
-      selected: region.id === selectedRegionId,
-      active: overlaps(region, activeRange),
-    }));
-  }, [activeRange, edition, regions, selectedRegionId]);
+    const hidden = new Set(spotsHidden);
+    return regions
+      .filter((region) => {
+        if (region.parent_region_id == null) return true;
+        // An explicitly selected child always shows itself, even when its
+        // parent's spots are hidden — otherwise selecting it from the list
+        // would select something invisible.
+        if (region.id === selectedRegionId) return true;
+        if (region.parent_region_id !== selectedRegionId) return false;
+        return !hidden.has(region.parent_region_id);
+      })
+      .map((region) => ({
+        regionId: region.id,
+        label: region.notes ?? region.name,
+        color: region.color,
+        rects:
+          anchorForEdition(region.pdf_anchor, edition.id, edition.fingerprint)
+            ?.rects ?? [],
+        selected: region.id === selectedRegionId,
+        active: overlaps(region, activeRange),
+        isChild: region.parent_region_id != null,
+        onPractice:
+          region.parent_region_id != null
+            ? () => practiceSpot(region.id)
+            : undefined,
+      }));
+  }, [
+    activeRange,
+    edition,
+    practiceSpot,
+    regions,
+    selectedRegionId,
+    spotsHidden,
+  ]);
 
   const beginMapping = (region: Region) => {
     if (targetMode) {
@@ -2167,14 +2280,16 @@ export function ScoreView({
   // unmapped fallback and stays intact. Dragging while a region is selected
   // (and not already in "marks" annotation mode) creates a CHILD of that
   // selected region instead of a new top-level section.
-  const handleCreateDragResolve = (rect: PdfAnchorRect) => {
-    if (targetMode) return;
+  /** The bar range a drawn rect snaps to on a mapped, non-stale page, else
+   * `null`. Shared by the create form and the zero-friction spot path so
+   * there is exactly one snap rule in this file. */
+  const snapRangeForRect = (rect: PdfAnchorRect) => {
     const hasMapForEdition = Boolean(measureMapEntry && edition);
     const pages =
       hasMapForEdition && !measureMapStale
         ? (measureMapEntry?.pages ?? null)
         : null;
-    const snap = pages
+    return pages
       ? barRangeForRect(pages, [
           {
             page: rect.page,
@@ -2185,6 +2300,114 @@ export function ScoreView({
           },
         ])
       : null;
+  };
+
+  // Task C2: the whole point of the rebuild. A drag inside a selected
+  // section becomes a finished, anchored, named, measured child in ONE
+  // gesture — "it shouldnt require me to type anything at all" and "i
+  // shouldnt have to name it at all". No form, no marks mode, no second drag.
+  const createSpotFromDrag = async (rect: PdfAnchorRect, parent: Region) => {
+    if (!edition) return;
+    const siblings = regions
+      .filter((region) => region.parent_region_id === parent.id)
+      .map((region) => region.name);
+    const name = nextSpotName(siblings);
+    const low = Math.min(parent.m_start, parent.m_end);
+    const high = Math.max(parent.m_start, parent.m_end);
+    const snap = snapRangeForRect(rect);
+    const parentRects =
+      anchorForEdition(parent.pdf_anchor, edition.id, edition.fingerprint)
+        ?.rects ?? [];
+    const raw = snap
+      ? { m_start: snap.m_start, m_end: snap.m_end }
+      : estimateSpotMeasures(
+          { m_start: parent.m_start, m_end: parent.m_end },
+          parentRects,
+          rect,
+        );
+    // Clamped into the parent even when the map supplied the numbers: a spot
+    // that claims measures outside the section it lives in is a visible lie.
+    const mStart = Math.min(high, Math.max(low, raw.m_start));
+    const mEnd = Math.min(high, Math.max(mStart, raw.m_end));
+    setCreatingRegion(true);
+    setGraphError(null);
+    try {
+      const created = await crud.regionCreate({
+        piece_id: pieceId,
+        name,
+        notes: null,
+        m_start: mStart,
+        m_end: mEnd,
+        kind: "hard_spot",
+        parent_region_id: parent.id,
+      });
+      await crud.regionUpdate(created.id, {
+        color: REGION_COLORS[regions.length % REGION_COLORS.length],
+      });
+      // THE fix: the dragged rect becomes the child's anchor in the same
+      // flow. v7.1.0 left the child anchorless and dropped him into marks
+      // mode to draw the identical box a second time.
+      await api.updateRegion(
+        created.id,
+        replaceEditionRects(created.pdf_anchor, edition.id, edition.fingerprint, [
+          rect,
+        ]),
+      );
+      await graphChanged();
+      // Retire the teaching hint — the gesture has now been performed.
+      if (subsectionHintKey) {
+        setSubsectionHintSeen(true);
+        void invoke("set_setting", {
+          key: subsectionHintKey,
+          value: "true",
+        }).catch(() => {});
+      }
+      setSelectedRegionId(created.id);
+      setExpandedRegionId(created.id);
+      // Practice, not marks: the practice controls must be one click away.
+      setSectionTab("practice");
+      setSpotUndo({ regionId: created.id, name, parentId: parent.id });
+      setNavigationNotice(
+        `${name} added inside ${parent.name} · mm. ${mStart}–${mEnd}.`,
+      );
+    } catch (caught) {
+      setGraphError(messageOf(caught));
+    } finally {
+      setCreatingRegion(false);
+    }
+  };
+
+  const undoSpot = async () => {
+    const pending = spotUndo;
+    if (!pending) return;
+    setSpotUndo(null);
+    setGraphError(null);
+    try {
+      await crud.regionDelete(pending.regionId);
+      await graphChanged();
+      setSelectedRegionId(pending.parentId);
+      setExpandedRegionId(pending.parentId);
+      setNavigationNotice(`${pending.name} removed.`);
+    } catch (caught) {
+      setGraphError(messageOf(caught));
+    }
+  };
+
+  const toggleSpotsHidden = (parentId: number) => {
+    const next = spotsHidden.includes(parentId)
+      ? spotsHidden.filter((id) => id !== parentId)
+      : [...spotsHidden, parentId];
+    setSpotsHidden(next);
+    if (!spotsHiddenKey) return;
+    void invoke("set_setting", {
+      key: spotsHiddenKey,
+      value: next.join(","),
+    }).catch(() => {});
+  };
+
+  const handleCreateDragResolve = (rect: PdfAnchorRect) => {
+    if (targetMode) return;
+    const snap = snapRangeForRect(rect);
     if (snap) {
       setNewRegionStart(String(snap.m_start));
       setNewRegionEnd(String(snap.m_end));
@@ -2200,16 +2423,26 @@ export function ScoreView({
     // inside of, so a drag cannot imply it; "+ Add" (which defaults to a
     // sub-section of the selection, with a visible opt-out) remains the way to
     // build one there.
+    //
+    // Task C2: when that is true — or when "⊕ Isolate a spot" is armed, which
+    // is the same intent stated out loud — the drag no longer opens a form at
+    // all. It finishes the spot.
+    const parent =
+      selectedRegion && selectedRegion.parent_region_id == null
+        ? selectedRegion
+        : null;
     const parentAnchor =
-      selectedRegion && edition
-        ? anchorForEdition(
-            selectedRegion.pdf_anchor,
-            edition.id,
-            edition.fingerprint,
-          )
+      parent && edition
+        ? anchorForEdition(parent.pdf_anchor, edition.id, edition.fingerprint)
         : null;
     const droppedInsideParent = rectCentreIsInsideAnchor(rect, parentAnchor);
-    setNewRegionParentId(droppedInsideParent ? selectedRegionId : null);
+    if (parent && (droppedInsideParent || spotArmed)) {
+      setSpotArmed(false);
+      void createSpotFromDrag(rect, parent);
+      return;
+    }
+    setSpotArmed(false);
+    setNewRegionParentId(null);
     setAddingRegion(true);
     setNavigationNotice(
       snap
@@ -2326,6 +2559,43 @@ export function ScoreView({
             </button>
           ))}
         </div>
+
+        {region.parent_region_id == null && region.id === selectedRegionId && (
+          // Task C1: "i should have a button within that thing". It sits
+          // BELOW the tab strip and ABOVE the panel deliberately — it is
+          // visible on every tab, not buried inside one of them.
+          <div className="score-spot-controls">
+            <div className="score-spot-actions">
+              <button
+                type="button"
+                className={`score-spot-arm ${spotArmed ? "is-armed" : ""}`}
+                aria-pressed={spotArmed}
+                onClick={() => setSpotArmed((armed) => !armed)}
+              >
+                {spotArmed
+                  ? `Cancel — drag inside ${region.name}`
+                  : "⊕ Isolate a spot"}
+              </button>
+              {(childCounts.get(region.id) ?? 0) > 0 && (
+                <button
+                  type="button"
+                  className="score-spot-visibility"
+                  aria-pressed={spotsHidden.includes(region.id)}
+                  onClick={() => toggleSpotsHidden(region.id)}
+                >
+                  {spotsHidden.includes(region.id) ? "Show spots" : "Hide spots"}{" "}
+                  ({childCounts.get(region.id)})
+                </button>
+              )}
+            </div>
+            {spotArmed && (
+              <p className="score-spot-instruction" role="status">
+                Drag a small box inside {region.name} on the score. Esc to
+                cancel.
+              </p>
+            )}
+          </div>
+        )}
 
         <div
           role="tabpanel"
@@ -2519,6 +2789,7 @@ export function ScoreView({
           {sectionTab === "practice" && onOpenBlock && (
             <section
               className="score-practice-region"
+              data-region-id={region.id}
               aria-label="Start a practice set"
             >
               {regionBlocks.length > 0 && (
@@ -2615,7 +2886,9 @@ export function ScoreView({
 
   return (
     <section
-      className={`score-view ${pencilMode ? "is-pencil" : ""}`}
+      className={`score-view ${pencilMode ? "is-pencil" : ""} ${
+        spotArmed ? "is-spot-armed" : ""
+      }`}
       data-pencil={pencilMode ? "on" : "off"}
       aria-label="PDF score viewer"
     >
@@ -3063,13 +3336,23 @@ export function ScoreView({
                   {navigationNotice}
                 </p>
               )}
+              {spotUndo && (
+                <p className="score-spot-undo" role="status">
+                  <span>{spotUndo.name} added</span>
+                  <button type="button" onClick={() => void undoSpot()}>
+                    Undo
+                  </button>
+                </p>
+              )}
               {selectedRegion &&
                 selectedRegion.parent_region_id == null &&
                 !subsectionHintSeen && (
                   <p className="score-subsection-hint" role="status">
-                    Drag inside <strong>{selectedRegion.name}</strong> on the
-                    score to isolate a spot — a 2-beat or 5-note micro-target
-                    inside this section.
+                    Open <strong>{selectedRegion.name}</strong> and press{" "}
+                    <strong>⊕ Isolate a spot</strong> — then drag a small box
+                    on the score. No title, no measure numbers: the spot is
+                    named and measured for you. (Dragging inside the section
+                    does the same thing without the button.)
                   </p>
                 )}
               <div className="score-region-tools">
@@ -3185,8 +3468,9 @@ export function ScoreView({
                 </form>
               )}
               <p className="score-region-order-note">
-                In score order · click a section to open its tools, then drag
-                inside it on the score to add a sub-section
+                In score order · click a section to open its tools, then press
+                ⊕ Isolate a spot (or just drag inside it on the score) to add a
+                sub-section — no typing
               </p>
               <div className="score-region-list">
                 {displayedRegions.map((region) => {

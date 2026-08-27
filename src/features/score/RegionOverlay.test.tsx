@@ -17,6 +17,7 @@ describe("RegionOverlay", () => {
             color: "#8b7cf6",
             selected: false,
             active: true,
+            isChild: false,
             rects: [{ page: 2, x: 0.1, y: 0.2, w: 0.3, h: 0.1 }],
           },
         ]}
@@ -93,6 +94,7 @@ describe("RegionOverlay", () => {
             color: "#c93d45",
             selected: true,
             active: false,
+            isChild: false,
             rects: [{ page: 1, x: 0.1, y: 0.1, w: 0.3, h: 0.08, kind: "note" }],
           },
         ]}
@@ -141,6 +143,7 @@ describe("RegionOverlay", () => {
             color: "#8b7cf6",
             selected: true,
             active: false,
+            isChild: false,
             rects: [{ page: 2, x: 0.1, y: 0.2, w: 0.3, h: 0.1 }],
           },
         ]}
@@ -164,6 +167,7 @@ describe("RegionOverlay", () => {
             color: "#8b7cf6",
             selected: true,
             active: false,
+            isChild: false,
             rects: [{ page: 1, x: 0.1, y: 0.2, w: 0.3, h: 0.1 }],
           },
         ]}
@@ -210,6 +214,7 @@ describe("RegionOverlay", () => {
             color: "#8b7cf6",
             selected: false,
             active: false,
+            isChild: false,
             rects: [{ page: 1, x: 0.1, y: 0.2, w: 0.3, h: 0.1 }],
           },
         ]}
@@ -295,5 +300,76 @@ describe("RegionOverlay", () => {
       0,
       expect.objectContaining({ w: 0.4, h: 0.2 }),
     );
+  });
+
+  it("Task C3/C4: a spot is drawn dashed-and-faint, and a selected one offers Practice this as a sibling button", () => {
+    const onPractice = vi.fn();
+    render(
+      <RegionOverlay
+        pageNumber={1}
+        items={[
+          {
+            regionId: 55,
+            label: "Spot 1",
+            color: "#4ab5f2",
+            selected: true,
+            active: false,
+            isChild: true,
+            onPractice,
+            rects: [{ page: 1, x: 0.1, y: 0.2, w: 0.2, h: 0.1 }],
+          },
+        ]}
+        onSelect={vi.fn()}
+      />,
+    );
+    const box = screen.getByRole("button", { name: "Spot 1, box on page 1" });
+    expect(box.className).toContain("is-child");
+
+    const chip = screen.getByRole("button", { name: "Practice this" });
+    // A <button> inside a <button> is invalid HTML and browsers un-nest it,
+    // which would move the chip away from the box it belongs to.
+    expect(chip.closest(".score-region-anchor")).toBeNull();
+    // Pinned to the top-right corner of the spot's first rect on this page.
+    expect(Number.parseFloat(chip.style.left)).toBeCloseTo(30);
+    expect(Number.parseFloat(chip.style.top)).toBeCloseTo(20);
+
+    fireEvent.click(chip);
+    expect(onPractice).toHaveBeenCalledTimes(1);
+  });
+
+  it("Task C4: an unselected spot, and a selected top-level section, get no Practice chip", () => {
+    render(
+      <RegionOverlay
+        pageNumber={1}
+        items={[
+          {
+            regionId: 55,
+            label: "Spot 1",
+            color: null,
+            selected: false,
+            active: false,
+            isChild: true,
+            onPractice: vi.fn(),
+            rects: [{ page: 1, x: 0.1, y: 0.2, w: 0.2, h: 0.1 }],
+          },
+          {
+            regionId: 4,
+            label: "Rolled Chords",
+            color: null,
+            selected: true,
+            active: false,
+            isChild: false,
+            rects: [{ page: 1, x: 0, y: 0, w: 1, h: 1 }],
+          },
+        ]}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Practice this" })).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Rolled Chords, box on page 1" })
+        .className,
+    ).not.toContain("is-child");
   });
 });

@@ -1329,3 +1329,116 @@
   padding: 0 var(--space-3);
   white-space: nowrap;
 }
+
+/* ------------------------------------------------------------------------
+   Task C — micro-targets v2 ("spots")
+   ------------------------------------------------------------------------ */
+
+/* Arming "⊕ Isolate a spot" makes the whole page a drag surface: the overlay
+   is pointer-transparent by default, so without this the gesture would only
+   start from inside an existing box — which is exactly the secret gesture the
+   button exists to replace. */
+.score-view.is-spot-armed .score-page-overlay {
+  cursor: crosshair;
+  pointer-events: auto;
+}
+
+/* C1: the button row, directly under the tab strip so it is on every tab. */
+.score-spot-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-2) 0;
+}
+.score-spot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.score-spot-arm {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--surface-app);
+  background: var(--accent);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.score-spot-arm.is-armed {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-app));
+}
+.score-spot-visibility {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--ink-secondary);
+  background: var(--surface-app);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.score-spot-instruction {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+/* C2: the undo offer. Loud enough to be seen inside its ~8s life, quiet
+   enough not to read as an error. */
+.score-spot-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--ink-primary);
+  background: var(--surface-active);
+  font-size: var(--text-xs);
+}
+.score-spot-undo button {
+  padding: 0 var(--space-2);
+  border: 0;
+  color: var(--accent);
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* C3: a spot must never read as a full tricky section. */
+.score-region-anchor.is-child {
+  border-width: 1.5px;
+  border-style: dashed;
+  background: color-mix(
+    in srgb,
+    var(--region-color, var(--accent)) 10%,
+    transparent
+  );
+}
+
+/* C4: one click from the box to the practice composer. Positioned from the
+   top-right corner of the spot's first rect on this page. */
+.score-region-practice-chip {
+  position: absolute;
+  z-index: 4;
+  padding: 2px 8px;
+  transform: translate(-100%, -100%);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--surface-app);
+  background: var(--accent);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: pointer;
+}

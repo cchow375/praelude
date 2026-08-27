@@ -458,8 +458,13 @@ describe("ScoreView", () => {
       fireEvent.click(
         await screen.findByRole("button", { name: /tricky bit/i }),
       );
+      // Task C1 rewrote this hint around the BUTTON — the secret gesture is
+      // now the parenthetical, not the instruction.
       expect(
-        await screen.findByText(/drag inside .* to isolate a spot/i),
+        await screen.findByText(/No title, no measure numbers/i),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "⊕ Isolate a spot" }),
       ).toBeTruthy();
     });
 
@@ -2320,5 +2325,366 @@ describe("ScoreView measure mapping", () => {
 
     expect(await screen.findByText(/stale for this edition/)).toBeTruthy();
     expect(screen.queryByText(/isn't mapped yet/)).toBeNull();
+  });
+
+  // -------------------------------------------------------------------
+  // Task C — micro-targets v2: the button, zero-friction creation, gating,
+  // one-click practice, undo. Christian's verdict on v7.1.0 was that the
+  // sub-section box was "terrible" and required typing a name, typing two
+  // measure numbers, and then drawing the same box a second time. Every
+  // assertion below is one of those steps not happening.
+  // -------------------------------------------------------------------
+  describe("Task C: micro-targets v2", () => {
+    /** A top-level section whose current-edition mark covers the whole page,
+     * so any drag on page 1 lands inside it. */
+    function spotParent(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 4,
+        piece_id: 7,
+        name: "Rolled Chords",
+        notes: null,
+        m_start: 40,
+        m_end: 56,
+        kind: "hard_spot",
+        order: 0,
+        color: "#8b7cf6",
+        parent_region_id: null,
+        pdf_anchor: {
+          v: 1,
+          editions: {
+            urtext: {
+              fingerprint: "a",
+              rects: [{ page: 1, x: 0, y: 0, w: 1, h: 1 }],
+            },
+          },
+        },
+        ...overrides,
+      };
+    }
+
+    function spotChild(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 55,
+        piece_id: 7,
+        name: "Spot 1",
+        notes: null,
+        m_start: 44,
+        m_end: 46,
+        kind: "hard_spot",
+        order: 1,
+        color: "#4ab5f2",
+        parent_region_id: 4,
+        pdf_anchor: {
+          v: 1,
+          editions: {
+            urtext: {
+              fingerprint: "a",
+              rects: [{ page: 1, x: 0.1, y: 0.1, w: 0.2, h: 0.1 }],
+            },
+          },
+        },
+        ...overrides,
+      };
+    }
+
+    /** `region_create` has to hand back a real Region receipt — the anchor
+     * write chains off `created.id`, which is the whole fix. */
+    function mockCreateReturning(id = 99) {
+      invokeMock.mockImplementation((command: string) =>
+        command === "region_create"
+          ? Promise.resolve({ ...spotChild({ id, pdf_anchor: null }) })
+          : Promise.resolve(undefined),
+      );
+    }
+
+    async function selectParent() {
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Rolled Chords, measures 40 to 56",
+        }),
+      );
+    }
+
+    it("C1: shows ⊕ Isolate a spot on a selected top-level section; it arms, and Escape disarms", async () => {
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([spotParent()]),
+          })}
+          adapter={makePdf(1).adapter}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      // Not offered until a section is actually selected.
+      expect(
+        screen.queryByRole("button", { name: "⊕ Isolate a spot" }),
+      ).toBeNull();
+
+      await selectParent();
+      const arm = await screen.findByRole("button", {
+        name: "⊕ Isolate a spot",
+      });
+      expect(arm.getAttribute("aria-pressed")).toBe("false");
+
+      fireEvent.click(arm);
+      const armed = screen.getByRole("button", {
+        name: "Cancel — drag inside Rolled Chords",
+      });
+      expect(armed.getAttribute("aria-pressed")).toBe("true");
+      expect(
+        screen.getByText(
+          /Drag a small box inside Rolled Chords on the score\. Esc to cancel\./i,
+        ),
+      ).toBeTruthy();
+      expect(
+        window.document.querySelector(".score-view")?.className,
+      ).toContain("is-spot-armed");
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "⊕ Isolate a spot" }).getAttribute(
+            "aria-pressed",
+          ),
+        ).toBe("false"),
+      );
+      expect(
+        window.document.querySelector(".score-view")?.className,
+      ).not.toContain("is-spot-armed");
+    });
+
+    it("C2: a drag inside the selected parent creates the child outright — no form, no typing, no naming", async () => {
+      mockCreateReturning(99);
+      const api = makeApi({
+        regions: vi.fn().mockResolvedValue([spotParent()]),
+      });
+      render(
+        <ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+      await dragOnPageOne();
+
+      await waitFor(() =>
+        expect(
+          invokeMock.mock.calls.some(([cmd]) => cmd === "region_create"),
+        ).toBe(true),
+      );
+      const create = invokeMock.mock.calls.find(
+        ([cmd]) => cmd === "region_create",
+      )!;
+      expect(create[1]).toMatchObject({
+        parent_region_id: 4,
+        args: {
+          piece_id: 7,
+          name: "Spot 1",
+          notes: null,
+          kind: "hard_spot",
+          // Interpolated from where the drag landed inside the parent's own
+          // 40–56, with no measure map anywhere — B75's reality.
+          m_start: 41,
+          m_end: 48,
+        },
+      });
+
+      // The form is the thing being replaced: it must never appear.
+      expect(
+        screen.queryByLabelText("New score tricky section title"),
+      ).toBeNull();
+      expect(screen.queryByRole("tab", { name: "Score marks" })?.getAttribute(
+        "aria-selected",
+      )).not.toBe("true");
+    });
+
+    it("C2: writes the dragged rect as the new child's anchor in the SAME flow (the bug that made v7.1.0 useless)", async () => {
+      mockCreateReturning(99);
+      const api = makeApi({
+        regions: vi.fn().mockResolvedValue([spotParent()]),
+      });
+      render(
+        <ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+      await dragOnPageOne();
+
+      await waitFor(() => expect(api.updateRegion).toHaveBeenCalled());
+      expect(api.updateRegion).toHaveBeenCalledWith(99, {
+        v: 1,
+        editions: {
+          urtext: {
+            fingerprint: "a",
+            rects: [{ page: 1, x: 0.1, y: 0.125, w: 0.4, h: 0.375 }],
+          },
+        },
+      });
+    });
+
+    it("C2: the button arms creation for a drag that lands outside the parent's own box", async () => {
+      mockCreateReturning(99);
+      const api = makeApi({
+        // A parent with a mark that covers only the top strip: the drag below
+        // ends up outside it, so only the ARMED state can make this a spot.
+        regions: vi.fn().mockResolvedValue([
+          spotParent({
+            pdf_anchor: {
+              v: 1,
+              editions: {
+                urtext: {
+                  fingerprint: "a",
+                  rects: [{ page: 1, x: 0, y: 0, w: 1, h: 0.05 }],
+                },
+              },
+            },
+          }),
+        ]),
+      });
+      render(
+        <ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+
+      // Unarmed, the same drag opens the ordinary top-level add form.
+      await dragOnPageOne();
+      expect(
+        await screen.findByLabelText("New score tricky section title"),
+      ).toBeTruthy();
+      expect(
+        invokeMock.mock.calls.some(([cmd]) => cmd === "region_create"),
+      ).toBe(false);
+
+      fireEvent.click(screen.getByRole("button", { name: "⊕ Isolate a spot" }));
+      await dragOnPageOne();
+      await waitFor(() =>
+        expect(
+          invokeMock.mock.calls.some(([cmd]) => cmd === "region_create"),
+        ).toBe(true),
+      );
+      // And the arm is spent, not sticky.
+      await waitFor(() =>
+        expect(
+          window.document.querySelector(".score-view")?.className,
+        ).not.toContain("is-spot-armed"),
+      );
+    });
+
+    it("C3: a spot is drawn on the score only while its parent is selected", async () => {
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([spotParent(), spotChild()]),
+          })}
+          adapter={makePdf(1).adapter}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      expect(
+        screen.queryByRole("button", { name: "Spot 1, box on page 1" }),
+      ).toBeNull();
+
+      await selectParent();
+      const box = await screen.findByRole("button", {
+        name: "Spot 1, box on page 1",
+      });
+      // Calm styling: a spot must never read as a full tricky section.
+      expect(box.className).toContain("is-child");
+    });
+
+    it("C3: Hide spots removes them from the score and persists per piece", async () => {
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([spotParent(), spotChild()]),
+          })}
+          adapter={makePdf(1).adapter}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+      await screen.findByRole("button", { name: "Spot 1, box on page 1" });
+
+      fireEvent.click(screen.getByRole("button", { name: "Hide spots (1)" }));
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "Spot 1, box on page 1" }),
+        ).toBeNull(),
+      );
+      expect(invokeMock).toHaveBeenCalledWith("set_setting", {
+        key: "score.piece.7.spots_hidden",
+        value: "4",
+      });
+      expect(
+        screen.getByRole("button", { name: "Show spots (1)" }),
+      ).toBeTruthy();
+    });
+
+    it("C4: Practice this appears only on a selected spot and reaches the practice panel", async () => {
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([spotParent(), spotChild()]),
+          })}
+          adapter={makePdf(1).adapter}
+          onOpenBlock={vi.fn()}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+      // The parent is selected, not the child: no chip yet.
+      expect(
+        screen.queryByRole("button", { name: "Practice this" }),
+      ).toBeNull();
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Spot 1, measures 44 to 46" }),
+      );
+      const chip = await screen.findByRole("button", {
+        name: "Practice this",
+      });
+      // A sibling of the anchor button, never nested inside it (invalid HTML).
+      expect(chip.closest(".score-region-anchor")).toBeNull();
+
+      fireEvent.click(chip);
+      await waitFor(() =>
+        expect(
+          (screen.getByLabelText("From measure") as HTMLInputElement).value,
+        ).toBe("44"),
+      );
+      expect(
+        (screen.getByLabelText("To measure") as HTMLInputElement).value,
+      ).toBe("46");
+    });
+
+    it("C2: an accidental spot can be undone immediately", async () => {
+      mockCreateReturning(99);
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([spotParent()]),
+          })}
+          adapter={makePdf(1).adapter}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+      await dragOnPageOne();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith("region_delete", {
+          id: 99,
+          mode: "cascade",
+        }),
+      );
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: "Undo" })).toBeNull(),
+      );
+    });
   });
 });

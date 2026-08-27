@@ -9,6 +9,12 @@ export interface RegionOverlayItem {
   rects: PdfAnchorRect[];
   selected: boolean;
   active: boolean;
+  /** Task C3: a sub-section ("spot") rather than a full tricky section. Drawn
+   * dashed and faint so it can never be mistaken for its parent. */
+  isChild: boolean;
+  /** Task C4: present on children only — opens this spot's practice composer
+   * from a chip on the box itself. */
+  onPractice?: () => void;
 }
 
 export interface RegionMappingDraft {
@@ -267,39 +273,62 @@ export function RegionOverlay({
         setPreview(null);
       }}
     >
-      {items.flatMap((item) =>
-        mapping?.regionId === item.regionId
-          ? []
-          : item.rects
-              .filter((rect) => rect.page === pageNumber)
-              .map((rect, index) => (
-                <button
-                  type="button"
-                  key={`${item.regionId}-${index}`}
-                  className={`score-region-anchor is-${anchorKind(rect)} ${item.selected ? "is-selected" : ""} ${item.active ? "is-active" : ""}`}
-                  style={
-                    {
-                      ...rectStyle(rect),
-                      "--region-color": item.color ?? "var(--accent)",
-                    } as React.CSSProperties
-                  }
-                  aria-label={`${item.label}, ${anchorKind(rect)} on page ${pageNumber}`}
-                  onPointerDown={(event) => {
-                    // Task B1: a click on any OTHER box must still just
-                    // select it, not start a drag-to-create underneath it —
-                    // but a drag that starts INSIDE the already-selected
-                    // parent is exactly the create gesture the hint chip
-                    // teaches, so it must reach the overlay's own
-                    // onPointerDown (which arms `createDrag`/`mapping`)
-                    // instead of being swallowed here.
-                    if (!item.selected) event.stopPropagation();
-                  }}
-                  onClick={() => onSelect(item.regionId)}
-                >
-                  {anchorKind(rect) === "note" && <span>{item.label}</span>}
-                </button>
-              )),
-      )}
+      {items.flatMap((item) => {
+        if (mapping?.regionId === item.regionId) return [];
+        const pageRects = item.rects.filter((rect) => rect.page === pageNumber);
+        const nodes = pageRects.map((rect, index) => (
+          <button
+            type="button"
+            key={`${item.regionId}-${index}`}
+            className={`score-region-anchor is-${anchorKind(rect)} ${item.selected ? "is-selected" : ""} ${item.active ? "is-active" : ""} ${item.isChild ? "is-child" : ""}`}
+            style={
+              {
+                ...rectStyle(rect),
+                "--region-color": item.color ?? "var(--accent)",
+              } as React.CSSProperties
+            }
+            aria-label={`${item.label}, ${anchorKind(rect)} on page ${pageNumber}`}
+            onPointerDown={(event) => {
+              // Task B1: a click on any OTHER box must still just
+              // select it, not start a drag-to-create underneath it —
+              // but a drag that starts INSIDE the already-selected
+              // parent is exactly the create gesture the hint chip
+              // teaches, so it must reach the overlay's own
+              // onPointerDown (which arms `createDrag`/`mapping`)
+              // instead of being swallowed here.
+              if (!item.selected) event.stopPropagation();
+            }}
+            onClick={() => onSelect(item.regionId)}
+          >
+            {anchorKind(rect) === "note" && <span>{item.label}</span>}
+          </button>
+        ));
+        // Task C4: a SIBLING of the anchor, never a child of it — a button
+        // inside a button is invalid HTML and browsers un-nest it, which
+        // would leave the chip somewhere other than where it was drawn.
+        const first = pageRects[0];
+        if (item.selected && item.isChild && item.onPractice && first) {
+          nodes.push(
+            <button
+              type="button"
+              key={`${item.regionId}-practice`}
+              className="score-region-practice-chip"
+              style={{
+                left: `${(first.x + first.w) * 100}%`,
+                top: `${first.y * 100}%`,
+              }}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                item.onPractice?.();
+              }}
+            >
+              Practice this
+            </button>,
+          );
+        }
+        return nodes;
+      })}
       {mapping?.draftRects
         .map((rect, index) => ({ rect, index }))
         .filter(({ rect }) => rect.page === pageNumber)
