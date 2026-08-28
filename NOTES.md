@@ -19,13 +19,14 @@
   frontend 2,684/1 skipped, native 1,109/19 ignored, TypeScript, strict Clippy, production + native
   builds, five corpora and all eight pipeline gates. Installed 8.2.1 contains exact Camera/Mic/
   Speech descriptions, passes strict signature and fresh launch, and remained live as PID 46013
-  with its owned `hear` child and no new crash report. B95 is release-resolved; tag/publication
-  remains pending.
+  with its owned `hear` child and no new crash report. B95 is release-resolved. Pushed lightweight
+  tag `v8.2.1` points to `971a0d2dc7cf8f093527239e2394391dbbfec0a4`.
   Pre-install backup `(C) pre-v8.2.1-install-2026-08-28-132046.db` is 23,449,600 bytes, SHA-256
   `2c99dec1c3bc14f595e69c92a9415076299752d46930eea0fa3c9f5a793379c7`; read-only audit:
   schema 20, integrity OK/FK0, 11 pieces, 246 blocks/contracts, 2,207 reps, 48 sessions, 8,391
   events and zero open sessions/blocks. Runtime source is
-  `496033e677919757ef1f2a78cee32d3abedb4805`; tag/publication is the only release fact pending.
+  `496033e677919757ef1f2a78cee32d3abedb4805`; private `origin/main` was pushed through the tagged
+  release-doc commit and its moving current tip must be read from Git.
 
 - **A narrow rail must use horizontal pairing before asking the pianist to scroll (v8.2.1
   source correction, 2026-08-28).** Christian's first installed v8.2.0 screenshot exposed a
@@ -41,7 +42,8 @@
   paired rows intact, Start immediately reachable and no horizontal overflow. Full frontend is
   2,680 passed / 1 skipped; TypeScript and production build were clean. Final v8.2.1 gates later
   passed at frontend 2,684/1 skipped and native 1,109/19 ignored; B94 is installed-resolved while
-  the broader native Score-feel gate remains B91. Tag/publication is pending.
+  the broader native Score-feel gate remains B91. Tag `v8.2.1` is pushed at
+  `971a0d2dc7cf8f093527239e2394391dbbfec0a4`.
 
 - **v8.2 Score/UI cleanse and `total_attempts` are one corrective contract, not a new coaching
   system (2026-08-27).** Christian's real UI report identified time/friction defects: Score

@@ -1,6 +1,7 @@
 # v8.2.1 — compact composer + safe day-close/camera correction QA
 
-> **Status: SHIPPED + INSTALLED 2026-08-28; release tag/publication pending.** B94 source commit
+> **Status: SHIPPED + INSTALLED + PUBLISHED 2026-08-28.** Pushed lightweight tag `v8.2.1` points
+> to `971a0d2dc7cf8f093527239e2394391dbbfec0a4`. B94 source commit
 > `d1e7ac6d09528f22d8becb378f26c66d751ac297`; B95/runtime commit
 > `496033e677919757ef1f2a78cee32d3abedb4805`. This record covers the compact-composer correction
 > and the installed end-session camera/TCC crash. Package, install, privacy strings, artifact,
@@ -89,12 +90,14 @@ still-open packaged-native Score feel gate.
       246 blocks/contracts, 2,207 reps, 48 sessions, 8,391 events and zero open sessions/blocks.
 - [x] Fresh installed launch: app PID **46013** remained live with its owned `hear` child; no new
       crash report appeared. The latest report remained the prior 13:09 v8.2.0 TCC abort.
-- [ ] Pushed release tag/publication.
+- [x] Pushed lightweight release tag `v8.2.1` at
+      `971a0d2dc7cf8f093527239e2394391dbbfec0a4`; private `origin/main` pushed through that tagged
+      release-doc commit. Verify the moving branch tip from Git after later docs-only corrections.
 - [ ] Installed-native 720x520 Score/composer interaction verdict (tracked separately as B91).
 
 ## Next steps
 
-Publish the release tag without changing the installed runtime identity. Then deliberately handle
-Desktop access and repeat the exact composer/continuous-Score walk in the installed app. Keep
+Deliberately handle Desktop access and repeat the exact composer/continuous-Score walk in the
+installed app. Keep
 microphone/Steinway, authorized provider mapping and sustained motivation as separate evidence
 gates.

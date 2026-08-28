@@ -8,8 +8,9 @@ metronome — hands-free.
 
 ## Status
 
-**v8.2.1 / schema 20 shipped and was installed on 2026-08-28; release tag/publication is still
-pending.** B94 source commit `d1e7ac6d09528f22d8becb378f26c66d751ac297` and B95/runtime
+**v8.2.1 / schema 20 SHIPPED + INSTALLED + PUBLISHED 2026-08-28.** Pushed lightweight tag
+`v8.2.1` points to `971a0d2dc7cf8f093527239e2394391dbbfec0a4`. B94 source commit
+`d1e7ac6d09528f22d8becb378f26c66d751ac297` and B95/runtime
 commit `496033e677919757ef1f2a78cee32d3abedb4805` combine the composer-density correction with
 the fatal end-session/camera fix.
 On v8.2.0, session 48 closed and its data persisted, then the app aborted less than one second later:
@@ -32,8 +33,9 @@ Installed `/Applications/CodaKiller.app` reports short/build 8.2.1, bundle
 `f0460dcb3b62825ea29328a32489987364b19828`; its exact Camera/Microphone/Speech usage strings are
 present. DMG `/Users/c3/codakiller/releases/v8.2.1/CodaKiller-8.2.1.dmg` is 10,907,287 bytes,
 SHA-256 `6ce58b77b32642c644df1c0b42d2c89ea745a75e28c7891a484190ad111c61dd`. Fresh launch PID
-46013 remained live with its owned `hear` child and no new crash report. Tag/push alone remain
-pending; see `docs/qa/v8.2.1/README.md`.
+46013 remained live with its owned `hear` child and no new crash report. Private `origin/main`
+was pushed through the tagged release-doc commit and may advance through docs-only corrections;
+read its current tip from Git. See `docs/qa/v8.2.1/README.md`.
 
 **v8.2.0 / schema 20 shipped and was installed on 2026-08-27.** Christian's visual-cleanse round
 is frozen at source commit `afe65f3b176a1c5da81eca6d2f65bd721726ee40`: Score is now a continuous,
@@ -107,8 +109,8 @@ The v8.2 rollback archive is
 SHA-256 `da29be1e96c120f2c27994fc2d83c26a5c8bc9a40c08b2f87097b0e82a117b71`). Before/after install
 audits preserve the exact backup counts with schema 20, integrity OK and FK0.
 
-Next: publish the v8.2.1 release tag, then deliberately handle Desktop-folder access and complete
-native Score/composer/Total-plays acceptance; run real WKWebView microphone/Listen Back/Steinway
+Next: deliberately handle Desktop-folder access and complete native Score/composer/Total-plays
+acceptance; run real WKWebView microphone/Listen Back/Steinway
 acceptance, one explicitly authorized provider map, and sustained-use motivation judgment—in that
 order.
 
