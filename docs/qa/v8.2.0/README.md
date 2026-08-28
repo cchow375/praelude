@@ -57,7 +57,10 @@
 - [x] Fresh installed launch and exact live schema-20 graph audit: counts preserved, integrity
       OK/FK0, zero open sessions/active contracts.
 - [ ] Installed-native 720×520 Score/composer interaction pass.
-- [ ] Release tag and remote push finalization.
+- [x] Pushed lightweight tag `v8.2.0` at
+      `5de8bf9e1e9bced09c3d5091acd4b42241edae28`; private `origin/main` pushed through the tagged
+      release-doc commit. Later docs-only commits may advance `main` without changing the tag or
+      runtime source `afe65f3…`.
 
 ## Current packaged acceptance checklist
 
@@ -87,6 +90,7 @@ provider merely to complete this checklist.
 
 ## Next steps
 
-Finalize the tag/push, then add packaged-native Score evidence only after the Desktop-folder
-permission is deliberately handled by Christian. Do not upgrade these browser frames into
+Add packaged-native Score evidence only after the Desktop-folder permission is deliberately
+handled by Christian. Then continue microphone/Steinway, explicitly authorized mapping and
+sustained-motivation acceptance. Do not upgrade these browser frames into
 microphone, provider-mapping or at-piano evidence they cannot supply.

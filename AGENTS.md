@@ -21,8 +21,11 @@ is unchanged. Gates stand at frontend 2,678 passed / 1 skipped and native 1,109 
 integrity OK/FK0. Browser QA passed at 720×520 and 1462×919. All eight release gates, installed
 identity/signature, DMG/checksum, backup/rollback, fresh launch and live schema-20 graph passed.
 The packaged app was seen launch, but macOS's Desktop-folder access prompt was not granted; do not
-claim a packaged-native Score frame behind that permission. Repository publication/tag
-finalization is the one remaining release step and is owned by the release operator.
+claim a packaged-native Score frame behind that permission. Release tag `v8.2.0` is a pushed
+lightweight tag at `5de8bf9e1e9bced09c3d5091acd4b42241edae28`; private `origin/main` was pushed
+through that release-doc commit. This imminent post-tag documentation-only correction, and later
+docs-only commits, may advance `main`; the immutable tag and runtime source `afe65f3…` remain the
+release identities.
 Assistant work remains out of scope: it stays switched off and gated as Christian's accepted
 cleanup, with a practice-only off-state Settings guide and Books/provider furniture hidden. See:
 
@@ -39,10 +42,10 @@ cleanup, with a practice-only off-state Settings guide and Books/provider furnit
 historical lane. `.claude/worktrees/`, `~/.ck-lanes/`, `.superpowers/sdd/task-*`, the old
 Foundation context, and `.workflow/LEDGER.md` are retained phase evidence, not the current
 roadmap. Do not restart P3–P6, the v7 galaxy, or the source-complete v8.2 work from those files.
-Immediate work is repository tag/push finalization, then the unchanged external acceptance: an
-explicitly authorized real-provider measure map, real WKWebView Listen Back and
-voice-over-Steinway use, and a sustained-use verdict on the motivation dashboard. Assistant Plan C
-remains on hold unless Christian explicitly reopens it.
+Immediate work is deliberate Desktop-folder access handling plus installed-native Score
+acceptance, followed by real WKWebView Listen Back and voice-over-Steinway use, one explicitly
+authorized real-provider measure map, and a sustained-use verdict on the motivation dashboard.
+Assistant Plan C remains on hold unless Christian explicitly reopens it.
 
 Preserve the user-as-sensor boundary: speech may describe practice; the app never interprets piano
 audio as musical evidence. Preserve Christian's live history and rehearse schema changes only on

@@ -12,7 +12,10 @@
 > too much space. v8.2.0/schema20 is now source-complete at `afe65f3`; its exact corrective
 > contract is §10 and
 > `docs/superpowers/plans/2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md`. It is a release
-> that **shipped and installed on 2026-08-27**; repository tag/push finalization follows the docs.
+> that **shipped and installed on 2026-08-27**; pushed lightweight tag `v8.2.0` points to
+> `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` was pushed through that
+> release-doc commit; later docs-only commits may advance it without changing the tag or runtime
+> source `afe65f3…`.
 > **Rev 3 (2026-08-27):** corrects the denominator from 21 to **23** (the table always contained
 > 23 IDs), records Christian's final decisions (Assistant OFF; archive + recent-first, no folders;
 > keyboard figures; session-temporary takes), and maps the now-present P3–P6 source. It also
@@ -646,7 +649,8 @@ not granted, so this is still not packaged-native Score visual acceptance.
 
 ### Next steps
 
-1. Finalize the v8.2 tag and remote push after documentation.
-2. Get Christian's native 720×520 and piano-use verdict on the cleaned surfaces.
-3. Continue the unchanged v8.1 external microphone, provider-mapping and sustained-motivation
-   acceptance threads.
+1. Deliberately resolve Desktop-folder access and get Christian's installed-native 720×520
+   Score/composer/Total-plays verdict.
+2. Continue real WKWebView microphone/Listen Back and voice-over-Steinway acceptance.
+3. Apply one explicitly authorized real-provider/current-edition map, then judge motivation over
+   sustained use.

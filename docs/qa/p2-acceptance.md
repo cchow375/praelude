@@ -5,7 +5,8 @@
 > top-bar metronome UI). Installed truth is v8.2.0/schema 20. Use
 > `docs/qa/v8.2.0/README.md` and
 > `docs/superpowers/plans/2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md` for the current handoff:
-> repository tag/push, packaged-native Score after the Desktop-folder access choice, real
+> pushed lightweight tag `v8.2.0` is fixed at
+> `5de8bf9e1e9bced09c3d5091acd4b42241edae28`; current work is packaged-native Score after the Desktop-folder access choice, real
 > WKWebView microphone/Listen Back/voice-over-Steinway, one explicitly authorized provider map
 > and sustained motivation acceptance. The body below is preserved only as dated evidence.
 

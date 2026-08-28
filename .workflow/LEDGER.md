@@ -10,8 +10,11 @@
 > `docs/superpowers/specs/2026-08-24-aug8-practice-overhaul-design.md`,
 > `docs/superpowers/plans/2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md`, and
 > `docs/qa/v8.2.0/README.md`. The current installed boundary is v8.2.0/schema 20; B91 native
-> Score acceptance and repository tag/push finalization remain open. Preserve the body below as
-> historical evidence; do not use it to remove the current XP or levels.
+> Score acceptance remains open. Pushed lightweight tag `v8.2.0` points to
+> `5de8bf9e1e9bced09c3d5091acd4b42241edae28`; private `origin/main` was pushed through that
+> release-doc commit, and later docs-only corrections may advance it without changing the tag or
+> runtime source `afe65f3…`. Preserve the body below as historical evidence; do not use it to
+> remove the current XP or levels.
 
 Spec: docs/superpowers/specs/2026-08-20-codakiller-v6.0.1-fixes-v7-motivation-layer.md (approved; Christian's "push to v7" 2026-08-23 clears the spec-review gate)
 

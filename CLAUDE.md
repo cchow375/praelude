@@ -68,11 +68,14 @@ context, and `.workflow/LEDGER.md` are retained phase evidence; their local stat
 override this file or the vault. Do not restart P3–P6, restore the v7 galaxy, or resume Assistant
 Plan C from those records.
 
-The next honest work is to finalize the v8.2 tag/push, not rebuild or reinstall its source:
-continuous Score, independent Tricky Sections scrolling, compact toolbar/dock/variants and Total
-plays are shipped. After that, external acceptance remains one explicitly authorized
-real-provider/current-edition measure map; real WKWebView Listen Back and voice-over-Steinway use;
-and a sustained-use verdict on XP, levels, milestones and cadence.
+Release tag `v8.2.0` is a pushed lightweight tag at
+`5de8bf9e1e9bced09c3d5091acd4b42241edae28`; private `origin/main` was pushed through that
+release-doc commit. This imminent post-tag documentation-only correction, and later docs-only
+commits, may advance `main`; the immutable tag and runtime source `afe65f3…` remain the release
+identities. The next honest work is deliberate Desktop-folder access plus installed-native Score
+acceptance, then real WKWebView Listen Back and voice-over-Steinway use, one explicitly authorized
+real-provider/current-edition measure map, and a sustained-use verdict on XP, levels, milestones
+and cadence. Do not rebuild or reinstall the shipped source.
 Never upload a score merely to close B5—confirm the provider/key and Christian's authorization for
 whole-edition egress first. Assistant remains OFF unless Christian explicitly reopens it.
 
@@ -106,7 +109,10 @@ zero FK violations. All eight release-script gates, installed version/bundle/sig
 audit, DMG/checksum, backup/rollback, fresh launch and live schema-20 count/integrity audit passed.
 Browser visual QA passed at 720×520 and 1462×919. Packaged launch was seen, but the Desktop-folder
 permission prompt was not granted, so packaged-native Score visual acceptance is not claimed.
-Repository tag/push finalization is pending.
+Release tag `v8.2.0` is pushed as a lightweight tag at
+`5de8bf9e1e9bced09c3d5091acd4b42241edae28`; the immutable runtime source remains `afe65f3…`.
+Private `origin/main` was pushed through the tagged release-doc commit and will include this
+post-tag documentation-only correction; later docs-only commits may advance it.
 
 **Historical v8.1 boundary: v8.1.0 / schema 19 — SHIPPED + INSTALLED 2026-08-27.** The release closes the remaining Aug 8
 train in one coherent app: P3 voice chimes/feed/fast phrases/live settle and counted add/undo; P4
@@ -130,8 +136,8 @@ corpora and all eight release gates passed. The installed ad-hoc locally signed 
 verified, and fresh launch migrated schema 16→19 with integrity/FKs clean and the historical graph
 preserved; only hidden `id=0` Warm-ups was added. Installed-native Universe and Warmups passed at
 720×520 without losing the active set. Release tag `v8.1.0` points to
-`0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; private `origin/main` is current through
-the post-tag documentation correction. Browser/devMock and scoped
+`0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; at that historical boundary, private
+`origin/main` had reached the post-tag documentation correction. Browser/devMock and scoped
 native visual evidence cannot prove microphone or Steinway behavior. B67/B75 remain open: no
 Anthropic key and no live measure mapping. Packaged-native Listen Back/voice and at-piano
 acceptance remain owed. The 23-ask boundary is **22 delivered / 1 external-only (B5) / 0 absent**;

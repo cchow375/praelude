@@ -59,16 +59,18 @@ events; zero sessions/contracts were open, and movement/routine/replay tables pl
 remain empty. Pre-install backup: 23,146,496 bytes, SHA-256
 `e2ba204263a9413b073ea5cab3b8fc2192ea7dcb42fda90012a0c0d08b660d0e`. The v8.1 rollback archive
 is 10,041,913 bytes, SHA-256
-`2960fd90cda9e24583a4661d7ad2672041e896f533d2b979c0cf3897291c751b`. Repository publication is
-the only release-finalization step still pending; the previous release tag
-`v8.1.0` points to `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; private
-`origin/main` was verified through post-tag documentation finalization
-`da71efb5509afa36beb073050719ac1094751b98` before this cold-start documentation sweep. Later
-documentation-only commits may advance the branch; the immutable release tag and source-freeze
-hash above remain the release identities. Real-provider measure mapping is still
+`2960fd90cda9e24583a4661d7ad2672041e896f533d2b979c0cf3897291c751b`. Release tag `v8.2.0` is a
+pushed lightweight tag at `5de8bf9e1e9bced09c3d5091acd4b42241edae28`; private `origin/main`
+was pushed through that release-doc commit. This imminent post-tag documentation-only correction,
+and later docs-only commits, may advance `main`; the immutable tag and runtime source
+`afe65f3b176a1c5da81eca6d2f65bd721726ee40` remain the release identities. Real-provider measure mapping is still
 unproven on Christian's live scores (no Anthropic key and zero live `measure_map` rows at the last
 audit), and Listen Back/voice still require packaged-native microphone and Steinway acceptance.
 Those inherited external gaps are unchanged by this frontend-focused release.
+
+Next: deliberately handle Desktop-folder access and complete installed-native Score/composer/
+Total-plays acceptance; then run real WKWebView microphone/Listen Back/Steinway acceptance, one
+explicitly authorized provider map, and sustained-use motivation judgment—in that order.
 
 The Assistant remains switched off and gated at Christian's request. Canonical product truth
 lives in the Obsidian vault; start at

@@ -34,14 +34,16 @@
   integrity OK and zero foreign-key violations. This rehearsal does not authorize touching live
   data and does not replace the pre-install backup/live before-after gate.
 
-- **v8.2/schema20 shipped and was installed on 2026-08-27; repository publication is the remaining
-  finalization step.** Source `afe65f3b176a1c5da81eca6d2f65bd721726ee40`; frontend 2,678
+- **v8.2/schema20 shipped, installed and was tagged/pushed on 2026-08-27.** Runtime source
+  `afe65f3b176a1c5da81eca6d2f65bd721726ee40`; pushed lightweight tag `v8.2.0` points to
+  `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` was pushed through that
+  release-doc commit; this imminent post-tag documentation-only correction and later docs-only
+  commits may advance `main` without changing the immutable tag/runtime identity. Frontend 2,678
   passed / 1 skipped, native 1,109 passed / 19 ignored; TypeScript/build/format/strict Clippy,
   five narrated corpora and all eight release gates passed. Installed app identity/signature,
   one-copy rule, DMG/checksum, backup/rollback, fresh launch and exact live schema-20 graph passed.
   macOS presented a Desktop-folder access prompt during packaged launch; permission was not granted,
-  so browser Score visuals remain accepted but a packaged-native Score frame is not claimed. Tag
-  and push are pending the documentation commit.
+  so browser Score visuals remain accepted but a packaged-native Score frame is not claimed.
 
 - **Cold-start authority lives in the tracked main/vault entry points, never an old lane or
   unchecked historical plan (2026-08-27).** A post-release audit found that correct v8.1 banners
