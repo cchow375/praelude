@@ -89,7 +89,12 @@ const DEFAULT_TUNING: SetTuning = {
   beats_per_bar: 4,
 };
 
-function clampInteger(value: unknown, min: number, max: number, fallback: number) {
+function clampInteger(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+) {
   const parsed = Number(value);
   return Number.isFinite(parsed)
     ? Math.min(max, Math.max(min, Math.round(parsed)))
@@ -245,6 +250,8 @@ export function BlockForm({
   // remembered alongside the built-in presets, so re-adding one is one tap.
   const [customChips, setCustomChips] = useState<string[]>([]);
   const [customVariantText, setCustomVariantText] = useState<string>("");
+  const [customVariantOpen, setCustomVariantOpen] = useState(false);
+  const customVariantInputRef = useRef<HTMLInputElement>(null);
 
   const chooseTargetMode = (next: TargetMode) => {
     targetEdited.current = true;
@@ -265,6 +272,11 @@ export function BlockForm({
     );
     setCustomStreak(String(defaultCleanStreak));
   }, [defaultCleanStreak]);
+
+  useEffect(() => {
+    if (!customVariantOpen) return;
+    customVariantInputRef.current?.focus();
+  }, [customVariantOpen]);
 
   // A stored draft/reopen may arrive after the surrounding view resolves its
   // data. Adopt it until the pianist touches any tuning control; from then on,
@@ -314,6 +326,7 @@ export function BlockForm({
         : [...chips, name],
     );
     setCustomVariantText("");
+    setCustomVariantOpen(false);
   };
 
   // One-line, plain-words summary of what's tucked behind "Advanced" (the
@@ -457,14 +470,29 @@ export function BlockForm({
 
   return (
     <form className="block-form" onSubmit={submit}>
-      <h3 className="ck-form-heading">New practice set</h3>
+      <div className="block-form-head">
+        <h3 className="ck-form-heading">Practice set</h3>
+        <button
+          type="submit"
+          className="ck-primary block-form-submit"
+          disabled={opening || Boolean(blockedReason)}
+        >
+          {opening ? "Starting…" : "Start set"}
+        </button>
+      </div>
+
+      {blockedReason && (
+        <p className="ck-inline-status" role="status">
+          {blockedReason}
+        </p>
+      )}
 
       {/* Task A3 (§4b): the body scrolls internally so the composer still
           fits — and Start set stays reachable — at the app's 720×520 floor;
           the fix for "doesn't fit" is a scrollbar, never re-hiding a tool. */}
       <div className="block-form-body">
         {/* Section context: which measures (and an optional free label). */}
-        <div className="ck-field-grid">
+        <div className="ck-field-grid ck-core-pair">
           <label className="ck-field">
             <span className="ck-label">From measure</span>
             <input
@@ -509,7 +537,7 @@ export function BlockForm({
         {/* Target: the tempo the pianist is driving toward (or a plain
             metronome beat when a non-tempo focus still wants the click). */}
         {(focus === "tempo" || useMetronome) && (
-          <div className="ck-field-grid">
+          <div className="ck-field-grid ck-core-pair">
             <label className="ck-field">
               <span className="ck-label">
                 {focus === "tempo" ? "Start bpm" : "Metronome bpm"}
@@ -544,7 +572,7 @@ export function BlockForm({
 
         {/* Always visible from here down (Christian, spec §5.3): focus, the
             variant chain, and the clean-streak target need zero clicks. */}
-        <div className="ck-field-grid">
+        <div className="ck-field-grid ck-focus-grid">
           <label className="ck-field">
             <span className="ck-label">Practice focus</span>
             <select
@@ -690,11 +718,12 @@ export function BlockForm({
               />
             ) : null}
           </div>
-          <small>
-            {targetMode === "streak"
-              ? "Clean must be consecutive."
-              : "Fixed tempo · no variants · every verdict counts; Undo removes one."}
-          </small>
+          {targetMode === "plays" ? (
+            <small>
+              Fixed tempo · no variants · every verdict counts; Undo removes
+              one.
+            </small>
+          ) : null}
         </fieldset>
 
         {/* A chain is itself a clean-streak proof. Keep it out of total-play
@@ -717,31 +746,46 @@ export function BlockForm({
                   {preset.label}
                 </button>
               ))}
-            </div>
-            <div className="ck-row ck-variant-add-row">
-              <input
-                className="ck-input"
-                type="text"
-                value={customVariantText}
-                placeholder="Custom variant…"
-                aria-label="Custom variant name"
-                onChange={(e) => setCustomVariantText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addCustomVariant();
-                  }
-                }}
-              />
               <button
                 type="button"
-                className="ck-add ck-variant-add"
-                aria-label="Add custom variant"
-                onClick={addCustomVariant}
+                className="ck-chip ck-custom-variant-toggle"
+                aria-expanded={customVariantOpen}
+                aria-controls="custom-variant-editor"
+                onClick={() => setCustomVariantOpen((open) => !open)}
               >
-                +
+                + Custom
               </button>
             </div>
+            {customVariantOpen ? (
+              <div
+                className="ck-row ck-variant-add-row"
+                id="custom-variant-editor"
+              >
+                <input
+                  ref={customVariantInputRef}
+                  className="ck-input"
+                  type="text"
+                  value={customVariantText}
+                  placeholder="Custom variant…"
+                  aria-label="Custom variant name"
+                  onChange={(e) => setCustomVariantText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addCustomVariant();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="ck-add ck-variant-add"
+                  aria-label="Add custom variant"
+                  onClick={addCustomVariant}
+                >
+                  +
+                </button>
+              </div>
+            ) : null}
             {variants.length > 0 ? (
               <>
                 <small className="ck-chain-help">
@@ -947,7 +991,9 @@ export function BlockForm({
                   {demotionMode === "on" && (
                     <div className="ck-field-grid ck-manual-rule">
                       <label className="ck-field">
-                        <span className="ck-label">First demotion after sloppy</span>
+                        <span className="ck-label">
+                          First demotion after sloppy
+                        </span>
                         <input
                           className="ck-input"
                           type="number"
@@ -955,11 +1001,15 @@ export function BlockForm({
                           max={10}
                           aria-label="First demotion after sloppy reps"
                           value={demotionFirst}
-                          onChange={(event) => setDemotionFirst(event.target.value)}
+                          onChange={(event) =>
+                            setDemotionFirst(event.target.value)
+                          }
                         />
                       </label>
                       <label className="ck-field">
-                        <span className="ck-label">Later demotions after sloppy</span>
+                        <span className="ck-label">
+                          Later demotions after sloppy
+                        </span>
                         <input
                           className="ck-input"
                           type="number"
@@ -967,13 +1017,16 @@ export function BlockForm({
                           max={10}
                           aria-label="Later demotions after sloppy reps"
                           value={demotionRepeat}
-                          onChange={(event) => setDemotionRepeat(event.target.value)}
+                          onChange={(event) =>
+                            setDemotionRepeat(event.target.value)
+                          }
                         />
                       </label>
                     </div>
                   )}
                   <p className="ck-tuning-note">
-                    Sloppy resets the clean streak and can step tempo down; Again does neither.
+                    Sloppy resets the clean streak and can step tempo down;
+                    Again does neither.
                   </p>
                 </fieldset>
               )}
@@ -1049,19 +1102,6 @@ export function BlockForm({
           )}
         </div>
       </div>
-
-      {blockedReason && (
-        <p className="ck-inline-status" role="status">
-          {blockedReason}
-        </p>
-      )}
-      <button
-        type="submit"
-        className="ck-primary"
-        disabled={opening || Boolean(blockedReason)}
-      >
-        {opening ? "Starting…" : "Start set"}
-      </button>
     </form>
   );
 }

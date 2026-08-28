@@ -46,12 +46,15 @@ version history live in the Obsidian vault**, not here:
 - `docs/superpowers/plans/2026-08-27-v8.1.0-p3-p6-completion.md` — shipped ledger for the
   combined P3–P6 release and its remaining external acceptance facts.
 - `docs/superpowers/plans/2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md` — current corrective
-  release ledger: continuous Score, compact practice UI and non-mastery Total plays contract.
+  release ledger: continuous Score, compact practice UI and non-mastery Total plays contract,
+  plus the v8.2.1 density-correction addendum.
 - `docs/qa/v7.2.0/README.md` — source-candidate 720×520 evidence and its native/at-piano limits.
 - `docs/qa/v8.1.0/README.md` — historical v8.1 browser/devMock and scoped native visual record;
   packaged-native microphone, storage and Steinway acceptance are explicitly not inferred.
 - `docs/qa/v8.2.0/README.md` — Score/composer browser record at 720×520 and 1462×919 plus final
   package/data facts; native Score visual remains pending behind the ungranted Desktop permission.
+- `docs/qa/v8.2.1/README.md` — compact-composer source evidence at 720x520; package/install/tag
+  and native evidence remain pending.
 - `docs/qa/(C) v2-narrated-replay-contract.md` — old-session speech/state-machine regression
   boundary; never a piano-grading benchmark.
 - `docs/qa/` — acceptance records, regression contracts and screenshots.
@@ -75,6 +78,12 @@ through documentation-only corrections; verify the exact current ref from Git. T
 plus installed-native Score acceptance, then real WKWebView Listen Back and voice-over-Steinway use,
 one explicitly authorized real-provider/current-edition measure map, and a sustained-use verdict
 on XP, levels, milestones and cadence. Do not rebuild or reinstall the shipped source.
+
+The only active source delta is the **v8.2.1 frontend patch candidate**: paired measure/BPM rows,
+compact Focus/Metronome and target mode/count rows, a pinned header-level Start action and
+on-demand custom variant entry. The rail remains the sole scroll owner. Browser QA at 720x520,
+frontend 2,680 passed / 1 skipped and clean TypeScript/build are complete; schema stays 20.
+Package/install/tag/native evidence is not yet complete.
 Never upload a score merely to close B5—confirm the provider/key and Christian's authorization for
 whole-edition egress first. Assistant remains OFF unless Christian explicitly reopens it.
 
@@ -92,6 +101,14 @@ Quit + relaunch the installed `.app` to run new code. First launch needs mic + S
 Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
+
+**v8.2.1 / schema 20 — SOURCE CANDIDATE, NOT YET PACKAGED OR INSTALLED (2026-08-28).** It fixes
+the remaining Score-composer density/reachability regression without changing practice behavior:
+core numeric fields are paired, Focus/Metronome and target mode/count share compact rows, Start is
+pinned at the top, custom variant entry is disclosure-only, and the rail remains the only vertical
+scroll owner. Live browser QA passed at 720x520; frontend **2,680 passed / 1 skipped / 0 failed**;
+TypeScript and production build are clean. Commit, artifact, install, tag and native WKWebView
+evidence remain pending.
 
 **v8.2.0 / schema 20 — SHIPPED + INSTALLED 2026-08-27**, source
 `afe65f3b176a1c5da81eca6d2f65bd721726ee40`. v8.2 replaces the single-page Score posture with a continuous virtualized reader;

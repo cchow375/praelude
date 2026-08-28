@@ -2,6 +2,21 @@
 
 ## Decisions
 
+- **A narrow rail must use horizontal pairing before asking the pianist to scroll (v8.2.1
+  source correction, 2026-08-28).** Christian's first installed v8.2.0 screenshot exposed a
+  density regression the earlier browser checklist missed: at the Score rail width, the generic
+  flex field grid wrapped From/To, Start/Target BPM and Focus/Metronome into six full-width rows;
+  the Start action then sat after every optional control, and the always-visible custom-variant
+  editor added another row. The v8.2.1 candidate gives the Score composer explicit two-column
+  measure/BPM grids, a compact Focus + Metronome line and a one-line target-mode/count grid. Start
+  lives in the form header and stays pinned within the rail, while **+ Custom** reveals the custom
+  variant editor only on demand. The Tricky Sections rail remains the only scroll owner—there is
+  still no nested form scrollbar. This is a frontend density/reachability correction only: schema
+  stays 20 and practice semantics do not change. Live browser verification at 720x520 found the
+  paired rows intact, Start immediately reachable and no horizontal overflow. Full frontend is
+  2,680 passed / 1 skipped; TypeScript and production build are clean. Package/install/tag and
+  native WKWebView acceptance remain pending.
+
 - **v8.2 Score/UI cleanse and `total_attempts` are one corrective contract, not a new coaching
   system (2026-08-27).** Christian's real UI report identified time/friction defects: Score
   behaved like one pinned page with dead space, Tricky Sections did not own a usable scroll,

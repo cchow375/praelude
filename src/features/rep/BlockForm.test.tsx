@@ -171,15 +171,19 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
 
   it("adds a custom free-text variant and remembers it as a chip", () => {
     render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    expect(screen.queryByLabelText("Custom variant name")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "+ Custom" }));
+    expect(document.activeElement).toBe(
+      screen.getByLabelText("Custom variant name"),
+    );
     fireEvent.change(screen.getByLabelText("Custom variant name"), {
       target: { value: "octave runs" },
     });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Add custom variant" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Add custom variant" }));
     expect(
       (screen.getByLabelText("Variant 1 name") as HTMLInputElement).value,
     ).toBe("octave runs");
+    expect(screen.queryByLabelText("Custom variant name")).toBeNull();
     // Remembered as a chip: a second tap re-adds it without retyping.
     fireEvent.click(screen.getByRole("button", { name: "octave runs" }));
     expect(
@@ -249,10 +253,16 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dotted" }));
 
     fireEvent.click(screen.getByRole("radio", { name: "Total plays" }));
-    const count = screen.getByLabelText("Total plays target") as HTMLSelectElement;
-    expect(
-      Array.from(count.options).map((option) => option.value),
-    ).toEqual(["5", "10", "15", "25", "custom"]);
+    const count = screen.getByLabelText(
+      "Total plays target",
+    ) as HTMLSelectElement;
+    expect(Array.from(count.options).map((option) => option.value)).toEqual([
+      "5",
+      "10",
+      "15",
+      "25",
+      "custom",
+    ]);
     expect(screen.queryByRole("group", { name: "Variant chain" })).toBeNull();
     expect(screen.queryByLabelText("Target bpm")).toBeNull();
     expect(
@@ -265,7 +275,9 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
     openAdvanced();
     expect(screen.queryByRole("group", { name: "Tempo ladder" })).toBeNull();
     expect(screen.queryByLabelText("Attempt review boundary")).toBeNull();
-    expect(screen.getByRole("group", { name: "Metronome tuning" })).toBeTruthy();
+    expect(
+      screen.getByRole("group", { name: "Metronome tuning" }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Start set" }));
 
     expect(onOpen).toHaveBeenCalledTimes(1);
@@ -299,9 +311,7 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: "Total plays" }));
     expect(screen.queryByText(/demote after/)).toBeNull();
-    expect(
-      screen.queryByRole("group", { name: "Tempo demotion" }),
-    ).toBeNull();
+    expect(screen.queryByRole("group", { name: "Tempo demotion" })).toBeNull();
   });
 
   it("submits a compact custom total-play count", () => {
@@ -325,6 +335,31 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
       /\.ck-chain-item\s*\{[^}]*grid-template-columns:\s*1rem minmax\(4\.5rem, 1fr\) 3rem auto/s,
     );
     expect(css).toMatch(/\.ck-chain-count\s*\{[^}]*height:\s*32px/s);
+  });
+
+  it("groups the core controls into compact logical pairs", () => {
+    render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    const fromRow = screen
+      .getByLabelText("From measure")
+      .closest(".ck-field-grid");
+    const toRow = screen.getByLabelText("To measure").closest(".ck-field-grid");
+    const startRow = screen
+      .getByLabelText("Start bpm")
+      .closest(".ck-field-grid");
+    const targetRow = screen
+      .getByLabelText("Target bpm")
+      .closest(".ck-field-grid");
+    const focusRow = screen.getByLabelText("Focus").closest(".ck-field-grid");
+    const metroRow = screen
+      .getByLabelText("Use metronome")
+      .closest(".ck-field-grid");
+
+    expect(fromRow).toBe(toRow);
+    expect(fromRow?.classList.contains("ck-core-pair")).toBe(true);
+    expect(startRow).toBe(targetRow);
+    expect(startRow?.classList.contains("ck-core-pair")).toBe(true);
+    expect(focusRow).toBe(metroRow);
+    expect(focusRow?.classList.contains("ck-focus-grid")).toBe(true);
   });
 
   it("keeps the tempo ladder and review boundary collapsed under Advanced", async () => {
@@ -351,11 +386,15 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
       { target: { value: "on" } },
     );
     fireEvent.change(
-      screen.getByRole("spinbutton", { name: "First demotion after sloppy reps" }),
+      screen.getByRole("spinbutton", {
+        name: "First demotion after sloppy reps",
+      }),
       { target: { value: "4" } },
     );
     fireEvent.change(
-      screen.getByRole("spinbutton", { name: "Later demotions after sloppy reps" }),
+      screen.getByRole("spinbutton", {
+        name: "Later demotions after sloppy reps",
+      }),
       { target: { value: "2" } },
     );
     fireEvent.click(screen.getByRole("button", { name: "Start set" }));
@@ -382,7 +421,9 @@ describe("BlockForm per-set metronome tuning (A5)", () => {
       target: { value: "eighth" },
     });
     expect(
-      screen.getByText(/Changing this label never converts or changes the BPM/i),
+      screen.getByText(
+        /Changing this label never converts or changes the BPM/i,
+      ),
     ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Start set" }));
@@ -420,9 +461,7 @@ describe("BlockForm per-set metronome tuning (A5)", () => {
       ),
     ).toBeTruthy();
     expect(
-      within(screen.getByRole("group", { name: "Subdivision" })).getByText(
-        "3",
-      ),
+      within(screen.getByRole("group", { name: "Subdivision" })).getByText("3"),
     ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Start set" }));
@@ -433,19 +472,28 @@ describe("BlockForm per-set metronome tuning (A5)", () => {
     });
   });
 
-  it("keeps Advanced in the scroll body and Start set pinned outside it at the dense floor", () => {
+  it("keeps one Start set action in the persistent header outside variable content", () => {
     const { container } = render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
     openAdvanced();
     const body = container.querySelector(".block-form-body") as HTMLElement;
+    const head = container.querySelector(".block-form-head") as HTMLElement;
     const start = screen.getByRole("button", { name: "Start set" });
     expect(body.contains(screen.getByLabelText("BPM note value"))).toBe(true);
     expect(body.contains(start)).toBe(false);
+    expect(head.contains(start)).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Start set" })).toHaveLength(
+      1,
+    );
 
     // jsdom has no layout engine, so pin the actual CSS contract that makes
     // the structure safe at 720×520; screenshot QA remains the pixel proof.
     const css = readFileSync(join(process.cwd(), "src/ui/forms.css"), "utf8");
     expect(css).toMatch(/\.block-form\s*\{[^}]*max-height:\s*100vh/s);
     expect(css).toMatch(/\.block-form-body\s*\{[^}]*overflow-y:\s*auto/s);
+    expect(css).toMatch(/\.block-form-head\s*\{[^}]*display:\s*flex/s);
+    expect(css).toMatch(
+      /\.ck-primary\.block-form-submit\s*\{[^}]*height:\s*34px/s,
+    );
   });
 });
 

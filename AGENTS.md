@@ -25,6 +25,13 @@ claim a packaged-native Score frame behind that permission. Release tag `v8.2.0`
 lightweight tag at `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` advanced
 after the tag through documentation-only corrections; verify the exact current ref from Git. The
 immutable tag and runtime source `afe65f3…` remain the release identities.
+
+**Current corrective work: v8.2.1 frontend source candidate, schema unchanged at 20.** Christian's
+first installed v8.2 screenshot exposed a remaining composer-density/reachability regression. The
+candidate pairs measure and BPM fields, compacts Focus/Metronome and target mode/count, pins
+**Start set** in the form header, and hides custom variant entry until **+ Custom**. Tricky Sections
+remains the only scroll owner. Live browser QA at 720x520 passes; frontend is 2,680 passed / 1
+skipped and TypeScript/build are clean. Package/install/tag and native evidence remain pending.
 Assistant work remains out of scope: it stays switched off and gated as Christian's accepted
 cleanup, with a practice-only off-state Settings guide and Books/provider furniture hidden. See:
 
@@ -34,6 +41,7 @@ cleanup, with a practice-only off-state Settings guide and Books/provider furnit
 - `docs/superpowers/plans/2026-08-26-p2-micro-targets-v2-and-set-completion.md`
 - `docs/qa/v8.1.0/README.md` (browser/devMock plus scoped installed-native evidence; native audio explicitly pending)
 - `docs/qa/v8.2.0/README.md` (browser UI + release/data evidence; native Score frame pending Desktop access)
+- `docs/qa/v8.2.1/README.md` (compact-composer source evidence; package/native evidence pending)
 - `docs/qa/v7.2.0/README.md`
 - `NOTES.md` (newest decision block first)
 
@@ -41,7 +49,8 @@ cleanup, with a practice-only off-state Settings guide and Books/provider furnit
 historical lane. `.claude/worktrees/`, `~/.ck-lanes/`, `.superpowers/sdd/task-*`, the old
 Foundation context, and `.workflow/LEDGER.md` are retained phase evidence, not the current
 roadmap. Do not restart P3–P6, the v7 galaxy, or the source-complete v8.2 work from those files.
-Immediate work is deliberate Desktop-folder access handling plus installed-native Score
+Immediate work is package/install of the narrow v8.2.1 composer correction, then deliberate
+Desktop-folder access handling plus installed-native Score
 acceptance, followed by real WKWebView Listen Back and voice-over-Steinway use, one explicitly
 authorized real-provider measure map, and a sustained-use verdict on the motivation dashboard.
 Assistant Plan C remains on hold unless Christian explicitly reopens it.

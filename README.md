@@ -8,6 +8,15 @@ metronome — hands-free.
 
 ## Status
 
+**v8.2.1 is a frontend-only source candidate; v8.2.0 remains installed until packaging.** The
+candidate corrects the form-density regression exposed by Christian's first installed v8.2
+screenshot: From/To and Start/Target BPM now stay paired, Focus shares a compact row with
+Metronome, target mode shares a row with its count, **Start set** is pinned in the form header, and
+the custom-variant input opens only after **+ Custom**. Tricky Sections remains the sole scroll
+owner. Live browser QA at 720x520 passed without horizontal overflow; frontend is **2,680 passed /
+1 skipped / 0 failed**, and TypeScript/build are clean. Schema stays 20. Package/install/tag and
+native WKWebView evidence are pending; see `docs/qa/v8.2.1/README.md`.
+
 **v8.2.0 / schema 20 shipped and was installed on 2026-08-27.** Christian's visual-cleanse round
 is frozen at source commit `afe65f3b176a1c5da81eca6d2f65bd721726ee40`: Score is now a continuous,
 virtualized reader instead of a one-page canvas with dead space; the PDF and Tricky Sections rail
@@ -68,8 +77,9 @@ unproven on Christian's live scores (no Anthropic key and zero live `measure_map
 audit), and Listen Back/voice still require packaged-native microphone and Steinway acceptance.
 Those inherited external gaps are unchanged by this frontend-focused release.
 
-Next: deliberately handle Desktop-folder access and complete installed-native Score/composer/
-Total-plays acceptance; then run real WKWebView microphone/Listen Back/Steinway acceptance, one
+Next: package/install the v8.2.1 density correction, then deliberately handle Desktop-folder
+access and complete installed-native Score/composer/Total-plays acceptance; then run real
+WKWebView microphone/Listen Back/Steinway acceptance, one
 explicitly authorized provider map, and sustained-use motivation judgment—in that order.
 
 The Assistant remains switched off and gated at Christian's request. Canonical product truth

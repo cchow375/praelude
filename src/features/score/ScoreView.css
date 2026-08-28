@@ -728,6 +728,7 @@
 }
 
 .score-region-panel {
+  --score-region-sticky-head-height: 66px;
   min-height: 0;
   padding: 0 var(--space-3) var(--space-3);
   overflow-x: hidden;
@@ -753,6 +754,7 @@
   position: sticky;
   z-index: 3;
   top: 0;
+  min-height: var(--score-region-sticky-head-height);
   justify-content: space-between;
   margin: 0 calc(-1 * var(--space-3)) var(--space-2);
   padding: var(--space-2) var(--space-3);
@@ -1260,12 +1262,83 @@
   /* Selecting a lower section scrolls the composer—not merely its row—into
      view. Leave room for the rail's sticky heading at the supported floor. */
   scroll-margin-top: 72px;
-  padding: var(--space-3);
+  gap: var(--space-2);
+  padding: var(--space-2);
   border-top: 0;
   border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
+.score-practice-region .block-form-head {
+  position: sticky;
+  z-index: 2;
+  top: var(--score-region-sticky-head-height);
+  margin: calc(-1 * var(--space-1)) 0 0;
+  padding: var(--space-1) 0 var(--space-2);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface-raised);
+}
 .score-practice-region .block-form-body {
+  gap: var(--space-2);
   overflow: visible;
+}
+.score-practice-region .block-form .ck-field {
+  gap: var(--space-1);
+}
+.score-practice-region .block-form .ck-input {
+  height: 32px;
+}
+.score-practice-region .ck-core-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.score-practice-region .ck-core-pair > .ck-field {
+  min-width: 0;
+}
+.score-practice-region .ck-focus-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-2);
+}
+.score-practice-region .ck-focus-grid .ck-toggle-field {
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  flex: none;
+  white-space: nowrap;
+}
+.score-practice-region .ck-target-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4.5rem;
+  align-items: center;
+  gap: var(--space-2);
+}
+.score-practice-region .ck-target-mode {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+.score-practice-region .ck-target-mode .ck-segment {
+  min-width: 0;
+  padding-inline: var(--space-1);
+  flex: 1 1 0;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.score-practice-region .ck-target-count,
+.score-practice-region .ck-target-custom {
+  width: 100%;
+  min-width: 0;
+  flex: none;
+}
+.score-practice-region .ck-target-custom {
+  grid-column: 2;
+}
+.score-practice-region .ck-variant-chain,
+.score-practice-region .block-more-panel {
+  gap: var(--space-2);
+}
+.score-practice-region .block-more {
+  padding-top: var(--space-2);
 }
 .score-practice-region .score-region-blocks {
   margin: var(--space-2) 0;

@@ -17,8 +17,8 @@
 .block-form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-4);
+  gap: var(--space-3);
+  padding: var(--space-3);
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
@@ -28,13 +28,29 @@
   max-height: 100vh;
   min-height: 0;
 }
+.block-form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.block-form-head .ck-form-heading {
+  min-width: 0;
+}
+.ck-primary.block-form-submit {
+  flex: 0 0 auto;
+  height: 34px;
+  padding-inline: var(--space-4);
+  font-size: var(--text-sm);
+}
 /* The scrolling region: everything except the heading and the pinned submit
    row, so a tall composer (variant chain + Advanced open) never pushes
    Start set off screen. */
 .block-form-body {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-3);
   min-height: 0;
   overflow-y: auto;
 }
@@ -426,6 +442,10 @@ select.ck-input {
   border-radius: var(--radius-md);
   font-size: var(--text-lg);
   line-height: 1;
+}
+.ck-custom-variant-toggle[aria-expanded="true"] {
+  color: var(--ink-primary);
+  border-color: var(--accent-line);
 }
 .ck-row-move {
   flex: 0 0 auto;

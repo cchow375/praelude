@@ -32,13 +32,40 @@ describe("ScoreView bounded visual layout", () => {
     expect(rail).toMatch(/overflow-x\s*:\s*hidden/);
   });
 
-  it("uses the inspector rail as the sole vertical scroll owner for its composer", () => {
+  it("uses the inspector rail as the sole scroll owner and keeps Start reachable", () => {
     expect(ruleBody(css, ".score-practice-region .block-form")).toMatch(
       /max-height:\s*none/,
     );
     expect(ruleBody(css, ".score-practice-region .block-form-body")).toMatch(
       /overflow:\s*visible/,
     );
+    const head = ruleBody(css, ".score-practice-region .block-form-head");
+    expect(head).toMatch(/position:\s*sticky/);
+    expect(head).toMatch(/top:\s*var\(--score-region-sticky-head-height\)/);
+    expect(ruleBody(css, ".score-region-panel")).toMatch(
+      /--score-region-sticky-head-height:\s*66px/,
+    );
+    expect(ruleBody(css, ".score-region-panel-head")).toMatch(
+      /min-height:\s*var\(--score-region-sticky-head-height\)/,
+    );
+  });
+
+  it("uses no-wrap compact grids inside the 320px inspector rail", () => {
+    const pair = ruleBody(css, ".score-practice-region .ck-core-pair");
+    const focus = ruleBody(css, ".score-practice-region .ck-focus-grid");
+    const target = ruleBody(css, ".score-practice-region .ck-target-line");
+
+    expect(pair).toMatch(/display:\s*grid/);
+    expect(pair).toMatch(
+      /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+    );
+    expect(focus).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
+    expect(target).toMatch(
+      /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+4\.5rem/,
+    );
+    expect(
+      ruleBody(css, ".score-practice-region .ck-core-pair > .ck-field"),
+    ).toMatch(/min-width:\s*0/);
   });
 
   it("uses a compact two-row toolbar at the 720×520 acceptance boundary", () => {
