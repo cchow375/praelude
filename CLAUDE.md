@@ -69,13 +69,12 @@ override this file or the vault. Do not restart P3–P6, restore the v7 galaxy, 
 Plan C from those records.
 
 Release tag `v8.2.0` is a pushed lightweight tag at
-`5de8bf9e1e9bced09c3d5091acd4b42241edae28`; private `origin/main` was pushed through that
-release-doc commit. This imminent post-tag documentation-only correction, and later docs-only
-commits, may advance `main`; the immutable tag and runtime source `afe65f3…` remain the release
-identities. The next honest work is deliberate Desktop-folder access plus installed-native Score
-acceptance, then real WKWebView Listen Back and voice-over-Steinway use, one explicitly authorized
-real-provider/current-edition measure map, and a sustained-use verdict on XP, levels, milestones
-and cadence. Do not rebuild or reinstall the shipped source.
+`5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` advanced after the tag
+through documentation-only corrections; verify the exact current ref from Git. The immutable tag and runtime source
+`afe65f3…` remain the release identities. The next honest work is deliberate Desktop-folder access
+plus installed-native Score acceptance, then real WKWebView Listen Back and voice-over-Steinway use,
+one explicitly authorized real-provider/current-edition measure map, and a sustained-use verdict
+on XP, levels, milestones and cadence. Do not rebuild or reinstall the shipped source.
 Never upload a score merely to close B5—confirm the provider/key and Christian's authorization for
 whole-edition egress first. Assistant remains OFF unless Christian explicitly reopens it.
 
@@ -111,8 +110,8 @@ Browser visual QA passed at 720×520 and 1462×919. Packaged launch was seen, bu
 permission prompt was not granted, so packaged-native Score visual acceptance is not claimed.
 Release tag `v8.2.0` is pushed as a lightweight tag at
 `5de8bf9e1e9bced09c3d5091acd4b42241edae28`; the immutable runtime source remains `afe65f3…`.
-Private `origin/main` was pushed through the tagged release-doc commit and will include this
-post-tag documentation-only correction; later docs-only commits may advance it.
+Private `origin/main` advanced after the tag through documentation-only corrections; verify the
+exact current ref from Git. The immutable tag and runtime source remain the release identities.
 
 **Historical v8.1 boundary: v8.1.0 / schema 19 — SHIPPED + INSTALLED 2026-08-27.** The release closes the remaining Aug 8
 train in one coherent app: P3 voice chimes/feed/fast phrases/live settle and counted add/undo; P4

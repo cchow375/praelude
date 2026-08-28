@@ -36,9 +36,9 @@
 
 - **v8.2/schema20 shipped, installed and was tagged/pushed on 2026-08-27.** Runtime source
   `afe65f3b176a1c5da81eca6d2f65bd721726ee40`; pushed lightweight tag `v8.2.0` points to
-  `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` was pushed through that
-  release-doc commit; this imminent post-tag documentation-only correction and later docs-only
-  commits may advance `main` without changing the immutable tag/runtime identity. Frontend 2,678
+  `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` advanced after the tag
+  through documentation-only corrections; verify the exact current ref from Git. The immutable
+  tag/runtime identity is unchanged. Frontend 2,678
   passed / 1 skipped, native 1,109 passed / 19 ignored; TypeScript/build/format/strict Clippy,
   five narrated corpora and all eight release gates passed. Installed app identity/signature,
   one-copy rule, DMG/checksum, backup/rollback, fresh launch and exact live schema-20 graph passed.

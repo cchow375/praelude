@@ -22,10 +22,9 @@ integrity OK/FK0. Browser QA passed at 720×520 and 1462×919. All eight release
 identity/signature, DMG/checksum, backup/rollback, fresh launch and live schema-20 graph passed.
 The packaged app was seen launch, but macOS's Desktop-folder access prompt was not granted; do not
 claim a packaged-native Score frame behind that permission. Release tag `v8.2.0` is a pushed
-lightweight tag at `5de8bf9e1e9bced09c3d5091acd4b42241edae28`; private `origin/main` was pushed
-through that release-doc commit. This imminent post-tag documentation-only correction, and later
-docs-only commits, may advance `main`; the immutable tag and runtime source `afe65f3…` remain the
-release identities.
+lightweight tag at `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` advanced
+after the tag through documentation-only corrections; verify the exact current ref from Git. The
+immutable tag and runtime source `afe65f3…` remain the release identities.
 Assistant work remains out of scope: it stays switched off and gated as Christian's accepted
 cleanup, with a practice-only off-state Settings guide and Books/provider furniture hidden. See:
 

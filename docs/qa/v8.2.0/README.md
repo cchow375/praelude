@@ -58,9 +58,9 @@
       OK/FK0, zero open sessions/active contracts.
 - [ ] Installed-native 720×520 Score/composer interaction pass.
 - [x] Pushed lightweight tag `v8.2.0` at
-      `5de8bf9e1e9bced09c3d5091acd4b42241edae28`; private `origin/main` pushed through the tagged
-      release-doc commit. Later docs-only commits may advance `main` without changing the tag or
-      runtime source `afe65f3…`.
+      `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` advanced after the tag
+      through documentation-only corrections; verify the exact current ref from Git. The immutable
+      tag and runtime source `afe65f3…` remain the release identities.
 
 ## Current packaged acceptance checklist
 

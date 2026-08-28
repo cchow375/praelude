@@ -60,9 +60,9 @@ remain empty. Pre-install backup: 23,146,496 bytes, SHA-256
 `e2ba204263a9413b073ea5cab3b8fc2192ea7dcb42fda90012a0c0d08b660d0e`. The v8.1 rollback archive
 is 10,041,913 bytes, SHA-256
 `2960fd90cda9e24583a4661d7ad2672041e896f533d2b979c0cf3897291c751b`. Release tag `v8.2.0` is a
-pushed lightweight tag at `5de8bf9e1e9bced09c3d5091acd4b42241edae28`; private `origin/main`
-was pushed through that release-doc commit. This imminent post-tag documentation-only correction,
-and later docs-only commits, may advance `main`; the immutable tag and runtime source
+pushed lightweight tag at `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` advanced
+after the tag through documentation-only corrections; verify the exact current ref from Git. The
+immutable tag and runtime source
 `afe65f3b176a1c5da81eca6d2f65bd721726ee40` remain the release identities. Real-provider measure mapping is still
 unproven on Christian's live scores (no Anthropic key and zero live `measure_map` rows at the last
 audit), and Listen Back/voice still require packaged-native microphone and Steinway acceptance.

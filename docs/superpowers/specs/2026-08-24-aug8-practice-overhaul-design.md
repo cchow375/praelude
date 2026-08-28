@@ -13,9 +13,9 @@
 > contract is §10 and
 > `docs/superpowers/plans/2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md`. It is a release
 > that **shipped and installed on 2026-08-27**; pushed lightweight tag `v8.2.0` points to
-> `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` was pushed through that
-> release-doc commit; later docs-only commits may advance it without changing the tag or runtime
-> source `afe65f3…`.
+> `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` advanced after the tag
+> through documentation-only corrections; verify the exact current ref from Git. The immutable
+> tag and runtime source `afe65f3…` remain the release identities.
 > **Rev 3 (2026-08-27):** corrects the denominator from 21 to **23** (the table always contained
 > 23 IDs), records Christian's final decisions (Assistant OFF; archive + recent-first, no folders;
 > keyboard figures; session-temporary takes), and maps the now-present P3–P6 source. It also
