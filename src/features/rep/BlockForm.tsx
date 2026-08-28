@@ -21,16 +21,12 @@ import "../../ui/forms.css";
 // a neutral review boundary for clean-streak sets. Increment is "auto" by
 // default — the backend resolves the tempo rule — or manual.
 //
-// Layout (v5/A3, spec §5.3): Christian's diagnosis was "everything I'm asking
-// for is because I don't see it" — the old single "More" disclosure buried
-// practice focus, the variant chain, the clean-streak target, the tempo
-// ladder and the review boundary behind one click. Now only the tempo ladder,
-// the review boundary, the "one pass ≈" estimate, and per-set metronome tuning
-// live behind a bottom "Advanced" disclosure (with room for a later per-set
-// demotion override). Everything else — section,
-// target, focus, the variant chain, and the clean-streak target — is always
-// visible, zero clicks. Advanced also owns the per-set metronome tuning: its
-// beat value is a label for the entered BPM, never a hidden conversion.
+// Current layout (v8.2): section, focus and the Clean streak / Total plays
+// target are direct. Clean-streak sets also show the compact variant chain;
+// Total plays hides variants and every ladder/mastery-only field. Tempo ladder,
+// review boundary, "one pass ≈" estimate, per-set demotion override and
+// metronome tuning live behind Advanced. The tuning beat value labels the
+// entered BPM; it is never a hidden conversion.
 // ---------------------------------------------------------------------------
 
 interface BlockFormProps {

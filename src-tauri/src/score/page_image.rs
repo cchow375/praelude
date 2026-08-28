@@ -14,8 +14,10 @@
 //! File size does not predict severity — the *smallest* file is the worst page.
 //! What matters is pixels. Rendering such a page through the normal PDF pipeline
 //! decodes every source pixel into a full-resolution bitmap (38.1 MP is 152 MB as
-//! RGBA) and only then scales it down to the ~1.5 MP the screen can show. With
-//! ScoreView mounting the current page ±1, that is three of them at once.
+//! RGBA) and only then scales it down to the ~1.5 MP the screen can show.
+//! ScoreView hard-caps its moving bitmap window at five pages, including the
+//! tall/two-column viewport and disjoint-observer cases that need more than the
+//! old paged reader's current-page ±1 topology.
 //!
 //! This module goes the other way round: find the single image the page is made
 //! of, decode it *directly at screen resolution*, and hand back a small JPEG.
@@ -58,13 +60,24 @@ pub const MAX_TARGET_LONG_EDGE: u32 = 3200;
 /// Hard cap on the pixels of any page image this module will ever produce.
 ///
 /// The number that matters on an 8 GB machine is not the JPEG on disk, it is the
-/// bitmap the renderer holds: `w * h * 4` bytes. 8 MP is 32 MB, so the mounted
-/// current-page-±1 window costs at most ~96 MB — versus 457 MB for three
-/// full-resolution Henle pages. It sits about 2x above what
+/// bitmap the renderer holds: `w * h * 4` bytes. 8 MP is 32 MB, so ScoreView's
+/// hard five-page resident window costs at most 160 MB decimal (152.6 MiB) —
+/// still close to one full-resolution 38.1 MP Henle page instead of five of
+/// them (~762 MB). This is specifically
+/// the steady-state fast-path page-canvas budget; browser decode/blit scratch
+/// surfaces and the deep-zoom PDF.js fallback are separate allocations. The cap
+/// sits about 2x above what
 /// [`SCREEN_TARGET_LONG_EDGE`] needs for a normal page, so it never binds at fit
 /// zoom; it exists to stop an unusually shaped page (a very tall or very square
 /// scan) from turning a long-edge request into a huge bitmap.
 pub const MAX_TARGET_MEGAPIXELS: f64 = 8.0;
+
+/// Frontend mirror: `ScoreView`'s explicit `.slice(0, 5)` hard cap.
+///
+/// Keeping this named in the native test makes the 160 MB calculation auditable
+/// instead of silently assuming the old paged-viewer topology.
+#[cfg(test)]
+const SCORE_VIEW_RESIDENT_PAGE_CANVASES: u64 = 5;
 
 /// JPEG quality for cached page images. High enough that engraving edges stay
 /// clean after the box filter has already done the anti-aliasing, low enough
@@ -431,8 +444,8 @@ mod tests {
         // so a future edit cannot quietly raise it.
         let bytes_per_page = MAX_TARGET_MEGAPIXELS * 1e6 * 4.0;
         assert_eq!(bytes_per_page as u64, 32_000_000);
-        // Current page ±1 is three mounted canvases.
-        assert!(bytes_per_page * 3.0 < 100e6);
+        let resident_bytes = bytes_per_page * SCORE_VIEW_RESIDENT_PAGE_CANVASES as f64;
+        assert_eq!(resident_bytes as u64, 160_000_000);
     }
 
     #[test]
