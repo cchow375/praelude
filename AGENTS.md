@@ -9,8 +9,10 @@ stay in this repository; product truth, Roadmap, Flaws, Changelog, tutorial, and
 stay in the vault. After **every** code/doc/decision change, obey the vault UPDATE PROTOCOL before
 reporting completion.
 
-Current boundary: **v8.2.0 / schema 20 SHIPPED + INSTALLED 2026-08-27**, source
-`afe65f3b176a1c5da81eca6d2f65bd721726ee40`. v8.2 is Christian's visual-cleanse correction: continuous
+Current boundary: **v8.2.1 / schema 20 SHIPPED + INSTALLED 2026-08-28**, runtime source
+`496033e677919757ef1f2a78cee32d3abedb4805` atop B94 commit
+`d1e7ac6d09528f22d8becb378f26c66d751ac297`; release tag/publication remains pending. It retains
+v8.2's visual-cleanse correction: continuous
 virtualized Score scrolling; independent PDF/Tricky Sections scrolling with composer auto-reveal;
 a compact Score toolbar, one-line dock, and 32px variant rows; plus a clear **Clean streak / Total
 plays** contract. Total plays offers 5/10/15/25/Custom, stays fixed-tempo, counts every effective
@@ -26,12 +28,20 @@ lightweight tag at `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/m
 after the tag through documentation-only corrections; verify the exact current ref from Git. The
 immutable tag and runtime source `afe65f3…` remain the release identities.
 
-**Current corrective work: v8.2.1 frontend source candidate, schema unchanged at 20.** Christian's
-first installed v8.2 screenshot exposed a remaining composer-density/reachability regression. The
-candidate pairs measure and BPM fields, compacts Focus/Metronome and target mode/count, pins
-**Start set** in the form header, and hides custom variant entry until **+ Custom**. Tricky Sections
-remains the only scroll owner. Live browser QA at 720x520 passes; frontend is 2,680 passed / 1
-skipped and TypeScript/build are clean. Package/install/tag and native evidence remain pending.
+**v8.2.1 correction: B94 and B95 RESOLVED; schema unchanged at 20.** Installed v8.2.0 closed
+session 48 and preserved its
+data, then crashed in under one second because the automatically mounted day-photo card requested
+camera access while the packaged Info.plist lacked `NSCameraUsageDescription`; macOS TCC aborted
+the process. Six retained reports from v7.0–v8.2 have that signature. Source now keeps plain
+**End session** camera-free; only confirmed **End my day** offers a photo, the card requests no
+device merely by appearing, and **Use camera** is explicit with file fallback for synchronous or
+rejected requests. The source plist declares camera use truthfully and the release script gates
+camera, microphone and speech descriptions. The orphan `hear` PID was cleaned. Final gates are
+frontend 2,684/1 skipped, native 1,109/19 ignored, strict Clippy, TypeScript, production + native
+builds, five zero-false-mutation corpora and all eight release gates. Installed 8.2.1 identity,
+strict signature, exact privacy strings, DMG/checksum, backup/rollback, exact before/after DB and
+fresh launch all pass; the app stayed live as PID 46013 with its owned `hear` child and no new
+crash report. Only tag/publication remains pending.
 Assistant work remains out of scope: it stays switched off and gated as Christian's accepted
 cleanup, with a practice-only off-state Settings guide and Books/provider furniture hidden. See:
 
@@ -41,7 +51,7 @@ cleanup, with a practice-only off-state Settings guide and Books/provider furnit
 - `docs/superpowers/plans/2026-08-26-p2-micro-targets-v2-and-set-completion.md`
 - `docs/qa/v8.1.0/README.md` (browser/devMock plus scoped installed-native evidence; native audio explicitly pending)
 - `docs/qa/v8.2.0/README.md` (browser UI + release/data evidence; native Score frame pending Desktop access)
-- `docs/qa/v8.2.1/README.md` (compact-composer source evidence; package/native evidence pending)
+- `docs/qa/v8.2.1/README.md` (compact-composer + B95 crash-fix release/install evidence; native Score feel separate)
 - `docs/qa/v7.2.0/README.md`
 - `NOTES.md` (newest decision block first)
 
@@ -49,10 +59,13 @@ cleanup, with a practice-only off-state Settings guide and Books/provider furnit
 historical lane. `.claude/worktrees/`, `~/.ck-lanes/`, `.superpowers/sdd/task-*`, the old
 Foundation context, and `.workflow/LEDGER.md` are retained phase evidence, not the current
 roadmap. Do not restart P3–P6, the v7 galaxy, or the source-complete v8.2 work from those files.
-Immediate work is package/install of the narrow v8.2.1 composer correction, then deliberate
-Desktop-folder access handling plus installed-native Score
-acceptance, followed by real WKWebView Listen Back and voice-over-Steinway use, one explicitly
-authorized real-provider measure map, and a sustained-use verdict on the motivation dashboard.
+Immediate work is publish the v8.2.1 release tag without changing the installed runtime. The
+verified pre-install backup is `(C) pre-v8.2.1-install-2026-08-28-132046.db` (23,449,600 bytes;
+SHA-256 `2c99dec1c3bc14f595e69c92a9415076299752d46930eea0fa3c9f5a793379c7`), schema 20,
+integrity OK/FK0, with 11 pieces, 246 blocks/contracts, 2,207 reps, 48 sessions, 8,391 events and
+zero open sessions/blocks. Then handle Desktop-folder access plus native Score acceptance,
+followed by real WKWebView Listen Back and voice-over-Steinway use, one explicitly authorized
+real-provider measure map, and a sustained-use verdict on the motivation dashboard.
 Assistant Plan C remains on hold unless Christian explicitly reopens it.
 
 Preserve the user-as-sensor boundary: speech may describe practice; the app never interprets piano

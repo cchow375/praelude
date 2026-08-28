@@ -8,14 +8,32 @@ metronome — hands-free.
 
 ## Status
 
-**v8.2.1 is a frontend-only source candidate; v8.2.0 remains installed until packaging.** The
-candidate corrects the form-density regression exposed by Christian's first installed v8.2
-screenshot: From/To and Start/Target BPM now stay paired, Focus shares a compact row with
-Metronome, target mode shares a row with its count, **Start set** is pinned in the form header, and
-the custom-variant input opens only after **+ Custom**. Tricky Sections remains the sole scroll
-owner. Live browser QA at 720x520 passed without horizontal overflow; frontend is **2,680 passed /
-1 skipped / 0 failed**, and TypeScript/build are clean. Schema stays 20. Package/install/tag and
-native WKWebView evidence are pending; see `docs/qa/v8.2.1/README.md`.
+**v8.2.1 / schema 20 shipped and was installed on 2026-08-28; release tag/publication is still
+pending.** B94 source commit `d1e7ac6d09528f22d8becb378f26c66d751ac297` and B95/runtime
+commit `496033e677919757ef1f2a78cee32d3abedb4805` combine the composer-density correction with
+the fatal end-session/camera fix.
+On v8.2.0, session 48 closed and its data persisted, then the app aborted less than one second later:
+the day-photo card requested camera access automatically while the packaged Info.plist lacked
+`NSCameraUsageDescription`, so macOS TCC delivered `SIGABRT`. Six retained crash reports from
+v7.0–v8.2 carry the same signature.
+
+The installed fix makes plain **End session** camera-free. Only a confirmed **End my day** offers the
+optional photo card; showing the card requests nothing, **Use camera** is explicit, and a
+synchronous camera failure or rejected request falls back to file choice. The source plist now has
+a truthful camera description, and the release script refuses a bundle missing camera,
+microphone, or speech-recognition descriptions. The orphan `hear` process left by the abort was
+cleaned up. Full gates pass: frontend **2,684 passed / 1 skipped / 0 failed** (212 files passed / 1
+skipped), native **1,109 passed / 19 ignored / 0 failed**, strict Clippy, TypeScript, production +
+native builds, five zero-false-mutation corpora and all eight release gates. Focused crash-path
+tests are **67/67**.
+
+Installed `/Applications/CodaKiller.app` reports short/build 8.2.1, bundle
+`com.christian.codakiller`, strict ad-hoc signature PASS and CDHash
+`f0460dcb3b62825ea29328a32489987364b19828`; its exact Camera/Microphone/Speech usage strings are
+present. DMG `/Users/c3/codakiller/releases/v8.2.1/CodaKiller-8.2.1.dmg` is 10,907,287 bytes,
+SHA-256 `6ce58b77b32642c644df1c0b42d2c89ea745a75e28c7891a484190ad111c61dd`. Fresh launch PID
+46013 remained live with its owned `hear` child and no new crash report. Tag/push alone remain
+pending; see `docs/qa/v8.2.1/README.md`.
 
 **v8.2.0 / schema 20 shipped and was installed on 2026-08-27.** Christian's visual-cleanse round
 is frozen at source commit `afe65f3b176a1c5da81eca6d2f65bd721726ee40`: Score is now a continuous,
@@ -77,10 +95,22 @@ unproven on Christian's live scores (no Anthropic key and zero live `measure_map
 audit), and Listen Back/voice still require packaged-native microphone and Steinway acceptance.
 Those inherited external gaps are unchanged by this frontend-focused release.
 
-Next: package/install the v8.2.1 density correction, then deliberately handle Desktop-folder
-access and complete installed-native Score/composer/Total-plays acceptance; then run real
-WKWebView microphone/Listen Back/Steinway acceptance, one
-explicitly authorized provider map, and sustained-use motivation judgment—in that order.
+The v8.2.1 pre-install backup is
+`/Users/c3/Desktop/christian's universe/Piano Practice/CodaKiller/(C) pre-v8.2.1-install-2026-08-28-132046.db`
+(23,449,600 bytes; SHA-256
+`2c99dec1c3bc14f595e69c92a9415076299752d46930eea0fa3c9f5a793379c7`). Its read-only audit is
+schema 20, integrity OK/FK0: 11 pieces, 246 blocks/contracts, 2,207 reps, 48 sessions, 8,391
+events, and zero open sessions/blocks.
+
+The v8.2 rollback archive is
+`/Users/c3/Library/CodaKiller-rollbacks/CodaKiller-v8.2.0-rollback.app.tar.gz` (10,057,883 bytes;
+SHA-256 `da29be1e96c120f2c27994fc2d83c26a5c8bc9a40c08b2f87097b0e82a117b71`). Before/after install
+audits preserve the exact backup counts with schema 20, integrity OK and FK0.
+
+Next: publish the v8.2.1 release tag, then deliberately handle Desktop-folder access and complete
+native Score/composer/Total-plays acceptance; run real WKWebView microphone/Listen Back/Steinway
+acceptance, one explicitly authorized provider map, and sustained-use motivation judgment—in that
+order.
 
 The Assistant remains switched off and gated at Christian's request. Canonical product truth
 lives in the Obsidian vault; start at
@@ -128,6 +158,10 @@ On first launch macOS will prompt for two permissions — grant both:
 
 - **Microphone** — required to hear you during practice.
 - **Speech Recognition** — required to transcribe what you say.
+
+v8.2.1 also declares camera use truthfully, but camera is not a blanket first-launch
+permission. Only choosing **Use camera** on the optional post-**End my day** photo card may prompt
+for it; plain **End session** and choosing/dropping a photo file never request the camera.
 
 When you open an external score PDF stored in **Desktop**, macOS may separately ask whether
 CodaKiller may access that folder. This is conditional, not a blanket first-launch requirement:

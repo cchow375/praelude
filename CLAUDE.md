@@ -53,8 +53,8 @@ version history live in the Obsidian vault**, not here:
   packaged-native microphone, storage and Steinway acceptance are explicitly not inferred.
 - `docs/qa/v8.2.0/README.md` — Score/composer browser record at 720×520 and 1462×919 plus final
   package/data facts; native Score visual remains pending behind the ungranted Desktop permission.
-- `docs/qa/v8.2.1/README.md` — compact-composer source evidence at 720x520; package/install/tag
-  and native evidence remain pending.
+- `docs/qa/v8.2.1/README.md` — compact-composer + B95 release/install evidence; tag pending and
+  native Score feel remains separate.
 - `docs/qa/(C) v2-narrated-replay-contract.md` — old-session speech/state-machine regression
   boundary; never a piano-grading benchmark.
 - `docs/qa/` — acceptance records, regression contracts and screenshots.
@@ -79,11 +79,18 @@ plus installed-native Score acceptance, then real WKWebView Listen Back and voic
 one explicitly authorized real-provider/current-edition measure map, and a sustained-use verdict
 on XP, levels, milestones and cadence. Do not rebuild or reinstall the shipped source.
 
-The only active source delta is the **v8.2.1 frontend patch candidate**: paired measure/BPM rows,
-compact Focus/Metronome and target mode/count rows, a pinned header-level Start action and
-on-demand custom variant entry. The rail remains the sole scroll owner. Browser QA at 720x520,
-frontend 2,680 passed / 1 skipped and clean TypeScript/build are complete; schema stays 20.
-Package/install/tag/native evidence is not yet complete.
+**v8.2.1 is shipped and installed; tag/publication remains pending.** B94's paired composer
+controls and B95 are resolved. Installed v8.2.0 preserved closed session 48, then TCC aborted in
+under one second because the auto-starting photo card requested camera access without a packaged
+`NSCameraUsageDescription`; six retained v7.0–v8.2 reports share the signature. Plain End session
+is now camera-free. Only confirmed End my day offers the inert photo card; camera access waits for
+explicit **Use camera**, and synchronous/rejected requests fall back to file choice. The source
+plist has the truthful key and the release script gates camera/mic/speech descriptions. Final
+gates pass: frontend 2,684/1 skipped, native 1,109/19 ignored, TypeScript, strict Clippy,
+production + native builds, five corpora and all eight release gates. Installed identity,
+privacy strings, signature, DMG/checksum, backup/rollback, exact before/after DB and fresh launch
+pass. Runtime source is `496033e677919757ef1f2a78cee32d3abedb4805`; only tag/publication remains
+pending. Schema stays 20.
 Never upload a score merely to close B5—confirm the provider/key and Christian's authorization for
 whole-edition egress first. Assistant remains OFF unless Christian explicitly reopens it.
 
@@ -98,17 +105,27 @@ npm test                                 # frontend (vitest)
 ```
 
 Quit + relaunch the installed `.app` to run new code. First launch needs mic + Speech
-Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
+Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off). In v8.2.1,
+camera permission is conditional and requested only after explicit **Use camera**.
 
 ## Status (mirror of the vault; keep in sync)
 
-**v8.2.1 / schema 20 — SOURCE CANDIDATE, NOT YET PACKAGED OR INSTALLED (2026-08-28).** It fixes
-the remaining Score-composer density/reachability regression without changing practice behavior:
-core numeric fields are paired, Focus/Metronome and target mode/count share compact rows, Start is
-pinned at the top, custom variant entry is disclosure-only, and the rail remains the only vertical
-scroll owner. Live browser QA passed at 720x520; frontend **2,680 passed / 1 skipped / 0 failed**;
-TypeScript and production build are clean. Commit, artifact, install, tag and native WKWebView
-evidence remain pending.
+**v8.2.1 / schema 20 — SHIPPED + INSTALLED 2026-08-28; TAG/PUBLICATION PENDING.** Runtime source
+`496033e677919757ef1f2a78cee32d3abedb4805` atop B94
+`d1e7ac6d09528f22d8becb378f26c66d751ac297` fixes B94's composer density and B95, the fatal camera/TCC abort after session
+48 closed. Session data was preserved. Manual close paths are now deliberately separate: plain
+**End session** is camera-free; confirmed **End my day** may show the optional photo card; merely
+showing it requests nothing; **Use camera** is explicit; and unavailable/denied access falls back
+to file choice. Source plist/release gates now require truthful camera, microphone and speech
+descriptions. Final gates: frontend **2,684/1 skipped**, native **1,109/19 ignored**, TypeScript,
+strict Clippy, production + native builds, five corpora and all eight release gates pass. Installed
+8.2.1 identity, exact privacy strings, strict signature, DMG/checksum, backup/rollback,
+before/after DB and fresh launch pass; app PID 46013 remained live with its owned `hear` child and
+no new crash report. Only tag/publication remains pending. Pre-install backup
+`(C) pre-v8.2.1-install-2026-08-28-132046.db` is
+23,449,600 bytes, SHA-256 `2c99dec1c3bc14f595e69c92a9415076299752d46930eea0fa3c9f5a793379c7`,
+schema 20/integrity OK/FK0 with 11 pieces, 246 blocks/contracts, 2,207 reps, 48 sessions, 8,391
+events and zero open sessions/blocks.
 
 **v8.2.0 / schema 20 — SHIPPED + INSTALLED 2026-08-27**, source
 `afe65f3b176a1c5da81eca6d2f65bd721726ee40`. v8.2 replaces the single-page Score posture with a continuous virtualized reader;

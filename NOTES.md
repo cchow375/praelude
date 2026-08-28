@@ -2,6 +2,31 @@
 
 ## Decisions
 
+- **A privacy-sensitive API must require both an explicit gesture and a packaged usage string
+  (v8.2.1 B95 source correction, 2026-08-28).** Installed v8.2.0 closed session 48 and persisted
+  its data, then terminated less than one second later. The day-photo card mounted after ordinary
+  **End session** and immediately called `getUserMedia`; the packaged Info.plist had microphone and
+  speech descriptions but no `NSCameraUsageDescription`, so macOS TCC raised `SIGABRT` before a
+  JavaScript rejection path could help. Six retained crash reports spanning v7.0–v8.2 carry the
+  same missing-camera-description signature. Source now separates `onEnd` from `onEndDay`: plain
+  End session closes only the session, while only a confirmed End my day offers the ritual. The
+  card starts in a no-device choice state; only **Use camera** requests a stream. Wrapping the
+  request in a Promise boundary converts both synchronous API failures and rejected permission
+  requests into the file/drop fallback. Unmount/skip/save stop any acquired tracks. The source
+  plist describes camera use truthfully, and the release script refuses built bundles missing
+  camera, microphone or speech-recognition usage descriptions. The orphan `hear` PID left by the
+  fatal abort was terminated. Focused crash-path tests pass 67/67. Final release gates pass:
+  frontend 2,684/1 skipped, native 1,109/19 ignored, TypeScript, strict Clippy, production + native
+  builds, five corpora and all eight pipeline gates. Installed 8.2.1 contains exact Camera/Mic/
+  Speech descriptions, passes strict signature and fresh launch, and remained live as PID 46013
+  with its owned `hear` child and no new crash report. B95 is release-resolved; tag/publication
+  remains pending.
+  Pre-install backup `(C) pre-v8.2.1-install-2026-08-28-132046.db` is 23,449,600 bytes, SHA-256
+  `2c99dec1c3bc14f595e69c92a9415076299752d46930eea0fa3c9f5a793379c7`; read-only audit:
+  schema 20, integrity OK/FK0, 11 pieces, 246 blocks/contracts, 2,207 reps, 48 sessions, 8,391
+  events and zero open sessions/blocks. Runtime source is
+  `496033e677919757ef1f2a78cee32d3abedb4805`; tag/publication is the only release fact pending.
+
 - **A narrow rail must use horizontal pairing before asking the pianist to scroll (v8.2.1
   source correction, 2026-08-28).** Christian's first installed v8.2.0 screenshot exposed a
   density regression the earlier browser checklist missed: at the Score rail width, the generic
@@ -14,8 +39,9 @@
   still no nested form scrollbar. This is a frontend density/reachability correction only: schema
   stays 20 and practice semantics do not change. Live browser verification at 720x520 found the
   paired rows intact, Start immediately reachable and no horizontal overflow. Full frontend is
-  2,680 passed / 1 skipped; TypeScript and production build are clean. Package/install/tag and
-  native WKWebView acceptance remain pending.
+  2,680 passed / 1 skipped; TypeScript and production build were clean. Final v8.2.1 gates later
+  passed at frontend 2,684/1 skipped and native 1,109/19 ignored; B94 is installed-resolved while
+  the broader native Score-feel gate remains B91. Tag/publication is pending.
 
 - **v8.2 Score/UI cleanse and `total_attempts` are one corrective contract, not a new coaching
   system (2026-08-27).** Christian's real UI report identified time/friction defects: Score
