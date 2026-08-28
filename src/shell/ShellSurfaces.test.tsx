@@ -551,7 +551,10 @@ describe("Shell app-level practice surfaces", () => {
     expect(
       screen.getByRole("button", { name: "Mic muted — click to unmute" }),
     ).toBeTruthy();
-    expect(invokeMock).not.toHaveBeenCalledWith("voice_mute", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "voice_mute",
+      expect.anything(),
+    );
   });
 
   it("keeps the immediate voice firewall closed when physical suspension fails", async () => {
@@ -607,6 +610,71 @@ describe("Shell app-level practice surfaces", () => {
     expect(
       screen.getByText("Close the active set before ending the session."),
     ).toBeTruthy();
+  });
+
+  it("ends an ordinary session without opening the day-photo ritual or touching the camera", async () => {
+    const baseInvoke = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((command: string, ...args: unknown[]) => {
+      if (command === "rep_state") return Promise.resolve(null);
+      if (command === "session_end") return Promise.resolve(null);
+      return baseInvoke?.(command, ...args);
+    });
+    const getUserMedia = vi.fn(() => Promise.reject(new Error("not expected")));
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    const end = await screen.findByRole("button", { name: "End session" });
+    await waitFor(() =>
+      expect((end as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(end);
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("session_end"));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "End session" })).toBeNull(),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Today's practice photo" }),
+    ).toBeNull();
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it("offers the photo ritual only after confirmed End my day, and camera access still waits for Use camera", async () => {
+    const baseInvoke = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((command: string, ...args: unknown[]) => {
+      if (command === "rep_state") return Promise.resolve(null);
+      if (command === "session_end") return Promise.resolve(null);
+      return baseInvoke?.(command, ...args);
+    });
+    const getUserMedia = vi.fn(() => Promise.reject(new Error("denied")));
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+
+    render(
+      <ReceiptCenterProvider>
+        <Shell />
+      </ReceiptCenterProvider>,
+    );
+    const endDay = await screen.findByRole("button", { name: "End my day" });
+    await waitFor(() =>
+      expect((endDay as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(endDay);
+    fireEvent.click(screen.getByRole("button", { name: "End day" }));
+
+    await screen.findByRole("dialog", { name: "Today's practice photo" });
+    expect(getUserMedia).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Use camera" }));
+    await waitFor(() => expect(getUserMedia).toHaveBeenCalledTimes(1));
   });
 
   it("re-homes the standalone metronome instrument at the shell rail", async () => {
@@ -1207,7 +1275,9 @@ describe("Shell — Assistant disabled", () => {
     });
     expect(screen.queryByText(BRAIN_ANSWER.answer)).toBeNull();
     // Still on Score — no silent jump to a hidden Brain view.
-    expect(screen.getByRole("tab", { name: "Score" }).getAttribute("aria-selected")).toBe("true");
+    expect(
+      screen.getByRole("tab", { name: "Score" }).getAttribute("aria-selected"),
+    ).toBe("true");
   });
 
   it("does not route a natural (no-wake) question to Assistant: no brain_ask call, no answer rendered", async () => {

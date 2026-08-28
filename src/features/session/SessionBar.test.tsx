@@ -82,7 +82,7 @@ describe("formatElapsed", () => {
 describe("SessionBar component", () => {
   it("renders nothing when session is null", () => {
     const { container } = render(
-      <SessionBar session={null} onEnd={() => {}} />,
+      <SessionBar session={null} onEnd={() => {}} onEndDay={() => {}} />,
     );
     expect(container.firstChild).toBeNull();
   });
@@ -94,7 +94,9 @@ describe("SessionBar component", () => {
       started_at: "2026-07-17T10:00:00Z",
       events: [makeEvent(), makeEvent()],
     });
-    render(<SessionBar session={session} onEnd={() => {}} />);
+    render(
+      <SessionBar session={session} onEnd={() => {}} onEndDay={() => {}} />,
+    );
 
     expect(screen.getByText("0:05")).toBeTruthy();
     expect(screen.getByText("2 events")).toBeTruthy();
@@ -109,19 +111,26 @@ describe("SessionBar component", () => {
       <SessionBar
         session={makeSession({ events: [makeEvent()] })}
         onEnd={() => {}}
+        onEndDay={() => {}}
       />,
     );
     expect(screen.getByText("1 event")).toBeTruthy();
 
     rerender(
-      <SessionBar session={makeSession({ events: [] })} onEnd={() => {}} />,
+      <SessionBar
+        session={makeSession({ events: [] })}
+        onEnd={() => {}}
+        onEndDay={() => {}}
+      />,
     );
     expect(screen.getByText("0 events")).toBeTruthy();
   });
 
   it("shows an em dash for elapsed when started_at fails to parse", () => {
     const session = makeSession({ started_at: "garbage-timestamp" });
-    render(<SessionBar session={session} onEnd={() => {}} />);
+    render(
+      <SessionBar session={session} onEnd={() => {}} onEndDay={() => {}} />,
+    );
     expect(screen.getByText("—")).toBeTruthy();
   });
 
@@ -129,7 +138,9 @@ describe("SessionBar component", () => {
     const session = makeSession({
       events: [makeEvent({ kind: "block_open" })],
     });
-    render(<SessionBar session={session} onEnd={() => {}} />);
+    render(
+      <SessionBar session={session} onEnd={() => {}} onEndDay={() => {}} />,
+    );
 
     const toggle = screen.getByRole("button", {
       name: "Expand session timeline",
@@ -152,7 +163,9 @@ describe("SessionBar component", () => {
 
   it("shows 'No events yet.' when expanded with zero events", () => {
     const session = makeSession({ events: [] });
-    render(<SessionBar session={session} onEnd={() => {}} />);
+    render(
+      <SessionBar session={session} onEnd={() => {}} onEndDay={() => {}} />,
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "Expand session timeline" }),
     );
@@ -170,7 +183,9 @@ describe("SessionBar component", () => {
         }),
       ],
     });
-    render(<SessionBar session={session} onEnd={() => {}} />);
+    render(
+      <SessionBar session={session} onEnd={() => {}} onEndDay={() => {}} />,
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "Expand session timeline" }),
     );
@@ -183,7 +198,9 @@ describe("SessionBar component", () => {
     const session = makeSession({
       events: [makeEvent({ kind: "block_open", payload: { bpm: 0 } })],
     });
-    render(<SessionBar session={session} onEnd={() => {}} />);
+    render(
+      <SessionBar session={session} onEnd={() => {}} onEndDay={() => {}} />,
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "Expand session timeline" }),
     );
@@ -194,7 +211,9 @@ describe("SessionBar component", () => {
     const session = makeSession({
       events: [makeEvent({ kind: "note", payload: "manual note text" })],
     });
-    render(<SessionBar session={session} onEnd={() => {}} />);
+    render(
+      <SessionBar session={session} onEnd={() => {}} onEndDay={() => {}} />,
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "Expand session timeline" }),
     );
@@ -209,7 +228,7 @@ describe("SessionBar component", () => {
       ],
     });
     const { container } = render(
-      <SessionBar session={session} onEnd={() => {}} />,
+      <SessionBar session={session} onEnd={() => {}} onEndDay={() => {}} />,
     );
     fireEvent.click(
       screen.getByRole("button", { name: "Expand session timeline" }),
@@ -223,39 +242,59 @@ describe("SessionBar component", () => {
 
   it("calls onEnd when 'End session' is clicked", () => {
     const onEnd = vi.fn();
-    render(<SessionBar session={makeSession()} onEnd={onEnd} />);
+    render(
+      <SessionBar session={makeSession()} onEnd={onEnd} onEndDay={() => {}} />,
+    );
     fireEvent.click(screen.getByText("End session"));
     expect(onEnd).toHaveBeenCalledTimes(1);
   });
 
   it("shows an 'End my day' button beside 'End session'", () => {
-    render(<SessionBar session={makeSession()} onEnd={() => {}} />);
+    render(
+      <SessionBar
+        session={makeSession()}
+        onEnd={() => {}}
+        onEndDay={() => {}}
+      />,
+    );
     expect(screen.getByText("End my day")).toBeTruthy();
     expect(screen.getByText("End session")).toBeTruthy();
   });
 
-  it("'End my day' asks for inline confirmation and calls onEnd only when confirmed (fix wave item 5: no window.confirm)", () => {
+  it("'End my day' asks for inline confirmation and calls only onEndDay when confirmed", () => {
     const onEnd = vi.fn();
-    render(<SessionBar session={makeSession()} onEnd={onEnd} />);
+    const onEndDay = vi.fn();
+    render(
+      <SessionBar session={makeSession()} onEnd={onEnd} onEndDay={onEndDay} />,
+    );
 
     fireEvent.click(screen.getByText("End my day"));
     expect(screen.getByText("End your practice day?")).toBeTruthy();
     expect(onEnd).not.toHaveBeenCalled();
+    expect(onEndDay).not.toHaveBeenCalled();
 
     // Declining leaves the session open and restores the plain button.
     fireEvent.click(screen.getByText("Keep going"));
     expect(onEnd).not.toHaveBeenCalled();
+    expect(onEndDay).not.toHaveBeenCalled();
     expect(screen.getByText("End my day")).toBeTruthy();
 
     fireEvent.click(screen.getByText("End my day"));
     fireEvent.click(screen.getByText("End day"));
-    expect(onEnd).toHaveBeenCalledTimes(1);
+    expect(onEnd).not.toHaveBeenCalled();
+    expect(onEndDay).toHaveBeenCalledTimes(1);
   });
 
   it("disables both end buttons and shows 'Ending…' on each while ending=true, and ignores clicks", () => {
     const onEnd = vi.fn();
+    const onEndDay = vi.fn();
     const { container } = render(
-      <SessionBar session={makeSession()} onEnd={onEnd} ending />,
+      <SessionBar
+        session={makeSession()}
+        onEnd={onEnd}
+        onEndDay={onEndDay}
+        ending
+      />,
     );
     const buttons = screen.getAllByRole("button", { name: "Ending…" });
     expect(buttons).toHaveLength(2);
@@ -266,13 +305,16 @@ describe("SessionBar component", () => {
       fireEvent.click(button);
     }
     expect(onEnd).not.toHaveBeenCalled();
+    expect(onEndDay).not.toHaveBeenCalled();
   });
 
   it("ticks the elapsed clock once a second while the session is live", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-17T10:00:00Z"));
     const session = makeSession({ started_at: "2026-07-17T10:00:00Z" });
-    render(<SessionBar session={session} onEnd={() => {}} />);
+    render(
+      <SessionBar session={session} onEnd={() => {}} onEndDay={() => {}} />,
+    );
 
     expect(screen.getByText("0:00")).toBeTruthy();
 
@@ -293,7 +335,7 @@ describe("SessionBar component", () => {
     const clearSpy = vi.spyOn(globalThis, "clearInterval");
     const session = makeSession({ started_at: "2026-07-17T10:00:00Z" });
     const { unmount } = render(
-      <SessionBar session={session} onEnd={() => {}} />,
+      <SessionBar session={session} onEnd={() => {}} onEndDay={() => {}} />,
     );
 
     unmount();

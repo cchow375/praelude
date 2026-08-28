@@ -11,7 +11,10 @@ import "./SessionBar.css";
 
 interface SessionBarProps {
   session: SessionView | null;
+  /** Ends only the current session. It must never start the day-photo ritual. */
   onEnd: () => void;
+  /** Ends the current session as an explicit end-of-day action. */
+  onEndDay: () => void;
   ending?: boolean;
   blockedReason?: string | null;
 }
@@ -50,6 +53,7 @@ function eventSummary(payload: unknown): string {
 export function SessionBar({
   session,
   onEnd,
+  onEndDay,
   ending = false,
   blockedReason = null,
 }: SessionBarProps) {
@@ -103,11 +107,10 @@ export function SessionBar({
         >
           {ending ? "Ending…" : "End session"}
         </button>
-        {/* Task A5: day-scoped sessions. Same underlying command as "End
-            session" (a session never spans a calendar day now, so ending it
-            IS ending the day) — this control just asks for confirmation
-            first, since "end my day" reads as a bigger commitment than the
-            quiet in-place end button beside it.
+        {/* Task A5: both controls close the same native session, but only this
+            explicitly confirmed end-of-day path may start the optional photo
+            ritual. Keeping separate callbacks is load-bearing: ordinary
+            "End session" must remain a one-step, camera-free action.
 
             Fix wave item 5: this used to be `window.confirm`, the only
             native JS dialog in the codebase — wry/WKWebView has historically
@@ -124,7 +127,7 @@ export function SessionBar({
               className="session-end-day-action"
               onClick={() => {
                 setConfirmingEndDay(false);
-                onEnd();
+                onEndDay();
               }}
             >
               End day

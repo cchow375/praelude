@@ -23,7 +23,7 @@ export interface DayPhotoCaptureProps {
   getMedia?: () => Promise<MediaStream>;
 }
 
-type Mode = "pending" | "camera" | "files";
+type Mode = "choice" | "pending" | "camera" | "files";
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -49,7 +49,7 @@ export function DayPhotoCapture({
   onDone,
   getMedia,
 }: DayPhotoCaptureProps) {
-  const [mode, setMode] = useState<Mode>("pending");
+  const [mode, setMode] = useState<Mode>("choice");
   const [busy, setBusy] = useState(false);
   // F5 fix wave: a failed save used to be silent — an unhandled rejection,
   // no feedback, a card that just sat there with the ritual lost. Skip
@@ -57,33 +57,60 @@ export function DayPhotoCapture({
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const aliveRef = useRef(true);
 
   useEffect(() => {
-    let stream: MediaStream | null = null;
-    let alive = true;
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mode === "camera" && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [mode]);
+
+  const startCamera = useCallback(() => {
+    // Camera access is deliberately tied to this explicit user action. The
+    // card may appear after "End my day" or after a rollover prompt, but
+    // merely showing it never requests a privacy-sensitive device.
+    setMode("pending");
+    setError(null);
     const request =
       getMedia ??
       (() =>
         navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } }));
-    void request()
+    // Start through a promise boundary so an absent mediaDevices object or a
+    // test/browser implementation that throws synchronously takes the same
+    // harmless file-fallback path as a rejected permission request.
+    void Promise.resolve()
+      .then(request)
       .then((next) => {
-        if (!alive) {
+        if (!aliveRef.current) {
           next.getTracks().forEach((track) => track.stop());
           return;
         }
-        stream = next;
+        streamRef.current?.getTracks().forEach((track) => track.stop());
+        streamRef.current = next;
         setMode("camera");
-        if (videoRef.current) videoRef.current.srcObject = next;
       })
       .catch(() => {
-        // Denied, or no camera. Not an error — just the other path.
-        if (alive) setMode("files");
+        // Denied, unavailable, or unsupported. The file path remains usable
+        // and the ritual never becomes an error or a toll.
+        if (aliveRef.current) setMode("files");
       });
-    return () => {
-      alive = false;
-      stream?.getTracks().forEach((track) => track.stop());
-    };
   }, [getMedia]);
+
+  const finish = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    onDone();
+  }, [onDone]);
 
   useEffect(() => {
     // Escape works the instant the card mounts, no click needed first.
@@ -100,12 +127,12 @@ export function DayPhotoCapture({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onDone();
+        finish();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onDone]);
+  }, [finish]);
 
   const saveCapture = useCallback(
     async (source: HTMLVideoElement | HTMLImageElement) => {
@@ -117,7 +144,7 @@ export function DayPhotoCapture({
           toThumbnailBase64(source),
         ]);
         await dayPhotoSave(day, jpegBase64, thumbBase64);
-        onDone();
+        finish();
       } catch (cause) {
         // Honest, inline, and non-blocking — Skip is still one press away
         // (it is rendered unconditionally below, not gated on this state).
@@ -132,7 +159,7 @@ export function DayPhotoCapture({
         setBusy(false);
       }
     },
-    [day, onDone],
+    [day, finish],
   );
 
   const captureFromCamera = useCallback(() => {
@@ -157,6 +184,22 @@ export function DayPhotoCapture({
     >
       <p className="day-photo-ask">Add a photo from today's practice?</p>
 
+      {mode === "choice" && (
+        <button
+          type="button"
+          className="day-photo-camera-start"
+          onClick={startCamera}
+        >
+          Use camera
+        </button>
+      )}
+
+      {mode === "pending" && (
+        <p className="day-photo-camera-pending" role="status">
+          Opening camera…
+        </p>
+      )}
+
       {mode === "camera" && (
         <div className="day-photo-camera">
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
@@ -178,7 +221,7 @@ export function DayPhotoCapture({
         </div>
       )}
 
-      {mode === "files" && (
+      {(mode === "choice" || mode === "files") && (
         <div
           className="day-photo-dropzone"
           data-testid="day-photo-dropzone"
@@ -190,7 +233,9 @@ export function DayPhotoCapture({
           }}
         >
           <p className="day-photo-dropzone-hint">
-            Drop a photo here, or choose one.
+            {mode === "choice"
+              ? "Or drop a photo here, or choose one."
+              : "Drop a photo here, or choose one."}
           </p>
           <input
             type="file"
@@ -211,7 +256,7 @@ export function DayPhotoCapture({
         </p>
       )}
 
-      <button type="button" className="day-photo-skip" onClick={onDone}>
+      <button type="button" className="day-photo-skip" onClick={finish}>
         Skip
       </button>
     </div>

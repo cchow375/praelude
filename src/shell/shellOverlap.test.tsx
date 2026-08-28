@@ -103,7 +103,12 @@ describe("D1 — the blocked-reason sentence wraps rather than clipping", () => 
 
   it("renders the sentence outside the control row, as a full-width sibling", () => {
     const { container } = render(
-      <SessionBar session={session} onEnd={() => {}} blockedReason={LONG} />,
+      <SessionBar
+        session={session}
+        onEnd={() => {}}
+        onEndDay={() => {}}
+        blockedReason={LONG}
+      />,
     );
     const help = container.querySelector(".session-blocked");
     expect(help, "the blocked reason renders").not.toBeNull();
@@ -121,7 +126,12 @@ describe("D1 — the blocked-reason sentence wraps rather than clipping", () => 
 
   it("keeps the End-session control a direct child of the row", () => {
     render(
-      <SessionBar session={session} onEnd={() => {}} blockedReason={LONG} />,
+      <SessionBar
+        session={session}
+        onEnd={() => {}}
+        onEndDay={() => {}}
+        blockedReason={LONG}
+      />,
     );
     const end = screen.getByRole("button", { name: "End session" });
     expect(end.parentElement?.className).toContain("session-bar-row");
@@ -142,7 +152,7 @@ describe("D1 — the blocked-reason sentence wraps rather than clipping", () => 
 
   it("still renders nothing extra when there is no blocked reason", () => {
     const { container } = render(
-      <SessionBar session={session} onEnd={() => {}} />,
+      <SessionBar session={session} onEnd={() => {}} onEndDay={() => {}} />,
     );
     expect(container.querySelector(".session-blocked")).toBeNull();
     expect(

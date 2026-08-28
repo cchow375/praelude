@@ -53,6 +53,12 @@ BUILT_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUI
 BUILT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUILT_APP/Contents/Info.plist")"
 [[ "$BUILT_IDENTIFIER" == "$IDENTIFIER" ]] || fail "bundle identifier is $BUILT_IDENTIFIER"
 [[ "$BUILT_VERSION" == "$VERSION" ]] || fail "bundle version is $BUILT_VERSION"
+CAMERA_USAGE="$(/usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' "$BUILT_APP/Contents/Info.plist" 2>/dev/null || true)"
+MIC_USAGE="$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$BUILT_APP/Contents/Info.plist" 2>/dev/null || true)"
+SPEECH_USAGE="$(/usr/libexec/PlistBuddy -c 'Print :NSSpeechRecognitionUsageDescription' "$BUILT_APP/Contents/Info.plist" 2>/dev/null || true)"
+[[ -n "$CAMERA_USAGE" ]] || fail "bundle is missing NSCameraUsageDescription; the day-photo flow would be terminated by macOS"
+[[ -n "$MIC_USAGE" ]] || fail "bundle is missing NSMicrophoneUsageDescription; voice capture would be terminated by macOS"
+[[ -n "$SPEECH_USAGE" ]] || fail "bundle is missing NSSpeechRecognitionUsageDescription; speech recognition would be terminated by macOS"
 
 printf '5/8 Installing and sealing the canonical app...\n'
 osascript -e 'tell application id "com.christian.codakiller" to quit' >/dev/null 2>&1 || true

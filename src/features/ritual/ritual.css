@@ -44,7 +44,8 @@
   background: var(--paper-sunken);
 }
 
-.day-photo-take {
+.day-photo-take,
+.day-photo-camera-start {
   height: 30px;
   padding: 0 var(--s-3);
   font-size: var(--text-sm);
@@ -55,16 +56,25 @@
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out);
 }
-.day-photo-take:active {
+.day-photo-take:active,
+.day-photo-camera-start:active {
   transform: translateY(1px);
 }
-.day-photo-take:disabled {
+.day-photo-take:disabled,
+.day-photo-camera-start:disabled {
   opacity: 0.45;
   cursor: default;
 }
-.day-photo-take:focus-visible {
+.day-photo-take:focus-visible,
+.day-photo-camera-start:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: var(--focus-ring-offset);
+}
+
+.day-photo-camera-pending {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-dim);
 }
 
 .day-photo-dropzone {

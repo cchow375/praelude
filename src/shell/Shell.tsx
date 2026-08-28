@@ -948,20 +948,30 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     voice.acceptedFinalDelivery,
   ]);
 
-  const endSession = useCallback(async () => {
-    setEnding(true);
-    try {
-      await session.endSession();
-      // The ritual (and its flourish) only follow a day that actually
-      // closed. A failed end throws above this line and never reaches here.
-      setPhotoDay(todayLocal());
-      fireCompletionFx("day_close");
-    } catch {
-      // useSession preserves the live session and publishes the receipt.
-    } finally {
-      setEnding(false);
-    }
-  }, [session, fireCompletionFx]);
+  const closeSession = useCallback(
+    async (endOfDay: boolean) => {
+      setEnding(true);
+      try {
+        await session.endSession();
+        // A plain "End session" is intentionally camera-free. The optional
+        // ritual and day-close flourish belong only to the separately labelled,
+        // explicitly confirmed "End my day" action. A failed end throws above
+        // this line and never reaches either effect.
+        if (endOfDay) {
+          setPhotoDay(todayLocal());
+          fireCompletionFx("day_close");
+        }
+      } catch {
+        // useSession preserves the live session and publishes the receipt.
+      } finally {
+        setEnding(false);
+      }
+    },
+    [session, fireCompletionFx],
+  );
+
+  const endSession = useCallback(() => closeSession(false), [closeSession]);
+  const endDay = useCallback(() => closeSession(true), [closeSession]);
 
   // A3: a midnight auto-close skips the ritual live, but queues which day(s)
   // it skipped it for — offer the oldest one on the next launch. F4 fix
@@ -1159,6 +1169,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
           <SessionBar
             session={session.session}
             onEnd={endSession}
+            onEndDay={endDay}
             ending={ending}
             blockedReason={
               rep.snap

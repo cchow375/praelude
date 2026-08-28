@@ -26,6 +26,11 @@ function stream(): MediaStream {
   return { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
 }
 
+async function openCamera() {
+  fireEvent.click(screen.getByRole("button", { name: "Use camera" }));
+  return screen.findByRole("button", { name: "Take today's photo" });
+}
+
 beforeEach(() => {
   invokeMock.mockReset();
   invokeMock.mockResolvedValue(null);
@@ -42,9 +47,7 @@ describe("DayPhotoCapture", () => {
         getMedia={() => Promise.resolve(stream())}
       />,
     );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Take today's photo" }),
-    );
+    fireEvent.click(await openCamera());
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith("day_photo_save", {
         day: DAY,
@@ -79,7 +82,7 @@ describe("DayPhotoCapture", () => {
         getMedia={() => Promise.resolve(stream())}
       />,
     );
-    await screen.findByRole("button", { name: "Take today's photo" });
+    await openCamera();
     // Move focus somewhere outside the card entirely.
     const outside = document.createElement("button");
     document.body.appendChild(outside);
@@ -119,6 +122,7 @@ describe("DayPhotoCapture", () => {
         }
       />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Use camera" }));
     expect(await screen.findByTestId("day-photo-dropzone")).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(
@@ -126,6 +130,21 @@ describe("DayPhotoCapture", () => {
     ).toBeNull();
     // The picker is still one press away.
     expect(screen.getByLabelText("Choose a photo")).toBeTruthy();
+  });
+
+  it("falls back to files when camera acquisition throws synchronously", async () => {
+    render(
+      <DayPhotoCapture
+        day={DAY}
+        onDone={vi.fn()}
+        getMedia={() => {
+          throw new Error("mediaDevices unavailable");
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Use camera" }));
+    expect(await screen.findByTestId("day-photo-dropzone")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("never uses window.confirm", () => {
@@ -141,6 +160,19 @@ describe("DayPhotoCapture", () => {
     confirmSpy.mockRestore();
   });
 
+  it("never requests the camera merely because the ritual card appeared", async () => {
+    const getMedia = vi.fn(() => Promise.resolve(stream()));
+    render(<DayPhotoCapture day={DAY} onDone={vi.fn()} getMedia={getMedia} />);
+
+    expect(screen.getByRole("button", { name: "Use camera" })).toBeTruthy();
+    expect(screen.getByLabelText("Choose a photo")).toBeTruthy();
+    expect(getMedia).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use camera" }));
+    await screen.findByRole("button", { name: "Take today's photo" });
+    expect(getMedia).toHaveBeenCalledTimes(1);
+  });
+
   it("stops the camera track when it unmounts", async () => {
     const stop = vi.fn();
     const { unmount } = render(
@@ -154,7 +186,7 @@ describe("DayPhotoCapture", () => {
         }
       />,
     );
-    await screen.findByRole("button", { name: "Take today's photo" });
+    await openCamera();
     unmount();
     expect(stop).toHaveBeenCalled();
   });
@@ -163,12 +195,18 @@ describe("DayPhotoCapture", () => {
     invokeMock.mockRejectedValueOnce("day-photos dir unavailable (disk full)");
     const onDone = vi.fn();
     render(
-      <DayPhotoCapture day={DAY} onDone={onDone} getMedia={() => Promise.resolve(stream())} />,
+      <DayPhotoCapture
+        day={DAY}
+        onDone={onDone}
+        getMedia={() => Promise.resolve(stream())}
+      />,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Take today's photo" }));
+    fireEvent.click(await openCamera());
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("day-photos dir unavailable (disk full)");
+    expect(alert.textContent).toContain(
+      "day-photos dir unavailable (disk full)",
+    );
     // onDone was NOT called — the ritual is not silently lost, the user sees
     // the failure and can act on it.
     expect(onDone).not.toHaveBeenCalled();
