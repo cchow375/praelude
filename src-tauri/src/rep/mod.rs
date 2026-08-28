@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use crate::ledger::MutationSource;
-use crate::protocol::PracticeContract;
+use crate::protocol::{MasteryBasis, PracticeContract};
 use crate::sessions::{RolloverPauseHook, SessionService, StateEmitter};
 use crate::store::model::{
     CheckOutcome, DemotionConfig, DemotionOverride, ExportResult, IncrementRule, MutationReceipt,
@@ -310,6 +310,24 @@ impl RepEngine {
         // An explicit caller value is a contract, not a hint: reject malformed
         // input instead of quietly replacing it with the default. Only a missing
         // caller value may fall back through the persisted setting to five.
+        if args
+            .attempt_target
+            .is_some_and(|value| !(1..=240).contains(&value))
+        {
+            return Err("Total plays must be between 1 and 240.".to_string());
+        }
+        if args.attempt_target.is_some() && !args.variants.is_empty() {
+            return Err(
+                "Variant chains use clean-streak targets; remove the chain or choose Streak."
+                    .to_string(),
+            );
+        }
+        if args.attempt_target.is_some() && args.target_bpm.is_some() {
+            return Err(
+                "Total-play sets use one fixed tempo; remove the target BPM or choose Streak."
+                    .to_string(),
+            );
+        }
         let required_clean_streak = match args.required_clean_streak {
             Some(value) => value,
             None => self
@@ -359,16 +377,30 @@ impl RepEngine {
             rule.demote_first = Some(demotion_override.first);
             rule.demote_repeat = Some(demotion_override.repeat);
         }
+        // A total-play set is deliberately a fixed-tempo volume set. Persist
+        // the opt-out in the set's own rule so checks, pause/resume and a later
+        // relaunch cannot inherit the global sloppy-demotion setting.
+        if args.attempt_target.is_some() {
+            rule.demote_enabled = Some(false);
+        }
         // Resolved BEFORE the store call (and before `with_session_locked`) —
         // see `resolve_demotion_config`'s lock-trap note.
         let demotion = self.resolve_demotion_config(&rule);
-        let planned = if args.variants.is_empty() {
+        let planned = if let Some(attempt_target) = args.attempt_target {
+            attempt_target
+        } else if args.variants.is_empty() {
             compatibility_planned
         } else {
             variant_planned
         };
-        let mut contract = PracticeContract::consecutive_clean(required_clean_streak);
-        contract.attempt_ceiling = args.planned_reps;
+        let mut contract = if let Some(attempt_target) = args.attempt_target {
+            PracticeContract::total_attempts(attempt_target)
+        } else {
+            PracticeContract::consecutive_clean(required_clean_streak)
+        };
+        if contract.mastery_basis == MasteryBasis::ConsecutiveClean {
+            contract.attempt_ceiling = args.planned_reps;
+        }
         v2_validate_open(&args, &rule, planned, &contract).map_err(|error| error.to_string())?;
 
         // Only after validation passes do we touch the session — preserves
@@ -1666,6 +1698,13 @@ fn fmt_bpm(bpm: f64) -> String {
 /// [`compose_v2_say`] to speak it, `voice_loop` to report status and to decide
 /// whether a rep outcome is routine enough for a chime.
 pub fn v2_progress(snap: &RepSnapshot) -> (&'static str, u32, u32) {
+    if snap.mastery_basis == "total_attempts" {
+        return (
+            "Plays",
+            snap.tries,
+            snap.attempt_target.unwrap_or(snap.required_clean_streak),
+        );
+    }
     let below_tempo_target = snap.focus == "tempo"
         && snap
             .target_bpm
@@ -1682,6 +1721,19 @@ pub fn v2_progress(snap: &RepSnapshot) -> (&'static str, u32, u32) {
 }
 
 fn compose_v2_say(snap: &RepSnapshot, verdict: RepVerdict, new_bpm: Option<f64>) -> String {
+    if snap.mastery_basis == "total_attempts" {
+        let target = snap.attempt_target.unwrap_or(snap.required_clean_streak);
+        if snap.mastery_status == "satisfied" {
+            return format!("Set complete: Plays {} of {}.", snap.tries, target);
+        }
+        return format!(
+            "Attempt {} saved — {}. Plays {} of {}.",
+            snap.tries,
+            verdict.as_str(),
+            snap.tries,
+            target
+        );
+    }
     if snap.mastery_status == "satisfied" {
         return format!(
             "Mastery earned: {} clean in a row.",
@@ -1915,6 +1967,7 @@ mod tests {
             target_bpm: Some(120.0),
             planned_reps: Some(30),
             required_clean_streak: None,
+            attempt_target: None,
             increment: None,
             variants: vec![],
             focus: "tempo".into(),
@@ -1950,6 +2003,7 @@ mod tests {
             target_bpm: Some(start + 200.0),
             planned_reps: Some(30),
             required_clean_streak: None,
+            attempt_target: None,
             increment: Some(IncrementRule {
                 clean_needed,
                 bpm_step: step,
@@ -1977,6 +2031,7 @@ mod tests {
             target_bpm: None,
             planned_reps: Some(30),
             required_clean_streak: None,
+            attempt_target: None,
             increment: Some(IncrementRule {
                 clean_needed: 1,
                 bpm_step: 4.0,
@@ -2000,6 +2055,7 @@ mod tests {
             target_bpm: None,
             planned_reps: None,
             required_clean_streak: Some(required),
+            attempt_target: None,
             increment: None,
             variants: vec![],
             focus: "notes".into(),
@@ -3036,6 +3092,7 @@ mod tests {
                     target_bpm: Some(300.0),
                     planned_reps: Some(240),
                     required_clean_streak: Some(50),
+                    attempt_target: None,
                     increment: Some(IncrementRule {
                         clean_needed: 4,
                         bpm_step: 2.0,
@@ -4535,6 +4592,7 @@ mod tests {
             // generic contract aligned so this fixture tests the chain rather
             // than an unrelated five-clean default setting.
             required_clean_streak: Some(2),
+            attempt_target: None,
             increment: Some(IncrementRule {
                 clean_needed: 1,
                 bpm_step: 4.0,
@@ -4960,6 +5018,7 @@ mod tests {
             target_bpm: None, // no ladder climb, isolates the variant behaviour
             planned_reps: None,
             required_clean_streak: Some(4),
+            attempt_target: None,
             increment: None,
             variants: vec![
                 VariantSpec {
@@ -5197,6 +5256,133 @@ mod tests {
     }
 
     #[test]
+    fn total_play_target_completes_on_effective_attempts_and_undo_reopens_it() {
+        let (engine, pid, store, _rec) = engine_with_piece();
+        let mut args = strict_notes_args(pid, 5);
+        args.required_clean_streak = None;
+        args.attempt_target = Some(3);
+        let opened = engine.open(args).unwrap();
+        assert_eq!(opened.mastery_basis, "total_attempts");
+        assert_eq!(opened.attempt_target, Some(3));
+        assert_eq!(opened.planned_reps, 3);
+
+        let first = engine.check(RepVerdict::Failed, None).unwrap();
+        assert!(!first.block_done);
+        let second = engine.check(RepVerdict::Flawed, None).unwrap();
+        assert!(!second.block_done);
+        let third = engine.check(RepVerdict::Failed, None).unwrap();
+        assert!(third.block_done, "verdict quality does not gate volume");
+        assert_eq!(third.snap.tries, 3);
+        assert_eq!(third.snap.verdicts.clean, 0);
+        assert_eq!(third.snap.mastery_status, "satisfied");
+        let history = &store.block_history(pid).unwrap()[0];
+        assert_eq!(history.mastery_basis, "total_attempts");
+        assert_eq!(history.attempt_target, Some(3));
+
+        let undone = engine.undo().unwrap();
+        assert!(!undone.block_done);
+        assert_eq!(undone.snap.attempts_recorded, 3);
+        assert_eq!(undone.snap.voided_attempts, 1);
+        assert_eq!(undone.snap.tries, 2);
+        assert_eq!(undone.snap.mastery_status, "not_satisfied");
+    }
+
+    #[test]
+    fn total_play_voice_copy_never_calls_non_clean_verdicts_a_reset() {
+        let (engine, pid, _store, _rec) = engine_with_piece();
+        let mut args = strict_notes_args(pid, 5);
+        args.required_clean_streak = None;
+        args.attempt_target = Some(4);
+        engine.open(args).unwrap();
+
+        let clean = engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(clean.say, "Attempt 1 saved — clean. Plays 1 of 4.");
+        let sloppy = engine.check(RepVerdict::Flawed, None).unwrap();
+        assert_eq!(sloppy.say, "Attempt 2 saved — flawed. Plays 2 of 4.");
+        let again = engine.check(RepVerdict::Failed, None).unwrap();
+        assert_eq!(again.say, "Attempt 3 saved — failed. Plays 3 of 4.");
+        let complete = engine.check(RepVerdict::Failed, None).unwrap();
+        assert_eq!(complete.say, "Set complete: Plays 4 of 4.");
+    }
+
+    #[test]
+    fn total_play_tempo_is_fixed_even_when_demotion_and_ladder_rules_are_supplied() {
+        let (engine, pid, _store, _rec) = engine_with_piece();
+        let mut args = open_args(pid);
+        args.target_bpm = None;
+        args.planned_reps = None;
+        args.required_clean_streak = None;
+        args.attempt_target = Some(5);
+        args.increment = Some(IncrementRule {
+            clean_needed: 1,
+            bpm_step: 4.0,
+            ..Default::default()
+        });
+        let opened = engine
+            .open_with_demotion(
+                args,
+                None,
+                Some(DemotionOverride {
+                    enabled: true,
+                    first: 2,
+                    repeat: 1,
+                }),
+            )
+            .unwrap();
+        assert_eq!(opened.bpm, Some(80.0));
+        assert_eq!(opened.rule.demote_enabled, Some(false));
+
+        let clean = engine.check(RepVerdict::Clean, None).unwrap();
+        assert_eq!(clean.new_bpm, None, "a clean must not auto-step");
+        let sloppy_one = engine.check(RepVerdict::Flawed, None).unwrap();
+        let sloppy_two = engine.check(RepVerdict::Flawed, None).unwrap();
+        assert_eq!(sloppy_one.new_bpm, None);
+        assert_eq!(sloppy_two.new_bpm, None, "sloppy reps must not demote");
+        assert_eq!(sloppy_two.snap.bpm, Some(80.0));
+        assert!(!sloppy_two.snap.demoted_this_set);
+    }
+
+    #[test]
+    fn total_play_target_rejects_ladders_and_variant_chains() {
+        let (engine, pid, _store, _rec) = engine_with_piece();
+        for invalid in [0, 241] {
+            let mut args = strict_notes_args(pid, 5);
+            args.attempt_target = Some(invalid);
+            assert!(engine.open(args).unwrap_err().contains("between 1 and 240"));
+        }
+
+        let mut ladder = open_args(pid);
+        ladder.attempt_target = Some(10);
+        assert!(engine.open(ladder).unwrap_err().contains("one fixed tempo"));
+
+        let mut chain = strict_notes_args(pid, 5);
+        chain.attempt_target = Some(10);
+        chain.variants = vec![VariantSpec {
+            name: "dotted".into(),
+            reps: 5,
+            clean_streak: Some(5),
+        }];
+        assert!(engine.open(chain).unwrap_err().contains("Variant chains"));
+    }
+
+    #[test]
+    fn total_target_wire_fields_are_additive_only_for_total_play_snapshots() {
+        let (clean_engine, clean_pid, _store, _rec) = engine_with_piece();
+        let clean = clean_engine.open(strict_notes_args(clean_pid, 5)).unwrap();
+        let clean_json = serde_json::to_value(clean).unwrap();
+        assert!(clean_json.get("mastery_basis").is_none());
+        assert!(clean_json.get("attempt_target").is_none());
+
+        let (plays_engine, plays_pid, _store, _rec) = engine_with_piece();
+        let mut args = strict_notes_args(plays_pid, 5);
+        args.required_clean_streak = None;
+        args.attempt_target = Some(10);
+        let plays_json = serde_json::to_value(plays_engine.open(args).unwrap()).unwrap();
+        assert_eq!(plays_json["mastery_basis"], "total_attempts");
+        assert_eq!(plays_json["attempt_target"], 10);
+    }
+
+    #[test]
     fn failures_and_accuracy_are_attempt_evidence_not_completion() {
         let (engine, pid, _store, _rec) = engine_with_piece();
         let mut args = strict_notes_args(pid, 20);
@@ -5268,6 +5454,7 @@ mod tests {
             target_bpm: Some(64.0),
             planned_reps: None,
             required_clean_streak: Some(2),
+            attempt_target: None,
             increment: Some(IncrementRule {
                 clean_needed: 1,
                 bpm_step: 4.0,
@@ -5304,6 +5491,7 @@ mod tests {
                 target_bpm: Some(64.0),
                 planned_reps: None,
                 required_clean_streak: Some(2),
+                attempt_target: None,
                 increment: Some(IncrementRule {
                     clean_needed: 10,
                     bpm_step: 4.0,
@@ -5355,6 +5543,7 @@ mod tests {
                 target_bpm: Some(68.0),
                 planned_reps: None,
                 required_clean_streak: Some(3),
+                attempt_target: None,
                 increment: Some(IncrementRule {
                     clean_needed: 5,
                     bpm_step: 4.0,
@@ -5495,6 +5684,7 @@ mod tests {
                 target_bpm: Some(92.0),
                 planned_reps: None,
                 required_clean_streak: Some(8),
+                attempt_target: None,
                 increment: Some(IncrementRule {
                     clean_needed: 3,
                     bpm_step: 4.0,
@@ -6285,6 +6475,7 @@ mod tests {
             target_bpm: Some(target_bpm),
             planned_reps: None,
             required_clean_streak: Some(3),
+            attempt_target: None,
             increment: None,
             variants: vec![],
             focus: "tempo".into(),

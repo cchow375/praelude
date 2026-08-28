@@ -607,6 +607,10 @@ export function RepHud({
       ? `m. ${snap.m_start}`
       : `mm. ${snap.m_start}–${snap.m_end}`;
   const tries = repTries(snap);
+  const totalAttempts = snap.mastery_basis === "total_attempts";
+  const totalAttemptTarget = totalAttempts
+    ? (snap.attempt_target ?? snap.required_clean_streak ?? null)
+    : null;
   const currentStreak = snap.current_clean_streak;
   const tempoMastery = snap.focus === "tempo" && snap.target_bpm != null;
   const masteryStreak = tempoMastery
@@ -657,16 +661,20 @@ export function RepHud({
   const stageName = stageCelebration
     ? (stageCelebration.name ?? liveStageName)
     : liveStageName;
-  const headlineStreak = chained
-    ? (stageCelebration?.filled ?? snap.variant_stage_cleans ?? 0)
-    : celebration
-      ? celebration.filledStreak
-      : streakValue;
-  const headlineRequired = chained
-    ? (stageCelebration?.filled ?? snap.variant_stage_required ?? 0)
-    : celebration
-      ? celebration.filledStreak
-      : streakRequired;
+  const headlineStreak = totalAttempts
+    ? tries
+    : chained
+      ? (stageCelebration?.filled ?? snap.variant_stage_cleans ?? 0)
+      : celebration
+        ? celebration.filledStreak
+        : streakValue;
+  const headlineRequired = totalAttempts
+    ? totalAttemptTarget
+    : chained
+      ? (stageCelebration?.filled ?? snap.variant_stage_required ?? 0)
+      : celebration
+        ? celebration.filledStreak
+        : streakRequired;
   const headlineBpm = celebration ? celebration.atBpm : snap.bpm;
   // A5: BPM is already the click rate for the note value captured on this
   // set. This is display metadata only — never multiply or divide the number.
@@ -678,13 +686,19 @@ export function RepHud({
   const verified = repMasteryVerified(snap);
   const mastery = repMasteryStatus(snap);
   const mastered = verified && mastery === "satisfied";
-  const masteryLabel = mastered
-    ? "Mastery verified"
-    : !verified
-      ? "Mastery unverified"
-      : mastery === "not_applicable"
-        ? "Mastery not applicable"
-        : "Mastery not yet satisfied";
+  const masteryLabel = totalAttempts
+    ? mastered
+      ? "Play target complete"
+      : !verified
+        ? "Play target unverified"
+        : "Play target in progress"
+    : mastered
+      ? "Mastery verified"
+      : !verified
+        ? "Mastery unverified"
+        : mastery === "not_applicable"
+          ? "Mastery not applicable"
+          : "Mastery not yet satisfied";
   const accuracy =
     snap.accuracy == null ? "—" : `${Math.round(snap.accuracy * 100)}%`;
   const showFeedTempo = snap.focus === "tempo" || snap.use_metronome;
@@ -800,7 +814,9 @@ export function RepHud({
         <div
           className={`rep-hud-streak ${celebration ? "is-rung-complete" : ""}`}
           aria-label={
-            chained
+            totalAttempts
+              ? `Total plays ${tries} of ${totalAttemptTarget ?? "unavailable"}`
+              : chained
               ? `${stageName ?? "Variant"} ${headlineStreak} of ${headlineRequired} clean${
                   snap.next_variant_stage_name
                     ? `, next variation ${snap.next_variant_stage_name}`
@@ -824,6 +840,9 @@ export function RepHud({
               variation. */}
           {chained && stageName && (
             <span className="rep-hud-stage-name">{stageName}</span>
+          )}
+          {totalAttempts && (
+            <span className="rep-hud-stage-name">total plays</span>
           )}
           {snap.focus === "tempo" || snap.use_metronome ? (
             headlineBpm != null && (
@@ -963,78 +982,11 @@ export function RepHud({
             </span>
           )}
         </div>
-        {/* A7 §4b: the repair for a drifted count sits BESIDE the count, in
-            the main row. Measured at the 720x520 floor: the dock panel's body
-            ends just under the verdict buttons, so every top-level row below
-            them (the note field, the safety stop, the drawer) is already below
-            the fold — a ± row placed there would have been "shipped" and
-            invisible, the exact §4b failure this task exists to prevent. Here
-            it costs ZERO vertical space and is legible without scrolling,
-            collapsing, or opening anything.
-
-            Both controls reuse the paths the verdict buttons already use
-            (＋ clean is a normal `rep_check` through `submit`; ↩ undo last is
-            the existing REP_UNDO through `runUndo`), so provenance, receipts,
-            the busy guard and the mastered guard are identical to a click.
-
-            `data-compact-visible` is carried deliberately. `.rep-hud-main` is
-            already exempt from the collapsed-HUD hiding rule, so today it is
-            belt-and-braces — but that rule keys on DIRECT children, and this
-            row is one promotion away from being one. B82 was exactly that
-            mistake, so the mark (and the test that pins it) travels with the
-            row. */}
-        <div
-          className="rep-hud-adjust"
-          data-compact-visible="true"
-          aria-label="Adjust the rep count"
-        >
-          <button
-            type="button"
-            className="rep-hud-adjust-add"
-            disabled={mastered || busy != null}
-            onClick={() => void submit("clean")}
-          >
-            ＋ clean
-          </button>
-          <button
-            type="button"
-            className="rep-hud-adjust-undo"
-            disabled={busy != null || tries === 0}
-            onClick={() => void runUndo()}
-          >
-            {busy === "undo" ? "Undoing…" : "↩ undo last"}
-          </button>
-        </div>
       </div>
 
-      <RepReplayControl replay={replay} />
-
-      {/* A6 §4b: a hotkey nobody knows about is not a feature. The mapping is
-          a one-line hint in the HUD itself — never drawer content — and it
-          carries `data-compact-visible` WHILE IT IS STILL TEACHING, so a
-          collapsed HUD cannot hide the one thing that explains the keys. Once
-          a hotkey has actually recorded a rep it compacts to the bare key names
-          and gives its compact-mode slot back. */}
-      {hotkeys.enabled && !mastered && (
-        <p
-          className={`rep-hud-hotkeys ${hotkeyUsed ? "is-learned" : ""}`}
-          {...(hotkeyUsed ? {} : { "data-compact-visible": "true" })}
-        >
-          {hotkeyUsed ? (
-            <>
-              Keys: {hotkeyLabel(hotkeys.clean)} · {hotkeyLabel(hotkeys.sloppy)}{" "}
-              · {hotkeyLabel(hotkeys.again)}
-            </>
-          ) : (
-            <>
-              Keys: {hotkeyLabel(hotkeys.clean)} = clean ·{" "}
-              {hotkeyLabel(hotkeys.sloppy)} = sloppy ·{" "}
-              {hotkeyLabel(hotkeys.again)} = again
-            </>
-          )}
-        </p>
-      )}
-
+      {/* The hot loop comes first: after reading the current count, the next
+          reachable controls are always Clean / Sloppy / Again. Listen Back,
+          shortcut teaching, notes and secondary tools follow this row. */}
       <div
         className="rep-hud-entry"
         data-compact-visible
@@ -1046,7 +998,7 @@ export function RepHud({
               key={button.verdict}
               variant={button.variant}
               className="rep-verdict"
-                disabled={mastered || busy != null}
+              disabled={mastered || busy != null}
               onClick={() => void submit(button.verdict)}
             >
               {button.label}
@@ -1106,6 +1058,61 @@ export function RepHud({
           onChange={(event) => setNote(event.target.value)}
         />
       </div>
+
+      {/* Count repair stays one gesture away, but follows the verdict row so
+          Clean / Sloppy / Again are the first actions after current status.
+          `data-compact-visible` keeps it reachable in the deliberate compact
+          HUD; it never moves into the secondary More drawer. */}
+      <div
+        className="rep-hud-adjust"
+        data-compact-visible="true"
+        aria-label="Adjust the rep count"
+      >
+        <button
+          type="button"
+          className="rep-hud-adjust-add"
+          disabled={mastered || busy != null}
+          onClick={() => void submit("clean")}
+        >
+          ＋ clean
+        </button>
+        <button
+          type="button"
+          className="rep-hud-adjust-undo"
+          disabled={busy != null || tries === 0}
+          onClick={() => void runUndo()}
+        >
+          {busy === "undo" ? "Undoing…" : "↩ undo last"}
+        </button>
+      </div>
+
+      <RepReplayControl replay={replay} />
+
+      {/* A6 §4b: a hotkey nobody knows about is not a feature. The mapping is
+          a one-line hint in the HUD itself — never drawer content — and it
+          carries `data-compact-visible` WHILE IT IS STILL TEACHING, so a
+          collapsed HUD cannot hide the one thing that explains the keys. Once
+          a hotkey has actually recorded a rep it compacts to the bare key names
+          and gives its compact-mode slot back. */}
+      {hotkeys.enabled && !mastered && (
+        <p
+          className={`rep-hud-hotkeys ${hotkeyUsed ? "is-learned" : ""}`}
+          {...(hotkeyUsed ? {} : { "data-compact-visible": "true" })}
+        >
+          {hotkeyUsed ? (
+            <>
+              Keys: {hotkeyLabel(hotkeys.clean)} · {hotkeyLabel(hotkeys.sloppy)}{" "}
+              · {hotkeyLabel(hotkeys.again)}
+            </>
+          ) : (
+            <>
+              Keys: {hotkeyLabel(hotkeys.clean)} = clean ·{" "}
+              {hotkeyLabel(hotkeys.sloppy)} = sloppy ·{" "}
+              {hotkeyLabel(hotkeys.again)} = again
+            </>
+          )}
+        </p>
+      )}
 
       {/* The safety stop is never folded away — it stays at top level, above
           the drawer, and is the only element allowed to shout. */}

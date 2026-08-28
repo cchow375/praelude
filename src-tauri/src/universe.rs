@@ -138,6 +138,7 @@ struct TechniqueInput {
 #[derive(Clone, Debug)]
 struct SetEvidence {
     region_id: Option<i64>,
+    mastery_basis: String,
     mastery_verified: bool,
     mastery_satisfied: bool,
     reset_count: u32,
@@ -148,12 +149,26 @@ impl From<BlockHistory> for SetEvidence {
     fn from(block: BlockHistory) -> Self {
         Self {
             region_id: block.region_id,
+            mastery_basis: block.mastery_basis,
             mastery_verified: block.mastery_verified,
             mastery_satisfied: block.mastery_status == "satisfied",
             reset_count: block.reset_count,
             recovery_remaining: block.recovery_remaining,
         }
     }
+}
+
+/// Bases that make a musical mastery claim. `total_attempts` is deliberately
+/// absent: satisfying that contract completes a volume target, not mastery.
+fn is_genuine_mastery_basis(basis: &str) -> bool {
+    matches!(
+        basis,
+        "consecutive_clean" | "total_clean" | "timed_exposure"
+    )
+}
+
+fn verified_mastery_satisfied(set: &SetEvidence) -> bool {
+    is_genuine_mastery_basis(&set.mastery_basis) && set.mastery_verified && set.mastery_satisfied
 }
 
 #[derive(Clone)]
@@ -347,7 +362,7 @@ fn aggregate(
             let mastery_contracts_completed = count_u32(
                 contracts
                     .iter()
-                    .filter(|set| set.mastery_verified && set.mastery_satisfied)
+                    .filter(|set| verified_mastery_satisfied(set))
                     .count(),
             );
             let recovery_resets = contracts
@@ -358,7 +373,7 @@ fn aggregate(
                 .fold(0u32, |sum, set| sum.saturating_add(set.recovery_remaining));
             let recovered = contracts
                 .iter()
-                .any(|set| set.reset_count > 0 && set.mastery_verified && set.mastery_satisfied);
+                .any(|set| set.reset_count > 0 && verified_mastery_satisfied(set));
 
             region_signals.push(RegionSignal {
                 region_id: region.id,
@@ -536,7 +551,7 @@ fn definitions() -> Vec<SignalDefinition> {
         SignalDefinition {
             signal: "mastery_ring",
             label: "Verified mastery",
-            definition: "A current target with at least one satisfied native consecutive-clean contract. Legacy totals and raw clean-click volume cannot satisfy it.",
+            definition: "A current target with at least one satisfied, verified musical-mastery contract. Legacy totals, raw clean-click volume, and explicit Total plays volume targets cannot satisfy it.",
         },
         SignalDefinition {
             signal: "recovery_mark",
@@ -869,6 +884,7 @@ mod tests {
         let technique = TechniqueInput {
             set_evidence: vec![SetEvidence {
                 region_id: None,
+                mastery_basis: "consecutive_clean".into(),
                 mastery_verified: true,
                 mastery_satisfied: true,
                 reset_count: 0,
@@ -930,6 +946,7 @@ mod tests {
         old.piece.archived_at = Some(1_787_000_000);
         old.set_evidence = vec![SetEvidence {
             region_id: Some(10),
+            mastery_basis: "consecutive_clean".into(),
             mastery_verified: true,
             mastery_satisfied: true,
             reset_count: 1,
@@ -1049,7 +1066,10 @@ mod tests {
 
     #[test]
     fn verified_mastery_recovery_and_sessions_are_separate_earned_signals() {
-        let regions = vec![region(10, 1, "Repair target"), region(11, 1, "Raw clicks")];
+        let regions = vec![
+            region(10, 1, "Repair target"),
+            region(11, 1, "Volume target"),
+        ];
         let blocks = vec![
             BlockMeta {
                 block_id: 100,
@@ -1082,7 +1102,7 @@ mod tests {
             Some("clean"),
         );
         second.event.session_id = Some(8);
-        let raw_clicks = event(
+        let volume_play = event(
             3,
             1,
             "rep",
@@ -1091,10 +1111,11 @@ mod tests {
             Some(110),
             Some("clean"),
         );
-        let mut evidence = input(1, regions, blocks, vec![first, second, raw_clicks]);
+        let mut evidence = input(1, regions, blocks, vec![first, second, volume_play]);
         evidence.set_evidence = vec![
             SetEvidence {
                 region_id: Some(10),
+                mastery_basis: "consecutive_clean".into(),
                 mastery_verified: true,
                 mastery_satisfied: true,
                 reset_count: 2,
@@ -1102,8 +1123,9 @@ mod tests {
             },
             SetEvidence {
                 region_id: Some(11),
-                mastery_verified: false,
-                mastery_satisfied: false,
+                mastery_basis: "total_attempts".into(),
+                mastery_verified: true,
+                mastery_satisfied: true,
                 reset_count: 0,
                 recovery_remaining: 0,
             },

@@ -121,6 +121,18 @@ export interface RepSnapshot {
   accuracy?: number | null;
   required_clean_streak?: number | null;
   effective_required_clean_streak?: number | null;
+  /** Canonical persisted contract basis. Older fixtures omit this and mean
+   * the established consecutive-clean behavior. */
+  mastery_basis?:
+    | "consecutive_clean"
+    | "total_attempts"
+    | "total_clean"
+    | "timed_exposure"
+    | "exploratory"
+    | "legacy_attempt_count"
+    | string;
+  /** Present only for an explicit volume-only target. */
+  attempt_target?: number | null;
   recovery_remaining?: number;
   mastery_status?: MasteryStatus;
   mastery_verified?: boolean;
@@ -350,6 +362,9 @@ export interface RepOpenArgs {
   planned_reps: number | null;
   /** Consecutive-clean target. Null delegates to the persisted v2 default. */
   required_clean_streak?: number | null;
+  /** Volume-only completion target. Every effective non-void verdict attempt
+   * counts; incompatible with a variant chain. */
+  attempt_target?: number | null;
   increment: IncrementRule | null;
   variants: VariantSpec[];
   focus: string;

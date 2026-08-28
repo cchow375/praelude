@@ -125,6 +125,50 @@ describe("dev-mock rep_open handler", () => {
     });
   });
 
+  it("rehydrates the explicit total-play contract without calling it a clean streak", async () => {
+    const snap = await seamInvoke<RepSnapshot>("rep_open", {
+      args: {
+        piece_id: 1,
+        region_id: null,
+        m_start: 1,
+        m_end: 8,
+        label: null,
+        start_bpm: 60,
+        target_bpm: null,
+        planned_reps: null,
+        required_clean_streak: null,
+        attempt_target: 15,
+        variants: [],
+        focus: "tempo",
+        use_metronome: true,
+      },
+      context: null,
+    });
+    expect(snap.mastery_basis).toBe("total_attempts");
+    expect(snap.attempt_target).toBe(15);
+    expect(snap.planned_reps).toBe(15);
+    expect(snap.tries).toBe(0);
+  });
+
+  it.each([0, 241, 2.5])("rejects invalid total-play target %s like native", async (target) => {
+    await expect(
+      seamInvoke("rep_open", {
+        args: {
+          piece_id: 1,
+          m_start: 1,
+          m_end: 8,
+          start_bpm: 60,
+          target_bpm: null,
+          attempt_target: target,
+          variants: [],
+          focus: "tempo",
+          use_metronome: true,
+        },
+        context: null,
+      }),
+    ).rejects.toContain("between 1 and 240");
+  });
+
   it("round-trips context.pass_seconds when present, and clears to null when absent", async () => {
     expect(mockLastOpenedPassSeconds()).toBeNull();
 

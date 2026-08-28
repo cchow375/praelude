@@ -16,10 +16,10 @@ import "../../ui/forms.css";
 
 // ---------------------------------------------------------------------------
 // Compose a practice block, then open it. Measures + start/target tempo define
-// the drill. Mastery is an explicit consecutive-clean target, while the
-// optional legacy planned-reps field is only a neutral review boundary; it
-// neither blocks continued attempts nor proves mastery. Increment is "auto"
-// by default — the backend resolves the tempo rule — or manual.
+// the drill. The set target is either an explicit consecutive-clean proof or a
+// finite total-play count; the optional legacy planned-reps field remains only
+// a neutral review boundary for clean-streak sets. Increment is "auto" by
+// default — the backend resolves the tempo rule — or manual.
 //
 // Layout (v5/A3, spec §5.3): Christian's diagnosis was "everything I'm asking
 // for is because I don't see it" — the old single "More" disclosure buried
@@ -74,6 +74,11 @@ const VARIANT_PRESETS: Array<{ label: string; name: string }> = [
   { label: "Hands separate", name: "hands separate" },
   { label: "Blocked chords", name: "blocked chords" },
 ];
+
+const STREAK_TARGETS = [3, 5, 7, 10] as const;
+const PLAY_TARGETS = [5, 10, 15, 25] as const;
+type TargetMode = "streak" | "plays";
+type DraftVariant = VariantSpec & { draftId: number };
 
 const BEAT_UNIT_OPTIONS: Array<{ value: BeatUnit; label: string }> = [
   { value: "quarter", label: "Quarter note (♩)" },
@@ -208,12 +213,17 @@ export function BlockForm({
     defaultTargetBpm != null ? String(defaultTargetBpm) : "",
   );
   const [plannedReps, setPlannedReps] = useState<string>("");
-  const initialTarget = [3, 5, 7, 10].includes(defaultCleanStreak)
+  const initialTarget = STREAK_TARGETS.includes(
+    defaultCleanStreak as (typeof STREAK_TARGETS)[number],
+  )
     ? String(defaultCleanStreak)
     : "custom";
+  const [targetMode, setTargetMode] = useState<TargetMode>("streak");
   const [streakChoice, setStreakChoice] = useState(initialTarget);
   const [customStreak, setCustomStreak] = useState(String(defaultCleanStreak));
-  const streakEdited = useRef(false);
+  const [playChoice, setPlayChoice] = useState("10");
+  const [customPlays, setCustomPlays] = useState("10");
+  const targetEdited = useRef(false);
   const [mode, setMode] = useState<"auto" | "manual">("auto");
   const [cleanNeeded, setCleanNeeded] = useState<string>("3");
   const [bpmStep, setBpmStep] = useState<string>("4");
@@ -222,7 +232,8 @@ export function BlockForm({
   );
   const [demotionFirst, setDemotionFirst] = useState("3");
   const [demotionRepeat, setDemotionRepeat] = useState("2");
-  const [variants, setVariants] = useState<VariantSpec[]>([]);
+  const [variants, setVariants] = useState<DraftVariant[]>([]);
+  const nextVariantId = useRef(1);
   const [focus, setFocus] = useState("tempo");
   const [useMetronome, setUseMetronome] = useState(true);
   const initialTuning = normalizeTuning(defaultTuning);
@@ -239,13 +250,20 @@ export function BlockForm({
   const [customChips, setCustomChips] = useState<string[]>([]);
   const [customVariantText, setCustomVariantText] = useState<string>("");
 
+  const chooseTargetMode = (next: TargetMode) => {
+    targetEdited.current = true;
+    setTargetMode(next);
+  };
+
   // Settings can finish saving while this form remains mounted. Adopt that
   // saved default until the pianist has started editing this form's target;
   // after that, the draft wins over later preference updates.
   useEffect(() => {
-    if (streakEdited.current) return;
+    if (targetEdited.current) return;
     setStreakChoice(
-      [3, 5, 7, 10].includes(defaultCleanStreak)
+      STREAK_TARGETS.includes(
+        defaultCleanStreak as (typeof STREAK_TARGETS)[number],
+      )
         ? String(defaultCleanStreak)
         : "custom",
     );
@@ -271,7 +289,15 @@ export function BlockForm({
     setVariants((v) => v.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
   /** Tapping a preset (or submitting custom text) appends it to the chain. */
   const addVariant = (name: string = "") =>
-    setVariants((v) => [...v, { name, reps: 5, clean_streak: 5 }]);
+    setVariants((v) => [
+      ...v,
+      {
+        draftId: nextVariantId.current++,
+        name,
+        reps: 5,
+        clean_streak: 5,
+      },
+    ]);
   const removeVariant = (i: number) =>
     setVariants((v) => v.filter((_, idx) => idx !== i));
   const moveVariant = (i: number, dir: -1 | 1) =>
@@ -299,7 +325,7 @@ export function BlockForm({
   // visible now). Recomputed each render so edits inside Advanced show
   // immediately without opening it again.
   const advancedParts: string[] = [];
-  if (focus === "tempo") {
+  if (focus === "tempo" && targetMode === "streak") {
     advancedParts.push(
       mode === "auto"
         ? "auto tempo ladder"
@@ -312,14 +338,14 @@ export function BlockForm({
     )?.label.replace(/\s*\([^)]*\)$/, "");
     advancedParts.push(`${unit ?? "Quarter note"} pulse`);
   }
-  if (demotionMode !== "inherit") {
+  if (targetMode === "streak" && demotionMode !== "inherit") {
     advancedParts.push(
       demotionMode === "off"
         ? "demotion off for this set"
         : `demote after ${demotionFirst}, then ${demotionRepeat} sloppy`,
     );
   }
-  const reviewAt = parseIntOrNull(plannedReps);
+  const reviewAt = targetMode === "streak" ? parseIntOrNull(plannedReps) : null;
   if (reviewAt != null) advancedParts.push(`review at ${reviewAt}`);
   const advancedSummary =
     advancedParts.length > 0
@@ -333,7 +359,10 @@ export function BlockForm({
   // authoritative auto-ladder resolution).
   const parsedPassSeconds = parseIntOrNull(passSeconds);
   const estimateText =
-    focus === "tempo" && parsedPassSeconds != null && parsedPassSeconds > 0
+    focus === "tempo" &&
+    targetMode === "streak" &&
+    parsedPassSeconds != null &&
+    parsedPassSeconds > 0
       ? formatSetEstimate(
           estimateSetSeconds(
             parsedPassSeconds,
@@ -351,6 +380,18 @@ export function BlockForm({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (opening || blockedReason) return;
+    const streakTarget = Math.max(
+      1,
+      streakChoice === "custom"
+        ? (parseIntOrNull(customStreak) ?? defaultCleanStreak)
+        : Number(streakChoice),
+    );
+    const playTarget = clampInteger(
+      playChoice === "custom" ? customPlays : playChoice,
+      1,
+      240,
+      10,
+    );
     const args: RepOpenArgs = {
       piece_id: pieceId,
       region_id: regionId,
@@ -359,22 +400,22 @@ export function BlockForm({
       label: label.trim() === "" ? null : label.trim(),
       start_bpm:
         focus === "tempo" || useMetronome ? parseNumOr(startBpm, 60) : null,
-      target_bpm: focus === "tempo" ? parseIntOrNull(targetBpm) : null,
-      planned_reps: parseIntOrNull(plannedReps),
-      required_clean_streak: Math.max(
-        1,
-        streakChoice === "custom"
-          ? (parseIntOrNull(customStreak) ?? defaultCleanStreak)
-          : Number(streakChoice),
-      ),
+      target_bpm:
+        focus === "tempo" && targetMode === "streak"
+          ? parseIntOrNull(targetBpm)
+          : null,
+      planned_reps:
+        targetMode === "streak" ? parseIntOrNull(plannedReps) : null,
+      required_clean_streak: targetMode === "streak" ? streakTarget : null,
+      ...(targetMode === "plays" ? { attempt_target: playTarget } : {}),
       increment:
-        focus !== "tempo" || mode === "auto"
+        focus !== "tempo" || targetMode === "plays" || mode === "auto"
           ? null // auto -> backend resolves the rule
           : {
               clean_needed: parseIntOrNull(cleanNeeded) ?? 3,
               bpm_step: parseNumOr(bpmStep, 4),
             },
-      variants: variants
+      variants: (targetMode === "streak" ? variants : [])
         .map((v) => ({
           name: v.name.trim(),
           // Keep `reps` populated for older stored/read paths while making
@@ -392,7 +433,7 @@ export function BlockForm({
       },
     };
     const demotion: DemotionOverride | undefined =
-      demotionMode === "inherit"
+      targetMode === "plays" || demotionMode === "inherit"
         ? undefined
         : {
             enabled: demotionMode === "on",
@@ -401,7 +442,11 @@ export function BlockForm({
           };
     // Task A10 compatibility: untouched optional controls still mean a single
     // positional argument. A5's tuning is part of that RepOpenArgs object.
-    if (parsedPassSeconds != null && parsedPassSeconds > 0) {
+    if (
+      targetMode === "streak" &&
+      parsedPassSeconds != null &&
+      parsedPassSeconds > 0
+    ) {
       if (demotion) {
         onOpen(args, { pass_seconds: parsedPassSeconds }, demotion);
       } else {
@@ -483,7 +528,7 @@ export function BlockForm({
                 onChange={(e) => setStartBpm(e.target.value)}
               />
             </label>
-            {focus === "tempo" && (
+            {focus === "tempo" && targetMode === "streak" && (
               <label className="ck-field">
                 <span className="ck-label">Target bpm</span>
                 <input
@@ -538,134 +583,89 @@ export function BlockForm({
           </label>
         </div>
 
-        {/* The variant chain builder (§5.3): one-tap presets, free-text
-            custom (remembered as a chip), reorder, inline reps, remove. */}
-        <fieldset className="ck-field ck-variant-chain">
-          <legend className="ck-label">Variant chain</legend>
-          <div className="ck-chip-row">
-            {[
-              ...VARIANT_PRESETS,
-              ...customChips.map((name) => ({ label: name, name })),
-            ].map((preset) => (
-              <button
-                key={preset.name}
-                type="button"
-                className="ck-chip"
-                onClick={() => addVariant(preset.name)}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <div className="ck-row">
-            <input
-              className="ck-input"
-              type="text"
-              value={customVariantText}
-              placeholder="Custom variant…"
-              aria-label="Custom variant name"
-              onChange={(e) => setCustomVariantText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  addCustomVariant();
+        <fieldset className="ck-field ck-target-editor">
+          <legend className="ck-label">Set target</legend>
+          <div className="ck-target-line">
+            <div
+              className="ck-segmented ck-target-mode"
+              role="radiogroup"
+              aria-label="Target type"
+              onKeyDown={(event) => {
+                let next: TargetMode | null = null;
+                if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+                  next = targetMode === "streak" ? "plays" : "streak";
+                } else if (
+                  event.key === "ArrowLeft" ||
+                  event.key === "ArrowUp"
+                ) {
+                  next = targetMode === "plays" ? "streak" : "plays";
+                } else if (event.key === "Home") {
+                  next = "streak";
+                } else if (event.key === "End") {
+                  next = "plays";
                 }
-              }}
-            />
-            <button type="button" className="ck-add" onClick={addCustomVariant}>
-              + Add
-            </button>
-          </div>
-          {variants.length > 0 && (
-            <ol className="ck-chain-list">
-              {variants.map((v, i) => (
-                <li className="ck-row ck-chain-item" key={i}>
-                  <span className="ck-chain-index" aria-hidden="true">
-                    {i + 1}
-                  </span>
-                  <input
-                    className="ck-input"
-                    type="text"
-                    value={v.name}
-                    placeholder="hands separate"
-                    aria-label={`Variant ${i + 1} name`}
-                    onChange={(e) => setVariant(i, { name: e.target.value })}
-                  />
-                  <label className="ck-field ck-chain-requirement">
-                    <span className="ck-label">Consecutive cleans</span>
-                    <input
-                      className="ck-input ck-input-reps"
-                      type="number"
-                      inputMode="numeric"
-                      min={1}
-                      value={v.clean_streak ?? v.reps}
-                      aria-label={`Variant ${i + 1} consecutive cleans`}
-                      onChange={(e) => {
-                        const requirement =
-                          parseIntOrNull(e.target.value) ?? 1;
-                        setVariant(i, {
-                          reps: requirement,
-                          clean_streak: requirement,
-                        });
-                      }}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="ck-row-move"
-                    aria-label={`Move variant ${i + 1} up`}
-                    disabled={i === 0}
-                    onClick={() => moveVariant(i, -1)}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className="ck-row-move"
-                    aria-label={`Move variant ${i + 1} down`}
-                    disabled={i === variants.length - 1}
-                    onClick={() => moveVariant(i, 1)}
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    className="ck-row-remove"
-                    aria-label={`Remove variant ${i + 1}`}
-                    onClick={() => removeVariant(i)}
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ol>
-          )}
-        </fieldset>
-
-        <div className="ck-field-grid">
-          <label className="ck-field">
-            <span className="ck-label">Clean streak target</span>
-            <select
-              className="ck-input"
-              aria-label="Clean streak target"
-              value={streakChoice}
-              onChange={(event) => {
-                streakEdited.current = true;
-                setStreakChoice(event.target.value);
+                if (next == null) return;
+                event.preventDefault();
+                chooseTargetMode(next);
+                const index = next === "streak" ? 0 : 1;
+                const group = event.currentTarget;
+                requestAnimationFrame(() => {
+                  group
+                    .querySelectorAll<HTMLButtonElement>('[role="radio"]')
+                    [index]?.focus();
+                });
               }}
             >
-              <option value="3">3 cleans</option>
-              <option value="5">5 cleans</option>
-              <option value="7">7 cleans</option>
-              <option value="10">10 cleans</option>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={targetMode === "streak"}
+                tabIndex={targetMode === "streak" ? 0 : -1}
+                className={`ck-segment ${targetMode === "streak" ? "is-on" : ""}`}
+                onClick={() => chooseTargetMode("streak")}
+              >
+                Clean streak
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={targetMode === "plays"}
+                tabIndex={targetMode === "plays" ? 0 : -1}
+                className={`ck-segment ${targetMode === "plays" ? "is-on" : ""}`}
+                onClick={() => chooseTargetMode("plays")}
+              >
+                Total plays
+              </button>
+            </div>
+            <select
+              className="ck-input ck-target-count"
+              aria-label={
+                targetMode === "streak"
+                  ? "Clean streak target"
+                  : "Total plays target"
+              }
+              value={targetMode === "streak" ? streakChoice : playChoice}
+              onChange={(event) => {
+                targetEdited.current = true;
+                if (targetMode === "streak") {
+                  setStreakChoice(event.target.value);
+                } else {
+                  setPlayChoice(event.target.value);
+                }
+              }}
+            >
+              {(targetMode === "streak" ? STREAK_TARGETS : PLAY_TARGETS).map(
+                (value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ),
+              )}
               <option value="custom">Custom…</option>
             </select>
-          </label>
-          {streakChoice === "custom" && (
-            <label className="ck-field">
-              <span className="ck-label">Custom clean streak</span>
+            {targetMode === "streak" && streakChoice === "custom" ? (
               <input
-                className="ck-input"
+                className="ck-input ck-target-custom"
                 type="number"
                 inputMode="numeric"
                 min={1}
@@ -673,13 +673,153 @@ export function BlockForm({
                 value={customStreak}
                 aria-label="Custom clean streak"
                 onChange={(event) => {
-                  streakEdited.current = true;
+                  targetEdited.current = true;
                   setCustomStreak(event.target.value);
                 }}
               />
-            </label>
-          )}
-        </div>
+            ) : null}
+            {targetMode === "plays" && playChoice === "custom" ? (
+              <input
+                className="ck-input ck-target-custom"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={240}
+                value={customPlays}
+                aria-label="Custom total plays"
+                onChange={(event) => {
+                  targetEdited.current = true;
+                  setCustomPlays(event.target.value);
+                }}
+              />
+            ) : null}
+          </div>
+          <small>
+            {targetMode === "streak"
+              ? "Clean must be consecutive."
+              : "Fixed tempo · no variants · every verdict counts; Undo removes one."}
+          </small>
+        </fieldset>
+
+        {/* A chain is itself a clean-streak proof. Keep it out of total-play
+            mode rather than inventing competing advancement semantics. The
+            draft stays in memory if the pianist switches back. */}
+        {targetMode === "streak" ? (
+          <fieldset className="ck-field ck-variant-chain">
+            <legend className="ck-label">Variant chain</legend>
+            <div className="ck-chip-row" aria-label="Variant presets">
+              {[
+                ...VARIANT_PRESETS,
+                ...customChips.map((name) => ({ label: name, name })),
+              ].map((preset) => (
+                <button
+                  key={preset.name}
+                  type="button"
+                  className="ck-chip"
+                  onClick={() => addVariant(preset.name)}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <div className="ck-row ck-variant-add-row">
+              <input
+                className="ck-input"
+                type="text"
+                value={customVariantText}
+                placeholder="Custom variant…"
+                aria-label="Custom variant name"
+                onChange={(e) => setCustomVariantText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addCustomVariant();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="ck-add ck-variant-add"
+                aria-label="Add custom variant"
+                onClick={addCustomVariant}
+              >
+                +
+              </button>
+            </div>
+            {variants.length > 0 ? (
+              <>
+                <small className="ck-chain-help">
+                  Each stage advances after its clean count.
+                </small>
+                <ol className="ck-chain-list">
+                  {variants.map((v, i) => (
+                    <li className="ck-chain-item" key={v.draftId}>
+                      <span className="ck-chain-index" aria-hidden="true">
+                        {i + 1}
+                      </span>
+                      <input
+                        className="ck-input ck-chain-name"
+                        type="text"
+                        value={v.name}
+                        placeholder="hands separate"
+                        aria-label={`Variant ${i + 1} name`}
+                        onChange={(e) =>
+                          setVariant(i, { name: e.target.value })
+                        }
+                      />
+                      <input
+                        className="ck-input ck-chain-count"
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        max={100}
+                        value={v.clean_streak ?? v.reps}
+                        title="Consecutive cleans"
+                        aria-label={`Variant ${i + 1} consecutive cleans`}
+                        onChange={(e) => {
+                          const requirement =
+                            parseIntOrNull(e.target.value) ?? 1;
+                          setVariant(i, {
+                            reps: requirement,
+                            clean_streak: requirement,
+                          });
+                        }}
+                      />
+                      <div className="ck-chain-actions">
+                        <button
+                          type="button"
+                          className="ck-row-move"
+                          aria-label={`Move variant ${i + 1} up`}
+                          disabled={i === 0}
+                          onClick={() => moveVariant(i, -1)}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="ck-row-move"
+                          aria-label={`Move variant ${i + 1} down`}
+                          disabled={i === variants.length - 1}
+                          onClick={() => moveVariant(i, 1)}
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className="ck-row-remove"
+                          aria-label={`Remove variant ${i + 1}`}
+                          onClick={() => removeVariant(i)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            ) : null}
+          </fieldset>
+        ) : null}
 
         {/* One collapsed "Advanced" section at the bottom (§5.3): the tempo
             ladder, one-pass estimate, set metronome tuning, and review
@@ -703,7 +843,7 @@ export function BlockForm({
 
           {advancedOpen && (
             <div id="block-advanced-panel" className="block-more-panel">
-              {focus === "tempo" && (
+              {focus === "tempo" && targetMode === "streak" && (
                 <fieldset className="ck-field">
                   <legend className="ck-label">Tempo ladder</legend>
                   <div
@@ -788,7 +928,7 @@ export function BlockForm({
                 </fieldset>
               )}
 
-              {focus === "tempo" && (
+              {focus === "tempo" && targetMode === "streak" && (
                 <fieldset className="ck-field">
                   <legend className="ck-label">Tempo demotion</legend>
                   <label className="ck-field">
@@ -892,21 +1032,23 @@ export function BlockForm({
                 </fieldset>
               )}
 
-              <label className="ck-field">
-                <span className="ck-label">
-                  Attempt review boundary (optional)
-                </span>
-                <input
-                  className="ck-input"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  value={plannedReps}
-                  placeholder="No boundary"
-                  aria-label="Attempt review boundary"
-                  onChange={(event) => setPlannedReps(event.target.value)}
-                />
-              </label>
+              {targetMode === "streak" ? (
+                <label className="ck-field">
+                  <span className="ck-label">
+                    Attempt review boundary (optional)
+                  </span>
+                  <input
+                    className="ck-input"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    value={plannedReps}
+                    placeholder="No boundary"
+                    aria-label="Attempt review boundary"
+                    onChange={(event) => setPlannedReps(event.target.value)}
+                  />
+                </label>
+              ) : null}
             </div>
           )}
         </div>

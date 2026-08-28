@@ -638,6 +638,34 @@ mod tests {
     }
 
     #[test]
+    fn total_attempt_target_uses_effective_non_void_attempts() {
+        let attempts = vec![
+            attempt(1, AttemptVerdict::Failed),
+            attempt(2, AttemptVerdict::Flawed),
+            attempt(3, AttemptVerdict::Failed),
+        ];
+        let contract = PracticeContract::total_attempts(3);
+        let complete = derive(&contract, &attempts, &[], 0).unwrap();
+        assert_eq!(complete.clean, 0);
+        assert_eq!(complete.tries, 3);
+        assert_eq!(complete.contract.mastery, MasteryStatus::Satisfied);
+
+        let void_latest = AdjustmentRecord {
+            id: 1,
+            attempt_id: 3,
+            kind: AdjustmentKind::Void,
+            reverses_adjustment_id: None,
+            source: MutationSource::UserClick,
+            reason: Some("undo".into()),
+        };
+        let undone = derive(&contract, &attempts, &[void_latest], 0).unwrap();
+        assert_eq!(undone.attempts_recorded, 3, "physical evidence remains");
+        assert_eq!(undone.voided_attempts, 1);
+        assert_eq!(undone.tries, 2, "only effective attempts count");
+        assert_eq!(undone.contract.mastery, MasteryStatus::NotSatisfied);
+    }
+
+    #[test]
     fn adaptive_recovery_expands_the_streak_after_many_errors() {
         let mut contract = PracticeContract::consecutive_clean(5);
         contract.recovery = RecoveryPolicy::Adaptive {

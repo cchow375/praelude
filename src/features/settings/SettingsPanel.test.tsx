@@ -202,6 +202,9 @@ describe("SettingsPanel", () => {
     await screen.findByText(/dark practice-room interface/i);
 
     fireEvent.click(screen.getByText("Ladder defaults"));
+    expect(
+      screen.getByText(/Total plays is a separate volume target/),
+    ).toBeTruthy();
     const enabled = screen.getByRole("checkbox", {
       name: "Automatically lower tempo after sloppy reps",
     }) as HTMLInputElement;

@@ -39,12 +39,12 @@
 
 .score-toolbar {
   position: relative;
-  z-index: 4;
+  z-index: 9;
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) auto minmax(220px, 1fr);
+  grid-template-columns: minmax(180px, 1fr) auto auto auto;
   align-items: center;
-  gap: var(--space-3);
-  min-height: 46px;
+  gap: var(--space-2) var(--space-3);
+  min-height: 44px;
   padding: var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--hairline);
   background: var(--surface-raised);
@@ -194,15 +194,127 @@
   background: var(--surface-active);
 }
 
+/* Low-frequency score setup lives behind one disclosure instead of forcing the
+   edition row to wrap into a wall of controls. Page navigation and +/- zoom stay
+   one-tap; when a drawing mode is active the summary itself changes label, so
+   collapsing the menu never hides state. */
+.score-tools-menu {
+  position: relative;
+  min-width: 0;
+}
+
+.score-tools-menu > summary {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--ink-secondary);
+  background: var(--surface-raised);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  list-style: none;
+  cursor: pointer;
+}
+
+.score-tools-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.score-tools-menu > summary:hover,
+.score-tools-menu[open] > summary {
+  color: var(--ink-primary);
+  background: var(--surface-hover);
+}
+
+.score-tools-menu > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.score-tools-popover {
+  position: absolute;
+  z-index: 9;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  display: grid;
+  width: min(270px, calc(100vw - 32px));
+  max-height: min(360px, calc(100vh - 110px));
+  padding: var(--space-2);
+  overflow-y: auto;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+  overscroll-behavior: contain;
+}
+
+.score-tools-popover > button {
+  width: 100%;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score-tools-popover .is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--surface-active);
+}
+
+.score-view-modes {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.score-view-modes button {
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 var(--space-1);
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--ink-secondary);
+  background: var(--surface-raised);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.score-active-tool-status {
+  position: relative;
+  z-index: 3;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-secondary);
+  background: var(--surface-active);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
 .score-scroll {
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+  scroll-behavior: auto;
 }
 
 .score-body {
-  --score-sidebar-width: clamp(300px, 31vw, 400px);
+  --score-sidebar-width: clamp(270px, 25vw, 340px);
   position: relative;
   display: grid;
   min-height: 0;
@@ -325,6 +437,34 @@
   justify-content: flex-start;
   gap: var(--space-5);
   padding: var(--space-5) var(--space-4) var(--space-8);
+}
+
+/* Persistent lightweight document geometry. Only slots in the viewport render
+   PdfPage; the others retain paper-sized placeholders, making the scrollbar and
+   wheel behavior continuous without keeping every canvas resident. */
+.score-page-slot {
+  display: flex;
+  min-width: 0;
+  flex: none;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.score-page-placeholder {
+  position: relative;
+  box-sizing: border-box;
+  flex: none;
+  border: 1px solid var(--hairline);
+  background: white;
+  box-shadow: var(--shadow-popover);
+}
+
+.score-page-placeholder span {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  color: #777;
+  font-size: var(--text-xs);
 }
 
 .score-pages.is-overview {
@@ -589,10 +729,13 @@
 
 .score-region-panel {
   min-height: 0;
-  padding: var(--space-4);
+  padding: 0 var(--space-3) var(--space-3);
+  overflow-x: hidden;
   overflow-y: auto;
   border-left: 1px solid var(--hairline);
   background: var(--surface-raised);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   transition:
     transform var(--duration-slow) var(--ease-spring),
     visibility 0s linear 0s;
@@ -609,10 +752,11 @@
 .score-region-panel-head {
   position: sticky;
   z-index: 3;
-  top: calc(-1 * var(--space-4));
+  top: 0;
   justify-content: space-between;
-  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) var(--space-3);
-  padding: var(--space-4) var(--space-4) var(--space-3);
+  margin: 0 calc(-1 * var(--space-3)) var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--hairline);
   background: var(--surface-raised);
 }
 
@@ -670,19 +814,14 @@
 }
 
 .score-region-tools {
-  position: sticky;
-  z-index: 3;
-  top: 56px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-2);
-  margin: 0 calc(-1 * var(--space-1)) var(--space-2);
-  padding: var(--space-1);
-  background: var(--surface-raised);
+  gap: var(--space-1);
+  margin: 0 0 var(--space-2);
 }
 .score-region-tools input {
   min-width: 0;
-  min-height: 34px;
+  min-height: 30px;
   padding: 0 var(--space-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
@@ -691,8 +830,8 @@
   font: inherit;
 }
 .score-region-tools button {
-  min-height: 34px;
-  padding: 0 var(--space-3);
+  min-height: 30px;
+  padding: 0 var(--space-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   color: var(--accent);
@@ -781,9 +920,9 @@
 
 .score-region-row {
   width: 100%;
-  min-height: 46px;
-  gap: var(--space-2);
-  padding: var(--space-2);
+  min-height: 40px;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   color: var(--ink-secondary);
@@ -808,8 +947,8 @@
 }
 
 .score-region-dot {
-  width: 8px;
-  height: 28px;
+  width: 6px;
+  height: 22px;
   flex: 0 0 auto;
   border-radius: var(--radius-pill);
 }
@@ -840,6 +979,9 @@
 
 .score-region-row em.is-mapped {
   color: var(--success);
+}
+.score-region-row em:not(.is-mapped, .is-stale) {
+  display: none;
 }
 .score-region-subsection-badge {
   flex: 0 0 auto;
@@ -1111,9 +1253,19 @@
 }
 
 .score-practice-region .block-form {
+  /* The inspector rail already owns the vertical scroll. Let its embedded
+     composer participate in that one document instead of creating a second,
+     fiddly scrollbar inside a narrow panel. */
+  max-height: none;
+  /* Selecting a lower section scrolls the composer—not merely its row—into
+     view. Leave room for the rail's sticky heading at the supported floor. */
+  scroll-margin-top: 72px;
   padding: var(--space-3);
   border-top: 0;
   border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+.score-practice-region .block-form-body {
+  overflow: visible;
 }
 .score-practice-region .score-region-blocks {
   margin: var(--space-2) 0;
@@ -1179,21 +1331,107 @@
    sits at 1200px to leave headroom for edition labels longer than the mock's. */
 @media (max-width: 1200px) {
   .score-toolbar {
-    grid-template-columns: auto 1fr;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
   .score-edition-group {
-    grid-column: 1 / -1;
+    min-width: 0;
+    grid-column: 1 / 3;
+    grid-row: 1;
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+
+  .score-tools-menu {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .score-page-controls {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .score-zoom {
+    grid-column: 2 / 4;
+    grid-row: 2;
   }
 }
 
 @media (max-width: 900px) {
   .score-body {
-    --score-sidebar-width: 340px;
+    --score-sidebar-width: 300px;
+  }
+
+  .score-toolbar {
+    gap: var(--space-1) var(--space-2);
+    padding: var(--space-1) var(--space-2);
+  }
+
+  .score-edition-group {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .score-edition-group::-webkit-scrollbar {
+    display: none;
+  }
+
+  .score-edition {
+    flex: 0 1 auto;
+    gap: var(--space-1);
+  }
+
+  .score-edition select {
+    max-width: 170px;
+  }
+
+  .score-zoom input[type="range"] {
+    display: none;
   }
 }
 
 @media (max-width: 720px), (max-height: 560px) {
+  .score-toolbar {
+    min-height: 0;
+    gap: 3px var(--space-2);
+    padding: 3px var(--space-2);
+  }
+
+  .score-toolbar button,
+  .score-toolbar select,
+  .score-toolbar input,
+  .score-tools-menu > summary {
+    min-height: 26px;
+  }
+
+  .score-edition > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .score-page-controls,
+  .score-page-controls form,
+  .score-zoom {
+    gap: var(--space-1);
+  }
+
+  .score-tools-menu > summary {
+    padding: 0 var(--space-2);
+    font-size: var(--text-xs);
+  }
+
+  .score-pages {
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-2) var(--space-6);
+  }
+
   .score-atlas-draft-dock {
     top: var(--space-2);
     right: var(--space-2);
@@ -1239,7 +1477,8 @@
     z-index: 5;
     inset: 0 0 0 auto;
     display: block;
-    width: min(88vw, 360px);
+    width: min(88vw, 320px);
+    max-width: 100%;
     border-left: 1px solid var(--hairline);
     box-shadow: -18px 0 42px rgb(0 0 0 / 18%);
   }
@@ -1251,7 +1490,7 @@
   }
 
   .score-sidebar-toggle {
-    right: min(calc(88vw - 14px), 346px);
+    right: min(calc(88vw - 14px), 306px);
   }
   .score-body.is-sections-hidden .score-sidebar-toggle {
     right: var(--space-2);

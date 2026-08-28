@@ -567,10 +567,9 @@
    WCAG 1.4.11) and still a comfortable target at the 720x520 floor. */
 .rep-hud-adjust {
   display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  gap: var(--s-1);
-  align-items: stretch;
+  gap: var(--s-2);
+  align-items: center;
+  justify-content: flex-end;
 }
 .rep-hud-adjust button {
   min-height: 26px;

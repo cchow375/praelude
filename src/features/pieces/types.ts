@@ -83,6 +83,15 @@ export interface BlockHistory {
   accuracy?: number | null;
   required_clean_streak?: number | null;
   effective_required_clean_streak?: number | null;
+  /** Persisted completion contract. Total attempts is volume, not mastery. */
+  mastery_basis?:
+    | "consecutive_clean"
+    | "total_attempts"
+    | "total_clean"
+    | "timed_exposure"
+    | "exploratory"
+    | "legacy_attempt_count";
+  attempt_target?: number | null;
   recovery_remaining?: number;
   mastery_status?:
     "satisfied" | "not_satisfied" | "not_applicable" | "unverified_legacy";

@@ -90,6 +90,8 @@ function detailFor(d: HistoryDaySummary): HistoryDayDetail {
         start_bpm: 72,
         end_bpm: 96,
         mastery_status: "not_satisfied",
+        mastery_basis: "consecutive_clean",
+        attempt_target: null,
         first_ts: `${d.date}T09:00:00Z`,
         last_ts: `${d.date}T09:30:00Z`,
       },
@@ -122,6 +124,8 @@ function denseDetail(dateValue: string): HistoryDayDetail {
       start_bpm: 72,
       end_bpm: 96,
       mastery_status: "not_satisfied",
+      mastery_basis: "consecutive_clean",
+      attempt_target: null,
       first_ts: `${dateValue}T09:00:00Z`,
       last_ts: `${dateValue}T09:30:00Z`,
     })),
@@ -203,6 +207,35 @@ describe("DayTimeline", () => {
       invokeMock.mock.calls.filter((call) => call[0] === "history_day_detail")
         .length,
     ).toBe(1);
+  });
+
+  it("labels a satisfied total-play set as complete, never mastered", async () => {
+    const volumeDay = day({
+      ...RECENT_DAY,
+      mastered_sets: 0,
+    });
+    const volumeDetail = detailFor(volumeDay);
+    volumeDetail.sets[0] = {
+      ...volumeDetail.sets[0],
+      attempts: 5,
+      cleans: 1,
+      mastery_status: "satisfied",
+      mastery_basis: "total_attempts",
+      attempt_target: 5,
+    };
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "history_days") return Promise.resolve([volumeDay]);
+      if (command === "history_day_detail")
+        return Promise.resolve(volumeDetail);
+      return Promise.resolve(null);
+    });
+    render(<DayTimeline />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: formatDayHeader(volumeDay) }),
+    );
+    expect(await screen.findByText(/total plays complete/)).toBeTruthy();
+    expect(screen.queryByText(/mastery verified/i)).toBeNull();
   });
 
   it("fetches history_day_detail exactly once under a same-tick double toggle", async () => {

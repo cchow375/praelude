@@ -17,6 +17,14 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
+fn default_mastery_basis() -> String {
+    "consecutive_clean".to_string()
+}
+
+fn is_default_mastery_basis(value: &String) -> bool {
+    value == "consecutive_clean"
+}
+
 /// Serde normally collapses both an omitted field and an explicit JSON null
 /// for nested Options. Patch commands need three states, so every present
 /// field is wrapped in the outer Some here.
@@ -298,6 +306,13 @@ pub struct BlockHistory {
     pub accuracy: Option<f64>,
     pub required_clean_streak: u32,
     pub effective_required_clean_streak: u32,
+    /// Canonical persisted contract basis. A satisfied `total_attempts`
+    /// contract is a completed volume target, never a mastery claim.
+    #[serde(default = "default_mastery_basis")]
+    pub mastery_basis: String,
+    /// Present only for an explicit total-attempt volume contract.
+    #[serde(default)]
+    pub attempt_target: Option<u32>,
     pub recovery_remaining: u32,
     pub review_boundary_reached: bool,
     pub mastery_status: String,
@@ -366,6 +381,12 @@ pub struct RepOpenArgs {
     /// the set opens; later setting changes cannot rewrite an existing set.
     #[serde(default)]
     pub required_clean_streak: Option<u32>,
+    /// An explicit volume-only completion target. When present, every
+    /// effective (non-void) judged attempt counts regardless of verdict and
+    /// `required_clean_streak` is ignored. Kept separate from `planned_reps`,
+    /// which remains a review boundary for clean-streak sets.
+    #[serde(default)]
+    pub attempt_target: Option<u32>,
     #[serde(default)]
     pub increment: Option<IncrementRule>,
     #[serde(default)]
@@ -812,6 +833,18 @@ pub struct RepSnapshot {
     pub accuracy: Option<f64>,
     pub required_clean_streak: u32,
     pub effective_required_clean_streak: u32,
+    /// Canonical persisted contract basis. Consumers must branch on this
+    /// before labelling `required_success` as a clean streak. The established
+    /// consecutive-clean value stays off the wire so legacy snapshots remain
+    /// byte-compatible; only a non-default basis needs the discriminator.
+    #[serde(
+        default = "default_mastery_basis",
+        skip_serializing_if = "is_default_mastery_basis"
+    )]
+    pub mastery_basis: String,
+    /// Present only for an explicit total-attempt contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt_target: Option<u32>,
     pub recovery_remaining: u32,
     pub review_boundary_reached: bool,
     pub mastery_status: String,

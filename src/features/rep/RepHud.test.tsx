@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   act,
   cleanup,
@@ -178,6 +180,104 @@ describe("RepHud", () => {
     for (const name of ["Clean", "Sloppy", "Again"]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();
     }
+  });
+
+  it("puts the three verdicts before listen-back and shortcut teaching", async () => {
+    render(
+      <RepHud snap={makeSnap()} feed={[]} error={null} {...callbacks()} />,
+    );
+
+    const verdicts = screen.getByLabelText("Record attempt verdict");
+    const listenBack = screen.getByRole("region", {
+      name: "Listen-back verdict",
+    });
+    const shortcutTeaching = await screen.findByText(
+      /Space = clean · Right-Shift = sloppy · Return = again/,
+    );
+    const countRepair = screen.getByLabelText("Adjust the rep count");
+    const follows = Node.DOCUMENT_POSITION_FOLLOWING;
+
+    expect(verdicts.compareDocumentPosition(listenBack) & follows).toBe(
+      follows,
+    );
+    expect(verdicts.compareDocumentPosition(shortcutTeaching) & follows).toBe(
+      follows,
+    );
+    expect(verdicts.compareDocumentPosition(countRepair) & follows).toBe(
+      follows,
+    );
+    for (const name of ["Clean", "Sloppy", "Again"]) {
+      expect(within(verdicts).getByRole("button", { name })).toBeTruthy();
+    }
+
+    // Pin the source order too. The collapsed-HUD rule and responsive CSS can
+    // change without jsdom performing layout, so this catches a future visual
+    // rearrangement that would put a secondary tool above the hot loop again.
+    const source = readFileSync(
+      join(process.cwd(), "src/features/rep/RepHud.tsx"),
+      "utf8",
+    );
+    const verdictSource = source.indexOf('className="rep-hud-actions"');
+    const repairSource = source.indexOf('className="rep-hud-adjust"');
+    const replaySource = source.indexOf("<RepReplayControl");
+    const teachingSource = source.indexOf("rep-hud-hotkeys ${hotkeyUsed");
+    expect(verdictSource).toBeGreaterThan(0);
+    expect(repairSource).toBeGreaterThan(verdictSource);
+    expect(replaySource).toBeGreaterThan(repairSource);
+    expect(teachingSource).toBeGreaterThan(replaySource);
+  });
+
+  it("shows canonical total-play progress without claiming clean mastery", () => {
+    render(
+      <RepHud
+        snap={makeSnap({
+          mastery_basis: "total_attempts",
+          attempt_target: 10,
+          tries: 4,
+          required_clean_streak: 10,
+          effective_required_clean_streak: 10,
+          current_clean_streak: 0,
+          mastery_progress_streak: 0,
+          mastery_status: "not_satisfied",
+          mastery_verified: true,
+          target_bpm: null,
+        })}
+        feed={[]}
+        error={null}
+        {...callbacks()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Total plays 4 of 10")).toBeTruthy();
+    expect(screen.getByText("total plays")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "＋ clean" })).toBeTruthy();
+    expect(screen.queryByLabelText(/clean streak/i)).toBeNull();
+    expect(screen.queryByText(/Mastery verified/i)).toBeNull();
+  });
+
+  it("labels a satisfied total-play target as complete, not mastered", () => {
+    render(
+      <RepHud
+        snap={makeSnap({
+          mastery_basis: "total_attempts",
+          attempt_target: 5,
+          tries: 5,
+          required_clean_streak: 5,
+          effective_required_clean_streak: 5,
+          mastery_status: "satisfied",
+          mastery_verified: true,
+          set_state: "mastered",
+          target_bpm: null,
+        })}
+        feed={[]}
+        error={null}
+        {...callbacks()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Total plays 5 of 5")).toBeTruthy();
+    expect(screen.getByText("Play target complete")).toBeTruthy();
+    expect(screen.queryByText("Mastery verified")).toBeNull();
   });
 
   it("shows the moving rung streak while climbing to target, not a frozen mastery fraction", () => {
@@ -1731,9 +1831,9 @@ describe("RepHud", () => {
       // The CSS hides every DIRECT child of a collapsed HUD that is not
       // context, not main, and not explicitly marked compact-visible — the
       // exact mechanism that rendered the verdict buttons at 0x0 (B82). The
-      // row rides inside .rep-hud-main, which the rule exempts, and it carries
-      // the mark anyway so promoting it to a top-level row can never regress.
-      expect(row.closest(".rep-hud-main")).toBeTruthy();
+      // The row is top-level now so the verdicts can be the first action after
+      // status. That makes this mark load-bearing rather than belt-and-braces.
+      expect(row.closest(".rep-hud-main")).toBeNull();
       expect(row.getAttribute("data-compact-visible")).toBe("true");
       // Belt-and-braces is not the proof. This is: the controls still render
       // with the HUD collapsed, and the drawer is still shut.

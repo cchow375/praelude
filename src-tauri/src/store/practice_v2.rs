@@ -228,6 +228,7 @@ fn load_contract(
             let refs: String = row.get(12)?;
             let mastery_basis = match basis.as_str() {
                 "consecutive_clean" => MasteryBasis::ConsecutiveClean,
+                "total_attempts" => MasteryBasis::TotalAttempts,
                 "total_clean" => MasteryBasis::TotalClean,
                 "timed_exposure" => MasteryBasis::TimedExposure,
                 "exploratory" => MasteryBasis::Exploratory,
@@ -707,6 +708,17 @@ pub(super) fn project(
     demotion: DemotionConfig,
 ) -> rusqlite::Result<RepSnapshot> {
     let row = load_set_row(conn, block_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+    // Total plays is authoritatively fixed-tempo. This projection-level guard
+    // covers boot restore and paused-set reads, which intentionally receive a
+    // global demotion configuration before an active set rule is available.
+    let demotion = if row.contract.mastery_basis == MasteryBasis::TotalAttempts {
+        DemotionConfig {
+            enabled: false,
+            ..demotion
+        }
+    } else {
+        demotion
+    };
     let loop_state = super::practice_loop::load_loop_projection(
         conn,
         block_id,
@@ -742,7 +754,10 @@ pub(super) fn project(
     // target-eligible mastery progress separately so consumers cannot confuse
     // sub-target fluency with mastery.
     let mut mastery_progress_streak = summary.current_clean_streak;
-    if row.focus == "tempo" && row.contract_source != "migration_legacy" {
+    if row.focus == "tempo"
+        && row.contract_source != "migration_legacy"
+        && row.contract.mastery_basis == MasteryBasis::ConsecutiveClean
+    {
         let eligible_bpm = row
             .target_bpm
             .or(tempo.bpm)
@@ -896,6 +911,9 @@ pub(super) fn project(
         accuracy: summary.accuracy,
         required_clean_streak: row.contract.required_success,
         effective_required_clean_streak: summary.contract.effective_required_success,
+        mastery_basis: mastery_basis_name(row.contract.mastery_basis).into(),
+        attempt_target: (row.contract.mastery_basis == MasteryBasis::TotalAttempts)
+            .then_some(row.contract.required_success),
         recovery_remaining: summary.contract.recovery_remaining,
         review_boundary_reached: summary.contract.review_boundary_reached,
         mastery_status: mastery_name(summary.contract.mastery).into(),
@@ -1038,13 +1056,7 @@ fn insert_contract(
             minimum_clean_streak,
         ),
     };
-    let basis = match contract.mastery_basis {
-        MasteryBasis::ConsecutiveClean => "consecutive_clean",
-        MasteryBasis::TotalClean => "total_clean",
-        MasteryBasis::TimedExposure => "timed_exposure",
-        MasteryBasis::Exploratory => "exploratory",
-        MasteryBasis::LegacyAttemptCount => "legacy_attempt_count",
-    };
+    let basis = mastery_basis_name(contract.mastery_basis);
     tx.execute(
         "INSERT INTO set_contract
          (set_id,template_id,contract_version,name,rationale,mastery_basis,
@@ -1068,7 +1080,10 @@ fn insert_contract(
             recovery_value,
             recovery_minimum,
             json_to_sql(&json!({
-                "mastery": "final_required_clean_attempts_at_or_above_target_bpm"
+                "mastery": match contract.mastery_basis {
+                    MasteryBasis::TotalAttempts => "effective_non_void_attempts",
+                    _ => "final_required_clean_attempts_at_or_above_target_bpm",
+                }
             }))?,
             contract.attempt_ceiling,
             planned_seconds,
@@ -1080,6 +1095,17 @@ fn insert_contract(
         ],
     )?;
     Ok(())
+}
+
+fn mastery_basis_name(basis: MasteryBasis) -> &'static str {
+    match basis {
+        MasteryBasis::ConsecutiveClean => "consecutive_clean",
+        MasteryBasis::TotalAttempts => "total_attempts",
+        MasteryBasis::TotalClean => "total_clean",
+        MasteryBasis::TimedExposure => "timed_exposure",
+        MasteryBasis::Exploratory => "exploratory",
+        MasteryBasis::LegacyAttemptCount => "legacy_attempt_count",
+    }
 }
 
 fn ensure_sidecars(tx: &Transaction<'_>, block_id: i64) -> rusqlite::Result<()> {
@@ -1136,6 +1162,22 @@ pub(crate) fn validate_open(
         .is_some_and(|value| !(1..=100).contains(&value))
     {
         return Err(invalid("required clean streak must be between 1 and 100"));
+    }
+    if args
+        .attempt_target
+        .is_some_and(|value| !(1..=240).contains(&value))
+    {
+        return Err(invalid("total plays must be between 1 and 240"));
+    }
+    if args.attempt_target.is_some() && !args.variants.is_empty() {
+        return Err(invalid(
+            "total-play targets cannot be combined with variant chains",
+        ));
+    }
+    if args.attempt_target.is_some() && args.target_bpm.is_some() {
+        return Err(invalid(
+            "total-play targets cannot be combined with a target-BPM ladder",
+        ));
     }
     if let Some(target) = args.target_bpm {
         if !target.is_finite() || target <= 0.0 || (args.start_bpm > 0.0 && target < args.start_bpm)
@@ -1250,7 +1292,10 @@ pub(super) fn open_set_in_tx(
         "piece_id": args.piece_id,
         "m_start": args.m_start,
         "m_end": args.m_end,
-        "required_clean_streak": contract.required_success,
+        "required_clean_streak": (contract.mastery_basis == MasteryBasis::ConsecutiveClean)
+            .then_some(contract.required_success),
+        "mastery_basis": mastery_basis_name(contract.mastery_basis),
+        "required_success": contract.required_success,
         "source": source_name(source),
         "command_id": command_id,
     });
@@ -1366,6 +1411,8 @@ impl Store {
         history.accuracy = snapshot.accuracy;
         history.required_clean_streak = snapshot.required_clean_streak;
         history.effective_required_clean_streak = snapshot.effective_required_clean_streak;
+        history.mastery_basis = snapshot.mastery_basis;
+        history.attempt_target = snapshot.attempt_target;
         history.recovery_remaining = snapshot.recovery_remaining;
         history.review_boundary_reached = snapshot.review_boundary_reached;
         history.mastery_status = snapshot.mastery_status;
@@ -1376,7 +1423,6 @@ impl Store {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn v2_record_attempt(
         &self,
@@ -1893,9 +1939,17 @@ impl Store {
         if !matches!(old.set_state.as_str(), "active" | "paused" | "mastered") {
             return Err(invalid("only the current set can restart"));
         }
-        let required = required_clean_streak.unwrap_or(old.contract.required_success);
-        if !(1..=100).contains(&required) {
-            return Err(invalid("clean-streak target must be 1 to 100"));
+        let required = if old.contract.mastery_basis == MasteryBasis::TotalAttempts {
+            old.contract.required_success
+        } else {
+            required_clean_streak.unwrap_or(old.contract.required_success)
+        };
+        let valid_required = match old.contract.mastery_basis {
+            MasteryBasis::TotalAttempts => (1..=240).contains(&required),
+            _ => (1..=100).contains(&required),
+        };
+        if !valid_required {
+            return Err(invalid("restart target is outside its valid range"));
         }
         if old.set_state == "active" {
             super::practice_loop::close_active_interval(&tx, block_id, now, "restart", None)?;
@@ -1918,7 +1972,11 @@ impl Store {
             [block_id],
             |row| row.get(0),
         )?;
-        let mut contract = PracticeContract::consecutive_clean(required);
+        let mut contract = if old.contract.mastery_basis == MasteryBasis::TotalAttempts {
+            PracticeContract::total_attempts(required)
+        } else {
+            PracticeContract::consecutive_clean(required)
+        };
         contract.attempt_ceiling = old.contract.attempt_ceiling;
         contract.recovery = old.contract.recovery;
         let planned_seconds: Option<u32> = tx.query_row(
@@ -1946,7 +2004,10 @@ impl Store {
             "block_id": new_id,
             "restart_of_set_id": block_id,
             "piece_id": old.piece_id,
-            "required_clean_streak": required,
+            "required_clean_streak": (contract.mastery_basis == MasteryBasis::ConsecutiveClean)
+                .then_some(required),
+            "mastery_basis": mastery_basis_name(contract.mastery_basis),
+            "required_success": required,
             "command_id": command_id,
         });
         let (feed_id, _) = insert_event(

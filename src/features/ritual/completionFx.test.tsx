@@ -42,6 +42,19 @@ describe("detectMoment", () => {
     );
   });
 
+  it("fires ordinary set_complete when a total-play volume target lands", () => {
+    expect(
+      detectMoment(
+        snap({ mastery_basis: "total_attempts" }),
+        snap({
+          set_state: "mastered",
+          mastery_basis: "total_attempts",
+          mastery_status: "satisfied",
+        }),
+      ),
+    ).toBe("set_complete");
+  });
+
   it("marks only a forward intermediate variant-stage transition", () => {
     expect(
       detectMoment(

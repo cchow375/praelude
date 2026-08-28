@@ -83,13 +83,18 @@ export function BlockRow({ block, onChanged, regions = [] }: BlockRowProps) {
   const expandedRef = useRef(false);
   const attemptRequest = useRef(0);
   const attempts = block.attempts_recorded ?? block.tries ?? block.reps_done;
-  const masteryVerified =
+  const contractVerified =
     block.mastery_verified === true &&
     block.mastery_status !== "unverified_legacy";
+  const totalPlays = block.mastery_basis === "total_attempts";
+  const masteryVerified = contractVerified && !totalPlays;
   const masterySatisfied =
     masteryVerified && block.mastery_status === "satisfied";
+  const volumeTargetComplete =
+    totalPlays && contractVerified && block.mastery_status === "satisfied";
   const masteryTarget =
     block.effective_required_clean_streak ?? block.required_clean_streak;
+  const playTarget = block.attempt_target ?? masteryTarget;
   const range =
     block.m_start === block.m_end
       ? `measure ${block.m_start}`
@@ -104,9 +109,11 @@ export function BlockRow({ block, onChanged, regions = [] }: BlockRowProps) {
         ? `♩ ${tempoStart} → ${tempoEnd}`
         : `♩ ${tempoEnd ?? tempoStart}`;
   const contractText =
-    masteryVerified && masteryTarget != null
-      ? `${masteryTarget} consecutive clean ${masteryTarget === 1 ? "attempt" : "attempts"}`
-      : "Legacy record · mastery contract unverified";
+    totalPlays && playTarget != null
+      ? `${playTarget} total ${playTarget === 1 ? "play" : "plays"} · volume target, not mastery`
+      : masteryVerified && masteryTarget != null
+        ? `${masteryTarget} consecutive clean ${masteryTarget === 1 ? "attempt" : "attempts"}`
+        : "Legacy record · mastery contract unverified";
   const reviewText =
     block.attempt_ceiling !== undefined
       ? block.attempt_ceiling == null
@@ -117,7 +124,7 @@ export function BlockRow({ block, onChanged, regions = [] }: BlockRowProps) {
         : "Legacy review boundary unavailable";
   const sourceText = block.contract_source
     ? contractSourceLabel(block.contract_source)
-    : masteryVerified
+    : contractVerified
       ? "source not supplied"
       : "legacy source not captured";
 
@@ -255,13 +262,17 @@ export function BlockRow({ block, onChanged, regions = [] }: BlockRowProps) {
           {attempts} attempt{attempts === 1 ? "" : "s"}
         </span>
         <span
-          className={`history-mastery ${masterySatisfied ? "is-mastered" : masteryVerified ? "is-pending" : "is-unverified"}`}
+          className={`history-mastery ${masterySatisfied ? "is-mastered" : volumeTargetComplete ? "is-complete" : contractVerified ? "is-pending" : "is-unverified"}`}
         >
-          {masterySatisfied
-            ? "Mastery verified"
-            : masteryVerified
-              ? "Mastery not yet"
-              : "Legacy · mastery unverified"}
+          {volumeTargetComplete
+            ? "Total plays complete"
+            : totalPlays && contractVerified
+              ? `Total plays ${Math.min(attempts, playTarget ?? attempts)} of ${playTarget ?? "target"}`
+              : masterySatisfied
+                ? "Mastery verified"
+                : masteryVerified
+                  ? "Mastery not yet"
+                  : "Legacy · mastery unverified"}
         </span>
         <span className="history-verdicts" aria-label="Verdict counts">
           <span className="is-clean">{block.verdicts.clean}</span>

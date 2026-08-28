@@ -8,7 +8,7 @@
 use rusqlite::{Connection, OptionalExtension};
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 19;
+pub const SCHEMA_VERSION: i32 = 20;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -1592,6 +1592,86 @@ CREATE UNIQUE INDEX rep_replay_attempt_idx ON rep_replay(attempt_id)
   WHERE attempt_id IS NOT NULL;
 ";
 
+/// Schema v20: admit explicit, verified total-attempt practice contracts.
+///
+/// SQLite cannot widen a CHECK constraint in place, so this rebuilds only the
+/// v8 `set_contract` sidecar. Every column and row is copied exactly; the sole
+/// semantic change is adding `total_attempts` to `mastery_basis`. The v14
+/// one-active-set index and same-piece restart triggers are recreated byte for
+/// byte. Core attempt evidence (`rep`/`rep_block`) is never touched.
+pub(crate) const SCHEMA_V20: &str = "\
+DROP TRIGGER set_contract_restart_same_piece_insert;
+DROP TRIGGER set_contract_restart_same_piece_update;
+DROP INDEX set_contract_state_idx;
+DROP INDEX set_contract_one_active_v2_idx;
+ALTER TABLE set_contract RENAME TO set_contract_v19;
+CREATE TABLE set_contract (
+  set_id INTEGER PRIMARY KEY REFERENCES rep_block(id) ON DELETE CASCADE,
+  template_id TEXT REFERENCES protocol_template(id) ON DELETE SET NULL,
+  contract_version INTEGER NOT NULL CHECK(contract_version >= 1),
+  name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 500),
+  rationale TEXT NOT NULL CHECK(length(trim(rationale)) BETWEEN 1 AND 4000),
+  mastery_basis TEXT NOT NULL CHECK(mastery_basis IN
+    ('consecutive_clean','total_attempts','total_clean','timed_exposure','exploratory','legacy_attempt_count')),
+  required_success INTEGER NOT NULL CHECK(required_success >= 0),
+  reset_on_flawed INTEGER NOT NULL CHECK(reset_on_flawed IN (0,1)),
+  reset_on_failed INTEGER NOT NULL CHECK(reset_on_failed IN (0,1)),
+  recovery_policy TEXT NOT NULL CHECK(recovery_policy IN ('none','fixed','adaptive')),
+  recovery_value INTEGER NOT NULL DEFAULT 0 CHECK(recovery_value >= 0),
+  recovery_minimum INTEGER NOT NULL DEFAULT 0 CHECK(recovery_minimum >= 0),
+  tempo_policy_json TEXT NOT NULL DEFAULT '{}',
+  attempt_ceiling INTEGER CHECK(attempt_ceiling IS NULL OR attempt_ceiling >= 1),
+  planned_seconds INTEGER CHECK(planned_seconds IS NULL OR planned_seconds >= 1),
+  retention_delay_days INTEGER
+    CHECK(retention_delay_days IS NULL OR retention_delay_days >= 0),
+  source_refs_json TEXT NOT NULL DEFAULT '[]',
+  set_state TEXT NOT NULL CHECK(set_state IN
+    ('draft','active','paused','mastered','closed_unresolved','abandoned','restarted',
+     'legacy_open','legacy_closed')),
+  mastery_verification TEXT NOT NULL CHECK(mastery_verification IN
+    ('verified','unverified','not_applicable')),
+  restart_of_set_id INTEGER REFERENCES rep_block(id) ON DELETE SET NULL,
+  source TEXT NOT NULL CHECK(source IN
+    ('user_click','voice_hot_loop','voice_draft','brain_draft','import_review','migration_legacy','system_schedule')),
+  created_ts TEXT NOT NULL DEFAULT (datetime('now')),
+  pass_seconds INTEGER CHECK(pass_seconds IS NULL OR (pass_seconds >= 1 AND pass_seconds <= 3600)),
+  CHECK(restart_of_set_id IS NULL OR restart_of_set_id != set_id)
+);
+INSERT INTO set_contract
+  (set_id,template_id,contract_version,name,rationale,mastery_basis,
+   required_success,reset_on_flawed,reset_on_failed,recovery_policy,
+   recovery_value,recovery_minimum,tempo_policy_json,attempt_ceiling,
+   planned_seconds,retention_delay_days,source_refs_json,set_state,
+   mastery_verification,restart_of_set_id,source,created_ts,pass_seconds)
+SELECT
+   set_id,template_id,contract_version,name,rationale,mastery_basis,
+   required_success,reset_on_flawed,reset_on_failed,recovery_policy,
+   recovery_value,recovery_minimum,tempo_policy_json,attempt_ceiling,
+   planned_seconds,retention_delay_days,source_refs_json,set_state,
+   mastery_verification,restart_of_set_id,source,created_ts,pass_seconds
+FROM set_contract_v19;
+DROP TABLE set_contract_v19;
+CREATE INDEX set_contract_state_idx ON set_contract(set_state,set_id);
+CREATE UNIQUE INDEX set_contract_one_active_v2_idx
+  ON set_contract((1)) WHERE set_state='active';
+CREATE TRIGGER set_contract_restart_same_piece_insert
+BEFORE INSERT ON set_contract
+WHEN NEW.restart_of_set_id IS NOT NULL AND
+     (SELECT piece_id FROM rep_block WHERE id=NEW.restart_of_set_id) !=
+     (SELECT piece_id FROM rep_block WHERE id=NEW.set_id)
+BEGIN
+  SELECT RAISE(ABORT, 'restarted sets must belong to the same piece');
+END;
+CREATE TRIGGER set_contract_restart_same_piece_update
+BEFORE UPDATE OF set_id,restart_of_set_id ON set_contract
+WHEN NEW.restart_of_set_id IS NOT NULL AND
+     (SELECT piece_id FROM rep_block WHERE id=NEW.restart_of_set_id) !=
+     (SELECT piece_id FROM rep_block WHERE id=NEW.set_id)
+BEGIN
+  SELECT RAISE(ABORT, 'restarted sets must belong to the same piece');
+END;
+";
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
@@ -1913,6 +1993,27 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             let _ = conn.execute_batch("ROLLBACK;");
             return Err(error);
         }
+    }
+
+    if version < 20 {
+        // The table rebuild drops a parent whose FK points at `rep_block`.
+        // SQLite only honors this pragma outside a transaction; keep the
+        // structural copy + version stamp crash-atomic, then restore FK
+        // enforcement on every path.
+        conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+        let v20 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            conn.execute_batch(SCHEMA_V20)?;
+            conn.execute_batch("PRAGMA user_version = 20;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v20 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            let _ = conn.execute_batch("PRAGMA foreign_keys = ON;");
+            return Err(error);
+        }
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     }
 
     Ok(())
@@ -4566,7 +4667,7 @@ mod v3_tests {
         // currently is (v15 as of B74/day_photo/dynamics tables) — this test only
         // isolates the v13→v14 *content* (measure_map + the two columns below), not the
         // version number itself, which the pragma assertion above already anchors.
-        assert_eq!(SCHEMA_VERSION, 19);
+        assert_eq!(SCHEMA_VERSION, 20);
 
         // measure_map insert/select round-trips (piece id=1, "Etude", already
         // exists from seed_v11()).
@@ -4714,7 +4815,7 @@ mod v3_tests {
                 .unwrap(),
             SCHEMA_VERSION
         );
-        assert_eq!(SCHEMA_VERSION, 19);
+        assert_eq!(SCHEMA_VERSION, 20);
 
         // session row survives; only the column is gone.
         assert_eq!(
@@ -5101,6 +5202,112 @@ mod v3_tests {
                 [block],
             )
             .is_err());
+    }
+
+    #[test]
+    fn v20_preserves_contract_rows_and_admits_only_total_attempts() {
+        let c = seed_v16();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        c.execute_batch(SCHEMA_V17).unwrap();
+        c.execute_batch("PRAGMA user_version = 17; COMMIT;")
+            .unwrap();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        c.execute_batch(SCHEMA_V18).unwrap();
+        c.execute_batch("PRAGMA user_version = 18; COMMIT;")
+            .unwrap();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        c.execute_batch(SCHEMA_V19).unwrap();
+        c.execute_batch("PRAGMA user_version = 19; COMMIT;")
+            .unwrap();
+
+        let dump_contracts = |conn: &Connection| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT json_array(
+                       set_id,template_id,contract_version,name,rationale,mastery_basis,
+                       required_success,reset_on_flawed,reset_on_failed,recovery_policy,
+                       recovery_value,recovery_minimum,tempo_policy_json,attempt_ceiling,
+                       planned_seconds,retention_delay_days,source_refs_json,set_state,
+                       mastery_verification,restart_of_set_id,source,created_ts,pass_seconds)
+                     FROM set_contract ORDER BY set_id",
+                )
+                .unwrap();
+            stmt.query_map([], |row| row.get::<_, String>(0))
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+        };
+        let before = dump_contracts(&c);
+        let set_id: i64 = c
+            .query_row(
+                "SELECT set_id FROM set_contract ORDER BY set_id LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            20
+        );
+        assert_eq!(
+            dump_contracts(&c),
+            before,
+            "every value in every v19 contract row must copy exactly",
+        );
+        for object in [
+            "set_contract_state_idx",
+            "set_contract_one_active_v2_idx",
+            "set_contract_restart_same_piece_insert",
+            "set_contract_restart_same_piece_update",
+        ] {
+            assert_eq!(
+                c.query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE name=?1",
+                    [object],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+                1,
+                "{object} must survive the table rebuild",
+            );
+        }
+
+        c.execute(
+            "UPDATE set_contract
+             SET template_id=NULL,name='10 total plays',rationale='volume',
+                 mastery_basis='total_attempts',required_success=10,
+                 reset_on_flawed=0,reset_on_failed=0,recovery_policy='none',
+                 recovery_value=0,recovery_minimum=0,attempt_ceiling=NULL
+             WHERE set_id=?1",
+            [set_id],
+        )
+        .unwrap();
+        assert!(c
+            .execute(
+                "UPDATE set_contract SET mastery_basis='raw_clicks' WHERE set_id=?1",
+                [set_id],
+            )
+            .is_err());
+        assert_eq!(
+            c.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        assert!(c
+            .query_row("PRAGMA foreign_key_check", [], |_| Ok(()))
+            .optional()
+            .unwrap()
+            .is_none());
+        migrate(&c).unwrap();
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            20,
+            "reopening a migrated real copy is a no-op",
+        );
     }
 
     #[test]

@@ -270,6 +270,8 @@ mod tests {
             accuracy: None,
             required_clean_streak: 5,
             effective_required_clean_streak: 5,
+            mastery_basis: "consecutive_clean".into(),
+            attempt_target: None,
             recovery_remaining: 5,
             review_boundary_reached: false,
             mastery_status: "not_satisfied".into(),

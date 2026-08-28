@@ -997,6 +997,10 @@
   color: var(--success);
   border-style: solid;
 }
+.history-mastery.is-complete {
+  color: var(--success);
+  border-style: solid;
+}
 .history-mastery.is-pending {
   color: var(--ink-secondary);
   border-style: solid;

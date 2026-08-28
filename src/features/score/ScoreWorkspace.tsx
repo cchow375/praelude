@@ -249,7 +249,6 @@ export function ScoreWorkspace({
     <main className="score-workspace" data-testid="score-workspace">
       <header className="score-workspace-head">
         <div className="score-workspace-headline">
-          <span className="score-workspace-kicker">Score</span>
           <h1 className="score-workspace-title">
             {selected ? selected.title : "Your scores"}
           </h1>

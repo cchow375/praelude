@@ -1582,12 +1582,28 @@ function repOpenSnapshot(args: unknown, context: unknown): RepSnapshot {
   const a = (args ?? {}) as Partial<RepOpenArgs>;
   const c = (context ?? {}) as { pass_seconds?: number | null };
   const variants = normalizeMockVariants(a.variants);
+  const requestedAttemptTarget = a.attempt_target;
+  if (
+    requestedAttemptTarget != null &&
+    (typeof requestedAttemptTarget !== "number" ||
+      !Number.isInteger(requestedAttemptTarget) ||
+      requestedAttemptTarget < 1 ||
+      requestedAttemptTarget > 240)
+  ) {
+    throw "total plays must be between 1 and 240";
+  }
+  const attemptTarget = requestedAttemptTarget ?? null;
+  if (attemptTarget != null && variants.length > 0)
+    throw "total-play targets cannot be combined with variant chains";
+  if (attemptTarget != null && a.target_bpm != null)
+    throw "total-play targets cannot be combined with a target-BPM ladder";
   const requiredCleanStreak =
     typeof a.required_clean_streak === "number" &&
     Number.isFinite(a.required_clean_streak) &&
     a.required_clean_streak >= 1
       ? Math.round(a.required_clean_streak)
       : 5;
+  const contractRequirement = attemptTarget ?? requiredCleanStreak;
   const initialVariantStage = mockVariantStage(variants, []);
   const startBpm =
     a.start_bpm === undefined ? MOCK_REP_STATE.start_bpm : (a.start_bpm ?? 0);
@@ -1610,7 +1626,9 @@ function repOpenSnapshot(args: unknown, context: unknown): RepSnapshot {
     target_bpm:
       a.target_bpm === undefined ? MOCK_REP_STATE.target_bpm : a.target_bpm,
     planned_reps:
-      variants.length > 0
+      attemptTarget != null
+        ? attemptTarget
+        : variants.length > 0
         ? variants.reduce((sum, variant) => sum + variant.reps, 0)
         : (a.planned_reps ?? requiredCleanStreak),
     focus: a.focus ?? MOCK_REP_STATE.focus,
@@ -1634,8 +1652,14 @@ function repOpenSnapshot(args: unknown, context: unknown): RepSnapshot {
     best_clean_streak: 0,
     reset_count: 0,
     accuracy: null,
-    required_clean_streak: requiredCleanStreak,
-    effective_required_clean_streak: requiredCleanStreak,
+    required_clean_streak: contractRequirement,
+    effective_required_clean_streak: contractRequirement,
+    ...(attemptTarget == null
+      ? {}
+      : {
+          mastery_basis: "total_attempts",
+          attempt_target: attemptTarget,
+        }),
     mastery_status: "not_satisfied",
     mastery_verified: true,
     variant_stage_index: initialVariantStage?.index ?? null,
@@ -2127,7 +2151,10 @@ function projectMockLedger(): {
   // A chain can withhold ordinary/effective mastery until every stage clears,
   // but it cannot manufacture mastery when that underlying proof is still
   // short (including an effective requirement raised by recovery).
-  const ordinaryMasterySatisfied = mockCleanStreak >= masteryRequirement();
+  const ordinaryMasterySatisfied =
+    mockRepSnapshot.mastery_basis === "total_attempts"
+      ? tries >= (mockRepSnapshot.attempt_target ?? 1)
+      : mockCleanStreak >= masteryRequirement();
   const masteryStatus =
     variantStage != null
       ? variantStage.complete && ordinaryMasterySatisfied
@@ -3370,6 +3397,8 @@ function historyDaySet(
     first_ts: `${date}T10:00:00Z`,
     last_ts: `${date}T10:30:00Z`,
     ...overrides,
+    mastery_basis: overrides.mastery_basis ?? "consecutive_clean",
+    attempt_target: overrides.attempt_target ?? null,
   };
 }
 

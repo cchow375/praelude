@@ -686,8 +686,10 @@ export function SettingsPanel({
       >
         <div className="settings-group">
           <p className="settings-note">
-            Mastery uses consecutive clean attempts. Choose any optional attempt
-            review boundary separately when you start a set.
+            Mastery uses consecutive clean attempts. Total plays is a separate
+            volume target you choose when starting a set; completing it does
+            not claim mastery. Choose any optional attempt review boundary
+            separately for a clean-streak set.
           </p>
           <NumberField
             label="Default clean streak"

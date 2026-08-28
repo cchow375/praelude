@@ -45,8 +45,11 @@ export function detectMoment(
   if (!previous) return null;
   // A different set replacing this one is a switch, not a completion.
   if (next && next.block_id !== previous.block_id) return null;
-  // Mastery outranks set-completion: you land mastery once, and that is the
-  // moment worth marking. mastery_status is the ONLY authoritative signal
+  // Genuine mastery outranks set-completion: you land mastery once, and that
+  // is the moment worth marking. The backend's historical status vocabulary
+  // also uses `satisfied` for a total-attempt volume target, so its immutable
+  // basis must route that edge to ordinary set completion instead.
+  // mastery_status is otherwise the ONLY authoritative signal
   // here — set_state === "mastered" is a real, intentional, non-satisfied
   // state (a mastered set keeps its terminal lineage even when a repaired
   // ledger would cease to satisfy mastery; store/practice_v2.rs:1329-1332,
@@ -56,6 +59,7 @@ export function detectMoment(
   // whose value is zero/false") that got the galaxy refuted. Edge-detected
   // on mastery_status alone: fires only the instant it flips to satisfied.
   if (!satisfied(previous) && satisfied(next)) {
+    if (next?.mastery_basis === "total_attempts") return "set_complete";
     return "mastery_landing";
   }
   if (

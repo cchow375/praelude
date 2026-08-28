@@ -155,10 +155,20 @@ function mappedRegion() {
   };
 }
 
+/** Score setup is intentionally tucked behind one compact disclosure. Tests
+ * name the actual action they need; this helper opens the disclosure only when
+ * that action is not already exposed. */
+function getScoreTool(name: string | RegExp): HTMLElement {
+  const exposed = screen.queryByRole("button", { name });
+  if (exposed) return exposed;
+  fireEvent.click(screen.getByRole("button", { name: "Score tools" }));
+  return screen.getByRole("button", { name });
+}
+
 /** Enter target mode, drag one rectangle on page 1, and confirm the candidate
  * measure range so the draft is ready to save. */
 async function drawAndConfirmTarget() {
-  fireEvent.click(screen.getByRole("button", { name: "Draw target" }));
+  fireEvent.click(getScoreTool("Draw target"));
   const overlay = await screen.findByTestId("atlas-target-overlay-1");
   vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({
     x: 0,
@@ -266,6 +276,10 @@ beforeEach(() => {
     configurable: true,
     value: vi.fn(),
   });
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn(),
+  });
 });
 
 afterEach(() => {
@@ -332,6 +346,10 @@ describe("ScoreView", () => {
     ]);
 
     fireEvent.click(rows[1]);
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenLastCalledWith({
+      block: "start",
+      inline: "nearest",
+    });
     expect(
       rows[1].closest(".score-region-item")?.querySelector('[role="tablist"]'),
     ).toBeTruthy();
@@ -343,7 +361,7 @@ describe("ScoreView", () => {
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
   });
 
-  it("Task C5: hides a sub-section until its parent is selected and shows a sub-sections badge", async () => {
+  it("Task C5: hides a spot until its parent is selected and shows a compact spot badge", async () => {
     const regions = [
       {
         id: 1,
@@ -405,7 +423,7 @@ describe("ScoreView", () => {
       "Exposition, measures 1 to 100",
       "Coda, measures 200 to 210",
     ]);
-    expect(screen.getByText("1 sub-section")).toBeTruthy();
+    expect(screen.getByText("1 spot")).toBeTruthy();
 
     const parentRow = screen.getByRole("button", {
       name: "Exposition, measures 1 to 100",
@@ -660,7 +678,8 @@ describe("ScoreView", () => {
       <ScoreView pieceId={7} api={makeApi()} adapter={makePdf(2).adapter} />,
     );
     await screen.findByLabelText("Score page 2");
-    fireEvent.click(screen.getByRole("button", { name: "Fit page" }));
+    fireEvent.click(getScoreTool("Fit page"));
+    fireEvent.click(screen.getByRole("button", { name: "Score tools" }));
     expect(
       screen.getByRole("button", { name: "Fit page" }).className,
     ).toContain("is-active");
@@ -1674,30 +1693,31 @@ describe("ScoreView", () => {
     expect(destroy).toHaveBeenCalledTimes(1);
   });
 
-  it("mounts only the current page plus a buffered neighbor and evicts the rest when paging", async () => {
+  it("keeps a continuous document while mounting canvases only for the visible page and its neighbours", async () => {
     const pdf = makePdf(5);
     render(<ScoreView pieceId={7} api={makeApi()} adapter={pdf.adapter} />);
 
     await screen.findByLabelText("Score page 1");
-    // Default paged view: current page + one buffered neighbor mount canvases;
-    // never the whole 5-page strip. The visible page decodes first — the
-    // neighbor warms up only after idle (heavy-scan jank fix).
-    expect(pdf.getPage.mock.calls[0][0]).toBe(1);
+    // Five persistent page slots create one natural scrollbar, but only page 1
+    // and its one-page overscan neighbour own PdfPage/canvas components.
+    expect(document.querySelectorAll(".score-page-slot")).toHaveLength(5);
+    expect(screen.getByTestId("score-page-placeholder-5")).toBeTruthy();
     await waitFor(() =>
       expect(new Set(pdf.getPage.mock.calls.map((call) => call[0]))).toEqual(
         new Set([1, 2]),
       ),
     );
     expect(screen.getAllByLabelText(/^Score page \d+$/)).toHaveLength(2);
-    const firstCanvas = screen.getByLabelText(
-      "Rendered score page 1",
-    ) as HTMLCanvasElement;
-    expect(firstCanvas.width).toBe(1200);
+    expect(
+      (screen.getByLabelText("Rendered score page 1") as HTMLCanvasElement)
+        .width,
+    ).toBe(1200);
 
-    fireEvent.change(screen.getByLabelText("Page number"), {
-      target: { value: "4" },
+    // Scrolling until page 4 dominates moves the bounded render window. Page 1
+    // becomes a placeholder rather than disappearing from document geometry.
+    act(() => {
+      FakeIntersectionObserver.latest?.trigger({ 1: 0, 4: 1 });
     });
-    fireEvent.submit(screen.getByLabelText("Page number").closest("form")!);
 
     await screen.findByLabelText("Score page 4");
     await waitFor(() => {
@@ -1705,15 +1725,38 @@ describe("ScoreView", () => {
         new Set([1, 2, 3, 4, 5]),
       );
     });
-    // Page 1 unmounted entirely — gone from the DOM (its canvas node, and the
-    // bitmap it held, released with the node).
+    expect(document.querySelectorAll(".score-page-slot")).toHaveLength(5);
     expect(screen.queryByLabelText("Score page 1")).toBeNull();
     expect(screen.queryByLabelText("Rendered score page 1")).toBeNull();
+    expect(screen.getByTestId("score-page-placeholder-1")).toBeTruthy();
     expect(screen.getByLabelText("Page number").getAttribute("value")).toBe(
       "4",
     );
-    // At most three pages ever mounted (current 4 ± 1) — proven virtualization.
+    // At most three canvases/components are mounted (current 4 ± 1), even
+    // though the whole five-page strip remains scrollable.
     expect(screen.getAllByLabelText(/^Score page \d+$/)).toHaveLength(3);
+  });
+
+  it("hard-caps transient disjoint observer batches at five mounted pages", async () => {
+    render(
+      <ScoreView pieceId={7} api={makeApi()} adapter={makePdf(10).adapter} />,
+    );
+    await screen.findByLabelText("Score page 1");
+
+    act(() => {
+      FakeIntersectionObserver.latest?.trigger({ 1: 0.8, 4: 0.9, 8: 1 });
+    });
+
+    await screen.findByLabelText("Score page 8");
+    await waitFor(() =>
+      expect(
+        screen.getAllByLabelText(/^Score page \d+$/).length,
+      ).toBeLessThanOrEqual(5),
+    );
+    expect(document.querySelectorAll(".score-page-slot")).toHaveLength(10);
+    expect(screen.getByLabelText("Page number").getAttribute("value")).toBe(
+      "8",
+    );
   });
 
   it("does not capture global paging keys while cached behind another workspace", async () => {
@@ -1967,7 +2010,7 @@ describe("ScoreView", () => {
     );
     await screen.findByLabelText("Score page 1");
 
-    fireEvent.click(screen.getByRole("button", { name: "Draw target" }));
+    fireEvent.click(getScoreTool("Draw target"));
     expect(document.querySelector(".score-body")?.className).toContain(
       "is-sections-hidden",
     );
@@ -2031,7 +2074,7 @@ describe("ScoreView", () => {
     await screen.findByLabelText("Score page 1");
     await waitFor(() => expect(calib.get).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole("button", { name: "Draw target" }));
+    fireEvent.click(getScoreTool("Draw target"));
     const overlay = await screen.findByTestId("atlas-target-overlay-1");
     mockOverlayRect(overlay);
     // A box fully inside the first (bounded) system → a confident candidate.
@@ -2071,7 +2114,7 @@ describe("ScoreView", () => {
     await screen.findByLabelText("Score page 1");
     await waitFor(() => expect(calib.get).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole("button", { name: "Draw target" }));
+    fireEvent.click(getScoreTool("Draw target"));
     const overlay = await screen.findByTestId("atlas-target-overlay-1");
     mockOverlayRect(overlay);
     fireEvent.pointerDown(overlay, {
@@ -2105,7 +2148,7 @@ describe("ScoreView", () => {
       />,
     );
     await screen.findByLabelText("Score page 1");
-    expect(screen.getByRole("button", { name: "Map this score" })).toBeTruthy();
+    expect(getScoreTool("Map this score")).toBeTruthy();
   });
 
   it("renders the real score page inside the wizard pane (renderPage wired)", async () => {
@@ -2119,7 +2162,7 @@ describe("ScoreView", () => {
       />,
     );
     await screen.findByLabelText("Score page 1");
-    fireEvent.click(screen.getByRole("button", { name: "Map this score" }));
+    fireEvent.click(getScoreTool("Map this score"));
 
     const pane = await screen.findByTestId("map-wizard-page-surface");
     // The real engraving (a PdfPage canvas), not the "Page 1" placeholder.
@@ -2150,7 +2193,7 @@ describe("ScoreView", () => {
       />,
     );
     await screen.findByLabelText("Score page 1");
-    fireEvent.click(screen.getByRole("button", { name: "Map this score" }));
+    fireEvent.click(getScoreTool("Map this score"));
 
     // With the XML total known the strip enumerates measures even before any
     // anchor is placed, and the mapped landmarks label their rows.
@@ -2177,7 +2220,7 @@ describe("ScoreView", () => {
       />,
     );
     await screen.findByLabelText("Score page 1");
-    fireEvent.click(screen.getByRole("button", { name: "Map this score" }));
+    fireEvent.click(getScoreTool("Map this score"));
 
     // The wizard still opens and shows the page; with no anchors and no XML total
     // the strip is empty, exactly as before this wiring existed.
@@ -2560,13 +2603,12 @@ describe("ScoreView measure mapping", () => {
       await screen.findByLabelText("Score page 1");
       await selectParent();
 
-      fireEvent.click(screen.getByRole("button", { name: "Pencil" }));
+      fireEvent.click(getScoreTool("Pencil"));
       expect(
-        screen
-          .getByRole("button", { name: "Put pencil down" })
-          .getAttribute("aria-pressed"),
-      ).toBe("true");
+        screen.getByRole("button", { name: "Score tools" }).textContent,
+      ).toContain("Pencil on");
       fireEvent.click(screen.getByRole("button", { name: "⊕ Isolate a spot" }));
+      fireEvent.click(screen.getByRole("button", { name: "Score tools" }));
       expect(
         screen
           .getByRole("button", { name: "Pencil" })
@@ -2715,9 +2757,7 @@ describe("ScoreView measure mapping", () => {
       const payloads = invokeMock.mock.calls
         .filter(([cmd]) => cmd === "score_micro_target_create")
         .map(([, payload]) => payload as { args: { command_id: string } });
-      expect(payloads[0].args.command_id).toMatch(
-        /^ui:score-micro-target:/,
-      );
+      expect(payloads[0].args.command_id).toMatch(/^ui:score-micro-target:/);
       expect(payloads[1].args.command_id).toBe(payloads[0].args.command_id);
     });
 
@@ -3043,6 +3083,53 @@ describe("ScoreView measure mapping", () => {
       expect(
         (screen.getByLabelText("To measure") as HTMLInputElement).value,
       ).toBe("46");
+    });
+
+    it("C4: region history labels total-play completion without claiming mastery", async () => {
+      render(
+        <ScoreView
+          pieceId={7}
+          api={makeApi({
+            regions: vi.fn().mockResolvedValue([spotParent(), spotChild()]),
+            blocks: vi.fn().mockResolvedValue([
+              {
+                block_id: 905,
+                region_id: 55,
+                set_state: "mastered",
+                m_start: 44,
+                m_end: 46,
+                label: "volume pass",
+                start_bpm: 60,
+                bpm: 60,
+                target_bpm: null,
+                planned_reps: 5,
+                attempts_recorded: 5,
+                reps_done: 5,
+                mastery_basis: "total_attempts",
+                attempt_target: 5,
+                mastery_status: "satisfied",
+                mastery_verified: true,
+                status: "done",
+                verdicts: { clean: 1, flawed: 2, failed: 2 },
+                focus: "other",
+                use_metronome: false,
+              },
+            ]),
+          })}
+          adapter={makePdf(1).adapter}
+          onOpenBlock={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+      await screen.findByLabelText("Score page 1");
+      await selectParent();
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Rolled Chords · Spot 1, measures 44 to 46",
+        }),
+      );
+
+      expect(await screen.findByText("5 attempts · total plays complete")).toBeTruthy();
+      expect(screen.queryByText(/mastery verified/i)).toBeNull();
     });
 
     it("C4: Practice this resumes the latest paused set for that spot", async () => {

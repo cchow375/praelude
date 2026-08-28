@@ -73,6 +73,10 @@ pub struct HistoryDaySet {
     pub start_bpm: i64,
     pub end_bpm: i64,
     pub mastery_status: String,
+    /// Canonical contract discriminator. `total_attempts` can be satisfied and
+    /// close the set, but is a volume target rather than mastery evidence.
+    pub mastery_basis: String,
+    pub attempt_target: Option<u32>,
     pub first_ts: String,
     pub last_ts: String,
 }
@@ -157,12 +161,19 @@ fn day_aggregates(conn: &Connection, day: &str) -> rusqlite::Result<DayAggregate
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     )?;
 
-    // Mastery-landed-that-day evidence: `practice_interval.end_reason='mastered'`
-    // is written by the same v2 ledger commit that flips a set's live state to
-    // `mastered` (see `practice_v2::v2_check`) — reused here, not re-derived.
+    // Mastery-landed-that-day evidence: an interval can use the historical
+    // `mastered` end reason for either a genuine mastery contract or the new
+    // volume-only total-plays completion. Join the immutable contract so only
+    // verified mastery bases reach the History mastery count. The completed
+    // volume set remains in `sets_touched` and day detail.
     let mastered_sets: i64 = conn.query_row(
-        "SELECT COUNT(DISTINCT set_id) FROM practice_interval
-         WHERE end_reason = 'mastered' AND date(ended_ts,'localtime') = ?1",
+        "SELECT COUNT(DISTINCT i.set_id)
+         FROM practice_interval i
+         JOIN set_contract c ON c.set_id = i.set_id
+         WHERE i.end_reason = 'mastered'
+           AND date(i.ended_ts,'localtime') = ?1
+           AND c.mastery_verification = 'verified'
+           AND c.mastery_basis IN ('consecutive_clean','total_clean','timed_exposure')",
         [day],
         |row| row.get(0),
     )?;
@@ -382,7 +393,7 @@ impl Store {
             // `project` reuses the exact same ledger projection every other
             // mastery-status read (paused-sets tray, block history, rep state)
             // goes through — never re-derived here.
-            let mastery_status = {
+            let (mastery_status, mastery_basis, attempt_target) = {
                 let conn = self
                     .conn
                     .lock()
@@ -391,7 +402,12 @@ impl Store {
                 // not depend on the ladder's automatic-demotion path — the
                 // global demotion default is fine here (see the lock-trap note
                 // on `project_tempo`).
-                project(&conn, row.block_id, DemotionConfig::default())?.mastery_status
+                let snapshot = project(&conn, row.block_id, DemotionConfig::default())?;
+                (
+                    snapshot.mastery_status,
+                    snapshot.mastery_basis,
+                    snapshot.attempt_target,
+                )
             };
             sets.push(HistoryDaySet {
                 block_id: row.block_id,
@@ -407,6 +423,8 @@ impl Store {
                 start_bpm: row.start_bpm.round() as i64,
                 end_bpm: row.end_bpm.round() as i64,
                 mastery_status,
+                mastery_basis,
+                attempt_target,
                 first_ts: row.first_ts,
                 last_ts: row.last_ts,
             });
@@ -486,19 +504,29 @@ mod tests {
             .unwrap()
     }
 
-    /// Seed a closed `practice_interval` row with `end_reason='mastered'` —
-    /// the exact evidence `mastered_sets` reads (`practice_v2::v2_check`
-    /// writes the real one at the moment a set's ledger projection first
-    /// satisfies mastery; see `close_active_interval`). No real ledger replay
-    /// needed for a read-model test: the read side only ever looks at this
-    /// row's `end_reason`/`ended_ts`, never at how it got there.
-    fn seed_mastered_interval(store: &Store, block_id: i64, ended_ts: &str) {
+    /// Seed the immutable contract plus the closed interval evidence read by
+    /// `mastered_sets`. Production writes both through the v2 ledger; these
+    /// read-model tests keep the fixture focused on the projection boundary.
+    fn seed_completed_interval(store: &Store, block_id: i64, ended_ts: &str, mastery_basis: &str) {
         store
             .test_execute_batch(&format!(
-                "INSERT INTO practice_interval (set_id, started_ts, last_checkpoint_ts, ended_ts, end_reason)
+                "INSERT INTO set_contract
+                   (set_id,contract_version,name,rationale,mastery_basis,
+                    required_success,reset_on_flawed,reset_on_failed,
+                    recovery_policy,recovery_value,recovery_minimum,
+                    tempo_policy_json,source_refs_json,set_state,
+                    mastery_verification,source)
+                 VALUES ({block_id},1,'Test contract','Read-model fixture.',
+                         '{mastery_basis}',1,1,1,'none',0,0,'{{}}','[]',
+                         'mastered','verified','user_click');
+                 INSERT INTO practice_interval (set_id, started_ts, last_checkpoint_ts, ended_ts, end_reason)
                  VALUES ({block_id}, '{ended_ts}', '{ended_ts}', '{ended_ts}', 'mastered');"
             ))
             .unwrap();
+    }
+
+    fn seed_mastered_interval(store: &Store, block_id: i64, ended_ts: &str) {
+        seed_completed_interval(store, block_id, ended_ts, "consecutive_clean");
     }
 
     fn seed_session(store: &Store, started_at: &str, ended_at: Option<&str>) -> i64 {
@@ -606,6 +634,26 @@ mod tests {
         let day2 = days.iter().find(|d| d.date == "2026-08-04").unwrap();
         assert_eq!(day1.mastered_sets, 2);
         assert_eq!(day2.mastered_sets, 1);
+    }
+
+    #[test]
+    fn history_days_keeps_total_plays_as_a_completed_set_but_not_mastery() {
+        let store = Store::open(":memory:").unwrap();
+        let piece = seed_piece(&store, "/v/Volume", "Volume Piece");
+        let block = seed_block(&store, piece, 1, 8);
+        seed_completed_interval(&store, block, "2026-08-03T18:00:00Z", "total_attempts");
+        seed_rep(&store, block, "2026-08-03T18:00:00Z", 80.0, "flawed");
+
+        let days = store.history_days("2026-08-03", "2026-08-03").unwrap();
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0].sets_touched, 1, "the completed set stays visible");
+        assert_eq!(days[0].mastered_sets, 0, "volume is never mastery");
+
+        let detail = store.history_day_detail("2026-08-03").unwrap();
+        assert_eq!(detail.sets.len(), 1);
+        assert_eq!(detail.sets[0].mastery_status, "satisfied");
+        assert_eq!(detail.sets[0].mastery_basis, "total_attempts");
+        assert_eq!(detail.sets[0].attempt_target, Some(1));
     }
 
     #[test]

@@ -621,7 +621,7 @@ describe("DockPillBar (residuals fix wave, defect 4: pill occludes page content)
     fireEvent.click(carry);
   });
 
-  it("labels the pill row so pills read as tools you can open, not decoration", () => {
+  it("names the compact row as a toolbar without spending a permanent text column on a second Tools label", () => {
     window.localStorage.setItem(
       DOCK_STORAGE_KEY,
       JSON.stringify({
@@ -632,7 +632,7 @@ describe("DockPillBar (residuals fix wave, defect 4: pill occludes page content)
     const bar = document.getElementById("dock-pill-bar");
     expect(bar?.getAttribute("role")).toBe("toolbar");
     expect(bar?.getAttribute("aria-label")).toBe("Practice tools");
-    expect(bar?.textContent).toContain("Tools");
+    expect(bar?.textContent).toBe("rep");
   });
 
   it("stays visually empty (no label) when there is nothing minimized to restore", () => {

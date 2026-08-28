@@ -60,6 +60,15 @@ function formatClock(ts: string | null): string {
   }).format(parsed);
 }
 
+function formatSetOutcome(set: HistoryDayDetail["sets"][number]): string {
+  if (set.mastery_basis === "total_attempts") {
+    return set.mastery_status === "satisfied"
+      ? "total plays complete"
+      : "total plays in progress";
+  }
+  return set.mastery_status;
+}
+
 interface DayCardProps {
   day: HistoryDaySummary;
   expanded: boolean;
@@ -125,7 +134,7 @@ function DayCard({
                         {" "}
                         mm. {set.m_start}–{set.m_end} · {set.attempts} attempt
                         {set.attempts === 1 ? "" : "s"}, {set.cleans} clean ·{" "}
-                        {set.start_bpm}→{set.end_bpm} bpm · {set.mastery_status}
+                        {set.start_bpm}→{set.end_bpm} bpm · {formatSetOutcome(set)}
                       </span>
                     </li>
                   ))}

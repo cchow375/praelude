@@ -124,7 +124,8 @@
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
-  padding: var(--s-1) var(--s-3);
+  min-height: 28px;
+  padding: 3px var(--s-2);
   background: var(--bg-raised);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-pill);
@@ -154,13 +155,17 @@
    * rather than relying on CSS grid auto-placement. */
   grid-column: 2;
   grid-row: 3;
+  position: relative;
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--s-2);
-  padding: var(--s-2) var(--s-3);
+  gap: var(--s-1);
+  min-width: 0;
+  padding: 3px var(--s-2);
   border-top: 1px solid var(--hairline);
   background: var(--bg);
+  white-space: nowrap;
 }
 
 .dock-pill-bar:empty {
@@ -168,14 +173,104 @@
   padding: 0;
 }
 
-/* The persistent row label (§4b): tells you the pills beside it are tools
- * you can reopen, not decoration. Only ever rendered alongside at least one
- * pill (DockPillBar.tsx), so the truly-empty row above still collapses. */
-.dock-pill-bar-label {
-  color: var(--ink-dim);
+.dock-pill-bar > .dock-pill {
+  order: 1;
+  flex: 0 0 auto;
+}
+
+/* Clock, Dynamics and Practice rotation are useful but low-frequency. Their
+ * DockPanel portals remain mounted (so persistence/open/minimize/close never
+ * forks into a second implementation), but their individual restore pills
+ * do not consume permanent horizontal space. DockPillBar mirrors those same
+ * actions into the compact Tools disclosure below. Rep Counter and Paused
+ * Sets deliberately do not match this list and therefore stay one-click. */
+.dock-pill-bar
+  > .dock-pill:is(
+    [aria-label="Restore Clock"],
+    [aria-label="Restore Dynamics"],
+    [aria-label="Restore Practice rotation"]
+  ) {
+  display: none;
+}
+
+.dock-pill-tools {
+  position: relative;
+  /* Tools is the bar's first DOM child; keep visual and keyboard order the
+   * same instead of moving the later portaled direct pills ahead with CSS. */
+  order: 0;
+  flex: 0 0 auto;
+}
+
+.dock-pill-tools-trigger {
+  box-shadow: none;
+}
+
+.dock-pill-tools-chevron {
+  color: var(--ink-faint);
+  font-size: var(--text-xs);
+  line-height: 1;
+}
+
+/* Opens upward so the menu temporarily overlays the score only while asked
+ * for; the shell's permanent third row remains exactly one compact line. */
+.dock-pill-tools-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--s-1));
+  /* Same ceiling as dockState.ts's DOCK_Z_CEILING: the menu clears score
+   * content but must still lose to global dialogs/voice/ritual overlays. */
+  z-index: 39;
+  display: flex;
+  min-width: 184px;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s-1);
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-popover);
+}
+
+.dock-pill-tools-item {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-1) var(--s-2);
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
   font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  margin-right: auto;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dock-pill-tools-item:hover,
+.dock-pill-tools-item:focus-visible {
+  background: var(--surface-hover);
+}
+
+.dock-pill-tools-item:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+.dock-pill-tools-item--urgent::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--signal-warning);
+  content: "";
+}
+
+.dock-pill-tools-status {
+  margin-left: auto;
+  color: var(--ink-dim);
+  font-size: var(--text-xs);
 }
 
 .dock-pill:hover {

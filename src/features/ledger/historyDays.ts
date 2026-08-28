@@ -56,6 +56,8 @@ export interface HistoryDaySet {
   start_bpm: number;
   end_bpm: number;
   mastery_status: string;
+  mastery_basis: string;
+  attempt_target: number | null;
   first_ts: string;
   last_ts: string;
 }

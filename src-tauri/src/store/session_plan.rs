@@ -273,6 +273,7 @@ impl Store {
             target_bpm: None,
             planned_reps: None,
             required_clean_streak: Some(required),
+            attempt_target: None,
             increment: Some(rule.clone()),
             variants: Vec::new(),
             focus: "notes".to_string(),

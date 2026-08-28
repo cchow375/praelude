@@ -18,10 +18,7 @@ import type {
   SetFocusContextInput,
 } from "../rep/useRep";
 import { BlockForm } from "../rep/BlockForm";
-import {
-  addRotationTarget,
-  rotationTargetKey,
-} from "../rotation/rotation";
+import { addRotationTarget, rotationTargetKey } from "../rotation/rotation";
 import {
   anchorForEdition,
   anchorKind,
@@ -79,8 +76,10 @@ import {
 import {
   clampZoom,
   DEFAULT_PAGE_SIZE,
+  displaySize,
   fitPageScale,
   fitWidthScale,
+  renderWindow,
 } from "./geometry";
 import {
   fitContextBucket,
@@ -532,6 +531,10 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function samePageSet(left: Set<number>, right: Set<number>): boolean {
+  return left.size === right.size && [...left].every((page) => right.has(page));
+}
+
 function overlaps(
   region: Region,
   range: { m_start: number; m_end: number } | null | undefined,
@@ -661,7 +664,9 @@ export function ScoreView({
 }: ScoreViewProps) {
   const crud = useCrud();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scoreToolsRef = useRef<HTMLDetailsElement>(null);
   const pageSizesRef = useRef(new Map<number, PdfPageSize>());
+  const intersectionRatiosRef = useRef(new Map<number, number>());
   const graphGeneration = useRef(0);
   const scoreMountedRef = useRef(false);
   const targetSaveGenerationRef = useRef(0);
@@ -693,10 +698,18 @@ export function ScoreView({
   const sectionTabRefs = useRef<
     Partial<Record<SectionTab, HTMLButtonElement | null>>
   >({});
+  const regionItemRefs = useRef(new Map<number, HTMLDivElement>());
   const [regionQuery, setRegionQuery] = useState("");
   const [mapping, setMapping] = useState<MappingDraft | null>(null);
   const [savingMap, setSavingMap] = useState(false);
   const [navigationNotice, setNavigationNotice] = useState<string | null>(null);
+  // Continuous reader virtualization: every scoped page gets a lightweight,
+  // correctly-sized slot, but only what intersects the score pane (plus one
+  // page of overscan) mounts a PdfPage/canvas. This keeps wheel scrolling
+  // natural without returning to the all-canvases memory spike.
+  const [visiblePages, setVisiblePages] = useState<Set<number>>(
+    () => new Set([1]),
+  );
   const [currentPage, setCurrentPage] = useState(1);
   const [pageDraft, setPageDraft] = useState("1");
   const [manualZoom, setManualZoom] = useState(1);
@@ -977,8 +990,10 @@ export function ScoreView({
     setError(null);
     setDocument(null);
     setMapping(null);
+    setVisiblePages(new Set([1]));
     setCurrentPage(1);
     setPageDraft("1");
+    intersectionRatiosRef.current.clear();
     pageSizesRef.current.clear();
     setMaxPageWidth(DEFAULT_PAGE_SIZE.width);
     setMaxPageHeight(DEFAULT_PAGE_SIZE.height);
@@ -1120,30 +1135,103 @@ export function ScoreView({
     setCurrentPage(selectedMovementRange.start);
     setPageDraft(String(selectedMovementRange.start));
     setMarkPage(selectedMovementRange.start);
+    setVisiblePages(new Set([selectedMovementRange.start]));
+    // The selected movement becomes the document's first rendered slot, so a
+    // simple top reset is exact and avoids the delayed animated jump that made
+    // changing movements feel sticky.
+    scrollRef.current?.scrollTo?.({ top: 0, left: 0, behavior: "auto" });
   }, [currentPage, pageCount, selectedMovementRange]);
 
-  // A true pager: one page is in view (two side-by-side in 2-page view). Only
-  // those plus one buffered neighbor each side ever mount a canvas — on a
-  // 25-page score at most three canvases exist, and the rest are unmounted.
-  const visiblePageList = useMemo(() => {
-    if (pageCount < 1) return [] as number[];
-    const anchor = Math.min(
-      pageScopeEnd,
-      Math.max(pageScopeStart, currentPage),
+  const scopedPages = useMemo(
+    () =>
+      pageScopeEnd < pageScopeStart
+        ? []
+        : Array.from(
+            { length: pageScopeEnd - pageScopeStart + 1 },
+            (_, index) => pageScopeStart + index,
+          ),
+    [pageScopeEnd, pageScopeStart],
+  );
+
+  // Observe the lightweight slots, not the canvases. The dominant visible page
+  // drives page number/context; every intersecting page feeds the bounded
+  // render window below. Browsers recalculate intersections as the slots resize
+  // after real PDF dimensions arrive, so no scroll arithmetic or guessed page
+  // height can drift over a long score.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (
+      !document ||
+      phase !== "ready" ||
+      !root ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      return;
+    }
+    intersectionRatiosRef.current.clear();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const page = Number((entry.target as HTMLElement).dataset.pageNumber);
+          if (!Number.isInteger(page)) continue;
+          intersectionRatiosRef.current.set(
+            page,
+            entry.isIntersecting ? entry.intersectionRatio : 0,
+          );
+        }
+        const ranked = [...intersectionRatiosRef.current.entries()]
+          .filter(
+            ([page, ratio]) =>
+              ratio > 0 && page >= pageScopeStart && page <= pageScopeEnd,
+          )
+          .sort((left, right) => right[1] - left[1] || left[0] - right[0]);
+        if (ranked.length === 0) return;
+        // A two-column overview can expose parts of several sheets at once.
+        // Keep only the three most visible slots as render anchors: with one
+        // page of overscan this bounds the normal contiguous window to five
+        // canvases, even on a tall display.
+        const nextVisible = new Set(ranked.slice(0, 3).map(([page]) => page));
+        const nextCurrent = ranked[0][0];
+        setVisiblePages((previous) =>
+          samePageSet(previous, nextVisible) ? previous : nextVisible,
+        );
+        setCurrentPage(nextCurrent);
+        setPageDraft(String(nextCurrent));
+        setMarkPage(nextCurrent);
+        setConfirmClearPage(null);
+      },
+      { root, threshold: [0, 0.05, 0.25, 0.5, 0.75] },
     );
-    if (scaleMode === "overview" && anchor + 1 <= pageScopeEnd) {
-      return [anchor, anchor + 1];
-    }
-    return [anchor];
-  }, [currentPage, pageCount, pageScopeEnd, pageScopeStart, scaleMode]);
+    root
+      .querySelectorAll<HTMLElement>(".score-page-slot[data-page-number]")
+      .forEach((slot) => observer.observe(slot));
+    return () => observer.disconnect();
+  }, [document, pageScopeEnd, pageScopeStart, phase, scopedPages]);
+
+  // Only intersecting pages plus one neighbor on either side mount PdfPage.
+  // Even a fast fling therefore leaves the DOM as continuous paper while the
+  // expensive PDF/image pipeline remains capped to a small moving window.
   const mountedPages = useMemo(() => {
-    const mounted = new Set<number>(visiblePageList);
-    for (const page of visiblePageList) {
-      if (page - 1 >= pageScopeStart) mounted.add(page - 1);
-      if (page + 1 <= pageScopeEnd) mounted.add(page + 1);
-    }
-    return [...mounted].sort((a, b) => a - b);
-  }, [pageScopeEnd, pageScopeStart, visiblePageList]);
+    const window = renderWindow(visiblePages, pageCount);
+    const candidates = [...window]
+      .filter((page) => page >= pageScopeStart && page <= pageScopeEnd)
+      .sort((left, right) => left - right);
+    if (candidates.length <= 5) return candidates;
+
+    // Intersection callbacks normally provide adjacent slots, but a resize or
+    // rapid movement switch can briefly leave disjoint ratios in the observer
+    // batch. Preserve the dominant page and its nearest candidates rather than
+    // allowing that transient state to spike canvas memory.
+    return candidates
+      .sort(
+        (left, right) =>
+          Math.abs(left - currentPage) - Math.abs(right - currentPage) ||
+          left - right,
+      )
+      .slice(0, 5)
+      .sort((left, right) => left - right);
+  }, [currentPage, pageCount, pageScopeEnd, pageScopeStart, visiblePages]);
+  const mountedPageSet = useMemo(() => new Set(mountedPages), [mountedPages]);
   const scale =
     scaleMode === "width"
       ? fitWidthScale(containerWidth, maxPageWidth, 40)
@@ -2120,12 +2208,24 @@ export function ScoreView({
       );
       setCurrentPage(page);
       setPageDraft(String(page));
+      setVisiblePages(new Set([page]));
+      intersectionRatiosRef.current.clear();
       // Undo/clear follow the reader to the new page until they draw again.
       setMarkPage(page);
       setConfirmClearPage(null);
-      // Paging swaps which page is mounted, so reset any within-page scroll
-      // (a zoomed page can overflow) back to the top of the new page.
-      scrollRef.current?.scrollTo?.({ top: 0, left: 0 });
+      // Every page has a persistent lightweight slot, so direct navigation is
+      // immediate even when that page's canvas was not mounted yet.
+      const root = scrollRef.current;
+      const target = root?.querySelector<HTMLElement>(
+        `[data-page-number="${page}"]`,
+      );
+      if (root && target) {
+        root.scrollTo?.({
+          top: target.offsetTop,
+          left: 0,
+          behavior: "auto",
+        });
+      }
     },
     [document, pageScopeEnd, pageScopeStart],
   );
@@ -2228,6 +2328,22 @@ export function ScoreView({
     },
     [edition, jumpTo, mapping, regions],
   );
+
+  // Expanding a section near the bottom of the independently scrolling rail
+  // must reveal its practice controls immediately. Without this, the row
+  // expanded below the fold and looked as if nothing had happened at the
+  // 720x520 minimum window size.
+  useLayoutEffect(() => {
+    if (expandedRegionId == null) return;
+    const item = regionItemRefs.current.get(expandedRegionId);
+    const practiceComposer = item?.querySelector<HTMLElement>(
+      ".score-practice-region .block-form",
+    );
+    (practiceComposer ?? item)?.scrollIntoView?.({
+      block: "start",
+      inline: "nearest",
+    });
+  }, [expandedRegionId, sectionTab]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -2649,12 +2765,9 @@ export function ScoreView({
       m_start: mStart,
       m_end: mEnd,
       color: REGION_COLORS[regions.length % REGION_COLORS.length],
-      pdf_anchor: replaceEditionRects(
-        null,
-        edition.id,
-        edition.fingerprint,
-        [rect],
-      ),
+      pdf_anchor: replaceEditionRects(null, edition.id, edition.fingerprint, [
+        rect,
+      ]),
     };
     setGraphError(null);
     try {
@@ -3150,16 +3263,21 @@ export function ScoreView({
                   {regionBlocks.slice(0, 2).map((block) => {
                     const attempts =
                       block.attempts_recorded ?? block.tries ?? block.reps_done;
-                    const mastery = block.mastery_verified
-                      ? block.mastery_status === "satisfied"
-                        ? "mastery verified"
-                        : "mastery not yet"
-                      : "mastery unverified";
+                    const outcome =
+                      block.mastery_basis === "total_attempts"
+                        ? block.mastery_status === "satisfied"
+                          ? "total plays complete"
+                          : "total plays in progress"
+                        : block.mastery_verified
+                          ? block.mastery_status === "satisfied"
+                            ? "mastery verified"
+                            : "mastery not yet"
+                          : "mastery unverified";
                     return (
                       <li key={block.block_id}>
                         mm. {block.m_start}–{block.m_end}
                         <span>
-                          {attempts} attempts · {mastery}
+                          {attempts} attempts · {outcome}
                         </span>
                       </li>
                     );
@@ -3305,6 +3423,13 @@ export function ScoreView({
                   setCurrentPage(page);
                   setPageDraft(String(page));
                   setMarkPage(page);
+                  setVisiblePages(new Set([page]));
+                  intersectionRatiosRef.current.clear();
+                  scrollRef.current?.scrollTo?.({
+                    top: 0,
+                    left: 0,
+                    behavior: "auto",
+                  });
                 }}
               >
                 <option value="">Whole score</option>
@@ -3316,74 +3441,6 @@ export function ScoreView({
               </select>
             </label>
           )}
-          <button
-            type="button"
-            className={`score-draw-target ${targetMode ? "is-active" : ""}`}
-            aria-pressed={targetMode}
-            disabled={targetSavePending || phase !== "ready" || !edition}
-            onClick={toggleTargetMode}
-          >
-            {targetMode ? "Cancel drawing" : "Draw target"}
-          </button>
-          <button
-            type="button"
-            className={`score-pencil-toggle ${pencilMode ? "is-active" : ""}`}
-            aria-pressed={pencilMode}
-            disabled={phase !== "ready" || !edition || targetSavePending}
-            onClick={togglePencilMode}
-          >
-            {pencilMode ? "Put pencil down" : "Pencil"}
-          </button>
-          <button
-            type="button"
-            className="score-map-score"
-            disabled={phase !== "ready" || !edition}
-            title={
-              phase !== "ready"
-                ? "The score is still loading"
-                : !edition
-                  ? "Pick an edition first"
-                  : undefined
-            }
-            onClick={openWizard}
-          >
-            {calibrationAnchors.length > 0
-              ? "Edit score map"
-              : "Map this score"}
-          </button>
-          <button
-            type="button"
-            className="score-map-measures"
-            disabled={phase !== "ready" || !edition || pageCount < 1}
-            title={
-              phase !== "ready"
-                ? "The score is still loading"
-                : !edition
-                  ? "Pick an edition first"
-                  : pageCount < 1
-                    ? "This edition has no pages yet"
-                    : selectedMovementRange
-                      ? "Movement view scopes local browsing only; measure mapping still sends the whole edition after you start it"
-                      : "Measure mapping sends every page in this edition after you start it"
-            }
-            onClick={() => setMapPanelOpen(true)}
-          >
-            Map measures
-          </button>
-          <button
-            type="button"
-            className={`score-measure-toggle ${measuresVisible ? "is-active" : ""}`}
-            aria-pressed={measuresVisible}
-            onClick={() =>
-              setMeasuresVisible((current) => {
-                const next = !current;
-                writeShowMeasuresPreference(next);
-                return next;
-              })
-            }
-          >
-            {measuresVisible ? "Hide measures" : "Show measures"}
-          </button>
           <span
             id={targetInstructionsId}
             className="score-atlas-draw-instructions"
@@ -3391,11 +3448,6 @@ export function ScoreView({
             Drag one rectangle directly on a rendered score page. Its normalized
             geometry stays independent of zoom.
           </span>
-          {targetMode && !targetAnchor && (
-            <span className="score-atlas-draw-hint" role="status">
-              Drag a rectangle on the score to start your target.
-            </span>
-          )}
         </div>
 
         <div className="score-page-controls" aria-label="Page navigation">
@@ -3470,29 +3522,152 @@ export function ScoreView({
               setManualZoom(Number(event.target.value) / 100);
             }}
           />
-          <button
-            type="button"
-            className={scaleMode === "width" ? "is-active" : ""}
-            onClick={() => setScaleMode("width")}
-          >
-            Fit width
-          </button>
-          <button
-            type="button"
-            className={scaleMode === "page" ? "is-active" : ""}
-            onClick={() => setScaleMode("page")}
-          >
-            Fit page
-          </button>
-          <button
-            type="button"
-            className={scaleMode === "overview" ? "is-active" : ""}
-            onClick={() => setScaleMode("overview")}
-          >
-            2-page view
-          </button>
         </div>
+
+        <details className="score-tools-menu" ref={scoreToolsRef}>
+          <summary role="button" aria-label="Score tools">
+            <span>
+              {pencilMode
+                ? "Pencil on"
+                : targetMode
+                  ? "Drawing target"
+                  : mapping
+                    ? "Editing marks"
+                    : "Score tools"}
+            </span>
+            <span aria-hidden="true">⌄</span>
+          </summary>
+          <div
+            className="score-tools-popover"
+            role="group"
+            aria-label="Score tools"
+          >
+            <div
+              className="score-view-modes"
+              role="group"
+              aria-label="Page layout"
+            >
+              <button
+                type="button"
+                className={scaleMode === "width" ? "is-active" : ""}
+                onClick={() => {
+                  setScaleMode("width");
+                  if (scoreToolsRef.current) scoreToolsRef.current.open = false;
+                }}
+              >
+                Fit width
+              </button>
+              <button
+                type="button"
+                className={scaleMode === "page" ? "is-active" : ""}
+                onClick={() => {
+                  setScaleMode("page");
+                  if (scoreToolsRef.current) scoreToolsRef.current.open = false;
+                }}
+              >
+                Fit page
+              </button>
+              <button
+                type="button"
+                className={scaleMode === "overview" ? "is-active" : ""}
+                onClick={() => {
+                  setScaleMode("overview");
+                  if (scoreToolsRef.current) scoreToolsRef.current.open = false;
+                }}
+              >
+                2-page view
+              </button>
+            </div>
+            <button
+              type="button"
+              className={`score-draw-target ${targetMode ? "is-active" : ""}`}
+              aria-pressed={targetMode}
+              disabled={targetSavePending || phase !== "ready" || !edition}
+              onClick={() => {
+                toggleTargetMode();
+                if (scoreToolsRef.current) scoreToolsRef.current.open = false;
+              }}
+            >
+              {targetMode ? "Cancel drawing" : "Draw target"}
+            </button>
+            <button
+              type="button"
+              className={`score-pencil-toggle ${pencilMode ? "is-active" : ""}`}
+              aria-pressed={pencilMode}
+              disabled={phase !== "ready" || !edition || targetSavePending}
+              onClick={() => {
+                togglePencilMode();
+                if (scoreToolsRef.current) scoreToolsRef.current.open = false;
+              }}
+            >
+              {pencilMode ? "Put pencil down" : "Pencil"}
+            </button>
+            <button
+              type="button"
+              className="score-map-score"
+              disabled={phase !== "ready" || !edition}
+              title={
+                phase !== "ready"
+                  ? "The score is still loading"
+                  : !edition
+                    ? "Pick an edition first"
+                    : undefined
+              }
+              onClick={() => {
+                if (scoreToolsRef.current) scoreToolsRef.current.open = false;
+                openWizard();
+              }}
+            >
+              {calibrationAnchors.length > 0
+                ? "Edit score map"
+                : "Map this score"}
+            </button>
+            <button
+              type="button"
+              className="score-map-measures"
+              disabled={phase !== "ready" || !edition || pageCount < 1}
+              title={
+                phase !== "ready"
+                  ? "The score is still loading"
+                  : !edition
+                    ? "Pick an edition first"
+                    : pageCount < 1
+                      ? "This edition has no pages yet"
+                      : selectedMovementRange
+                        ? "Movement view scopes local browsing only; measure mapping still sends the whole edition after you start it"
+                        : "Measure mapping sends every page in this edition after you start it"
+              }
+              onClick={() => {
+                if (scoreToolsRef.current) scoreToolsRef.current.open = false;
+                setMapPanelOpen(true);
+              }}
+            >
+              Map measures
+            </button>
+            <button
+              type="button"
+              className={`score-measure-toggle ${measuresVisible ? "is-active" : ""}`}
+              aria-pressed={measuresVisible}
+              onClick={() => {
+                if (scoreToolsRef.current) scoreToolsRef.current.open = false;
+                setMeasuresVisible((current) => {
+                  const next = !current;
+                  writeShowMeasuresPreference(next);
+                  return next;
+                });
+              }}
+            >
+              {measuresVisible ? "Hide measures" : "Show measures"}
+            </button>
+          </div>
+        </details>
       </header>
+
+      {targetMode && !targetAnchor && (
+        <div className="score-active-tool-status" role="status">
+          Drag a rectangle on the score to start your target. Escape cancels.
+        </div>
+      )}
 
       {measureMapStale && (
         <div
@@ -3602,65 +3777,93 @@ export function ScoreView({
               <div
                 className={`score-pages ${scaleMode === "overview" ? "is-overview" : ""}`}
               >
-                {mountedPages.map((pageNumber) => {
-                  const buffered = !visiblePageList.includes(pageNumber);
+                {scopedPages.map((pageNumber) => {
+                  const mounted = mountedPageSet.has(pageNumber);
+                  const placeholderSize = displaySize(
+                    pageSizesRef.current.get(pageNumber) ?? DEFAULT_PAGE_SIZE,
+                    scale,
+                  );
                   return (
-                    <PdfPage
+                    <div
                       key={pageNumber}
-                      document={document}
-                      pageNumber={pageNumber}
-                      active
-                      buffered={buffered}
-                      scale={scale}
-                      pageImage={pageImageSource}
-                      onSize={handlePageSize}
-                      onRasterized={handleRasterized}
+                      className="score-page-slot"
+                      data-page-number={pageNumber}
                     >
-                      <ScoreOverlay
-                        pageNumber={pageNumber}
-                        items={overlayItems}
-                        mapping={overlayMapping}
-                        createDrag={
-                          !mapping && !targetMode && edition && !spotSavePending
-                            ? stableCreateDrag
-                            : null
-                        }
-                        targetDraft={overlayTargetDraft}
-                        practiceChipsEnabled={
-                          !targetMode &&
-                          !mapping &&
-                          !pencilMode &&
-                          !spotArmed &&
-                          !spotSavePending
-                        }
-                        onSelect={selectRegion}
-                      />
-                      {measuresVisible && (
-                        <MeasureOverlay
-                          page={measureMapByPage?.get(pageNumber) ?? null}
+                      {mounted ? (
+                        <PdfPage
+                          document={document}
                           pageNumber={pageNumber}
-                          conflicts={[]}
-                          visible={measuresVisible}
-                          stale={false}
-                        />
+                          active
+                          scale={scale}
+                          pageImage={pageImageSource}
+                          onSize={handlePageSize}
+                          onRasterized={handleRasterized}
+                        >
+                          <ScoreOverlay
+                            pageNumber={pageNumber}
+                            items={overlayItems}
+                            mapping={overlayMapping}
+                            createDrag={
+                              !mapping &&
+                              !targetMode &&
+                              edition &&
+                              !spotSavePending
+                                ? stableCreateDrag
+                                : null
+                            }
+                            targetDraft={overlayTargetDraft}
+                            practiceChipsEnabled={
+                              !targetMode &&
+                              !mapping &&
+                              !pencilMode &&
+                              !spotArmed &&
+                              !spotSavePending
+                            }
+                            onSelect={selectRegion}
+                          />
+                          {measuresVisible && (
+                            <MeasureOverlay
+                              page={measureMapByPage?.get(pageNumber) ?? null}
+                              pageNumber={pageNumber}
+                              conflicts={[]}
+                              visible={measuresVisible}
+                              stale={false}
+                            />
+                          )}
+                          {markEdition &&
+                            (pencilMode ||
+                              (marksByPage[pageNumber]?.length ?? 0) > 0) && (
+                              <PencilOverlay
+                                pageNumber={pageNumber}
+                                strokes={marksByPage[pageNumber] ?? []}
+                                // Only mounted pages can own the pencil. A
+                                // scroll that virtualizes this page out cancels
+                                // the surface with the component, so there is no
+                                // invisible drawing target left behind.
+                                active={
+                                  pencilMode &&
+                                  !targetMode &&
+                                  !wizardOpen &&
+                                  visiblePages.has(pageNumber)
+                                }
+                                onStroke={handleStroke}
+                              />
+                            )}
+                        </PdfPage>
+                      ) : (
+                        <div
+                          className="score-page-placeholder"
+                          data-testid={`score-page-placeholder-${pageNumber}`}
+                          style={{
+                            width: `${placeholderSize.width}px`,
+                            height: `${placeholderSize.height}px`,
+                          }}
+                          aria-hidden="true"
+                        >
+                          <span>Page {pageNumber}</span>
+                        </div>
                       )}
-                      {markEdition && (
-                        <PencilOverlay
-                          pageNumber={pageNumber}
-                          strokes={marksByPage[pageNumber] ?? []}
-                          // Armed only in pencil mode, never while the target
-                          // tool or the wizard owns the pointer, and never on a
-                          // buffered off-screen neighbor.
-                          active={
-                            pencilMode &&
-                            !targetMode &&
-                            !wizardOpen &&
-                            !buffered
-                          }
-                          onStroke={handleStroke}
-                        />
-                      )}
-                    </PdfPage>
+                    </div>
                   );
                 })}
               </div>
@@ -3831,9 +4034,7 @@ export function ScoreView({
                 </form>
               )}
               <p className="score-region-order-note">
-                In score order · click a section to open its tools, then press ⊕
-                Isolate a spot (or just drag inside it on the score) to add a
-                sub-section — no typing
+                In score order · select one to practice or edit
               </p>
               <div className="score-region-list">
                 {displayedRegions.map((region) => {
@@ -3861,6 +4062,10 @@ export function ScoreView({
                     <div
                       className={`score-region-item ${expanded ? "is-expanded" : ""} ${isChild ? "is-child" : ""}`}
                       key={region.id}
+                      ref={(node) => {
+                        if (node) regionItemRefs.current.set(region.id, node);
+                        else regionItemRefs.current.delete(region.id);
+                      }}
                     >
                       <button
                         type="button"
@@ -3896,7 +4101,7 @@ export function ScoreView({
                         </span>
                         {(childCounts.get(region.id) ?? 0) > 0 && (
                           <span className="score-region-subsection-badge">
-                            {childCounts.get(region.id)} sub-section
+                            {childCounts.get(region.id)} spot
                             {childCounts.get(region.id) === 1 ? "" : "s"}
                           </span>
                         )}

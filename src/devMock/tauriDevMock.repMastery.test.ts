@@ -77,6 +77,27 @@ async function openVariantChain(requiredCleanStreak = 1): Promise<RepSnapshot> {
   });
 }
 
+async function openTotalPlays(target: number): Promise<RepSnapshot> {
+  return seamInvoke<RepSnapshot>("rep_open", {
+    args: {
+      piece_id: 1,
+      region_id: null,
+      m_start: 1,
+      m_end: 8,
+      label: null,
+      start_bpm: 60,
+      target_bpm: null,
+      planned_reps: null,
+      required_clean_streak: null,
+      attempt_target: target,
+      variants: [],
+      focus: "tempo",
+      use_metronome: true,
+    },
+    context: null,
+  });
+}
+
 describe("dev-mock rep mastery", () => {
   beforeEach(() => installTauriDevMock());
   afterEach(() => uninstallTauriDevMock());
@@ -177,6 +198,27 @@ describe("dev-mock rep mastery", () => {
     expect(reread.current_clean_streak).toBe(
       undone.snap.current_clean_streak,
     );
+  });
+
+  it("finishes total plays by effective attempt count and Undo removes progress", async () => {
+    const opened = await openTotalPlays(3);
+    expect(opened.mastery_basis).toBe("total_attempts");
+    expect(opened.attempt_target).toBe(3);
+
+    expect((await checkOutcome("failed", "plays-1")).block_done).toBe(false);
+    expect((await checkOutcome("flawed", "plays-2")).block_done).toBe(false);
+    const reached = await checkOutcome("failed", "plays-3");
+    expect(reached.snap.verdicts.clean).toBe(0);
+    expect(reached.snap.tries).toBe(3);
+    expect(reached.snap.mastery_status).toBe("satisfied");
+    expect(reached.block_done).toBe(true);
+
+    const undone = await seamInvoke<MockCheckOutcome>("rep_undo");
+    expect(undone.snap.attempts_recorded).toBe(3);
+    expect(undone.snap.voided_attempts).toBe(1);
+    expect(undone.snap.tries).toBe(2);
+    expect(undone.snap.mastery_status).toBe("not_satisfied");
+    expect(undone.block_done).toBe(false);
   });
 
   it("does not re-pause a running set on every verdict", async () => {

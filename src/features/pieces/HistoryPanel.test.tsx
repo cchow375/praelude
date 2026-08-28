@@ -80,7 +80,18 @@ describe("HistoryPanel", () => {
       recovery_remaining: 2,
       reset_count: 1,
     };
-    const groups = [{ region, blocks: [mastered, recovery], mastery: null }];
+    const completedVolume = {
+      ...block,
+      block_id: 22,
+      focus: "memory",
+      mastery_basis: "total_attempts" as const,
+      attempt_target: 5,
+      mastery_verified: true,
+      mastery_status: "satisfied" as const,
+    };
+    const groups = [
+      { region, blocks: [mastered, recovery, completedVolume], mastery: null },
+    ];
 
     const memory = filterSortHistory(groups, {
       query: "",

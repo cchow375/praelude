@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BlockForm } from "./BlockForm";
 
@@ -150,7 +157,9 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
     expect(
       (screen.getByLabelText("Variant 1 name") as HTMLInputElement).value,
     ).toBe("staccato");
-    expect(screen.getByText("Consecutive cleans")).toBeTruthy();
+    expect(
+      screen.getByText("Each stage advances after its clean count."),
+    ).toBeTruthy();
     expect(
       (
         screen.getByLabelText(
@@ -165,7 +174,9 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
     fireEvent.change(screen.getByLabelText("Custom variant name"), {
       target: { value: "octave runs" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "+ Add" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add custom variant" }),
+    );
     expect(
       (screen.getByLabelText("Variant 1 name") as HTMLInputElement).value,
     ).toBe("octave runs");
@@ -184,6 +195,7 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
       (screen.getByLabelText("Variant 1 name") as HTMLInputElement).value,
     ).toBe("slow");
 
+    const slowInput = screen.getByDisplayValue("slow");
     fireEvent.click(screen.getByRole("button", { name: "Move variant 2 up" }));
     expect(
       (screen.getByLabelText("Variant 1 name") as HTMLInputElement).value,
@@ -191,6 +203,10 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
     expect(
       (screen.getByLabelText("Variant 2 name") as HTMLInputElement).value,
     ).toBe("slow");
+    expect(
+      screen.getByDisplayValue("slow"),
+      "stable draft ids keep the edited input mounted through reorder",
+    ).toBe(slowInput);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove variant 1" }));
     expect(screen.queryByLabelText("Variant 2 name")).toBeNull();
@@ -205,6 +221,110 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
     expect(
       (screen.getByLabelText("Clean streak target") as HTMLSelectElement).value,
     ).toBe("5");
+  });
+
+  it("uses one Tab stop and arrow keys for the target-type radio group", async () => {
+    render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    const streak = screen.getByRole("radio", { name: "Clean streak" });
+    const plays = screen.getByRole("radio", { name: "Total plays" });
+
+    expect(streak.tabIndex).toBe(0);
+    expect(plays.tabIndex).toBe(-1);
+    streak.focus();
+    fireEvent.keyDown(streak, { key: "ArrowRight" });
+
+    await waitFor(() => expect(document.activeElement).toBe(plays));
+    expect(plays.getAttribute("aria-checked")).toBe("true");
+    expect(plays.tabIndex).toBe(0);
+    expect(streak.tabIndex).toBe(-1);
+
+    fireEvent.keyDown(plays, { key: "Home" });
+    await waitFor(() => expect(document.activeElement).toBe(streak));
+    expect(streak.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("offers a one-tap total-play target with the requested presets and no competing chain or ladder", () => {
+    const onOpen = vi.fn();
+    render(<BlockForm pieceId={1} onOpen={onOpen} />);
+    fireEvent.click(screen.getByRole("button", { name: "Dotted" }));
+
+    fireEvent.click(screen.getByRole("radio", { name: "Total plays" }));
+    const count = screen.getByLabelText("Total plays target") as HTMLSelectElement;
+    expect(
+      Array.from(count.options).map((option) => option.value),
+    ).toEqual(["5", "10", "15", "25", "custom"]);
+    expect(screen.queryByRole("group", { name: "Variant chain" })).toBeNull();
+    expect(screen.queryByLabelText("Target bpm")).toBeNull();
+    expect(
+      screen.getByText(
+        "Fixed tempo · no variants · every verdict counts; Undo removes one.",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.change(count, { target: { value: "15" } });
+    openAdvanced();
+    expect(screen.queryByRole("group", { name: "Tempo ladder" })).toBeNull();
+    expect(screen.queryByLabelText("Attempt review boundary")).toBeNull();
+    expect(screen.getByRole("group", { name: "Metronome tuning" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen.mock.calls[0][0]).toMatchObject({
+      planned_reps: null,
+      required_clean_streak: null,
+      attempt_target: 15,
+      target_bpm: null,
+      increment: null,
+      variants: [],
+    });
+  });
+
+  it("keeps a hidden variant draft intact when switching back from total plays", () => {
+    render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Legato" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Total plays" }));
+    expect(screen.queryByDisplayValue("legato")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "Clean streak" }));
+    expect(screen.getByDisplayValue("legato")).toBeTruthy();
+  });
+
+  it("removes a drafted demotion override from the total-play summary", () => {
+    render(<BlockForm pieceId={1} onOpen={vi.fn()} />);
+    openAdvanced();
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Tempo demotion for this set" }),
+      { target: { value: "on" } },
+    );
+    expect(screen.getByText(/demote after 3, then 2 sloppy/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Total plays" }));
+    expect(screen.queryByText(/demote after/)).toBeNull();
+    expect(
+      screen.queryByRole("group", { name: "Tempo demotion" }),
+    ).toBeNull();
+  });
+
+  it("submits a compact custom total-play count", () => {
+    const onOpen = vi.fn();
+    render(<BlockForm pieceId={1} onOpen={onOpen} />);
+    fireEvent.click(screen.getByRole("radio", { name: "Total plays" }));
+    fireEvent.change(screen.getByLabelText("Total plays target"), {
+      target: { value: "custom" },
+    });
+    fireEvent.change(screen.getByLabelText("Custom total plays"), {
+      target: { value: "37" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+    expect(onOpen.mock.calls[0][0].attempt_target).toBe(37);
+  });
+
+  it("pins the compact single-row variant CSS contract", () => {
+    const css = readFileSync(join(process.cwd(), "src/ui/forms.css"), "utf8");
+    expect(css).toMatch(/\.ck-chip-row\s*\{[^}]*flex-wrap:\s*nowrap/s);
+    expect(css).toMatch(
+      /\.ck-chain-item\s*\{[^}]*grid-template-columns:\s*1rem minmax\(4\.5rem, 1fr\) 3rem auto/s,
+    );
+    expect(css).toMatch(/\.ck-chain-count\s*\{[^}]*height:\s*32px/s);
   });
 
   it("keeps the tempo ladder and review boundary collapsed under Advanced", async () => {

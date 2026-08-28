@@ -153,7 +153,14 @@ async function drawOn(page: number) {
   return layer;
 }
 
-const pencilButton = () => screen.getByRole("button", { name: "Pencil" });
+function scoreTool(name: string | RegExp): HTMLElement {
+  const exposed = screen.queryByRole("button", { name });
+  if (exposed) return exposed;
+  fireEvent.click(screen.getByRole("button", { name: "Score tools" }));
+  return screen.getByRole("button", { name });
+}
+
+const pencilButton = () => scoreTool(/^(Pencil|Put pencil down)$/);
 
 async function openScore(marksApi: ScoreMarksApi, pieceId = 7) {
   const view = render(
@@ -311,22 +318,22 @@ describe("the score pencil", () => {
     const store = makeMarksStore();
     await openScore(store.api);
 
-    // Pointer activity on the page before the pencil is picked up leaves nothing.
-    await drawOn(1);
+    // A blank page allocates no idle drawing canvas before the pencil is picked
+    // up. Besides leaving no mark, this keeps continuous-reader memory bounded.
+    expect(screen.queryByTestId("pencil-layer-1")).toBeNull();
     expect(store.api.add).not.toHaveBeenCalled();
 
     fireEvent.click(pencilButton());
-    expect(
-      screen
-        .getByRole("button", { name: "Put pencil down" })
-        .getAttribute("aria-pressed"),
-    ).toBe("true");
+    expect(pencilButton().getAttribute("aria-pressed")).toBe("true");
+    expect(await screen.findByTestId("pencil-layer-1")).toBeTruthy();
 
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() =>
       expect(pencilButton().getAttribute("aria-pressed")).toBe("false"),
     );
-    await drawOn(1);
+    await waitFor(() =>
+      expect(screen.queryByTestId("pencil-layer-1")).toBeNull(),
+    );
     expect(store.api.add).not.toHaveBeenCalled();
   });
 
@@ -344,9 +351,7 @@ describe("the score pencil", () => {
 
     expect(store.api.undo).not.toHaveBeenCalled();
     // Escape did not leave the mode either: the field owns the keyboard.
-    expect(
-      screen.getByRole("button", { name: "Put pencil down" }),
-    ).toBeTruthy();
+    expect(pencilButton()).toBeTruthy();
     expect(screen.getByTestId("pencil-stroke")).toBeTruthy();
   });
 
@@ -355,14 +360,12 @@ describe("the score pencil", () => {
     await openScore(store.api);
 
     fireEvent.click(pencilButton());
-    fireEvent.click(screen.getByRole("button", { name: "Draw target" }));
+    fireEvent.click(scoreTool("Draw target"));
 
-    // Pencil mode is off, and its layer refuses the pointer, so a target drag
-    // can never also leave graphite.
+    // Pencil mode is off and its live canvas is gone, so a target drag can
+    // never also leave graphite.
     expect(pencilButton().getAttribute("aria-pressed")).toBe("false");
-    const layer = await screen.findByTestId("pencil-layer-1");
-    expect(layer.dataset.active).toBe("false");
-    await drawOn(1);
+    expect(screen.queryByTestId("pencil-layer-1")).toBeNull();
     expect(store.api.add).not.toHaveBeenCalled();
   });
 
@@ -387,8 +390,11 @@ describe("the score pencil", () => {
     await screen.findByTestId("pencil-layer-2");
     // Page 2 is blank, and undo/clear now speak about page 2.
     expect(
-      (screen.getByRole("button", { name: "Clear page 2" }) as HTMLButtonElement)
-        .disabled,
+      (
+        screen.getByRole("button", {
+          name: "Clear page 2",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Previous page" }));

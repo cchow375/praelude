@@ -18,6 +18,10 @@ pub enum AttemptVerdict {
 #[serde(rename_all = "snake_case")]
 pub enum MasteryBasis {
     ConsecutiveClean,
+    /// A volume-only target. Every effective (non-void) judged attempt counts,
+    /// independent of its verdict. Unlike `LegacyAttemptCount`, this is an
+    /// explicit current contract and can therefore be verified.
+    TotalAttempts,
     TotalClean,
     TimedExposure,
     Exploratory,
@@ -84,6 +88,24 @@ impl PracticeContract {
         }
     }
 
+    pub fn total_attempts(required: u32) -> Self {
+        Self {
+            contract_version: 1,
+            template_id: None,
+            name: format!("{required} total plays"),
+            rationale:
+                "A volume target: every recorded non-void attempt counts, regardless of verdict."
+                    .into(),
+            mastery_basis: MasteryBasis::TotalAttempts,
+            required_success: required,
+            reset_on_flawed: false,
+            reset_on_failed: false,
+            recovery: RecoveryPolicy::None,
+            attempt_ceiling: None,
+            sources: Vec::new(),
+        }
+    }
+
     pub fn legacy_attempt_count(planned_attempts: u32) -> Self {
         Self {
             contract_version: 1,
@@ -117,7 +139,10 @@ impl PracticeContract {
         }
         if matches!(
             self.mastery_basis,
-            MasteryBasis::ConsecutiveClean | MasteryBasis::TotalClean | MasteryBasis::TimedExposure
+            MasteryBasis::ConsecutiveClean
+                | MasteryBasis::TotalAttempts
+                | MasteryBasis::TotalClean
+                | MasteryBasis::TimedExposure
         ) && self.required_success == 0
         {
             return Err(ProtocolError::ZeroSuccessTarget);
@@ -211,6 +236,13 @@ pub fn evaluate_with_clean_debt(
     let mastery = match contract.mastery_basis {
         MasteryBasis::ConsecutiveClean => {
             if input.current_clean_streak >= effective_required_success {
+                MasteryStatus::Satisfied
+            } else {
+                MasteryStatus::NotSatisfied
+            }
+        }
+        MasteryBasis::TotalAttempts => {
+            if input.tries >= effective_required_success {
                 MasteryStatus::Satisfied
             } else {
                 MasteryStatus::NotSatisfied
@@ -327,6 +359,36 @@ mod tests {
         .unwrap();
         assert_eq!(result.mastery, MasteryStatus::NotSatisfied);
         assert!(result.review_boundary_reached);
+    }
+
+    #[test]
+    fn total_attempts_counts_verdicts_not_clean_quality() {
+        let contract = PracticeContract::total_attempts(5);
+        let one_short = evaluate(
+            &contract,
+            EvaluationInput {
+                tries: 4,
+                clean_count: 0,
+                current_clean_streak: 0,
+                active_seconds: 0,
+                errors_before_first_clean: 4,
+            },
+        )
+        .unwrap();
+        assert_eq!(one_short.mastery, MasteryStatus::NotSatisfied);
+
+        let reached = evaluate(
+            &contract,
+            EvaluationInput {
+                tries: 5,
+                clean_count: 0,
+                current_clean_streak: 0,
+                active_seconds: 0,
+                errors_before_first_clean: 5,
+            },
+        )
+        .unwrap();
+        assert_eq!(reached.mastery, MasteryStatus::Satisfied);
     }
 
     #[test]

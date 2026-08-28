@@ -103,6 +103,29 @@ describe("BlockRow", () => {
     );
   });
 
+  it("shows a satisfied total-play contract as complete without calling it mastery", () => {
+    render(
+      <BlockRow
+        block={{
+          ...block,
+          mastery_basis: "total_attempts",
+          attempt_target: 10,
+          attempts_recorded: 10,
+          reps_done: 10,
+          mastery_status: "satisfied",
+          mastery_verified: true,
+        }}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Total plays complete")).toBeTruthy();
+    expect(
+      screen.getByText("Captured contract").parentElement?.textContent,
+    ).toContain("10 total plays · volume target, not mastery");
+    expect(screen.queryByText("Mastery verified")).toBeNull();
+  });
+
   it("does not expose database ids in visible or accessible history copy", () => {
     render(<BlockRow block={block} onChanged={vi.fn()} />);
 

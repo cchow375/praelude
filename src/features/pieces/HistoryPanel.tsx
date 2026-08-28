@@ -24,6 +24,12 @@ export type HistoryEvidence =
 
 const INITIAL_VISIBLE_GROUPS = 10;
 
+function hasGenuineMasteryBasis(block: BlockHistory): boolean {
+  // Missing means the established consecutive-clean projection used by older
+  // app builds/fixtures. Explicit total attempts is volume completion only.
+  return block.mastery_basis !== "total_attempts";
+}
+
 function blockMatchesEvidence(
   block: BlockHistory,
   evidence: HistoryEvidence,
@@ -31,7 +37,9 @@ function blockMatchesEvidence(
   if (evidence === "all") return true;
   if (evidence === "mastered") {
     return (
-      block.mastery_verified === true && block.mastery_status === "satisfied"
+      hasGenuineMasteryBasis(block) &&
+      block.mastery_verified === true &&
+      block.mastery_status === "satisfied"
     );
   }
   if (evidence === "unresolved") {

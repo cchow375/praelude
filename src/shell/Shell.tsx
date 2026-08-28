@@ -1171,7 +1171,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
 
       <main
         id="shell-stage"
-        className="shell-stage"
+        className={`shell-stage${view === "score" ? " is-score" : ""}`}
         role="tabpanel"
         aria-labelledby={view === "settings" ? undefined : `tab-${view}`}
       >
@@ -1247,7 +1247,11 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
             </>
           )}
           {(view === "score" || scorePracticeContext != null) && (
-            <div hidden={view !== "score"} data-testid="score-shell-cache">
+            <div
+              className="score-shell-cache"
+              hidden={view !== "score"}
+              data-testid="score-shell-cache"
+            >
               <ScoreWorkspace
                 onOpenBlock={rep.open}
                 onResumeSet={rep.resumeSet}
