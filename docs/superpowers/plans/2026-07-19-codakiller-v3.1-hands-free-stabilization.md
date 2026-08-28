@@ -1,7 +1,8 @@
 # CodaKiller v3.1 Hands-Free Stabilization — Implementation Plan
 
 > **Status:** Historical/as built; v3.1.0 shipped and v3.2.0 followed. Unchecked boxes below are
-> not current task state. Real voice-over-Steinway acceptance remains open at v8.1.0.
+> not current task state. Installed truth is v8.2.0/schema 20; real voice-over-Steinway acceptance
+> remains open there. Use the v8.2 UI-cleanse/Total-plays plan for current handoff truth.
 
 **Goal:** Repair the July 19 at-piano blockers and restore one safe,
 screen-grounded, confirmation-gated hands-free path.

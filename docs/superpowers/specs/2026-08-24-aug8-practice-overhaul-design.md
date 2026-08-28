@@ -3,9 +3,16 @@
 > **Status:** APPROVED rev 3 as-built truth. P0–P2 shipped in v7.0.1–v7.2.0; P3–P6 and the
 > earned-motivation redesign shipped together in **v8.1.0/schema 19 on 2026-08-27**. Exact final
 > source/artifact facts are recorded in the v8.1 version record. Release tag `v8.1.0` points to
-> `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; private `origin/main` is current
-> through the post-tag documentation correction.
+> `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; at that v8.1 boundary, private
+> `origin/main` had reached the post-tag documentation correction.
 > Real-provider B5 and packaged-native microphone/Steinway acceptance remain explicitly open.
+> **2026-08-27 corrective addendum:** Christian's next use exposed a cross-cutting friction gap
+> outside the 23-ask denominator: Score was still effectively one pinned page, its practice rail
+> did not feel like an independently scrollable surface, and variant/target controls consumed far
+> too much space. v8.2.0/schema20 is now source-complete at `afe65f3`; its exact corrective
+> contract is §10 and
+> `docs/superpowers/plans/2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md`. It is a release
+> that **shipped and installed on 2026-08-27**; repository tag/push finalization follows the docs.
 > **Rev 3 (2026-08-27):** corrects the denominator from 21 to **23** (the table always contained
 > 23 IDs), records Christian's final decisions (Assistant OFF; archive + recent-first, no folders;
 > keyboard figures; session-temporary takes), and maps the now-present P3–P6 source. It also
@@ -552,6 +559,7 @@ flow P6. He can reorder P2–P6 at any gate.
 | **P6 — Review & Flow**      | v8.1.0 | **SHIPPED + INSTALLED 2026-08-27.** C2 safe capture/listen/keep · A4 exact prompt-only rotation · E1 archive/recent-first · E2 Sound targets. Native audio acceptance remains open.                                                                                                                                                                                   | **v19** | L    |
 | **Motivation correction**   | v8.1.0 | **SHIPPED + INSTALLED 2026-08-27.** Evidence-based XP/levels/badges/next rails/28-day cadence; old galaxy removed. Installed-native Universe passed 720×520.                                                                                                                                                                                                          | —       | L    |
 | **Accepted boundaries**     | —       | E4 Assistant stays OFF/gated with practice-only Settings guide and no Books furniture · folders declined in favor of archive/recent-first · keyboard figures rather than notation v1.                                                                                                                                                                                      | —       | —    |
+| **UI friction correction**  | v8.2.0  | Continuous virtualized Score + independent Tricky Sections scroll/auto-reveal · compact toolbar/dock/variants · explicit Clean streak/Total plays contract with honest non-mastery projection. Shipped/installed; native Score frame remains unclaimed behind an ungranted Desktop permission prompt.                                                                       | **v20** | M    |
 
 ## 7. Decisions received + remaining acceptance questions
 
@@ -597,8 +605,8 @@ flow P6. He can reorder P2–P6 at any gate.
 ## 9. Spec self-review (rev 3, done inline)
 
 Rev-3 release facts are measured in the version record. Tag `v8.1.0` is pushed at
-`0a3d6a5d339955fd7e7318299eaa6c3063674415`; private `origin/main` is current through the
-first post-tag documentation finalization `da71efb5509afa36beb073050719ac1094751b98`.
+`0a3d6a5d339955fd7e7318299eaa6c3063674415`; at that v8.1 boundary, private `origin/main` had
+reached first post-tag documentation finalization `da71efb5509afa36beb073050719ac1094751b98`.
 Consistency: the **23** statuses in §1 match the installed release; phase
 labels match §6 everywhere (P2 = micro-targets, P3 = voice, P4 = score map, P5 =
 warmups, P6 = review & flow); future schemas v17/v18/v19 assigned once each. The visibility
@@ -608,3 +616,37 @@ The remaining ambiguity is external acceptance, not an undocumented product choi
 Browser/devMock evidence includes the final 720×520 Rotation posture (`y=164` above a 56px Tools
 reserve) and the shrinkable 480px Warmups stage. Installed-native Universe at 720×520 is separately
 accepted; browser frames and Settings tests do not promote microphone/Steinway acceptance.
+
+## 10. v8.2 corrective addendum — friction is also time
+
+Christian's screenshot-level verdict re-opened the Score and composer surfaces: a correct backend
+does not make a practice UI acceptable if reaching or reading it costs time. The correction is
+therefore behavioral, not decorative.
+
+- **Continuous Score:** every scoped page owns a persistent lightweight slot; no more single-page
+  posture or giant blank canvas. Only the visible/nearby window mounts PDF canvases (maximum five),
+  the dominant visible page drives navigation, and 2-page view becomes a continuous two-column
+  overview.
+- **Independent practice rail:** the PDF and Tricky Sections list scroll separately inside one
+  bounded workspace. Expanding a section auto-reveals the practice composer in that rail.
+- **Declutter:** immediate Score controls are edition/movement, page and zoom. Layout/drawing/map
+  tools are one disclosure. Paused Sets and Rep Counter stay direct at the bottom; Clock,
+  Dynamics and Rotation move to one keyboard-accessible Tools menu. Variant presets are one
+  horizontal strip and configured variants are one 32px row each.
+- **Two honest completion contracts:** Clean streak retains mastery/ladder/variant semantics.
+  Total plays offers 5/10/15/25/Custom, holds one tempo, counts every effective verdict and
+  reverses with Undo. It may finish and auto-close the set, but must never become verified mastery,
+  a mastery badge, mastered-set aggregate or mastery animation.
+
+Schema 20 widens the saved contract basis to `total_attempts`. A disposable schema-19 copy
+preserved 242 blocks/contracts, 2,184 reps, 47 sessions and 8,283 events with integrity OK/FK0.
+Browser QA passed the five named Score/composer frames at 720×520 and 1462×919. All package,
+artifact and live schema-20 gates passed. Packaged launch was seen, but a Desktop access prompt was
+not granted, so this is still not packaged-native Score visual acceptance.
+
+### Next steps
+
+1. Finalize the v8.2 tag and remote push after documentation.
+2. Get Christian's native 720×520 and piano-use verdict on the cleaned surfaces.
+3. Continue the unchanged v8.1 external microphone, provider-mapping and sustained-motivation
+   acceptance threads.

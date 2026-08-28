@@ -1,7 +1,8 @@
 # v3 Parity Inventory — what the rewrite must not silently drop
 
 > **Status:** Historical v3.0 audit artifact. It is not the current capability registry; use the
-> Aug 8 rev-3 matrix and v8.1 completion plan for present status and acceptance gaps.
+> Aug 8 rev-3 matrix and `2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md` for present status
+> and acceptance gaps. The v8.1 completion plan is a closed historical release ledger.
 
 > Source of truth for Phase 8's audit. Every row must be reachable in the v3 frontend or carry an explicit **[approved removal]**. Derived from the v2.0.0 frontend (`src/features/*`) + the backend IPC contract (`src-tauri/src/lib.rs` handler registry). Status column filled during Phase 8.
 

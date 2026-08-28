@@ -1,5 +1,14 @@
 # P0–P2 Acceptance Record — 2026-07-09
 
+> **HISTORICAL / SUPERSEDED — do not run this as the current acceptance checklist.** This file
+> records the July P0–P2 app (including its old release-bundle path, spoken acknowledgements and
+> top-bar metronome UI). Installed truth is v8.2.0/schema 20. Use
+> `docs/qa/v8.2.0/README.md` and
+> `docs/superpowers/plans/2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md` for the current handoff:
+> repository tag/push, packaged-native Score after the Desktop-folder access choice, real
+> WKWebView microphone/Listen Back/voice-over-Steinway, one explicitly authorized provider map
+> and sustained motivation acceptance. The body below is preserved only as dated evidence.
+
 ## Verdict
 **Code-complete and verified.** All 14 plan tasks done, each gate-reviewed with fix rounds; final whole-branch review (independent, top-tier): **zero Critical, zero Important code defects**. Full gates at HEAD: cargo 105 lib + 12 integration green, clippy clean, npm 36/36, release .app builds with hear + click assets bundled and both usage strings present.
 

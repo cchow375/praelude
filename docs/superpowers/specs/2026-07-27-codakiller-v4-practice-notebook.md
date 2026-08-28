@@ -1,7 +1,8 @@
 # CodaKiller v4 — Practice Notebook OS (spec)
 
 > **Current-status note (2026-08-27):** Historical/as-built design; v4.0.0 shipped and later
-> releases supersede its live status. Current installed truth is v8.1.0/schema 19.
+> releases supersede its live status. Current installed truth is v8.2.0/schema 20; use the v8.2
+> UI-cleanse/Total-plays plan for the current handoff.
 
 Date: 2026-07-27. Source: Christian's goal dump (ledger `.workflow/LEDGER.md`, items 1–33) + his answers:
 bugs/perf first → then B/C/D; IMSLP = in-app search with link-paste fallback; **Brain → "Assistant"**,

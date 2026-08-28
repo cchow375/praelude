@@ -2,13 +2,55 @@
 
 ## Decisions
 
+- **v8.2 Score/UI cleanse and `total_attempts` are one corrective contract, not a new coaching
+  system (2026-08-27).** Christian's real UI report identified time/friction defects: Score
+  behaved like one pinned page with dead space, Tricky Sections did not own a usable scroll,
+  toolbar/dock chrome competed with the music, and each variant row/number input expanded to
+  roughly 157/80px. The source-complete correction at `afe65f3` gives Score a persistent
+  size-correct slot for every scoped page but mounts at most five nearby `PdfPage` canvases.
+  The 8-MP RGBA native fast path therefore has a five × 32,000,000-byte = 160,000,000-byte
+  (152.6 MiB) steady-state ceiling, excluding transient decode/blit scratch and the deep-zoom
+  PDF.js fallback. A late
+  cold audit corrected the older three-page/<100 MB test comment; the five-page runtime cap is
+  intentional to avoid blank/churn in tall two-column view, so no runtime rebuild was required.
+  IntersectionObserver selects the dominant visible page, direct navigation scrolls to its slot,
+  and a two-column overview remains available. The PDF pane and section rail own independent
+  bounded overflow; expanding a section scrolls its composer into the rail. Blank PencilOverlay
+  canvases mount only while Pencil is active or a page already has marks. The Score toolbar keeps
+  edition/movement, page and zoom immediate; fit/layout/drawing/mapping controls live in **Score
+  tools**. The bottom bar keeps Paused Sets and Rep Counter direct, with Clock/Dynamics/Rotation in
+  a keyboard-correct **Tools** menu. Variant presets are one horizontal chip row and saved stages
+  are fixed 32px rows.
+
+- **`total_attempts` means volume completion, never mastery (schema 20, 2026-08-27).** The Set
+  target selector offers **Clean streak** or **Total plays**. Total plays uses presets 5/10/15/25
+  plus Custom, is fixed-tempo, carries no target BPM/ladder/demotion/variants/review boundary, and
+  counts every effective non-void Clean/Sloppy/Again; Undo lowers the count. Reaching the count may
+  auto-close the set, but History, Score summaries, Universe, day aggregates and completion effects
+  must call it target completion and must not award verified-mastery evidence or a mastery badge.
+  The schema-20 migration crash-atomically widens `set_contract.mastery_basis`; projection guards
+  keep older clean-streak/variant-chain behavior exact. A disposable copy of the pre-install schema-19
+  database migrated with 242 blocks/contracts, 2,184 reps, 47 sessions and 8,283 events preserved,
+  integrity OK and zero foreign-key violations. This rehearsal does not authorize touching live
+  data and does not replace the pre-install backup/live before-after gate.
+
+- **v8.2/schema20 shipped and was installed on 2026-08-27; repository publication is the remaining
+  finalization step.** Source `afe65f3b176a1c5da81eca6d2f65bd721726ee40`; frontend 2,678
+  passed / 1 skipped, native 1,109 passed / 19 ignored; TypeScript/build/format/strict Clippy,
+  five narrated corpora and all eight release gates passed. Installed app identity/signature,
+  one-copy rule, DMG/checksum, backup/rollback, fresh launch and exact live schema-20 graph passed.
+  macOS presented a Desktop-folder access prompt during packaged launch; permission was not granted,
+  so browser Score visuals remain accepted but a packaged-native Score frame is not claimed. Tag
+  and push are pending the documentation commit.
+
 - **Cold-start authority lives in the tracked main/vault entry points, never an old lane or
   unchecked historical plan (2026-08-27).** A post-release audit found that correct v8.1 banners
   coexisted with buried v6/v7 “current” prose, an old galaxy no-levels rule, and a gitignored SDD
   ledger that still opened at P0–P2. `AGENTS.md`, `CLAUDE.md`, the vault Command Center/Roadmap,
-  the Aug 8 rev-3 spec, v8.1 completion plan and v8.1 QA record now form the cold-start chain.
+  the Aug 8 rev-3 spec, v8.2 UI-cleanse/Total-plays plan and v8.2 QA record now form the cold-start
+  chain. v8.1's completion plan/QA remain historical release evidence.
   Older plans/specs and `.workflow/LEDGER.md` carry explicit historical/superseded banners;
-  `.superpowers/sdd/progress.md` has a local v8.1 header but is gitignored and cannot outrank
+  `.superpowers/sdd/progress.md` has a local v8.2 cold-start header but is gitignored and cannot outrank
   tracked truth. Registered `.claude/worktrees/` and `~/.ck-lanes/` remain branch evidence, not
   current work. Do not resume P3–P6, the galaxy, B88/B89 or Assistant Plan C from those files.
 
@@ -24,8 +66,8 @@
   `8655e9a45d83b7bb56e83a9d14bb477da7da39a9`. DMG
   `releases/v8.1.0/CodaKiller-8.1.0.dmg` is 10,892,054 bytes, SHA-256
   `e828b861b31d771fde66cd66d48987eb66110f0fd455306a6a12c2f80eb0a271`. Release tag `v8.1.0`
-  points to `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; private `origin/main` is current
-  through the first post-tag documentation correction
+  points to `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; at that v8.1 boundary, private
+  `origin/main` had reached the first post-tag documentation correction
   `da71efb5509afa36beb073050719ac1094751b98` (later docs-only cold-start corrections may advance
   the branch without changing the release tag/source freeze). Installed-native Universe and
   Warmups passed at 720×520; the latter rendered

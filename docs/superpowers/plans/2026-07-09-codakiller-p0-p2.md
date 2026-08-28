@@ -1,7 +1,8 @@
 # CodaKiller P0–P2 Implementation Plan (Skeleton · Metronome · Voice Loop)
 
 > **Status:** Historical/as built; shipped in the initial release train. Do not treat unchecked
-> boxes or old `NEXT` lines as current. Installed truth is v8.1.0/schema 19.
+> boxes or old `NEXT` lines as current. Installed truth is v8.2.0/schema 20; use the v8.2
+> UI-cleanse/Total-plays plan for current handoff truth.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

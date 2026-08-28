@@ -9,41 +9,46 @@ stay in this repository; product truth, Roadmap, Flaws, Changelog, tutorial, and
 stay in the vault. After **every** code/doc/decision change, obey the vault UPDATE PROTOCOL before
 reporting completion.
 
-Current boundary: **v8.1.0 / schema 19 shipped and was installed on 2026-08-27**. It combines the
-remaining P3–P6 Aug 8
-train: voice reliability and counted adjustments; movements and the honest mapping flow; visual
-warmup routines; Listen Back with exclusive native capture ownership; timed section rotation;
-archive/recent-first pieces; Sound targets; and an evidence-based Universe with focused-minute
-XP, levels, badges, next milestones and 28-day cadence. B88's two surfaces and B89's replay edge
-are fixed. Final source HEAD `1a1e38bb7a3757cf90ee6ea814e93d5971c595d6`; frontend
-2,650 passed / 1 skipped / 0 failed and native 1,100 passed / 19 ignored / 0 failed; all eight
-release gates passed. The installed
-ad-hoc locally signed app and DMG verified; schema 16→19 preserved the live graph, adding only the
-hidden Warm-ups system piece. Installed-native Universe and Warmups both passed at 720×520.
-Release tag `v8.1.0` points to `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed;
-private `origin/main` is current through the post-tag documentation correction.
+Current boundary: **v8.2.0 / schema 20 SHIPPED + INSTALLED 2026-08-27**, source
+`afe65f3b176a1c5da81eca6d2f65bd721726ee40`. v8.2 is Christian's visual-cleanse correction: continuous
+virtualized Score scrolling; independent PDF/Tricky Sections scrolling with composer auto-reveal;
+a compact Score toolbar, one-line dock, and 32px variant rows; plus a clear **Clean streak / Total
+plays** contract. Total plays offers 5/10/15/25/Custom, stays fixed-tempo, counts every effective
+verdict and completes without generating mastery evidence. Clean-streak and variant-chain behavior
+is unchanged. Gates stand at frontend 2,678 passed / 1 skipped and native 1,109 passed /
+19 ignored, zero failures; TypeScript/build/format/strict Clippy are clean. A disposable schema
+19→20 rehearsal preserved 242 blocks/contracts, 2,184 reps, 47 sessions and 8,283 events with
+integrity OK/FK0. Browser QA passed at 720×520 and 1462×919. All eight release gates, installed
+identity/signature, DMG/checksum, backup/rollback, fresh launch and live schema-20 graph passed.
+The packaged app was seen launch, but macOS's Desktop-folder access prompt was not granted; do not
+claim a packaged-native Score frame behind that permission. Repository publication/tag
+finalization is the one remaining release step and is owned by the release operator.
 Assistant work remains out of scope: it stays switched off and gated as Christian's accepted
 cleanup, with a practice-only off-state Settings guide and Books/provider furniture hidden. See:
 
 - `docs/superpowers/specs/2026-08-24-aug8-practice-overhaul-design.md`
 - `docs/superpowers/plans/2026-08-27-v8.1.0-p3-p6-completion.md`
+- `docs/superpowers/plans/2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md`
 - `docs/superpowers/plans/2026-08-26-p2-micro-targets-v2-and-set-completion.md`
 - `docs/qa/v8.1.0/README.md` (browser/devMock plus scoped installed-native evidence; native audio explicitly pending)
+- `docs/qa/v8.2.0/README.md` (browser UI + release/data evidence; native Score frame pending Desktop access)
 - `docs/qa/v7.2.0/README.md`
 - `NOTES.md` (newest decision block first)
 
 **Cold-start guard:** work only from this main worktree unless Christian explicitly assigns a
 historical lane. `.claude/worktrees/`, `~/.ck-lanes/`, `.superpowers/sdd/task-*`, the old
 Foundation context, and `.workflow/LEDGER.md` are retained phase evidence, not the current
-roadmap. Do not restart P3–P6 or the v7 galaxy from those files. Current next work is external
-acceptance: an explicitly authorized real-provider measure map, real WKWebView Listen Back and
-voice-over-Steinway use, and a sustained-use verdict on the v8.1 motivation dashboard. Assistant
-Plan C remains on hold unless Christian explicitly reopens it.
+roadmap. Do not restart P3–P6, the v7 galaxy, or the source-complete v8.2 work from those files.
+Immediate work is repository tag/push finalization, then the unchanged external acceptance: an
+explicitly authorized real-provider measure map, real WKWebView Listen Back and
+voice-over-Steinway use, and a sustained-use verdict on the motivation dashboard. Assistant Plan C
+remains on hold unless Christian explicitly reopens it.
 
 Preserve the user-as-sensor boundary: speech may describe practice; the app never interprets piano
 audio as musical evidence. Preserve Christian's live history and rehearse schema changes only on
 verified disposable copies before touching the installed database. v7.2.0 kept schema 16, so no
 migration rehearsal was required for that historical release. The shipped schema-16→19 release
-required the recorded disposable-copy rehearsal, pre-install backup, rollback, integrity and
-before/after graph/count checks required by the vault release protocol. Real-provider mapping and
+required its recorded safeguards. The schema-19→20 candidate has passed a disposable-copy
+rehearsal and the installed release passed the pre-install backup, rollback, live before/after
+graph checks and fresh launch required by the vault release protocol. Real-provider mapping and
 packaged-native microphone/Steinway behavior remain acceptance boundaries even after source gates.

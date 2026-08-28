@@ -45,13 +45,17 @@ version history live in the Obsidian vault**, not here:
   corrective plan and verifier amendments; its B89 residual is fixed in the installed v8.1 source.
 - `docs/superpowers/plans/2026-08-27-v8.1.0-p3-p6-completion.md` — shipped ledger for the
   combined P3–P6 release and its remaining external acceptance facts.
+- `docs/superpowers/plans/2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md` — current corrective
+  release ledger: continuous Score, compact practice UI and non-mastery Total plays contract.
 - `docs/qa/v7.2.0/README.md` — source-candidate 720×520 evidence and its native/at-piano limits.
-- `docs/qa/v8.1.0/README.md` — current browser/devMock visual record; packaged-native microphone,
-  storage and Steinway acceptance are explicitly not inferred.
+- `docs/qa/v8.1.0/README.md` — historical v8.1 browser/devMock and scoped native visual record;
+  packaged-native microphone, storage and Steinway acceptance are explicitly not inferred.
+- `docs/qa/v8.2.0/README.md` — Score/composer browser record at 720×520 and 1462×919 plus final
+  package/data facts; native Score visual remains pending behind the ungranted Desktop permission.
 - `docs/qa/(C) v2-narrated-replay-contract.md` — old-session speech/state-machine regression
   boundary; never a piano-grading benchmark.
 - `docs/qa/` — acceptance records, regression contracts and screenshots.
-- `.superpowers/sdd/progress.md` — local/gitignored per-task ledger + carry-notes. Its v8.1
+- `.superpowers/sdd/progress.md` — local/gitignored per-task ledger + carry-notes. Its v8.2
   cold-start header is useful on this machine, but a clone may not contain it and it never
   outranks the tracked spec/plan or vault truth.
 - `README.md` — user-facing build/run/first-launch.
@@ -64,9 +68,11 @@ context, and `.workflow/LEDGER.md` are retained phase evidence; their local stat
 override this file or the vault. Do not restart P3–P6, restore the v7 galaxy, or resume Assistant
 Plan C from those records.
 
-The next honest work is external acceptance, not another hidden implementation train: one
-explicitly authorized real-provider/current-edition measure map; real WKWebView Listen Back and
-voice-over-Steinway use; and a sustained-use verdict on v8.1 XP, levels, milestones and cadence.
+The next honest work is to finalize the v8.2 tag/push, not rebuild or reinstall its source:
+continuous Score, independent Tricky Sections scrolling, compact toolbar/dock/variants and Total
+plays are shipped. After that, external acceptance remains one explicitly authorized
+real-provider/current-edition measure map; real WKWebView Listen Back and voice-over-Steinway use;
+and a sustained-use verdict on XP, levels, milestones and cadence.
 Never upload a score merely to close B5—confirm the provider/key and Christian's authorization for
 whole-edition egress first. Assistant remains OFF unless Christian explicitly reopens it.
 
@@ -85,7 +91,24 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off).
 
 ## Status (mirror of the vault; keep in sync)
 
-**v8.1.0 / schema 19 — SHIPPED + INSTALLED 2026-08-27.** The release closes the remaining Aug 8
+**v8.2.0 / schema 20 — SHIPPED + INSTALLED 2026-08-27**, source
+`afe65f3b176a1c5da81eca6d2f65bd721726ee40`. v8.2 replaces the single-page Score posture with a continuous virtualized reader;
+gives the PDF and Tricky Sections rail independent scrolling; reveals an expanded section's
+composer; condenses Score tools, the bottom dock and variant rows; and adds a keyboard-correct
+Clean streak / Total plays target selector. Total plays offers 5/10/15/25/Custom, holds fixed tempo,
+counts every effective Clean/Sloppy/Again, reverses with Undo and completes without mastery badges,
+mastery copy or mastery animation. Existing streak/chain contracts retain their exact semantics.
+
+Final gates: frontend **2,678 passed / 1 skipped / 0 failed** (212 files passed / 1 skipped), native **1,109 passed / 19
+ignored / 0 failed**; TypeScript, format, strict Clippy and build clean. Disposable schema-19→20
+rehearsal preserved 242 blocks/contracts, 2,184 reps, 47 sessions and 8,283 events; integrity OK,
+zero FK violations. All eight release-script gates, installed version/bundle/signature, one-copy
+audit, DMG/checksum, backup/rollback, fresh launch and live schema-20 count/integrity audit passed.
+Browser visual QA passed at 720×520 and 1462×919. Packaged launch was seen, but the Desktop-folder
+permission prompt was not granted, so packaged-native Score visual acceptance is not claimed.
+Repository tag/push finalization is pending.
+
+**Historical v8.1 boundary: v8.1.0 / schema 19 — SHIPPED + INSTALLED 2026-08-27.** The release closes the remaining Aug 8
 train in one coherent app: P3 voice chimes/feed/fast phrases/live settle and counted add/undo; P4
 movement CRUD/score scoping plus clear provider readiness for mapping; P5 the visual catalog,
 saved routines and real rep-engine runner; P6 Listen Back, prompt-only exact-block rotation,

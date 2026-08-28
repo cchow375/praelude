@@ -8,16 +8,20 @@ metronome — hands-free.
 
 ## Status
 
-**v8.1.0 / schema 19 shipped and was installed on 2026-08-27.** The complete Aug 8
-overhaul is now in the installed app: P3 voice reliability and counted voice adjustments; P4
-PDF movements and honest measure-map activation; P5 visual warmup catalog/routines on the real
-rep engine; and P6 Listen Back, timed section rotation, reversible archive/recent-first pieces,
-and visible Sound targets. The old galaxy has been replaced by an evidence dashboard with one
-Practice XP per completed focused minute, deterministic levels, earned badges, exact next-badge
-rails, a 28-day cadence and repertoire/technique progress. Quality verdicts never award XP.
-The audited denominator is **23 asks: 22 delivered / 1 B5 external-only / 0 absent**. “External”
-means the mapping flow is installed but a real provider-backed map still needs authorization,
-provider readiness and one reviewed Apply; it does not mean the source path is missing.
+**v8.2.0 / schema 20 shipped and was installed on 2026-08-27.** Christian's visual-cleanse round
+is frozen at source commit `afe65f3b176a1c5da81eca6d2f65bd721726ee40`: Score is now a continuous,
+virtualized reader instead of a one-page canvas with dead space; the PDF and Tricky Sections rail
+scroll independently; opening a section reveals its composer; and the toolbar, bottom dock,
+variant editor and composer have been compressed around the actions used during practice.
+
+The composer also gains an explicit **Clean streak / Total plays** choice. Total plays offers
+5 / 10 / 15 / 25 / Custom, stays at one fixed tempo, hides ladder/variant controls, counts every
+effective Clean/Sloppy/Again and lets Undo remove one. Reaching the count completes the set but
+does **not** become mastery evidence, a mastery badge, or a mastery completion animation. Existing
+clean-streak and variant-chain semantics are unchanged. Schema 20 widens the saved contract basis
+to represent `total_attempts`; a disposable copy of the pre-install schema-19 data migrated with 242
+blocks/contracts, 2,184 reps, 47 sessions and 8,283 events preserved, integrity OK and zero
+foreign-key violations.
 
 The final corrective edges are installed too: verdict-hotkey remaps apply to the live HUD after
 Save; every set can override tempo demotion; the running HUD has a quick subdivision control; and
@@ -28,27 +32,35 @@ only the hands-free practice lane, hides Books/provider-only furniture, and leav
 control under Voice plus the enable switch discoverable. Piece folders remain deliberately
 deferred in favor of archive + recent-first sort.
 
-At the supported 720×520 floor, Warmups shrinks within the effective 480px stage and tucks only
+At the supported 720×520 floor, the cleaned Score/composer/variant layouts passed browser QA; the
+same Score reader also passed at 1462×919. Warmups still shrinks within the effective 480px stage and tucks only
 the expanded Rep Counter into Tools without touching the active set; Rotation clamps an unsafe
 restored/collision position to `y=164`, leaving a 56px Tools reserve. Browser/devMock evidence
 and installed-native evidence remain labelled separately in `docs/qa/v8.1.0/README.md`. The final
 installed-native pass accepted both Universe and Warmups: the Rep Counter tucks into Tools without
 ending or changing the active set, and both views remain clear of overlay and clipping.
 
-**Release evidence:** final source HEAD
-`1a1e38bb7a3757cf90ee6ea814e93d5971c595d6` (the `9a4aeba…` release commit plus compact-Warmups
-corrections); frontend **2,650 passed / 1 skipped / 0 failed** (209 files passed / 1 skipped);
-native **1,100 passed / 19 ignored / 0 failed**; TypeScript, format, strict Clippy, production build, five
-narrated corpora and all eight release-script gates passed. The installed ad-hoc locally signed
-app at `/Applications/CodaKiller.app` has version/build 8.1.0, bundle id
-`com.christian.codakiller`, strict signature PASS and CDHash
-`8655e9a45d83b7bb56e83a9d14bb477da7da39a9`; it is not Developer ID signed or notarized.
-DMG `releases/v8.1.0/CodaKiller-8.1.0.dmg` is 10,892,054 bytes, SHA-256
-`e828b861b31d771fde66cd66d48987eb66110f0fd455306a6a12c2f80eb0a271`.
+**v8.2 release evidence:** frontend **2,678 passed / 1 skipped / 0 failed** (212 files passed / 1
+skipped); native **1,109
+passed / 19 ignored / 0 failed**; TypeScript, production build, format and strict Clippy are
+clean; five narrated corpora produced zero false mutations; all eight release-script gates passed.
+The installed app at `/Applications/CodaKiller.app` reports version/build 8.2.0, bundle id
+`com.christian.codakiller`, strict ad-hoc signature PASS and CDHash
+`4f4a8e3947efc00e4845ee085564f2724ff378a6`. DMG
+`releases/v8.2.0/CodaKiller-8.2.0.dmg` is 10,903,545 bytes, SHA-256
+`1139ad6ed3452b2c004db3f4e8c22849eacb27e72fcbb0ddc93638d6720998eb`; the one-copy rule passed.
+Browser QA is recorded in `docs/qa/v8.2.0/README.md`. Fresh packaged launch succeeded, but macOS
+presented a Desktop-folder access prompt and that sensitive permission was not granted, so a
+packaged-native Score screenshot behind the file permission is honestly not claimed.
 
-Fresh launch migrated schema 16→19 with integrity/FKs clean. Pieces changed 10→11 only for hidden
-`id=0` Warm-ups; 230 blocks / 2,034 reps / 46 sessions / 7,873 events / 1 open session were
-preserved, and movement/routine/replay tables plus `measure_map` remain empty. Release tag
+Fresh installed launch migrated schema 19→20 with integrity/FKs clean and preserved exactly 11
+pieces (10 repertoire + hidden Warm-ups), 242 blocks/contracts, 2,184 reps, 47 sessions and 8,283
+events; zero sessions/contracts were open, and movement/routine/replay tables plus `measure_map`
+remain empty. Pre-install backup: 23,146,496 bytes, SHA-256
+`e2ba204263a9413b073ea5cab3b8fc2192ea7dcb42fda90012a0c0d08b660d0e`. The v8.1 rollback archive
+is 10,041,913 bytes, SHA-256
+`2960fd90cda9e24583a4661d7ad2672041e896f533d2b979c0cf3897291c751b`. Repository publication is
+the only release-finalization step still pending; the previous release tag
 `v8.1.0` points to `0a3d6a5d339955fd7e7318299eaa6c3063674415` and is pushed; private
 `origin/main` was verified through post-tag documentation finalization
 `da71efb5509afa36beb073050719ac1094751b98` before this cold-start documentation sweep. Later
@@ -56,6 +68,7 @@ documentation-only commits may advance the branch; the immutable release tag and
 hash above remain the release identities. Real-provider measure mapping is still
 unproven on Christian's live scores (no Anthropic key and zero live `measure_map` rows at the last
 audit), and Listen Back/voice still require packaged-native microphone and Steinway acceptance.
+Those inherited external gaps are unchanged by this frontend-focused release.
 
 The Assistant remains switched off and gated at Christian's request. Canonical product truth
 lives in the Obsidian vault; start at
@@ -104,11 +117,17 @@ On first launch macOS will prompt for two permissions — grant both:
 - **Microphone** — required to hear you during practice.
 - **Speech Recognition** — required to transcribe what you say.
 
+When you open an external score PDF stored in **Desktop**, macOS may separately ask whether
+CodaKiller may access that folder. This is conditional, not a blanket first-launch requirement:
+grant it only if you want the app to read scores from that location. Declining is valid and leaves
+the rest of the app usable, but that score cannot render until you choose a permitted location or
+allow access.
+
 Voice input relies on macOS Dictation. If it's disabled, voice commands
 will report `dictation-disabled`. Enable it under **System Settings →
 Keyboard → Dictation**.
 
-The mic glyph in the top bar reflects live status:
+The labelled mic control in the left rail reflects live status:
 
 - **live** — listening normally.
 - **muted** — you've manually muted the mic.

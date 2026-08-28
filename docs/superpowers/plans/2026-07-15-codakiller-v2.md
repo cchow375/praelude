@@ -2,7 +2,8 @@
 
 > **Status:** Historical/superseded execution ledger. The standalone `v2.0.0` target was not
 > tagged; its implementation lineage continued into shipped v3.0.0 and later releases. Do not
-> resume unchecked tasks from this plan as current work; use the v8.1 completion plan.
+> resume unchecked tasks from this plan as current work. Installed truth is v8.2.0/schema 20; use
+> `2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md` for the current handoff.
 > **Date:** 2026-07-15 · **Target:** v2.0.0 / P7  
 > **Design:** `docs/superpowers/specs/2026-07-15-codakiller-v2-transformation-design.md`  
 > **Product gates:** vault `(C) v2 Acceptance Matrix.md`  

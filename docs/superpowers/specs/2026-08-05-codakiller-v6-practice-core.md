@@ -1,8 +1,10 @@
 # CodaKiller v6.0 — Practice Core (approved design)
 
-> **Status:** Historical/as built. Approved 2026-08-05 and shipped in v6.0.0; later v8.1.0
-> source is the current installed boundary. Unproven real-provider measure mapping and
-> voice/Steinway acceptance remain external gaps rather than unfinished v6 implementation.
+> **Status:** Historical/as built. Approved 2026-08-05 and shipped in v6.0.0. Current installed
+> truth is v8.2.0/schema 20; use
+> `../plans/2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md` for the current handoff. Unproven
+> real-provider measure mapping and voice/Steinway acceptance remain external gaps rather than
+> unfinished v6 implementation.
 > **Source:** Christian's July 31 goal dump (quoted in `(C) Changelog` on processing), the
 > fifth real-use feedback round. **Sibling decision:** v7.0 "Motivation Layer" scope is
 > agreed-deferred (see Non-goals) — do not build any of it in v6.
