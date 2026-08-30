@@ -14,8 +14,7 @@ import { installTauriDevMock, uninstallTauriDevMock } from "./tauriDevMock";
 //    raw `throw new Error(...)` that is NOT funneled through the mock's
 //    `asRejectionString` helper. It rejects with the Error OBJECT itself
 //    (not a plain string), so assertions below use `.rejects.toThrow(...)`
-//    rather than `.rejects.toBe(...)` (contrast with book_add's plain-string
-//    rejections).
+//    rather than `.rejects.toBe(...)` (used by plain-string rejection paths).
 // 2. The `SCORE_MARKS` map and its `nextMarkId` counter are module-level and
 //    are NEVER reset by installTauriDevMock()/uninstallTauriDevMock() (unlike
 //    REGIONS, CLIENT_RASTER_SERVED, etc., which the install path explicitly

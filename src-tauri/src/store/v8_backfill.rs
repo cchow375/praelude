@@ -25,7 +25,7 @@ pub(crate) fn backfill_v8(conn: &Connection) -> rusqlite::Result<BackfillStats> 
          ('default-consecutive-clean-v1',1,'Five clean in a row',
           'A configurable stabilization starting point; attempts are not mastery.',
           'consecutive_clean',5,1,1,'none',0,5,'{}',NULL,NULL,NULL,
-          '[\"Gebrian, Chapter 1: Pathways and practicing\"]',1)",
+          '[]',1)",
         [],
     )?;
 

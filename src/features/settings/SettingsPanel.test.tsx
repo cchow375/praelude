@@ -14,7 +14,6 @@ import {
   type SettingsSnapshot,
 } from "./SettingsPanel";
 import { ReceiptCenterProvider } from "../receipts/ReceiptCenter";
-import type { BooksApi, BookRecord } from "./BooksPanel";
 import { resetDockLayout } from "../dock/dockState";
 import { subscribeCommittedSettings } from "../../state/settings";
 
@@ -44,8 +43,6 @@ const snapshot: SettingsSnapshot = {
   tts_provider: "auto",
   tts_voice: "Kore",
   brain_provider: "auto",
-  knowledge_dir: "/vault/Knowledge and Resources",
-  share_retrieved_knowledge: true,
   assistant_enabled: true,
   wake_word_enabled: false,
   wake_word: "coda",
@@ -170,9 +167,6 @@ describe("SettingsPanel", () => {
     fireEvent.change(screen.getByLabelText("Interface scale"), {
       target: { value: "80" },
     });
-    fireEvent.click(
-      screen.getByRole("checkbox", { name: /Share retrieved knowledge/ }),
-    );
     fireEvent.change(screen.getByLabelText("Default clean streak"), {
       target: { value: "7" },
     });
@@ -183,8 +177,6 @@ describe("SettingsPanel", () => {
           theme: "dark",
           interface_scale: 80,
           practice_default_clean_streak: 7,
-          knowledge_dir: "/vault/Knowledge and Resources",
-          share_retrieved_knowledge: false,
         }),
       ),
     );
@@ -263,12 +255,18 @@ describe("SettingsPanel", () => {
       ).checked,
     ).toBe(true);
     expect(
-      (screen.getByLabelText("First demotion after sloppy reps") as HTMLInputElement)
-        .value,
+      (
+        screen.getByLabelText(
+          "First demotion after sloppy reps",
+        ) as HTMLInputElement
+      ).value,
     ).toBe("3");
     expect(
-      (screen.getByLabelText("Later demotions after sloppy reps") as HTMLInputElement)
-        .value,
+      (
+        screen.getByLabelText(
+          "Later demotions after sloppy reps",
+        ) as HTMLInputElement
+      ).value,
     ).toBe("2");
   });
 
@@ -373,77 +371,25 @@ describe("SettingsPanel", () => {
     ).toBeNull();
   });
 
-  // B72: the "Add a book" group used to be a nested <form>, invalid HTML
-  // inside the settings <form> and browser-defined submit semantics.
-  it("keeps the Books add group out of the settings form (no nested form, B72)", async () => {
-    const added: BookRecord = {
-      id: "added-1",
-      file_name: "focus.md",
-      title: "On Focus",
-      author: "",
-      kind: "practice-method",
-      visual_dependency: false,
-      available: true,
-    };
-    const booksApi: BooksApi = {
-      list: vi.fn().mockResolvedValue([]),
-      add: vi.fn().mockResolvedValue(added),
-      remove: vi.fn().mockResolvedValue(undefined),
-    };
-    const { container } = render(
-      <SettingsPanel api={api()} booksApi={booksApi} />,
-    );
-    await screen.findByText(/dark practice-room interface/i);
-
-    // Open the Books disclosure.
-    fireEvent.click(screen.getByText("Books"));
-    await screen.findByText("No books yet.");
-
-    // Structural regression check: no <form> nested inside another <form>.
-    expect(container.querySelectorAll("form form").length).toBe(0);
-
-    // The add flow still works end-to-end from outside the settings form.
-    fireEvent.change(screen.getByLabelText("Markdown file path"), {
-      target: { value: "/vault/Knowledge/focus.md" },
-    });
-    fireEvent.change(screen.getByLabelText("Book title"), {
-      target: { value: "On Focus" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Add book" }));
-
-    await waitFor(() =>
-      expect(booksApi.add).toHaveBeenCalledWith({
-        path: "/vault/Knowledge/focus.md",
-        title: "On Focus",
-        author: "",
-        kind: "practice-method",
-      }),
-    );
-  });
-
-
   // -- Assistant toggle (Christian's 2026-08-24 "off by default" request) --
 
-  it("shows the Assistant checkbox plus BrainConnection and its other controls when enabled", async () => {
+  it("shows provider controls but no Knowledge or Books surfaces when enabled", async () => {
     render(<SettingsPanel api={api({ assistant_enabled: true })} />);
     await screen.findByText(/dark practice-room interface/i);
 
-    expect(
-      screen.getByRole("checkbox", { name: /^Assistant$/ }),
-    ).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: /^Assistant$/ })).toBeTruthy();
     expect(
       await screen.findByRole("button", { name: "Test connection" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("checkbox", { name: /Share retrieved knowledge/ }),
-    ).toBeTruthy();
-    expect(
       screen.getByRole("combobox", { name: "Assistant provider" }),
     ).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Claude API key" })).toBeTruthy();
+    expect(screen.queryByLabelText("Knowledge folder")).toBeNull();
     expect(
-      screen.getByRole("region", { name: "Claude API key" }),
-    ).toBeTruthy();
-    expect(screen.getByText("Books")).toBeTruthy();
+      screen.queryByRole("checkbox", { name: /Share retrieved knowledge/ }),
+    ).toBeNull();
+    expect(screen.queryByText("Books")).toBeNull();
   });
 
   it("hides BrainConnection and every other Assistant control when disabled, leaving only the toggle", async () => {
@@ -463,9 +409,7 @@ describe("SettingsPanel", () => {
       screen.queryByRole("combobox", { name: "Assistant provider" }),
     ).toBeNull();
     expect(screen.queryByLabelText("Knowledge folder")).toBeNull();
-    expect(
-      screen.queryByRole("region", { name: "Claude API key" }),
-    ).toBeNull();
+    expect(screen.queryByRole("region", { name: "Claude API key" })).toBeNull();
     expect(screen.queryByText("Books")).toBeNull();
 
     const assistantDisclosure = toggle.closest("details");
@@ -493,8 +437,11 @@ describe("SettingsPanel", () => {
 
     // The mapping ships ON and readable, spelled the way Christian says it.
     expect(
-      (screen.getByRole("checkbox", { name: "Verdict hotkeys" }) as
-        HTMLInputElement).checked,
+      (
+        screen.getByRole("checkbox", {
+          name: "Verdict hotkeys",
+        }) as HTMLInputElement
+      ).checked,
     ).toBe(true);
     const sloppy = screen.getByLabelText("Sloppy hotkey") as HTMLInputElement;
     expect(sloppy.value).toBe("Right-Shift");

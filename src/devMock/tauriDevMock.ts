@@ -40,12 +40,14 @@ import type {
   BlockHistory,
   Goal,
   PieceDetailData,
+  PieceFolder,
   PieceMovement,
   PieceSummary,
   ProgressSummary,
   Region,
   Rep,
 } from "../features/pieces/types";
+
 import type {
   CheckOutcome,
   RepOpenArgs,
@@ -67,6 +69,11 @@ import {
   type PiecePlan,
 } from "../features/notebook/lines";
 import { BANNER_MAX_CHARS } from "../features/score/bannerText";
+
+// Release cleanliness sentinel. Production builds statically dead-strip this
+// module; the share-clean gate rejects any artifact that contains this marker.
+const DEV_MOCK_BUNDLE_SENTINEL = "codakiller.dev_mock.fixture";
+void DEV_MOCK_BUNDLE_SENTINEL;
 
 /** Local YYYY-MM-DD, matching calendar/dates.ts `todayLocal()`. */
 function todayLocal(): string {
@@ -147,6 +154,18 @@ const PIECES: PieceSummary[] = [
 // library mutations into one another.
 const MOCK_ARCHIVED_PIECES = new Map<number, number>();
 const MOCK_DELETED_PIECES = new Set<number>();
+const MOCK_COMPLETED_PIECES = new Map<number, number>();
+const MOCK_PIECE_FOLDER = new Map<number, number | null>();
+let mockCreatedPieces: PieceSummary[] = [];
+let mockCreatedDetails: Record<number, PieceDetailData> = {};
+let mockPieceNextId = 20;
+const SEED_PIECE_FOLDERS: PieceFolder[] = [
+  { id: 1, name: "Classical", parent_id: null },
+  { id: 2, name: "Romantic", parent_id: null },
+  { id: 3, name: "Chopin", parent_id: 2 },
+];
+let mockPieceFolders: PieceFolder[] = [];
+let mockPieceFolderNextId = 10;
 const SEED_MOVEMENTS: Record<number, PieceMovement[]> = {
   1: [
     {
@@ -169,14 +188,36 @@ let mockMovements: Record<number, PieceMovement[]> = {};
 let mockMovementNextId = 20;
 
 function mockPieceList(includeArchived = false): PieceSummary[] {
-  return PIECES.filter(
-    (piece) =>
-      !MOCK_DELETED_PIECES.has(piece.id) &&
-      (includeArchived || !MOCK_ARCHIVED_PIECES.has(piece.id)),
-  ).map((piece) => ({
-    ...piece,
-    archived_at: MOCK_ARCHIVED_PIECES.get(piece.id) ?? null,
-  }));
+  return [...PIECES, ...mockCreatedPieces]
+    .filter(
+      (piece) =>
+        !MOCK_DELETED_PIECES.has(piece.id) &&
+        (includeArchived || !MOCK_ARCHIVED_PIECES.has(piece.id)),
+    )
+    .map((piece) => ({
+      ...piece,
+      archived_at: MOCK_ARCHIVED_PIECES.get(piece.id) ?? null,
+      completed_at: MOCK_COMPLETED_PIECES.get(piece.id) ?? null,
+      folder_id: MOCK_PIECE_FOLDER.get(piece.id) ?? null,
+    }));
+}
+
+function mockPieceDetail(id: number): PieceDetailData | null {
+  const detail = PIECE_DETAILS[id] ?? mockCreatedDetails[id];
+  if (!detail || MOCK_DELETED_PIECES.has(id)) return null;
+  return {
+    ...detail,
+    archived_at: MOCK_ARCHIVED_PIECES.get(id) ?? null,
+    completed_at: MOCK_COMPLETED_PIECES.get(id) ?? null,
+    folder_id: MOCK_PIECE_FOLDER.get(id) ?? null,
+  };
+}
+
+function mockFolderDescendants(id: number): number[] {
+  const direct = mockPieceFolders
+    .filter((folder) => folder.parent_id === id)
+    .map((folder) => folder.id);
+  return direct.flatMap((child) => [child, ...mockFolderDescendants(child)]);
 }
 
 // Canned IMSLP add-a-score data for the dev harness (no network). The search
@@ -1248,8 +1289,8 @@ function repPauseReceipt(
 // rejection, not a thrown error — real rejections like "only a paused
 // practice set can resume" arrive exactly this way, per lib.rs's
 // `rejected_snapshot`). Distinct from the mock's plain-string-throw
-// convention (e.g. `book_add`'s validation failures): this is a rejected
-// PROMISE RESOLUTION carrying a receipt, not a thrown/rejected promise.
+// convention elsewhere: this is a rejected PROMISE RESOLUTION carrying a
+// receipt, not a thrown/rejected promise.
 let mockResumeRejects = false;
 
 /** Test-only: flip whether the next `rep_resume` mock call rejects the
@@ -1629,8 +1670,8 @@ function repOpenSnapshot(args: unknown, context: unknown): RepSnapshot {
       attemptTarget != null
         ? attemptTarget
         : variants.length > 0
-        ? variants.reduce((sum, variant) => sum + variant.reps, 0)
-        : (a.planned_reps ?? requiredCleanStreak),
+          ? variants.reduce((sum, variant) => sum + variant.reps, 0)
+          : (a.planned_reps ?? requiredCleanStreak),
     focus: a.focus ?? MOCK_REP_STATE.focus,
     use_metronome: a.use_metronome ?? MOCK_REP_STATE.use_metronome,
     tuning: a.tuning ?? MOCK_REP_STATE.tuning,
@@ -1921,193 +1962,6 @@ function resetMockRepLedger(): void {
     ...MOCK_REP_STATE,
     set_state: mockSetState,
     timer_state: mockSetState,
-  };
-}
-
-// Books panel (D3): the four built-ins the native manifest bootstraps, plus any
-// books added this session. In-memory only — a reload restores the built-ins,
-// which mirrors the native "bootstrap from built-ins on first read" behaviour.
-interface MockBook {
-  id: string;
-  file_name: string;
-  title: string;
-  author: string;
-  kind: "practice-method" | "composer-life" | "interpretation";
-  visual_dependency: boolean;
-  available: boolean;
-}
-let mockBooks: MockBook[] = [
-  {
-    id: "roskell-complete-pianist",
-    file_name: "the-complete-pianist.md",
-    title: "The Complete Pianist",
-    author: "Penelope Roskell",
-    kind: "practice-method",
-    visual_dependency: true,
-    available: true,
-  },
-  {
-    id: "gebrian-learn-faster",
-    file_name: "learn-faster-perform-better.md",
-    title: "Learn Faster, Perform Better",
-    author: "Molly Gebrian",
-    kind: "practice-method",
-    visual_dependency: false,
-    available: true,
-  },
-  {
-    id: "breth-effective-practicing",
-    file_name: "the-piano-students-guide-to-effective-practicing.md",
-    title: "The Piano Student's Guide to Effective Practicing",
-    author: "Nancy O'Neill Breth",
-    kind: "practice-method",
-    visual_dependency: true,
-    available: true,
-  },
-  {
-    id: "gieseking-leimer-technique",
-    file_name: "gieseking-leimer-piano-technique.md",
-    title: "Piano Technique",
-    author: "Walter Gieseking and Karl Leimer",
-    kind: "interpretation",
-    visual_dependency: true,
-    available: true,
-  },
-];
-
-/** Add a book to the in-memory manifest, echoing the native validation. */
-function mockBookAdd(args: unknown): MockBook {
-  const record = (args ?? {}) as Record<string, unknown>;
-  const path = String(record.path ?? "").trim();
-  const title = String(record.title ?? "").trim();
-  const author = String(record.author ?? "").trim();
-  const kind = record.kind as MockBook["kind"];
-  if (!title) throw "A book needs a title.";
-  if (!path.toLowerCase().endsWith(".md")) {
-    throw "Only Markdown (.md) files can be added to the library.";
-  }
-  const fileName = path.split("/").pop() || `${title}.md`;
-  const book: MockBook = {
-    id: `added-${Date.now()}`,
-    file_name: fileName,
-    title,
-    author,
-    kind: kind ?? "practice-method",
-    visual_dependency: false,
-    available: true,
-  };
-  mockBooks = [...mockBooks, book];
-  return book;
-}
-
-/**
- * Canned `assistant_suggest` response (C4 passage-helper). Reads `expandOf`,
- * `description`, and `pieceId` off the invoke args (camelCase, as Tauri maps
- * them). In expand mode it returns exactly one fuller ≤3-line row; otherwise it
- * returns three one-line strategies, one cited into the corpus
- * (`roskell-complete-pianist`) so the reader marker is exercised. Mirrors the
- * native shape: `{ suggestions: [{ id, text, source_id?, source_author?,
- * source_heading? }] }`.
- */
-function mockAssistantSuggest(args: unknown): {
-  suggestions: {
-    id: string;
-    text: string;
-    source_id?: string;
-    source_author?: string;
-    source_heading?: string;
-  }[];
-} {
-  const record = (args ?? {}) as Record<string, unknown>;
-  const expandOf =
-    typeof record.expandOf === "string" ? record.expandOf.trim() : "";
-  const stamp = Date.now();
-  if (expandOf) {
-    return {
-      suggestions: [
-        {
-          id: `mock-suggest-${stamp}`,
-          text: "Play the leap hand alone, five times, stopping silently on the landing chord.\nThen add the beat before it at half tempo.\nRaise the tempo only after three clean, unhurried arrivals.",
-        },
-      ],
-    };
-  }
-  return {
-    suggestions: [
-      {
-        id: `mock-suggest-${stamp}-1`,
-        text: "Practice hands separately at half tempo, watching the landing shape.",
-      },
-      {
-        id: `mock-suggest-${stamp}-2`,
-        text: "Place a silent landing before the leap so the arm learns the distance.",
-        source_id: "roskell-complete-pianist",
-        source_author: "Penelope Roskell",
-        source_heading: "Leaps and lateral movements",
-      },
-      {
-        id: `mock-suggest-${stamp}-3`,
-        text: "Chunk the passage into two-note cells, then join them at tempo.",
-      },
-    ],
-  };
-}
-
-/**
- * Canned `book_excerpt` response (D2 reader). For any sourceId this returns a
- * multi-paragraph section with a heading, weaving the requested `contains` quote
- * into a middle paragraph so the reader can anchor it. The heading-less OCR book
- * (`gieseking-leimer-technique`) instead returns a HUGE whole-book body with
- * heading:"" so the reader's client-side windowing (±paragraphs + Show more) is
- * exercisable in the dev harness with no vault present.
- */
-function mockBookExcerpt(args: unknown): {
-  source_id: string;
-  title: string;
-  author: string;
-  heading: string;
-  text: string;
-} {
-  const record = (args ?? {}) as Record<string, unknown>;
-  const sourceId = String(record.sourceId ?? record.source_id ?? "mock-book");
-  const contains =
-    typeof record.contains === "string" && record.contains.trim() !== ""
-      ? record.contains.trim()
-      : "Slow practice is fast learning.";
-  const book = mockBooks.find((b) => b.id === sourceId);
-  const author = book?.author ?? "A Piano Pedagogue";
-  const title = book?.title ?? "A Practice Method";
-
-  if (sourceId === "gieseking-leimer-technique") {
-    // No headings in the OCR source → whole-book body, heading "". Padded well
-    // past the reader's window threshold so windowing must engage.
-    const filler = Array.from(
-      { length: 40 },
-      (_, i) =>
-        `Paragraph ${i + 1}. Visualize the passage away from the keyboard, ` +
-        "hearing each voice before the hands move; the ear leads and the " +
-        "fingers merely obey what the mind has already made concrete.",
-    );
-    const body = [...filler.slice(0, 20), contains, ...filler.slice(20)].join(
-      "\n\n",
-    );
-    return { source_id: sourceId, title, author, heading: "", text: body };
-  }
-
-  const text = [
-    "Practising is not the same as playing through. A rehearsal that only " +
-      "repeats what you can already do is a comfortable way to avoid the work.",
-    `${contains} The point is deliberate attention on the one thing that is ` +
-      "not yet secure, at a speed slow enough that no error is rehearsed.",
-    "When the passage is reliable three times in a row, and only then, let " +
-      "the tempo rise by a small, honest increment.",
-  ].join("\n\n");
-  return {
-    source_id: sourceId,
-    title,
-    author,
-    heading: "Practising: healthy, effective and inspired",
-    text,
   };
 }
 
@@ -2409,8 +2263,6 @@ const SETTINGS_SNAPSHOT = {
   tts_provider: "auto" as const,
   tts_voice: "Kore",
   brain_provider: "auto" as const,
-  knowledge_dir: "/dev-mock/Knowledge and Resources",
-  share_retrieved_knowledge: true,
   // The dev-mock harness exercises the Assistant surfaces by default (unlike
   // the real backend, whose default flipped to off — Christian's 2026-08-24
   // request). settings_update's generic merge already honors a patch here.
@@ -3892,7 +3744,6 @@ function routeCommand(cmd: string, args: unknown): unknown {
             excerpt: "Development: recent work at 84 BPM with mixed outcomes.",
           },
         ],
-        methods: [],
         intake_review: null,
         proposed_action: null,
         grounding: {
@@ -3901,9 +3752,6 @@ function routeCommand(cmd: string, args: unknown): unknown {
           measure_range: [65, 96],
           recent_rep_count: mockAttempts,
           active_block_included: true,
-          knowledge_status: "ready",
-          knowledge_shared_with_provider: false,
-          knowledge_sources: ["Practice history"],
           musicxml_status: "ready",
           warnings: ["Browser mock response; native provider was not called."],
         },
@@ -3960,35 +3808,11 @@ function routeCommand(cmd: string, args: unknown): unknown {
       mockRepReplays = mockRepReplays.filter((replay) => replay.id !== id);
       return null;
     }
-    // Passage-helper (C4): canned strategies, one cited into the corpus so the
-    // reader marker is exercised. In expand mode return one fuller ≤3-line row.
-    case "assistant_suggest":
-      return mockAssistantSuggest(args);
     case "api_key_save":
       return apiKeyStatus(args, true);
     case "api_key_clear":
       return apiKeyStatus(args, false);
 
-    // Books panel (D3): data-driven corpus registry.
-    case "books_list":
-      return mockBooks;
-    case "book_add":
-      // Native validation failures arrive as rejected promises; mirror that so
-      // the seam never throws synchronously out of `invoke`.
-      try {
-        return mockBookAdd(args);
-      } catch (reason) {
-        return Promise.reject(reason);
-      }
-    case "book_remove": {
-      const id = String(((args ?? {}) as { id?: unknown }).id ?? "");
-      mockBooks = mockBooks.filter((book) => book.id !== id);
-      return null;
-    }
-    // Excerpt reader (D2): canned section for any book; the OCR book returns a
-    // huge heading-less body to exercise client-side windowing.
-    case "book_excerpt":
-      return mockBookExcerpt(args);
     case "rep_state":
       return mockRepIsOpen ? { ...mockRepSnapshot } : null;
     // Task A10: the composer/block-open flow's single write. Round-trips
@@ -4076,6 +3900,162 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return mockPieceList(Boolean(argsRecord(args).includeArchived));
     case "pieces_scan":
       return mockPieceList(false);
+    case "piece_folders_list":
+      return mockPieceFolders.map((folder) => ({ ...folder }));
+    case "piece_folder_create": {
+      const record = argsRecord(args);
+      const name = String(record.name ?? "").trim();
+      const parentId = record.parentId == null ? null : Number(record.parentId);
+      if (!name) throw "folder name cannot be empty";
+      if (
+        parentId != null &&
+        !mockPieceFolders.some((folder) => folder.id === parentId)
+      )
+        throw `folder ${parentId} not found`;
+      if (
+        mockPieceFolders.some(
+          (folder) =>
+            folder.parent_id === parentId &&
+            folder.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+        )
+      )
+        throw "a folder with that name already exists here";
+      const folder = {
+        id: (mockPieceFolderNextId += 1),
+        name,
+        parent_id: parentId,
+      };
+      mockPieceFolders.push(folder);
+      return { ...folder };
+    }
+    case "piece_folder_rename": {
+      const record = argsRecord(args);
+      const id = Number(record.id);
+      const name = String(record.name ?? "").trim();
+      const folder = mockPieceFolders.find((candidate) => candidate.id === id);
+      if (!folder) throw `folder ${id} not found`;
+      if (!name) throw "folder name cannot be empty";
+      if (
+        mockPieceFolders.some(
+          (candidate) =>
+            candidate.id !== id &&
+            candidate.parent_id === folder.parent_id &&
+            candidate.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+        )
+      )
+        throw "a folder with that name already exists here";
+      folder.name = name;
+      return { ...folder };
+    }
+    case "piece_folder_reparent": {
+      const record = argsRecord(args);
+      const id = Number(record.id);
+      const parentId = record.parentId == null ? null : Number(record.parentId);
+      const folder = mockPieceFolders.find((candidate) => candidate.id === id);
+      if (!folder) throw `folder ${id} not found`;
+      if (
+        parentId === id ||
+        (parentId != null && mockFolderDescendants(id).includes(parentId))
+      )
+        throw "a folder cannot be moved inside itself";
+      if (
+        parentId != null &&
+        !mockPieceFolders.some((candidate) => candidate.id === parentId)
+      )
+        throw `folder ${parentId} not found`;
+      folder.parent_id = parentId;
+      return { ...folder };
+    }
+    case "piece_folder_delete": {
+      const id = Number(argsRecord(args).id);
+      const folder = mockPieceFolders.find((candidate) => candidate.id === id);
+      if (!folder) throw `folder ${id} not found`;
+      for (const child of mockPieceFolders) {
+        if (child.parent_id === id) child.parent_id = folder.parent_id;
+      }
+      for (const [pieceId, folderId] of MOCK_PIECE_FOLDER) {
+        if (folderId === id) MOCK_PIECE_FOLDER.set(pieceId, folder.parent_id);
+      }
+      mockPieceFolders = mockPieceFolders.filter(
+        (candidate) => candidate.id !== id,
+      );
+      return mockPieceFolders.map((candidate) => ({ ...candidate }));
+    }
+    case "piece_move": {
+      const record = argsRecord(args);
+      const id = Number(record.id);
+      const folderId = record.folderId == null ? null : Number(record.folderId);
+      if (!mockPieceDetail(id)) throw `piece ${id} not found`;
+      if (
+        folderId != null &&
+        !mockPieceFolders.some((folder) => folder.id === folderId)
+      )
+        throw `folder ${folderId} not found`;
+      MOCK_PIECE_FOLDER.set(id, folderId);
+      return mockPieceDetail(id);
+    }
+    case "piece_complete_set": {
+      const record = argsRecord(args);
+      const id = Number(record.id);
+      if (!mockPieceDetail(id)) throw `piece ${id} not found`;
+      if (record.completed === true)
+        MOCK_COMPLETED_PIECES.set(id, Math.floor(Date.now() / 1000));
+      else MOCK_COMPLETED_PIECES.delete(id);
+      return mockPieceDetail(id);
+    }
+    case "piece_create_from_pdf": {
+      const record = argsRecord(args);
+      const title = String(record.title ?? "").trim();
+      const composer =
+        record.composer == null ? null : String(record.composer).trim() || null;
+      const sourcePath = String(record.sourcePath ?? "").trim();
+      const folderId = record.folderId == null ? null : Number(record.folderId);
+      if (!title) throw "piece title cannot be empty";
+      if (!sourcePath) throw "choose a PDF first";
+      if (
+        folderId != null &&
+        !mockPieceFolders.some((folder) => folder.id === folderId)
+      )
+        throw `folder ${folderId} not found`;
+      const id = (mockPieceNextId += 1);
+      const summary: PieceSummary = {
+        id,
+        title,
+        composer,
+        has_xml: false,
+        has_pdf: true,
+        intake_done: true,
+        folder_id: folderId,
+        completed_at: null,
+        archived_at: null,
+      };
+      const detail: PieceDetailData = {
+        ...summary,
+        folder_path: `/dev-mock/${id}`,
+        xml_path: null,
+        pdf_path: `/dev-mock/${id}/score/${sourcePath.split(/[\\/]/).filter(Boolean).slice(-1)[0] ?? "score.pdf"}`,
+        goals: [],
+        deadline: null,
+        target_tempo: null,
+        hard_spots: [],
+        current_state: null,
+        notes: null,
+        banner_text: null,
+      };
+      mockCreatedPieces.push(summary);
+      mockCreatedDetails[id] = detail;
+      MOCK_PIECE_FOLDER.set(id, folderId);
+      return mockPieceDetail(id);
+    }
+    case "piece_remove": {
+      const id = Number(argsRecord(args).id);
+      if (!mockPieceDetail(id)) throw `piece ${id} not found`;
+      MOCK_DELETED_PIECES.add(id);
+      MOCK_ARCHIVED_PIECES.delete(id);
+      MOCK_COMPLETED_PIECES.delete(id);
+      MOCK_PIECE_FOLDER.delete(id);
+      return mockPieceList(true);
+    }
 
     // Add-a-score (IMSLP) flow. Canned data so the panel is fully browsable in
     // the dev harness without any network.
@@ -4117,7 +4097,7 @@ function routeCommand(cmd: string, args: unknown): unknown {
       const record = argsRecord(args);
       const id = Number(record.id);
       if (
-        !PIECES.some((piece) => piece.id === id) ||
+        ![...PIECES, ...mockCreatedPieces].some((piece) => piece.id === id) ||
         MOCK_DELETED_PIECES.has(id)
       ) {
         throw `piece ${id} not found`;
@@ -4233,9 +4213,9 @@ function routeCommand(cmd: string, args: unknown): unknown {
     case "downloads_list":
       return MOCK_DOWNLOADS;
     case "pick_import_file":
-      return null;
+      return "/Users/you/Downloads/sample-score.pdf";
     case "piece_get": {
-      const detail = PIECE_DETAILS[pieceIdOf(args)];
+      const detail = mockPieceDetail(pieceIdOf(args));
       if (!detail) return null;
       const id = pieceIdOf(args);
       return {
@@ -4243,7 +4223,6 @@ function routeCommand(cmd: string, args: unknown): unknown {
         ...(MOCK_BANNERS.has(id)
           ? { banner_text: MOCK_BANNERS.get(id) ?? null }
           : {}),
-        archived_at: MOCK_ARCHIVED_PIECES.get(id) ?? null,
       };
     }
     // Task A11: the score goals banner. Length is bounded exactly as the Rust
@@ -4797,6 +4776,11 @@ export function installTauriDevMock(
 ): void {
   if (installed) return;
   installed = true;
+  (
+    window as unknown as {
+      __CODAKILLER_DEV_MOCK_SENTINEL__?: string;
+    }
+  ).__CODAKILLER_DEV_MOCK_SENTINEL__ = DEV_MOCK_BUNDLE_SENTINEL;
   CURRENT_SETTINGS_SNAPSHOT = {
     ...SETTINGS_SNAPSHOT,
     assistant_enabled: options.assistantEnabled ?? true,
@@ -4840,6 +4824,15 @@ export function installTauriDevMock(
   MOCK_BANNERS.clear();
   MOCK_ARCHIVED_PIECES.clear();
   MOCK_DELETED_PIECES.clear();
+  MOCK_COMPLETED_PIECES.clear();
+  MOCK_PIECE_FOLDER.clear();
+  MOCK_PIECE_FOLDER.set(1, 3);
+  MOCK_PIECE_FOLDER.set(2, 2);
+  mockCreatedPieces = [];
+  mockCreatedDetails = {};
+  mockPieceNextId = 20;
+  mockPieceFolders = SEED_PIECE_FOLDERS.map((folder) => ({ ...folder }));
+  mockPieceFolderNextId = 10;
   mockMovements = JSON.parse(JSON.stringify(SEED_MOVEMENTS)) as Record<
     number,
     PieceMovement[]
@@ -4961,4 +4954,9 @@ export function uninstallTauriDevMock(): void {
     .__TAURI_INTERNALS__;
   delete (window as unknown as { __TAURI_EVENT_PLUGIN_INTERNALS__?: unknown })
     .__TAURI_EVENT_PLUGIN_INTERNALS__;
+  delete (
+    window as unknown as {
+      __CODAKILLER_DEV_MOCK_SENTINEL__?: string;
+    }
+  ).__CODAKILLER_DEV_MOCK_SENTINEL__;
 }

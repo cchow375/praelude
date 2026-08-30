@@ -8,6 +8,60 @@ metronome — hands-free.
 
 ## Status
 
+**v9.0.0 / schema 21 is a PACKAGED SHAREABLE CANDIDATE; it is NOT INSTALLED, and
+CLEAN-RECIPIENT ACCEPTANCE is PENDING (2026-08-30).** The app in `/Applications` is still the
+published **v8.2.1 / schema 20** release. The v9 source, recorded test/build gates, disposable migration,
+two isolated fresh-profile checks, share-clean scans and exact DMG audit now pass. Source/release
+commit, tag, private-remote push, live backup/rollback, install and recipient acceptance remain
+**PENDING**; packaging is not shipment or acceptance.
+
+Package-candidate boundary:
+
+- `/Users/c3/codakiller/releases/v9.0.0/CodaKiller-9.0.0.dmg` is **10,736,628 bytes**, SHA-256
+  `e5f3c2265cd962791a8267fee6a4e4e0c42a9a70775bbcc5729623a7aa443f06`; its basename-only
+  checksum sidecar is 87 bytes and `hdiutil verify` passes;
+- bundle `com.christian.codakiller`, version 9.0.0, arm64, macOS 13.0 minimum; mounted strict
+  verification passes with ad-hoc CDHash `33ffc5fade7ecb090c5fd7b08818ae82164cbc21` (not notarized);
+- the mounted image contains exactly the Applications symlink, `CodaKiller.app`,
+  `START HERE.txt`, and `Third-Party Notices.txt`; and
+- the full hear BSD, React/Tauri MIT and PDF.js Apache notices are present at DMG top level and
+  byte-identical inside the app. The final package rerun and mounted share-clean scan pass.
+
+Verification: frontend **204 files / 2,525 tests passed** with one file/test skipped; TypeScript
+and production build pass. The native library passed **1,077 / 17 ignored / 0 failed**, all
+reported integration suites passed, and format, strict Clippy, native build and five narrated
+corpora passed. Two isolated first-run profiles each produced schema 21/integrity OK/FK0, an empty
+app-owned Pieces directory and blank user graph, with only hidden Warm-ups plus the generic
+protocol (`source_refs=[]`) and no Knowledge setting/directory. A disposable exact database copy
+migrated 20→21 with integrity OK/FK0 and exactly preserved 11 pieces, 255 blocks, 2,315 reps,
+51 sessions and 9,173 events; it invented zero folders, assignments or completion states. The
+720×520 devMock Pieces flow/screenshots pass after a 4/4 clipping correction; native picker/IPC/
+persistence and a broader Today/Calendar timeout remain honestly separate.
+
+v9 is one normal, share-clean build—there is no separate friend fork. A first-ever install creates
+an empty app-owned Pieces directory. An upgrade keeps the user's configured Pieces root; for an
+older database with no stored root, it conservatively infers the common parent of existing piece
+folders. Existing database rows, PDFs and practice history stay in place.
+
+The Pieces workspace is now primary and opens **Library | History | Calendar**. Library supports
+nested logical folders (which never move score files), Unfiled, Active/Completed/Archived views,
+and right-click/ellipsis actions to move, complete/return, archive/restore or remove. **Add Piece**
+takes title, optional composer/folder and a chosen or dropped local PDF; the PDF is validated and
+copied into the Pieces root while the source remains untouched. IMSLP is an optional external
+public-domain link, not the required import workflow. Remove moves an eligible app-owned piece
+folder to `.trash` and keeps practice history.
+
+The distributable no longer contains the embedded copyrighted pedagogy/quote/method payload or
+the Quotes/Reader/Books/passage-helper UI. This cleanup does **not** delete an external Knowledge
+and Resources folder or historical Assistant rows in an upgraded database. `START_HERE.txt`
+contains the recipient instructions and `scripts/check-share-clean.sh` is the bundle privacy
+gate.
+
+Distribution target: Apple-silicon Mac (M1+) on macOS 13+. The current project can ad-hoc sign
+locally but has no paid Developer ID/notarization, so a recipient must Control-click the app and
+choose **Open**, with **Privacy & Security → Open Anyway** as the fallback. Intel, Windows,
+automatic updates and a warning-free public install are not supported claims.
+
 **v8.2.1 / schema 20 SHIPPED + INSTALLED + PUBLISHED 2026-08-28.** Pushed lightweight tag
 `v8.2.1` points to `971a0d2dc7cf8f093527239e2394391dbbfec0a4`. B94 source commit
 `d1e7ac6d09528f22d8becb378f26c66d751ac297` and B95/runtime
@@ -58,8 +112,9 @@ Save; every set can override tempo demotion; the running HUD has a quick subdivi
 so a lost reply replays the original spot instead of duplicating it. The Assistant remains
 switched off and fully gated as the accepted cleanup; its off-state Settings guide now teaches
 only the hands-free practice lane, hides Books/provider-only furniture, and leaves the settle
-control under Voice plus the enable switch discoverable. Piece folders remain deliberately
-deferred in favor of archive + recent-first sort.
+control under Voice plus the enable switch discoverable. **Historical v8.1 decision:** piece
+folders were deferred in favor of archive + recent-first sort. Christian explicitly reversed
+that decision for the v9 candidate on 2026-08-30.
 
 At the supported 720×520 floor, the cleaned Score/composer/variant layouts passed browser QA; the
 same Score reader also passed at 1462×919. Warmups still shrinks within the effective 480px stage and tucks only
@@ -109,10 +164,14 @@ The v8.2 rollback archive is
 SHA-256 `da29be1e96c120f2c27994fc2d83c26a5c8bc9a40c08b2f87097b0e82a117b71`). Before/after install
 audits preserve the exact backup counts with schema 20, integrity OK and FK0.
 
-Next: deliberately handle Desktop-folder access and complete native Score/composer/Total-plays
-acceptance; run real WKWebView microphone/Listen Back/Steinway
-acceptance, one explicitly authorized provider map, and sustained-use motivation judgment—in that
-order.
+The 2026-08-30 19:25 EDT read-only live audit is schema 20, integrity OK/FK0 with 11 pieces,
+255 blocks, 2,327 reps, 51 sessions and 9,241 events—but **one session and one block are open**.
+That correctly blocks the installing release path. Christian must close or deliberately preserve
+that work in installed v8.2.1; then the operator must quit the app, take and hash a fresh DB backup
+and v8.2.1 rollback, install/audit v9, and test the exact DMG on a clean recipient Mac. Commit,
+tag and private push remain after those release gates. Then return to native Score, real WKWebView
+microphone/Listen Back/Steinway, one explicitly authorized provider map, and sustained-use
+motivation judgment.
 
 The Assistant remains switched off and gated at Christian's request. Canonical product truth
 lives in the Obsidian vault; start at
@@ -127,7 +186,13 @@ npm test               # frontend suite
 cd src-tauri && cargo test
 cd .. && npm run build
 npm run tauri build -- --bundles app  # build only the .app; see NOTES.md
+npm run package:mac    # package/scan an already-built app; does NOT install it
 ```
+
+`npm run package:mac` invokes `scripts/package-macos.sh`. This is deliberately non-installing: it
+stages and ad-hoc seals the already-built app, runs the share-clean audit, creates and mounts the
+DMG, checks its exact contents and writes the SHA-256. It does not quit or launch CodaKiller,
+replace `/Applications/CodaKiller.app`, touch the live database, create backups, tag or push.
 
 For a versioned install/DMG release, use `npm run release:mac` only after the release plan, vault
 update protocol, complete gates and (when the schema changes) a real-data migration rehearsal are
@@ -135,6 +200,26 @@ ready. The script verifies version agreement, runs its test/build gates, signs a
 bundle, creates the DMG/checksum and audits app copies. It does **not** make the pre-install
 database backup or outgoing-app rollback tarball, relaunch the installed app, tag the commit or
 push the release; the release operator must perform and record those steps separately.
+
+For v9 specifically, the safe `package:mac` path has completed without touching the installed
+app. Before `release:mac` or any manual replacement, first confirm no practice set/session is
+live; the current audit has one open session and one open block, so installation is blocked.
+Share-clean, isolated blank-profile and disposable schema-20→21 evidence do not waive that gate.
+
+## Send to another pianist (v9 candidate)
+
+The candidate sendable artifact is the ordinary v9 DMG named above, not a custom copy. It has real
+package/hash/share-clean evidence, but it is not yet installed, shipped or recipient-accepted; do
+not present it as a finished release until those gates and the release identity are recorded.
+
+After release, the recipient flow is:
+
+1. Open the DMG and drag CodaKiller into Applications.
+2. In Applications, Control-click CodaKiller and choose **Open**. If blocked, use System Settings
+   → Privacy & Security → **Open Anyway**.
+3. Open **Pieces → Library → Add Piece**, enter a title, choose a PDF and add it.
+4. Grant Microphone/Speech Recognition and enable Dictation only if hands-free controls are wanted;
+   the Library and manual practice flow do not require those permissions.
 
 ## Dev mock (browser design-review harness)
 

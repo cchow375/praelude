@@ -12,10 +12,20 @@ export interface PieceSummary {
   has_xml: boolean;
   has_pdf: boolean;
   intake_done: boolean;
+  /** Optional user-created logical folder; null keeps the piece unfiled. */
+  folder_id?: number | null;
+  /** Unix seconds; null while the piece is still active. */
+  completed_at?: number | null;
   /** Unix seconds; absent on legacy/dev fixtures and null for active pieces. */
   archived_at?: number | null;
   /** ISO timestamp of the most recent recorded attempt. */
   last_practiced?: string | null;
+}
+
+export interface PieceFolder {
+  id: number;
+  name: string;
+  parent_id: number | null;
 }
 
 export interface PieceMovement {

@@ -750,6 +750,8 @@ mod tests {
             has_pdf: false,
             intake_done: false,
             archived_at: None,
+            completed_at: None,
+            folder_id: None,
             last_practiced: None,
         }
     }

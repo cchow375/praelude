@@ -12,7 +12,7 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceStub } from "./WorkspaceStub";
-import { ASSISTANT, HISTORY } from "./terms";
+import { ASSISTANT } from "./terms";
 import { TodayWorkspace } from "../features/today/TodayWorkspace";
 import { TodaySheetProvider } from "../features/notebook/DaySheetStore";
 import { useStreak } from "../features/streak/useStreak";
@@ -93,8 +93,8 @@ const WORKSPACES = [
   { id: "score", label: "Score" },
   { id: "warmups", label: "Warmups" },
   { id: "brain", label: ASSISTANT },
-  // The Ledger/Calendar slot (Phase 6 fills both behind this one entry).
-  { id: "ledger", label: HISTORY },
+  // The repertoire library leads; History and Calendar live inside it.
+  { id: "ledger", label: "Pieces" },
   { id: "universe", label: "Universe" },
 ] as const;
 
@@ -419,7 +419,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     tab: null as null | "plan",
     revision: 0,
   });
-  const [ledgerSurface, setLedgerSurface] = useState<LedgerSurface>("ledger");
+  const [ledgerSurface, setLedgerSurface] = useState<LedgerSurface>("pieces");
   const [requestedLedgerPiece, setRequestedLedgerPiece] = useState({
     pieceId: null as number | null,
     revision: 0,
@@ -996,6 +996,13 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
   }, []);
 
   const focusTab = (id: WorkspaceId) => {
+    if (id === "ledger") {
+      setLedgerSurface("pieces");
+      setRequestedLedgerPiece((current) => ({
+        pieceId: null,
+        revision: current.revision + 1,
+      }));
+    }
     setView(id);
     requestAnimationFrame(() => tabRefs.current[id]?.focus());
   };
@@ -1018,10 +1025,8 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
     setView("ledger");
   }, []);
 
-  // The main menu's "Ledger" entry opens the history surface (not the calendar
-  // one openCalendar forces), resetting any prior piece selection.
-  const openLedgerHistory = useCallback(() => {
-    setLedgerSurface("ledger");
+  const openPiecesLibrary = useCallback(() => {
+    setLedgerSurface("pieces");
     setRequestedLedgerPiece((current) => ({
       pieceId: null,
       revision: current.revision + 1,
@@ -1115,7 +1120,10 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                 tabIndex={selected ? 0 : -1}
                 className={`shell-nav-item${selected ? " is-active" : ""}`}
                 style={{ ["--enter-index" as string]: index }}
-                onClick={() => setView(workspace.id)}
+                onClick={() => {
+                  if (workspace.id === "ledger") openPiecesLibrary();
+                  else setView(workspace.id);
+                }}
                 onKeyDown={(event) => onTabKeyDown(event, workspace.id)}
               >
                 {NAV_ICONS[workspace.id]}
@@ -1211,7 +1219,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
                     onOpenPiecePlan={openPiecePlan}
                     onOpenBrain={() => setView("brain")}
                     assistantEnabled={assistantEnabled}
-                    onOpenLedger={openLedgerHistory}
+                    onOpenLedger={openPiecesLibrary}
                     onOpenUniverse={() => setView("universe")}
                     onOpenSettings={openSettings}
                   />

@@ -6,7 +6,6 @@ mod dynamics;
 pub mod imslp;
 pub mod intent;
 mod keys;
-mod knowledge;
 pub mod ledger;
 mod metrics;
 mod metronome;
@@ -37,11 +36,11 @@ use sessions::{SessionService, StateEmitter};
 use store::model::{
     BlockHistory, BlockPatch, CheckOutcome, DailyWorkCreate, DailyWorkPatch, DemotionOverride,
     ExportResult, Goal, GoalCreate, GoalPatch, Intake, MutationReceipt, PanelLayout, PausedSetRow,
-    PieceDetail, PieceFieldPatch, PieceMovement, PieceMovementCreate, PieceMovementPatch,
-    PieceSummary, ProgressSummary, RecoveryActionRequest, Region, RegionCreate, RegionDeleteMode,
-    RegionPatch, Rep, RepOpenArgs, RepPatch, RepSnapshot, RetentionCheckView, RetentionResult,
-    SessionView, SetFocusContextInput, TutorialClip, TutorialClipCreate, TutorialClipPatch,
-    TutorialVideo, TutorialVideoPatch, TutorialVideoUpsert,
+    PieceDetail, PieceFieldPatch, PieceFolder, PieceMovement, PieceMovementCreate,
+    PieceMovementPatch, PieceSummary, ProgressSummary, RecoveryActionRequest, Region, RegionCreate,
+    RegionDeleteMode, RegionPatch, Rep, RepOpenArgs, RepPatch, RepSnapshot, RetentionCheckView,
+    RetentionResult, SessionView, SetFocusContextInput, TutorialClip, TutorialClipCreate,
+    TutorialClipPatch, TutorialVideo, TutorialVideoPatch, TutorialVideoUpsert,
 };
 use store::{
     RepReplayInsert, RepReplayMeta, RepReplaySaveInput, Store, WarmupRoutine,
@@ -219,22 +218,6 @@ fn piece_import_pdf(
     pieces::import_pdf(&dir, &folder_name, std::path::Path::new(&source_path))
 }
 
-/// Delete a piece's files: move its vault folder into `.trash/` and re-point
-/// its DB row. This is the old physical operation, intentionally distinct from
-/// the reversible schema-v17 archive toggle below.
-/// `typed_name` must exactly match the piece's folder name or title. Returns the
-/// refreshed piece list.
-#[tauri::command]
-fn piece_delete_files(
-    folder_name: String,
-    typed_name: String,
-    store: State<'_, Arc<Store>>,
-) -> Result<Vec<PieceSummary>, String> {
-    let dir = pieces_dir(&store);
-    pieces::delete_files(&dir, &store, &folder_name, &typed_name)?;
-    store.list_pieces().map_err(|e| e.to_string())
-}
-
 /// Reversibly archive or restore one piece. No files or practice history move.
 #[tauri::command]
 fn piece_archive_set(
@@ -248,6 +231,102 @@ fn piece_archive_set(
     {
         return Err(format!("piece {id} not found"));
     }
+    store
+        .list_pieces_including_archived()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn piece_folders_list(store: State<'_, Arc<Store>>) -> Result<Vec<PieceFolder>, String> {
+    store.piece_folder_list().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn piece_folder_create(
+    name: String,
+    parent_id: Option<i64>,
+    store: State<'_, Arc<Store>>,
+) -> Result<PieceFolder, String> {
+    store
+        .piece_folder_create(&name, parent_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn piece_folder_rename(
+    id: i64,
+    name: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<PieceFolder, String> {
+    store
+        .piece_folder_rename(id, &name)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn piece_folder_delete(id: i64, store: State<'_, Arc<Store>>) -> Result<Vec<PieceFolder>, String> {
+    store
+        .piece_folder_delete(id)
+        .map_err(|error| error.to_string())?;
+    store.piece_folder_list().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn piece_folder_reparent(
+    id: i64,
+    parent_id: Option<i64>,
+    store: State<'_, Arc<Store>>,
+) -> Result<PieceFolder, String> {
+    store
+        .piece_folder_reparent(id, parent_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn piece_move(
+    id: i64,
+    folder_id: Option<i64>,
+    store: State<'_, Arc<Store>>,
+) -> Result<PieceDetail, String> {
+    store
+        .piece_move(id, folder_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn piece_complete_set(
+    id: i64,
+    completed: bool,
+    store: State<'_, Arc<Store>>,
+) -> Result<PieceDetail, String> {
+    store
+        .set_piece_completed(id, completed)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn piece_create_from_pdf(
+    title: String,
+    composer: Option<String>,
+    source_path: String,
+    folder_id: Option<i64>,
+    store: State<'_, Arc<Store>>,
+) -> Result<PieceDetail, String> {
+    let root = pieces_dir(&store);
+    pieces::create_from_pdf(
+        &root,
+        &store,
+        &title,
+        composer.as_deref(),
+        std::path::Path::new(&source_path),
+        folder_id,
+    )
+}
+
+#[tauri::command]
+fn piece_remove(id: i64, store: State<'_, Arc<Store>>) -> Result<Vec<PieceSummary>, String> {
+    let root = pieces_dir(&store);
+    pieces::remove_to_trash(&root, &store, id)?;
     store
         .list_pieces_including_archived()
         .map_err(|error| error.to_string())
@@ -361,7 +440,16 @@ fn resolve_clicks_dir(app: &tauri::App) -> PathBuf {
             return p;
         }
     }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/clicks")
+    let working = std::env::current_dir().unwrap_or_default();
+    for candidate in [
+        working.join("src-tauri/assets/clicks"),
+        working.join("assets/clicks"),
+    ] {
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    PathBuf::from("assets/clicks")
 }
 
 /// Resolve the vendored `hear` STT binary, working in BOTH dev and the bundled
@@ -376,7 +464,16 @@ fn resolve_hear_bin(app: &tauri::App) -> PathBuf {
             }
         }
     }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vendor/bin/hear")
+    let working = std::env::current_dir().unwrap_or_default();
+    for candidate in [
+        working.join("vendor/bin/hear"),
+        working.join("../vendor/bin/hear"),
+    ] {
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    PathBuf::from("vendor/bin/hear")
 }
 
 /// Build the STT config, honoring a fake-`hear` test seam. Setting
@@ -395,10 +492,35 @@ fn resolve_stt_config(app: &tauri::App) -> SttConfig {
     SttConfig::hear(resolve_hear_bin(app))
 }
 
-/// The vault pieces directory: the `vault.pieces_dir` setting, or the shipped
-/// default when it has never been set. Kept in one place so the startup scan and
-/// the `pieces_scan` command always agree on where pieces live.
-const DEFAULT_PIECES_DIR: &str = "/Users/c3/Desktop/christian's universe/Piano Practice/Pieces";
+/// Seed the app-owned Pieces root on first launch. Existing configured roots
+/// win unchanged. For a pre-v21 install that relied on the old compiled-in
+/// default, infer the common root from its existing piece rows so an upgrade
+/// does not abandon that library, without shipping anyone's personal path.
+fn initialize_pieces_dir(store: &Store, app_data_dir: &std::path::Path) -> Result<PathBuf, String> {
+    if let Some(configured) = store
+        .get_setting("vault.pieces_dir")
+        .map_err(|error| error.to_string())?
+        .filter(|path| !path.trim().is_empty())
+    {
+        return Ok(PathBuf::from(configured));
+    }
+    if let Some(inferred) = store
+        .infer_legacy_pieces_dir()
+        .map_err(|error| error.to_string())?
+    {
+        store
+            .set_setting("vault.pieces_dir", &inferred.to_string_lossy())
+            .map_err(|error| error.to_string())?;
+        return Ok(inferred);
+    }
+    let directory = app_data_dir.join("Pieces");
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("create app Pieces folder: {error}"))?;
+    store
+        .set_setting("vault.pieces_dir", &directory.to_string_lossy())
+        .map_err(|error| error.to_string())?;
+    Ok(directory)
+}
 
 pub(crate) fn pieces_dir(store: &Store) -> PathBuf {
     store
@@ -407,7 +529,56 @@ pub(crate) fn pieces_dir(store: &Store) -> PathBuf {
         .flatten()
         .filter(|s| !s.trim().is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_PIECES_DIR))
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod pieces_root_tests {
+    use super::*;
+    use crate::store::model::ScanPiece;
+
+    #[test]
+    fn fresh_install_seeds_an_app_owned_pieces_directory() {
+        let app_data = tempfile::tempdir().unwrap();
+        let store = Store::open(":memory:").unwrap();
+        let root = initialize_pieces_dir(&store, app_data.path()).unwrap();
+        assert_eq!(root, app_data.path().join("Pieces"));
+        assert!(root.is_dir());
+        assert_eq!(pieces_dir(&store), root);
+    }
+
+    #[test]
+    fn configured_or_inferred_existing_roots_are_preserved() {
+        let app_data = tempfile::tempdir().unwrap();
+        let configured = tempfile::tempdir().unwrap();
+        let store = Store::open(":memory:").unwrap();
+        store
+            .set_setting("vault.pieces_dir", &configured.path().to_string_lossy())
+            .unwrap();
+        assert_eq!(
+            initialize_pieces_dir(&store, app_data.path()).unwrap(),
+            configured.path()
+        );
+
+        let legacy_root = tempfile::tempdir().unwrap();
+        let piece_folder = legacy_root.path().join("Composer - Piece");
+        std::fs::create_dir(&piece_folder).unwrap();
+        let legacy = Store::open(":memory:").unwrap();
+        legacy
+            .upsert_piece(&ScanPiece {
+                folder_path: piece_folder.to_string_lossy().into_owned(),
+                title: "Piece".into(),
+                composer: Some("Composer".into()),
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+        assert_eq!(
+            initialize_pieces_dir(&legacy, app_data.path()).unwrap(),
+            legacy_root.path()
+        );
+        assert_eq!(pieces_dir(&legacy), legacy_root.path());
+    }
 }
 
 /// Ingest the vault into the store: scan (read-only) → upsert each piece →
@@ -3420,36 +3591,6 @@ async fn brain_ask(
     Ok(answer)
 }
 
-/// Passage-helper (spec C4): 2–4 grounded one-line practice strategies for a
-/// described passage, or — in expand mode — one fuller version of a selected
-/// strategy. Reads and suggests only: it builds the same bounded, read-only
-/// context as `brain_ask`, has no practice-mutation authority, and never enters
-/// the deterministic voice/rep loop. Offline / no key returns an honest error.
-#[tauri::command]
-async fn assistant_suggest(
-    piece_id: i64,
-    description: String,
-    region_id: Option<i64>,
-    expand_of: Option<String>,
-    store: State<'_, Arc<Store>>,
-    sessions: State<'_, Arc<SessionService>>,
-) -> Result<brain::AssistantSuggestions, String> {
-    let store = store.inner().clone();
-    let sessions = sessions.inner().clone();
-    let request = brain::AssistantSuggestRequest {
-        piece_id,
-        description,
-        region_id,
-        expand_of,
-    };
-    tauri::async_runtime::spawn_blocking(move || {
-        brain::assistant_suggest_native(request, store, sessions)
-    })
-    .await
-    .map_err(|_| "Assistant worker stopped unexpectedly".to_string())?
-    .map_err(|error| error.to_string())
-}
-
 /// Whole-score MusicXML measure landmarks for the mapping wizard's measure
 /// strip (ledger #31). Reuses the same score resolution and parser as
 /// `brain_ask`'s grounded context. Runs off the UI thread on the blocking pool
@@ -3484,45 +3625,6 @@ fn brain_thread_clear(piece_id: i64, store: State<'_, Arc<Store>>) -> Result<(),
     store
         .brain_thread_clear(piece_id)
         .map_err(|error| error.to_string())
-}
-
-/// List every book in the knowledge-folder manifest with its file availability.
-/// Bootstraps `books.json` from the built-ins on first read (zero action).
-#[tauri::command]
-fn books_list(store: State<'_, Arc<Store>>) -> Result<Vec<brain::BookListing>, String> {
-    brain::list_books(&store)
-}
-
-/// Add a book: validate the `.md` source, copy it into the knowledge folder
-/// (collision-safe), and append a manifest entry. The frontend owns the dialog.
-#[tauri::command]
-fn book_add(
-    path: String,
-    title: String,
-    author: String,
-    kind: brain::BookKind,
-    store: State<'_, Arc<Store>>,
-) -> Result<brain::BookListing, String> {
-    brain::add_book(&store, &path, &title, &author, kind)
-}
-
-/// Remove a book: drop the manifest entry and move its file to `.trash/`.
-/// Never hard-deletes; built-in books are removable by the same path.
-#[tauri::command]
-fn book_remove(id: String, store: State<'_, Arc<Store>>) -> Result<(), String> {
-    brain::remove_book(&store, &id)
-}
-
-/// Reader source (D2): the markdown section around a quote, located by verbatim
-/// `contains` substring and/or the nearest `heading` match.
-#[tauri::command]
-fn book_excerpt(
-    source_id: String,
-    heading: Option<String>,
-    contains: Option<String>,
-    store: State<'_, Arc<Store>>,
-) -> Result<brain::BookExcerpt, String> {
-    brain::book_excerpt(&store, &source_id, heading.as_deref(), contains.as_deref())
 }
 
 #[tauri::command]
@@ -3737,6 +3839,7 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let store = Store::open(dir.join("codakiller.db"))?;
+            initialize_pieces_dir(&store, &dir).map_err(std::io::Error::other)?;
             match reconcile_rep_replays_in_directory(&dir.join("rep-replays"), &store) {
                 Ok(report) if report != RepReplayReconcileReport::default() => {
                     eprintln!("rep-replays: startup reconciliation {report:?}");
@@ -3924,8 +4027,16 @@ pub fn run() {
             pieces_scan,
             pieces_list,
             piece_import_pdf,
-            piece_delete_files,
             piece_archive_set,
+            piece_folders_list,
+            piece_folder_create,
+            piece_folder_rename,
+            piece_folder_delete,
+            piece_folder_reparent,
+            piece_move,
+            piece_complete_set,
+            piece_create_from_pdf,
+            piece_remove,
             piece_movement_list,
             piece_movement_create,
             piece_movement_update,
@@ -4032,17 +4143,12 @@ pub fn run() {
             anomalies_list,
             brain_plan_preview,
             brain_ask,
-            assistant_suggest,
             score_xml_measure_facts,
             brain_thread_resume,
             brain_thread_clear,
             brain_intake_apply,
             brain_status,
             brain_test_connection,
-            books_list,
-            book_add,
-            book_remove,
-            book_excerpt,
             daily_work_list,
             daily_work_create,
             daily_work_update,

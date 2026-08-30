@@ -7,6 +7,12 @@ set -euo pipefail
 export LC_ALL=C
 export LANG=C
 
+# Rust otherwise embeds absolute crate/cache paths in panic-location metadata.
+# Remap this build host's home so the distributable does not disclose a user
+# name or local filesystem layout.
+BUILD_HOST_HOME="$(cd "${HOME:?}" && pwd -P)"
+export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$BUILD_HOST_HOME=/build-user"
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(cd "$ROOT" && node -p "require('./package.json').version")"
 IDENTIFIER="com.christian.codakiller"
@@ -27,6 +33,7 @@ fail() {
 }
 
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "package.json version is not semantic: $VERSION"
+[[ -z "${VITE_DEV_MOCK:-}" ]] || fail "VITE_DEV_MOCK must be unset for a distributable build"
 
 cd "$ROOT"
 
@@ -48,6 +55,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -
 printf '4/8 Building the native app...\n'
 npm run tauri build -- --bundles app
 [[ -d "$BUILT_APP" ]] || fail "native app bundle was not produced"
+bash "$ROOT/scripts/check-share-clean.sh" "$BUILT_APP"
 
 BUILT_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUILT_APP/Contents/Info.plist")"
 BUILT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUILT_APP/Contents/Info.plist")"
@@ -88,11 +96,38 @@ printf '6/8 Creating a clean drag-to-Applications disk image...\n'
 rm -rf "$RELEASE_DIR"
 mkdir -p "$STAGE_DIR"
 ditto "$INSTALLED_APP" "$STAGE_DIR/CodaKiller.app"
+cp "$ROOT/START_HERE.txt" "$STAGE_DIR/START HERE.txt"
+cp "$ROOT/THIRD_PARTY_NOTICES.txt" "$STAGE_DIR/Third-Party Notices.txt"
 ln -s /Applications "$STAGE_DIR/Applications"
 hdiutil create -volname "CodaKiller $VERSION" -srcfolder "$STAGE_DIR" -ov -format UDZO "$DMG" >/dev/null
-shasum -a 256 "$DMG" > "$CHECKSUM"
-shasum -a 256 -c "$CHECKSUM"
+(
+  cd "$RELEASE_DIR"
+  shasum -a 256 "$(basename "$DMG")" > "$(basename "$CHECKSUM")"
+  shasum -a 256 -c "$(basename "$CHECKSUM")"
+)
 rm -rf "$STAGE_DIR"
+
+DMG_MOUNT="$(mktemp -d)"
+cleanup_dmg_mount() {
+  hdiutil detach "$DMG_MOUNT" >/dev/null 2>&1 || true
+  rmdir "$DMG_MOUNT" >/dev/null 2>&1 || true
+}
+trap cleanup_dmg_mount EXIT
+hdiutil attach "$DMG" -readonly -nobrowse -mountpoint "$DMG_MOUNT" >/dev/null
+[[ -d "$DMG_MOUNT/CodaKiller.app" ]] || fail "mounted DMG is missing CodaKiller.app"
+[[ -L "$DMG_MOUNT/Applications" && "$(readlink "$DMG_MOUNT/Applications")" == "/Applications" ]] || fail "mounted DMG has the wrong Applications shortcut"
+[[ -f "$DMG_MOUNT/START HERE.txt" ]] || fail "mounted DMG is missing START HERE.txt"
+[[ -f "$DMG_MOUNT/Third-Party Notices.txt" ]] || fail "mounted DMG is missing Third-Party Notices.txt"
+DMG_ENTRIES="$(find "$DMG_MOUNT" -mindepth 1 -maxdepth 1 -print | sed "s#^$DMG_MOUNT/##" | LC_ALL=C sort)"
+EXPECTED_DMG_ENTRIES="$(printf '%s\n' Applications CodaKiller.app 'START HERE.txt' 'Third-Party Notices.txt' | LC_ALL=C sort)"
+[[ "$DMG_ENTRIES" == "$EXPECTED_DMG_ENTRIES" ]] || fail "mounted DMG has unexpected top-level entries: $DMG_ENTRIES"
+bash "$ROOT/scripts/check-share-clean.sh" "$DMG_MOUNT/CodaKiller.app"
+MOUNTED_NOTICE="$(find "$DMG_MOUNT/CodaKiller.app/Contents/Resources" -type f -name 'THIRD_PARTY_NOTICES.txt' -print -quit)"
+[[ -n "$MOUNTED_NOTICE" ]] || fail "mounted app is missing its bundled notices"
+cmp -s "$DMG_MOUNT/Third-Party Notices.txt" "$MOUNTED_NOTICE" \
+  || fail "top-level and app-bundled third-party notices differ"
+cleanup_dmg_mount
+trap - EXIT
 
 printf '7/8 Enforcing the one-copy rule...\n'
 "$LSREGISTER" -u "$BUILT_APP" >/dev/null 2>&1 || true

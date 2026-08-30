@@ -137,7 +137,6 @@ const BRAIN_ANSWER = {
   answer: "Use the selected landing and keep the wrist released.",
   provider: "claude",
   citations: [],
-  methods: [],
   intake_review: null,
   proposed_action: {
     kind: "tempo",
@@ -279,6 +278,18 @@ describe("Shell app-level practice surfaces", () => {
       </ReceiptCenterProvider>,
     );
 
+    // The Today menu and the top rail both make the library—not History—the
+    // primary Pieces destination.
+    fireEvent.click(await screen.findByRole("button", { name: "Pieces" }));
+    await screen.findByTestId("ledger-workspace-stub");
+    expect(ledgerWorkspaceProps.current).toEqual(
+      expect.objectContaining({
+        requestedSurface: "pieces",
+        requestedPieceId: null,
+      }),
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Today" }));
+
     // Today is the app menu now; "Shape the day" lives in the practice window.
     fireEvent.click(
       await screen.findByRole("button", { name: "Today's Practice" }),
@@ -327,6 +338,16 @@ describe("Shell app-level practice surfaces", () => {
         requestedSurface: "ledger",
         requestedPieceId: 43,
       }),
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
+    await waitFor(() =>
+      expect(ledgerWorkspaceProps.current).toEqual(
+        expect.objectContaining({
+          requestedSurface: "pieces",
+          requestedPieceId: null,
+        }),
+      ),
     );
   });
 
@@ -1242,13 +1263,7 @@ describe("Shell — Assistant disabled", () => {
     const labels = within(nav)
       .getAllByRole("tab")
       .map((tab) => tab.textContent);
-    expect(labels).toEqual([
-      "Today",
-      "Score",
-      "Warmups",
-      "History",
-      "Universe",
-    ]);
+    expect(labels).toEqual(["Today", "Score", "Warmups", "Pieces", "Universe"]);
     expect(screen.queryByRole("tab", { name: "Assistant" })).toBeNull();
   });
 

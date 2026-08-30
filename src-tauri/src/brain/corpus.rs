@@ -61,6 +61,7 @@ struct Manifest {
 
 /// The four historical books, preserving their exact ids and visual-dependency
 /// flags. Used to bootstrap a missing manifest.
+#[cfg(test)]
 fn builtin_books() -> Vec<BookEntry> {
     vec![
         BookEntry {

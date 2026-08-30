@@ -125,34 +125,6 @@
   color: var(--ink-faint);
 }
 
-/* --- Citation chips ------------------------------------------------------ */
-.brain-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.brain-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--s-1);
-  max-width: 100%;
-  padding: 2px var(--s-2);
-  border: 1px solid var(--hairline);
-  border-radius: 999px;
-  font-size: 0.75rem;
-  color: var(--ink-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.brain-chip-id {
-  font-family: var(--font-mono);
-  color: var(--ink-faint);
-}
-
 .brain-thinking {
   margin: 0;
   color: var(--ink-faint);
@@ -160,7 +132,7 @@
 }
 
 /* --- Numerals: mono is reserved for numeric/identifier glyphs only
-   (this class, .brain-chip-id source ids, and the numeric scheduler inputs) - */
+   (this class and the numeric scheduler inputs). --------------------------- */
 .brain-num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -195,40 +167,6 @@
   margin: 0;
   padding-left: var(--s-4);
   color: var(--ink-faint);
-}
-
-/* --- Methods ------------------------------------------------------------- */
-.brain-methods {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
-}
-.brain-method h3 {
-  margin: 0 0 var(--s-1);
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--ink);
-}
-.brain-method p {
-  margin: 0 0 var(--s-2);
-  color: var(--ink-dim);
-}
-.brain-method dl {
-  margin: 0;
-  display: grid;
-  gap: var(--s-1);
-}
-.brain-method dl > div {
-  display: flex;
-  gap: var(--s-2);
-}
-.brain-method dt {
-  flex: none;
-  color: var(--ink-faint);
-}
-.brain-method dd {
-  margin: 0;
-  color: var(--ink-dim);
 }
 
 /* --- Intake review ------------------------------------------------------- */

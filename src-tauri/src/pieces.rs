@@ -90,6 +90,185 @@ fn unique_name(dir: &Path, desired: &str) -> String {
     }
 }
 
+fn clean_piece_text(value: &str, label: &str, required: bool) -> Result<Option<String>, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return if required {
+            Err(format!("A piece needs a {label}."))
+        } else {
+            Ok(None)
+        };
+    }
+    if value.chars().count() > 200 || value.chars().any(char::is_control) {
+        return Err(format!(
+            "The {label} must be 200 visible characters or fewer."
+        ));
+    }
+    Ok(Some(value.to_string()))
+}
+
+/// Produce one safe direct-child directory name. The exact title/composer are
+/// stored separately in SQLite; this name is only a stable filesystem home.
+fn metadata_folder_name(title: &str, composer: Option<&str>) -> String {
+    let raw = composer
+        .map(|composer| format!("{composer} - {title}"))
+        .unwrap_or_else(|| title.to_string());
+    let mut safe: String = raw
+        .chars()
+        .map(|character| match character {
+            '/' | '\\' | '\0' => '–',
+            control if control.is_control() => ' ',
+            other => other,
+        })
+        .collect();
+    safe = safe.split_whitespace().collect::<Vec<_>>().join(" ");
+    if safe.starts_with('.') || safe.starts_with('_') {
+        safe.insert_str(0, "Piece ");
+    }
+    // Leave room for the collision suffix added by `unique_name`.
+    safe.chars().take(180).collect()
+}
+
+fn ensure_real_trash(pieces_root: &Path) -> Result<std::path::PathBuf, String> {
+    let trash = pieces_root.join(TRASH_DIR);
+    if let Ok(metadata) = fs::symlink_metadata(&trash) {
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err("The Pieces trash location isn't a real folder.".into());
+        }
+    } else {
+        fs::create_dir(&trash)
+            .map_err(|_| "Could not prepare the Pieces trash folder.".to_string())?;
+    }
+    Ok(trash)
+}
+
+fn quarantine_incomplete_import(pieces_root: &Path, folder_path: &Path) -> Result<(), String> {
+    let trash = ensure_real_trash(pieces_root)?;
+    let name = folder_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("failed-import");
+    let destination = trash.join(unique_name(&trash, &format!("{name}-failed-import")));
+    fs::rename(folder_path, destination)
+        .map_err(|_| "Could not quarantine the incomplete import.".to_string())
+}
+
+/// Create a complete, ready-to-use piece from one local PDF. The source file is
+/// copied, never moved. Filesystem publication happens before the SQLite insert;
+/// if the insert fails, the just-created folder is quarantined under `.trash`
+/// so a half-created piece can never appear in a subsequent scan.
+pub fn create_from_pdf(
+    pieces_root: &Path,
+    store: &Store,
+    title: &str,
+    composer: Option<&str>,
+    source: &Path,
+    folder_id: Option<i64>,
+) -> Result<crate::store::model::PieceDetail, String> {
+    let title = clean_piece_text(title, "title", true)?.expect("required title");
+    let composer = composer
+        .map(|value| clean_piece_text(value, "composer", false))
+        .transpose()?
+        .flatten();
+    if !pieces_root.is_absolute() {
+        return Err("The Pieces folder path is misconfigured.".into());
+    }
+    fs::create_dir_all(pieces_root)
+        .map_err(|_| "Could not create the app's Pieces folder.".to_string())?;
+
+    let desired = metadata_folder_name(&title, composer.as_deref());
+    let folder_name = unique_name(pieces_root, &desired);
+    let folder_path = import_pdf(pieces_root, &folder_name, source)?;
+    let scanned = crate::vault::scan_pieces(pieces_root)
+        .into_iter()
+        .find(|piece| piece.folder_path == folder_path)
+        .and_then(|piece| piece.pdf_path);
+    let Some(scanned) = scanned else {
+        let cleanup = quarantine_incomplete_import(pieces_root, Path::new(&folder_path));
+        return match cleanup {
+            Ok(()) => Err("The copied PDF could not be found in its new piece folder.".into()),
+            Err(cleanup) => Err(format!(
+                "The copied PDF could not be found in its new piece folder; {cleanup}"
+            )),
+        };
+    };
+    let pdf_path = scanned.to_string_lossy().into_owned();
+
+    let id = match store.insert_pdf_piece(
+        &title,
+        composer.as_deref(),
+        &folder_path,
+        &pdf_path,
+        folder_id,
+    ) {
+        Ok(id) => id,
+        Err(error) => {
+            let trash_result = quarantine_incomplete_import(pieces_root, Path::new(&folder_path));
+            return match trash_result {
+                Ok(()) => Err(error.to_string()),
+                Err(cleanup) => Err(format!("{error}; {cleanup}")),
+            };
+        }
+    };
+    store
+        .get_piece(id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "The newly created piece could not be read back.".to_string())
+}
+
+/// Remove one exact DB-selected repertoire piece from the active library by
+/// moving its direct child folder under `.trash`. The database row is retained
+/// and re-pointed, preserving every historical foreign-key relationship.
+pub fn remove_to_trash(pieces_root: &Path, store: &Store, id: i64) -> Result<String, String> {
+    let target = store
+        .piece_removal_target(id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("piece {id} not found"))?;
+    if !pieces_root.is_absolute() {
+        return Err("The Pieces folder path is misconfigured.".into());
+    }
+    let canonical_root = pieces_root
+        .canonicalize()
+        .map_err(|_| "The Pieces folder could not be resolved.".to_string())?;
+    let source = std::path::PathBuf::from(&target.folder_path);
+    let metadata = fs::symlink_metadata(&source)
+        .map_err(|_| "That piece's folder no longer exists.".to_string())?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("That piece is not stored in a real folder.".into());
+    }
+    let canonical_source = source
+        .canonicalize()
+        .map_err(|_| "That piece's folder could not be resolved.".to_string())?;
+    if canonical_source.parent() != Some(canonical_root.as_path()) {
+        return Err("That piece is outside the configured Pieces folder.".into());
+    }
+
+    let trash = ensure_real_trash(pieces_root)?;
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    let source_name = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(target.title.as_str());
+    let destination = trash.join(unique_name(&trash, &format!("{source_name}-{stamp}")));
+    fs::rename(&source, &destination)
+        .map_err(|_| "Could not move the piece to the Pieces trash folder.".to_string())?;
+    let new_path = destination.to_string_lossy().into_owned();
+    match store.repoint_piece_folder_by_id(id, &new_path) {
+        Ok(true) => Ok(new_path),
+        Ok(false) | Err(_) => {
+            if fs::rename(&destination, &source).is_err() {
+                return Err(format!(
+                    "The piece was moved to {new_path}, but its library record could not be updated; the files are preserved there for recovery."
+                ));
+            }
+            Err("The piece library record could not be updated; no files were removed.".into())
+        }
+    }
+}
+
 /// Import a downloaded score PDF into `<pieces_root>/<folder_name>/score/`.
 ///
 /// Validates that `source` exists, is a regular file (not a symlink), has a
@@ -182,6 +361,7 @@ pub fn import_pdf(pieces_root: &Path, folder_name: &str, source: &Path) -> Resul
 /// preserved. `typed_name` must exactly match the folder name or the display
 /// title, or the operation is refused. This is deliberately distinct from
 /// schema-v17's reversible logical archive, which never moves files.
+#[cfg(test)]
 pub fn delete_files(
     pieces_root: &Path,
     store: &Store,
@@ -354,6 +534,48 @@ mod tests {
         assert!(!outside.path().join("score/score.pdf").exists());
     }
 
+    #[test]
+    fn simple_create_copies_pdf_and_persists_user_metadata_and_folder() {
+        let root = TempDir::new().unwrap();
+        let downloads = TempDir::new().unwrap();
+        let source = downloads.path().join("download.pdf");
+        write(&source, PDF_BYTES);
+        let store = Store::open(":memory:").unwrap();
+        let folder = store.piece_folder_create("Audition", None).unwrap();
+
+        let piece = create_from_pdf(
+            root.path(),
+            &store,
+            "Ballade / sketch",
+            Some("Chopin"),
+            &source,
+            Some(folder.id),
+        )
+        .unwrap();
+
+        assert!(
+            source.exists(),
+            "the selected source is copied, never moved"
+        );
+        assert_eq!(piece.title, "Ballade / sketch");
+        assert_eq!(piece.composer.as_deref(), Some("Chopin"));
+        assert_eq!(piece.folder_id, Some(folder.id));
+        assert!(piece.intake_done);
+        assert!(piece
+            .pdf_path
+            .as_deref()
+            .is_some_and(|path| Path::new(path).exists()));
+
+        // A scanner refresh may update score paths, but user-entered metadata
+        // stays exact even when the filesystem-safe folder name differs.
+        for scanned in crate::vault::scan_pieces(root.path()) {
+            store.upsert_piece(&scanned).unwrap();
+        }
+        let refreshed = store.get_piece(piece.id).unwrap().unwrap();
+        assert_eq!(refreshed.title, "Ballade / sketch");
+        assert_eq!(refreshed.composer.as_deref(), Some("Chopin"));
+    }
+
     // ---- delete files ----
 
     /// A root with one scanned piece folder + its DB row. Returns (root, store,
@@ -417,5 +639,47 @@ mod tests {
         let (root, store, _id, _folder) = delete_files_fixture();
         assert!(delete_files(root.path(), &store, "Ghost - Piece", "Piece").is_err());
         assert!(delete_files(root.path(), &store, "../escape", "escape").is_err());
+    }
+
+    #[test]
+    fn id_based_remove_moves_files_and_preserves_piece_row() {
+        let (root, store, id, folder_name) = delete_files_fixture();
+        store.exec_for_test(&format!(
+            "INSERT INTO rep_block
+               (id,piece_id,m_start,m_end,planned_reps,status,focus,use_metronome)
+             VALUES (700,{id},1,4,1,'done','notes',0);
+             INSERT INTO rep(block_id,bpm,verdict) VALUES (700,60,'clean');"
+        ));
+        let destination = remove_to_trash(root.path(), &store, id).unwrap();
+        assert!(destination.contains("/.trash/"));
+        assert!(!root.path().join(folder_name).exists());
+        assert!(Path::new(&destination).join("score/score.pdf").exists());
+        assert!(store.list_pieces().unwrap().is_empty());
+        let retained = store.get_piece(id).unwrap().unwrap();
+        assert_eq!(retained.folder_path, destination);
+        let history = store.block_history(id).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].reps_done, 1);
+    }
+
+    #[test]
+    fn id_based_remove_refuses_a_row_outside_the_configured_root() {
+        let root = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let folder = outside.path().join("Outside");
+        write(&folder.join("score/score.pdf"), PDF_BYTES);
+        let store = Store::open(":memory:").unwrap();
+        let id = store
+            .upsert_piece(&ScanPiece {
+                folder_path: folder.to_string_lossy().into_owned(),
+                title: "Outside".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: Some(folder.join("score/score.pdf")),
+            })
+            .unwrap();
+        assert!(remove_to_trash(root.path(), &store, id).is_err());
+        assert!(folder.exists());
+        assert_eq!(store.list_pieces().unwrap().len(), 1);
     }
 }

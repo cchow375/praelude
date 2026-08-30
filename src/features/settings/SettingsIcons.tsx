@@ -109,16 +109,6 @@ export function TagIcon(props: IconProps) {
   );
 }
 
-/** Books: a small stack of volumes. */
-export function BooksIcon(props: IconProps) {
-  return (
-    <Glyph {...props}>
-      <path d="M5 4h5a1 1 0 0 1 1 1v14a1 1 0 0 0-1-1H5z" />
-      <path d="M19 4h-5a1 1 0 0 0-1 1v14a1 1 0 0 1 1-1h5z" />
-    </Glyph>
-  );
-}
-
 /** Appearance: a light/dark contrast disc. */
 export function AppearanceIcon(props: IconProps) {
   return (

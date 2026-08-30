@@ -24,10 +24,10 @@ function open(
 }
 
 describe("ConfirmArchive typed-name gate", () => {
-  it("keeps Delete files disabled until the exact name is typed", async () => {
+  it("keeps Remove piece disabled until the exact name is typed", async () => {
     const onConfirm = open("Scherzo No. 2");
     const gate = screen.getByRole("button", {
-      name: "Delete files",
+      name: "Remove piece",
     }) as HTMLButtonElement;
     expect(gate).toBeTruthy();
     expect(gate.disabled).toBe(true);
@@ -48,7 +48,7 @@ describe("ConfirmArchive typed-name gate", () => {
     const input = screen.getByLabelText("Type the piece name to confirm");
     fireEvent.change(input, { target: { value: "wrong name" } });
     const gate = screen.getByRole("button", {
-      name: "Delete files",
+      name: "Remove piece",
     }) as HTMLButtonElement;
     fireEvent.click(gate);
     expect(onConfirm).not.toHaveBeenCalled();

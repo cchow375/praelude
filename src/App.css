@@ -78,8 +78,8 @@ h3 {
   font-feature-settings: "tnum" 1;
 }
 
-/* Prose surfaces (reader, quotes, long notebook copy) get a real reading
-   measure and a looser leading — this is a document, not a dashboard. */
+/* Long notebook copy gets a real reading measure and a looser leading — this
+   is a document, not a dashboard. */
 .ck-prose {
   max-width: var(--measure);
   font-size: var(--text-read);

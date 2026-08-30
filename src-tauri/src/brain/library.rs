@@ -1,7 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-
-use crate::knowledge::PracticeLibrary as KnowledgeLibrary;
 
 /// A source that the frontend can show and the user can follow independently.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,104 +43,10 @@ struct IndexedMethod {
 
 impl EmbeddedLibrary {
     pub fn load() -> Self {
-        let Ok(asset) = KnowledgeLibrary::from_embedded() else {
-            return Self { cards: Vec::new() };
-        };
-
-        let citations = asset
-            .sources
-            .iter()
-            .map(|source| {
-                (
-                    source.id.clone(),
-                    Citation {
-                        source_id: source.id.clone(),
-                        label: format!("{} ({})", source.title, source.year),
-                        excerpt: source.claim_scope.clone(),
-                        url: source.url.clone(),
-                    },
-                )
-            })
-            .collect::<HashMap<_, _>>();
-
-        let mut route_terms: HashMap<String, HashSet<String>> = HashMap::new();
-        for route_id in asset.routes.iter().map(|route| route.id.as_str()) {
-            let Some(route) = asset.route_for_query(route_id) else {
-                continue;
-            };
-            let terms = tokens(&format!(
-                "{} {} {}",
-                route.id,
-                route.label,
-                route.aliases.join(" ")
-            ))
-            .into_iter()
-            .collect::<HashSet<_>>();
-            for method in asset.methods_for_route(route) {
-                route_terms
-                    .entry(method.id.clone())
-                    .or_default()
-                    .extend(terms.iter().cloned());
-            }
-        }
-
-        let mut cards = asset
-            .methods
-            .iter()
-            .map(|method| {
-                let source_ids = &method.citation_ids;
-                let method_citations = source_ids
-                    .iter()
-                    .filter_map(|id| citations.get(id).cloned())
-                    .collect();
-                let mut search_terms = tokens(&format!(
-                    "{} {} {:?} {} {}",
-                    method.id,
-                    method.name,
-                    method.tier,
-                    method.symptom_ids.join(" "),
-                    method.passage_types.join(" ")
-                ));
-                search_terms.extend(route_terms.remove(&method.id).unwrap_or_default());
-                IndexedMethod {
-                    card: MethodCard {
-                        id: method.id.clone(),
-                        name: method.name.clone(),
-                        why: method.method.clone(),
-                        dose: method.dose.clone(),
-                        watch_for: method.watch_for.clone(),
-                        citations: method_citations,
-                    },
-                    search_terms,
-                }
-            })
-            .collect::<Vec<_>>();
-
-        cards.extend(asset.psychology_principles.iter().map(|principle| {
-            let source_ids = &principle.citation_ids;
-            let principle_citations = source_ids
-                .iter()
-                .filter_map(|id| citations.get(id).cloned())
-                .collect();
-            IndexedMethod {
-                search_terms: tokens(&format!(
-                    "{} {} {}",
-                    principle.id,
-                    principle.title,
-                    principle.triggers.join(" ")
-                )),
-                card: MethodCard {
-                    id: format!("psychology:{}", principle.id),
-                    name: principle.title.clone(),
-                    why: principle.practice.clone(),
-                    dose: principle.dose.clone(),
-                    watch_for: principle.watch_for.clone(),
-                    citations: principle_citations,
-                },
-            }
-        }));
-
-        Self { cards }
+        // v9 deliberately ships as a blank practice template. Practice methods
+        // may be entered by a user later, but no authored library is compiled
+        // into the application binary.
+        Self { cards: Vec::new() }
     }
 }
 
@@ -209,12 +112,11 @@ mod tests {
     }
 
     #[test]
-    fn embedded_graph_loads_and_retrieves_a_cited_leap_method() {
+    fn production_library_is_intentionally_blank() {
         let library = EmbeddedLibrary::load();
-        assert_eq!(library.cards.len(), 38, "28 methods + 10 psychology cards");
-        let methods = library.retrieve("My leap keeps missing its landing", 3);
-        assert!(!methods.is_empty());
-        assert!(methods.iter().any(|method| method.id == "blocking"));
-        assert!(methods.iter().all(|method| !method.citations.is_empty()));
+        assert!(library.cards.is_empty());
+        assert!(library
+            .retrieve("My leap keeps missing its landing", 3)
+            .is_empty());
     }
 }

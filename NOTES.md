@@ -2,6 +2,105 @@
 
 ## Decisions
 
+- **v9 is one generic share-clean product, not a personal “friend build” fork (2026-08-30).**
+  Christian's send-to-a-pianist request applies to the normal source/release. A first-ever install
+  must contain no preloaded user repertoire pieces, scores, practice history, recordings, photos, quotes, books or
+  method cards. An upgrade must preserve the user's existing database and configured Pieces root.
+  The source now identifies as 9.0.0/schema 21. Automated/package evidence is recorded below, but
+  packaging is not shipment: install, clean-recipient acceptance, source/release commit, tag and
+  private push remain PENDING.
+
+- **v9.0.0/schema 21 is a packaged shareable candidate, not an installed or accepted release
+  (2026-08-30).** Frontend passed **204 files / 2,525 tests**, with one file and one test skipped;
+  TypeScript and production build passed. The native library passed **1,077 tests / 17 ignored /
+  0 failed**, and all reported integration suites passed. Rust format, strict Clippy, native app
+  build and five narrated corpora (zero failures) passed. The exact schema-20 database copy
+  migrated from SHA-256 `8bd284b80f1e675966a88f6ac5feb7585226ca2f8c09b9e8d33145a3f714dab8`
+  to schema 21 SHA-256 `35860ff9d2e9912ef7bd100a6dbb6795408b24cbd5c5a4175bd2a684043ef41b`;
+  integrity remained OK/FK0 and 11 pieces, 255 blocks, 2,315 reps, 51 sessions and 9,173 events
+  were preserved exactly, with zero folders, folder assignments or completed-piece timestamps
+  added. Two isolated on-disk first runs each produced schema 21/integrity OK/FK0, a blank
+  repertoire/history graph, an empty app-owned Pieces directory, no Knowledge setting/directory,
+  and only the hidden Warm-ups row plus generic protocol with `source_refs=[]`.
+
+- **`npm run package:mac` is the safe, non-installing packaging path (v9, 2026-08-30).** It invokes
+  `scripts/package-macos.sh`, which stages an already-built app, ad-hoc seals and strict-verifies
+  it, runs the share-clean scan, creates/mounts/audits the DMG, then writes and checks SHA-256.
+  It never quits or launches CodaKiller, replaces `/Applications/CodaKiller.app`, changes the live
+  database, creates install backups, tags or pushes. A complete run verified v9.0.0,
+  `com.christian.codakiller`, arm64 and macOS 13.0 minimum, strict ad-hoc sealing (not notarized),
+  and exactly the Applications symlink, app, start guide and notices at the mounted image root. The
+  clean source/app/mounted-DMG audits found no forbidden database/sidecar, score, book/quote/method,
+  devMock or personal path/name payload, including disguised SQLite magic. The final rerun includes
+  full hear BSD, React/Tauri MIT and PDF.js Apache notices, byte-identical at DMG top level and
+  inside the app.
+  `/Users/c3/codakiller/releases/v9.0.0/CodaKiller-9.0.0.dmg` is **10,736,628 bytes**, SHA-256
+  `e5f3c2265cd962791a8267fee6a4e4e0c42a9a70775bbcc5729623a7aa443f06`; its basename-only
+  checksum sidecar is 87 bytes. `hdiutil verify` and mounted strict codesign pass; final ad-hoc
+  CDHash is `33ffc5fade7ecb090c5fd7b08818ae82164cbc21`. This exact package is still only a candidate:
+  it has not been installed, recipient-accepted, committed, tagged or pushed. The earlier
+  incorrectly prefixed/superseded DMG was deleted; only the corrected candidate remains.
+
+- **The Pieces root has an explicit fresh-vs-upgrade contract (v9/schema 21, 2026-08-30).**
+  `initialize_pieces_dir` first honors `setting['vault.pieces_dir']`. If it is absent on a legacy
+  DB, `infer_legacy_pieces_dir` accepts only one absolute common parent across active repertoire
+  rows and persists it. Only a genuinely empty/new database receives
+  `app_data_dir()/Pieces`. Never reintroduce a compiled Christian path, and never point an upgrade
+  at a new empty directory merely because schema 21 is new.
+
+- **Library folders are logical metadata and may nest; they never move score files
+  (schema 21, 2026-08-30).** `piece_folder` is an arbitrary-depth parent tree with case-insensitive
+  sibling-name uniqueness and cycle rejection. `piece.folder_id` is nullable: Unfiled is a valid
+  permanent organization choice. Moving a piece/folder changes SQLite labels only. Deleting a
+  logical folder promotes its direct pieces and child folders to the deleted folder's parent in
+  one transaction, adding a Finder-style numeric suffix if a promoted child name collides. This
+  explicitly reverses the v8.1 “archive + recent-first, no folders” decision; old version records
+  remain historical evidence and must not be rewritten.
+
+- **Active, Completed, Archived and Removed are deliberately different states (v9, 2026-08-30).**
+  Completion is reversible `completed_at` metadata and clears archive; return-to-active clears it.
+  Archive is reversible `archived_at` metadata and moves no files/history. Remove is the stronger
+  action: only an exact DB-selected repertoire piece whose real folder is a direct child of the
+  configured Pieces root may be moved to `<root>/.trash/<name>-<stamp>`. Its DB row is retained
+  and re-pointed so every practice-history relationship remains joinable. If the DB update fails,
+  the filesystem move is rolled back when possible. Do not describe Remove as hard delete or as
+  identical to Archive.
+
+- **Direct local-PDF intake is the primary add path; IMSLP is optional external discovery
+  (v9, 2026-08-30).** `piece_create_from_pdf` takes title, optional composer/logical folder and a
+  chosen/dragged path. The backend requires a regular non-symlink `.pdf` with `%PDF-` magic,
+  copies it under a collision-safe app-managed `<piece>/score/` directory and leaves the source
+  file untouched. A failed DB insert quarantines the just-created directory under `.trash` so a
+  half-piece cannot appear on the next scan. The former in-app IMSLP search/edition/import-first
+  posture is historical; the v9 UI offers a fixed HTTPS browser link, then the same local picker.
+  IMSLP CAPTCHA is still never bypassed.
+
+- **Share-clean means remove distributable payload/surfaces, not destroy source material or user
+  history (v9, 2026-08-30).** The embedded `practice_methods.json`, quote data, Knowledge module,
+  Books/Reader/quote/passage-helper UI and corresponding compiled paths are removed. The
+  `check-share-clean.sh` gate scans both `dist` and the built app for DB/SQLite/PDF/MusicXML/MXL,
+  quote/book payload names and Christian-specific source markers, and requires bundled third-party
+  notices. It does **not** delete the external `Knowledge and Resources` directory, and schema 21
+  does not purge old `brain_turn` rows that may contain previous citations/excerpts. Either would
+  be a separate destructive-data decision requiring explicit authority and backup.
+
+- **The sendable support boundary is Apple silicon/macOS 13+, ad-hoc and not notarized
+  (v9 candidate, 2026-08-30).** `START_HERE.txt` must teach drag-to-Applications, Control-click
+  Open and Privacy & Security → Open Anyway. Do not claim Intel, Windows, automatic updates,
+  Developer ID/notarization or warning-free public distribution. A clean recipient Mac/account
+  first-piece walkthrough is a release acceptance gate, not something build success can prove.
+
+- **A release/install must never interrupt an open practice session (v9 release gate,
+  2026-08-30).** The release script can quit and replace `/Applications/CodaKiller.app`. Before it
+  runs, inspect process/session/set state, deliberately close or preserve the live work, take a
+  fresh current-DB backup and v8.2.1 rollback, and rehearse schema 20→21 against a disposable copy
+  of that exact database. Build/package and share-clean checks may proceed without touching the
+  installed app; install waits for the safety gate. The read-only live audit at 2026-08-30 19:25
+  EDT was schema 20, integrity OK/FK0 with 11 pieces, 255 blocks, 2,327 reps, 51 sessions and 9,241
+  events, but **one session and one block were open**. Therefore no v9 backup/rollback, one-copy
+  audit, install or installed launch was attempted. Christian must close or deliberately preserve
+  that work in v8.2.1 first.
+
 - **A privacy-sensitive API must require both an explicit gesture and a packaged usage string
   (v8.2.1 B95 source correction, 2026-08-28).** Installed v8.2.0 closed session 48 and persisted
   its data, then terminated less than one second later. The day-photo card mounted after ordinary

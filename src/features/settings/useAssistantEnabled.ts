@@ -7,9 +7,8 @@ import { invoke } from "@tauri-apps/api/core";
  * deterministic voice commands, metronome, and rep tracking never use it).
  *
  * Every surface that offers or auto-triggers an Assistant action — not just
- * the rail tab — must gate on this: PassageHelper's assistant_suggest
- * action, and the Settings BrainConnection panel's brain_status /
- * Test-connection controls.
+ * the rail tab — must gate on this. The Settings connection controls and the
+ * voice fallback both honor the same switch.
  */
 export function useAssistantEnabled(): boolean {
   const [enabled, setEnabled] = useState(false);

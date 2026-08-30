@@ -169,7 +169,7 @@ export function LedgerWorkspace({
           className={`ledger-view-tab${view === "pieces" ? " is-active" : ""}`}
           onClick={() => changeView("pieces")}
         >
-          Pieces
+          By piece
         </button>
       </div>
 

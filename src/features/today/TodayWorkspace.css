@@ -38,55 +38,6 @@
 .today-menu-date {
   margin-top: var(--s-5);
 }
-/* The epigraph. It used to be a single nowrap line of small grey sans that read
-   as a status strip; it is the one piece of writing on the menu that is not a
-   control, so it gets the treatment writing gets — the serif, the reading size,
-   full ink, room to wrap onto a second line — set off by a margin rule the way a
-   quotation is set off in a notebook. The reserved height keeps the entries
-   below from jumping while the practice signals are still being read. */
-.today-menu-quote-slot {
-  min-height: 6rem;
-  margin-top: var(--s-5);
-  padding-left: var(--s-4);
-  border-left: 1px solid var(--paper-margin);
-}
-/* Why this quote is on screen. Quiet marginalia: same mono as the date kicker,
-   but lower-case, because it is a phrase and not a label. Rendered only when
-   the pick genuinely answered a signal — never invented. */
-.today-menu-quote-why {
-  margin: 0 0 var(--s-2);
-  color: var(--ink-faint);
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  letter-spacing: 0.04em;
-  line-height: 1.4;
-}
-.today-menu-quote {
-  display: block;
-  margin: 0;
-  max-width: var(--measure-narrow);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-display);
-  font-size: var(--text-read);
-  font-style: italic;
-  line-height: var(--leading-relaxed);
-  text-align: left;
-  cursor: pointer;
-  transition: color var(--dur-fast) var(--ease-out);
-}
-.today-menu-quote:hover .today-menu-quote-text {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-.today-menu-quote-author {
-  color: var(--ink-dim);
-  font-size: var(--text-sm);
-  font-style: normal;
-  white-space: nowrap;
-}
 
 .today-menu-nav {
   display: flex;
@@ -345,7 +296,6 @@
    deliberately show focus as a mark in the margin instead of a box, and a
    blanket rule here would out-specify that and re-box the page. */
 .today-menu-item:focus-visible,
-.today-menu-quote:focus-visible,
 .today-practice-close:focus-visible,
 .today-suggested > summary:focus-visible,
 .today-error button:focus-visible,

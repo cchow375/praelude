@@ -27,7 +27,6 @@ vi.mock("@tauri-apps/api/core", () => ({
           answer: "Try three slow landings.",
           provider: "offline",
           citations: [],
-          methods: [],
           intake_review: null,
         });
       default:

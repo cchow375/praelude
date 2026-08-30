@@ -68,17 +68,17 @@ function renderWorkspace(
 }
 
 describe("LedgerCalendarWorkspace", () => {
-  it("mounts under one shell slot and defaults to the Ledger surface", async () => {
+  it("mounts under one shell slot and defaults to the Pieces Library", async () => {
     renderWorkspace();
     expect(screen.getByTestId("workspace-ledger")).toBeTruthy();
-    expect(await screen.findByTestId("ledger-workspace")).toBeTruthy();
-    const ledgerTab = screen.getByRole("tab", { name: "History" });
-    expect(ledgerTab.getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByRole("heading", { name: "Pieces Library" })).toBeTruthy();
+    const libraryTab = screen.getByRole("tab", { name: "Library" });
+    expect(libraryTab.getAttribute("aria-selected")).toBe("true");
   });
 
   it("switches to the Calendar surface without a sixth top-level tab", async () => {
     renderWorkspace();
-    await screen.findByTestId("ledger-workspace");
+    await screen.findByRole("heading", { name: "Pieces Library" });
     fireEvent.click(screen.getByRole("tab", { name: "Calendar" }));
     await waitFor(() =>
       expect(screen.getByTestId("calendar-workspace")).toBeTruthy(),
@@ -93,18 +93,20 @@ describe("LedgerCalendarWorkspace", () => {
 
   it("implements arrow-key tab navigation with one tab stop", async () => {
     renderWorkspace();
+    const library = screen.getByRole("tab", { name: "Library" });
     const ledger = screen.getByRole("tab", { name: "History" });
     const calendar = screen.getByRole("tab", { name: "Calendar" });
-    expect(ledger.getAttribute("tabindex")).toBe("0");
+    expect(library.getAttribute("tabindex")).toBe("0");
+    expect(ledger.getAttribute("tabindex")).toBe("-1");
     expect(calendar.getAttribute("tabindex")).toBe("-1");
 
-    ledger.focus();
-    fireEvent.keyDown(ledger, { key: "ArrowRight" });
-    expect(await screen.findByTestId("calendar-workspace")).toBeTruthy();
-    await waitFor(() => expect(document.activeElement).toBe(calendar));
-    expect(calendar.getAttribute("tabindex")).toBe("0");
-    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
-      "history-tab-calendar",
+    library.focus();
+    fireEvent.keyDown(library, { key: "ArrowRight" });
+    expect(await screen.findByTestId("ledger-workspace")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(ledger));
+    expect(ledger.getAttribute("tabindex")).toBe("0");
+    expect(document.getElementById("history-panel-ledger")?.getAttribute("aria-labelledby")).toBe(
+      "history-tab-ledger",
     );
   });
 
@@ -119,21 +121,9 @@ describe("LedgerCalendarWorkspace", () => {
     ).toBe("true");
   });
 
-  it("mounts the Pieces surface (browser/intake/goals) in the same slot", async () => {
+  it("mounts the editable Pieces Library with history kept as a sub-tab", async () => {
     renderWorkspace();
-    await screen.findByTestId("ledger-workspace");
-    // Scoped to the OUTER surface switcher: LedgerWorkspace's own inner
-    // Days|Pieces view toggle (task B2) also has a "Pieces" tab, and both
-    // are mounted at once here (Days is LedgerWorkspace's default view).
-    fireEvent.click(
-      within(
-        screen.getByRole("tablist", { name: "History surface" }),
-      ).getByRole("tab", { name: "Pieces" }),
-    );
-    // The piece library (browser + pieces_scan) is now reachable.
-    expect(
-      await screen.findByRole("heading", { name: "Score map" }),
-    ).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Pieces Library" })).toBeTruthy();
     expect(await screen.findByText("Scherzo")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Rescan pieces folder" }),
@@ -141,7 +131,9 @@ describe("LedgerCalendarWorkspace", () => {
     // Only the chosen surface mounts — the ledger surface is gone.
     expect(screen.queryByTestId("ledger-workspace")).toBeNull();
     expect(
-      screen.getByRole("tab", { name: "Pieces" }).getAttribute("aria-selected"),
+      within(screen.getByRole("tablist", { name: "Pieces workspace view" }))
+        .getByRole("tab", { name: "Library" })
+        .getAttribute("aria-selected"),
     ).toBe("true");
   });
 });

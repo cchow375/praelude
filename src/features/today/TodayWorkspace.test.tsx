@@ -18,8 +18,8 @@ import { ReceiptCenterProvider } from "../receipts/ReceiptCenter";
 import { TodaySheetProvider } from "../notebook/DaySheetStore";
 
 /** A command router covering only what the day-sheet-first window touches: the
- *  notebook load/save seam, the composer candidate reads (all empty here), the
- *  metronome quick bar, and the excerpt reader. */
+ *  notebook load/save seam, the composer candidate reads (all empty here), and
+ *  the metronome quick bar. */
 function installRouter() {
   invokeMock.mockImplementation((command: string, args?: unknown) => {
     switch (command) {
@@ -42,18 +42,6 @@ function installRouter() {
       }
       case "metro_state":
         return Promise.resolve({ running: false, bpm: 84 });
-      case "book_excerpt": {
-        const contains = String(
-          (args as { contains?: unknown })?.contains ?? "the quote",
-        );
-        return Promise.resolve({
-          source_id: "roskell-complete-pianist",
-          title: "The Complete Pianist",
-          author: "Penelope Roskell",
-          heading: "Practising: healthy, effective and inspired",
-          text: `A practice paragraph.\n\n${contains}\n\nA closing line.`,
-        });
-      }
       default:
         return Promise.resolve(null);
     }
@@ -114,17 +102,17 @@ describe("TodayWorkspace main menu", () => {
   it("shows a quiet menu and opens the day-sheet-first practice window", async () => {
     renderToday();
 
-    // App mark, the date, the single-line context-picked quote, and quiet
-    // entries. The quote waits for the practice signals, so it is awaited.
+    // App mark, date, and quiet entries. The former bundled-book quote and
+    // reader surfaces are deliberately absent.
     expect(screen.getByText("CodaKiller")).toBeTruthy();
-    const quote = await screen.findByTestId("today-menu-quote");
-    expect(quote.textContent).toMatch(/—\s+\S/);
+    expect(screen.queryByTestId("today-menu-quote")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Reader" })).toBeNull();
     for (const label of [
       "Today's Practice",
       "Score",
       "Warmups",
       "Assistant",
-      "History",
+      "Pieces",
       "Universe",
       "Settings",
     ]) {
@@ -146,58 +134,6 @@ describe("TodayWorkspace main menu", () => {
     expect(within(dialog).getByTestId("day-sheet")).toBeTruthy();
   });
 
-  it("opens the excerpt reader when the quote line is clicked (D2)", async () => {
-    renderToday();
-
-    expect(screen.queryByRole("dialog", { name: "Reader" })).toBeNull();
-    fireEvent.click(await screen.findByTestId("today-menu-quote"));
-
-    const reader = await screen.findByRole("dialog", { name: "Reader" });
-    expect(reader).toBeTruthy();
-    await screen.findByTestId("reader-quote-anchor");
-    expect(screen.getByTestId("reader-attribution").textContent).toContain(
-      "Penelope Roskell",
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Close reader" }));
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Reader" })).toBeNull(),
-    );
-  });
-
-  it("says why the quote surfaced, using only facts it actually read", async () => {
-    // The router serves a blank sheet for today AND yesterday and no open set,
-    // so the honest connector is one of those two — never an invented one.
-    renderToday();
-
-    const why = await screen.findByTestId("today-menu-quote-why");
-    expect([
-      "before you write today's page",
-      "with yesterday's page blank",
-    ]).toContain(why.textContent);
-    // It reads as marginalia above the quote, not as a second quote.
-    expect(why.tagName).toBe("P");
-  });
-
-  it("stays silent about the reason when it could not read any signal", async () => {
-    invokeMock.mockImplementation((command: string) => {
-      if (command === "metro_state")
-        return Promise.resolve({ running: false, bpm: 84 });
-      return Promise.reject(new Error("no backend"));
-    });
-    // Mid-afternoon: outside both the early and the late hour cue, so a failed
-    // read really does leave nothing honest to say.
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    vi.setSystemTime(new Date(2026, 6, 30, 14, 30));
-    try {
-      renderToday();
-      await screen.findByTestId("today-menu-quote");
-      expect(screen.queryByTestId("today-menu-quote-why")).toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("routes each quiet menu entry to its workspace", () => {
     const onOpenAtlas = vi.fn();
     const onOpenBrain = vi.fn();
@@ -214,7 +150,7 @@ describe("TodayWorkspace main menu", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Score" }));
     fireEvent.click(screen.getByRole("button", { name: "Assistant" }));
-    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pieces" }));
     fireEvent.click(screen.getByRole("button", { name: "Universe" }));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 

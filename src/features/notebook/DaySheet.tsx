@@ -20,7 +20,6 @@ import {
 import { useDaySheet, type UseDaySheet } from "./useDaySheet";
 import {
   addBring,
-  appendPlanItem,
   clampMinutes,
   convertToPiece,
   insertAfter,
@@ -59,7 +58,6 @@ import {
 } from "./notebookIcons";
 import { truncateBanner } from "../score/bannerText";
 import { publishBanner } from "../score/bannerStore";
-import { PassageHelper } from "./PassageHelper";
 import "./DaySheet.css";
 
 // Read-only companions the editor needs but the day-sheet hook doesn't own:
@@ -649,14 +647,6 @@ export function DaySheetView({
             <CloseIcon size={14} />
           </button>
         </div>
-        {focusedIndex === index && (
-          <PassageHelper
-            pieceId={line.piece_id}
-            onAccept={(text) =>
-              setBody((prev) => appendPlanItem(prev, line.piece_id, text).body)
-            }
-          />
-        )}
       </div>
     );
   };

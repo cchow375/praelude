@@ -69,6 +69,13 @@ pub struct PieceSummary {
     pub intake_done: bool,
     /// Unix seconds when the piece was reversibly archived; `None` = active.
     pub archived_at: Option<i64>,
+    /// Unix seconds when the piece was marked complete; `None` = not complete.
+    /// Completion is a library state, not deletion: every score and practice
+    /// record remains attached to the piece.
+    pub completed_at: Option<i64>,
+    /// Optional user-authored library folder. These folders are logical only;
+    /// moving a piece never moves or renames its score files on disk.
+    pub folder_id: Option<i64>,
     /// Most recent recorded attempt timestamp, used for recent-first library
     /// ordering. `None` means the piece has never had a recorded attempt.
     pub last_practiced: Option<String>,
@@ -85,6 +92,8 @@ pub struct PieceDetail {
     pub has_pdf: bool,
     pub intake_done: bool,
     pub archived_at: Option<i64>,
+    pub completed_at: Option<i64>,
+    pub folder_id: Option<i64>,
     pub last_practiced: Option<String>,
     pub folder_path: String,
     pub xml_path: Option<String>,
@@ -99,6 +108,15 @@ pub struct PieceDetail {
     /// `None` = no banner. Bounded to 140 characters by both the Rust command
     /// and the column's CHECK constraint.
     pub banner_text: Option<String>,
+}
+
+/// One user-authored logical folder in the Pieces library. `parent_id` allows
+/// arbitrary nesting without coupling library organization to score paths.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PieceFolder {
+    pub id: i64,
+    pub name: String,
+    pub parent_id: Option<i64>,
 }
 
 /// One named page-range start inside a piece PDF (schema v17). The end page is

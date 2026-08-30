@@ -124,7 +124,7 @@ describe("Shell", () => {
       "Score",
       "Warmups",
       "Assistant",
-      "History",
+      "Pieces",
       "Universe",
     ]);
   });

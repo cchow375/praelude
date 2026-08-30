@@ -79,10 +79,10 @@ describe("Ledger rows fit long titles (.ck-fit)", () => {
   it("clamps the piece title + composer and reveals the full row on hover/focus", async () => {
     const { container } = render(<LedgerWorkspace />);
     // Task B2: Days is LedgerWorkspace's default view; this contract is about
-    // the Pieces view's piece-index rows, so switch to it explicitly — do not
+    // the By piece view's piece-index rows, so switch to it explicitly — do not
     // rely on stored `ck.history.view` state (each test gets a fresh shim
     // above, so this click is required, not just defensive).
-    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
+    fireEvent.click(screen.getByRole("tab", { name: "By piece" }));
     await waitFor(() =>
       expect(
         container.querySelector(".ledger-piece-index button strong"),

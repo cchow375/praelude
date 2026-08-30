@@ -1,0 +1,33 @@
+CodaKiller 9 for macOS
+========================
+
+What you need
+-------------
+- An Apple-silicon Mac (M1 or newer)
+- macOS 13 or newer
+- A PDF of any score you want to practise
+
+Install
+-------
+1. Drag CodaKiller into the Applications shortcut in this window.
+2. In Applications, Control-click CodaKiller and choose Open.
+3. If macOS still blocks it, open System Settings > Privacy & Security,
+   choose Open Anyway for CodaKiller, then confirm Open.
+
+The extra first-open step is needed because this direct-download build is not
+notarized through Apple's paid Developer ID service.
+
+Start practising
+----------------
+1. Open Pieces.
+2. Choose Add Piece.
+3. Enter the title and optional composer, choose a PDF, and add it.
+4. Open the piece and start a practice set.
+
+A first-ever install for a new Mac user begins blank. Updating or reinstalling
+keeps that user's existing library. Your pieces, practice history, recordings,
+photos, and settings stay on your own Mac. The app contains no preloaded books,
+quotes, scores, practice history, recordings, or photos.
+
+Microphone and Speech Recognition permissions are only needed for hands-free
+voice controls. You can use the rest of the app without them.

@@ -6,16 +6,8 @@ export interface BrainCitation {
   label: string;
   excerpt: string;
   url?: string;
-  /** Safe book/chapter/page locator; raw filesystem paths never cross IPC. */
+  /** Safe source locator; raw filesystem paths never cross IPC. */
   locator?: string;
-}
-
-export interface BrainMethod {
-  id: string;
-  name: string;
-  why: string;
-  dose: string;
-  watch_for: string;
 }
 
 export interface IntakeReviewField {
@@ -37,7 +29,6 @@ export interface BrainAnswer {
   answer: string;
   provider: BrainProvider;
   citations: BrainCitation[];
-  methods: BrainMethod[];
   intake_review?: BrainIntakeReview | null;
   grounding?: BrainGroundingSummary;
   /**
@@ -47,25 +38,12 @@ export interface BrainAnswer {
   proposed_action?: unknown;
 }
 
-/**
- * Why retrieved book excerpts did or did not cross the provider boundary. The
- * backend resolves this so the receipt can name the real cause instead of
- * implying content was withheld whenever retrieval found nothing.
- */
-export type BrainKnowledgeShareCause =
-  "shared" | "no_library" | "no_matches" | "sharing_disabled" | "offline";
-
 export interface BrainGroundingSummary {
   piece_title: string | null;
   region_name: string | null;
   measure_range: [number, number] | null;
   recent_rep_count: number;
   active_block_included: boolean;
-  knowledge_status: "ready" | "partial" | "unavailable" | string;
-  knowledge_shared_with_provider: boolean;
-  /** Kept alongside the boolean above, which stays for compatibility. */
-  knowledge_share_cause?: BrainKnowledgeShareCause;
-  knowledge_sources: string[];
   musicxml_status:
     "ready" | "missing" | "not_requested" | "unsupported" | string;
   warnings: string[];

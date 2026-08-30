@@ -5,7 +5,6 @@ import { ASSISTANT, HISTORY } from "../../shell/terms";
 import { Button, Disclosure } from "../../ui";
 import type { CommandInvoker } from "../../services/command";
 import { BrainConnection } from "./BrainConnection";
-import { BooksPanel, type BooksApi } from "./BooksPanel";
 import { resetDockLayout } from "../dock/dockState";
 import { hotkeyLabel } from "../rep/useVerdictHotkeys";
 import { acceptCommittedSettings } from "../../state/settings";
@@ -14,7 +13,6 @@ import { QUIET_SPEECH_NOTE } from "../voice/HeardPill";
 import {
   AppearanceIcon,
   AssistantIcon,
-  BooksIcon,
   CalendarIcon,
   FolderIcon,
   GuideIcon,
@@ -26,8 +24,6 @@ import {
 import "./settings.css";
 
 type Provider = "claude" | "gemini";
-const DEFAULT_KNOWLEDGE_DIR =
-  "/Users/c3/Desktop/christian's universe/Piano Practice/Knowledge and Resources";
 
 interface ApiKeyStatus {
   provider: Provider;
@@ -46,8 +42,6 @@ export interface SettingsSnapshot {
   tts_provider: "auto" | "gemini" | "say";
   tts_voice: string;
   brain_provider: "auto" | "claude" | "gemini" | "offline";
-  knowledge_dir: string;
-  share_retrieved_knowledge: boolean;
   assistant_enabled: boolean;
   wake_word_enabled: boolean;
   wake_word: string;
@@ -97,13 +91,11 @@ export function SettingsPanel({
   onPracticeDefaultCleanStreakSaved,
   api = defaultApi,
   brainInvoker,
-  booksApi,
 }: {
   onInterfaceScaleSaved?: (scale: number) => void;
   onPracticeDefaultCleanStreakSaved?: (target: number) => void;
   api?: SettingsApi;
   brainInvoker?: CommandInvoker;
-  booksApi?: BooksApi;
 }) {
   const receipts = useReceipts();
   // Live state, not a setting: the cloud voice is on cooldown and utterances are
@@ -131,8 +123,6 @@ export function SettingsPanel({
             interface_scale: Number.isFinite(next.interface_scale)
               ? next.interface_scale
               : 90,
-            knowledge_dir: next.knowledge_dir || DEFAULT_KNOWLEDGE_DIR,
-            share_retrieved_knowledge: next.share_retrieved_knowledge ?? true,
             hotkeys_enabled: next.hotkeys_enabled ?? true,
             hotkey_verdict_clean: next.hotkey_verdict_clean || "Space",
             hotkey_verdict_sloppy: next.hotkey_verdict_sloppy || "ShiftRight",
@@ -190,8 +180,6 @@ export function SettingsPanel({
         tts_provider: value.tts_provider,
         tts_voice: value.tts_voice,
         brain_provider: value.brain_provider,
-        knowledge_dir: value.knowledge_dir,
-        share_retrieved_knowledge: value.share_retrieved_knowledge,
         assistant_enabled: value.assistant_enabled,
         wake_word_enabled: value.wake_word_enabled,
         wake_word: value.wake_word,
@@ -225,7 +213,9 @@ export function SettingsPanel({
       setAliasDrafts(aliasStrings(next.verdict_aliases));
       onInterfaceScaleSaved?.(next.interface_scale);
       onPracticeDefaultCleanStreakSaved?.(next.practice_default_clean_streak);
-      setMessage("Settings saved. Settle delay applies now; provider changes apply after relaunch.");
+      setMessage(
+        "Settings saved. Settle delay applies now; provider changes apply after relaunch.",
+      );
       receipts.committed("Settings saved.");
     } catch (cause) {
       const message = errorMessage(cause);
@@ -383,8 +373,7 @@ export function SettingsPanel({
                   such as <q>Can you tell me what happened last session?</q>{" "}
                   without a wake phrase. The {ASSISTANT} receives the selected
                   Score piece, Region, page, edition, active set, and today's
-                  written plan, plus grounded practice history and cited
-                  references.
+                  written plan and grounded practice history.
                 </p>
                 <p className="settings-guide-note">
                   The {ASSISTANT} may draft a verdict, tempo change, undo, or
@@ -461,38 +450,9 @@ export function SettingsPanel({
                   <option value="auto">Auto (Claude → Gemini → offline)</option>
                   <option value="claude">Prefer Claude</option>
                   <option value="gemini">Gemini only</option>
-                  <option value="offline">Offline library only</option>
+                  <option value="offline">Offline only</option>
                 </select>
               </Row>
-              <Row label="Knowledge folder" wide>
-                <input
-                  aria-label="Knowledge folder"
-                  value={value.knowledge_dir}
-                  onChange={(event) =>
-                    setValue({ ...value, knowledge_dir: event.target.value })
-                  }
-                />
-              </Row>
-              <label className="settings-check settings-wide">
-                <input
-                  type="checkbox"
-                  checked={value.share_retrieved_knowledge}
-                  onChange={(event) =>
-                    setValue({
-                      ...value,
-                      share_retrieved_knowledge: event.target.checked,
-                    })
-                  }
-                />
-                <span>
-                  <strong>Share retrieved knowledge with Claude/Gemini</strong>
-                  <small>
-                    Only the retrieved passages, your question, and selected
-                    practice facts may be sent. The full folder is never
-                    uploaded.
-                  </small>
-                </span>
-              </label>
               <div className="settings-keys" aria-label="API keys">
                 {(["claude", "gemini"] as Provider[]).map((provider) => (
                   <KeyControl
@@ -517,14 +477,6 @@ export function SettingsPanel({
           )}
         </div>
       </Disclosure>
-
-      {value.assistant_enabled && (
-        <Disclosure
-          summary={<SectionLabel icon={<BooksIcon />}>Books</SectionLabel>}
-        >
-          <BooksPanel {...(booksApi ? { api: booksApi } : {})} />
-        </Disclosure>
-      )}
 
       <Disclosure
         summary={
@@ -687,8 +639,8 @@ export function SettingsPanel({
         <div className="settings-group">
           <p className="settings-note">
             Mastery uses consecutive clean attempts. Total plays is a separate
-            volume target you choose when starting a set; completing it does
-            not claim mastery. Choose any optional attempt review boundary
+            volume target you choose when starting a set; completing it does not
+            claim mastery. Choose any optional attempt review boundary
             separately for a clean-streak set.
           </p>
           <NumberField
@@ -733,9 +685,7 @@ export function SettingsPanel({
             min={2}
             max={10}
             disabled={!value.demote_enabled}
-            onChange={(demote_first) =>
-              setValue({ ...value, demote_first })
-            }
+            onChange={(demote_first) => setValue({ ...value, demote_first })}
           />
           <NumberField
             label="Later demotions after sloppy reps"
@@ -743,9 +693,7 @@ export function SettingsPanel({
             min={1}
             max={10}
             disabled={!value.demote_enabled}
-            onChange={(demote_repeat) =>
-              setValue({ ...value, demote_repeat })
-            }
+            onChange={(demote_repeat) => setValue({ ...value, demote_repeat })}
           />
         </div>
       </Disclosure>
@@ -904,8 +852,8 @@ export function SettingsPanel({
           </label>
           {/* Real-use fix wave (item 4): the dock's freely-draggable panels
               have no other recovery path for "I dragged this somewhere
-              silly" or "this got stuck minimized" — a plain button, not a
-              nested <form>, per the removal of BooksPanel's nested form. */}
+              silly" or "this got stuck minimized" — keep a plain recovery
+              button inside the settings form. */}
           <div className="settings-row">
             <span>Floating panels</span>
             <Button type="button" onClick={() => resetDockLayout()}>

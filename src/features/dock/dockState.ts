@@ -364,7 +364,7 @@ export function nextZ(state: DockState): number {
  *   is a genuinely global transient overlay:
  *     40  `.ck-ns-picker-scrim` (DaySheet.css), `.measure-map-panel-backdrop`
  *     50  `.heard-pill` (HeardPill.css), `.voice-feedback` (VoiceToast.css)
- *     60  `.day-sheet-overlay`        80  `.reader-overlay`
+ *     60  `.day-sheet-overlay`
  *     90  shell rep-error             95  shell voice draft
  *    100  `.ck-dialog-backdrop` (ui.css), `.popover-panel`
  *    120  `.receipt-center`

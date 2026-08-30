@@ -24,6 +24,29 @@ version history live in the Obsidian vault**, not here:
 
 **If a session ends without the vault docs updated, the session is not done.**
 
+## Current source boundary
+
+**v9.0.0 / schema 21 is a PACKAGED SHAREABLE CANDIDATE; NOT INSTALLED; CLEAN-RECIPIENT
+ACCEPTANCE PENDING (2026-08-30).** The installed and published app remains **v8.2.1 / schema 20**.
+v9 is one generic, share-clean build—not a friend
+fork. Fresh users start with an empty app-owned Pieces root; upgrades keep the configured root or
+conservatively infer it from existing piece rows. Pieces becomes the primary workspace with
+**Library | History | Calendar**, nested logical folders, Unfiled, Active/Completed/Archived,
+right-click/ellipsis actions, direct local-PDF intake and IMSLP only as an optional external link.
+The embedded copyrighted pedagogy/quote payload and Quotes/Reader/Books/passage-helper UI are
+removed. The external Knowledge and Resources folder and historical DB turns are not deleted.
+
+Recorded test/build gates, two isolated fresh profiles, exact-copy schema-20→21 rehearsal and clean
+source/app/mounted-DMG audits pass. Expected package identity is v9.0.0,
+`com.christian.codakiller`, arm64/macOS 13+, ad-hoc and not notarized. Exact candidate DMG
+`releases/v9.0.0/CodaKiller-9.0.0.dmg` is 10,736,628 bytes, SHA-256
+`e5f3c2265cd962791a8267fee6a4e4e0c42a9a70775bbcc5729623a7aa443f06`; mounted strict CDHash is
+`33ffc5fade7ecb090c5fd7b08818ae82164cbc21`. Full hear BSD, React/Tauri MIT and PDF.js Apache
+notices are present top-level and byte-identical inside the app. Install, backup/rollback, source/release
+commit, tag/private push and clean-recipient proof are PENDING. `npm run package:mac` invokes non-installing `scripts/package-macos.sh`; it does not quit,
+launch or replace `/Applications/CodaKiller.app` or touch the live database. The installing release
+path can do so and must not run during a live set/session.
+
 ## The golden rules (full rationale in the vault docs)
 
 - **User is the sensor; the app is the memory.** Never interpret audio as music — the last
@@ -48,6 +71,8 @@ version history live in the Obsidian vault**, not here:
 - `docs/superpowers/plans/2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md` — current corrective
   release ledger: continuous Score, compact practice UI and non-mastery Total plays contract,
   plus the v8.2.1 density-correction addendum.
+- `docs/superpowers/plans/2026-08-30-v9.0.0-portable-pieces-library.md` — v9 product/data/privacy
+  contract and pending release sequence.
 - `docs/qa/v7.2.0/README.md` — source-candidate 720×520 evidence and its native/at-piano limits.
 - `docs/qa/v8.1.0/README.md` — historical v8.1 browser/devMock and scoped native visual record;
   packaged-native microphone, storage and Steinway acceptance are explicitly not inferred.
@@ -55,6 +80,8 @@ version history live in the Obsidian vault**, not here:
   package/data facts; native Score visual remains pending behind the ungranted Desktop permission.
 - `docs/qa/v8.2.1/README.md` — compact-composer + B95 release/install/publication evidence; native
   Score feel remains separate.
+- `docs/qa/v9.0.0/README.md` — v9 source/package evidence; replacement artifact identity,
+  install and recipient gates remain explicitly PENDING.
 - `docs/qa/(C) v2-narrated-replay-contract.md` — old-session speech/state-machine regression
   boundary; never a piano-grading benchmark.
 - `docs/qa/` — acceptance records, regression contracts and screenshots.
@@ -74,8 +101,15 @@ Plan C from those records.
 Release tag `v8.2.0` is a pushed lightweight tag at
 `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` advanced after the tag
 through documentation-only corrections; verify the exact current ref from Git. The immutable tag and runtime source
-`afe65f3…` remain the release identities. The next honest work is deliberate Desktop-folder access
-plus installed-native Score acceptance, then real WKWebView Listen Back and voice-over-Steinway use,
+`afe65f3…` remain the release identities. The source, disposable-data, blank-profile and first
+package-workflow evidence is recorded. The 2026-08-30 19:25 EDT live audit is schema 20, integrity
+OK/FK0 with 11 pieces, 255 blocks, 2,327 reps, 51 sessions and 9,241 events, but **one session and
+one block are open**. Christian must close or deliberately preserve that live work in installed
+v8.2.1 before the app is quit,
+the current DB and v8.2.1 rollback are backed up/hashed, v9 is installed/audited, and the clean-
+recipient Gatekeeper/first-piece pass runs. Source/release commit, tag and private push remain
+after acceptance. Then resume deliberate Desktop-folder access plus
+installed-native Score acceptance, real WKWebView Listen Back and voice-over-Steinway use,
 one explicitly authorized real-provider/current-edition measure map, and a sustained-use verdict
 on XP, levels, milestones and cadence. Do not rebuild or reinstall the shipped source.
 
@@ -110,6 +144,12 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off). In v8.2.1
 camera permission is conditional and requested only after explicit **Use camera**.
 
 ## Status (mirror of the vault; keep in sync)
+
+**v9.0.0 / schema 21 — PACKAGED SHAREABLE CANDIDATE; NOT INSTALLED; CLEAN-RECIPIENT ACCEPTANCE
+PENDING 2026-08-30.** The current candidate behavior and evidence are defined in “Current source
+boundary” above and `docs/qa/v9.0.0/README.md`. The exact package identity is proved; installed
+state, release commit/tag/push and recipient verdict are not claimed. The tutorial's main body
+remains v8.2.1-exact and labels v9 as a not-yet-installed preview.
 
 **v8.2.1 / schema 20 — SHIPPED + INSTALLED + PUBLISHED 2026-08-28.** Runtime source
 `496033e677919757ef1f2a78cee32d3abedb4805` atop B94
@@ -163,7 +203,8 @@ and **B89** (durable micro-target command identity, payload-fingerprint conflict
 and one bounded same-identity retry). Verdict-hotkey remaps publish after Settings Save, so the
 already-mounted HUD uses the new keys without a reload. The Assistant remains OFF and gated;
 its off-state Settings guide is practice-only, Books/provider furniture is hidden, and settle
-timing remains under Voice. Folders remain a deliberate non-goal in favor of archive + recent-first.
+timing remains under Voice. **Historical v8.1 decision:** folders were a deliberate non-goal in
+favor of archive + recent-first; Christian explicitly reversed that decision in the v9 request.
 
 Final source HEAD `1a1e38bb7a3757cf90ee6ea814e93d5971c595d6`; frontend
 **2,650 passed / 1 skipped / 0 failed** (209 files passed / 1 skipped), native

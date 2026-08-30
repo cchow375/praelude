@@ -81,10 +81,7 @@ impl PracticeContract {
             reset_on_failed: true,
             recovery: RecoveryPolicy::None,
             attempt_ceiling: None,
-            sources: vec![SourceReference {
-                source: "Molly Gebrian, Learn Faster, Perform Better".into(),
-                locator: "Chapter 1, Pathways and practicing".into(),
-            }],
+            sources: Vec::new(),
         }
     }
 

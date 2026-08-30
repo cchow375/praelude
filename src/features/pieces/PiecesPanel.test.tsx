@@ -66,7 +66,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("PiecesPanel", () => {
-  it("lists pieces from pieces_list with XML/PDF/needs-intake badges", async () => {
+  it("lists pieces in the editable library with XML/PDF/needs-intake badges", async () => {
     invokeMock.mockImplementation((cmd: string) =>
       cmd === "pieces_list"
         ? Promise.resolve([LISZT, SATIE])
@@ -78,8 +78,8 @@ describe("PiecesPanel", () => {
     await waitFor(() =>
       expect(screen.getByText("Liebestraum No. 3")).toBeTruthy(),
     );
-    expect(screen.getByRole("heading", { name: "Score map" })).toBeTruthy();
-    expect(screen.getByText("02 · mark target")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Pieces Library" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add a piece" })).toBeTruthy();
     expect(screen.getByText("Gymnopédie No. 1")).toBeTruthy();
     // Liszt: XML + needs intake; Satie: XML + PDF (intake done).
     expect(screen.getByText("needs setup")).toBeTruthy();
@@ -100,7 +100,7 @@ describe("PiecesPanel", () => {
 
     render(<PiecesPanel onOpenBlock={vi.fn()} />);
     await waitFor(() =>
-      expect(screen.getByText("No pieces yet.")).toBeTruthy(),
+      expect(screen.getByText("No active pieces here.")).toBeTruthy(),
     );
 
     fireEvent.click(
@@ -132,15 +132,22 @@ describe("PiecesPanel", () => {
       archived_at: 1_724_745_600,
       last_practiced: "2026-08-27 08:00:00",
     } satisfies PieceSummary;
+    let archivedNow = true;
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "pieces_list")
-        return Promise.resolve([older, archived, newer]);
-      if (cmd === "piece_archive_set")
+        return Promise.resolve([
+          older,
+          { ...archived, archived_at: archivedNow ? archived.archived_at : null },
+          newer,
+        ]);
+      if (cmd === "piece_archive_set") {
+        archivedNow = false;
         return Promise.resolve([
           { ...archived, archived_at: null },
           newer,
           older,
         ]);
+      }
       return Promise.resolve([]);
     });
 
@@ -148,27 +155,24 @@ describe("PiecesPanel", () => {
 
     const active = await screen.findByRole("list", { name: "Active pieces" });
     const activeTitles = within(active)
-      .getAllByRole("button")
+      .getAllByRole("button", { name: /^Open / })
       .map((button) => button.textContent);
     expect(activeTitles[0]).toContain("Gymnopédie No. 1");
     expect(activeTitles[1]).toContain("Liebestraum No. 3");
     expect(within(active).queryByText("Old étude")).toBeNull();
 
-    fireEvent.click(screen.getByText("Archived (1)"));
+    fireEvent.click(screen.getByRole("tab", { name: "Archived 1" }));
     expect(screen.getByText("Old étude")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Old étude" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Restore" }));
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith("piece_archive_set", {
         id: 3,
         archived: false,
       }),
     );
-    expect(screen.queryByText("Archived (1)")).toBeNull();
-    expect(
-      within(screen.getByRole("list", { name: "Active pieces" })).getByText(
-        "Old étude",
-      ),
-    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Active 3" }));
+    expect(within(screen.getByRole("list", { name: "Active pieces" })).getByText("Old étude")).toBeTruthy();
   });
 
   it("selects a piece: piece_select + piece_get, then shows the intake form when intake is undone", async () => {
@@ -185,7 +189,7 @@ describe("PiecesPanel", () => {
       expect(screen.getByText("Liebestraum No. 3")).toBeTruthy(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Liebestraum No\. 3/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Liebestraum No. 3" }));
 
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Save intake" })).toBeTruthy(),
@@ -240,8 +244,8 @@ describe("PiecesPanel", () => {
     render(<PiecesPanel onOpenBlock={vi.fn()} />);
     await screen.findByText("Liebestraum No. 3");
 
-    fireEvent.click(screen.getByRole("button", { name: /Liebestraum No\. 3/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Gymnopédie No\. 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Liebestraum No. 3" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Gymnopédie No. 1" }));
     expect(
       await screen.findByRole("heading", { name: "Gymnopédie No. 1" }),
     ).toBeTruthy();
@@ -287,7 +291,7 @@ describe("PiecesPanel", () => {
       expect(screen.getByText("Gymnopédie No. 1")).toBeTruthy(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Gymnopédie No\. 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Gymnopédie No. 1" }));
 
     // PDF-backed pieces now open on the score surface by default. The previous
     // summary and block form remain available under Details.

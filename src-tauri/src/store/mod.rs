@@ -18,6 +18,7 @@ mod measure_map;
 mod migrations;
 pub mod model;
 mod movements;
+mod piece_library;
 mod practice_loop;
 mod practice_v2;
 mod rep_replays;
@@ -247,8 +248,10 @@ impl Store {
             "INSERT INTO piece (title, composer, folder_path, xml_path, pdf_path)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(folder_path) DO UPDATE SET
-                 title    = excluded.title,
-                 composer = excluded.composer,
+                 title    = CASE WHEN piece.metadata_source='user'
+                                 THEN piece.title ELSE excluded.title END,
+                 composer = CASE WHEN piece.metadata_source='user'
+                                 THEN piece.composer ELSE excluded.composer END,
                  xml_path = excluded.xml_path,
                  pdf_path = excluded.pdf_path
              RETURNING id",
@@ -261,6 +264,7 @@ impl Store {
     /// row's folder reference to a `.trash/` location so it drops out of
     /// [`Store::list_pieces`] without deleting the row or any practice history).
     /// Returns the number of rows updated (0 when the piece was never scanned).
+    #[cfg(test)]
     pub fn repoint_piece_folder(&self, old: &str, new: &str) -> rusqlite::Result<usize> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         conn.execute(
@@ -305,7 +309,7 @@ impl Store {
             "SELECT id, title, composer,
                     xml_path IS NOT NULL,
                     COALESCE(preferred_pdf_path, pdf_path) IS NOT NULL,
-                    intake_done, archived_at,
+                    intake_done, archived_at, completed_at, folder_id,
                     (SELECT MAX(rep.ts)
                        FROM rep JOIN rep_block ON rep_block.id=rep.block_id
                       WHERE rep_block.piece_id=piece.id) AS last_practiced
@@ -316,7 +320,7 @@ impl Store {
             if include_archived {
                 ""
             } else {
-                " AND archived_at IS NULL"
+                " AND archived_at IS NULL AND completed_at IS NULL"
             }
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -329,7 +333,9 @@ impl Store {
                 has_pdf: row.get(4)?,
                 intake_done: row.get(5)?,
                 archived_at: row.get(6)?,
-                last_practiced: row.get(7)?,
+                completed_at: row.get(7)?,
+                folder_id: row.get(8)?,
+                last_practiced: row.get(9)?,
             })
         })?;
         rows.collect()
@@ -340,7 +346,8 @@ impl Store {
     pub fn set_piece_archived(&self, id: i64, archived: bool) -> rusqlite::Result<bool> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let sql = if archived {
-            "UPDATE piece SET archived_at=CAST(strftime('%s','now') AS INTEGER)
+            "UPDATE piece
+             SET archived_at=CAST(strftime('%s','now') AS INTEGER), completed_at=NULL
              WHERE id=?1 AND kind='repertoire' AND folder_path NOT LIKE '%/.trash/%'"
         } else {
             "UPDATE piece SET archived_at=NULL
@@ -392,7 +399,7 @@ impl Store {
             "SELECT id, title, composer, folder_path, xml_path,
                     COALESCE(preferred_pdf_path, pdf_path),
                     goals, deadline, target_tempo, hard_spots, current_state,
-                    intake_done, notes, banner_text, archived_at,
+                    intake_done, notes, banner_text, archived_at, completed_at, folder_id,
                     (SELECT MAX(rep.ts)
                        FROM rep JOIN rep_block ON rep_block.id=rep.block_id
                       WHERE rep_block.piece_id=piece.id)
@@ -421,7 +428,9 @@ impl Store {
                     notes: row.get(12)?,
                     banner_text: row.get(13)?,
                     archived_at: row.get(14)?,
-                    last_practiced: row.get(15)?,
+                    completed_at: row.get(15)?,
+                    folder_id: row.get(16)?,
+                    last_practiced: row.get(17)?,
                 })
             },
         )
@@ -1256,6 +1265,173 @@ mod tests {
     #[test]
     fn fresh_store_is_at_current_schema_version() {
         assert_eq!(mem().schema_version().unwrap(), migrations::SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn fresh_disk_install_is_blank_shareable_and_idempotent() {
+        let app_data = tempfile::tempdir().expect("isolated app-data directory");
+        let database = app_data.path().join("codakiller.db");
+        let expected_pieces_root = app_data.path().join("Pieces");
+
+        // Exercise the same two stateful startup steps as the Tauri setup hook,
+        // twice against one disposable on-disk app-data directory. This is a
+        // recipient-first-run contract: it must never inspect or mutate the
+        // installed app, the real app-data database, or an external score root.
+        for opening in 1..=2 {
+            let store = Store::open(&database).expect("open isolated fresh store");
+            let pieces_root = crate::initialize_pieces_dir(&store, app_data.path())
+                .expect("initialize isolated Pieces root");
+            assert_eq!(pieces_root, expected_pieces_root, "opening {opening}");
+            assert!(pieces_root.is_dir(), "opening {opening}");
+            assert!(
+                store.list_pieces().unwrap().is_empty(),
+                "the active user-facing Library is blank on opening {opening}"
+            );
+            assert!(
+                store.list_pieces_including_archived().unwrap().is_empty(),
+                "the all-state user-facing Library is blank on opening {opening}"
+            );
+            assert!(
+                store.piece_folder_list().unwrap().is_empty(),
+                "the user-facing folder tree is blank on opening {opening}"
+            );
+
+            let conn = store.conn.lock().unwrap_or_else(|p| p.into_inner());
+            assert_eq!(
+                conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                    .unwrap(),
+                i64::from(migrations::SCHEMA_VERSION),
+                "opening {opening}"
+            );
+            assert_eq!(
+                conn.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                    .unwrap(),
+                "ok",
+                "opening {opening}"
+            );
+            assert_eq!(
+                conn.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+                0,
+                "opening {opening}"
+            );
+
+            let system_piece: (i64, String, String, String, i64) = conn
+                .query_row(
+                    "SELECT id,title,kind,folder_path,intake_done FROM piece",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                system_piece,
+                (
+                    0,
+                    "Warm-ups".into(),
+                    "system".into(),
+                    "codakiller://warmups".into(),
+                    1,
+                ),
+                "only the hidden system identity is seeded on opening {opening}"
+            );
+
+            for (table, expected) in [
+                ("piece", 1_i64),
+                ("piece_folder", 0),
+                ("rep_block", 0),
+                ("rep", 0),
+                ("session", 0),
+                ("session_event", 0),
+                ("event", 0),
+                ("brain_thread", 0),
+                ("brain_turn", 0),
+            ] {
+                let sql = format!("SELECT count(*) FROM {table}");
+                assert_eq!(
+                    conn.query_row(&sql, [], |row| row.get::<_, i64>(0))
+                        .unwrap(),
+                    expected,
+                    "fresh {table} count on opening {opening}"
+                );
+            }
+            assert_eq!(
+                conn.query_row(
+                    "SELECT count(*) FROM piece WHERE kind='repertoire'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+                0,
+                "fresh repertoire is empty on opening {opening}"
+            );
+            assert_eq!(
+                conn.query_row("SELECT count(*) FROM protocol_template", [], |row| row
+                    .get::<_, i64>(0),)
+                    .unwrap(),
+                1,
+                "only the generic editable protocol is seeded on opening {opening}"
+            );
+            assert_eq!(
+                conn.query_row(
+                    "SELECT source_refs_json FROM protocol_template
+                     WHERE id='default-consecutive-clean-v1'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+                "[]",
+                "the generic protocol has no source/book provenance on opening {opening}"
+            );
+            assert_eq!(
+                conn.query_row(
+                    "SELECT count(*) FROM setting
+                     WHERE lower(key) LIKE '%knowledge%'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+                0,
+                "no Knowledge setting is seeded on opening {opening}"
+            );
+            assert_eq!(
+                conn.query_row("SELECT count(*) FROM setting", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+                1,
+                "startup seeds only the app-owned Pieces-root setting on opening {opening}"
+            );
+            assert_eq!(
+                conn.query_row(
+                    "SELECT value FROM setting WHERE key='vault.pieces_dir'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+                expected_pieces_root.to_string_lossy(),
+                "opening {opening}"
+            );
+        }
+
+        let mut top_level = std::fs::read_dir(app_data.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        top_level.sort();
+        assert_eq!(top_level, ["Pieces", "codakiller.db"]);
+        assert_eq!(std::fs::read_dir(&expected_pieces_root).unwrap().count(), 0);
+        assert!(!app_data.path().join("Knowledge").exists());
+        assert!(!app_data.path().join("knowledge").exists());
     }
 
     #[test]

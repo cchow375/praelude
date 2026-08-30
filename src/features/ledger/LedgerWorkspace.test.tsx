@@ -68,18 +68,18 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("LedgerWorkspace", () => {
-  it("defaults to the Days view, with Pieces reachable behind the switch", async () => {
+  it("defaults to the Days view, with By piece reachable behind the switch", async () => {
     render(<LedgerWorkspace />);
 
     const daysTab = await screen.findByRole("tab", { name: "Days" });
     expect(daysTab.getAttribute("aria-selected")).toBe("true");
     expect(
-      screen.getByRole("tab", { name: "Pieces" }).getAttribute("aria-selected"),
+      screen.getByRole("tab", { name: "By piece" }).getAttribute("aria-selected"),
     ).toBe("false");
     // Days is showing, so the Pieces content (piece index) is not mounted yet.
     expect(screen.queryByRole("heading", { name: "Scherzo" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
+    fireEvent.click(screen.getByRole("tab", { name: "By piece" }));
     expect(
       await screen.findByRole("heading", { name: "Scherzo" }),
     ).toBeTruthy();
@@ -87,7 +87,7 @@ describe("LedgerWorkspace", () => {
 
   it("selects repertoire without duplicating the piece ledger projection", async () => {
     render(<LedgerWorkspace />);
-    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
+    fireEvent.click(screen.getByRole("tab", { name: "By piece" }));
 
     expect(
       await screen.findByRole("heading", { name: "Scherzo" }),
@@ -114,7 +114,7 @@ describe("LedgerWorkspace", () => {
     // piece nobody could see.
     expect(await screen.findByRole("heading", { name: "Poem" })).toBeTruthy();
     expect(
-      screen.getByRole("tab", { name: "Pieces" }).getAttribute("aria-selected"),
+      screen.getByRole("tab", { name: "By piece" }).getAttribute("aria-selected"),
     ).toBe("true");
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith("piece_select", { id: 2 }),
@@ -189,7 +189,7 @@ describe("LedgerWorkspace", () => {
     });
 
     render(<LedgerWorkspace />);
-    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
+    fireEvent.click(screen.getByRole("tab", { name: "By piece" }));
     // The block appears as a compact SUMMARY row (its title), not a wall of reps.
     expect(await screen.findByText("Opening drill")).toBeTruthy();
     expect(screen.queryByText("steady")).toBeNull();
@@ -210,7 +210,7 @@ describe("LedgerWorkspace", () => {
     // Switch to Pieces immediately: with every command rejecting, staying on
     // Days would surface DayTimeline's OWN alert too, and findByRole("alert")
     // requires exactly one match.
-    fireEvent.click(screen.getByRole("tab", { name: "Pieces" }));
+    fireEvent.click(screen.getByRole("tab", { name: "By piece" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Database unavailable",
     );

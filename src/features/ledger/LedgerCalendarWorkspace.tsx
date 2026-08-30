@@ -10,9 +10,9 @@ import "./LedgerCalendarWorkspace.css";
 export type LedgerSurface = "ledger" | "calendar" | "pieces";
 
 const SURFACES: { id: LedgerSurface; label: string }[] = [
+  { id: "pieces", label: "Library" },
   { id: "ledger", label: HISTORY },
   { id: "calendar", label: "Calendar" },
-  { id: "pieces", label: "Pieces" },
 ];
 
 interface LedgerCalendarWorkspaceProps {
@@ -32,12 +32,10 @@ interface LedgerCalendarWorkspaceProps {
 }
 
 /**
- * The single shell slot the plan calls "Ledger/Calendar". Rather than inventing
- * a sixth top-level tab (the shell nav is fixed at five and asserts exactly
- * ["Today","Score","Brain","Ledger","Universe"]), the two history surfaces AND
- * the piece browser/intake/goals surface live here behind one quiet in-workspace
- * switch — active state is ink weight, never a filled pill. Only the chosen
- * surface is mounted, so none loads the others' IPC until selected.
+ * The top-level Pieces workspace. Its editable Library is the default surface;
+ * practice History and Calendar remain close by without competing with the
+ * repertoire itself. Only the chosen surface is mounted, so none loads the
+ * others' IPC until selected.
  *
  * Mounting `PiecesPanel → PieceDetail` here is what makes the piece browser/scan
  * (pieces_scan/piece_get), the IntakeForm (piece_intake_save), the GoalsPanel
@@ -55,7 +53,7 @@ export function LedgerCalendarWorkspace({
   onPracticeContextChange,
 }: LedgerCalendarWorkspaceProps = {}) {
   const [surface, setSurface] = useState<LedgerSurface>(
-    requestedSurface ?? "ledger",
+    requestedSurface ?? "pieces",
   );
   const tabRefs = useRef<
     Partial<Record<LedgerSurface, HTMLButtonElement | null>>
@@ -102,7 +100,7 @@ export function LedgerCalendarWorkspace({
       <div
         className="ledger-calendar-switch"
         role="tablist"
-        aria-label="History surface"
+        aria-label="Pieces workspace view"
       >
         {SURFACES.map(({ id, label }) => {
           const selected = surface === id;

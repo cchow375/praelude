@@ -8,7 +8,7 @@
 use rusqlite::{Connection, OptionalExtension};
 
 /// Current schema version. `Store::open` migrates any older database up to this.
-pub const SCHEMA_VERSION: i32 = 20;
+pub const SCHEMA_VERSION: i32 = 21;
 
 /// Full schema for v1. Column lists come verbatim from spec §5.
 pub(crate) const SCHEMA_V1: &str = "\
@@ -1672,6 +1672,50 @@ BEGIN
 END;
 ";
 
+/// Schema v21: a user-owned Pieces library independent of score-file layout.
+///
+/// `piece_folder` is deliberately logical: organizing the library never moves
+/// PDFs or invalidates score paths. Completion is also reversible metadata,
+/// parallel to v17's archive timestamp. All additions are nullable or safely
+/// defaulted, so every pre-v21 piece, score path, and practice-history
+/// relationship survives byte-for-byte.
+pub(crate) const SCHEMA_V21: &str = "\
+CREATE TABLE piece_folder (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 120),
+  parent_id INTEGER REFERENCES piece_folder(id) ON DELETE RESTRICT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK(parent_id IS NULL OR parent_id != id)
+);
+CREATE UNIQUE INDEX piece_folder_sibling_name_idx
+  ON piece_folder(COALESCE(parent_id,-1), lower(trim(name)));
+CREATE INDEX piece_folder_parent_idx ON piece_folder(parent_id,id);
+CREATE TRIGGER piece_folder_no_cycle
+BEFORE UPDATE OF parent_id ON piece_folder
+WHEN NEW.parent_id IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT,'piece folder cycle')
+   WHERE NEW.parent_id=NEW.id OR NEW.parent_id IN (
+     WITH RECURSIVE descendants(id) AS (
+       SELECT id FROM piece_folder WHERE parent_id=NEW.id
+       UNION ALL
+       SELECT folder.id FROM piece_folder AS folder
+       JOIN descendants ON folder.parent_id=descendants.id
+     )
+     SELECT id FROM descendants
+   );
+END;
+ALTER TABLE piece ADD COLUMN folder_id INTEGER
+  REFERENCES piece_folder(id) ON DELETE SET NULL;
+ALTER TABLE piece ADD COLUMN completed_at INTEGER
+  CHECK(completed_at IS NULL OR completed_at >= 0);
+ALTER TABLE piece ADD COLUMN metadata_source TEXT NOT NULL DEFAULT 'scan'
+  CHECK(metadata_source IN ('scan','user'));
+CREATE INDEX piece_library_state_idx
+  ON piece(kind,archived_at,completed_at,folder_id,id);
+";
+
 /// Migrate `conn` up to [`SCHEMA_VERSION`], applying only the steps its current
 /// `user_version` has not yet seen. Idempotent: a fully-migrated database is a
 /// no-op. Steps are layered (v0→v1→v2→v3) so a fresh database and older databases
@@ -2014,6 +2058,20 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             return Err(error);
         }
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    }
+
+    if version < 21 {
+        let v21 = (|| -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            conn.execute_batch(SCHEMA_V21)?;
+            conn.execute_batch("PRAGMA user_version = 21;")?;
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
+        if let Err(error) = v21 {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(error);
+        }
     }
 
     Ok(())
@@ -4667,7 +4725,7 @@ mod v3_tests {
         // currently is (v15 as of B74/day_photo/dynamics tables) — this test only
         // isolates the v13→v14 *content* (measure_map + the two columns below), not the
         // version number itself, which the pragma assertion above already anchors.
-        assert_eq!(SCHEMA_VERSION, 20);
+        assert_eq!(SCHEMA_VERSION, 21);
 
         // measure_map insert/select round-trips (piece id=1, "Etude", already
         // exists from seed_v11()).
@@ -4815,7 +4873,7 @@ mod v3_tests {
                 .unwrap(),
             SCHEMA_VERSION
         );
-        assert_eq!(SCHEMA_VERSION, 20);
+        assert_eq!(SCHEMA_VERSION, 21);
 
         // session row survives; only the column is gone.
         assert_eq!(
@@ -5250,7 +5308,7 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            20
+            SCHEMA_VERSION
         );
         assert_eq!(
             dump_contracts(&c),
@@ -5305,9 +5363,109 @@ mod v3_tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .unwrap(),
-            20,
+            SCHEMA_VERSION,
             "reopening a migrated real copy is a no-op",
         );
+    }
+
+    #[test]
+    fn v20_to_v21_preserves_piece_graph_and_adds_blank_library_metadata() {
+        let c = seed_v16();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        c.execute_batch(SCHEMA_V17).unwrap();
+        c.execute_batch("PRAGMA user_version = 17; COMMIT;")
+            .unwrap();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        c.execute_batch(SCHEMA_V18).unwrap();
+        c.execute_batch("PRAGMA user_version = 18; COMMIT;")
+            .unwrap();
+        c.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        c.execute_batch(SCHEMA_V19).unwrap();
+        c.execute_batch("PRAGMA user_version = 19; COMMIT;")
+            .unwrap();
+        c.execute_batch("PRAGMA foreign_keys = OFF; BEGIN IMMEDIATE;")
+            .unwrap();
+        c.execute_batch(SCHEMA_V20).unwrap();
+        c.execute_batch("PRAGMA user_version = 20; COMMIT; PRAGMA foreign_keys = ON;")
+            .unwrap();
+
+        let piece_before: String = c
+            .query_row(
+                "SELECT json_array(id,title,composer,folder_path,xml_path,pdf_path,
+                                   goals,deadline,target_tempo,hard_spots,current_state,
+                                   intake_done,notes,created_at,preferred_pdf_path,
+                                   archived_at,kind)
+                 FROM piece WHERE id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let counts_before: Vec<i64> = ["piece", "region", "rep_block", "rep", "session", "event"]
+            .into_iter()
+            .map(|table| {
+                c.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap()
+            })
+            .collect();
+
+        migrate(&c).unwrap();
+
+        assert_eq!(
+            c.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            21
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT json_array(id,title,composer,folder_path,xml_path,pdf_path,
+                                   goals,deadline,target_tempo,hard_spots,current_state,
+                                   intake_done,notes,created_at,preferred_pdf_path,
+                                   archived_at,kind)
+                 FROM piece WHERE id=1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            piece_before,
+            "v21 must not rewrite any pre-existing piece value",
+        );
+        let counts_after: Vec<i64> = ["piece", "region", "rep_block", "rep", "session", "event"]
+            .into_iter()
+            .map(|table| {
+                c.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap()
+            })
+            .collect();
+        assert_eq!(counts_after, counts_before);
+        assert_eq!(
+            c.query_row(
+                "SELECT json_array(folder_id,completed_at,metadata_source) FROM piece WHERE id=1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            r#"[null,null,"scan"]"#,
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM piece_folder", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        assert!(c
+            .query_row("PRAGMA foreign_key_check", [], |_| Ok(()))
+            .optional()
+            .unwrap()
+            .is_none());
     }
 
     #[test]

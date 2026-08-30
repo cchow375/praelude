@@ -40,7 +40,7 @@ import "./brain.css";
 /**
  * The v3 Brain workspace: a single-column transcript with a persistent status
  * line at the top and ONE primary action (the question input). Secondary
- * surfaces — grounding, methods, intake review, and the deterministic next-work
+ * surfaces — practice context, intake review, and the deterministic next-work
  * suggestions — live behind Disclosures so no screen is a wall of controls.
  *
  * Two seams: `api` (the BrainApi IPC boundary for ask/thread/intake/plan) and
@@ -88,7 +88,7 @@ const piecesListCommand = defineCommand<undefined, PieceSummary[]>(
 const PROVIDER_LABELS: Record<BrainProvider, string> = {
   claude: "Claude",
   gemini: "Gemini",
-  offline: "Offline library",
+  offline: "Offline",
 };
 
 function boundedHistory(thread: ThreadEntry[]) {
@@ -127,7 +127,6 @@ function seedThreadFromTurns(turns: BrainTurnRow[]): ThreadEntry[] {
           answer: turn.content,
           provider: isProvider(turn.provider) ? turn.provider : "offline",
           citations: Array.isArray(turn.citations) ? turn.citations : [],
-          methods: [],
           intake_review: null,
         },
       });
@@ -489,59 +488,15 @@ export function BrainWorkspace({
             </p>
             <div className="brain-a">
               <p className="brain-a-text">{entry.answer.answer}</p>
-              {entry.answer.citations.length > 0 && (
-                <ul className="brain-chips" aria-label="Citations">
-                  {entry.answer.citations.map((citation) => (
-                    <li
-                      className="brain-chip"
-                      key={citation.source_id}
-                      title={citation.excerpt}
-                    >
-                      <span className="brain-chip-id">
-                        [{citation.source_id}]
-                      </span>{" "}
-                      {citation.label}
-                    </li>
-                  ))}
-                </ul>
-              )}
               <span className="brain-provider">
                 {PROVIDER_LABELS[entry.answer.provider]}
               </span>
               {entry.answer.grounding && (
                 <Disclosure
                   className="brain-secondary"
-                  summary={`Grounding (${entry.answer.grounding.knowledge_sources.length} sources)`}
+                  summary="Practice context"
                 >
-                  <GroundingReceipt
-                    grounding={entry.answer.grounding}
-                    provider={entry.answer.provider}
-                  />
-                </Disclosure>
-              )}
-              {entry.answer.methods.length > 0 && (
-                <Disclosure
-                  className="brain-secondary"
-                  summary={`Methods (${entry.answer.methods.length})`}
-                >
-                  <div className="brain-methods">
-                    {entry.answer.methods.map((method) => (
-                      <article className="brain-method" key={method.id}>
-                        <h3>{method.name}</h3>
-                        <p>{method.why}</p>
-                        <dl>
-                          <div>
-                            <dt>Dose</dt>
-                            <dd>{method.dose}</dd>
-                          </div>
-                          <div>
-                            <dt>Watch for</dt>
-                            <dd>{method.watch_for}</dd>
-                          </div>
-                        </dl>
-                      </article>
-                    ))}
-                  </div>
+                  <GroundingReceipt grounding={entry.answer.grounding} />
                 </Disclosure>
               )}
               {entry.answer.intake_review && (
@@ -561,7 +516,7 @@ export function BrainWorkspace({
         ))}
         {asking && (
           <p className="brain-thinking" role="status">
-            Checking the library and your practice context…
+            Checking your practice context…
           </p>
         )}
         <div ref={threadEnd} />
@@ -614,8 +569,8 @@ export function BrainWorkspace({
           </div>
         </form>
         <p className="brain-privacy">
-          Answers may be wrong. Sources and your verdict stay visible; your
-          writing changes only when you press Save.
+          Answers may be wrong. Your practice facts and verdict stay visible;
+          your writing changes only when you press Save.
         </p>
       </div>
 
@@ -668,52 +623,13 @@ function CurrentContextStrip({ context }: { context: PracticeBrainContext }) {
   );
 }
 
-/**
- * Honest one-line account of where the retrieved book excerpts went. The
- * backend names the cause, so "nothing matched" never reads as "the content is
- * hidden from the assistant". Older payloads without a cause fall back to the
- * boolean, which cannot tell those two apart.
- */
-export function knowledgeShareLabel(
-  grounding: BrainGroundingSummary,
-  provider: BrainProvider,
-): string {
-  if (provider === "offline") {
-    return "Answered on this Mac — nothing was sent";
-  }
-  switch (grounding.knowledge_share_cause) {
-    case "shared":
-      return "Retrieved excerpts shared with provider";
-    case "no_library":
-      return "No knowledge books are indexed yet";
-    case "no_matches":
-      return "No book excerpts matched this question";
-    case "sharing_disabled":
-      return "Book excerpts are kept on this Mac (sharing is off in Settings)";
-    case "offline":
-      return "Answered on this Mac — nothing was sent";
-    default:
-      return grounding.knowledge_shared_with_provider
-        ? "Retrieved excerpts shared with provider"
-        : "No book excerpts matched this question";
-  }
-}
-
-function GroundingReceipt({
-  grounding,
-  provider,
-}: {
-  grounding: BrainGroundingSummary;
-  provider: BrainProvider;
-}) {
-  const sourceCount = grounding.knowledge_sources.length;
+function GroundingReceipt({ grounding }: { grounding: BrainGroundingSummary }) {
   const xmlLabel =
     grounding.musicxml_status === "ready"
       ? "MusicXML included"
       : grounding.musicxml_status === "not_requested"
         ? "MusicXML needs a selected section"
         : "MusicXML unavailable";
-  const sharingLabel = knowledgeShareLabel(grounding, provider);
   const answerLocation = [
     grounding.piece_title,
     grounding.region_name,
@@ -728,17 +644,12 @@ function GroundingReceipt({
     <div className="brain-evidence">
       {answerLocation && <strong>Answer context: {answerLocation}</strong>}
       <div className="brain-evidence-facts">
-        <span>
-          <span className="brain-num">{sourceCount}</span> knowledge{" "}
-          {sourceCount === 1 ? "book" : "books"} indexed
-        </span>
         <span>{xmlLabel}</span>
         <span>
           <span className="brain-num">{grounding.recent_rep_count}</span> recent{" "}
           {grounding.recent_rep_count === 1 ? "attempt" : "attempts"}
         </span>
       </div>
-      <small>{sharingLabel}</small>
       {grounding.warnings.length > 0 && (
         <ul className="brain-warnings">
           {grounding.warnings.map((warning) => (
@@ -919,8 +830,7 @@ function isBrainAnswer(value: unknown): value is BrainAnswer {
     (answer.provider === "claude" ||
       answer.provider === "gemini" ||
       answer.provider === "offline") &&
-    Array.isArray(answer.citations) &&
-    Array.isArray(answer.methods)
+    Array.isArray(answer.citations)
   );
 }
 

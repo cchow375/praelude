@@ -809,6 +809,8 @@ mod tests {
             has_pdf: false,
             intake_done: true,
             archived_at: None,
+            completed_at: None,
+            folder_id: None,
             last_practiced: None,
             folder_path: root.to_string_lossy().into_owned(),
             xml_path: xml_path.map(|path| path.to_string_lossy().into_owned()),

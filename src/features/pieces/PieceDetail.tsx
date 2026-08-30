@@ -49,7 +49,7 @@ interface PieceDetailProps {
   defaultCleanStreak?: number;
   /** Notifies the parent list when the piece record changes (badges/summary). */
   onUpdated?: (piece: PieceDetailData) => void;
-  /** Notifies the parent that this piece's files were moved to vault trash. */
+  /** Notifies the parent that this piece was removed from the library. */
   onRemoved?: (pieceId: number) => void;
   /** Notifies the library that this piece entered the reversible archive. */
   onArchived?: (pieceId: number) => void;
@@ -287,13 +287,8 @@ export function PieceDetail({
         <ConfirmArchive
           expected={piece.title}
           onConfirm={async () => {
-            const folderName =
-              piece.folder_path.split("/").filter(Boolean).pop() ?? "";
             try {
-              await invoke("piece_delete_files", {
-                folderName,
-                typedName: piece.title,
-              });
+              await invoke("piece_remove", { id: piece.id });
               onRemoved?.(piece.id);
               onBack();
             } catch (e) {
@@ -304,9 +299,9 @@ export function PieceDetail({
           <button
             type="button"
             className="piece-remove"
-            aria-label="Delete this piece's files"
+            aria-label="Remove this piece"
           >
-            Delete files…
+            Remove…
           </button>
         </ConfirmArchive>
       </div>

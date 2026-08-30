@@ -10,10 +10,9 @@ import { Popover } from "../../components/Popover";
 import "../../components/ConfirmDelete.css";
 
 // ---------------------------------------------------------------------------
-// Typed-name file-removal confirmation. Reuses the ConfirmDelete idiom (an anchored
-// Popover on a trigger) but gates Confirm behind typing the piece's exact name,
-// mirroring the backend `piece_delete_files` typed-name requirement so removal is a
-// deliberate, unambiguous act.
+// Typed-name removal confirmation. Reuses the ConfirmDelete idiom (an anchored
+// Popover on a trigger) but gates Confirm behind typing the piece's exact name so
+// the destructive file move is a deliberate, unambiguous act.
 // ---------------------------------------------------------------------------
 
 export interface ConfirmArchiveProps {
@@ -65,13 +64,13 @@ export function ConfirmArchive({
         anchorRef={anchorRef}
         open={open}
         onClose={() => setOpen(false)}
-        label="Confirm deleting piece files"
+        label="Confirm removing piece"
       >
         <div className="confirm-delete-body">
           <p className="confirm-delete-label">
-            Type <strong>{expected}</strong> to move this piece’s files to the
-            vault trash. Practice history stays, but this is not the reversible
-            Archive action.
+            Type <strong>{expected}</strong> to remove this piece from your
+            library and move its files to the app’s trash. Practice history
+            stays, but this is not the reversible Archive action.
           </p>
           <input
             type="text"
@@ -90,7 +89,7 @@ export function ConfirmArchive({
               disabled={!gateOpen || busy}
               onClick={confirm}
             >
-              Delete files
+              Remove piece
             </button>
           </div>
         </div>

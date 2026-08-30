@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { PieceDetailData, PieceSummary } from "./types";
+import type { PieceDetailData, PieceFolder, PieceSummary } from "./types";
 import type { RepOpenArgs, RepSnapshot } from "../rep/useRep";
 import { PieceDetail } from "./PieceDetail";
-import { AddScore } from "./AddScore";
+import { AddPiece } from "./AddPiece";
+import { PieceLibrary, type LibraryLocation } from "./PieceLibrary";
 import type { PracticeBrainContext } from "../brain/types";
 import "./Pieces.css";
 
@@ -39,6 +40,8 @@ export function PiecesPanel({
   onPracticeContextChange,
 }: PiecesPanelProps) {
   const [pieces, setPieces] = useState<PieceSummary[]>([]);
+  const [folders, setFolders] = useState<PieceFolder[]>([]);
+  const [location, setLocation] = useState<LibraryLocation>("all");
   const [selected, setSelected] = useState<PieceDetailData | null>(null);
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -48,10 +51,12 @@ export function PiecesPanel({
 
   const loadList = useCallback(async () => {
     try {
-      const list = await invoke<PieceSummary[]>("pieces_list", {
-        includeArchived: true,
-      });
+      const [list, nextFolders] = await Promise.all([
+        invoke<PieceSummary[]>("pieces_list", { includeArchived: true }),
+        invoke<PieceFolder[]>("piece_folders_list"),
+      ]);
       setPieces(list ?? []);
+      setFolders(nextFolders ?? []);
     } catch (e) {
       setError(messageOf(e));
     } finally {
@@ -75,13 +80,6 @@ export function PiecesPanel({
       setScanning(false);
     }
   }, [loadList]);
-
-  const activePieces = pieces
-    .filter((piece) => piece.archived_at == null)
-    .sort(recentFirst);
-  const archivedPieces = pieces
-    .filter((piece) => piece.archived_at != null)
-    .sort(recentFirst);
 
   const select = useCallback(async (id: number) => {
     const generation = ++selectionGeneration.current;
@@ -112,6 +110,8 @@ export function PiecesPanel({
               has_xml: updated.has_xml,
               has_pdf: updated.has_pdf,
               intake_done: updated.intake_done,
+              folder_id: updated.folder_id ?? null,
+              completed_at: updated.completed_at ?? null,
               archived_at: updated.archived_at ?? p.archived_at ?? null,
               last_practiced:
                 updated.last_practiced ?? p.last_practiced ?? null,
@@ -165,21 +165,21 @@ export function PiecesPanel({
     <div className="pieces-view">
       <div className="pieces-header">
         <div>
-          <p className="ck-kicker">Score-centered workspace</p>
-          <h2 className="pieces-heading">Score map</h2>
+          <p className="ck-kicker">Your repertoire</p>
+          <h2 className="pieces-heading">Pieces Library</h2>
           <p className="pieces-subheading">
-            Choose a score, then work from an exact visible target.
+            Add your own scores, organize them your way, and choose what to practice.
           </p>
         </div>
         <div className="pieces-header-actions">
           <button
             type="button"
             className="pieces-scan"
-            aria-label="Add a score from IMSLP"
+            aria-label="Add a piece"
             aria-pressed={adding}
             onClick={() => setAdding((v) => !v)}
           >
-            <span>Add score</span>
+            <span>Add Piece</span>
           </button>
           <button
             type="button"
@@ -195,19 +195,22 @@ export function PiecesPanel({
       </div>
 
       {adding && (
-        <AddScore
-          onImported={() => void scan()}
+        <AddPiece
+          folders={folders}
+          initialFolderId={typeof location === "number" ? location : null}
+          onImported={(piece) => {
+            setAdding(false);
+            setSelected(piece);
+            setPieces((current) => [
+              ...current.filter((item) => item.id !== piece.id),
+              piece,
+            ]);
+            void invoke("piece_select", { id: piece.id });
+            void loadList();
+          }}
           onClose={() => setAdding(false)}
         />
       )}
-
-      <div className="atlas-instruction" aria-label="Score map workflow">
-        <span>01 · choose score</span>
-        <span aria-hidden="true">→</span>
-        <span>02 · mark target</span>
-        <span aria-hidden="true">→</span>
-        <span>03 · start contract</span>
-      </div>
 
       {error && (
         <p className="ck-inline-error" role="alert">
@@ -217,108 +220,18 @@ export function PiecesPanel({
 
       {loading ? (
         <p className="pieces-empty">Loading…</p>
-      ) : pieces.length === 0 ? (
-        <div className="pieces-empty-state">
-          <p className="pieces-empty">No pieces yet.</p>
-          <p className="pieces-empty-hint">
-            Scan your pieces folder to import scores.
-          </p>
-        </div>
       ) : (
-        <>
-          {activePieces.length === 0 && (
-            <p className="pieces-empty">
-              No active pieces. Restore one from Archived or add a score.
-            </p>
-          )}
-          <ul className="pieces-list" aria-label="Active pieces">
-            {activePieces.map((p, index) => (
-              <li key={p.id}>
-                <button
-                  type="button"
-                  className="piece-row ck-fit-reveal"
-                  onClick={() => select(p.id)}
-                >
-                  <span className="piece-row-index" aria-hidden="true">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <span className="piece-row-main">
-                    <span className="piece-row-title ck-fit">{p.title}</span>
-                    {p.composer && (
-                      <span className="piece-row-composer ck-fit">
-                        {p.composer}
-                      </span>
-                    )}
-                  </span>
-                  <span className="piece-row-badges">
-                    {p.has_xml && (
-                      <span className="piece-badge is-xml">XML</span>
-                    )}
-                    {p.has_pdf && (
-                      <span className="piece-badge is-pdf">PDF</span>
-                    )}
-                    {!p.intake_done && (
-                      <span className="piece-badge is-intake">needs setup</span>
-                    )}
-                    <span className="piece-row-arrow" aria-hidden="true">
-                      ↗
-                    </span>
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {archivedPieces.length > 0 && (
-            <details className="pieces-archived">
-              <summary>Archived ({archivedPieces.length})</summary>
-              <ul className="pieces-list" aria-label="Archived pieces">
-                {archivedPieces.map((piece) => (
-                  <li key={piece.id} className="piece-row-archived">
-                    <span className="piece-row-main">
-                      <span className="piece-row-title ck-fit">
-                        {piece.title}
-                      </span>
-                      {piece.composer && (
-                        <span className="piece-row-composer ck-fit">
-                          {piece.composer}
-                        </span>
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      className="piece-restore"
-                      onClick={async () => {
-                        try {
-                          const next = await invoke<PieceSummary[]>(
-                            "piece_archive_set",
-                            { id: piece.id, archived: false },
-                          );
-                          setPieces(next ?? []);
-                        } catch (cause) {
-                          setError(messageOf(cause));
-                        }
-                      }}
-                    >
-                      Restore
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-        </>
+        <PieceLibrary
+          pieces={pieces}
+          folders={folders}
+          location={location}
+          onLocationChange={setLocation}
+          onOpen={(id) => void select(id)}
+          onReload={loadList}
+          onError={setError}
+        />
       )}
     </div>
-  );
-}
-
-function recentFirst(a: PieceSummary, b: PieceSummary): number {
-  const aTime = a.last_practiced ? Date.parse(a.last_practiced) : 0;
-  const bTime = b.last_practiced ? Date.parse(b.last_practiced) : 0;
-  return (
-    bTime - aTime ||
-    a.title.localeCompare(b.title, undefined, { sensitivity: "base" }) ||
-    a.id - b.id
   );
 }
 

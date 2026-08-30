@@ -14,7 +14,7 @@ async function bootstrap() {
   // review (`npm run dev:mock`). The import is dynamic and behind this static
   // guard, so with the flag OFF the mock module is never fetched or executed —
   // a normal `vite` dev run and the real Tauri app are byte-for-byte unaffected.
-  if (import.meta.env.VITE_DEV_MOCK) {
+  if (import.meta.env.DEV && import.meta.env.VITE_DEV_MOCK === "1") {
     const { installTauriDevMock } = await import("./devMock/tauriDevMock");
     // Fix wave item 12: seed deterministic yesterday/today day-sheet fixtures
     // so carry-forward, plan totals, and pin-from-day-sheet are all

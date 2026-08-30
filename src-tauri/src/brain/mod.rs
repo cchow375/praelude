@@ -5,13 +5,56 @@
 //! rep verdict, change tempo, navigate the score, or mutate the practice graph.
 
 mod context;
+#[cfg(test)]
 mod corpus;
+#[cfg(not(test))]
+mod corpus {
+    use serde::Serialize;
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum CorpusStatus {
+        Unavailable,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize)]
+    pub struct CorpusHit {
+        pub id: String,
+        pub source_id: String,
+        pub title: String,
+        pub author: String,
+        pub heading: String,
+        pub locator: String,
+        pub body: String,
+        pub visual_dependency: bool,
+        #[serde(skip)]
+        pub score: f64,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize)]
+    pub struct CorpusSearch {
+        pub status: CorpusStatus,
+        pub hits: Vec<CorpusHit>,
+        pub indexed_sources: Vec<String>,
+        pub warnings: Vec<String>,
+    }
+
+    pub fn empty() -> CorpusSearch {
+        CorpusSearch {
+            status: CorpusStatus::Unavailable,
+            hits: Vec::new(),
+            indexed_sources: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+}
 mod library;
 mod provider;
 mod score_context;
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -23,10 +66,11 @@ use crate::store::model::{PieceFieldPatch, RepSnapshot};
 use crate::store::Store;
 
 pub use context::{GroundingSummary, KnowledgeShareCause};
-pub use corpus::{BookExcerpt, BookKind, BookListing};
 pub use library::{Citation, MethodCard};
 use library::{EmbeddedLibrary, PracticeLibrary};
-use provider::{ProviderOutput, SuggestionDraft};
+use provider::ProviderOutput;
+#[cfg(test)]
+use provider::SuggestionDraft;
 // Re-exported crate-wide (not just within `brain`): `score::measure_scan`
 // (Plan C, C2) drives the same Claude-primary/Gemini-fallback vision chain
 // through `ProviderChain::vision_texts`, so it needs these names too.
@@ -39,8 +83,8 @@ const MAX_QUESTION_CHARS: usize = 8_000;
 const MAX_HISTORY_TURNS: usize = 10;
 const MAX_HISTORY_TURN_CHARS: usize = 8_000;
 const MAX_HISTORY_CHARS: usize = 24_000;
-const DEFAULT_KNOWLEDGE_DIR: &str =
-    "/Users/c3/Desktop/christian's universe/Piano Practice/Knowledge and Resources";
+#[cfg(test)]
+const DEFAULT_KNOWLEDGE_DIR: &str = "/codakiller-test-knowledge";
 const INTAKE_REVIEW_TTL: Duration = Duration::from_secs(15 * 60);
 static ANSWER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -407,9 +451,11 @@ impl std::fmt::Display for BrainError {
 
 impl std::error::Error for BrainError {}
 
-/// Passage-helper request (spec C4). The pianist names a piece and describes the
+/// Historical passage-helper request retained only for its hermetic tests. The
+/// user-facing helper and its IPC command were removed from the blank v9 build.
 /// passage; an optional selected region scopes the MusicXML facts. `expand_of`
 /// switches to expand mode: one selected suggestion in, one fuller version out.
+#[cfg(test)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct AssistantSuggestRequest {
     pub piece_id: i64,
@@ -426,6 +472,7 @@ pub struct AssistantSuggestRequest {
 /// manifest id; `source_author` labels the quiet marker; `source_heading` is a
 /// verbatim book heading the reader uses as its `contains` locator — never a
 /// fabricated page or a non-verbatim line.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AssistantSuggestion {
     pub id: String,
@@ -440,6 +487,7 @@ pub struct AssistantSuggestion {
 
 /// The reader-openable citation for one book, joined from local retrieval. Every
 /// field is real book metadata, so the marker can honestly open the section.
+#[cfg(test)]
 #[derive(Debug, Clone)]
 struct CitationMarker {
     book_id: String,
@@ -447,6 +495,7 @@ struct CitationMarker {
     heading: String,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AssistantSuggestions {
     pub suggestions: Vec<AssistantSuggestion>,
@@ -454,33 +503,14 @@ pub struct AssistantSuggestions {
 
 /// The passage-helper caps the visible rows at four; the provider is already held
 /// to the same ceiling, so this is defense in depth.
+#[cfg(test)]
 const MAX_ASSISTANT_SUGGESTIONS: usize = 4;
-
-/// Production entry point for the passage-helper (C4). Reads and suggests only —
-/// it has no practice-mutation authority and never enters the deterministic hot
-/// loop. Offline / no key returns an honest `Err`, never a fabricated card.
-pub fn assistant_suggest_native(
-    request: AssistantSuggestRequest,
-    store: Arc<Store>,
-    sessions: Arc<SessionService>,
-) -> Result<AssistantSuggestions, BrainError> {
-    let library = EmbeddedLibrary::load();
-    let preference = store.get_setting("brain.provider").ok().flatten();
-    let chain = ProviderChain::from_native_config_with_preference(preference.as_deref());
-    suggest_with(
-        request,
-        &store,
-        &sessions,
-        &library,
-        &chain,
-        &NativeTransport::new(),
-    )
-}
 
 /// Unit-testable core of the passage-helper. Builds the same bounded, read-only
 /// grounded context as `brain_ask` (the piece's MusicXML facts for the selected
 /// passage plus corpus retrieval on the description), then asks the provider for
 /// strategies — or, in expand mode, a fuller version of one strategy.
+#[cfg(test)]
 fn suggest_with(
     request: AssistantSuggestRequest,
     store: &Store,
@@ -508,14 +538,7 @@ fn suggest_with(
     }
 
     let methods = library.retrieve(description, 3);
-    let share_knowledge = store
-        .get_setting("brain.share_retrieved_knowledge")
-        .ok()
-        .flatten()
-        .as_deref()
-        != Some("false");
-    let directory = resolve_knowledge_dir(store);
-    let corpus = corpus::search(&directory, description, 6);
+    let (corpus, share_knowledge) = retrieval_for_request(store, description);
     let (context, _grounding) = context::build(
         store,
         sessions,
@@ -700,10 +723,10 @@ pub fn spoken_answer(answer: &BrainAnswer) -> String {
     out.trim().to_string()
 }
 
-/// Resolve the active knowledge directory: the `brain.knowledge_dir` setting
-/// when set to a non-empty value, otherwise the built-in default. Shared by
-/// retrieval and every book-library command so they agree on one folder.
-pub fn resolve_knowledge_dir(store: &Store) -> PathBuf {
+/// Unit tests retain a hermetic retrieval seam for the historical privacy and
+/// grounding contracts. Production v9 always takes the blank branch below.
+#[cfg(test)]
+fn resolve_knowledge_dir(store: &Store) -> PathBuf {
     store
         .get_setting("brain.knowledge_dir")
         .ok()
@@ -713,42 +736,27 @@ pub fn resolve_knowledge_dir(store: &Store) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(DEFAULT_KNOWLEDGE_DIR))
 }
 
-/// Manifest entries + per-book availability for the Settings "Books" panel.
-pub fn list_books(store: &Store) -> Result<Vec<BookListing>, String> {
-    corpus::list_books(&resolve_knowledge_dir(store))
-}
-
-/// Copy a readable `.md` book into the knowledge folder and append the manifest.
-/// The frontend owns the confirmation UI; this validates and acts.
-pub fn add_book(
-    store: &Store,
-    path: &str,
-    title: &str,
-    author: &str,
-    kind: BookKind,
-) -> Result<BookListing, String> {
-    corpus::add_book(
-        &resolve_knowledge_dir(store),
-        Path::new(path),
-        title,
-        author,
-        kind,
-    )
-}
-
-/// Remove a manifest entry, moving its file to `.trash/` (never hard-delete).
-pub fn remove_book(store: &Store, id: &str) -> Result<(), String> {
-    corpus::remove_book(&resolve_knowledge_dir(store), id)
-}
-
-/// The markdown section around a quote for the Reader window (D2).
-pub fn book_excerpt(
-    store: &Store,
-    source_id: &str,
-    heading: Option<&str>,
-    contains: Option<&str>,
-) -> Result<BookExcerpt, String> {
-    corpus::book_excerpt(&resolve_knowledge_dir(store), source_id, heading, contains)
+fn retrieval_for_request(store: &Store, query: &str) -> (corpus::CorpusSearch, bool) {
+    #[cfg(test)]
+    {
+        let share = store
+            .get_setting("brain.share_retrieved_knowledge")
+            .ok()
+            .flatten()
+            .as_deref()
+            != Some("false");
+        (
+            corpus::search(&resolve_knowledge_dir(store), query, 6),
+            share,
+        )
+    }
+    #[cfg(not(test))]
+    {
+        let _ = (store, query);
+        // No bundled books, no folder scan, and no book excerpt crosses a
+        // provider boundary in the normal/sendable build.
+        (corpus::empty(), false)
+    }
 }
 
 /// Truthful, no-network Brain status for the Settings/status UI. `online` means
@@ -914,17 +922,7 @@ fn ask_with(
     let intake_review = build_intake_review(question, store, piece_id)?;
     let methods = library.retrieve(question, 3);
     let retrieval_query = retrieval_query(question, &history);
-    let share_knowledge = store
-        .get_setting("brain.share_retrieved_knowledge")
-        .ok()
-        .flatten()
-        .as_deref()
-        != Some("false");
-    // Retrieval is always local and remains useful in offline/private mode.
-    // The setting controls only whether bounded hits cross the provider
-    // boundary, never whether Christian can search his own books.
-    let directory = resolve_knowledge_dir(store);
-    let corpus = corpus::search(&directory, &retrieval_query, 6);
+    let (corpus, share_knowledge) = retrieval_for_request(store, &retrieval_query);
     let (context, grounding) = context::build(
         store,
         sessions,
@@ -982,7 +980,10 @@ fn ask_with(
         return Err(BrainError::PolicyViolation);
     }
 
-    // Citations are an allowlist join against deterministic local retrieval.
+    // Historical tests keep the old citation allowlist contract. Production v9
+    // has no bundled or user-folder knowledge library, so its stable wire fields
+    // are deliberately empty and provider prose stands only on practice context.
+    #[cfg(test)]
     // Unknown provider-supplied ids are discarded, so it cannot fabricate a
     // source, URL, or locator into frontend state.
     let allowed_citations = methods
@@ -997,6 +998,7 @@ fn ask_with(
                 .map(corpus::CorpusHit::citation),
         )
         .collect::<Vec<_>>();
+    #[cfg(test)]
     let citations = allowed_citations
         .iter()
         .filter(|citation| citation_ids.iter().any(|id| id == &citation.source_id))
@@ -1010,13 +1012,20 @@ fn ask_with(
             }
             acc
         });
+    #[cfg(not(test))]
+    let citations = {
+        let _ = citation_ids;
+        Vec::new()
+    };
 
     // A provider answer without at least one locally verified source is not a
     // grounded answer. Fall back to the deterministic library card instead of
     // putting uncited prose in the UI.
+    #[cfg(test)]
     let cites_external_library = citations
         .iter()
         .any(|citation| corpus.hits.iter().any(|hit| hit.id == citation.source_id));
+    #[cfg(test)]
     if citations.is_empty()
         || (share_knowledge && !corpus.hits.is_empty() && !cites_external_library)
     {
@@ -1050,29 +1059,54 @@ fn offline_answer(
     mut grounding: GroundingSummary,
     proposed_action: Option<ProposedAction>,
 ) -> BrainAnswer {
-    // Context construction happens before provider selection. An offline
-    // fallback transmits nothing, even when online sharing is enabled.
-    grounding.knowledge_shared_with_provider = false;
-    grounding.knowledge_share_cause = KnowledgeShareCause::Offline;
-    let citations = corpus_hits
-        .iter()
-        .take(3)
-        .map(corpus::CorpusHit::citation)
-        .chain(
-            methods
-                .iter()
-                .flat_map(|method| method.citations.iter().cloned()),
-        )
-        .fold(Vec::<Citation>::new(), |mut acc, citation| {
-            if !acc
-                .iter()
-                .any(|existing| existing.source_id == citation.source_id)
-            {
-                acc.push(citation);
-            }
-            acc
-        });
-    let answer = corpus_hits.first().map_or_else(
+    #[cfg(not(test))]
+    {
+        let _ = (methods, corpus_hits);
+        grounding.knowledge_shared_with_provider = false;
+        grounding.knowledge_share_cause = KnowledgeShareCause::Offline;
+        let answer = if intake_review.is_some() {
+            "I prepared a field-by-field intake draft. Nothing changes until you press Save."
+                .to_string()
+        } else {
+            "No online Assistant provider is configured for this question.".to_string()
+        };
+        BrainAnswer {
+            id: next_answer_id(),
+            answer,
+            provider: ProviderName::Offline,
+            citations: Vec::new(),
+            methods: Vec::new(),
+            intake_review,
+            grounding,
+            proposed_action,
+        }
+    }
+
+    #[cfg(test)]
+    {
+        // Context construction happens before provider selection. An offline
+        // fallback transmits nothing, even when online sharing is enabled.
+        grounding.knowledge_shared_with_provider = false;
+        grounding.knowledge_share_cause = KnowledgeShareCause::Offline;
+        let citations = corpus_hits
+            .iter()
+            .take(3)
+            .map(corpus::CorpusHit::citation)
+            .chain(
+                methods
+                    .iter()
+                    .flat_map(|method| method.citations.iter().cloned()),
+            )
+            .fold(Vec::<Citation>::new(), |mut acc, citation| {
+                if !acc
+                    .iter()
+                    .any(|existing| existing.source_id == citation.source_id)
+                {
+                    acc.push(citation);
+                }
+                acc
+            });
+        let answer = corpus_hits.first().map_or_else(
         || methods.first().map_or_else(
         || if intake_review.is_some() {
             "I prepared a field-by-field intake draft. Nothing changes until you press Save."
@@ -1089,15 +1123,16 @@ fn offline_answer(
         hit.author,
         hit.heading,
     ));
-    BrainAnswer {
-        id: next_answer_id(),
-        answer,
-        provider: ProviderName::Offline,
-        citations,
-        methods,
-        intake_review,
-        grounding,
-        proposed_action,
+        BrainAnswer {
+            id: next_answer_id(),
+            answer,
+            provider: ProviderName::Offline,
+            citations,
+            methods,
+            intake_review,
+            grounding,
+            proposed_action,
+        }
     }
 }
 

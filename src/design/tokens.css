@@ -199,7 +199,7 @@
   --text-xl: 1.25rem;
   --text-2xl: 1.5rem;
   --text-hero: 2rem;
-  /* Document/prose tier — for reader, quotes and long notebook copy. */
+  /* Document/prose tier — for long notebook copy. */
   --text-read: 1.0625rem;
   --weight-normal: 400;
   --weight-regular: 400;
@@ -225,9 +225,6 @@
      Each was silently broken before the paper rewrite — they are defined here
      so the fix lives in the token layer, not scattered across feature files.
 
-     --ck-line / --ck-line-strong / --ck-dim: PassageHelper.css reads these
-       with white-on-dark fallbacks (rgba(255,255,255,…)). Undefined, those
-       fallbacks won — near-invisible text once the page is paper.
      --topbar-height: SessionBar.css pins itself with
        `top: calc(var(--topbar-height) + var(--s-2))`. Undefined, the whole
        calc() is invalid, `top` falls back to auto, and the fixed session bar

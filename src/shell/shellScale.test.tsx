@@ -51,7 +51,7 @@ describe("Shell rail scale (B4)", () => {
       "Score",
       "Warmups",
       "Assistant",
-      "History",
+      "Pieces",
       "Universe",
     ]);
   });

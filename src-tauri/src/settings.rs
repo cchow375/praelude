@@ -14,8 +14,6 @@ const SOUNDS: &[&str] = &["beep", "clave", "cowbell", "rim", "tick", "woodblock"
 const VOICES: &[&str] = &[
     "Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr",
 ];
-const DEFAULT_KNOWLEDGE_DIR: &str =
-    "/Users/c3/Desktop/christian's universe/Piano Practice/Knowledge and Resources";
 const RESERVED_ALIASES: &[&str] = &[
     "done",
     "clean",
@@ -77,8 +75,6 @@ pub struct SettingsSnapshot {
     pub tts_provider: String,
     pub tts_voice: String,
     pub brain_provider: String,
-    pub knowledge_dir: String,
-    pub share_retrieved_knowledge: bool,
     pub assistant_enabled: bool,
     pub wake_word_enabled: bool,
     pub wake_word: String,
@@ -121,8 +117,6 @@ pub struct SettingsPatch {
     pub tts_provider: Option<String>,
     pub tts_voice: Option<String>,
     pub brain_provider: Option<String>,
-    pub knowledge_dir: Option<String>,
-    pub share_retrieved_knowledge: Option<bool>,
     pub assistant_enabled: Option<bool>,
     pub wake_word_enabled: Option<bool>,
     pub wake_word: Option<String>,
@@ -160,11 +154,6 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
             "auto",
             &["auto", "claude", "gemini", "offline"],
         ),
-        knowledge_dir: string(store, "brain.knowledge_dir", DEFAULT_KNOWLEDGE_DIR),
-        // Christian explicitly requested that the selected local-book passages
-        // ground Claude/Gemini. Only the retrieved, bounded excerpts cross the
-        // provider boundary; the corpus itself is never uploaded or bundled.
-        share_retrieved_knowledge: boolean(store, "brain.share_retrieved_knowledge", true),
         // Christian explicitly asked for the Assistant OFF by default (2026-08-24):
         // it's "getting in the way" and is a separate project on hold indefinitely.
         // This is a deliberate default flip, not a regression — shipping it on would
@@ -188,11 +177,7 @@ pub fn snapshot(store: &Store) -> SettingsSnapshot {
             1,
             STREAK_THRESHOLD_MAX_MINUTES,
         ),
-        vault_pieces_dir: string(
-            store,
-            "vault.pieces_dir",
-            "/Users/c3/Desktop/christian's universe/Piano Practice/Pieces",
-        ),
+        vault_pieces_dir: string(store, "vault.pieces_dir", ""),
         // A6 verdict hotkeys. Christian's confirmed mapping (2026-08-25):
         // Space = clean, Right-Shift = sloppy, Return = again — "so I don't
         // have to move my hand off the piano". Stored as `KeyboardEvent.code`
@@ -260,17 +245,6 @@ pub fn update(store: &Store, patch: SettingsPatch) -> Result<SettingsSnapshot, S
             "brain.provider",
             validate_choice(value, &["auto", "claude", "gemini", "offline"])?,
         ));
-    }
-    if let Some(value) = patch.knowledge_dir {
-        let trimmed = value.trim();
-        let path = std::path::Path::new(trimmed);
-        if trimmed.is_empty() || trimmed.len() > 1_024 || !path.is_absolute() || !path.is_dir() {
-            return Err("Knowledge folder must be an existing absolute directory.".into());
-        }
-        writes.push(("brain.knowledge_dir", trimmed.to_string()));
-    }
-    if let Some(value) = patch.share_retrieved_knowledge {
-        writes.push(("brain.share_retrieved_knowledge", value.to_string()));
     }
     if let Some(value) = patch.assistant_enabled {
         writes.push(("assistant.enabled", value.to_string()));
@@ -703,8 +677,6 @@ mod tests {
         let value = snapshot(&store);
         assert_eq!(value.theme, "auto");
         assert_eq!(value.interface_scale, 90);
-        assert_eq!(value.knowledge_dir, DEFAULT_KNOWLEDGE_DIR);
-        assert!(value.share_retrieved_knowledge);
         assert_eq!(value.ladder_default_reps, 30);
         assert_eq!(value.practice_default_clean_streak, 5);
         assert_eq!(value.ladder_bpm_step, 4);
