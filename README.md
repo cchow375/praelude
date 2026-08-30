@@ -10,10 +10,12 @@ metronome — hands-free.
 
 **v9.0.0 / schema 21 is a PACKAGED SHAREABLE CANDIDATE; it is NOT INSTALLED, and
 CLEAN-RECIPIENT ACCEPTANCE is PENDING (2026-08-30).** The app in `/Applications` is still the
-published **v8.2.1 / schema 20** release. The v9 source, recorded test/build gates, disposable migration,
-two isolated fresh-profile checks, share-clean scans and exact DMG audit now pass. Source/release
-commit, tag, private-remote push, live backup/rollback, install and recipient acceptance remain
-**PENDING**; packaging is not shipment or acceptance.
+published **v8.2.1 / schema 20** release. The v9 implementation is committed at
+`709542023b3e3bf0c9e72189d145e5fd524eaacd`; recorded test/build gates, disposable migration,
+two isolated fresh-profile checks, share-clean scans and exact DMG audit pass. Lightweight tag
+`v9.0.0` records the finalized package boundary and both `main` and the tag are backed up to the
+private remote. Live backup/rollback, install and recipient acceptance remain **PENDING**;
+packaging and source publication are not installation or acceptance.
 
 Package-candidate boundary:
 
@@ -168,8 +170,8 @@ The 2026-08-30 19:25 EDT read-only live audit is schema 20, integrity OK/FK0 wit
 255 blocks, 2,327 reps, 51 sessions and 9,241 events—but **one session and one block are open**.
 That correctly blocks the installing release path. Christian must close or deliberately preserve
 that work in installed v8.2.1; then the operator must quit the app, take and hash a fresh DB backup
-and v8.2.1 rollback, install/audit v9, and test the exact DMG on a clean recipient Mac. Commit,
-tag and private push remain after those release gates. Then return to native Score, real WKWebView
+and v8.2.1 rollback, install/audit v9, and test the exact DMG on a clean recipient Mac. The v9
+source/tag/private backup are already complete. Then return to native Score, real WKWebView
 microphone/Listen Back/Steinway, one explicitly authorized provider map, and sustained-use
 motivation judgment.
 

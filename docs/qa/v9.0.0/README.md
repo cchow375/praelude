@@ -16,8 +16,8 @@
 | Schema | 21 | PASS — two fresh profiles and disposable migration |
 | Bundle ID | `com.christian.codakiller` | PASS |
 | Architecture / minimum OS | Apple silicon / macOS 13+ | PASS — arm64 / 13.0 |
-| Source commit | PENDING | PENDING |
-| Tag | `v9.0.0` after finalization | PENDING |
+| Implementation commit | committed source boundary | `709542023b3e3bf0c9e72189d145e5fd524eaacd` |
+| Tag / private backup | `v9.0.0`; private `main` + tag | PASS — lightweight package-boundary tag and private push |
 | Signing | local/ad-hoc; not notarized | PASS — mounted strict verification; CDHash `33ffc5fade7ecb090c5fd7b08818ae82164cbc21` |
 | DMG/archive path | versioned candidate | `/Users/c3/codakiller/releases/v9.0.0/CodaKiller-9.0.0.dmg` |
 | Artifact bytes / SHA-256 | exact candidate | 10,736,628 bytes / `e5f3c2265cd962791a8267fee6a4e4e0c42a9a70775bbcc5729623a7aa443f06` |
@@ -261,5 +261,6 @@ The source, disposable profile/migration, devMock and notice-corrected package g
 evidence above. Christian must close or deliberately preserve the open v8.2.1 session/block. Only
 after a repeated zero-open preflight: quit the app, take/hash the current DB backup and v8.2.1
 rollback, perform the one-copy check, install, launch and audit v9. Finish with the exact-DMG clean-
-recipient Gatekeeper/first-piece trial. Then commit, tag and push the release identity and finalize
-the v9 version record; until then it remains a packaged candidate, not shipped or accepted.
+recipient Gatekeeper/first-piece trial. The implementation, package-boundary tag and private
+source backup are complete. Finalize the v9 version record only after the remaining install and
+recipient gates; until then it remains a packaged candidate, not installed or accepted.

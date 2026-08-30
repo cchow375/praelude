@@ -6,9 +6,10 @@
   Christian's send-to-a-pianist request applies to the normal source/release. A first-ever install
   must contain no preloaded user repertoire pieces, scores, practice history, recordings, photos, quotes, books or
   method cards. An upgrade must preserve the user's existing database and configured Pieces root.
-  The source now identifies as 9.0.0/schema 21. Automated/package evidence is recorded below, but
-  packaging is not shipment: install, clean-recipient acceptance, source/release commit, tag and
-  private push remain PENDING.
+  The source now identifies as 9.0.0/schema 21. Automated/package evidence is recorded below;
+  implementation commit `709542023b3e3bf0c9e72189d145e5fd524eaacd`, lightweight tag `v9.0.0`,
+  and private `main`/tag push preserve that package boundary. Packaging/source publication is not
+  installation or acceptance: those gates remain PENDING.
 
 - **v9.0.0/schema 21 is a packaged shareable candidate, not an installed or accepted release
   (2026-08-30).** Frontend passed **204 files / 2,525 tests**, with one file and one test skipped;
@@ -38,7 +39,8 @@
   `e5f3c2265cd962791a8267fee6a4e4e0c42a9a70775bbcc5729623a7aa443f06`; its basename-only
   checksum sidecar is 87 bytes. `hdiutil verify` and mounted strict codesign pass; final ad-hoc
   CDHash is `33ffc5fade7ecb090c5fd7b08818ae82164cbc21`. This exact package is still only a candidate:
-  it has not been installed, recipient-accepted, committed, tagged or pushed. The earlier
+  it has not been installed or recipient-accepted, although its source boundary is committed,
+  tagged and backed up to the private remote. The earlier
   incorrectly prefixed/superseded DMG was deleted; only the corrected candidate remains.
 
 - **The Pieces root has an explicit fresh-vs-upgrade contract (v9/schema 21, 2026-08-30).**

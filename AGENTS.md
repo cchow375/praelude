@@ -25,9 +25,10 @@ audits and package identity pass. Exact candidate DMG
 `33ffc5fade7ecb090c5fd7b08818ae82164cbc21`, not notarized. Full hear BSD, React/Tauri MIT and
 PDF.js Apache notices are present top-level and byte-identical inside the app. `npm run package:mac` invokes the
 non-installing `scripts/package-macos.sh`; it packages/scans an already-built app without touching
-`/Applications` or the live database. Install, backup/rollback, one-copy/installed-launch audit,
-source/release commit, tag, publication and clean-recipient proof are PENDING. The last installed
-runtime is v8.2.1, source
+`/Applications` or the live database. Implementation commit
+`709542023b3e3bf0c9e72189d145e5fd524eaacd`, lightweight tag `v9.0.0`, and private `main`/tag
+push record the package boundary. Install, backup/rollback, one-copy/installed-launch audit and
+clean-recipient proof are PENDING. The last installed runtime is v8.2.1, source
 `496033e677919757ef1f2a78cee32d3abedb4805` atop B94 commit
 `d1e7ac6d09528f22d8becb378f26c66d751ac297`. Pushed lightweight tag `v8.2.1` points to
 `971a0d2dc7cf8f093527239e2394391dbbfec0a4`. It retains
@@ -86,8 +87,8 @@ integrity OK/FK0 with 11 pieces, 255 blocks, 2,327 reps, 51 sessions and 9,241 e
 **one open session and one open block**. Do not run the installing release path. Christian must
 first close or deliberately preserve that work in installed v8.2.1; then quit the app, take/hash
 a fresh current-DB backup and v8.2.1 rollback, rerun preflight, install/audit, and prove the exact
-DMG's clean-recipient Gatekeeper/first-piece path. Source/release commit, tag and private push
-remain after acceptance. After that, resume deliberate Desktop-folder
+DMG's clean-recipient Gatekeeper/first-piece path. The v9 source/tag/private backup are complete.
+After that, resume deliberate Desktop-folder
 handling plus native Score acceptance. The verified
 pre-install backup is `(C) pre-v8.2.1-install-2026-08-28-132046.db` (23,449,600 bytes;
 SHA-256 `2c99dec1c3bc14f595e69c92a9415076299752d46930eea0fa3c9f5a793379c7`), schema 20,

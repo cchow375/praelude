@@ -42,8 +42,10 @@ source/app/mounted-DMG audits pass. Expected package identity is v9.0.0,
 `releases/v9.0.0/CodaKiller-9.0.0.dmg` is 10,736,628 bytes, SHA-256
 `e5f3c2265cd962791a8267fee6a4e4e0c42a9a70775bbcc5729623a7aa443f06`; mounted strict CDHash is
 `33ffc5fade7ecb090c5fd7b08818ae82164cbc21`. Full hear BSD, React/Tauri MIT and PDF.js Apache
-notices are present top-level and byte-identical inside the app. Install, backup/rollback, source/release
-commit, tag/private push and clean-recipient proof are PENDING. `npm run package:mac` invokes non-installing `scripts/package-macos.sh`; it does not quit,
+notices are present top-level and byte-identical inside the app. Implementation commit
+`709542023b3e3bf0c9e72189d145e5fd524eaacd`, lightweight tag `v9.0.0`, and private `main`/tag
+push record the package boundary. Install, backup/rollback and clean-recipient proof are PENDING.
+`npm run package:mac` invokes non-installing `scripts/package-macos.sh`; it does not quit,
 launch or replace `/Applications/CodaKiller.app` or touch the live database. The installing release
 path can do so and must not run during a live set/session.
 
@@ -107,8 +109,8 @@ OK/FK0 with 11 pieces, 255 blocks, 2,327 reps, 51 sessions and 9,241 events, but
 one block are open**. Christian must close or deliberately preserve that live work in installed
 v8.2.1 before the app is quit,
 the current DB and v8.2.1 rollback are backed up/hashed, v9 is installed/audited, and the clean-
-recipient Gatekeeper/first-piece pass runs. Source/release commit, tag and private push remain
-after acceptance. Then resume deliberate Desktop-folder access plus
+recipient Gatekeeper/first-piece pass runs. The v9 source/tag/private backup are already complete.
+Then resume deliberate Desktop-folder access plus
 installed-native Score acceptance, real WKWebView Listen Back and voice-over-Steinway use,
 one explicitly authorized real-provider/current-edition measure map, and a sustained-use verdict
 on XP, levels, milestones and cadence. Do not rebuild or reinstall the shipped source.
