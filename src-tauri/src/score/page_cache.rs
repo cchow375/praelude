@@ -89,7 +89,43 @@ fn write_index(dir: &Path, index: &Index) -> Result<(), String> {
     // half-written index that would drop the whole cache.
     let tmp = index_path(dir).with_extension("json.tmp");
     std::fs::write(&tmp, &serialized).map_err(|e| format!("write page cache index: {e}"))?;
-    std::fs::rename(&tmp, index_path(dir)).map_err(|e| format!("commit page cache index: {e}"))
+    replace_file(&tmp, &index_path(dir)).map_err(|e| format!("commit page cache index: {e}"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    std::fs::rename(source, destination)
+}
+
+#[cfg(target_os = "windows")]
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt as _;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    // `std::fs::rename` currently uses the same replacement primitive, but this
+    // cache contract depends on replace-existing behavior. Pin it explicitly so
+    // a future std implementation cannot turn every second index write into a
+    // Windows-only cache failure.
+    let moved = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 /// Validate a fingerprint/bucket pair (defensive bounds on caller-supplied text).
@@ -242,6 +278,25 @@ mod tests {
         let key = cache_key(1, "fp", 1, "page-10x10");
         save(dir.path(), &key, b"hello-bitmap").unwrap();
         assert_eq!(load(dir.path(), &key).unwrap(), b"hello-bitmap");
+    }
+
+    #[test]
+    fn committing_an_index_replaces_the_existing_file() {
+        let root = root();
+        let dir = cache_dir(root.path());
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = Index {
+            clock: 1,
+            ..Index::default()
+        };
+        write_index(&dir, &first).unwrap();
+        let second = Index {
+            clock: 2,
+            ..Index::default()
+        };
+        write_index(&dir, &second).unwrap();
+        assert_eq!(read_index(&dir).clock, 2);
+        assert!(!index_path(&dir).with_extension("json.tmp").exists());
     }
 
     #[test]

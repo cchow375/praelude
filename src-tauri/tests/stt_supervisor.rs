@@ -5,6 +5,8 @@
 //! error, and can fork a grandchild to prove the whole process group is killed on
 //! shutdown. These tests never touch the real binary or the microphone.
 
+#![cfg(unix)]
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;

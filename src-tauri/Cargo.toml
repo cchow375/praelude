@@ -1,6 +1,6 @@
 [package]
 name = "codakiller"
-version = "9.0.0"
+version = "9.1.0"
 description = "Voice-first practice and rep tracker for pianists"
 authors = ["CodaKiller contributors"]
 edition = "2021"
@@ -22,7 +22,7 @@ tauri = { version = "2", features = ["protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
-cpal = "0.18.1"
+cpal = "0.18.2"
 hound = "3.5.1"
 crossbeam-queue = "0.3.13"
 # `libc` is required for STT child-process control that `std::process` cannot do:
@@ -76,6 +76,9 @@ jpeg-decoder = { version = "0.3", default-features = false }
 hayro-jbig2 = { version = "0.3", default-features = false, features = ["std"] }
 hayro-ccitt = "0.3"
 jpeg-encoder = "0.7"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 # Tempdir fixtures for the vault scan tests (real vault is never touched by tests).

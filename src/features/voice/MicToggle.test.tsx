@@ -33,10 +33,17 @@ describe("MicToggle", () => {
   });
 
   it("is disabled and explains itself when voice is down", () => {
-    render(<MicToggle status="down" onToggle={() => {}} />);
-    const button = screen.getByRole("button", { name: /mic/i });
+    render(
+      <MicToggle
+        status="down"
+        downGuidance="Hands-free voice is unavailable on Windows."
+        onToggle={() => {}}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Mic unavailable" });
     expect(button.hasAttribute("disabled")).toBe(true);
-    expect(button.getAttribute("title")).toMatch(/not running|unavailable/i);
+    expect(button.textContent).toContain("Unavailable");
+    expect(button.getAttribute("title")).toContain("unavailable on Windows");
   });
 
   it("cannot be reopened while Listen Back owns the verdict boundary", () => {

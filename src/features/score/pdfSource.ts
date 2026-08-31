@@ -1,3 +1,5 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
+
 /**
  * Range-loading a score edition from the native `ckscore://` protocol.
  *
@@ -24,13 +26,22 @@ export const SCORE_RANGE_CHUNK_SIZE = 1 << 16;
 /**
  * Address of one edition on the range-capable protocol.
  *
- * macOS and Linux expose a Tauri custom protocol as `<scheme>://localhost/<path>`
- * (Windows would be `http://<scheme>.localhost/<path>`; CodaKiller is a macOS
- * app). The edition id is percent-encoded as a single segment because real ids
- * contain `/`, spaces and parentheses — `score/(C) Ekier_Draft.pdf`.
+ * Tauri exposes a custom protocol as `<scheme>://localhost/<path>` on macOS and
+ * Linux, and `http://<scheme>.localhost/<path>` on Windows. `convertFileSrc`
+ * owns that platform mapping. The edition id is percent-encoded as a single
+ * segment because real ids contain `/`, spaces and parentheses —
+ * `score/(C) Ekier_Draft.pdf`.
  */
-export function scoreEditionUrl(pieceId: number, editionId: string): string {
-  return `${SCORE_PDF_SCHEME}://localhost/${pieceId}/${encodeURIComponent(editionId)}`;
+export function scoreEditionUrl(
+  pieceId: number,
+  editionId: string,
+  convert: (filePath: string, protocol?: string) => string = convertFileSrc,
+): string {
+  const pieceUrl = convert(String(pieceId), SCORE_PDF_SCHEME).replace(
+    /\/+$/u,
+    "",
+  );
+  return `${pieceUrl}/${encodeURIComponent(editionId)}`;
 }
 
 /** `bytes 0-65535/8638377` → 8638377. */

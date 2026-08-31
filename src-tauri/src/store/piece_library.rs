@@ -263,7 +263,8 @@ impl Store {
             }
             if conn.execute(
                 "UPDATE piece SET folder_id=?2
-                 WHERE id=?1 AND kind='repertoire' AND folder_path NOT LIKE '%/.trash/%'",
+                 WHERE id=?1 AND kind='repertoire'
+                   AND replace(folder_path, char(92), '/') NOT LIKE '%/.trash/%'",
                 params![id, folder_id],
             )? != 1
             {
@@ -283,10 +284,12 @@ impl Store {
             let sql = if completed {
                 "UPDATE piece
                  SET completed_at=CAST(strftime('%s','now') AS INTEGER),archived_at=NULL
-                 WHERE id=?1 AND kind='repertoire' AND folder_path NOT LIKE '%/.trash/%'"
+                 WHERE id=?1 AND kind='repertoire'
+                   AND replace(folder_path, char(92), '/') NOT LIKE '%/.trash/%'"
             } else {
                 "UPDATE piece SET completed_at=NULL
-                 WHERE id=?1 AND kind='repertoire' AND folder_path NOT LIKE '%/.trash/%'"
+                 WHERE id=?1 AND kind='repertoire'
+                   AND replace(folder_path, char(92), '/') NOT LIKE '%/.trash/%'"
             };
             if conn.execute(sql, [id])? != 1 {
                 return Err(invalid(format!("piece {id} not found")));
@@ -329,7 +332,8 @@ impl Store {
             .unwrap_or_else(|poison| poison.into_inner());
         conn.query_row(
             "SELECT folder_path,title FROM piece
-             WHERE id=?1 AND kind='repertoire' AND folder_path NOT LIKE '%/.trash/%'",
+             WHERE id=?1 AND kind='repertoire'
+               AND replace(folder_path, char(92), '/') NOT LIKE '%/.trash/%'",
             [id],
             |row| {
                 Ok(PieceRemovalTarget {
@@ -366,7 +370,8 @@ impl Store {
             .unwrap_or_else(|poison| poison.into_inner());
         let mut statement = conn.prepare(
             "SELECT folder_path FROM piece
-             WHERE kind='repertoire' AND folder_path NOT LIKE '%/.trash/%'
+             WHERE kind='repertoire'
+               AND replace(folder_path, char(92), '/') NOT LIKE '%/.trash/%'
              ORDER BY id",
         )?;
         let paths: Vec<String> = statement
@@ -455,5 +460,32 @@ mod tests {
         let active = store.set_piece_completed(id, false).unwrap();
         assert_eq!(active.completed_at, None);
         assert_eq!(store.list_pieces().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn windows_trash_paths_are_hidden_and_rejected_by_library_mutations() {
+        let store = store();
+        let id = store
+            .upsert_piece(&ScanPiece {
+                folder_path: r"C:\Users\Friend\AppData\Roaming\CodaKiller\Pieces\.trash\Etude-1"
+                    .into(),
+                title: "Etude".into(),
+                composer: None,
+                xml_path: None,
+                pdf_path: None,
+            })
+            .unwrap();
+
+        assert!(store.list_pieces().unwrap().is_empty());
+        assert!(store.list_pieces_including_archived().unwrap().is_empty());
+        assert!(!store.set_piece_archived(id, true).unwrap());
+        assert!(store.set_piece_completed(id, true).is_err());
+        assert!(store.piece_move(id, None).is_err());
+        assert!(store.piece_removal_target(id).unwrap().is_none());
+        assert!(store.infer_legacy_pieces_dir().unwrap().is_none());
+        assert!(
+            store.get_piece(id).unwrap().is_some(),
+            "history identity stays durable"
+        );
     }
 }

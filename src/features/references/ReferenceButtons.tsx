@@ -30,7 +30,7 @@ export function ReferenceButtons({ pieceId, api = defaultApi }: { pieceId: numbe
     setMessage(null);
     try {
       const result = await api.open(pieceId, provider);
-      if (!result.opened) throw new Error("macOS did not open the search.");
+      if (!result.opened) throw new Error("The search could not be opened.");
       setMessage(`${provider === "spotify" ? "Spotify" : "YouTube"} search opened.`);
     } catch (cause) {
       setError(errorMessage(cause));

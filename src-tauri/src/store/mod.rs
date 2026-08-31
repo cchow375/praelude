@@ -314,7 +314,8 @@ impl Store {
                        FROM rep JOIN rep_block ON rep_block.id=rep.block_id
                       WHERE rep_block.piece_id=piece.id) AS last_practiced
              FROM piece
-             WHERE kind='repertoire' AND folder_path NOT LIKE '%/.trash/%'{}
+             WHERE kind='repertoire'
+               AND replace(folder_path, char(92), '/') NOT LIKE '%/.trash/%'{}
              ORDER BY (last_practiced IS NULL), last_practiced DESC,
                       title COLLATE NOCASE, id",
             if include_archived {
@@ -348,10 +349,12 @@ impl Store {
         let sql = if archived {
             "UPDATE piece
              SET archived_at=CAST(strftime('%s','now') AS INTEGER), completed_at=NULL
-             WHERE id=?1 AND kind='repertoire' AND folder_path NOT LIKE '%/.trash/%'"
+             WHERE id=?1 AND kind='repertoire'
+               AND replace(folder_path, char(92), '/') NOT LIKE '%/.trash/%'"
         } else {
             "UPDATE piece SET archived_at=NULL
-             WHERE id=?1 AND kind='repertoire' AND folder_path NOT LIKE '%/.trash/%'"
+             WHERE id=?1 AND kind='repertoire'
+               AND replace(folder_path, char(92), '/') NOT LIKE '%/.trash/%'"
         };
         Ok(conn.execute(sql, [id])? == 1)
     }

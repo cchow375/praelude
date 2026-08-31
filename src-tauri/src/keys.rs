@@ -4,13 +4,16 @@
 //! environment-variable fallback (handy for dev / CI). **The key value is never
 //! logged** — only its presence/absence is ever reported.
 
+#[cfg(target_os = "macos")]
 use std::io::Write;
+#[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
 
 /// Keychain generic-password service + account the key is stored under
 /// (`security add-generic-password -s codakiller -a gemini -w <key>`).
+#[cfg(target_os = "macos")]
 const KEYCHAIN_SERVICE: &str = "codakiller";
 const KEYCHAIN_ACCOUNT: &str = "gemini";
 const ENV_VAR: &str = "GEMINI_API_KEY";
@@ -59,6 +62,7 @@ pub fn gemini_key() -> Option<String> {
 
 /// Read the key from the login Keychain. Returns `None` if the item is missing,
 /// `security` is unavailable, or the value is blank. Never logs the value.
+#[cfg(target_os = "macos")]
 fn keychain_key(account: &str) -> Option<String> {
     let output = Command::new("security")
         .args([
@@ -76,6 +80,11 @@ fn keychain_key(account: &str) -> Option<String> {
     }
     let key = String::from_utf8_lossy(&output.stdout).trim().to_string();
     non_empty(key)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn keychain_key(_account: &str) -> Option<String> {
+    None
 }
 
 pub fn api_key_status(provider: ApiKeyProvider) -> ApiKeyStatus {
@@ -97,6 +106,7 @@ pub fn api_key_status(provider: ApiKeyProvider) -> ApiKeyStatus {
 }
 
 /// Check Keychain presence without asking `security` to return the secret.
+#[cfg(target_os = "macos")]
 fn keychain_has_key(account: &str) -> bool {
     Command::new("/usr/bin/security")
         .args([
@@ -112,6 +122,11 @@ fn keychain_has_key(account: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
+#[cfg(not(target_os = "macos"))]
+fn keychain_has_key(_account: &str) -> bool {
+    false
+}
+
 /// Store a key without putting its value in process arguments. Passing `-w` as
 /// the final `security` argument makes the tool read the password from stdin.
 pub fn save_api_key(provider: ApiKeyProvider, raw_key: &str) -> Result<ApiKeyStatus, String> {
@@ -125,6 +140,11 @@ pub fn save_api_key(provider: ApiKeyProvider, raw_key: &str) -> Result<ApiKeySta
     if !(8..=512).contains(&key.len()) || key.chars().any(char::is_control) {
         return Err("API key must be 8–512 printable characters.".into());
     }
+    save_api_key_secure(provider, key)
+}
+
+#[cfg(target_os = "macos")]
+fn save_api_key_secure(provider: ApiKeyProvider, key: &str) -> Result<ApiKeyStatus, String> {
     let mut child = Command::new("/usr/bin/security")
         .args([
             "add-generic-password",
@@ -158,7 +178,17 @@ pub fn save_api_key(provider: ApiKeyProvider, raw_key: &str) -> Result<ApiKeySta
     Ok(api_key_status(provider))
 }
 
+#[cfg(not(target_os = "macos"))]
+fn save_api_key_secure(_provider: ApiKeyProvider, _key: &str) -> Result<ApiKeyStatus, String> {
+    Err("Secure API-key storage is unavailable in the Windows build.".into())
+}
+
 pub fn clear_api_key(provider: ApiKeyProvider) -> Result<ApiKeyStatus, String> {
+    clear_api_key_secure(provider)
+}
+
+#[cfg(target_os = "macos")]
+fn clear_api_key_secure(provider: ApiKeyProvider) -> Result<ApiKeyStatus, String> {
     let status = Command::new("/usr/bin/security")
         .args([
             "delete-generic-password",
@@ -176,6 +206,11 @@ pub fn clear_api_key(provider: ApiKeyProvider) -> Result<ApiKeyStatus, String> {
         return Err("macOS Keychain rejected the API key removal.".into());
     }
     Ok(api_key_status(provider))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn clear_api_key_secure(_provider: ApiKeyProvider) -> Result<ApiKeyStatus, String> {
+    Err("Secure API-key storage is unavailable in the Windows build.".into())
 }
 
 /// Read the key from the environment. Blank => absent.
@@ -232,5 +267,14 @@ mod tests {
     fn status_is_presence_only() {
         let status = api_key_status(ApiKeyProvider::Gemini);
         assert!(matches!(status.source, "keychain" | "environment" | "none"));
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn secure_storage_is_explicitly_unavailable_off_macos() {
+        let error = save_api_key(ApiKeyProvider::Gemini, "valid-test-key").unwrap_err();
+        assert!(error.contains("unavailable"));
+        let error = clear_api_key(ApiKeyProvider::Gemini).unwrap_err();
+        assert!(error.contains("unavailable"));
     }
 }

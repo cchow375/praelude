@@ -33,7 +33,7 @@ export const createPianoCapture: PianoCaptureFactory = async (
   onError,
 ) => {
   if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("This Mac cannot open the microphone for a review take.");
+    throw new Error("This device cannot open the microphone for a review take.");
   }
   if (typeof MediaRecorder === "undefined") {
     throw new Error("This app build cannot make a compact review recording.");

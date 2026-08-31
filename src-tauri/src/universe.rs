@@ -684,7 +684,7 @@ fn local_date_for_utc_timestamp(ts: &str) -> Option<Date> {
     let epoch = parse_utc_epoch(ts)?;
     #[cfg(unix)]
     {
-        let mut local = std::mem::MaybeUninit::<libc::tm>::uninit();
+        let mut local = std::mem::MaybeUninit::<libc::tm>::zeroed();
         // SAFETY: `epoch` and `local` are valid pointers for the duration of the
         // call. `localtime_r` writes exactly one initialized `tm` on success.
         if unsafe { libc::localtime_r(&epoch, local.as_mut_ptr()) }.is_null() {
@@ -700,7 +700,26 @@ fn local_date_for_utc_timestamp(ts: &str) -> Option<Date> {
         );
         Date::parse(&text)
     }
-    #[cfg(not(unix))]
+    #[cfg(target_os = "windows")]
+    {
+        let source: libc::time_t = epoch;
+        let mut local = std::mem::MaybeUninit::<libc::tm>::zeroed();
+        // SAFETY: both pointers remain valid for the call. MSVC localtime_s
+        // initializes `local` and returns zero on success.
+        if unsafe { libc::localtime_s(local.as_mut_ptr(), &source) } != 0 {
+            return None;
+        }
+        // SAFETY: the zero return above guarantees initialization.
+        let local = unsafe { local.assume_init() };
+        let text = format!(
+            "{:04}-{:02}-{:02}",
+            local.tm_year + 1900,
+            local.tm_mon + 1,
+            local.tm_mday
+        );
+        Date::parse(&text)
+    }
+    #[cfg(not(any(unix, target_os = "windows")))]
     {
         let day = epoch.div_euclid(86_400);
         Date::parse("1970-01-01")?.add_days(day)

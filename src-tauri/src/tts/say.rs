@@ -482,6 +482,7 @@ mod tests {
     // Real `say` invocation (macOS only, needs the binary). Not #[ignore]d: `say`
     // is always present on macOS and this is the fastest way to guard the decode
     // path against a format regression. Runs offline, ~100ms.
+    #[cfg(target_os = "macos")]
     #[test]
     fn say_synthesizes_decodable_pcm() {
         let pcm = SayTts::new()

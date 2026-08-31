@@ -161,8 +161,10 @@ fn rate_from_mime(mime: &str) -> Option<u32> {
 /// [-1, 1). A trailing odd byte (never expected) is ignored.
 pub fn pcm_s16le_to_f32(bytes: &[u8]) -> Vec<f32> {
     bytes
-        .chunks_exact(2)
-        .map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0)
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| i16::from_le_bytes(*b) as f32 / 32768.0)
         .collect()
 }
 

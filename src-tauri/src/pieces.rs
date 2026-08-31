@@ -34,6 +34,70 @@ const PDF_MAGIC: &[u8] = b"%PDF-";
 /// The in-`pieces_root` trash directory archived pieces are moved into. A leading
 /// dot means [`crate::vault::scan_pieces`] never re-ingests anything under it.
 const TRASH_DIR: &str = ".trash";
+const MAX_PORTABLE_COMPONENT_UTF16: usize = 80;
+const MAX_PORTABLE_PDF_STEM_UTF16: usize = 64;
+
+fn windows_forbidden_component_character(character: char) -> bool {
+    matches!(character, '<' | '>' | ':' | '"' | '|' | '?' | '*')
+}
+
+fn windows_reserved_component(name: &str) -> bool {
+    let trimmed = name.trim_end_matches([' ', '.']);
+    let stem = trimmed.split('.').next().unwrap_or_default().trim();
+    let upper = stem.to_ascii_uppercase();
+    let bytes = upper.as_bytes();
+    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (bytes.len() == 4
+            && (&bytes[..3] == b"COM" || &bytes[..3] == b"LPT")
+            && matches!(bytes[3], b'1'..=b'9'))
+}
+
+fn truncate_utf16(value: &str, max_units: usize) -> String {
+    let mut units = 0;
+    value
+        .chars()
+        .take_while(|character| {
+            let next = units + character.len_utf16();
+            if next > max_units {
+                false
+            } else {
+                units = next;
+                true
+            }
+        })
+        .collect()
+}
+
+/// Convert arbitrary metadata into a component that is valid on every desktop
+/// filesystem CodaKiller ships on. The original text remains exact in SQLite.
+fn portable_component(raw: &str, fallback: &str, max_utf16: usize) -> String {
+    let replaced: String = raw
+        .chars()
+        .map(|character| match character {
+            '/' | '\\' | '\0' => '–',
+            forbidden if windows_forbidden_component_character(forbidden) => '–',
+            control if control.is_control() => ' ',
+            other => other,
+        })
+        .collect();
+    let collapsed = replaced.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut safe = truncate_utf16(collapsed.trim(), max_utf16)
+        .trim_end_matches([' ', '.'])
+        .to_string();
+    if safe.is_empty() {
+        safe = fallback.to_string();
+    }
+    if safe.starts_with('.') || safe.starts_with('_') || windows_reserved_component(&safe) {
+        safe.insert_str(0, "Piece ");
+    }
+    let safe = truncate_utf16(&safe, max_utf16);
+    let safe = safe.trim_end_matches([' ', '.']);
+    if safe.is_empty() {
+        fallback.to_string()
+    } else {
+        safe.to_string()
+    }
+}
 
 /// Validate a piece folder name: a single in-directory path component that a
 /// scan would actually surface as a piece. Rejects traversal (`..`), separators,
@@ -41,6 +105,7 @@ const TRASH_DIR: &str = ".trash";
 /// skipped by the scanner, so a piece created under such a name would be
 /// invisible). Returns the trimmed, validated name.
 fn validate_folder_name(name: &str) -> Result<&str, String> {
+    let untrimmed = name;
     let name = name.trim();
     if name.is_empty() {
         return Err("A piece needs a folder name.".into());
@@ -48,6 +113,10 @@ fn validate_folder_name(name: &str) -> Result<&str, String> {
     if name.contains('/')
         || name.contains('\\')
         || name.contains('\0')
+        || name.chars().any(windows_forbidden_component_character)
+        || untrimmed.ends_with([' ', '.'])
+        || windows_reserved_component(name)
+        || name.encode_utf16().count() > MAX_PORTABLE_COMPONENT_UTF16
         || name == "."
         || name == ".."
         || Path::new(name).file_name() != Some(OsStr::new(name))
@@ -113,20 +182,18 @@ fn metadata_folder_name(title: &str, composer: Option<&str>) -> String {
     let raw = composer
         .map(|composer| format!("{composer} - {title}"))
         .unwrap_or_else(|| title.to_string());
-    let mut safe: String = raw
-        .chars()
-        .map(|character| match character {
-            '/' | '\\' | '\0' => '–',
-            control if control.is_control() => ' ',
-            other => other,
-        })
-        .collect();
-    safe = safe.split_whitespace().collect::<Vec<_>>().join(" ");
-    if safe.starts_with('.') || safe.starts_with('_') {
-        safe.insert_str(0, "Piece ");
-    }
-    // Leave room for the collision suffix added by `unique_name`.
-    safe.chars().take(180).collect()
+    portable_component(&raw, "Piece", MAX_PORTABLE_COMPONENT_UTF16)
+}
+
+fn portable_pdf_name(name: &str) -> String {
+    let stem = Path::new(name)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("score");
+    format!(
+        "{}.pdf",
+        portable_component(stem, "score", MAX_PORTABLE_PDF_STEM_UTF16)
+    )
 }
 
 fn ensure_real_trash(pieces_root: &Path) -> Result<std::path::PathBuf, String> {
@@ -323,12 +390,13 @@ pub fn import_pdf(pieces_root: &Path, folder_name: &str, source: &Path) -> Resul
     fs::create_dir_all(&score_dir)
         .map_err(|_| "Could not create the piece's score folder.".to_string())?;
 
-    let base = source
+    let source_name = source
         .file_name()
         .and_then(|name| name.to_str())
         .filter(|name| is_safe_file_name(name))
         .ok_or_else(|| "That download has an unusable file name.".to_string())?;
-    let dest_name = unique_name(&score_dir, base);
+    let base = portable_pdf_name(source_name);
+    let dest_name = unique_name(&score_dir, &base);
     let destination = score_dir.join(&dest_name);
     fs::copy(source, &destination)
         .map_err(|_| "Could not copy the score into the piece folder.".to_string())?;
@@ -507,12 +575,39 @@ mod tests {
         let dl = TempDir::new().unwrap();
         let source = dl.path().join("score.pdf");
         write(&source, PDF_BYTES);
-        for bad in ["../escape", "a/b", "..", ".hidden", "_template"] {
+        for bad in [
+            "../escape",
+            "a/b",
+            "..",
+            ".hidden",
+            "_template",
+            "CON",
+            "nul.txt",
+            "Etude:",
+            "trailing.",
+            "trailing ",
+        ] {
             let err = import_pdf(root.path(), bad, &source).unwrap_err();
             assert!(!err.is_empty(), "'{bad}' should be rejected");
         }
         // No traversal ever created a folder outside the root.
         assert!(!root.path().parent().unwrap().join("escape").exists());
+    }
+
+    #[test]
+    fn metadata_and_pdf_names_are_portable_to_windows() {
+        assert_eq!(
+            metadata_folder_name("Prelude: Fugue?*", Some("CON")),
+            "CON - Prelude– Fugue––"
+        );
+        assert_eq!(metadata_folder_name("NUL", None), "Piece NUL");
+        assert_eq!(metadata_folder_name("title. ", None), "title");
+        assert_eq!(portable_pdf_name("CON.pdf"), "Piece CON.pdf");
+        assert_eq!(portable_pdf_name("Score: final?.PDF"), "Score– final–.pdf");
+        let long = "𝄞".repeat(MAX_PORTABLE_COMPONENT_UTF16);
+        let safe = metadata_folder_name(&long, None);
+        assert!(safe.encode_utf16().count() <= MAX_PORTABLE_COMPONENT_UTF16);
+        assert!(!safe.ends_with([' ', '.']));
     }
 
     #[test]
@@ -574,6 +669,40 @@ mod tests {
         let refreshed = store.get_piece(piece.id).unwrap().unwrap();
         assert_eq!(refreshed.title, "Ballade / sketch");
         assert_eq!(refreshed.composer.as_deref(), Some("Chopin"));
+    }
+
+    #[test]
+    fn long_metadata_and_source_name_import_with_bounded_portable_paths() {
+        let root = TempDir::new().unwrap();
+        let downloads = TempDir::new().unwrap();
+        let source_name = format!("{}.pdf", "source".repeat(24));
+        let source = downloads.path().join(&source_name);
+        write(&source, PDF_BYTES);
+        let store = Store::open(":memory:").unwrap();
+        let title = "Long title ".repeat(18);
+        let composer = "Long composer ".repeat(14);
+
+        let piece =
+            create_from_pdf(root.path(), &store, &title, Some(&composer), &source, None).unwrap();
+
+        assert_eq!(piece.title, title.trim());
+        assert_eq!(piece.composer.as_deref(), Some(composer.trim()));
+        let folder = Path::new(&piece.folder_path);
+        let folder_name = folder.file_name().unwrap().to_string_lossy();
+        assert!(folder_name.encode_utf16().count() <= MAX_PORTABLE_COMPONENT_UTF16);
+        let copied = fs::read_dir(folder.join("score"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let copied_stem = copied.file_stem().unwrap().to_string_lossy();
+        assert!(copied_stem.encode_utf16().count() <= MAX_PORTABLE_PDF_STEM_UTF16);
+        assert_eq!(fs::read(copied).unwrap(), PDF_BYTES);
+        assert!(
+            source.exists(),
+            "the long-named source is still copied, never moved"
+        );
     }
 
     // ---- delete files ----

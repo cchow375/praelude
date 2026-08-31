@@ -101,6 +101,8 @@ pub enum TtsError {
     Decode(String),
     /// The `say` subprocess failed to run or produced no readable audio.
     Say(String),
+    /// This build has no native system speech provider.
+    UnsupportedPlatform(String),
 }
 
 impl fmt::Display for TtsError {
@@ -111,6 +113,7 @@ impl fmt::Display for TtsError {
             TtsError::Status(code, body) => write!(f, "TTS HTTP {code}: {body}"),
             TtsError::Decode(e) => write!(f, "TTS decode error: {e}"),
             TtsError::Say(e) => write!(f, "`say` fallback error: {e}"),
+            TtsError::UnsupportedPlatform(e) => write!(f, "TTS unavailable: {e}"),
         }
     }
 }
@@ -125,6 +128,31 @@ pub type Result<T> = std::result::Result<T, TtsError>;
 pub trait TtsProvider: Send + Sync {
     /// Synthesize `text` into mono PCM. Blocking; runs on the worker thread.
     fn synth(&self, text: &str) -> Result<Pcm>;
+}
+
+#[cfg(not(target_os = "macos"))]
+struct UnavailableSystemTts;
+
+#[cfg(not(target_os = "macos"))]
+impl TtsProvider for UnavailableSystemTts {
+    fn synth(&self, _text: &str) -> Result<Pcm> {
+        Err(TtsError::UnsupportedPlatform(
+            "the Windows build does not include system speech".into(),
+        ))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn system_tts(voice: Option<String>) -> Box<dyn TtsProvider> {
+    match voice {
+        Some(voice) => Box::new(say::SayTts::with_voice(voice)),
+        None => Box::new(say::SayTts::new()),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn system_tts(_voice: Option<String>) -> Box<dyn TtsProvider> {
+    Box::new(UnavailableSystemTts)
 }
 
 /// Default number of *consecutive* primary failures after which the primary
@@ -753,16 +781,10 @@ pub fn select_provider(
             // The configured voice must also reach the `say` fallback — otherwise
             // a user's `tts.voice` setting silently stops applying the moment
             // Gemini fails mid-session and `say` takes over.
-            let fallback: Box<dyn TtsProvider> = match voice.clone() {
-                Some(v) => Box::new(say::SayTts::with_voice(v)),
-                None => Box::new(say::SayTts::new()),
-            };
+            let fallback = system_tts(voice.clone());
             Box::new(FallbackTts::new(primary, fallback))
         }
-        ProviderKind::Say => match voice {
-            Some(v) => Box::new(say::SayTts::with_voice(v)),
-            None => Box::new(say::SayTts::new()),
-        },
+        ProviderKind::Say => system_tts(voice),
     }
 }
 
@@ -1141,5 +1163,13 @@ mod tests {
         assert_eq!(decide_provider(None, true, false), ProviderKind::Say);
         assert_eq!(decide_provider(None, false, true), ProviderKind::Say);
         assert_eq!(decide_provider(None, false, false), ProviderKind::Say);
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn unavailable_system_tts_returns_an_explicit_error() {
+        let error = UnavailableSystemTts.synth("hello").unwrap_err();
+        assert!(matches!(error, TtsError::UnsupportedPlatform(_)));
+        assert!(error.to_string().contains("Windows build"));
     }
 }

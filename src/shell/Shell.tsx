@@ -69,6 +69,10 @@ import type { BrainProposedActionEvent } from "../features/brain/BrainWorkspace"
 import { MetronomePopover } from "../features/metronome/MetronomePopover";
 import { useMetronome } from "../features/metronome/useMetronome";
 import type { LedgerSurface } from "../features/ledger/LedgerCalendarWorkspace";
+import {
+  runtimePlatform,
+  type RuntimePlatform,
+} from "../platform/runtimePlatform";
 import "./shell.css";
 
 /**
@@ -360,6 +364,8 @@ export interface ShellProps {
   settingsContent?: ReactNode;
   /** Persisted default consecutive-clean target for new spoken/composed sets. */
   defaultCleanStreak?: number;
+  /** User-facing platform capability seam; native behavior stays authoritative. */
+  platform?: RuntimePlatform;
 }
 
 // D1/D4 (historical): the active-set card used to be an in-flow strip pinned
@@ -379,7 +385,12 @@ const VOICE_DRAFT_STYLE: CSSProperties = {
 const ACTIVE_SET_DRAFT_UNAVAILABLE =
   "A practice set is already active. Close or finish it before starting another.";
 
-export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
+export function Shell({
+  settingsContent,
+  defaultCleanStreak = 5,
+  platform = runtimePlatform(),
+}: ShellProps) {
+  const isWindows = platform === "windows";
   const [view, setView] = useState<View>("today");
   // Christian's 2026-08-24 request: the Assistant ("Brain") can be fully
   // switched off in Settings, default off. When it is, the nav tab, the
@@ -1140,6 +1151,7 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
               : voice.status
           }
           onToggle={voice.mute}
+          downGuidance={voice.downGuidance}
           lockedReason={
             replayModeActive
               ? "Voice stays muted while Listen Back is judging a recorded take."
@@ -1409,6 +1421,12 @@ export function Shell({ settingsContent, defaultCleanStreak = 5 }: ShellProps) {
         onToggleCollapsed={() => setRepHudCollapsed((collapsed) => !collapsed)}
         onReplayModeChange={onReplayModeChange}
         replayCaptureOwnership={replayCaptureOwnership}
+        replayAvailable={!isWindows}
+        replayUnavailableReason={
+          isWindows
+            ? "Listen Back is unavailable in this Windows build."
+            : null
+        }
         onKeptTake={() => fireCompletionFx("reference_take")}
         onCheck={rep.check}
         onUndo={rep.undo}

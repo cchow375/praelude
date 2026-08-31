@@ -772,7 +772,8 @@ impl ActionCtx {
             } else if let Some(v) = args.bpm_abs {
                 let (s, r) = self.set_bpm_only(v);
                 (s, r, bpm_to_speech(v), Some(v), "set")
-            } else if let Some(bp) = args.beats_per_bar {
+            } else {
+                let bp = args.beats_per_bar?;
                 let (s, r) = self.metro.do_set(
                     &self.store,
                     None,
@@ -792,8 +793,6 @@ impl ActionCtx {
                     None,
                     "accent",
                 )
-            } else {
-                return None;
             };
             if res.is_ok() {
                 self.metro.claim_manual();
@@ -1544,6 +1543,10 @@ impl VoiceLoop {
             }
             SttEvent::Down(reason) => {
                 let (code, guidance) = match reason {
+                    DownReason::UnsupportedPlatform => (
+                        "unsupported-platform",
+                        "Hands-free voice commands are unavailable in this Windows build. Use the on-screen controls or verdict hotkeys instead.",
+                    ),
                     DownReason::DictationDisabled => (
                         "dictation-disabled",
                         "Enable macOS Dictation (System Settings ▸ Keyboard ▸ Dictation) to use voice control.",
@@ -3233,6 +3236,7 @@ mod tests {
         assert!(voice.speak_brain_answer(&"x".repeat(4_001)).is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn listen_back_capture_leases_release_and_restore_the_native_process_once() {
         use std::io::Write;
@@ -3735,6 +3739,7 @@ mod tests {
     /// command, which must flow line → settler → final → channel → action thread →
     /// router → metronome + confirmation, with no mic and no audio device. This is
     /// the "product exists" path exercised deterministically.
+    #[cfg(unix)]
     #[test]
     fn e2e_fake_hear_starts_metronome() {
         use std::io::Write;
@@ -3810,6 +3815,7 @@ mod tests {
     /// started at 80, both reps persisted to the store, and the spoken acks were
     /// recorded. This is the deterministic stand-in for the "speak the hero
     /// phrase" live smoke the brief calls for (a mic cannot be driven here).
+    #[cfg(unix)]
     #[test]
     fn e2e_fake_hear_rep_tracker_hero_flow() {
         use std::io::Write;
@@ -3932,6 +3938,7 @@ mod tests {
     /// real STT gate closing/reopening around it. Verifies the audio handoff for
     /// real (the seam test above uses a mock engine). Makes sound. Run with:
     ///   cargo test --lib e2e_live_audio -- --ignored --nocapture
+    #[cfg(unix)]
     #[test]
     #[ignore]
     fn e2e_live_audio_real_engine_and_speaker() {
@@ -4166,6 +4173,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn start_returns_before_speaker_construction_finishes() {
         // VoiceLoop::start (via start_with) used to build the speaker

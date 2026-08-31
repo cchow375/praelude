@@ -2,6 +2,28 @@
 
 ## Decisions
 
+- **v9.1 is the Windows x64 port of the same generic v9 product, not a friend-specific fork
+  (2026-08-31).** Source version is 9.1.0 and schema remains 21. The target is a current-user
+  x64 NSIS Setup EXE for Windows 10/11 with the blank/share-clean Pieces Library, direct PDFs,
+  Score, keyboard/mouse practice, metronome/chimes, History, Calendar and local persistence.
+  Frontend passes 205 files with 1 skipped / 2,540 tests with 1 skipped plus TypeScript/build.
+  Windows-native CI, exact artifact/hash/Authenticode, commit/tag/push and clean Windows 10/11
+  acceptance remain PENDING; do not fill them from intent.
+
+- **The first Windows build is intentionally no-voice/no-Listen-Back (2026-08-31).** `hear` is a
+  macOS Mach-O binary and must not enter the Windows installer. Its process-group ownership,
+  macOS `say`, automatic system-volume boost and the current Listen Back capture lease are not
+  portable contracts. Windows reports voice unavailable and hides/disables Mic and Listen Back
+  rather than simulating liveness. A future Windows audio lane needs its own STT/capture/lease/TTS
+  design and native evidence.
+
+- **Windows distribution targets per-user NSIS and is honestly unsigned (2026-08-31).** The
+  platform config replaces the macOS resource list so `hear` is excluded, uses a WebView2
+  bootstrap path and does not require admin install mode. No Windows signing certificate exists;
+  record Authenticode and SmartScreen from the exact artifact. Self-signing does not create a
+  trusted public distribution. Windows Server CI proves target compilation/package creation, not
+  interactive Windows 10/11 recipient acceptance.
+
 - **v9 is one generic share-clean product, not a personal “friend build” fork (2026-08-30).**
   Christian's send-to-a-pianist request applies to the normal source/release. A first-ever install
   must contain no preloaded user repertoire pieces, scores, practice history, recordings, photos, quotes, books or

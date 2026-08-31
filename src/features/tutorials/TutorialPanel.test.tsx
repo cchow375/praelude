@@ -45,6 +45,7 @@ describe("TutorialPanel", () => {
     expect(await screen.findByText("Con anima voicing")).toBeTruthy();
     expect(screen.getByText("9:29–15:13")).toBeTruthy();
     expect(screen.getByText("Hear the fifth finger as the bass voice.")).toBeTruthy();
+    expect(screen.getByText("This device cannot play the tutorial video.")).toBeTruthy();
     expect(convertMock).toHaveBeenCalledWith(video.file_path);
     fireEvent.click(screen.getByRole("button", { name: "Show file" }));
     expect(invokeMock).toHaveBeenCalledWith("tutorial_video_reveal", { id: 3 });

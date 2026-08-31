@@ -11,6 +11,7 @@ mod metrics;
 mod metronome;
 mod pieces;
 mod planner;
+mod platform;
 pub mod protocol;
 mod recovery;
 mod references;
@@ -178,15 +179,8 @@ async fn imslp_open_download(file_name: String) -> Result<imslp::FileInfo, Strin
         if !info.url.starts_with("https://") {
             return Err("IMSLP returned a non-https download URL; refusing to open it.".into());
         }
-        let status = std::process::Command::new("/usr/bin/open")
-            .arg(&info.url)
-            .status()
-            .map_err(|_| "macOS could not open the IMSLP download in your browser.".to_string())?;
-        if status.success() {
-            Ok(info)
-        } else {
-            Err("macOS rejected the IMSLP download handoff.".into())
-        }
+        platform::open_https(&info.url)?;
+        Ok(info)
     })
     .await
 }
@@ -194,15 +188,7 @@ async fn imslp_open_download(file_name: String) -> Result<imslp::FileInfo, Strin
 /// Open an `https` URL in the user's system browser. Shared by the paste-URL
 /// score-download fallback; refuses anything that is not `https`.
 fn open_in_browser(url: &str) -> Result<(), String> {
-    let status = std::process::Command::new("/usr/bin/open")
-        .arg(url)
-        .status()
-        .map_err(|_| "macOS could not open the link in your browser.".to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("macOS rejected the browser handoff.".into())
-    }
+    platform::open_https(url)
 }
 
 /// Import a browser-downloaded score PDF into a piece's vault `score/` folder.
@@ -344,9 +330,11 @@ struct DownloadEntry {
 /// so the import panel can offer the arriving score. Read-only; a missing or
 /// unreadable Downloads folder is an empty list, never an error.
 #[tauri::command]
-fn downloads_list() -> Result<Vec<DownloadEntry>, String> {
-    let home = std::env::var("HOME").map_err(|_| "No home directory.".to_string())?;
-    let dir = std::path::Path::new(&home).join("Downloads");
+fn downloads_list(app: AppHandle) -> Result<Vec<DownloadEntry>, String> {
+    let dir = app
+        .path()
+        .download_dir()
+        .map_err(|_| "The Downloads folder is unavailable.".to_string())?;
     let mut out = Vec::new();
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Ok(out);
@@ -391,19 +379,7 @@ fn downloads_list() -> Result<Vec<DownloadEntry>, String> {
 /// needs no extra plugin dependency.
 #[tauri::command]
 fn pick_import_file() -> Result<Option<String>, String> {
-    let output = std::process::Command::new("/usr/bin/osascript")
-        .args([
-            "-e",
-            "POSIX path of (choose file with prompt \"Choose the downloaded score\")",
-        ])
-        .output()
-        .map_err(|_| "Could not open the file picker.".to_string())?;
-    if !output.status.success() {
-        // Non-zero includes the user pressing Cancel (osascript -128): no file.
-        return Ok(None);
-    }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(if path.is_empty() { None } else { Some(path) })
+    platform::pick_pdf_file()
 }
 
 /// Open a pasted score-download URL in the system browser (paste-URL fallback
@@ -1868,9 +1844,43 @@ fn ensure_replay_day_directory(
 }
 
 fn sync_directory(path: &std::path::Path) -> Result<(), String> {
-    std::fs::File::open(path)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| format!("sync replay directory: {error}"))
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::fs::File::open(path)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| format!("sync replay directory: {error}"))
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_INVALID_HANDLE};
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+
+        let directory = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+            .map_err(|error| format!("open replay directory for sync: {error}"))?;
+        match directory.sync_all() {
+            Ok(()) => Ok(()),
+            // Windows can open a directory handle but does not guarantee that
+            // FlushFileBuffers accepts it. The file itself was sync_all'd before
+            // publication; these two documented directory-handle responses mean
+            // there is no stronger portable directory flush to perform.
+            Err(error)
+                if matches!(
+                    error.raw_os_error(),
+                    Some(code)
+                        if code == ERROR_ACCESS_DENIED as i32
+                            || code == ERROR_INVALID_HANDLE as i32
+                ) =>
+            {
+                Ok(())
+            }
+            Err(error) => Err(format!("sync replay directory: {error}")),
+        }
+    }
 }
 
 fn rep_replays_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -3336,16 +3346,7 @@ fn tutorial_video_reveal(id: i64, store: State<'_, Arc<Store>>) -> Result<(), St
     let path = store
         .tutorial_video_file_path(id)
         .map_err(|error| error.to_string())?;
-    let status = std::process::Command::new("open")
-        .arg("-R")
-        .arg(path)
-        .status()
-        .map_err(|error| format!("Could not open Finder: {error}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("Finder could not reveal the tutorial video".into())
-    }
+    platform::reveal_file(&path)
 }
 
 #[tauri::command]
@@ -3958,6 +3959,7 @@ pub fn run() {
             // orphan the `hear` child (it lives in its own process group) and leak
             // the microphone. Install an async-signal-safe handler that kills the
             // `hear` group before the process dies. See `stt::install_termination_handler`.
+            #[cfg(unix)]
             stt::install_termination_handler();
 
             // An AppleEvent quit (`osascript 'quit app'` — and possibly other
@@ -3971,13 +3973,16 @@ pub fn run() {
             // deliberately NOT ended here: the next launch adopts it
             // (`SessionService`/`latest_open_session`) and exports it on the
             // next graceful end — nothing is lost, only deferred.
-            extern "C" fn exit_backstop() {
-                stt::kill_current_hear_group();
-                sysvol::restore_stranded_boost();
-            }
-            // Safe: registering a plain extern "C" fn to run at normal exit.
-            unsafe {
-                libc::atexit(exit_backstop);
+            #[cfg(unix)]
+            {
+                extern "C" fn exit_backstop() {
+                    stt::kill_current_hear_group();
+                    sysvol::restore_stranded_boost();
+                }
+                // Safe: registering a plain extern "C" fn to run at normal exit.
+                unsafe {
+                    libc::atexit(exit_backstop);
+                }
             }
             Ok(())
         })

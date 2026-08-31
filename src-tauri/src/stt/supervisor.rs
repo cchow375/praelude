@@ -25,6 +25,8 @@ pub struct Transcript {
 /// react (e.g. tell the user to enable Dictation).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DownReason {
+    /// The current platform has no supported native speech-recognition backend.
+    UnsupportedPlatform,
     /// `hear` reported `kLSRErrorDomain Code=201` — macOS Dictation is disabled.
     /// No amount of restarting fixes this; it needs a System Settings change.
     DictationDisabled,

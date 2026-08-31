@@ -4,10 +4,9 @@
 //! The only operation is opening a fixed Spotify or YouTube search URL whose
 //! query is derived from one canonical piece and percent-encoded byte by byte.
 
-use std::process::Command;
-
 use serde::{Deserialize, Serialize};
 
+use crate::platform;
 use crate::store::Store;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -80,15 +79,7 @@ fn open_fixed_url(url: &str) -> Result<(), String> {
     {
         return Err("Reference URL was not on the fixed allowlist.".into());
     }
-    let status = Command::new("/usr/bin/open")
-        .arg(url)
-        .status()
-        .map_err(|_| "macOS could not open the reference search.".to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("macOS rejected the reference search handoff.".into())
-    }
+    platform::open_https(url)
 }
 
 #[cfg(test)]

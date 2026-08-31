@@ -1,3 +1,4 @@
+#[cfg(target_os = "macos")]
 use std::process::Command;
 use std::time::Duration;
 
@@ -463,6 +464,7 @@ fn resolve_secret(account: &str, env_name: &str) -> Option<String> {
     })
 }
 
+#[cfg(target_os = "macos")]
 fn keychain_secret(account: &str) -> Option<String> {
     let output = Command::new("security")
         .args([
@@ -480,6 +482,11 @@ fn keychain_secret(account: &str) -> Option<String> {
     }
     let secret = String::from_utf8(output.stdout).ok()?.trim().to_string();
     (!secret.is_empty()).then_some(secret)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn keychain_secret(_account: &str) -> Option<String> {
+    None
 }
 
 pub struct HttpRequest {

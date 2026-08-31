@@ -30,10 +30,9 @@ import {
 // `voice_state()` fetch — same ordering as useMetronome: if the fetch went
 // first, a status event emitted while it was in flight would land with no
 // listener and be dropped. `statusEventArrived` guards the fetch's result so a
-// live event always wins over the (possibly stale) snapshot. Every invoke can
-// reject when there is no backend (plain `vite` browser dev, or the App smoke
-// test that mocks invoke to REJECT) — those rejections are swallowed quietly;
-// the voice UI is purely reflective, so a missing backend just means "live".
+// live event always wins over the (possibly stale) snapshot. Until one of
+// those authoritative sources confirms a working pipeline, voice fails closed
+// as unavailable. A missing/rejected backend must never look like a live mic.
 //
 // Invoke arguments are camelCase (Tauri maps `muted` -> the Rust parameter).
 // Event PAYLOADs are serde snake_case, so the transcript's `is_final` is
@@ -47,6 +46,8 @@ export interface VoiceStateSnapshot {
   muted: boolean;
   /** Non-null when the pipeline is down; the string is a short reason. */
   down: string | null;
+  /** Optional platform-specific recovery or capability guidance. */
+  guidance?: string | null;
 }
 
 /** Payload of a `voice://status` event. */
@@ -120,7 +121,7 @@ export interface UseVoice {
   tierAResult: TierAParseResult | null;
   /** Transport disposition for concise duplicate/stale/invalid feedback. */
   deliveryDisposition: VoiceDeliveryDisposition | null;
-  /** Mute/unmute the mic. Optimistically updates local status, then invokes. */
+  /** Mute/unmute a confirmed-live mic. Down/unconfirmed state is inert. */
   mute: (muted: boolean) => void;
   /** Stop/reap native STT capture and return its exact ownership epoch. */
   suspendCapture: (requestId: string) => Promise<number>;
@@ -135,6 +136,18 @@ const DEFAULT_TIER_A_CONTEXT: TierAContext = {
   pending_duplicate_attempt: false,
   retention_due: false,
 };
+
+export const VOICE_BACKEND_UNAVAILABLE_GUIDANCE =
+  "Hands-free voice is unavailable because the native voice service did not start. Keyboard and mouse practice controls still work.";
+
+export const VOICE_UNSUPPORTED_GUIDANCE =
+  "Hands-free voice is unavailable in this build. Keyboard and mouse practice controls still work.";
+
+function fallbackDownGuidance(reason?: string | null): string {
+  return reason?.toLowerCase().includes("unsupported")
+    ? VOICE_UNSUPPORTED_GUIDANCE
+    : "Hands-free voice is unavailable. Check microphone and speech-recognition access, then relaunch.";
+}
 
 function recognitionSource(
   value: VoiceTranscriptSource | undefined,
@@ -192,13 +205,14 @@ export function useVoice(
   // them without staleness; `status` is the derived value mirrored into React
   // state so the UI re-renders.
   const mutedRef = useRef(false);
-  const downRef = useRef(false);
+  // Fail closed until the backend snapshot or a live event proves otherwise.
+  const downRef = useRef(true);
   const deliveryLedgerRef = useRef(createVoiceDeliveryLedger());
   const legacyDeliverySequence = useRef(0);
   const tierAContextRef = useRef(tierAContext);
   tierAContextRef.current = tierAContext;
 
-  const [status, setStatus] = useState<VoiceStatus>("live");
+  const [status, setStatus] = useState<VoiceStatus>("down");
   const [downGuidance, setDownGuidance] = useState<string | null>(null);
   const [lastIntent, setLastIntent] = useState<VoiceIntent | null>(null);
   const [acceptedFinalDelivery, setAcceptedFinalDelivery] =
@@ -226,7 +240,7 @@ export function useVoice(
           break;
         case "down":
           downRef.current = true;
-          setDownGuidance(e.guidance ?? null);
+          setDownGuidance(e.guidance ?? fallbackDownGuidance(e.reason));
           break;
       }
       syncStatus();
@@ -299,10 +313,19 @@ export function useVoice(
         if (alive && snap && !statusEventArrived) {
           mutedRef.current = !!snap.muted;
           downRef.current = snap.down != null;
+          setDownGuidance(
+            snap.down == null
+              ? null
+              : (snap.guidance ?? fallbackDownGuidance(snap.down)),
+          );
           syncStatus();
         }
       } catch {
-        // Backend absent / command rejected — swallow quietly, keep "live".
+        if (alive && !statusEventArrived) {
+          downRef.current = true;
+          setDownGuidance(VOICE_BACKEND_UNAVAILABLE_GUIDANCE);
+          syncStatus();
+        }
       }
     })();
 
@@ -314,10 +337,11 @@ export function useVoice(
 
   const mute = useCallback(
     (muted: boolean) => {
+      if (downRef.current) return;
       mutedRef.current = muted;
       syncStatus();
-      // Optimistic; the authoritative voice://status event reconciles. Reject
-      // (no backend) is swallowed — the reflected status is best-effort.
+      // Optimistic only after live confirmation; the authoritative
+      // voice://status event reconciles. A rejected command is swallowed.
       void invoke("voice_mute", { muted }).catch(() => {});
     },
     [syncStatus],

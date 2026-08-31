@@ -49,9 +49,18 @@
 //!
 //! See [`supervisor`] for the implementation and its inline tests.
 
+#[cfg(not(target_os = "windows"))]
 mod supervisor;
+#[cfg(target_os = "windows")]
+mod windows;
 
+#[cfg(not(target_os = "windows"))]
 pub use supervisor::{
+    install_termination_handler, kill_current_hear_group, DownReason, SttConfig, SttEvent,
+    SttHandle, SttSupervisor, Transcript,
+};
+#[cfg(target_os = "windows")]
+pub use windows::{
     install_termination_handler, kill_current_hear_group, DownReason, SttConfig, SttEvent,
     SttHandle, SttSupervisor, Transcript,
 };

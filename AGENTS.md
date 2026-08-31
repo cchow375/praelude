@@ -9,7 +9,15 @@ stay in this repository; product truth, Roadmap, Flaws, Changelog, tutorial, and
 stay in the vault. After **every** code/doc/decision change, obey the vault UPDATE PROTOCOL before
 reporting completion.
 
-Current source boundary: **v9.0.0 / schema 21 PACKAGED SHAREABLE CANDIDATE; NOT INSTALLED;
+Current source boundary: **v9.1.0 / schema 21 WINDOWS x64 SOURCE WORKTREE; WINDOWS NATIVE/
+PACKAGE/RECIPIENT EVIDENCE PENDING 2026-08-31.** Frontend Windows gates pass at 205 files with
+1 skipped / 2,540 tests with 1 skipped plus TypeScript/build. The current-user NSIS Setup EXE,
+Windows-native Rust/CI, artifact hash/Authenticode/share-clean facts, release commit/tag/push and
+clean Windows 10/11 acceptance remain PENDING. This first port deliberately excludes macOS
+`hear`; Mic/voice/Listen Back and macOS `say`/volume boost are unavailable. No Windows signing
+certificate exists, so SmartScreen friction is expected.
+
+Its base is the unchanged **v9.0.0 / schema 21 PACKAGED MAC SHAREABLE CANDIDATE; NOT INSTALLED;
 CLEAN-RECIPIENT ACCEPTANCE PENDING 2026-08-30.**
 Installed/published remains **v8.2.1 / schema 20**. v9 is the one generic Pieces Library/share-
 clean build: blank app-owned first install; preserved configured/inferred Pieces root and DB on
@@ -70,15 +78,19 @@ cleanup, with a practice-only off-state Settings guide and Books/provider furnit
 - `docs/superpowers/plans/2026-08-27-v8.1.0-p3-p6-completion.md`
 - `docs/superpowers/plans/2026-08-27-v8.2.0-ui-cleanse-and-total-plays.md`
 - `docs/superpowers/plans/2026-08-30-v9.0.0-portable-pieces-library.md`
+- `docs/superpowers/plans/2026-08-31-v9.1.0-windows-x64.md`
 - `docs/superpowers/plans/2026-08-26-p2-micro-targets-v2-and-set-completion.md`
 - `docs/qa/v8.1.0/README.md` (browser/devMock plus scoped installed-native evidence; native audio explicitly pending)
 - `docs/qa/v8.2.0/README.md` (browser UI + release/data evidence; native Score frame pending Desktop access)
 - `docs/qa/v8.2.1/README.md` (compact-composer + B95 crash-fix release/install evidence; native Score feel separate)
 - `docs/qa/v9.0.0/README.md` (v9 package/source evidence; install and recipient gates remain PENDING)
+- `docs/qa/v9.1.0/README.md` (Windows frontend evidence; native/package/recipient gates PENDING)
 - `docs/qa/v7.2.0/README.md`
 - `NOTES.md` (newest decision block first)
 
-**Cold-start guard:** work only from this main worktree unless Christian explicitly assigns a
+**Cold-start guard:** finish the Windows-native/package/recipient v9.1 gates without inferring
+them from the frontend pass; never put Mac-only `hear` into the Windows bundle. Work only from
+this main worktree unless Christian explicitly assigns a
 historical lane. `.claude/worktrees/`, `~/.ck-lanes/`, `.superpowers/sdd/task-*`, the old
 Foundation context, and `.workflow/LEDGER.md` are retained phase evidence, not the current
 roadmap. Do not restart P3–P6, the v7 galaxy, or the source-complete v8.2 work from those files.

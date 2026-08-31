@@ -74,6 +74,24 @@ describe("piano review capture", () => {
     );
   });
 
+  it("uses a device-neutral error when microphone capture is unavailable", async () => {
+    const original = navigator.mediaDevices;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: undefined,
+    });
+    try {
+      await expect(createPianoCapture(vi.fn(), vi.fn())).rejects.toThrow(
+        "This device cannot open the microphone for a review take.",
+      );
+    } finally {
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: original,
+      });
+    }
+  });
+
   it("releases every mic track when MediaRecorder construction fails", async () => {
     const stop = installMic(
       class {

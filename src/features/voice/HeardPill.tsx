@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import "./HeardPill.css";
 
 export const QUIET_SPEECH_NOTE =
-  "Quiet-speech sensitivity belongs to the macOS speech engine — the app shows what it heard; it can't hear better.";
+  "Quiet-speech sensitivity belongs to the system speech engine — the app shows what it heard; it can't hear better.";
 
 const MAX_CHARS = 72;
 const MAX_HEARD_LINES = 3;
@@ -67,7 +67,7 @@ export function HeardPill({
               {typeof line.appMs === "number" && (
                 <span
                   className="heard-pill-latency"
-                  title="Time from the first words the Mac gave the app to the action being done. It does not include how long the Mac itself took to hear you — the app cannot see that."
+                  title="Time from the first words the speech engine gave the app to the action being done. It does not include how long speech recognition took — the app cannot see that."
                 >
                   app {(line.appMs / 1000).toFixed(1)}s
                 </span>

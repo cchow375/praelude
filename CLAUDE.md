@@ -26,6 +26,15 @@ version history live in the Obsidian vault**, not here:
 
 ## Current source boundary
 
+**v9.1.0 / schema 21 is a WINDOWS x64 SOURCE WORKTREE; WINDOWS NATIVE/PACKAGE/RECIPIENT
+EVIDENCE IS PENDING (2026-08-31).** It ports the same generic blank/share-clean Pieces product to
+a current-user NSIS Setup EXE for Windows 10/11 x64. Frontend Windows gates pass at 205 files with
+1 skipped / 2,540 tests with 1 skipped plus TypeScript/build. Windows-native Rust/CI, exact EXE
+name/bytes/SHA-256/Authenticode, share-clean package scan, release commit/tag/private push and
+clean Windows 10/11 acceptance are PENDING. This first Windows port excludes macOS `hear`; Mic,
+voice, Listen Back and macOS `say`/volume boost are unavailable. No Windows signing certificate
+exists, so SmartScreen friction is expected.
+
 **v9.0.0 / schema 21 is a PACKAGED SHAREABLE CANDIDATE; NOT INSTALLED; CLEAN-RECIPIENT
 ACCEPTANCE PENDING (2026-08-30).** The installed and published app remains **v8.2.1 / schema 20**.
 v9 is one generic, share-clean build—not a friend
@@ -75,6 +84,8 @@ path can do so and must not run during a live set/session.
   plus the v8.2.1 density-correction addendum.
 - `docs/superpowers/plans/2026-08-30-v9.0.0-portable-pieces-library.md` — v9 product/data/privacy
   contract and pending release sequence.
+- `docs/superpowers/plans/2026-08-31-v9.1.0-windows-x64.md` — Windows portability, NSIS and
+  clean-recipient evidence plan.
 - `docs/qa/v7.2.0/README.md` — source-candidate 720×520 evidence and its native/at-piano limits.
 - `docs/qa/v8.1.0/README.md` — historical v8.1 browser/devMock and scoped native visual record;
   packaged-native microphone, storage and Steinway acceptance are explicitly not inferred.
@@ -84,6 +95,8 @@ path can do so and must not run during a live set/session.
   Score feel remains separate.
 - `docs/qa/v9.0.0/README.md` — v9 source/package evidence; replacement artifact identity,
   install and recipient gates remain explicitly PENDING.
+- `docs/qa/v9.1.0/README.md` — Windows frontend evidence; native/package/hash/signing and clean
+  Windows 10/11 gates remain explicitly PENDING.
 - `docs/qa/(C) v2-narrated-replay-contract.md` — old-session speech/state-machine regression
   boundary; never a piano-grading benchmark.
 - `docs/qa/` — acceptance records, regression contracts and screenshots.
@@ -94,7 +107,9 @@ path can do so and must not run during a live set/session.
 
 ## Cold-start guard for Claude Code
 
-Work from the main worktree unless Christian explicitly assigns a historical lane. The registered
+Finish the Windows-native/package/recipient v9.1 gates without inferring them from the frontend
+pass, and never put the Mac-only `hear` binary into the Windows bundle. Work from the main
+worktree unless Christian explicitly assigns a historical lane. The registered
 trees under `.claude/worktrees/` and `~/.ck-lanes/`, `.superpowers/sdd/task-*`, the old Foundation
 context, and `.workflow/LEDGER.md` are retained phase evidence; their local status blocks do not
 override this file or the vault. Do not restart P3–P6, restore the v7 galaxy, or resume Assistant
@@ -146,6 +161,11 @@ Recognition Allow; macOS Dictation must be ON (`Code 201` = it's off). In v8.2.1
 camera permission is conditional and requested only after explicit **Use camera**.
 
 ## Status (mirror of the vault; keep in sync)
+
+**v9.1.0 / schema 21 — WINDOWS x64 SOURCE WORKTREE; PACKAGE/NATIVE/RECIPIENT PENDING
+2026-08-31.** See the v9.1 plan and QA ledger. Frontend/TypeScript/build pass; every native,
+installer, artifact/hash/signing, commit/tag and Windows 10/11 acceptance fact remains pending.
+The intended Windows product is keyboard/mouse-first; Mic/voice/Listen Back are unavailable.
 
 **v9.0.0 / schema 21 — PACKAGED SHAREABLE CANDIDATE; NOT INSTALLED; CLEAN-RECIPIENT ACCEPTANCE
 PENDING 2026-08-30.** The current candidate behavior and evidence are defined in “Current source

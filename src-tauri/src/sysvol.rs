@@ -15,6 +15,7 @@
 //! so a SIGKILL'd process is the one case we cannot cover; that is an OS-level
 //! limitation, documented honestly.
 
+#[cfg(target_os = "macos")]
 use std::process::Command;
 use std::sync::atomic::{AtomicI32, Ordering};
 
@@ -31,6 +32,7 @@ static STRANDED_SAVED: AtomicI32 = AtomicI32::new(-1);
 /// exit; no-op otherwise. Called from the `atexit` backstop (a normal-exit
 /// context, so spawning `osascript` is fine — this is NOT a signal handler).
 /// Idempotent: the swap clears the marker, so a second call does nothing.
+#[cfg(unix)]
 pub fn restore_stranded_boost() {
     let saved = STRANDED_SAVED.swap(-1, Ordering::AcqRel);
     if saved >= 0 {
@@ -44,6 +46,7 @@ pub fn restore_stranded_boost() {
 /// whole trimmed string as a bare integer (what `output volume of (get volume
 /// settings)` prints). Any parsed value is clamped to `0..=100`. Returns `None`
 /// when no integer volume can be found.
+#[cfg(any(target_os = "macos", test))]
 pub fn parse_output_volume(s: &str) -> Option<u8> {
     let digits = if let Some(idx) = s.find("output volume:") {
         s[idx + "output volume:".len()..]
@@ -60,6 +63,7 @@ pub fn parse_output_volume(s: &str) -> Option<u8> {
 /// Read the current system output volume (`0..=100`). Best-effort: on any
 /// osascript failure or unparseable output, logs and returns a safe mid-scale
 /// default (50) rather than panicking.
+#[cfg(target_os = "macos")]
 pub fn current() -> u8 {
     match Command::new("osascript")
         .arg("-e")
@@ -77,8 +81,16 @@ pub fn current() -> u8 {
     }
 }
 
+/// Windows does not expose a process-local equivalent of the macOS volume
+/// script. The Windows build leaves the user's system volume untouched.
+#[cfg(not(target_os = "macos"))]
+pub fn current() -> u8 {
+    0
+}
+
 /// Set the system output volume (clamped to `0..=100`). Non-fatal on failure:
 /// logs and returns. A failed restore must never panic the process.
+#[cfg(target_os = "macos")]
 pub fn set(v: u8) {
     let v = v.min(100);
     if let Err(e) = Command::new("osascript")
@@ -89,6 +101,9 @@ pub fn set(v: u8) {
         eprintln!("sysvol: `osascript set volume output volume {v}` failed: {e}");
     }
 }
+
+#[cfg(not(target_os = "macos"))]
+pub fn set(_v: u8) {}
 
 /// RAII guard that raises the system output volume to a boost target and
 /// restores the pre-boost volume when dropped (or explicitly released).

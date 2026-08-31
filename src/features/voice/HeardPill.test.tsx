@@ -51,12 +51,12 @@ describe("HeardPill persistent evidence", () => {
     expect(screen.queryByRole("log")).toBeNull();
   });
 
-  it("elides long speech and states the macOS recognition boundary", () => {
+  it("elides long speech and states the system recognition boundary", () => {
     const long = "a".repeat(200);
     expect(truncateHeard(long).length).toBeLessThanOrEqual(72);
     expect(truncateHeard(long)).toMatch(/…$/u);
     expect(truncateHeard("  metronome    off  ")).toBe("metronome off");
-    expect(QUIET_SPEECH_NOTE).toContain("macOS speech engine");
+    expect(QUIET_SPEECH_NOTE).toContain("system speech engine");
     expect(QUIET_SPEECH_NOTE).toContain("can't hear better");
   });
 

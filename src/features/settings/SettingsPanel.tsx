@@ -8,6 +8,10 @@ import { BrainConnection } from "./BrainConnection";
 import { resetDockLayout } from "../dock/dockState";
 import { hotkeyLabel } from "../rep/useVerdictHotkeys";
 import { acceptCommittedSettings } from "../../state/settings";
+import {
+  runtimePlatform,
+  type RuntimePlatform,
+} from "../../platform/runtimePlatform";
 import { TTS_DEGRADED_LABEL, useTtsDegraded } from "../voice/useTtsDegraded";
 import { QUIET_SPEECH_NOTE } from "../voice/HeardPill";
 import {
@@ -91,16 +95,19 @@ export function SettingsPanel({
   onPracticeDefaultCleanStreakSaved,
   api = defaultApi,
   brainInvoker,
+  platform = runtimePlatform(),
 }: {
   onInterfaceScaleSaved?: (scale: number) => void;
   onPracticeDefaultCleanStreakSaved?: (target: number) => void;
   api?: SettingsApi;
   brainInvoker?: CommandInvoker;
+  platform?: RuntimePlatform;
 }) {
   const receipts = useReceipts();
   // Live state, not a setting: the cloud voice is on cooldown and utterances are
-  // coming from the macOS voice. Clears itself when the cloud voice recovers.
+  // coming from the system fallback voice. Clears when cloud voice recovers.
   const ttsDegraded = useTtsDegraded();
+  const isWindows = platform === "windows";
   const [value, setValue] = useState<SettingsSnapshot | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -214,7 +221,9 @@ export function SettingsPanel({
       onInterfaceScaleSaved?.(next.interface_scale);
       onPracticeDefaultCleanStreakSaved?.(next.practice_default_clean_streak);
       setMessage(
-        "Settings saved. Settle delay applies now; provider changes apply after relaunch.",
+        isWindows
+          ? "Settings saved."
+          : "Settings saved. Settle delay applies now; provider changes apply after relaunch.",
       );
       receipts.committed("Settings saved.");
     } catch (cause) {
@@ -486,105 +495,119 @@ export function SettingsPanel({
         }
       >
         <div className="settings-group">
-          {ttsDegraded && (
-            <p className="settings-pill" role="status">
-              <span className="settings-pill-dot" aria-hidden="true" />
-              {TTS_DEGRADED_LABEL}
+          {isWindows ? (
+            <p className="settings-note settings-wide">
+              Hands-free voice is unavailable in this Windows build. Keyboard
+              hotkeys, mouse controls, the metronome, and practice tracking
+              still work.
             </p>
+          ) : (
+            <>
+              {ttsDegraded && (
+                <p className="settings-pill" role="status">
+                  <span className="settings-pill-dot" aria-hidden="true" />
+                  {TTS_DEGRADED_LABEL}
+                </p>
+              )}
+              {/* The honest limit (v6 S9). There is no sensitivity dial to
+                  offer: recognition happens inside the system speech engine,
+                  and the app only ever receives finished text. What it CAN do
+                  is show that text, which is what the heard pill does. */}
+              <p className="settings-note">{QUIET_SPEECH_NOTE}</p>
+              <NumberField
+                label="Voice settle delay (ms)"
+                value={value.stt_settle_ms}
+                min={300}
+                max={2000}
+                onChange={(stt_settle_ms) =>
+                  setValue({ ...value, stt_settle_ms })
+                }
+              />
+              <p className="settings-note settings-wide">
+                Lower is more responsive; too low can split a command at a
+                short pause. Bare verdict words still wait for this safe
+                finalization gap.
+              </p>
+              <label className="settings-check settings-wide">
+                <input
+                  type="checkbox"
+                  checked={value.speak_acks}
+                  onChange={(event) =>
+                    setValue({ ...value, speak_acks: event.target.checked })
+                  }
+                />
+                <span>
+                  <strong>Speak confirmations aloud</strong>
+                  <small>
+                    Off: the app plays the short ack chime instead of talking.
+                  </small>
+                </span>
+              </label>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={value.wake_word_enabled}
+                  onChange={(event) =>
+                    setValue({
+                      ...value,
+                      wake_word_enabled: event.target.checked,
+                    })
+                  }
+                />
+                <span>Require wake word for commands</span>
+              </label>
+              <Row label="Wake word">
+                <input
+                  aria-label="Wake word"
+                  value={value.wake_word}
+                  disabled={!value.wake_word_enabled}
+                  maxLength={24}
+                  onChange={(event) =>
+                    setValue({ ...value, wake_word: event.target.value })
+                  }
+                />
+              </Row>
+              <Row label="Coach voice">
+                <select
+                  aria-label="Coach voice"
+                  value={value.tts_voice}
+                  onChange={(event) =>
+                    setValue({ ...value, tts_voice: event.target.value })
+                  }
+                >
+                  {[
+                    "Kore",
+                    "Puck",
+                    "Charon",
+                    "Fenrir",
+                    "Aoede",
+                    "Leda",
+                    "Orus",
+                    "Zephyr",
+                  ].map((voice) => (
+                    <option key={voice}>{voice}</option>
+                  ))}
+                </select>
+              </Row>
+              <Row label="Speech provider">
+                <select
+                  aria-label="Speech provider"
+                  value={value.tts_provider}
+                  onChange={(event) =>
+                    setValue({
+                      ...value,
+                      tts_provider: event.target
+                        .value as SettingsSnapshot["tts_provider"],
+                    })
+                  }
+                >
+                  <option value="auto">Auto (Gemini → Mac)</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="say">Mac system voice</option>
+                </select>
+              </Row>
+            </>
           )}
-          {/* The honest limit (v6 S9). There is no sensitivity dial to offer:
-              recognition happens inside the macOS speech engine, and the app
-              only ever receives finished text. What it CAN do is show that
-              text, which is what the heard pill does. Saying so here is
-              cheaper than letting Christian hunt for a setting that cannot
-              exist. */}
-          <p className="settings-note">{QUIET_SPEECH_NOTE}</p>
-          <NumberField
-            label="Voice settle delay (ms)"
-            value={value.stt_settle_ms}
-            min={300}
-            max={2000}
-            onChange={(stt_settle_ms) => setValue({ ...value, stt_settle_ms })}
-          />
-          <p className="settings-note settings-wide">
-            Lower is more responsive; too low can split a command at a short
-            pause. Bare verdict words still wait for this safe finalization gap.
-          </p>
-          <label className="settings-check settings-wide">
-            <input
-              type="checkbox"
-              checked={value.speak_acks}
-              onChange={(event) =>
-                setValue({ ...value, speak_acks: event.target.checked })
-              }
-            />
-            <span>
-              <strong>Speak confirmations aloud</strong>
-              <small>
-                Off: the app plays the short ack chime instead of talking.
-              </small>
-            </span>
-          </label>
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={value.wake_word_enabled}
-              onChange={(event) =>
-                setValue({ ...value, wake_word_enabled: event.target.checked })
-              }
-            />
-            <span>Require wake word for commands</span>
-          </label>
-          <Row label="Wake word">
-            <input
-              aria-label="Wake word"
-              value={value.wake_word}
-              disabled={!value.wake_word_enabled}
-              maxLength={24}
-              onChange={(event) =>
-                setValue({ ...value, wake_word: event.target.value })
-              }
-            />
-          </Row>
-          <Row label="Coach voice">
-            <select
-              aria-label="Coach voice"
-              value={value.tts_voice}
-              onChange={(event) =>
-                setValue({ ...value, tts_voice: event.target.value })
-              }
-            >
-              {[
-                "Kore",
-                "Puck",
-                "Charon",
-                "Fenrir",
-                "Aoede",
-                "Leda",
-                "Orus",
-                "Zephyr",
-              ].map((voice) => (
-                <option key={voice}>{voice}</option>
-              ))}
-            </select>
-          </Row>
-          <Row label="Speech provider">
-            <select
-              aria-label="Speech provider"
-              value={value.tts_provider}
-              onChange={(event) =>
-                setValue({
-                  ...value,
-                  tts_provider: event.target
-                    .value as SettingsSnapshot["tts_provider"],
-                })
-              }
-            >
-              <option value="auto">Auto (Gemini → Mac)</option>
-              <option value="gemini">Gemini</option>
-              <option value="say">Mac system voice</option>
-            </select>
-          </Row>
         </div>
       </Disclosure>
 
@@ -609,25 +632,37 @@ export function SettingsPanel({
               )}
             </select>
           </Row>
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={value.metronome_boost}
-              onChange={(event) =>
-                setValue({ ...value, metronome_boost: event.target.checked })
-              }
-            />
-            <span>Boost Mac volume while clicking</span>
-          </label>
-          <NumberField
-            label="Boost level"
-            value={value.metronome_boost_level}
-            min={0}
-            max={100}
-            onChange={(metronome_boost_level) =>
-              setValue({ ...value, metronome_boost_level })
-            }
-          />
+          {isWindows ? (
+            <p className="settings-note settings-wide">
+              System-volume boost is unavailable in this Windows build. The
+              metronome still plays at the volume already set in Windows.
+            </p>
+          ) : (
+            <>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={value.metronome_boost}
+                  onChange={(event) =>
+                    setValue({
+                      ...value,
+                      metronome_boost: event.target.checked,
+                    })
+                  }
+                />
+                <span>Boost Mac volume while clicking</span>
+              </label>
+              <NumberField
+                label="Boost level"
+                value={value.metronome_boost_level}
+                min={0}
+                max={100}
+                onChange={(metronome_boost_level) =>
+                  setValue({ ...value, metronome_boost_level })
+                }
+              />
+            </>
+          )}
         </div>
       </Disclosure>
 

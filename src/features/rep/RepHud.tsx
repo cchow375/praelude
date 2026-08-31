@@ -38,6 +38,10 @@ export interface RepHudProps {
   onReplayModeChange?: (enabled: boolean) => void;
   /** Native recognizer ownership barrier used before WebView recording starts. */
   replayCaptureOwnership?: RepReplayCaptureOwnership;
+  /** False when the runtime cannot safely hand microphone ownership to review. */
+  replayAvailable?: boolean;
+  /** Honest capability/recovery copy shown instead of a failing control. */
+  replayUnavailableReason?: string | null;
   /** Earned visual moment after an explicitly kept reference take commits. */
   onKeptTake?: () => void;
   /** Region Sound target persistence seam. Production writes the Region;
@@ -175,6 +179,8 @@ export function RepHud({
   onToggleCollapsed,
   onReplayModeChange,
   replayCaptureOwnership,
+  replayAvailable = true,
+  replayUnavailableReason,
   onKeptTake,
   onSoundTargetSave = defaultSoundTargetSave,
   onCheck,
@@ -261,6 +267,12 @@ export function RepHud({
     onKept: onKeptTake,
     captureOwnership: replayCaptureOwnership,
   });
+  useEffect(() => {
+    if (!replayAvailable && replay.enabled) replay.setEnabled(false);
+    // `setEnabled` is an imperative controller member whose identity changes
+    // with the controller object; availability/enabled are the transition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replayAvailable, replay.enabled]);
   useEffect(() => {
     onReplayModeChange?.(replay.enabled);
     return () => {
@@ -1086,7 +1098,11 @@ export function RepHud({
         </button>
       </div>
 
-      <RepReplayControl replay={replay} />
+      <RepReplayControl
+        replay={replay}
+        available={replayAvailable}
+        unavailableReason={replayUnavailableReason}
+      />
 
       {/* A6 §4b: a hotkey nobody knows about is not a feature. The mapping is
           a one-line hint in the HUD itself — never drawer content — and it

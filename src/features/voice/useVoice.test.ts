@@ -49,6 +49,7 @@ describe("useVoice — IPC wiring", () => {
   it("fetches the initial voice_state once and subscribes to the three events", async () => {
     const { result } = renderHook(() => useVoice());
 
+    expect(result.current.status).toBe("down");
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("voice_state"));
     for (const ev of ["voice://status", "voice://transcript", "voice://intent"]) {
       await waitFor(() =>
@@ -58,11 +59,43 @@ describe("useVoice — IPC wiring", () => {
     expect(result.current.status).toBe("live");
   });
 
+  it("never presents a fake live mic while the backend snapshot is pending", async () => {
+    let resolveSnapshot!: (value: { muted: boolean; down: null }) => void;
+    invokeMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSnapshot = resolve;
+      }),
+    );
+    const { result } = renderHook(() => useVoice());
+
+    expect(result.current.status).toBe("down");
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("voice_state"));
+    expect(result.current.status).toBe("down");
+
+    act(() => resolveSnapshot({ muted: false, down: null }));
+    await waitFor(() => expect(result.current.status).toBe("live"));
+  });
+
   it("reflects an initial muted snapshot from voice_state", async () => {
     invokeMock.mockResolvedValueOnce({ muted: true, down: null });
     const { result } = renderHook(() => useVoice());
 
     await waitFor(() => expect(result.current.status).toBe("muted"));
+  });
+
+  it("keeps an unsupported-platform snapshot down with explicit guidance", async () => {
+    invokeMock.mockResolvedValueOnce({
+      muted: false,
+      down: "unsupported-platform",
+      guidance:
+        "Hands-free voice is unavailable on Windows. Keyboard and mouse practice controls still work.",
+    });
+    const { result } = renderHook(() => useVoice());
+
+    await waitFor(() =>
+      expect(result.current.downGuidance).toContain("unavailable on Windows"),
+    );
+    expect(result.current.status).toBe("down");
   });
 
   it("sets status 'down' with reason + guidance on a voice://status down event", async () => {
@@ -232,8 +265,7 @@ describe("useVoice — IPC wiring", () => {
 
   it("mute() invokes voice_mute and optimistically flips status", async () => {
     const { result } = renderHook(() => useVoice());
-    await waitFor(() => expect(listenMock).toHaveBeenCalled());
-    expect(result.current.status).toBe("live");
+    await waitFor(() => expect(result.current.status).toBe("live"));
 
     act(() => result.current.mute(true));
 
@@ -278,19 +310,19 @@ describe("useVoice — IPC wiring", () => {
     await waitFor(() => expect(result.current.status).toBe("live"));
   });
 
-  it("does NOT throw when invoke rejects (no-backend case)", async () => {
+  it("fails closed when invoke rejects instead of leaving a fake live mic", async () => {
     invokeMock.mockRejectedValue(new Error("no backend"));
     const { result } = renderHook(() => useVoice());
 
-    await waitFor(() => expect(listenMock).toHaveBeenCalled());
-    // A mute call whose invoke rejects must also be swallowed.
+    await waitFor(() =>
+      expect(result.current.downGuidance).toContain("native voice service"),
+    );
+    expect(result.current.status).toBe("down");
+    invokeMock.mockClear();
+    // Down state cannot be optimistically toggled back into a fake live state.
     act(() => result.current.mute(true));
-    expect(result.current.status).toBe("muted");
-    // Give the swallowed rejection a tick; nothing should throw.
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(result.current.status).toBe("muted");
+    expect(result.current.status).toBe("down");
+    expect(invokeMock).not.toHaveBeenCalledWith("voice_mute", expect.anything());
   });
 
   it("unsubscribes from all events on unmount", async () => {

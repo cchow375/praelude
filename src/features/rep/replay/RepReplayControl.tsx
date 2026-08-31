@@ -8,7 +8,33 @@ function durationLabel(milliseconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export function RepReplayControl({ replay }: { replay: RepReplayController }) {
+export function RepReplayControl({
+  replay,
+  available = true,
+  unavailableReason = null,
+}: {
+  replay: RepReplayController;
+  available?: boolean;
+  unavailableReason?: string | null;
+}) {
+  if (!available) {
+    return (
+      <section
+        className="rep-replay"
+        aria-label="Listen-back verdict"
+        data-compact-visible="true"
+      >
+        <div className="rep-replay-unavailable" role="note">
+          <strong>Listen Back unavailable</strong>
+          <small>
+            {unavailableReason ??
+              "Listen Back is unavailable while hands-free voice is down."}
+          </small>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section
       className={`rep-replay${replay.enabled ? " is-enabled" : ""}`}

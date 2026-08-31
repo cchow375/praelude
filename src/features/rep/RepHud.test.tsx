@@ -494,6 +494,32 @@ describe("RepHud", () => {
     await waitFor(() => expect(handlers.onCheck).toHaveBeenCalledTimes(1));
   });
 
+  it("replaces Listen Back with an unavailable note when safe mic handoff is down", () => {
+    render(
+      <RepHud
+        snap={makeSnap()}
+        feed={[]}
+        error={null}
+        replayAvailable={false}
+        replayUnavailableReason="Listen Back is unavailable in this Windows build."
+        {...callbacks()}
+      />,
+    );
+
+    expect(screen.getByText("Listen Back unavailable")).toBeTruthy();
+    expect(
+      screen.getByText("Listen Back is unavailable in this Windows build."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("checkbox", {
+        name: /Review each rep by listening back/i,
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Start next take" }),
+    ).toBeNull();
+  });
+
   it("serializes overlapping HUD verdicts so a later check cannot suppress an earlier rung retune", async () => {
     let resolveFirst: () => void = () => undefined;
     const first = new Promise<void>((resolve) => {

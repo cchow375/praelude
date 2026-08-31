@@ -205,7 +205,7 @@ export function TutorialPanel({ pieceId, regionId }: { pieceId: number; regionId
             if (player && activeClip && player.currentTime >= activeClip.end_seconds) player.pause();
           }}
         >
-          This Mac cannot play the tutorial video.
+          This device cannot play the tutorial video.
         </video>
       )}
       {videoError && (

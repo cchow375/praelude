@@ -23,4 +23,19 @@ describe("ReferenceButtons", () => {
     fireEvent.click(screen.getByRole("button", { name: "Search YouTube" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Reference handoff rejected");
   });
+
+  it("uses a platform-neutral error when the system does not open the search", async () => {
+    const api: ReferenceApi = {
+      open: vi.fn().mockResolvedValue({
+        provider: "youtube",
+        url: "https://youtube.com/results?search_query=x",
+        opened: false,
+      }),
+    };
+    render(<ReferenceButtons pieceId={7} api={api} />);
+    fireEvent.click(screen.getByRole("button", { name: "Search YouTube" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "The search could not be opened.",
+    );
+  });
 });

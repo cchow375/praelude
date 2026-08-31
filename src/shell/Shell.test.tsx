@@ -107,11 +107,11 @@ describe("Shell", () => {
       expect(hud.classList.contains("is-collapsed")).toBe(true);
     });
   });
-  it("shows the mic control in the rail with nothing open (the one-gesture rule)", async () => {
+  it("shows a disabled unavailable mic when no backend confirms voice", async () => {
     render(<Shell />);
-    expect(
-      await screen.findByRole("button", { name: /^mic (listening|muted)/i }),
-    ).toBeTruthy();
+    const mic = await screen.findByRole("button", { name: "Mic unavailable" });
+    expect((mic as HTMLButtonElement).disabled).toBe(true);
+    expect(mic.textContent).toContain("Unavailable");
   });
 
   it("renders the five core workspaces plus the enabled Assistant", async () => {

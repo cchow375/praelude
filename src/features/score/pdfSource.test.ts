@@ -57,19 +57,47 @@ function fakeServer(overrides: { truncateTo?: number } = {}) {
 }
 
 describe("scoreEditionUrl", () => {
-  it("percent-encodes a real edition id into a single path segment", () => {
-    expect(scoreEditionUrl(7, "score/(C) Ekier_Draft.pdf")).toBe(
-      "ckscore://localhost/7/score%2F(C)%20Ekier_Draft.pdf",
-    );
-  });
+  const macConvertFileSrc = (path: string, protocol = "asset") =>
+    `${protocol}://localhost/${encodeURIComponent(path)}`;
+  const windowsConvertFileSrc = (path: string, protocol = "asset") =>
+    `http://${protocol}.localhost/${encodeURIComponent(path)}`;
 
-  it("never lets a traversal-looking id become real path segments", () => {
-    const url = scoreEditionUrl(3, "../../etc/passwd");
-    expect(url).toBe("ckscore://localhost/3/..%2F..%2Fetc%2Fpasswd");
-    // Everything after the piece id stays one segment, so the Rust resolver
-    // sees the literal id and fails to match it.
-    expect(url.split("/").slice(4)).toEqual(["..%2F..%2Fetc%2Fpasswd"]);
-  });
+  it.each([
+    [
+      "macOS",
+      macConvertFileSrc,
+      "ckscore://localhost/7/score%2F(C)%20Ekier_Draft.pdf",
+    ],
+    [
+      "Windows",
+      windowsConvertFileSrc,
+      "http://ckscore.localhost/7/score%2F(C)%20Ekier_Draft.pdf",
+    ],
+  ])(
+    "uses Tauri's %s protocol shape and keeps a real edition id in one segment",
+    (_platform, convert, expected) => {
+      expect(
+        scoreEditionUrl(7, "score/(C) Ekier_Draft.pdf", convert),
+      ).toBe(expected);
+    },
+  );
+
+  it.each([
+    [macConvertFileSrc, "ckscore://localhost/3/..%2F..%2Fetc%2Fpasswd"],
+    [
+      windowsConvertFileSrc,
+      "http://ckscore.localhost/3/..%2F..%2Fetc%2Fpasswd",
+    ],
+  ])(
+    "never lets a traversal-looking id become real path segments",
+    (convert, expected) => {
+      const url = scoreEditionUrl(3, "../../etc/passwd", convert);
+      expect(url).toBe(expected);
+      // Everything after the piece id stays one segment, so the Rust resolver
+      // sees the literal id and fails to match it.
+      expect(url.split("/").slice(4)).toEqual(["..%2F..%2Fetc%2Fpasswd"]);
+    },
+  );
 });
 
 describe("totalFromContentRange", () => {

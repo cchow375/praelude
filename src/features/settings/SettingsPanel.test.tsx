@@ -101,6 +101,38 @@ describe("SettingsPanel", () => {
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps Windows voice and metronome capability copy honest", async () => {
+    render(<SettingsPanel api={api()} platform="windows" />);
+
+    expect(
+      await screen.findByText(
+        /Hands-free voice is unavailable in this Windows build/i,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Keyboard hotkeys, mouse controls, the metronome/i),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Voice settle delay (ms)")).toBeNull();
+    expect(screen.queryByLabelText("Wake word")).toBeNull();
+    expect(screen.queryByLabelText("Coach voice")).toBeNull();
+    expect(screen.queryByLabelText("Speech provider")).toBeNull();
+    expect(
+      screen.queryByRole("checkbox", { name: /Speak confirmations aloud/i }),
+    ).toBeNull();
+    expect(screen.queryByText("Mac system voice")).toBeNull();
+
+    expect(screen.getByLabelText("Default click sound")).toBeTruthy();
+    expect(
+      screen.getByText(
+        /System-volume boost is unavailable in this Windows build/i,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("checkbox", { name: /Boost Mac volume/i }),
+    ).toBeNull();
+    expect(screen.queryByLabelText("Boost level")).toBeNull();
+  });
+
   it("shows both voice lanes and draft safety when the Assistant is enabled", async () => {
     render(<SettingsPanel api={api({ assistant_enabled: true })} />);
 

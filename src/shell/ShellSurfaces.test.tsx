@@ -508,6 +508,75 @@ describe("Shell app-level practice surfaces", () => {
     expect(panel.isConnected).toBe(true);
   });
 
+  it("fails closed when the backend reports voice unsupported", async () => {
+    const baseInvoke = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((command: string, ...args: unknown[]) => {
+      if (command === "voice_state") {
+        return Promise.resolve({
+          muted: false,
+          down: "unsupported-platform",
+          guidance:
+            "Hands-free voice is unavailable on Windows. Keyboard and mouse controls still work.",
+        });
+      }
+      return baseInvoke?.(command, ...args);
+    });
+    render(
+      <ReceiptCenterProvider>
+        <Shell platform="windows" />
+      </ReceiptCenterProvider>,
+    );
+
+    const mic = await screen.findByRole("button", {
+      name: "Mic unavailable",
+    });
+    expect((mic as HTMLButtonElement).disabled).toBe(true);
+    expect(mic.textContent).toContain("Unavailable");
+    expect(mic.getAttribute("title")).toContain("unavailable on Windows");
+
+    await screen.findByRole("region", { name: "Active practice set" });
+    expect(screen.getByText("Listen Back unavailable")).toBeTruthy();
+    expect(
+      screen.queryByRole("checkbox", {
+        name: /Review each rep by listening back/i,
+      }),
+    ).toBeNull();
+    expect(
+      screen.getByText(/Keyboard and mouse controls still work/i),
+    ).toBeTruthy();
+  });
+
+  it("keeps Listen Back available on macOS when hands-free voice is down", async () => {
+    const baseInvoke = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((command: string, ...args: unknown[]) => {
+      if (command === "voice_state") {
+        return Promise.resolve({
+          muted: false,
+          down: "dictation-disabled",
+          guidance: "Enable Dictation, then relaunch.",
+        });
+      }
+      return baseInvoke?.(command, ...args);
+    });
+    render(
+      <ReceiptCenterProvider>
+        <Shell platform="other" />
+      </ReceiptCenterProvider>,
+    );
+
+    const mic = await screen.findByRole("button", {
+      name: "Mic unavailable",
+    });
+    expect((mic as HTMLButtonElement).disabled).toBe(true);
+    await screen.findByRole("region", { name: "Active practice set" });
+    expect(
+      screen.getByRole("checkbox", {
+        name: /Review each rep by listening back/i,
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Listen Back unavailable")).toBeNull();
+  });
+
   it("gives Listen Back exact capture ownership without overwriting user mute", async () => {
     render(
       <ReceiptCenterProvider>
