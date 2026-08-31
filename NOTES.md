@@ -2,13 +2,33 @@
 
 ## Decisions
 
-- **v9.1 is the Windows x64 port of the same generic v9 product, not a friend-specific fork
-  (2026-08-31).** Source version is 9.1.0 and schema remains 21. The target is a current-user
-  x64 NSIS Setup EXE for Windows 10/11 with the blank/share-clean Pieces Library, direct PDFs,
-  Score, keyboard/mouse practice, metronome/chimes, History, Calendar and local persistence.
-  Frontend passes 205 files with 1 skipped / 2,540 tests with 1 skipped plus TypeScript/build.
-  Windows-native CI, exact artifact/hash/Authenticode, commit/tag/push and clean Windows 10/11
-  acceptance remain PENDING; do not fill them from intent.
+- **v9.1.0 is a packaged Windows x64 candidate, not a native-Windows-accepted release
+  (2026-08-31).** It is the same generic v9 product, never a friend-specific fork; schema remains
+  21. Package source commit `2d33004888a97c3ebcb4b7799bf54029efd15626` produced the unsigned
+  current-user NSIS installer
+  `releases/v9.1.0/windows/CodaKiller-9.1.0-Windows-x64-Setup.exe` at
+  **7,654,002 bytes**, SHA-256
+  `e2e2f3ae8846ef7aca6a6c04b2e1a2f346e97640f5d9089e6e49012365dc5dd4`, built
+  `2026-08-31T19:31:59Z`. The official Tauri macOS→Windows cross-build completed, the embedded
+  application is PE32+ x86-64, and the recursive frontend/extracted-NSIS blank/share-clean scan
+  passed. Packaging is not native use: Windows 10/11 install/relaunch, picker/PDF, audio,
+  Authenticode/SmartScreen and uninstall acceptance remain PENDING.
+
+- **The v9.1 package gates distinguish cross-target proof from native-Windows proof
+  (2026-08-31).** Frontend passes **205 files with 1 skipped / 2,540 tests with 1 skipped**;
+  TypeScript and production build pass. Mac-host native tests pass **1,111 / 19 ignored / 0
+  failed**, with Mac format and strict Clippy clean. Windows-target `cargo-xwin check` and strict
+  all-target Clippy pass. Native Windows `cargo test` was **not run**: the package has not yet
+  executed on Windows hardware, and no cross-compile result may be relabelled as a native test.
+
+- **The Windows privacy claim is intentionally narrow (2026-08-31).** The final installer has no
+  personal files, database, scores, Pieces Library, practice history or copyrighted
+  Knowledge/Resources pedagogy payload. It has no personal or unremapped host paths; remapped
+  `/build-user` paths intentionally remain. The installer also contains inert historical
+  schema/migration metadata and the existing `com.christian.codakiller` bundle identifier to
+  support compatible upgrades, but Windows upgrade and data preservation have **not** been
+  exercised. Those compatibility facts are not personal user content and must not be hidden
+  behind a broader “no personal names anywhere” claim.
 
 - **The first Windows build is intentionally no-voice/no-Listen-Back (2026-08-31).** `hear` is a
   macOS Mach-O binary and must not enter the Windows installer. Its process-group ownership,
@@ -20,9 +40,14 @@
 - **Windows distribution targets per-user NSIS and is honestly unsigned (2026-08-31).** The
   platform config replaces the macOS resource list so `hear` is excluded, uses a WebView2
   bootstrap path and does not require admin install mode. No Windows signing certificate exists;
-  record Authenticode and SmartScreen from the exact artifact. Self-signing does not create a
-  trusted public distribution. Windows Server CI proves target compilation/package creation, not
-  interactive Windows 10/11 recipient acceptance.
+  SmartScreen warning friction is expected, while exact native Authenticode/SmartScreen behavior
+  remains to be recorded from the hashed artifact. Self-signing would not create a trusted public
+  distribution. The removed `.github/workflows/windows-x64.yml` could not be pushed through the
+  current GitHub OAuth token because it lacked workflow scope; do not bypass that permission.
+  `scripts/package-windows-cross.sh` is the canonical local, non-installing cross-packager. One
+  packaging failure was misleading: `LC_ALL=C` made `makensis` end in `std::bad_alloc`; using
+  `C.UTF-8` for the package run succeeded. This was a locale failure, not evidence of exhausted
+  memory or a broken NSIS payload.
 
 - **v9 is one generic share-clean product, not a personal “friend build” fork (2026-08-30).**
   Christian's send-to-a-pianist request applies to the normal source/release. A first-ever install

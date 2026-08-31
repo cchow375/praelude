@@ -1,27 +1,31 @@
 # CodaKiller
 
-A voice-first practice and rep tracker for pianists, built on the
-"user-is-the-sensor" principle: you speak what happened during practice
-(tempo changes, reps, mistakes) instead of stopping to tap a UI, and
-CodaKiller listens, tracks, and responds — including running the
-metronome — hands-free.
+A practice and rep tracker for pianists, built on the "user-is-the-sensor" principle. The
+installed Mac app is voice-first; the first Windows port is keyboard/mouse-first. CodaKiller
+counts, times, remembers and runs the metronome without trying to judge the piano itself.
 
 ## Status
 
-**v9.1.0 / schema 21 is a WINDOWS x64 SOURCE WORKTREE; the Windows package and recipient
-acceptance are PENDING (2026-08-31).** It ports the same generic blank/share-clean v9 Pieces
-Library to a current-user NSIS Setup EXE for Windows 10/11 x64. The intended supported scope is
-Pieces/PDFs, folders/states/actions, Score, keyboard/mouse practice, metronome/chimes, History,
-Calendar and local persistence. Frontend Windows gates pass at **205 files with 1 skipped / 2,540
-tests with 1 skipped**, plus TypeScript and production build. Windows-native Rust/CI, exact
-installer filename/size/SHA-256/Authenticode, share-clean package scan, commit/tag/private push and
-interactive Windows 10/11 acceptance are all **PENDING**.
+**v9.1.0 / schema 21 is a PACKAGED WINDOWS x64 CANDIDATE; real Windows 10/11 acceptance is
+PENDING (2026-08-31).** Package source commit
+`2d33004888a97c3ebcb4b7799bf54029efd15626` produced the unsigned current-user NSIS installer
+`releases/v9.1.0/windows/CodaKiller-9.1.0-Windows-x64-Setup.exe`, **7,654,002 bytes**, SHA-256
+`e2e2f3ae8846ef7aca6a6c04b2e1a2f346e97640f5d9089e6e49012365dc5dd4`, built
+`2026-08-31T19:31:59Z`. The official Tauri macOS cross-build, Windows-target `cargo-xwin check`,
+strict all-target Windows Clippy, recursive blank/share-clean scan and embedded PE32+ x86-64
+identity pass. Frontend is **205 files with 1 skipped / 2,540 tests with 1 skipped**; TypeScript,
+production build, Mac format/strict Clippy and Mac native **1,111 passed / 19 ignored** also pass.
+Native Windows cargo tests were **not run**.
 
-The first Windows port deliberately excludes the macOS-only `hear` executable. Mic, hands-free
-commands, macOS `say`/system-volume boost and Listen Back are unavailable and must not appear live.
-No Windows code-signing certificate exists, so the eventual installer is expected to be unsigned
-and may trigger SmartScreen. Installed Mac remains v8.2.1/schema 20; the already packaged Mac
-v9.0.0 candidate and all recorded DMG facts below are unchanged.
+The exact installer has no personal files, database, scores, Pieces Library, practice history or
+copyrighted pedagogy payload. It has no personal or unremapped host paths; remapped `/build-user`
+paths intentionally remain. Inert historical schema/migration metadata and the existing
+`com.christian.codakiller` bundle identifier remain to support compatible upgrades. Windows upgrade
+and data preservation have **not** been exercised. The first Windows port deliberately excludes
+macOS `hear`; Mic/hands-free voice, Listen Back, system TTS and automatic system-volume boost are
+unavailable. It is unsigned, so SmartScreen is expected; native Windows install/relaunch,
+picker/PDF, audio, Authenticode/SmartScreen and uninstall evidence remain PENDING. Installed Mac
+remains **v8.2.1/schema 20** and the packaged Mac v9.0.0 facts below are unchanged.
 
 **v9.0.0 / schema 21 is a PACKAGED SHAREABLE CANDIDATE; it is NOT INSTALLED, and
 CLEAN-RECIPIENT ACCEPTANCE is PENDING (2026-08-30).** The app in `/Applications` is still the
@@ -204,6 +208,7 @@ cd src-tauri && cargo test
 cd .. && npm run build
 npm run tauri build -- --bundles app  # build only the .app; see NOTES.md
 npm run package:mac    # package/scan an already-built app; does NOT install it
+bash scripts/package-windows-cross.sh # clean-source macOS -> unsigned Windows x64 package
 ```
 
 `npm run package:mac` invokes `scripts/package-macos.sh`. This is deliberately non-installing: it
@@ -223,14 +228,20 @@ app. Before `release:mac` or any manual replacement, first confirm no practice s
 live; the current audit has one open session and one open block, so installation is blocked.
 Share-clean, isolated blank-profile and disposable schema-20→21 evidence do not waive that gate.
 
-## Windows x64 package lane (v9.1 source candidate)
+## Windows x64 package lane (v9.1 packaged candidate)
 
-The manual `.github/workflows/windows-x64.yml` workflow owns the real Windows-native test/build/
-package boundary. It targets the Windows-specific Tauri config and current-user NSIS installer.
-Do not claim an EXE from a Mac build or from frontend success alone. The exact artifact name,
-bytes, SHA-256, Authenticode status and share-clean result remain pending until the workflow
-finishes. See `docs/superpowers/plans/2026-08-31-v9.1.0-windows-x64.md` and
-`docs/qa/v9.1.0/README.md`.
+`scripts/package-windows-cross.sh` is the canonical local cross-packager. It validates the stable
+Rust/cargo-xwin/LLVM/NSIS/7-Zip toolchain, uses Tauri's Windows config, produces the current-user
+NSIS installer, recursively scans it and stages the EXE, checksum and handoff notes. It never
+installs or launches the app. The GitHub workflow was removed because the current OAuth token
+lacked workflow scope; that permission was not bypassed. The successful package run required
+`C.UTF-8`: forcing `LC_ALL=C` caused a misleading `makensis` `std::bad_alloc` failure.
+
+The exact artifact/hash/package gates above pass, but a macOS cross-build is not a native Windows
+test. Before calling v9.1 accepted, run the hashed installer on real Windows 10 and 11 x64 and
+record install/relaunch, blank first start, picker/PDF, keyboard/mouse practice, audio,
+SmartScreen/Authenticode, persistence and uninstall behavior. See
+`docs/superpowers/plans/2026-08-31-v9.1.0-windows-x64.md` and `docs/qa/v9.1.0/README.md`.
 
 ## Send to another pianist (Mac v9.0 candidate)
 

@@ -9,13 +9,28 @@ stay in this repository; product truth, Roadmap, Flaws, Changelog, tutorial, and
 stay in the vault. After **every** code/doc/decision change, obey the vault UPDATE PROTOCOL before
 reporting completion.
 
-Current source boundary: **v9.1.0 / schema 21 WINDOWS x64 SOURCE WORKTREE; WINDOWS NATIVE/
-PACKAGE/RECIPIENT EVIDENCE PENDING 2026-08-31.** Frontend Windows gates pass at 205 files with
-1 skipped / 2,540 tests with 1 skipped plus TypeScript/build. The current-user NSIS Setup EXE,
-Windows-native Rust/CI, artifact hash/Authenticode/share-clean facts, release commit/tag/push and
-clean Windows 10/11 acceptance remain PENDING. This first port deliberately excludes macOS
-`hear`; Mic/voice/Listen Back and macOS `say`/volume boost are unavailable. No Windows signing
-certificate exists, so SmartScreen friction is expected.
+Current source boundary: **v9.1.0 / schema 21 PACKAGED WINDOWS x64 CANDIDATE; NATIVE WINDOWS/
+RECIPIENT ACCEPTANCE PENDING 2026-08-31.** Package source commit
+`2d33004888a97c3ebcb4b7799bf54029efd15626` produced the final unsigned current-user NSIS
+installer `releases/v9.1.0/windows/CodaKiller-9.1.0-Windows-x64-Setup.exe`, **7,654,002 bytes**,
+SHA-256 `e2e2f3ae8846ef7aca6a6c04b2e1a2f346e97640f5d9089e6e49012365dc5dd4`, built
+`2026-08-31T19:31:59Z`. The official Tauri local macOS cross-build, recursive blank/share-clean
+scan and embedded PE32+ x86-64 identity pass. Frontend passes 205 files with 1 skipped / 2,540
+tests with 1 skipped plus TypeScript/build; Mac native passes 1,111/19 ignored with format/strict
+Clippy clean; Windows-target `cargo-xwin check` and strict all-target Clippy pass. Native Windows
+`cargo test` was not run. Real Windows 10/11 install/relaunch, picker/PDF, audio,
+Authenticode/SmartScreen and uninstall acceptance remain PENDING. The package is unsigned, so a
+SmartScreen warning is expected. This port excludes `hear`; Mic/voice/Listen Back, system TTS and
+automatic system-volume boost are unavailable.
+
+The Windows package contains no personal files, database, scores, Pieces Library, practice
+history or copyrighted pedagogy payload. It contains no personal or unremapped host paths;
+remapped `/build-user` paths intentionally remain. Inert historical schema/migration metadata and
+`com.christian.codakiller` remain to support compatible upgrades, but Windows upgrade and data
+preservation have **not** been exercised. The removed GitHub workflow could not be pushed because
+the OAuth token lacked workflow scope; do not bypass that permission.
+`scripts/package-windows-cross.sh` is canonical. Its successful package run used `C.UTF-8` after
+`LC_ALL=C` caused a misleading `makensis` `std::bad_alloc` failure.
 
 Its base is the unchanged **v9.0.0 / schema 21 PACKAGED MAC SHAREABLE CANDIDATE; NOT INSTALLED;
 CLEAN-RECIPIENT ACCEPTANCE PENDING 2026-08-30.**
@@ -84,17 +99,21 @@ cleanup, with a practice-only off-state Settings guide and Books/provider furnit
 - `docs/qa/v8.2.0/README.md` (browser UI + release/data evidence; native Score frame pending Desktop access)
 - `docs/qa/v8.2.1/README.md` (compact-composer + B95 crash-fix release/install evidence; native Score feel separate)
 - `docs/qa/v9.0.0/README.md` (v9 package/source evidence; install and recipient gates remain PENDING)
-- `docs/qa/v9.1.0/README.md` (Windows frontend evidence; native/package/recipient gates PENDING)
+- `docs/qa/v9.1.0/README.md` (exact Windows package/cross-target evidence; native Windows and
+  recipient acceptance remain PENDING)
 - `docs/qa/v7.2.0/README.md`
 - `NOTES.md` (newest decision block first)
 
-**Cold-start guard:** finish the Windows-native/package/recipient v9.1 gates without inferring
-them from the frontend pass; never put Mac-only `hear` into the Windows bundle. Work only from
-this main worktree unless Christian explicitly assigns a
+**Cold-start guard:** the v9.1 Windows source/package boundary is complete; do not rebuild it or
+infer native Windows acceptance from cross-compilation. Run the exact hashed installer on real
+Windows 10 and 11 and record install/relaunch, picker/PDF, audio, Authenticode/SmartScreen,
+persistence and uninstall. Never put Mac-only `hear` into the Windows bundle. Work only from this
+main worktree unless Christian explicitly assigns a
 historical lane. `.claude/worktrees/`, `~/.ck-lanes/`, `.superpowers/sdd/task-*`, the old
 Foundation context, and `.workflow/LEDGER.md` are retained phase evidence, not the current
 roadmap. Do not restart P3–P6, the v7 galaxy, or the source-complete v8.2 work from those files.
-The package-only gates are complete. The 2026-08-30 19:25 EDT live read-only audit is schema 20,
+The Windows package gates are complete; native Windows cargo tests were not run. The 2026-08-30
+19:25 EDT live read-only audit is schema 20,
 integrity OK/FK0 with 11 pieces, 255 blocks, 2,327 reps, 51 sessions and 9,241 events, but it has
 **one open session and one open block**. Do not run the installing release path. Christian must
 first close or deliberately preserve that work in installed v8.2.1; then quit the app, take/hash

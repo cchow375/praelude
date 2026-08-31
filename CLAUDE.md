@@ -26,14 +26,26 @@ version history live in the Obsidian vault**, not here:
 
 ## Current source boundary
 
-**v9.1.0 / schema 21 is a WINDOWS x64 SOURCE WORKTREE; WINDOWS NATIVE/PACKAGE/RECIPIENT
-EVIDENCE IS PENDING (2026-08-31).** It ports the same generic blank/share-clean Pieces product to
-a current-user NSIS Setup EXE for Windows 10/11 x64. Frontend Windows gates pass at 205 files with
-1 skipped / 2,540 tests with 1 skipped plus TypeScript/build. Windows-native Rust/CI, exact EXE
-name/bytes/SHA-256/Authenticode, share-clean package scan, release commit/tag/private push and
-clean Windows 10/11 acceptance are PENDING. This first Windows port excludes macOS `hear`; Mic,
-voice, Listen Back and macOS `say`/volume boost are unavailable. No Windows signing certificate
-exists, so SmartScreen friction is expected.
+**v9.1.0 / schema 21 is a PACKAGED WINDOWS x64 CANDIDATE; NATIVE WINDOWS/RECIPIENT ACCEPTANCE
+IS PENDING (2026-08-31).** Package source commit
+`2d33004888a97c3ebcb4b7799bf54029efd15626` produced the unsigned current-user NSIS installer
+`releases/v9.1.0/windows/CodaKiller-9.1.0-Windows-x64-Setup.exe`, **7,654,002 bytes**, SHA-256
+`e2e2f3ae8846ef7aca6a6c04b2e1a2f346e97640f5d9089e6e49012365dc5dd4`, built
+`2026-08-31T19:31:59Z`. The official Tauri local macOS cross-build, recursive blank/share-clean
+scan and embedded PE32+ x86-64 identity pass. Frontend is 205 files with 1 skipped / 2,540 tests
+with 1 skipped; TypeScript/build, Mac native 1,111/19 ignored, Mac format/strict Clippy, Windows
+`cargo-xwin check` and strict all-target Clippy pass. Native Windows cargo tests were not run.
+Real Windows 10/11 install/relaunch, picker/PDF, audio, Authenticode/SmartScreen and uninstall
+acceptance remain PENDING. The installer is unsigned, so a SmartScreen warning is expected.
+
+The package contains no personal files, DB, scores, Pieces Library, history or copyrighted
+pedagogy payload. It contains no personal or unremapped host paths; remapped `/build-user` paths
+intentionally remain. Inert historical schema/migration metadata and the existing `com.christian.codakiller`
+identifier remain to support compatible upgrades, but Windows upgrade and data preservation have
+**not** been exercised. This port excludes `hear`; Mic/voice, Listen Back, system TTS and volume
+boost are unavailable. The GitHub workflow was removed because the current OAuth token lacked
+workflow scope; `scripts/package-windows-cross.sh` is canonical. Its successful package run used
+`C.UTF-8`; `LC_ALL=C` had caused a misleading `makensis` `std::bad_alloc` failure.
 
 **v9.0.0 / schema 21 is a PACKAGED SHAREABLE CANDIDATE; NOT INSTALLED; CLEAN-RECIPIENT
 ACCEPTANCE PENDING (2026-08-30).** The installed and published app remains **v8.2.1 / schema 20**.
@@ -95,8 +107,8 @@ path can do so and must not run during a live set/session.
   Score feel remains separate.
 - `docs/qa/v9.0.0/README.md` — v9 source/package evidence; replacement artifact identity,
   install and recipient gates remain explicitly PENDING.
-- `docs/qa/v9.1.0/README.md` — Windows frontend evidence; native/package/hash/signing and clean
-  Windows 10/11 gates remain explicitly PENDING.
+- `docs/qa/v9.1.0/README.md` — exact Windows package and cross-target evidence; native Windows
+  execution and clean Windows 10/11 acceptance remain explicitly PENDING.
 - `docs/qa/(C) v2-narrated-replay-contract.md` — old-session speech/state-machine regression
   boundary; never a piano-grading benchmark.
 - `docs/qa/` — acceptance records, regression contracts and screenshots.
@@ -107,8 +119,10 @@ path can do so and must not run during a live set/session.
 
 ## Cold-start guard for Claude Code
 
-Finish the Windows-native/package/recipient v9.1 gates without inferring them from the frontend
-pass, and never put the Mac-only `hear` binary into the Windows bundle. Work from the main
+The v9.1 Windows source/package boundary is complete. Do not rebuild it or infer native Windows
+acceptance from cross-compilation; run the exact hashed installer on real Windows 10/11 and record
+install/relaunch, picker/PDF, audio, Authenticode/SmartScreen, persistence and uninstall. Never put
+the Mac-only `hear` binary into the Windows bundle. Work from the main
 worktree unless Christian explicitly assigns a historical lane. The registered
 trees under `.claude/worktrees/` and `~/.ck-lanes/`, `.superpowers/sdd/task-*`, the old Foundation
 context, and `.workflow/LEDGER.md` are retained phase evidence; their local status blocks do not
@@ -118,8 +132,8 @@ Plan C from those records.
 Release tag `v8.2.0` is a pushed lightweight tag at
 `5de8bf9e1e9bced09c3d5091acd4b42241edae28`. Private `origin/main` advanced after the tag
 through documentation-only corrections; verify the exact current ref from Git. The immutable tag and runtime source
-`afe65f3…` remain the release identities. The source, disposable-data, blank-profile and first
-package-workflow evidence is recorded. The 2026-08-30 19:25 EDT live audit is schema 20, integrity
+`afe65f3…` remain the release identities. The source, disposable-data, blank-profile and local
+cross-package evidence is recorded. The 2026-08-30 19:25 EDT live audit is schema 20, integrity
 OK/FK0 with 11 pieces, 255 blocks, 2,327 reps, 51 sessions and 9,241 events, but **one session and
 one block are open**. Christian must close or deliberately preserve that live work in installed
 v8.2.1 before the app is quit,
@@ -154,6 +168,7 @@ npm run tauri dev                       # dev run
 npm run tauri build -- --bundles app    # build ONLY the .app (the dmg step deletes the .app — see NOTES.md)
 cd src-tauri && cargo test               # Rust suite
 npm test                                 # frontend (vitest)
+bash scripts/package-windows-cross.sh    # clean-source macOS -> unsigned Windows x64 package
 ```
 
 Quit + relaunch the installed `.app` to run new code. First launch needs mic + Speech
@@ -162,10 +177,11 @@ camera permission is conditional and requested only after explicit **Use camera*
 
 ## Status (mirror of the vault; keep in sync)
 
-**v9.1.0 / schema 21 — WINDOWS x64 SOURCE WORKTREE; PACKAGE/NATIVE/RECIPIENT PENDING
-2026-08-31.** See the v9.1 plan and QA ledger. Frontend/TypeScript/build pass; every native,
-installer, artifact/hash/signing, commit/tag and Windows 10/11 acceptance fact remains pending.
-The intended Windows product is keyboard/mouse-first; Mic/voice/Listen Back are unavailable.
+**v9.1.0 / schema 21 — PACKAGED WINDOWS x64 CANDIDATE; NATIVE WINDOWS/RECIPIENT ACCEPTANCE
+PENDING 2026-08-31.** See the v9.1 plan and QA ledger. The exact package/source/hash,
+cross-target compile/Clippy, recursive cleanliness and PE32+ x86-64 facts pass as recorded above.
+Native Windows cargo tests and real Windows 10/11 interaction were not run. The Windows product
+is keyboard/mouse-first; Mic/voice/Listen Back/system TTS/volume boost are unavailable.
 
 **v9.0.0 / schema 21 — PACKAGED SHAREABLE CANDIDATE; NOT INSTALLED; CLEAN-RECIPIENT ACCEPTANCE
 PENDING 2026-08-30.** The current candidate behavior and evidence are defined in “Current source
