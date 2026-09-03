@@ -2,11 +2,11 @@
 
 ## Decisions
 
-- **The next Score source makes the passage window a working surface, not a narrow card
-  (2026-09-03).** At desktop sizes it now spans 460–560px, with a 46px Start set button and 44px
+- **v9.1.2 makes the passage window a working surface, not a narrow card
+  (2026-09-03).** At desktop sizes it spans 460–560px, with a 46px Start set button and 44px
   core measure/tempo inputs. This addresses Christian's screenshot feedback: too much unused space
   alongside an unnecessarily small essential action. The score stays the visual anchor and advanced
-  controls remain compact. TypeScript and production build pass. This is not packaged or installed.
+  controls remain compact. Full release gates and post-install DB audit pass; it is installed.
 
 - **v9.1.1 installs the page-first, passage-first Score correction on Mac (2026-09-03).** The
   continuous reader and permanent composer were a visual-hierarchy failure. The installed app now
