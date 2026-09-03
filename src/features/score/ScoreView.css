@@ -447,7 +447,11 @@
   top: var(--space-3);
   right: var(--space-3);
   display: flex;
-  width: min(390px, calc(100% - 2 * var(--space-3)));
+  /* A selected passage deserves a calm, usable working surface — not a narrow
+     sliver beside a large unused canvas. The score is still visible behind it,
+     while the controls can be read and hit without crowding. */
+  width: clamp(460px, 30vw, 560px);
+  max-width: calc(100% - 2 * var(--space-3));
   max-height: calc(100% - 2 * var(--space-3));
   flex-direction: column;
   overflow: hidden;
@@ -461,7 +465,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-2);
-  padding: var(--space-3);
+  padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--hairline);
 }
 .score-practice-window-head > div {
@@ -472,7 +476,7 @@
 .score-practice-window-head strong {
   overflow: hidden;
   color: var(--ink-primary);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -482,8 +486,8 @@
   font-size: var(--text-xs);
 }
 .score-practice-window-close {
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   flex: 0 0 auto;
   padding: 0;
   border: 1px solid var(--hairline);
@@ -497,16 +501,41 @@
 }
 .score-practice-window-history {
   margin: 0;
-  padding: var(--space-2) var(--space-3) 0;
+  padding: var(--space-3) var(--space-5) 0;
 }
 .score-practice-window .block-form {
   min-height: 0;
-  margin: var(--space-2);
+  margin: var(--space-3) var(--space-5) var(--space-4);
+  gap: var(--space-4);
   border: 0;
   box-shadow: none;
 }
 .score-practice-window .block-form-body {
+  gap: var(--space-4);
   padding-right: var(--space-1);
+}
+.score-practice-window .block-form-head .ck-form-heading {
+  font-size: var(--text-xl);
+}
+.score-practice-window .ck-primary.block-form-submit {
+  min-width: 136px;
+  height: 46px;
+  font-size: var(--text-base);
+}
+.score-practice-window .ck-input {
+  height: 44px;
+  font-size: var(--text-lg);
+}
+.score-practice-window .ck-toggle-field {
+  min-height: 44px;
+}
+.score-practice-window .ck-target-count,
+.score-practice-window .ck-target-custom {
+  height: 40px;
+}
+.score-practice-window .ck-chip {
+  padding: 5px var(--space-3);
+  font-size: var(--text-sm);
 }
 
 /* Persistent lightweight document geometry. Only slots in the viewport render
