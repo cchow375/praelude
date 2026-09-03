@@ -438,6 +438,38 @@
   display: flex;
   gap: var(--s-2);
 }
+.rep-hud-actions[data-verdict] .rep-verdict {
+  animation: rep-verdict-settle 520ms var(--ease-out) both;
+}
+.rep-hud-actions[data-verdict="clean"] .rep-verdict:first-child {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 76%, transparent),
+    0 0 0 7px color-mix(in srgb, var(--accent) 13%, transparent),
+    0 10px 24px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.rep-hud-actions[data-verdict="clean"] .rep-verdict:first-child::after {
+  content: "✦";
+  position: absolute;
+  top: -12px;
+  right: 10%;
+  color: var(--accent);
+  font-size: 1.1rem;
+  animation: rep-verdict-spark 520ms var(--ease-out) both;
+  pointer-events: none;
+}
+.rep-hud-actions .rep-verdict {
+  position: relative;
+}
+@keyframes rep-verdict-settle {
+  0% { transform: scale(0.96); }
+  42% { transform: scale(1.035); }
+  100% { transform: scale(1); }
+}
+@keyframes rep-verdict-spark {
+  0% { opacity: 0; transform: translateY(8px) scale(0.55) rotate(-18deg); }
+  35% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-20px) scale(1.2) rotate(14deg); }
+}
 .rep-hud-sound-target {
   display: flex;
   align-items: baseline;

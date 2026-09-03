@@ -17,6 +17,21 @@
   animation: completion-bloom 1.1s ease-out 1 forwards;
 }
 
+.completion-fx::before,
+.completion-fx::after {
+  content: "";
+  position: absolute;
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+  opacity: 0;
+  transform: rotate(45deg);
+  animation: completion-spark 1.1s ease-out 1 forwards;
+}
+.completion-fx::before { margin: -6rem 0 0 -7rem; }
+.completion-fx::after { margin: 5rem 0 0 7rem; animation-delay: 75ms; }
+
 .completion-fx[data-moment="mastery_landing"] .completion-fx-mark {
   border-color: var(--accent);
   width: 5.5rem;
@@ -36,6 +51,18 @@
   border-color: var(--accent);
   border-style: double;
   border-width: 4px;
+}
+
+.completion-fx[data-moment="set_complete"] .completion-fx-mark,
+.completion-fx[data-moment="mastery_landing"] .completion-fx-mark {
+  box-shadow: 0 0 0 12px color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.completion-fx[data-moment="variant_stage"]::before,
+.completion-fx[data-moment="variant_stage"]::after,
+.completion-fx[data-moment="mastery_landing"]::before,
+.completion-fx[data-moment="mastery_landing"]::after {
+  width: 1.6rem;
+  height: 1.6rem;
 }
 
 @keyframes completion-bloom {
@@ -65,10 +92,20 @@
   }
 }
 
+@keyframes completion-spark {
+  0% { opacity: 0; transform: translateY(12px) rotate(45deg) scale(0.45); }
+  36% { opacity: 0.82; }
+  100% { opacity: 0; transform: translateY(-28px) rotate(125deg) scale(1.2); }
+}
+
 /* One static fade, no scale, no travel. */
 @media (prefers-reduced-motion: reduce) {
   .completion-fx-mark {
     animation: completion-fade 1.1s linear 1 forwards !important;
     transform: none !important;
+  }
+  .completion-fx::before,
+  .completion-fx::after {
+    display: none;
   }
 }

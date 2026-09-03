@@ -694,12 +694,11 @@ describe("ScoreView", () => {
       target: { value: "55" },
     });
     expect(screen.getByLabelText("Zoom level").textContent).toBe("55%");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Expand tricky sections" }),
-    );
-    expect(document.querySelector(".score-body")?.className).not.toContain(
-      "is-sections-hidden",
-    );
+    // The score map is now the persistent companion; the global rail, not
+    // Tricky Sections, is the collapsible surface that gives the reader room.
+    expect(
+      screen.getByRole("button", { name: "Collapse tricky sections" }),
+    ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: "Collapse tricky sections" }),
     );
@@ -1979,7 +1978,7 @@ describe("ScoreView", () => {
     expect(screen.getByRole("button", { name: "Cancel drawing" })).toBeTruthy();
   });
 
-  it("restores the tricky-sections sidebar after switching pieces mid-draft", async () => {
+  it("keeps tricky sections open after switching pieces mid-draft", async () => {
     const pdf = makePdf(1);
     const api = makeApi();
     const view = render(
@@ -1988,13 +1987,13 @@ describe("ScoreView", () => {
     await screen.findByLabelText("Score page 1");
 
     fireEvent.click(getScoreTool("Draw target"));
-    expect(document.querySelector(".score-body")?.className).toContain(
+    expect(document.querySelector(".score-body")?.className).not.toContain(
       "is-sections-hidden",
     );
 
     view.rerender(<ScoreView pieceId={8} api={api} adapter={pdf.adapter} />);
     await screen.findByLabelText("Score page 1");
-    expect(document.querySelector(".score-body")?.className).toContain(
+    expect(document.querySelector(".score-body")?.className).not.toContain(
       "is-sections-hidden",
     );
   });

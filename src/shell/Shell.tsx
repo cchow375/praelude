@@ -401,6 +401,10 @@ export function Shell({
 }: ShellProps) {
   const isWindows = platform === "windows";
   const [view, setView] = useState<View>("today");
+  // The navigation remains one-click reachable, but Score can reclaim its
+  // width when the pianist is reading. This is deliberately shell-local (not
+  // a new durable preference): reopening the app always starts discoverable.
+  const [navCollapsed, setNavCollapsed] = useState(false);
   // Christian's 2026-08-24 request: the Assistant ("Brain") can be fully
   // switched off in Settings, default off. When it is, the nav tab, the
   // workspace render branch, and every question-routing path all gate on
@@ -1114,12 +1118,22 @@ export function Shell({
   }, []);
 
   const shellTree = (
-    <div className="shell">
+    <div className={`shell${navCollapsed ? " is-nav-collapsed" : ""}`}>
       <aside className="shell-rail" aria-label="Praelude">
         <div className="shell-wordmark">
           <PraeludeMark />
           <span>Praelude</span>
         </div>
+        <button
+          type="button"
+          className="shell-rail-toggle"
+          aria-label={navCollapsed ? "Expand navigation" : "Collapse navigation"}
+          aria-expanded={!navCollapsed}
+          title={navCollapsed ? "Expand navigation" : "Collapse navigation"}
+          onClick={() => setNavCollapsed((collapsed) => !collapsed)}
+        >
+          <span aria-hidden="true">{navCollapsed ? "›" : "‹"}</span>
+        </button>
 
         <nav
           className="shell-nav shell-enter"
@@ -1140,6 +1154,7 @@ export function Shell({
                 id={`tab-${workspace.id}`}
                 aria-controls="shell-stage"
                 aria-selected={selected}
+                aria-label={workspace.label}
                 tabIndex={selected ? 0 : -1}
                 className={`shell-nav-item${selected ? " is-active" : ""}`}
                 style={{ ["--enter-index" as string]: index }}
@@ -1177,6 +1192,7 @@ export function Shell({
           className={`shell-settings-button is-foot-lead${metroOpen ? " is-active" : ""}`}
           aria-haspopup="dialog"
           aria-expanded={metroOpen}
+          aria-label="Metronome"
           onClick={() => setMetroOpen((open) => !open)}
         >
           <MetronomeGlyph />
@@ -1187,6 +1203,7 @@ export function Shell({
           type="button"
           className={`shell-settings-button${view === "settings" ? " is-active" : ""}`}
           aria-pressed={view === "settings"}
+          aria-label="Settings"
           onClick={openSettings}
         >
           <SettingsGlyph />

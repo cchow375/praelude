@@ -29,6 +29,7 @@
   background: var(--bg-sunken);
   color: var(--ink);
   font-family: var(--font-sans);
+  transition: grid-template-columns var(--dur-slow) var(--ease-out);
 }
 
 /* --- Rail --------------------------------------------------------------- */
@@ -54,6 +55,30 @@
   font-weight: 650;
   letter-spacing: -0.02em;
   color: var(--ink);
+}
+.shell-rail-toggle {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  margin: -19px -2px 0 auto;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--ink-dim);
+  background: var(--bg-raised);
+  font: inherit;
+  font-size: 1.125rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.shell-rail-toggle:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+.shell-rail-toggle:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 .shell-brand-mark {
   width: 24px;
@@ -171,6 +196,39 @@
 .shell-settings-button:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+/* Score-reading mode: the rail reduces to an icon strip. The actual controls
+   retain accessible names, and a clear arrow is always the first target. */
+.shell.is-nav-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+.shell.is-nav-collapsed .shell-rail {
+  align-items: stretch;
+  gap: 20px;
+  padding: 18px 8px 14px;
+  overflow-x: hidden;
+}
+.shell.is-nav-collapsed .shell-wordmark {
+  justify-content: center;
+  padding: 0;
+}
+.shell.is-nav-collapsed .shell-wordmark > span,
+.shell.is-nav-collapsed .shell-nav-label,
+.shell.is-nav-collapsed .mic-toggle-label {
+  display: none;
+}
+.shell.is-nav-collapsed .shell-rail-toggle {
+  margin: -19px auto 0;
+}
+.shell.is-nav-collapsed .shell-nav-item,
+.shell.is-nav-collapsed .shell-settings-button {
+  justify-content: center;
+  padding: 0;
+}
+.shell.is-nav-collapsed .mic-toggle {
+  align-self: center;
+  width: 38px;
 }
 
 /* --- Header band -------------------------------------------------------- */

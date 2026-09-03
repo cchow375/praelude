@@ -434,7 +434,10 @@
   box-sizing: border-box;
   flex-direction: row;
   align-items: center;
-  justify-content: flex-start;
+  /* A one-page score should sit on its own visual centreline. When a manual
+     zoom exceeds the viewport this has no adverse effect—the content width is
+     already larger than the pane and remains normally scrollable. */
+  justify-content: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
 }

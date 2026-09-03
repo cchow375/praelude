@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RepSnapshot } from "../rep/useRep";
+import { playCompletionSound } from "./completionSound";
 import "./completionFx.css";
 
 /**
@@ -11,9 +12,8 @@ import "./completionFx.css";
  *     library. The only JS timer is the one that unmounts the overlay.
  *   - pointer-events: none, and it removes itself. It can never sit on top of
  *     something he is trying to press.
- *   - No new audio path. The existing ack policy already covers these moments
- *     (Confirm::chime for routine confirmations, Confirm::say when there is
- *     something to say); this layer is purely visual.
+ *   - A small local sound palette mirrors the visual hierarchy. It is entirely
+ *     best-effort and never participates in the practice write path.
  *   - Deterministic: the same transition always produces the same flourish.
  */
 
@@ -84,6 +84,7 @@ export function useCompletionFx() {
 
   const fire = useCallback((next: CompletionMoment) => {
     if (timer.current) clearTimeout(timer.current);
+    playCompletionSound(next);
     setMoment(next);
     timer.current = setTimeout(() => setMoment(null), FX_DURATION_MS);
   }, []);

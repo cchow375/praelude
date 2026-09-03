@@ -710,10 +710,12 @@ export function ScoreView({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageDraft, setPageDraft] = useState("1");
   const [manualZoom, setManualZoom] = useState(1);
-  // Default to one whole page in view: a true PDF-viewer feel, not a 25-page
-  // strip. Fit-width/manual zoom still overflow into a within-page scroll.
+  // Start at an honest 100%, rather than a viewport-dependent 82%-ish fit.
+  // The reader remains page-based; Fit page stays one tap away for a survey.
   const [scaleMode, setScaleMode] = useState<ScoreScaleMode>("page");
-  const [sectionsVisible, setSectionsVisible] = useState(false);
+  // Tricky Sections are the active score companion. The global app navigation,
+  // not this useful score map, is what collapses to reclaim reading width.
+  const [sectionsVisible, setSectionsVisible] = useState(true);
   const [containerWidth, setContainerWidth] = useState(900);
   const [containerHeight, setContainerHeight] = useState(700);
   const [maxPageWidth, setMaxPageWidth] = useState(DEFAULT_PAGE_SIZE.width);
@@ -884,10 +886,11 @@ export function ScoreView({
     setDockCollapsed(false);
     setDockCorner("top-right");
     autoOfferedRef.current = false;
-    // A draft in progress force-hid the sidebar; entering the new piece with it
-    // stuck hidden strands the tricky-sections panel, so restore what it stashed.
+    // Tricky Sections stay visible across a piece change, including while a
+    // target draft was in progress. The global navigation is the compactible
+    // surface; this score-local map remains the reading companion.
     if (sectionsStashedRef.current) {
-      setSectionsVisible(sectionsBeforeTargetRef.current);
+      setSectionsVisible(true);
       sectionsStashedRef.current = false;
     }
   }, [pieceId]);
@@ -1232,13 +1235,16 @@ export function ScoreView({
     scaleMode === "width"
       ? fitWidthScale(containerWidth, maxPageWidth, 40)
       : scaleMode === "page"
-        ? fitPageScale(
-            containerWidth,
-            containerHeight,
-            maxPageWidth,
-            maxPageHeight,
-            40,
-            40,
+        ? Math.max(
+            1,
+            fitPageScale(
+              containerWidth,
+              containerHeight,
+              maxPageWidth,
+              maxPageHeight,
+              40,
+              40,
+            ),
           )
         : scaleMode === "overview"
           ? clampZoom((containerWidth - 64) / (maxPageWidth * 2))
@@ -1920,7 +1926,7 @@ export function ScoreView({
     setTargetDrawError(null);
     setDockCollapsed(false);
     setDockCorner("top-right");
-    setSectionsVisible(sectionsBeforeTargetRef.current);
+    setSectionsVisible(true);
     sectionsStashedRef.current = false;
     setNavigationNotice(null);
   }, []);
@@ -1973,8 +1979,8 @@ export function ScoreView({
     setSpotArmed(false);
     setConfirmClearPage(null);
     sectionsBeforeTargetRef.current = sectionsVisible;
-    sectionsStashedRef.current = true;
-    setSectionsVisible(false);
+    sectionsStashedRef.current = false;
+    setSectionsVisible(true);
     setDockCollapsed(false);
     setDockCorner("top-right");
     setTargetDraftId(newTargetDraftId(pieceId));
@@ -2169,7 +2175,7 @@ export function ScoreView({
         setSelectedRegionId(created.id);
         setExpandedRegionId(created.id);
         setSectionTab("edit");
-        setSectionsVisible(false);
+        setSectionsVisible(true);
         sectionsStashedRef.current = false;
         setTargetMode(false);
         setTargetDraftId(null);
@@ -2313,7 +2319,7 @@ export function ScoreView({
       setSelectedRegionId(regionId);
       setExpandedRegionId(regionId);
       setSectionTab("edit");
-      setSectionsVisible(false);
+      setSectionsVisible(true);
       setNavigationNotice(null);
       if (!edition) return;
       const region = regions.find((item) => item.id === regionId);
@@ -2395,7 +2401,7 @@ export function ScoreView({
       setSelectedRegionId(regionId);
       setExpandedRegionId(regionId);
       setSectionTab("edit");
-      setSectionsVisible(false);
+      setSectionsVisible(true);
       setGraphError(null);
 
       const activeIsRunning = Boolean(
@@ -2786,7 +2792,7 @@ export function ScoreView({
       setExpandedRegionId(created.id);
       setSpotArmed(false);
       setSectionTab("edit");
-      setSectionsVisible(false);
+      setSectionsVisible(true);
       setSpotUndo({ regionId: created.id, name, parentId: parent.id });
       setNavigationNotice(
         `${name} added inside ${parent.name} · mm. ${mStart}–${mEnd}.`,
