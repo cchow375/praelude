@@ -2,6 +2,15 @@
 
 ## Decisions
 
+- **v9.1.3 removes the visible composer wall from selected Score passages (2026-09-03).** The
+  score-local `BlockForm` has a `compact` presentation only in `ScoreView`: its surface shows the
+  primary Start set action plus two clean entry points, Variants and Settings. Each opens a
+  centered dialog over a blurred background, leaving the full existing setting model intact rather
+  than deleting low-frequency controls. In the variant dialog, presets are toggles (not append-only
+  chain chips), and Left hand only / Right hand only are first-class presets. The normal full
+  `BlockForm` retains its existing direct composer behavior. Full release gates and post-install
+  audit pass; Mac v9.1.3 is installed.
+
 - **v9.1.2 makes the passage window a working surface, not a narrow card
   (2026-09-03).** At desktop sizes it spans 460–560px, with a 46px Start set button and 44px
   core measure/tempo inputs. This addresses Christian's screenshot feedback: too much unused space

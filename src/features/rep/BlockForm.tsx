@@ -57,6 +57,8 @@ interface BlockFormProps {
   opening?: boolean;
   /** Prevents a guaranteed backend rejection while another set owns the loop. */
   blockedReason?: string | null;
+  /** A calm score-overlay entry point: details open in focused dialogs. */
+  presentation?: "default" | "compact";
 }
 
 /** One-tap variant presets (spec §5.3). Order matches Christian's list. */
@@ -67,6 +69,8 @@ const VARIANT_PRESETS: Array<{ label: string; name: string }> = [
   { label: "Staccato", name: "staccato" },
   { label: "Tenuto", name: "tenuto" },
   { label: "Legato", name: "legato" },
+  { label: "Left hand only", name: "left hand only" },
+  { label: "Right hand only", name: "right hand only" },
   { label: "Hands separate", name: "hands separate" },
   { label: "Blocked chords", name: "blocked chords" },
 ];
@@ -199,6 +203,7 @@ export function BlockForm({
   onOpen,
   opening = false,
   blockedReason = null,
+  presentation = "default",
 }: BlockFormProps) {
   const [mStart, setMStart] = useState<string>(
     defaultMeasureStart != null ? String(defaultMeasureStart) : "",
@@ -252,6 +257,10 @@ export function BlockForm({
   const [customVariantText, setCustomVariantText] = useState<string>("");
   const [customVariantOpen, setCustomVariantOpen] = useState(false);
   const customVariantInputRef = useRef<HTMLInputElement>(null);
+  const [customizer, setCustomizer] = useState<"variants" | "settings" | null>(
+    null,
+  );
+  const compact = presentation === "compact";
 
   const chooseTargetMode = (next: TargetMode) => {
     targetEdited.current = true;
@@ -277,6 +286,15 @@ export function BlockForm({
     if (!customVariantOpen) return;
     customVariantInputRef.current?.focus();
   }, [customVariantOpen]);
+
+  useEffect(() => {
+    if (customizer == null) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCustomizer(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [customizer]);
 
   // A stored draft/reopen may arrive after the surrounding view resolves its
   // data. Adopt it until the pianist touches any tuning control; from then on,
@@ -308,6 +326,20 @@ export function BlockForm({
     ]);
   const removeVariant = (i: number) =>
     setVariants((v) => v.filter((_, idx) => idx !== i));
+  const toggleVariant = (name: string) =>
+    setVariants((current) => {
+      const index = current.findIndex((variant) => variant.name === name);
+      if (index >= 0) return current.filter((_, itemIndex) => itemIndex !== index);
+      return [
+        ...current,
+        {
+          draftId: nextVariantId.current++,
+          name,
+          reps: 5,
+          clean_streak: 5,
+        },
+      ];
+    });
   const moveVariant = (i: number, dir: -1 | 1) =>
     setVariants((v) => {
       const j = i + dir;
@@ -468,8 +500,18 @@ export function BlockForm({
     }
   };
 
+  const compactSummary =
+    focus === "tempo"
+      ? `${startBpm || "60"} BPM · ${useMetronome ? "metronome" : "no metronome"}`
+      : `${focus} · ${useMetronome ? `${startBpm || "60"} BPM click` : "no metronome"}`;
+
   return (
-    <form className="block-form" onSubmit={submit}>
+    <form
+      className={`block-form${compact ? " block-form--compact" : ""}${
+        customizer ? ` is-${customizer}-customizing` : ""
+      }`}
+      onSubmit={submit}
+    >
       <div className="block-form-head">
         <h3 className="ck-form-heading">Practice set</h3>
         <button
@@ -487,10 +529,79 @@ export function BlockForm({
         </p>
       )}
 
+      {compact ? (
+        <div className="block-compact-overview">
+          <p className="block-compact-summary">{compactSummary}</p>
+          <div className="block-compact-actions">
+            <button
+              type="button"
+              className="block-compact-action"
+              aria-haspopup="dialog"
+              aria-label={
+                variants.length === 0
+                  ? "Choose variants"
+                  : `${variants.length} variants selected`
+              }
+              disabled={targetMode === "plays"}
+              title={
+                targetMode === "plays"
+                  ? "Variants are available for clean-streak sets."
+                  : undefined
+              }
+              onClick={() => setCustomizer("variants")}
+            >
+              <span>Variants</span>
+              <small>{variants.length === 0 ? "Choose" : `${variants.length} selected`}</small>
+            </button>
+            <button
+              type="button"
+              className="block-compact-action"
+              aria-haspopup="dialog"
+              aria-label="Practice settings"
+              onClick={() => setCustomizer("settings")}
+            >
+              <span>Settings</span>
+              <small>Tempo, goal & more</small>
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {compact && customizer ? (
+        <button
+          type="button"
+          className="block-customizer-scrim"
+          aria-label="Close practice customizer"
+          onClick={() => setCustomizer(null)}
+        />
+      ) : null}
+
       {/* Task A3 (§4b): the body scrolls internally so the composer still
           fits — and Start set stays reachable — at the app's 720×520 floor;
           the fix for "doesn't fit" is a scrollbar, never re-hiding a tool. */}
-      <div className="block-form-body">
+      <div
+        className="block-form-body"
+        role={compact && customizer ? "dialog" : undefined}
+        aria-modal={compact && customizer ? true : undefined}
+        aria-label={
+          compact && customizer
+            ? customizer === "variants"
+              ? "Choose variants"
+              : "Practice settings"
+            : undefined
+        }
+      >
+        {compact && customizer ? (
+          <div className="block-customizer-head">
+            <div>
+              <p>{customizer === "variants" ? "Practice set" : "Practice set"}</p>
+              <h4>{customizer === "variants" ? "Choose variants" : "Practice settings"}</h4>
+            </div>
+            <button type="button" onClick={() => setCustomizer(null)}>
+              Done
+            </button>
+          </div>
+        ) : null}
         {/* Section context: which measures (and an optional free label). */}
         <div className="ck-field-grid ck-core-pair">
           <label className="ck-field">
@@ -740,8 +851,19 @@ export function BlockForm({
                 <button
                   key={preset.name}
                   type="button"
-                  className="ck-chip"
-                  onClick={() => addVariant(preset.name)}
+                  className={`ck-chip${
+                    compact && variants.some((variant) => variant.name === preset.name)
+                      ? " is-selected"
+                      : ""
+                  }`}
+                  aria-pressed={
+                    compact
+                      ? variants.some((variant) => variant.name === preset.name)
+                      : undefined
+                  }
+                  onClick={() =>
+                    compact ? toggleVariant(preset.name) : addVariant(preset.name)
+                  }
                 >
                   {preset.label}
                 </button>

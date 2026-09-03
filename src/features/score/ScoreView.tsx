@@ -2997,6 +2997,7 @@ export function ScoreView({
           defaultLabel={contextualLabel(region)}
           defaultTargetBpm={defaultTargetBpm}
           defaultCleanStreak={effectiveParentId != null ? 3 : defaultCleanStreak}
+          presentation="compact"
           onOpen={onOpenBlock}
           opening={opening}
           blockedReason={

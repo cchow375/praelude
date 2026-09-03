@@ -54,6 +54,166 @@
   min-height: 0;
   overflow-y: auto;
 }
+
+/* Score passage setup is intentionally a short launchpad.  The full composer
+   remains available, but each low-frequency decision gets its own calm modal
+   instead of turning the selected-passage window into a scrollable form. */
+.block-form--compact {
+  position: relative;
+  max-height: none;
+}
+.block-compact-overview {
+  display: grid;
+  gap: var(--space-3);
+}
+.block-compact-summary {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+}
+.block-compact-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.block-compact-action {
+  display: grid;
+  gap: 3px;
+  min-height: 68px;
+  padding: var(--space-3);
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius-md);
+  color: var(--ink-primary);
+  background: var(--surface-app);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color var(--duration-fast), background var(--duration-fast), transform var(--duration-fast);
+}
+.block-compact-action:hover:not(:disabled) {
+  border-color: var(--ink-secondary);
+  background: var(--surface-raised);
+  transform: translateY(-1px);
+}
+.block-compact-action:focus-visible,
+.block-customizer-head button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.block-compact-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.block-compact-action > span {
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+}
+.block-compact-action > small {
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+}
+.block-form--compact > .block-form-body {
+  display: none;
+}
+.block-customizer-scrim {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: rgb(37 31 27 / 28%);
+  backdrop-filter: blur(8px);
+  cursor: default;
+}
+.block-form--compact.is-variants-customizing > .block-form-body,
+.block-form--compact.is-settings-customizing > .block-form-body {
+  position: fixed;
+  z-index: 1001;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
+  padding: var(--space-5);
+  overflow-y: auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: 0 24px 72px rgb(24 18 14 / 30%);
+  transform: translate(-50%, -50%);
+}
+.block-form--compact.is-variants-customizing > .block-form-body > :not(.block-customizer-head):not(.ck-variant-chain) {
+  display: none;
+}
+.block-form--compact.is-settings-customizing > .block-form-body > .ck-variant-chain {
+  display: none;
+}
+.block-customizer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.block-customizer-head p {
+  margin: 0 0 2px;
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.block-customizer-head h4 {
+  margin: 0;
+  color: var(--ink-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+}
+.block-customizer-head button {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius-pill);
+  color: var(--ink-primary);
+  background: var(--surface-app);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.block-form--compact.is-variants-customizing .ck-chip-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.block-form--compact.is-variants-customizing .ck-chip {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border-color: var(--control-line);
+  border-radius: var(--radius-md);
+  color: var(--ink-primary);
+  background: var(--surface-app);
+  text-align: left;
+}
+.block-form--compact.is-variants-customizing .ck-chip:hover {
+  border-color: var(--ink-secondary);
+}
+.block-form--compact.is-variants-customizing .ck-chip.is-selected {
+  border-color: var(--ink-primary);
+  color: var(--surface-raised);
+  background: var(--ink-primary);
+}
+.block-form--compact.is-variants-customizing .ck-chain-help,
+.block-form--compact.is-variants-customizing .ck-chain-list {
+  display: none;
+}
+@media (max-width: 480px) {
+  .block-compact-actions,
+  .block-form--compact.is-variants-customizing .ck-chip-row {
+    grid-template-columns: 1fr;
+  }
+}
 .ck-form-heading {
   font-family: var(--font-display);
   font-size: var(--text-lg);

@@ -409,6 +409,31 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
   });
 });
 
+describe("BlockForm compact score presentation", () => {
+  it("keeps the score launchpad short and opens a focused, toggleable variant picker", () => {
+    render(<BlockForm pieceId={1} presentation="compact" onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose variants" }));
+    expect(screen.getByRole("dialog", { name: "Choose variants" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Left hand only" }).getAttribute("aria-pressed"),
+    ).toBe("false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Left hand only" }));
+    fireEvent.click(screen.getByRole("button", { name: "Right hand only" }));
+    expect(
+      screen.getByRole("button", { name: "Left hand only" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: "Right hand only" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog", { name: "Choose variants" })).toBeNull();
+    expect(screen.getByRole("button", { name: "2 variants selected" })).toBeTruthy();
+  });
+});
+
 describe("BlockForm per-set metronome tuning (A5)", () => {
   it("labels BPM with a note value without converting the entered BPM", () => {
     const onOpen = vi.fn();
