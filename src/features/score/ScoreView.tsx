@@ -2982,7 +2982,10 @@ export function ScoreView({
         </header>
         {regionBlocks.length > 0 && (
           <p className="score-practice-window-history">
-            {regionBlocks[0].attempts_recorded ?? regionBlocks[0].tries ?? regionBlocks[0].reps_done} attempts so far
+            {regionBlocks[0].mastery_basis === "total_attempts" &&
+            regionBlocks[0].mastery_status === "satisfied"
+              ? `${regionBlocks[0].attempt_target ?? regionBlocks[0].attempts_recorded ?? regionBlocks[0].tries ?? regionBlocks[0].reps_done} plays complete`
+              : `${regionBlocks[0].attempts_recorded ?? regionBlocks[0].tries ?? regionBlocks[0].reps_done} attempts so far`}
           </p>
         )}
         <BlockForm

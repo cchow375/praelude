@@ -2,6 +2,20 @@
 
 ## Decisions
 
+- **v9.1.1 installs the page-first, passage-first Score correction on Mac (2026-09-03).** The
+  continuous reader and permanent composer were a visual-hierarchy failure. The installed app now
+  renders the current page by default (with optional explicit two-page view); Tricky Sections start
+  closed; selecting a passage shows the score-local floating `BlockForm`, which becomes a contained
+  bottom sheet when space is tight. The practice panel preserves the brief, honest Total-plays
+  completion message (`N plays complete`) without suggesting mastery. No schema/data contract
+  changed. Full frontend (2,540 passed / 1 skipped), TypeScript, native tests, strict Clippy,
+  package cleanliness, signature, one-copy, DMG and fresh-launch gates passed. Installed DB audit:
+  integrity OK/FK0, 11 pieces / 300 blocks / 2,686 reps / 57 sessions / 10,520 events, zero open
+  sessions/blocks. The Mac v9.1.1 DMG is 10,749,464 bytes, SHA-256
+  `7249a60040b2160bf8cf273220a77dce6eb9efeb25a6c53c8623a023e077caf3`, with ad-hoc CDHash
+  `6eca2270f4025821cbc535a94319a4355617847c`; it is not notarized. The exact Windows v9.1.0
+  installer and its native-acceptance boundary are unchanged.
+
 - **The next unshipped Score source is page-first and passage-first (2026-09-02).** Christian
   rejected the continuous reader and always-open rail composer as visually noisy. `ScoreView`
   now renders the current page (or the explicit two-page view) only; Previous/Next and keyboard

@@ -675,11 +675,12 @@ describe("ScoreView", () => {
     expect(screen.getByText("of 8")).toBeTruthy();
   });
 
-  it("offers whole-page, two-page, slider, and section visibility controls", async () => {
+  it("offers paged reading, an explicit two-page option, and optional section controls", async () => {
     render(
       <ScoreView pieceId={7} api={makeApi()} adapter={makePdf(2).adapter} />,
     );
-    await screen.findByLabelText("Score page 2");
+    await screen.findByLabelText("Score page 1");
+    expect(document.querySelectorAll(".score-page-slot")).toHaveLength(1);
     fireEvent.click(getScoreTool("Fit page"));
     fireEvent.click(screen.getByRole("button", { name: "Score tools" }));
     expect(
@@ -694,15 +695,15 @@ describe("ScoreView", () => {
     });
     expect(screen.getByLabelText("Zoom level").textContent).toBe("55%");
     fireEvent.click(
-      screen.getByRole("button", { name: "Collapse tricky sections" }),
-    );
-    expect(document.querySelector(".score-body")?.className).toContain(
-      "is-sections-hidden",
-    );
-    fireEvent.click(
       screen.getByRole("button", { name: "Expand tricky sections" }),
     );
     expect(document.querySelector(".score-body")?.className).not.toContain(
+      "is-sections-hidden",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Collapse tricky sections" }),
+    );
+    expect(document.querySelector(".score-body")?.className).toContain(
       "is-sections-hidden",
     );
   });
@@ -737,7 +738,7 @@ describe("ScoreView", () => {
       })),
     });
     render(<ScoreView pieceId={7} api={api} adapter={makePdf(2).adapter} />);
-    await screen.findByLabelText("Score page 2");
+    await screen.findByLabelText("Score page 1");
 
     fireEvent.click(
       await screen.findByRole("button", {
@@ -930,12 +931,15 @@ describe("ScoreView", () => {
     expect(
       await screen.findByRole("button", { name: "LH leap, measures 42 to 58" }),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Practice" }));
+    expect(screen.getByRole("region", { name: "Practice set" })).toBeTruthy();
+    const practiceSet = screen.getByRole("region", { name: "Practice set" });
     expect(
-      (screen.getByLabelText("From measure") as HTMLInputElement).value,
+      (within(practiceSet).getByLabelText("From measure") as HTMLInputElement)
+        .value,
     ).toBe("42");
     expect(
-      (screen.getByLabelText("To measure") as HTMLInputElement).value,
+      (within(practiceSet).getByLabelText("To measure") as HTMLInputElement)
+        .value,
     ).toBe("58");
     expect(screen.queryByText("Block label (optional)")).toBeNull();
     // The section-lock explainer line was cut in the declutter pass — a
@@ -1124,14 +1128,14 @@ describe("ScoreView", () => {
       }),
     );
 
-    const practice = screen.getByRole("tab", { name: "Practice" });
     const edit = screen.getByRole("tab", { name: "Edit" });
-    practice.focus();
-    fireEvent.keyDown(practice, { key: "ArrowRight" });
-    await waitFor(() => expect(document.activeElement).toBe(edit));
-    expect(edit.getAttribute("aria-selected")).toBe("true");
+    edit.focus();
+    fireEvent.keyDown(edit, { key: "ArrowRight" });
+    const marks = screen.getByRole("tab", { name: "Score marks" });
+    await waitFor(() => expect(document.activeElement).toBe(marks));
+    expect(marks.getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
-      "score-region-4-tab-edit",
+      "score-region-4-tab-marks",
     );
   });
 
@@ -1695,69 +1699,41 @@ describe("ScoreView", () => {
     expect(destroy).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps a continuous document while mounting canvases only for the visible page and its neighbours", async () => {
+  it("keeps a single current page mounted while paging through the score", async () => {
     const pdf = makePdf(5);
     render(<ScoreView pieceId={7} api={makeApi()} adapter={pdf.adapter} />);
 
     await screen.findByLabelText("Score page 1");
-    // Five persistent page slots create one natural scrollbar, but only page 1
-    // and its one-page overscan neighbour own PdfPage/canvas components.
-    expect(document.querySelectorAll(".score-page-slot")).toHaveLength(5);
-    expect(screen.getByTestId("score-page-placeholder-5")).toBeTruthy();
-    await waitFor(() =>
-      expect(new Set(pdf.getPage.mock.calls.map((call) => call[0]))).toEqual(
-        new Set([1, 2]),
-      ),
-    );
-    expect(screen.getAllByLabelText(/^Score page \d+$/)).toHaveLength(2);
+    expect(document.querySelectorAll(".score-page-slot")).toHaveLength(1);
+    expect(screen.getAllByLabelText(/^Score page \d+$/)).toHaveLength(1);
     expect(
       (screen.getByLabelText("Rendered score page 1") as HTMLCanvasElement)
         .width,
     ).toBe(1200);
 
-    // Scrolling until page 4 dominates moves the bounded render window. Page 1
-    // becomes a placeholder rather than disappearing from document geometry.
-    act(() => {
-      FakeIntersectionObserver.latest?.trigger({ 1: 0, 4: 1 });
-    });
-
+    fireEvent.change(screen.getByLabelText("Page number"), { target: { value: "4" } });
+    fireEvent.submit(screen.getByLabelText("Page number").closest("form")!);
     await screen.findByLabelText("Score page 4");
-    await waitFor(() => {
-      expect(new Set(pdf.getPage.mock.calls.map((call) => call[0]))).toEqual(
-        new Set([1, 2, 3, 4, 5]),
-      );
-    });
-    expect(document.querySelectorAll(".score-page-slot")).toHaveLength(5);
+    expect(document.querySelectorAll(".score-page-slot")).toHaveLength(1);
     expect(screen.queryByLabelText("Score page 1")).toBeNull();
     expect(screen.queryByLabelText("Rendered score page 1")).toBeNull();
-    expect(screen.getByTestId("score-page-placeholder-1")).toBeTruthy();
     expect(screen.getByLabelText("Page number").getAttribute("value")).toBe(
       "4",
     );
-    // At most three canvases/components are mounted (current 4 ± 1), even
-    // though the whole five-page strip remains scrollable.
-    expect(screen.getAllByLabelText(/^Score page \d+$/)).toHaveLength(3);
+    expect(screen.getAllByLabelText(/^Score page \d+$/)).toHaveLength(1);
   });
 
-  it("hard-caps transient disjoint observer batches at five mounted pages", async () => {
+  it("does not let observer noise replace the selected page", async () => {
     render(
       <ScoreView pieceId={7} api={makeApi()} adapter={makePdf(10).adapter} />,
     );
     await screen.findByLabelText("Score page 1");
 
-    act(() => {
-      FakeIntersectionObserver.latest?.trigger({ 1: 0.8, 4: 0.9, 8: 1 });
-    });
-
-    await screen.findByLabelText("Score page 8");
-    await waitFor(() =>
-      expect(
-        screen.getAllByLabelText(/^Score page \d+$/).length,
-      ).toBeLessThanOrEqual(5),
-    );
-    expect(document.querySelectorAll(".score-page-slot")).toHaveLength(10);
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await screen.findByLabelText("Score page 2");
+    expect(document.querySelectorAll(".score-page-slot")).toHaveLength(1);
     expect(screen.getByLabelText("Page number").getAttribute("value")).toBe(
-      "8",
+      "2",
     );
   });
 
@@ -1789,7 +1765,7 @@ describe("ScoreView", () => {
     const api = makeApi();
     const pdf = makePdf(2);
     render(<ScoreView pieceId={12} api={api} adapter={pdf.adapter} />);
-    await screen.findByLabelText("Score page 2");
+    await screen.findByLabelText("Score page 1");
 
     fireEvent.change(screen.getByLabelText("Score edition"), {
       target: { value: "fingered" },
@@ -1816,7 +1792,6 @@ describe("ScoreView", () => {
     });
     fireEvent.submit(screen.getByLabelText("Page number").closest("form")!);
     await screen.findByLabelText("Score page 4");
-    expect(HTMLElement.prototype.scrollTo).toHaveBeenCalled();
     expect(screen.getByLabelText("Page number").getAttribute("value")).toBe(
       "4",
     );
@@ -2019,7 +1994,7 @@ describe("ScoreView", () => {
 
     view.rerender(<ScoreView pieceId={8} api={api} adapter={pdf.adapter} />);
     await screen.findByLabelText("Score page 1");
-    expect(document.querySelector(".score-body")?.className).not.toContain(
+    expect(document.querySelector(".score-body")?.className).toContain(
       "is-sections-hidden",
     );
   });
@@ -3080,10 +3055,10 @@ describe("ScoreView measure mapping", () => {
       );
       // Selecting the row still exposes the full composer for customization.
       expect(
-        (screen.getByLabelText("From measure") as HTMLInputElement).value,
+        (screen.getAllByLabelText("From measure")[0] as HTMLInputElement).value,
       ).toBe("44");
       expect(
-        (screen.getByLabelText("To measure") as HTMLInputElement).value,
+        (screen.getAllByLabelText("To measure")[0] as HTMLInputElement).value,
       ).toBe("46");
     });
 
@@ -3130,7 +3105,7 @@ describe("ScoreView measure mapping", () => {
         }),
       );
 
-      expect(await screen.findByText("5 attempts · total plays complete")).toBeTruthy();
+      expect(await screen.findByText("5 plays complete")).toBeTruthy();
       expect(screen.queryByText(/mastery verified/i)).toBeNull();
     });
 
