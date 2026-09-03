@@ -19,6 +19,8 @@ import "./completionFx.css";
 
 export type CompletionMoment =
   | "set_complete"
+  /** An unfinished set left the active workspace: visual exit only, never a reward. */
+  | "set_exit"
   | "mastery_landing"
   | "variant_stage"
   | "warmup_routine"
@@ -72,7 +74,10 @@ export function detectMoment(
     return "variant_stage";
   }
   if (previous.set_state === "active" && next?.set_state !== "active") {
-    return "set_complete";
+    // Pausing or closing an unfinished set is a quiet transition, not an
+    // earned completion. Keep the existing visual exit receipt without
+    // attaching the grand set fanfare.
+    return "set_exit";
   }
   return null;
 }
@@ -84,7 +89,7 @@ export function useCompletionFx() {
 
   const fire = useCallback((next: CompletionMoment) => {
     if (timer.current) clearTimeout(timer.current);
-    playCompletionSound(next);
+    if (next !== "set_exit") playCompletionSound(next);
     setMoment(next);
     timer.current = setTimeout(() => setMoment(null), FX_DURATION_MS);
   }, []);

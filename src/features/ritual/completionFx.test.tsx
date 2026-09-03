@@ -23,11 +23,11 @@ function snap(over: Partial<RepSnapshot>): RepSnapshot {
 afterEach(cleanup);
 
 describe("detectMoment", () => {
-  it("fires set_complete when an active set leaves the piano", () => {
+  it("keeps an unfinished set exit visually distinct from an earned completion", () => {
     expect(detectMoment(snap({}), snap({ set_state: "paused" }))).toBe(
-      "set_complete",
+      "set_exit",
     );
-    expect(detectMoment(snap({}), null)).toBe("set_complete");
+    expect(detectMoment(snap({}), null)).toBe("set_exit");
   });
 
   it("fires mastery_landing, not set_complete, when mastery lands", () => {

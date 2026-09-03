@@ -19,7 +19,10 @@ import { RepReplayControl } from "./replay/RepReplayControl";
 import { useRepReplay } from "./replay/useRepReplay";
 import type { RepReplayCaptureOwnership } from "./replay/types";
 import { Button, type ButtonVariant } from "../../ui";
-import { playRepFeedback } from "../ritual/completionSound";
+import {
+  playRepFeedback,
+  unlockCompletionAudio,
+} from "../ritual/completionSound";
 import "./RepHud.css";
 
 export interface RepHudProps {
@@ -521,6 +524,10 @@ export function RepHud({
   const submit = async (verdict: Verdict) => {
     if (mastered || busy || checkPending.current) return;
     if (!replay.assertVerdictReady()) return;
+    // This must be synchronous with the click or verdict hotkey. The actual
+    // sound still waits for the committed snapshot below, but WebKit grants
+    // Web Audio only from this user-activation boundary.
+    unlockCompletionAudio();
     // A completed listen-back verdict may still be writing an explicitly kept
     // audio file. Keep this set open instead of letting the normal six-second
     // auto-close remove the only retry surface after a disk error.

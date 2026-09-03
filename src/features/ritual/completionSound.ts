@@ -13,14 +13,15 @@ import type { CompletionMoment } from "./completionFx";
 type AudioContextConstructor = new () => AudioContext;
 
 let context: AudioContext | null = null;
+let resumePromise: Promise<void> | null = null;
 
 function audioContext(): AudioContext | null {
-  if (typeof window === "undefined") return null;
+  if (typeof globalThis === "undefined") return null;
   if (context?.state !== "closed") return context;
-  const candidate = window as Window & {
+  const candidate = globalThis as typeof globalThis & {
     webkitAudioContext?: AudioContextConstructor;
   };
-  const Constructor = window.AudioContext ?? candidate.webkitAudioContext;
+  const Constructor = candidate.AudioContext ?? candidate.webkitAudioContext;
   if (!Constructor) return null;
   try {
     context = new Constructor();
@@ -58,20 +59,54 @@ function note(
   oscillator.stop(when + duration + 0.02);
 }
 
-function withContext(play: (ctx: AudioContext, now: number) => void) {
+/**
+ * Open Web Audio while a pianist is actively submitting a verdict.
+ *
+ * WebKit requires this user-activation boundary. The actual feedback is only
+ * scheduled after the durable write arrives, but its audio permission is
+ * acquired here—inside the click or verdict hotkey—not from a later React
+ * effect where macOS may silently reject it as autoplay.
+ */
+export function unlockCompletionAudio() {
   const ctx = audioContext();
   if (!ctx) return;
   try {
-    // A resume is harmless when already running; it lets a user-initiated
-    // verdict work after macOS/WebKit suspended the context.
-    void ctx.resume().catch(() => undefined);
-    play(ctx, ctx.currentTime + 0.015);
+    if (ctx.state === "running") {
+      resumePromise = Promise.resolve();
+      return;
+    }
+    resumePromise = ctx.resume().catch(() => undefined);
   } catch {
-    // Feedback is decorative. Do not surface a device failure in the hot loop.
+    resumePromise = null;
   }
 }
 
-/** A compact, optimistic answer for every committed manual or spoken verdict. */
+function withContext(play: (ctx: AudioContext, now: number) => void) {
+  const ctx = audioContext();
+  if (!ctx) return;
+  const schedule = () => {
+    // Never try to wake Web Audio from this post-write effect. If the direct
+    // gesture did not unlock it, feedback remains optional rather than risking
+    // an autoplay rejection or a burst of stale sounds.
+    if (ctx.state !== "running") return;
+    try {
+      play(ctx, ctx.currentTime + 0.015);
+    } catch {
+      // Feedback is decorative. Do not surface a device failure in the hot loop.
+    }
+  };
+  if (ctx.state === "running") {
+    schedule();
+  } else if (resumePromise) {
+    void resumePromise.then(schedule);
+  }
+}
+
+/**
+ * A compact, optimistic answer for every verdict committed through the
+ * interactive HUD. Voice verdicts retain the native low-latency acknowledgement
+ * chime, which does not depend on WebKit's autoplay policy.
+ */
 export function playRepFeedback(verdict: Verdict) {
   withContext((ctx, now) => {
     if (verdict === "clean") {
