@@ -6,6 +6,8 @@
 
 - **The next Score source defaults to a true 100% page, a persistent Tricky Sections rail and a collapsible global rail (2026-09-03).** Page-fit no longer opens at a viewport-derived ~82%; it is clamped to at least 100%, and score pages center in their available pane. Tricky Sections remains visible through selection/drawing/piece switches; the top arrow in the main Praelude navigation instead collapses Today/Score/Warmups/Pieces/Universe into an accessible icon strip, returning that width to the score. The shell-local collapse state intentionally resets on a new launch so navigation remains discoverable. Focused Score/Shell tests, TypeScript and production build pass; source only, not yet packaged or installed.
 
+- **The frontend suite allows 12 seconds for full-shell integration assertions (2026-09-03).** The normal 5-second Vitest limit was too short when the entire 2,500+ test suite was under load: the same Today/Universe navigation case passes independently, but intermittently timed out during a healthy complete run. `testTimeout: 12_000` is a runner-only allowance for the project’s heaviest screen integration tests; it changes no product timing or feedback behavior.
+
 - **v10.0.0 renames the visible product to Praelude and installs one dark interface system
   (2026-09-03).** Product/package/window/executable/tutorial/settings/TTS branding, the app icon
   and future package filenames now use Praelude; new profiles default the wake word to `praelude`.
