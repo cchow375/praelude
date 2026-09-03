@@ -21,9 +21,9 @@
 
 - **Praelude v10.0.0 is installed, not merely packaged (2026-09-03).** The signed ad-hoc app is
   `/Applications/Praelude.app`; the old `/Applications/CodaKiller.app` is absent. DMG
-  `releases/v10.0.0/Praelude-10.0.0.dmg` is 10,585,072 bytes, SHA-256
-  `21c919e1957739463f62330e7e5d573fa82fd4156e3aedf64b7439e1fcb9b1cf`, CDHash
-  `0ca95a28f083b3b885a493efb6937845835cd010`. Live schema 21 integrity/FK/counts and exact DB
+  `releases/v10.0.0/Praelude-10.0.0.dmg` is 10,585,575 bytes, SHA-256
+  `caa3fe2623c34710dcafbaa7d71cfcf6b13e7579f53c5ee89f9fab6a2c776e17`, CDHash
+  `e86e4f86d5f08c4c186d66ac81362eb1ffd2d1cb`. Live schema 21 integrity/FK/counts and exact DB
   hash pass; backup/rollback facts live in the v10 record. The v9.1.0 Windows EXE remains the old
   unaccepted candidate; future Windows packaging emits Praelude names.
 

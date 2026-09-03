@@ -16,9 +16,9 @@ fresh-launch gates pass. `/Applications/Praelude.app` is running and the old app
 The live schema-21 DB is byte-identical before/after install. Hidden `com.christian.codakiller`
 and `codakiller` storage/Keychain identifiers remain deliberately for compatibility.
 
-DMG: `releases/v10.0.0/Praelude-10.0.0.dmg`, 10,585,072 bytes, SHA-256
-`21c919e1957739463f62330e7e5d573fa82fd4156e3aedf64b7439e1fcb9b1cf`; strict ad-hoc CDHash
-`0ca95a28f083b3b885a493efb6937845835cd010` (not notarized). The older Windows v9.1.0 candidate
+DMG: `releases/v10.0.0/Praelude-10.0.0.dmg`, 10,585,575 bytes, SHA-256
+`caa3fe2623c34710dcafbaa7d71cfcf6b13e7579f53c5ee89f9fab6a2c776e17`; strict ad-hoc CDHash
+`e86e4f86d5f08c4c186d66ac81362eb1ffd2d1cb` (not notarized). The older Windows v9.1.0 candidate
 below is unchanged and still awaits native Windows acceptance; future Windows packages use
 Praelude branding.
 
