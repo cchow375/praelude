@@ -4,7 +4,7 @@
 //! This test feeds transcript text and state into the pure intent router. It
 //! never reads note-transcription output and never grades piano audio.
 
-use codakiller_lib::intent::{Intent, MetroSetArgs, Mode, RepOpenSpec, Router, Verdict};
+use praelude_lib::intent::{Intent, MetroSetArgs, Mode, RepOpenSpec, Router, Verdict};
 use serde::Deserialize;
 
 const FIXTURE: &str = include_str!("fixtures/narrated_voice_firewall.json");

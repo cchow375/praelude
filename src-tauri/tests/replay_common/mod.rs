@@ -6,9 +6,9 @@
 //! same `#[path]` mod and call the shared runner with their fixture path.
 #![allow(dead_code)]
 
-use codakiller_lib::intent::{Intent, MetroSetArgs, Mode, RepOpenSpec, Router, Verdict};
-use codakiller_lib::ledger::{self, AttemptRecord, LedgerSummary, MutationSource};
-use codakiller_lib::protocol::{AttemptVerdict, MasteryStatus, PracticeContract};
+use praelude_lib::intent::{Intent, MetroSetArgs, Mode, RepOpenSpec, Router, Verdict};
+use praelude_lib::ledger::{self, AttemptRecord, LedgerSummary, MutationSource};
+use praelude_lib::protocol::{AttemptVerdict, MasteryStatus, PracticeContract};
 use serde::Deserialize;
 
 /// Mirror of the production command-dedup window (`voice_loop::DEDUP_WINDOW`).

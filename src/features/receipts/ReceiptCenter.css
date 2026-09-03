@@ -1,5 +1,5 @@
 /* ==========================================================================
-   CodaKiller v3 — Receipt Center (Task 5.2)
+   Praelude — Receipt Center
    Every durable MutationReceipt lands here, unmissable, on the kit's Receipt
    visual language. Colour is SIGNAL-ONLY: green = committed/success, red =
    error. Undone / duplicate / confirmation are neutral ink (a write that did

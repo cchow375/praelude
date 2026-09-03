@@ -331,11 +331,11 @@ describe("the token guard itself", () => {
   });
 });
 
-describe("paper token discipline", () => {
-  it("uses a serif display stack for headings and titles", () => {
+describe("Praelude dark token discipline", () => {
+  it("uses a modern sans display stack for headings and titles", () => {
     const display = /--font-display:\s*([^;]+);/.exec(css)?.[1] ?? "";
-    expect(display).toMatch(/New York|Iowan Old Style|Palatino|Georgia/);
-    expect(display.trim()).toMatch(/serif$/);
+    expect(display).toMatch(/SF Pro Display|SF Pro Text/);
+    expect(display.trim()).toMatch(/sans-serif$/);
   });
 
   it("keeps a generic fallback on the sans and mono stacks", () => {
@@ -347,17 +347,13 @@ describe("paper token discipline", () => {
     );
   });
 
-  it("declares a light color-scheme so native chrome matches paper", () => {
-    expect(css).toMatch(/color-scheme:\s*light/);
-    expect(css).not.toMatch(/color-scheme:\s*dark/);
+  it("declares a dark color-scheme so native chrome matches the app", () => {
+    expect(css).toMatch(/color-scheme:\s*dark/);
   });
 
-  it("renders paper surfaces, not the retired dark ones", () => {
-    for (const deadHex of ["#0e0e10", "#161619", "#0a0a0b", "#2a2a30"]) {
-      expect(css.toLowerCase()).not.toContain(deadHex);
-    }
-    expect(hexOf("--bg")?.toLowerCase()).toBe("#faf8f3");
-    expect(hexOf("--ink")?.toLowerCase()).toBe("#1a1714");
+  it("renders near-black surfaces with high-contrast light type", () => {
+    expect(hexOf("--bg")?.toLowerCase()).toBe("#090a0c");
+    expect(hexOf("--ink")?.toLowerCase()).toBe("#f5f7fa");
   });
 
   it("ships a ruled-paper helper other surfaces can apply", () => {
@@ -381,18 +377,14 @@ describe("paper token discipline", () => {
     }
   });
 
-  it("documents the radius tightening as a tightening", () => {
-    // The lane's summary called this "softer"; the values shrank. The file is
-    // the source of truth, so it must not describe the change backwards.
-    const radii = /--r-sm:\s*4px/.exec(css);
-    expect(radii, "--r-sm must be 4px").toBeTruthy();
-    const note = css.slice(0, radii!.index);
-    expect(note).toMatch(/TIGHTENED, NOT SOFTENED/);
-    expect(note).toMatch(/BLAST RADIUS/);
+  it("uses a restrained modern radius scale", () => {
+    expect(css).toMatch(/--r-sm:\s*8px/);
+    expect(css).toMatch(/--r-md:\s*12px/);
+    expect(css).toMatch(/--r-lg:\s*18px/);
   });
 });
 
-describe("paper contrast (WCAG 2.1, computed from the token values)", () => {
+describe("dark contrast (WCAG 2.1, computed from the token values)", () => {
   const paper = hexOf("--bg")!;
   const raised = hexOf("--bg-raised")!;
   const sunken = hexOf("--bg-sunken")!;

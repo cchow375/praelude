@@ -244,7 +244,7 @@ export function SettingsPanel({
   }
 
   return (
-    <form className="settings" aria-label="CodaKiller settings" onSubmit={save}>
+    <form className="settings" aria-label="Praelude settings" onSubmit={save}>
       <header className="settings-head">
         <h2>Settings</h2>
         <div className="settings-head-actions">
@@ -267,10 +267,9 @@ export function SettingsPanel({
       <Disclosure
         summary={
           <SectionLabel icon={<GuideIcon />}>
-            How to use CodaKiller
+            How to use Praelude
           </SectionLabel>
         }
-        defaultOpen
       >
         <section
           className="settings-guide"
@@ -292,7 +291,7 @@ export function SettingsPanel({
             ) : (
               <p>
                 Use short, exact commands to control practice without leaving
-                the piano. You report each attempt; CodaKiller counts, times,
+                the piano. You report each attempt; Praelude counts, times,
                 and remembers it without grading the piano.
               </p>
             )}
@@ -315,7 +314,7 @@ export function SettingsPanel({
               <span>
                 While the set is open, say <q>done</q> for clean, <q>sloppy</q>{" "}
                 for flawed, or <q>again, missed the left-hand jump</q> for
-                failed with a saved note. CodaKiller does not grade the piano.
+                failed with a saved note. Praelude does not grade the piano.
               </span>
             </li>
             <li>
@@ -386,7 +385,7 @@ export function SettingsPanel({
                 </p>
                 <p className="settings-guide-note">
                   The {ASSISTANT} may draft a verdict, tempo change, undo, or
-                  streak restart. Coda reads the draft back; say <q>confirm</q>{" "}
+                  streak restart. Praelude reads the draft back; say <q>confirm</q>{" "}
                   or <q>cancel</q>. It still cannot hear or grade playing,
                   interpret a page without a selected section, or manage
                   Calendar and Goals by voice yet.
@@ -402,7 +401,7 @@ export function SettingsPanel({
             >
               <strong>Before anything ambiguous changes</strong>
               <p>
-                If CodaKiller shows a draft or confirmation card, review every
+                If Praelude shows a draft or confirmation card, review every
                 field and choose or say Confirm or Cancel; nothing on that card
                 runs first. Exact commands above are different: they run
                 immediately. In a noisy room, use the HUD or Metronome button
@@ -417,7 +416,6 @@ export function SettingsPanel({
         summary={
           <SectionLabel icon={<AssistantIcon />}>{ASSISTANT}</SectionLabel>
         }
-        defaultOpen
       >
         <div className="settings-group">
           <label className="settings-check settings-wide">
@@ -740,7 +738,6 @@ export function SettingsPanel({
         summary={
           <SectionLabel icon={<TagIcon />}>Verdict hotkeys</SectionLabel>
         }
-        defaultOpen
       >
         <div className="settings-group">
           <label className="settings-check settings-wide">
@@ -864,7 +861,7 @@ export function SettingsPanel({
       >
         <div className="settings-group">
           <p className="settings-note">
-            CodaKiller uses its dark practice-room interface.
+            Praelude uses its dark practice-room interface.
           </p>
           <label className="settings-scale">
             <span>

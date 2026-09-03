@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synthesize the six metronome click sounds used by CodaKiller's audio engine.
+"""Synthesize the six metronome click sounds used by Praelude's audio engine.
 
 Task 6 asset generator. Stdlib only (`wave`, `math`, `struct`, `random`) --
 no numpy/scipy, so this must run on any Mac with a stock python3.

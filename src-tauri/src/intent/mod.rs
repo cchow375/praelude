@@ -1,4 +1,4 @@
-//! The deterministic intent router — CodaKiller's **misfire firewall**.
+//! The deterministic intent router — Praelude's **misfire firewall**.
 //!
 //! [`Router::route`] maps a final speech transcript to an [`Intent`] using only
 //! regex-free, rule-based matching. There is **no LLM** on this path: the whole
@@ -1206,7 +1206,7 @@ mod tests {
     #[test]
     fn take_it_up_a_notch_fires_a_delta() {
         // Task 13 review flagged this as a possible misfire risk ("take it up a
-        // notch" is often just a figure of speech), but for CodaKiller's
+        // notch" is often just a figure of speech), but for Praelude's
         // practice-coaching context a literal "take it up a notch" IS a genuine
         // ask to nudge the tempo up — so this is a conscious, accepted-fire
         // decision, not an oversight. Documented here so a future reviewer sees

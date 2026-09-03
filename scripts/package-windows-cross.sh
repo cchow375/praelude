@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Cross-build and stage the Windows x64 installer from macOS. This script never
-# installs, launches, quits, or replaces CodaKiller and never reads the live app
+# installs, launches, quits, or replaces Praelude and never reads the live app
 # database. It also never installs build dependencies: missing tools are a hard
 # failure with an actionable message. Keep the locale deterministic but UTF-8:
 # Homebrew NSIS 3.12 aborts while parsing Tauri's Unicode script under plain C.
@@ -13,7 +13,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 TARGET="x86_64-pc-windows-msvc"
 WINDOWS_CONFIG="$ROOT/src-tauri/tauri.windows.conf.json"
 BUNDLE_DIR="$ROOT/src-tauri/target/$TARGET/release/bundle/nsis"
-BUILT_EXE="$ROOT/src-tauri/target/$TARGET/release/codakiller.exe"
+BUILT_EXE="$ROOT/src-tauri/target/$TARGET/release/praelude.exe"
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -147,7 +147,7 @@ git -C "$ROOT" diff --cached --quiet \
 
 RELEASE_PARENT="$ROOT/releases/v$VERSION"
 RELEASE_DIR="$RELEASE_PARENT/windows"
-ARTIFACT_NAME="CodaKiller-$VERSION-Windows-x64-Setup.exe"
+ARTIFACT_NAME="Praelude-$VERSION-Windows-x64-Setup.exe"
 [[ ! -e "$RELEASE_DIR" ]] \
   || fail "release directory already exists; refusing to overwrite it: $RELEASE_DIR"
 
@@ -174,7 +174,7 @@ export RUSTFLAGS="--remap-path-prefix=$SOURCE_PREFIX=/build-user"
 export CODAKILLER_SEVEN_ZIP="$SEVEN_ZIP"
 unset CC CXX AR
 
-printf '1/4 Cross-building CodaKiller %s for Windows x64...\n' "$VERSION"
+printf '1/4 Cross-building Praelude %s for Windows x64...\n' "$VERSION"
 (
   cd "$ROOT"
   "$RUSTUP" run stable "$NPM" run tauri build -- \
@@ -228,7 +228,7 @@ printf '%s\n' \
   '' \
   "1. Double-click $ARTIFACT_NAME." \
   '2. This first Windows package is unsigned. If Windows SmartScreen appears, choose More info, then Run anyway.' \
-  '3. CodaKiller opens with a blank Pieces Library. Choose Add Piece to import one of your own PDF scores.' \
+  '3. Praelude opens with a blank Pieces Library. Choose Add Piece to import one of your own PDF scores.' \
   '4. The app installs for the current Windows user and normally does not need an administrator password.' \
   '5. If WebView2 is missing, the installer needs an internet connection to download the Microsoft WebView2 bootstrapper.' \
   '' \
@@ -239,7 +239,7 @@ printf '%s\n' \
   > "$STAGING_DIR/START_HERE.txt"
 
 printf '%s\n' \
-  'CodaKiller Windows package status' \
+  'Praelude Windows package status' \
   "Version: $VERSION" \
   "Target: $TARGET" \
   'Bundle: NSIS current-user installer' \
@@ -281,7 +281,7 @@ printf '4/4 Verifying the finished handoff...\n'
   shasum -a 256 -c "$ARTIFACT_NAME.sha256" >/dev/null
 )
 
-printf '\nPASS: CodaKiller %s Windows x64 package is staged without touching the installed app or data.\n' "$VERSION"
+printf '\nPASS: Praelude %s Windows x64 package is staged without touching the installed app or data.\n' "$VERSION"
 printf 'Installer: %s\n' "$RELEASE_DIR/$ARTIFACT_NAME"
 printf 'SHA-256: %s\n' "$SHA256"
 printf 'Signature: unsigned; Windows-native Authenticode and interactive acceptance remain pending.\n'

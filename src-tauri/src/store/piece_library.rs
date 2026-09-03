@@ -467,7 +467,7 @@ mod tests {
         let store = store();
         let id = store
             .upsert_piece(&ScanPiece {
-                folder_path: r"C:\Users\Friend\AppData\Roaming\CodaKiller\Pieces\.trash\Etude-1"
+                folder_path: r"C:\Users\Friend\AppData\Roaming\Praelude\Pieces\.trash\Etude-1"
                     .into(),
                 title: "Etude".into(),
                 composer: None,

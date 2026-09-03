@@ -1,5 +1,5 @@
-CodaKiller 9 for macOS
-========================
+Praelude 10 for macOS
+=====================
 
 What you need
 -------------
@@ -9,10 +9,10 @@ What you need
 
 Install
 -------
-1. Drag CodaKiller into the Applications shortcut in this window.
-2. In Applications, Control-click CodaKiller and choose Open.
+1. Drag Praelude into the Applications shortcut in this window.
+2. In Applications, Control-click Praelude and choose Open.
 3. If macOS still blocks it, open System Settings > Privacy & Security,
-   choose Open Anyway for CodaKiller, then confirm Open.
+   choose Open Anyway for Praelude, then confirm Open.
 
 The extra first-open step is needed because this direct-download build is not
 notarized through Apple's paid Developer ID service.

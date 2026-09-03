@@ -25,7 +25,7 @@ use crate::store::{EventKind, Store};
 /// The append-only per-piece session log filename.
 const SESSIONS_FILE: &str = "(C) codakiller-sessions.md";
 /// The one-line header written when the file is first created.
-const HEADER: &str = "# CodaKiller session log\n";
+const HEADER: &str = "# Praelude session log\n";
 
 /// Append a summary section to each practiced piece's `(C) codakiller-sessions.md`,
 /// rendering each block from the current canonical graph. Returns what was written.
@@ -422,7 +422,7 @@ mod tests {
 
         let a_md = std::fs::read_to_string(fa.join(SESSIONS_FILE)).unwrap();
         assert!(
-            a_md.starts_with("# CodaKiller session log"),
+            a_md.starts_with("# Praelude session log"),
             "one-line header"
         );
         assert!(

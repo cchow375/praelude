@@ -123,8 +123,8 @@
   height: 100%;
   padding: 0;
   border: 0;
-  background: rgb(37 31 27 / 28%);
-  backdrop-filter: blur(8px);
+  background: rgb(0 0 0 / 62%);
+  backdrop-filter: blur(14px) saturate(0.8);
   cursor: default;
 }
 .block-form--compact.is-variants-customizing > .block-form-body,
@@ -141,7 +141,7 @@
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   background: var(--surface-raised);
-  box-shadow: 0 24px 72px rgb(24 18 14 / 30%);
+  box-shadow: var(--shadow-popover);
   transform: translate(-50%, -50%);
 }
 .block-form--compact.is-variants-customizing > .block-form-body > :not(.block-customizer-head):not(.ck-variant-chain) {

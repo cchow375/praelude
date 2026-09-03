@@ -1,5 +1,5 @@
 //! Integration tests for the half-duplex gate — the safety invariant that
-//! CodaKiller never "hears itself". They drive the real [`Speaker`] worker with a
+//! Praelude never "hears itself". They drive the real [`Speaker`] worker with a
 //! mock provider, a time-modeled fake PCM sink, and a recording gate, asserting
 //! the exact ordering:
 //!
@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use codakiller_lib::tts::{
+use praelude_lib::tts::{
     Gate, Pcm, PcmError, PcmSink, Speaker, SpeakerConfig, TtsError, TtsProvider,
 };
 
@@ -162,7 +162,7 @@ fn gate_closes_before_enqueue_and_reopens_300ms_after_drain() {
         gate.clone() as Arc<dyn Gate>,
         test_config(),
     );
-    speaker.speak_blocking("CodaKiller online").expect("spoke");
+    speaker.speak_blocking("Praelude online").expect("spoke");
 
     let events = gate.events();
     assert_eq!(

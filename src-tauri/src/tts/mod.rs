@@ -1,5 +1,5 @@
 //! Text-to-speech providers and the **half-duplex gate** — the mechanism that
-//! guarantees CodaKiller never "hears itself" while speaking.
+//! guarantees Praelude never "hears itself" while speaking.
 //!
 //! # Pieces
 //!

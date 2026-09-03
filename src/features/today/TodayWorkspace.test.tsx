@@ -104,7 +104,7 @@ describe("TodayWorkspace main menu", () => {
 
     // App mark, date, and quiet entries. The former bundled-book quote and
     // reader surfaces are deliberately absent.
-    expect(screen.getByText("CodaKiller")).toBeTruthy();
+    expect(screen.getByText("Praelude")).toBeTruthy();
     expect(screen.queryByTestId("today-menu-quote")).toBeNull();
     expect(screen.queryByRole("dialog", { name: "Reader" })).toBeNull();
     for (const label of [

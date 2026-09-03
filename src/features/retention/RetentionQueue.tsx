@@ -159,7 +159,7 @@ export function RetentionQueue({ asOfDate, api }: RetentionQueueProps) {
       </header>
 
       <p className="retention-explainer">
-        CodaKiller does not carry mastery forward automatically. Play the target, then record only
+        Praelude does not carry mastery forward automatically. Play the target, then record only
         the result you observed.
       </p>
 

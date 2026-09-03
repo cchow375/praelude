@@ -13,7 +13,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use codakiller_lib::stt::{DownReason, SttConfig, SttEvent, SttSupervisor};
+use praelude_lib::stt::{DownReason, SttConfig, SttEvent, SttSupervisor};
 
 fn fixture() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_hear.sh")

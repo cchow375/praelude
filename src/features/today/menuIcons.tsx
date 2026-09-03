@@ -29,13 +29,12 @@ function Glyph({
   );
 }
 
-/** The CodaKiller app mark: the musical coda sign (a circle crossed through). */
-export function CodaMark(props: SVGProps<SVGSVGElement>) {
+/** Praelude's compact P mark. */
+export function PraeludeMark(props: SVGProps<SVGSVGElement>) {
   return (
     <Glyph {...props}>
-      <circle cx="12" cy="12" r="7" />
-      <line x1="12" y1="2.5" x2="12" y2="21.5" />
-      <line x1="2.5" y1="12" x2="21.5" y2="12" />
+      <path d="M7 20V4h5.5a5 5 0 0 1 0 10H7" />
+      <path d="M10 7.5h2.25a1.75 1.75 0 0 1 0 3.5H10" />
     </Glyph>
   );
 }

@@ -337,7 +337,7 @@ export function createPdfJsAdapter(
     try {
       const pdfDocument = await withTimeout(
         (async () => {
-          // CodaKiller runs inside WKWebView. PDF.js's modern build targets only
+          // Praelude runs inside WKWebView. PDF.js's modern build targets only
           // the newest browser engines, and WebKit does not reliably start an ES
           // module Worker from Tauri's custom app protocol. Loading the matching
           // legacy worker module on the main thread registers WorkerMessageHandler;

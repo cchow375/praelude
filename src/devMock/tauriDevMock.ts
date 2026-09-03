@@ -2268,7 +2268,7 @@ const SETTINGS_SNAPSHOT = {
   // request). settings_update's generic merge already honors a patch here.
   assistant_enabled: true,
   wake_word_enabled: false,
-  wake_word: "coda",
+  wake_word: "praelude",
   // Muted, matching the real backend's default (Task A): the harness must not
   // show a toggle in a state the app never ships in.
   speak_acks: false,

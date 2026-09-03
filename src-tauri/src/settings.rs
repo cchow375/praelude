@@ -142,9 +142,9 @@ pub struct SettingsPatch {
 }
 
 pub fn snapshot(store: &Store) -> SettingsSnapshot {
-    let wake_word = string(store, "voice.wake_word", "coda");
+    let wake_word = string(store, "voice.wake_word", "praelude");
     SettingsSnapshot {
-        theme: choice(store, "theme", "auto", &["auto", "dark", "light"]),
+        theme: choice(store, "theme", "dark", &["auto", "dark", "light"]),
         interface_scale: integer(store, "ui.interface_scale", 90, 75, 125) as u16,
         tts_provider: choice(store, "tts.provider", "auto", &["auto", "gemini", "say"]),
         tts_voice: choice(store, "tts.voice", DEFAULT_VOICE, VOICES),
@@ -675,7 +675,7 @@ mod tests {
         store.set_setting("theme", "neon").unwrap();
         store.set_setting("rep.default_reps", "9999").unwrap();
         let value = snapshot(&store);
-        assert_eq!(value.theme, "auto");
+        assert_eq!(value.theme, "dark");
         assert_eq!(value.interface_scale, 90);
         assert_eq!(value.ladder_default_reps, 30);
         assert_eq!(value.practice_default_clean_streak, 5);

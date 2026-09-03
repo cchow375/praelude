@@ -28,7 +28,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  theme: "auto",
+  theme: "dark",
   interface_scale: 90,
   practice_default_clean_streak: 5,
   // Christian's confirmed mapping (2026-08-25): "so I don't have to move my

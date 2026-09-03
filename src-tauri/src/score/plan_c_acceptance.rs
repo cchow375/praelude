@@ -10,7 +10,7 @@
 //!
 //! Zero writes to the live DB: both tests open a throwaway `Store::open(":memory:")`
 //! and register the real vault piece folder into THAT, never touching
-//! CodaKiller's real sqlite file. The vault PDF/MusicXML/JPEGs are read-only
+//! Praelude's real sqlite file. The vault PDF/MusicXML/JPEGs are read-only
 //! inputs — nothing here ever writes into the vault.
 //!
 //! Run with:
@@ -81,7 +81,7 @@ const EKIER_PAGE_START_MEASURE: &[(u32, u32)] = &[
 /// Set up a throwaway in-memory store with the real vault piece registered,
 /// so `measure_scan_page`'s edition-discovery and `score_xml_measure_facts`'s
 /// MusicXML resolution both run against the real files without ever opening
-/// CodaKiller's real database.
+/// Praelude's real database.
 fn scratch_store_with_piece() -> (Store, i64) {
     let folder = piece_folder();
     assert!(

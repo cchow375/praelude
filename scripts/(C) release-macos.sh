@@ -16,13 +16,14 @@ export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$BUILD_HOST_HOME=
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(cd "$ROOT" && node -p "require('./package.json').version")"
 IDENTIFIER="com.christian.codakiller"
-BUILT_APP="$ROOT/src-tauri/target/release/bundle/macos/CodaKiller.app"
-INSTALLED_APP="/Applications/CodaKiller.app"
-STAGED_APP="/Applications/.CodaKiller-$VERSION.staged.app"
-BACKUP_APP="/Applications/.CodaKiller.previous.app"
+BUILT_APP="$ROOT/src-tauri/target/release/bundle/macos/Praelude.app"
+INSTALLED_APP="/Applications/Praelude.app"
+LEGACY_APP="/Applications/CodaKiller.app"
+STAGED_APP="/Applications/.Praelude-$VERSION.staged.app"
+BACKUP_APP="/Applications/.Praelude.previous.app"
 RELEASE_DIR="$ROOT/releases/v$VERSION"
 STAGE_DIR="$RELEASE_DIR/dmg-stage"
-DMG="$RELEASE_DIR/CodaKiller-$VERSION.dmg"
+DMG="$RELEASE_DIR/Praelude-$VERSION.dmg"
 CHECKSUM="$DMG.sha256"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
@@ -37,7 +38,7 @@ fail() {
 
 cd "$ROOT"
 
-printf 'Release gate: CodaKiller %s\n' "$VERSION"
+printf 'Release gate: Praelude %s\n' "$VERSION"
 printf '1/8 Checking version agreement...\n'
 CARGO_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' src-tauri/Cargo.toml | head -n 1)"
 TAURI_VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
@@ -77,13 +78,18 @@ codesign --verify --deep --strict --verbose=2 "$STAGED_APP"
 
 rollback_install() {
   rm -rf "$STAGED_APP"
-  if [[ -d "$BACKUP_APP" && ! -d "$INSTALLED_APP" ]]; then
-    mv "$BACKUP_APP" "$INSTALLED_APP"
+  if [[ -d "$BACKUP_APP" && ! -d "${BACKUP_ORIGIN:-$INSTALLED_APP}" ]]; then
+    mv "$BACKUP_APP" "${BACKUP_ORIGIN:-$INSTALLED_APP}"
   fi
 }
 trap rollback_install EXIT
+[[ ! -d "$INSTALLED_APP" || ! -d "$LEGACY_APP" ]] || fail "both Praelude.app and legacy CodaKiller.app exist; refusing an ambiguous replacement"
+BACKUP_ORIGIN="$INSTALLED_APP"
 if [[ -d "$INSTALLED_APP" ]]; then
   mv "$INSTALLED_APP" "$BACKUP_APP"
+elif [[ -d "$LEGACY_APP" ]]; then
+  BACKUP_ORIGIN="$LEGACY_APP"
+  mv "$LEGACY_APP" "$BACKUP_APP"
 fi
 if ! mv "$STAGED_APP" "$INSTALLED_APP"; then
   rollback_install
@@ -95,11 +101,11 @@ trap - EXIT
 printf '6/8 Creating a clean drag-to-Applications disk image...\n'
 rm -rf "$RELEASE_DIR"
 mkdir -p "$STAGE_DIR"
-ditto "$INSTALLED_APP" "$STAGE_DIR/CodaKiller.app"
+ditto "$INSTALLED_APP" "$STAGE_DIR/Praelude.app"
 cp "$ROOT/START_HERE.txt" "$STAGE_DIR/START HERE.txt"
 cp "$ROOT/THIRD_PARTY_NOTICES.txt" "$STAGE_DIR/Third-Party Notices.txt"
 ln -s /Applications "$STAGE_DIR/Applications"
-hdiutil create -volname "CodaKiller $VERSION" -srcfolder "$STAGE_DIR" -ov -format UDZO "$DMG" >/dev/null
+hdiutil create -volname "Praelude $VERSION" -srcfolder "$STAGE_DIR" -ov -format UDZO "$DMG" >/dev/null
 (
   cd "$RELEASE_DIR"
   shasum -a 256 "$(basename "$DMG")" > "$(basename "$CHECKSUM")"
@@ -114,15 +120,15 @@ cleanup_dmg_mount() {
 }
 trap cleanup_dmg_mount EXIT
 hdiutil attach "$DMG" -readonly -nobrowse -mountpoint "$DMG_MOUNT" >/dev/null
-[[ -d "$DMG_MOUNT/CodaKiller.app" ]] || fail "mounted DMG is missing CodaKiller.app"
+[[ -d "$DMG_MOUNT/Praelude.app" ]] || fail "mounted DMG is missing Praelude.app"
 [[ -L "$DMG_MOUNT/Applications" && "$(readlink "$DMG_MOUNT/Applications")" == "/Applications" ]] || fail "mounted DMG has the wrong Applications shortcut"
 [[ -f "$DMG_MOUNT/START HERE.txt" ]] || fail "mounted DMG is missing START HERE.txt"
 [[ -f "$DMG_MOUNT/Third-Party Notices.txt" ]] || fail "mounted DMG is missing Third-Party Notices.txt"
 DMG_ENTRIES="$(find "$DMG_MOUNT" -mindepth 1 -maxdepth 1 -print | sed "s#^$DMG_MOUNT/##" | LC_ALL=C sort)"
-EXPECTED_DMG_ENTRIES="$(printf '%s\n' Applications CodaKiller.app 'START HERE.txt' 'Third-Party Notices.txt' | LC_ALL=C sort)"
+EXPECTED_DMG_ENTRIES="$(printf '%s\n' Applications Praelude.app 'START HERE.txt' 'Third-Party Notices.txt' | LC_ALL=C sort)"
 [[ "$DMG_ENTRIES" == "$EXPECTED_DMG_ENTRIES" ]] || fail "mounted DMG has unexpected top-level entries: $DMG_ENTRIES"
-bash "$ROOT/scripts/check-share-clean.sh" "$DMG_MOUNT/CodaKiller.app"
-MOUNTED_NOTICE="$(find "$DMG_MOUNT/CodaKiller.app/Contents/Resources" -type f -name 'THIRD_PARTY_NOTICES.txt' -print -quit)"
+bash "$ROOT/scripts/check-share-clean.sh" "$DMG_MOUNT/Praelude.app"
+MOUNTED_NOTICE="$(find "$DMG_MOUNT/Praelude.app/Contents/Resources" -type f -name 'THIRD_PARTY_NOTICES.txt' -print -quit)"
 [[ -n "$MOUNTED_NOTICE" ]] || fail "mounted app is missing its bundled notices"
 cmp -s "$DMG_MOUNT/Third-Party Notices.txt" "$MOUNTED_NOTICE" \
   || fail "top-level and app-bundled third-party notices differ"
@@ -160,7 +166,7 @@ printf '8/8 Verifying release artifacts...\n'
 [[ -s "$DMG" ]] || fail "DMG is empty"
 [[ -s "$CHECKSUM" ]] || fail "checksum is empty"
 
-printf '\nPASS: CodaKiller %s is installed, sealed, and packaged.\n' "$VERSION"
+printf '\nPASS: Praelude %s is installed, sealed, and packaged.\n' "$VERSION"
 printf 'App: %s\n' "$INSTALLED_APP"
 printf 'DMG: %s\n' "$DMG"
 printf 'SHA-256: %s\n' "$CHECKSUM"

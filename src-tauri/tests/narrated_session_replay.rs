@@ -4,7 +4,7 @@
 //! Where `narrated_voice_firewall.rs` feeds reviewed strings through the *pure,
 //! stateless* [`Router`] one at a time, this harness replays an **ordered** real
 //! session end-to-end and carries live state between segments, exactly the way the
-//! production command loop ([`codakiller_lib`]'s `voice_loop::ActionCtx::handle_final`)
+//! production command loop ([`praelude_lib`]'s `voice_loop::ActionCtx::handle_final`)
 //! does:
 //!
 //! 1. A live [`Mode`] is derived from the running state every segment:
@@ -40,8 +40,8 @@
 #[path = "replay_common/mod.rs"]
 mod replay_common;
 
-use codakiller_lib::intent::{Intent, Verdict};
-use codakiller_lib::protocol::MasteryStatus;
+use praelude_lib::intent::{Intent, Verdict};
+use praelude_lib::protocol::MasteryStatus;
 use replay_common::{
     assert_full_session_replay, load, Classification, Outcome, SessionReplay, StateCheckpoint,
 };

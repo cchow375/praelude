@@ -1,6 +1,6 @@
 //! Explicit reference-recording handoff.
 //!
-//! CodaKiller does not scrape, download, autoplay, or accept arbitrary URLs.
+//! Praelude does not scrape, download, autoplay, or accept arbitrary URLs.
 //! The only operation is opening a fixed Spotify or YouTube search URL whose
 //! query is derived from one canonical piece and percent-encoded byte by byte.
 

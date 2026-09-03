@@ -17,7 +17,7 @@ async function applyInterfaceScale(percent: number) {
 function AppContent() {
   const { settings, acceptSetting } = useSettings();
 
-  // v3 is dark-only: pin <html data-theme="dark"> once.
+  // Praelude is dark by default and by design.
   useEffect(() => {
     applyTheme("dark");
   }, []);

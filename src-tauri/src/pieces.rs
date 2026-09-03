@@ -69,7 +69,7 @@ fn truncate_utf16(value: &str, max_units: usize) -> String {
 }
 
 /// Convert arbitrary metadata into a component that is valid on every desktop
-/// filesystem CodaKiller ships on. The original text remains exact in SQLite.
+/// filesystem Praelude ships on. The original text remains exact in SQLite.
 fn portable_component(raw: &str, fallback: &str, max_utf16: usize) -> String {
     let replaced: String = raw
         .chars()

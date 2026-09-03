@@ -5,7 +5,7 @@ import { compactDuration, todayLabel } from "./format";
 import { StreakLine } from "../streak/StreakLine";
 import { useStreak } from "../streak/useStreak";
 import {
-  CodaMark,
+  PraeludeMark,
   ListIcon,
   NoteIcon,
   OrbitIcon,
@@ -86,8 +86,8 @@ export function TodayWorkspace({
     <div className="today-menu" data-testid="today-menu">
       <div className="today-menu-inner">
         <div className="today-menu-mark">
-          <CodaMark className="today-menu-mark-glyph" />
-          <span className="today-menu-wordmark">CodaKiller</span>
+          <PraeludeMark className="today-menu-mark-glyph" />
+          <span className="today-menu-wordmark">Praelude</span>
         </div>
 
         <p className="today-date today-menu-date">{todayLabel()}</p>

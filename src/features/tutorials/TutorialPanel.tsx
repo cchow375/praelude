@@ -213,7 +213,7 @@ export function TutorialPanel({ pieceId, regionId }: { pieceId: number; regionId
           <p className="ck-inline-error" role="alert">{videoError}</p>
           {activeVideo && (
             <ConfirmDelete
-              label={`Forget “${activeVideo.title}”? Its chapter mappings will be deleted from CodaKiller. The video file itself will not be changed.`}
+              label={`Forget “${activeVideo.title}”? Its chapter mappings will be deleted from Praelude. The video file itself will not be changed.`}
               onConfirm={() => forgetBrokenVideo(activeVideo.id)}
             >
               <button type="button" className="is-danger">Forget broken video</button>

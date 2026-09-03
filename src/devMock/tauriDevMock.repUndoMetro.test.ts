@@ -187,7 +187,7 @@ describe("dev-mock settings snapshot round-trip", () => {
       "settings_snapshot",
     );
     expect(snapshot.theme).toBe("light");
-    expect(snapshot.wake_word).toBe("coda");
+    expect(snapshot.wake_word).toBe("praelude");
   });
 
   it("still forgets it across installs", async () => {

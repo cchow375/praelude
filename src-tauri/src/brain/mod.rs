@@ -1,6 +1,6 @@
 //! Grounded, bounded practice Q&A.
 //!
-//! The brain is deliberately outside CodaKiller's deterministic hot loop. It
+//! The brain is deliberately outside Praelude's deterministic hot loop. It
 //! can explain retrieved practice methods, but it cannot hear playing, assign a
 //! rep verdict, change tempo, navigate the score, or mutate the practice graph.
 
@@ -1424,7 +1424,8 @@ fn output_policy_violation_reason(answer: &str) -> Option<&'static str> {
 
             // Advice may tell Christian what to try. Reject these pairs only when
             // the provider falsely casts itself/the app as the actor.
-            let claimed_app_actor = has(&["i", "we", "coda", "codakiller", "app", "brain"]);
+            let claimed_app_actor =
+                has(&["i", "we", "praelude", "coda", "codakiller", "app", "brain"]);
             let navigation = claimed_app_actor
                 && has(&[
                     "go",

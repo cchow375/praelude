@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="${1:-$ROOT/src-tauri/target/release/bundle/macos/CodaKiller.app}"
+APP="${1:-$ROOT/src-tauri/target/release/bundle/macos/Praelude.app}"
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2

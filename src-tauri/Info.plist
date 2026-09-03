@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>CodaKiller listens for your spoken commands and rep check-offs.</string>
+  <string>Praelude listens for your spoken commands and rep check-offs.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
-  <string>CodaKiller transcribes your voice on-device to track reps and control practice tools.</string>
+  <string>Praelude transcribes your voice on-device to track reps and control practice tools.</string>
   <key>NSCameraUsageDescription</key>
-  <string>CodaKiller uses the camera only when you choose to add a practice-day photo.</string>
+  <string>Praelude uses the camera only when you choose to add a practice-day photo.</string>
 </dict>
 </plist>

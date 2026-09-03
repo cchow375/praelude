@@ -45,7 +45,7 @@ const snapshot: SettingsSnapshot = {
   brain_provider: "auto",
   assistant_enabled: true,
   wake_word_enabled: false,
-  wake_word: "coda",
+  wake_word: "praelude",
   speak_acks: false,
   stt_settle_ms: 600,
   metronome_sound: "woodblock",
@@ -139,6 +139,8 @@ describe("SettingsPanel", () => {
     const guide = await screen.findByRole("region", {
       name: "One practice loop, two voice lanes",
     });
+    expect(guide.closest("details")?.open).toBe(false);
+    fireEvent.click(screen.getByText("How to use Praelude"));
     expect(guide.closest("details")?.open).toBe(true);
     expect(
       within(guide).getByRole("list", { name: "Golden practice flow" }),
@@ -166,6 +168,8 @@ describe("SettingsPanel", () => {
     const guide = await screen.findByRole("region", {
       name: "One hands-free practice loop",
     });
+    expect(guide.closest("details")?.open).toBe(false);
+    fireEvent.click(screen.getByText("How to use Praelude"));
     expect(guide.closest("details")?.open).toBe(true);
     expect(
       within(guide).getByRole("list", { name: "Golden practice flow" }),

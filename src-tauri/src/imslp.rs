@@ -47,7 +47,7 @@ use serde_json::Value;
 const API_ENDPOINT: &str = "https://imslp.org/api.php";
 
 /// Descriptive User-Agent per IMSLP etiquette (§5 of the research notes).
-const USER_AGENT: &str = "CodaKiller/4.0 personal practice app";
+const USER_AGENT: &str = "Praelude/10.0 personal practice app";
 
 /// Minimum spacing between live requests. The research notes observed a
 /// `Crawl-delay: 2` in robots.txt; the spec floor is ≥1s. We adopt 1s as the
@@ -226,7 +226,7 @@ impl NativeHttp {
         }
         response
             .text()
-            .map_err(|_| "IMSLP sent a response CodaKiller could not read.".to_string())
+            .map_err(|_| "IMSLP sent a response Praelude could not read.".to_string())
     }
 }
 
@@ -366,7 +366,7 @@ fn api_error(root: &Value) -> Option<String> {
 /// Parse a `list=search` JSON response into [`WorkHit`]s.
 fn parse_search(body: &str) -> Result<Vec<WorkHit>, String> {
     let root: Value = serde_json::from_str(body)
-        .map_err(|_| "IMSLP sent a search response CodaKiller could not parse.".to_string())?;
+        .map_err(|_| "IMSLP sent a search response Praelude could not parse.".to_string())?;
     if let Some(err) = api_error(&root) {
         return Err(err);
     }
@@ -434,7 +434,7 @@ fn usable_hits(hits: Vec<WorkHit>) -> Vec<WorkHit> {
 /// Parse an `action=parse&prop=wikitext` JSON response into [`Edition`]s.
 fn parse_editions(body: &str) -> Result<Vec<Edition>, String> {
     let root: Value = serde_json::from_str(body)
-        .map_err(|_| "IMSLP sent a work page CodaKiller could not parse.".to_string())?;
+        .map_err(|_| "IMSLP sent a work page Praelude could not parse.".to_string())?;
     if let Some(err) = api_error(&root) {
         return Err(err);
     }
@@ -583,7 +583,7 @@ fn parse_fields(inner: &str) -> Vec<(String, String)> {
 /// back to opening the work's wiki page.
 fn parse_file_info(body: &str) -> Result<FileInfo, String> {
     let root: Value = serde_json::from_str(body)
-        .map_err(|_| "IMSLP sent a file record CodaKiller could not parse.".to_string())?;
+        .map_err(|_| "IMSLP sent a file record Praelude could not parse.".to_string())?;
     if let Some(err) = api_error(&root) {
         return Err(err);
     }

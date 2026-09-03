@@ -1553,11 +1553,11 @@ impl VoiceLoop {
                     ),
                     DownReason::MicDenied => (
                         "mic-denied",
-                        "Microphone or Speech Recognition permission is off. System Settings ▸ Privacy & Security ▸ Microphone (and Speech Recognition) → allow CodaKiller, then relaunch.",
+                        "Microphone or Speech Recognition permission is off. System Settings ▸ Privacy & Security ▸ Microphone (and Speech Recognition) → allow Praelude, then relaunch.",
                     ),
                     DownReason::RestartStorm => (
                         "restart-storm",
-                        "Voice input stopped after repeated failures — often a Microphone or Speech Recognition permission issue. Check System Settings ▸ Privacy & Security ▸ Microphone (and Speech Recognition) for CodaKiller, then relaunch.",
+                        "Voice input stopped after repeated failures — often a Microphone or Speech Recognition permission issue. Check System Settings ▸ Privacy & Security ▸ Microphone (and Speech Recognition) for Praelude, then relaunch.",
                     ),
                 };
                 if let Ok(mut s) = ev_status.lock() {

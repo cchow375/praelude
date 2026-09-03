@@ -38,7 +38,7 @@ describe("dev-mock settings_update handler", () => {
     expect(updated.theme).toBe("light");
     expect(updated.interface_scale).toBe(110);
     // Untouched fields still come through from the base snapshot.
-    expect(updated.wake_word).toBe("coda");
+    expect(updated.wake_word).toBe("praelude");
   });
 
   it("persists the update: a later settings_snapshot reflects it", async () => {

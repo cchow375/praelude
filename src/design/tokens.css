@@ -1,10 +1,9 @@
 /* ==========================================================================
-   CodaKiller v4 — PAPER / INK token system
+   Praelude — dark product token system
    --------------------------------------------------------------------------
-   The app is a NOTEBOOK: warm off-white paper, true ink-black text, ruled
-   writing lines, a serif face for titles, a clean sans for UI, and ONE
-   restrained accent (ink blue) for links, selection and focus. This replaces
-   the v3 "pure-monochrome dark" system, which the user has reversed.
+   A near-black canvas, cool neutral surfaces, clear sans-serif type, and one
+   restrained blue-white accent. Historical paper token names remain because
+   older workspaces consume them; their values now resolve into this system.
 
    Rules of the road for consumers:
    - Components consume ONLY these variables; this file is the visual source
@@ -39,36 +38,35 @@
 :root[data-theme="paper"],
 :root[data-theme="light"],
 :root[data-theme="dark"] {
-  /* Native form controls, scrollbars and the webview backdrop follow paper. */
-  color-scheme: light;
+  color-scheme: dark;
 
   /* --- Paper (surfaces) ------------------------------------------------- */
-  --bg: #faf8f3; /* the page itself */
-  --bg-raised: #ffffff; /* a card/sheet laid on the page */
-  --bg-sunken: #f1ede4; /* a well pressed into the page */
+  --bg: #090a0c;
+  --bg-raised: #121419;
+  --bg-sunken: #07080a;
   --paper: var(--bg);
   --paper-raised: var(--bg-raised);
   --paper-sunken: var(--bg-sunken);
-  --paper-edge: #ebe6db; /* torn/deckle edge, tab strips */
-  --paper-grain: rgba(26, 23, 20, 0.045); /* fibre fleck (App.css body) */
+  --paper-edge: #242831;
+  --paper-grain: transparent;
 
   /* --- Ink (text) ------------------------------------------------------- */
-  --ink: #1a1714;
-  --ink-dim: #57514a;
-  --ink-faint: #716a61;
-  --ink-ghost: #8b8378; /* decorative only — below AA for body text */
-  --ink-inverse: #faf8f3; /* text laid on an ink/accent fill */
-  --pencil: #3a3733; /* score marks + handwriting */
-  --pencil-dim: #6b6660;
+  --ink: #f5f7fa;
+  --ink-dim: #b8bec8;
+  --ink-faint: #8f98a5;
+  --ink-ghost: #69717c;
+  --ink-inverse: #090a0c;
+  --pencil: #e8ebf0;
+  --pencil-dim: #a8afb9;
 
   /* --- Rules & hairlines ------------------------------------------------ */
-  --hairline: rgba(26, 23, 20, 0.13);
-  --hairline-strong: rgba(26, 23, 20, 0.22);
-  --control-line: rgba(26, 23, 20, 0.5); /* 3.3:1 — input/control borders */
-  --paper-rule: rgba(44, 74, 110, 0.14); /* the ruled writing line */
-  --paper-rule-strong: rgba(44, 74, 110, 0.26);
-  --paper-margin: rgba(168, 50, 42, 0.22); /* the red margin rule */
-  --paper-rule-gap: 28px; /* pitch of the ruled lines */
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-strong: rgba(255, 255, 255, 0.14);
+  --control-line: rgba(255, 255, 255, 0.18);
+  --paper-rule: rgba(255, 255, 255, 0.065);
+  --paper-rule-strong: rgba(255, 255, 255, 0.11);
+  --paper-margin: rgba(169, 191, 255, 0.18);
+  --paper-rule-gap: 30px;
   /* Where the writing line is painted inside each band, measured from the top.
      In a fixed --paper-rule-gap line box the baseline lands at
      gap/2 + font-size * (ascent - descent) / 2, so this tracks font-size via
@@ -77,36 +75,36 @@
      font-size differs from the text inside. */
   --paper-rule-baseline: calc(var(--paper-rule-gap) / 2 + 0.36em);
 
-  /* --- Accent (ink blue) ------------------------------------------------ */
-  --accent: #2c4a6e;
-  --accent-hover: #24405f;
-  --accent-contrast: #faf8f3; /* text on an --accent fill */
-  --accent-wash: rgba(44, 74, 110, 0.09); /* selected row / soft fill */
-  --accent-line: rgba(44, 74, 110, 0.35);
-  --accent-invert-bg: #1a1714; /* primary button: ink fill */
-  --accent-invert-ink: #faf8f3; /* primary button: paper text */
+  --accent: #a9bfff;
+  --accent-hover: #c4d2ff;
+  --accent-contrast: #0a0d14;
+  --accent-wash: rgba(169, 191, 255, 0.11);
+  --accent-line: rgba(169, 191, 255, 0.38);
+  --accent-invert-bg: #f5f7fa;
+  --accent-invert-ink: #090a0c;
 
   /* --- Semantic signals (muted, paper-appropriate) ---------------------- */
-  --signal-error: #a8322a;
-  --signal-success: #2f6b43;
-  --signal-warning: #8a5a12;
-  --signal-error-wash: rgba(168, 50, 42, 0.08);
-  --signal-success-wash: rgba(47, 107, 67, 0.08);
-  --signal-warning-wash: rgba(138, 90, 18, 0.08);
+  --signal-error: #ff9188;
+  --signal-success: #78dca0;
+  --signal-warning: #f1c97a;
+  --signal-error-wash: rgba(255, 145, 136, 0.1);
+  --signal-success-wash: rgba(120, 220, 160, 0.1);
+  --signal-warning-wash: rgba(241, 201, 122, 0.1);
 
   /* --- Focus + selection ------------------------------------------------ */
-  --focus-ring: #2c4a6e; /* 8.56:1 on paper */
+  --focus-ring: #a9bfff;
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
-  --selection-bg: rgba(44, 74, 110, 0.2);
-  --selection-ink: #1a1714;
+  --selection-bg: rgba(169, 191, 255, 0.28);
+  --selection-ink: #ffffff;
 
   /* --- Type ------------------------------------------------------------- */
   --font-display:
-    "New York", "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
+    "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
   --font-sans:
-    system-ui, -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+    "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   /* Tempo/measure numerals: tabular so digits do not jitter while counting. */
   --numeric-figures: tabular-nums;
   --measure: 68ch; /* comfortable prose column */
@@ -123,9 +121,9 @@
      the metronome panel, the score chrome. The 27 that do not are hard-coded
      50% circles, 999px pills and 0. --radius-pill (999px) is unchanged.
      A lane that wants a softer corner must change it here, with a reason. */
-  --r-sm: 4px;
-  --r-md: 6px;
-  --r-lg: 10px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;
@@ -136,8 +134,8 @@
   /* Motion: fast micro-responses + a single entrance. No ambient loops. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --dur-fast: 120ms;
-  --dur-base: 160ms;
-  --dur-slow: 180ms;
+  --dur-base: 170ms;
+  --dur-slow: 220ms;
 }
 
 /* --------------------------------------------------------------------------
@@ -169,16 +167,16 @@
   --info: var(--accent);
   --surface-app: var(--bg);
   --surface-raised: var(--bg-raised);
-  --surface-hover: rgba(26, 23, 20, 0.045);
-  --surface-active: rgba(26, 23, 20, 0.08);
-  --surface-ink: #1a1714; /* the inverted block; pair with --ink-on-dark */
-  --surface-popover: #ffffff;
+  --surface-hover: rgba(255, 255, 255, 0.055);
+  --surface-active: rgba(255, 255, 255, 0.09);
+  --surface-ink: #f5f7fa;
+  --surface-popover: #171a20;
   --shadow-popover:
-    0 12px 32px rgba(26, 23, 20, 0.14), 0 2px 6px rgba(26, 23, 20, 0.07),
+    0 28px 80px rgba(0, 0, 0, 0.52), 0 8px 24px rgba(0, 0, 0, 0.3),
     0 0 0 1px var(--hairline);
-  --shadow-card: 0 1px 2px rgba(26, 23, 20, 0.05);
-  --shadow-topbar: 0 1px 0 var(--hairline);
-  --radius-xs: 2px; /* was 4px in v3 — see the radii note above */
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.035), 0 12px 36px rgba(0, 0, 0, 0.18);
+  --shadow-topbar: 0 1px 0 var(--hairline), 0 10px 30px rgba(0, 0, 0, 0.16);
+  --radius-xs: 6px;
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
   --radius-lg: var(--r-lg);
@@ -210,8 +208,8 @@
   --leading-normal: 1.5;
   --leading-relaxed: 1.65;
   --leading-rule: var(--paper-rule-gap); /* text sitting ON the ruled lines */
-  --tracking-tight: -0.01em;
-  --tracking-label: 0.04em;
+  --tracking-tight: -0.025em;
+  --tracking-label: 0.055em;
   --region-color: var(--ink-faint);
   --duration-fast: var(--dur-fast);
   --duration-base: var(--dur-base);

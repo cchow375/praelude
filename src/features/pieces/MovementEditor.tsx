@@ -59,7 +59,7 @@ export function MovementEditor({ pieceId }: { pieceId: number }) {
         <div>
           <span className="ck-label">PDF movements</span>
           <p>
-            Add only each movement’s first PDF page. CodaKiller derives where it
+            Add only each movement’s first PDF page. Praelude derives where it
             ends and scopes the score automatically.
           </p>
         </div>

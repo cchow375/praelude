@@ -19,7 +19,7 @@
 //! sentences carrying command words that must still route nowhere. Every
 //! loosening above is only acceptable because these hold.
 
-use codakiller_lib::intent::{canonicalize, Intent, Mode, Router};
+use praelude_lib::intent::{canonicalize, Intent, Mode, Router};
 
 /// Which July 31 complaint (or which guard) a case exists for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

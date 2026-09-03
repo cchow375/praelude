@@ -202,9 +202,9 @@ mod tests {
 
     #[test]
     fn request_body_matches_verified_shape() {
-        let body = build_request_body("CodaKiller online", "gemini-3.1-flash-tts-preview", "Kore");
+        let body = build_request_body("Praelude online", "gemini-3.1-flash-tts-preview", "Kore");
         assert_eq!(body["model"], "gemini-3.1-flash-tts-preview");
-        assert_eq!(body["input"], "CodaKiller online");
+        assert_eq!(body["input"], "Praelude online");
         assert_eq!(body["response_format"]["type"], "audio");
         // speech_config is an ARRAY of {voice}, per the verified docs.
         assert_eq!(

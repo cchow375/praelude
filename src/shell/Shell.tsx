@@ -132,6 +132,15 @@ function ShellGlyph({ children }: { children: ReactNode }) {
   );
 }
 
+function PraeludeMark() {
+  return (
+    <svg className="shell-brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 19V5h5.25a4.75 4.75 0 0 1 0 9.5H7" />
+      <path d="M10 8.25h2.1a1.5 1.5 0 0 1 0 3H10" />
+    </svg>
+  );
+}
+
 const NAV_ICONS: Record<WorkspaceId, ReactNode> = {
   today: (
     <ShellGlyph>
@@ -1106,8 +1115,11 @@ export function Shell({
 
   const shellTree = (
     <div className="shell">
-      <aside className="shell-rail" aria-label="CodaKiller">
-        <div className="shell-wordmark">CodaKiller</div>
+      <aside className="shell-rail" aria-label="Praelude">
+        <div className="shell-wordmark">
+          <PraeludeMark />
+          <span>Praelude</span>
+        </div>
 
         <nav
           className="shell-nav shell-enter"

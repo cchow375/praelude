@@ -1,8 +1,8 @@
 [package]
-name = "codakiller"
-version = "9.1.3"
+name = "praelude"
+version = "10.0.0"
 description = "Voice-first practice and rep tracker for pianists"
-authors = ["CodaKiller contributors"]
+authors = ["Praelude contributors"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -11,7 +11,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "codakiller_lib"
+name = "praelude_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -56,7 +56,7 @@ quick-xml = "0.41"
 # the Henle Op.90 is 5223x7291 = 38.1 MP inside a 1.0 MB file. Rasterizing that
 # page through PDF.js decodes every one of those pixels; extracting the embedded
 # image and decoding it straight to screen resolution does not. These five crates
-# are the minimum needed to do that without a C dependency — CodaKiller must not
+# are the minimum needed to do that without a C dependency — Praelude must not
 # grow a runtime requirement on poppler/qpdf/ghostscript, none of which exist on
 # the target machine. All are pure Rust and MIT/Apache-2.0.
 #

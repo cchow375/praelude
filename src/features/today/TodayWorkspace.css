@@ -3,11 +3,12 @@
   display: flex;
   min-height: 100%;
   padding: clamp(1.5rem, 6vh, 5rem) clamp(1.25rem, 5vw, 4rem);
-  background: var(--bg);
+  background:
+    radial-gradient(circle at 50% 22%, rgba(169, 191, 255, 0.06), transparent 32rem),
+    var(--bg);
 }
 .today-menu-inner {
-  width: 100%;
-  max-width: 30rem;
+  width: min(100%, 34rem);
   margin: auto;
 }
 .today-menu-mark {
@@ -17,12 +18,18 @@
   color: var(--ink);
 }
 .today-menu-mark-glyph {
-  color: var(--ink-dim);
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--surface-hover);
 }
 .today-menu-wordmark {
-  font-size: 0.9375rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .today-date,
@@ -50,9 +57,10 @@
   align-items: center;
   gap: var(--s-3);
   width: 100%;
-  padding: var(--s-3);
+  min-height: 48px;
+  padding: 0 var(--s-4);
   border: 0;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
   background: transparent;
   color: var(--ink-faint);
   font: inherit;
@@ -65,14 +73,18 @@
 }
 .today-menu-item:hover {
   color: var(--ink);
-  background: var(--bg-raised);
+  background: var(--surface-hover);
 }
 .today-menu-item:active {
   transform: translateY(1px);
 }
 .today-menu-item.is-primary {
-  color: var(--ink);
+  color: var(--ink-inverse);
+  background: var(--ink);
   font-weight: 600;
+}
+.today-menu-item.is-primary .today-menu-icon {
+  color: var(--ink-inverse);
 }
 .today-menu-icon {
   flex: none;
@@ -668,7 +680,7 @@
   }
 }
 
-/* Keep the first real action above the fold in CodaKiller's 720×520 gate. */
+/* Keep the first real action above the fold in Praelude's 720×520 gate. */
 @media (max-width: 800px), (max-height: 620px) {
   .today-next {
     min-height: 22rem;

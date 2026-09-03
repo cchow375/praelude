@@ -230,7 +230,7 @@ describe("VoiceToast component", () => {
   it("re-shows the banner for a NEW (different) down guidance even after a prior dismissal", () => {
     const first = "Enable Dictation in System Settings.";
     const second =
-      "Microphone or Speech Recognition permission is off. Allow CodaKiller, then relaunch.";
+      "Microphone or Speech Recognition permission is off. Allow Praelude, then relaunch.";
     const { rerender } = render(
       <VoiceToast lastIntent={null} status="down" downGuidance={first} />,
     );

@@ -20,7 +20,7 @@
   width: 100%;
   max-width: 74rem;
   margin: 0 auto;
-  padding: clamp(1.5rem, 5vw, 4.5rem) clamp(1.25rem, 4vw, 3rem) var(--space-8);
+  padding: clamp(1.5rem, 4vw, 3.5rem) clamp(1.25rem, 4vw, 3rem) var(--space-8);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -45,17 +45,17 @@
   margin: var(--space-1) 0 0;
   color: var(--ink-primary);
   font-family: var(--font-display);
-  font-size: clamp(3.2rem, 7vw, 7.5rem);
-  font-weight: var(--weight-normal);
-  letter-spacing: -0.06em;
-  line-height: 0.82;
+  font-size: clamp(2.4rem, 5vw, 4.75rem);
+  font-weight: 650;
+  letter-spacing: -0.055em;
+  line-height: 0.95;
 }
 
 .pieces-subheading {
   margin: var(--space-3) 0 0;
   color: var(--ink-secondary);
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
 }
 
 .atlas-instruction {
@@ -158,11 +158,11 @@
   grid-template-columns: 2.4rem minmax(0, 1fr) auto;
   justify-content: normal;
   gap: var(--space-4);
-  min-height: 6.4rem;
+  min-height: 5.25rem;
   padding: var(--space-4) var(--space-3);
   background: transparent;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--radius-md);
   cursor: pointer;
   text-align: left;
   transition:
@@ -170,8 +170,8 @@
     transform var(--duration-fast) var(--ease-spring);
 }
 .piece-row:hover {
-  background: var(--surface-raised);
-  transform: translateX(4px);
+  background: var(--surface-hover);
+  transform: translateX(2px);
 }
 .piece-row:active {
   transform: translateX(4px) translateY(1px);
@@ -200,11 +200,11 @@
    wraps to a second line at a word boundary instead of clipping mid-word, and
    the whole title is revealed on row hover/focus (.ck-fit-reveal). */
 .piece-row-title {
-  --ck-fit-size: clamp(1.5rem, 2.6vw, 2.5rem);
+  --ck-fit-size: clamp(1.25rem, 2vw, 1.9rem);
   --ck-fit-lines: 2;
   --ck-fit-leading: 1.05;
   font-family: var(--font-display);
-  font-weight: var(--weight-normal);
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.03em;
   color: var(--ink-primary);
 }

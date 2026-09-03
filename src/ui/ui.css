@@ -1,5 +1,5 @@
 /* ==========================================================================
-   CodaKiller v4 — minimal component kit, PAPER edition
+   Praelude — dark component kit
    Consumes ONLY tokens from src/design/tokens.css. Ink on paper, hairline
    rules, one restrained accent. No decorative frames, no gradients.
    ========================================================================== */
@@ -10,10 +10,11 @@
   align-items: center;
   justify-content: center;
   gap: var(--s-2);
-  min-height: 34px;
+  min-height: 38px;
   padding: 0 var(--s-4);
   border: none;
-  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  border-radius: 10px;
   font: inherit;
   font-family: var(--font-sans);
   font-weight: 500;
@@ -45,7 +46,7 @@
   color: var(--accent-invert-ink);
 }
 .ck-btn-primary:hover:not(:disabled) {
-  background: var(--pencil);
+  background: #ffffff;
 }
 .ck-btn-primary:active:not(:disabled) {
   transform: translateY(1px);
@@ -53,7 +54,8 @@
 
 /* Text = borderless label; hover only shifts the ink. */
 .ck-btn-text {
-  background: transparent;
+  border-color: var(--hairline);
+  background: var(--surface-hover);
   color: var(--ink-dim);
   padding: 0 var(--s-2);
 }
@@ -69,8 +71,8 @@
 .ck-panel {
   background: var(--bg-raised);
   border: 1px solid var(--hairline);
-  border-radius: var(--r-md);
-  padding: var(--s-4);
+  border-radius: var(--r-lg);
+  padding: var(--s-5);
   box-shadow: var(--shadow-card);
 }
 .ck-panel-head {
@@ -140,15 +142,15 @@
   align-items: center;
   justify-content: center;
   padding: var(--s-5);
-  /* A warm ink wash, not a black-out — the page stays readable underneath. */
-  background: rgba(26, 23, 20, 0.32);
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(14px) saturate(0.8);
   z-index: 100;
 }
 .ck-dialog {
   width: min(440px, 100%);
   background: var(--bg-raised);
   border: 1px solid var(--hairline-strong);
-  border-radius: var(--r-lg);
+  border-radius: 20px;
   padding: var(--s-5);
   box-shadow: var(--shadow-popover);
   animation: ck-dialog-in var(--dur-slow) var(--ease-out);

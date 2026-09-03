@@ -17,10 +17,7 @@ body,
 }
 
 html {
-  /* Native controls, scrollbars and the webview backdrop follow paper.
-     `scrollbar-*` inherit, so declaring them once on the root is enough — a
-     universal selector would only add style-recalc work. */
-  color-scheme: light;
+  color-scheme: dark;
   background: var(--bg);
   scrollbar-color: var(--hairline-strong) transparent;
   scrollbar-width: thin;
@@ -33,33 +30,13 @@ body {
   line-height: var(--leading-normal);
   font-weight: var(--weight-normal);
   color: var(--ink-primary);
-  /* Paper base + a faint fibre fleck painted straight onto the body
-     background. (The v3 build used a fixed `body::before` at z-index 9999,
-     which forced a full-viewport composited layer above the entire app for a
-     texture that never rendered — `--paper-grain` was never defined. Painting
-     it as a background costs nothing per frame.) */
   background-color: var(--surface-app);
-  background-image:
-    radial-gradient(
-      circle at 17% 21%,
-      var(--paper-grain) 0 0.7px,
-      transparent 0.9px
-    ),
-    radial-gradient(
-      circle at 72% 64%,
-      var(--paper-grain) 0 0.6px,
-      transparent 0.8px
-    );
-  background-size:
-    11px 13px,
-    17px 19px;
+  background-image: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 
-/* Headings and piece titles are set in the serif display face — the notebook's
-   handwritten-title register. Feature stylesheets may override per surface. */
 h1,
 h2,
 h3 {
@@ -100,6 +77,13 @@ a:hover {
 /* Disable native drag/select chrome that reads as "web page" rather than app. */
 button {
   font-family: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  color-scheme: dark;
 }
 
 button,
