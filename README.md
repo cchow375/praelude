@@ -1,10 +1,26 @@
-# CodaKiller
+# Praelude
 
 A practice and rep tracker for pianists, built on the "user-is-the-sensor" principle. The
-installed Mac app is voice-first; the first Windows port is keyboard/mouse-first. CodaKiller
+installed Mac app is voice-first; the first Windows port is keyboard/mouse-first. Praelude
 counts, times, remembers and runs the metronome without trying to judge the piano itself.
 
 ## Status
+
+**Praelude v10.0.0 / schema 21 is shipped and installed on Mac (2026-09-03).** This release
+renames the visible product from CodaKiller and replaces the paper/serif interface with a
+dark-by-default, system-sans, restrained UI across the full app. It keeps Score page-first,
+passage Practice set focused, secondary choices modal and Settings collapsed until requested.
+Implementation commit `e67b3c2`; frontend 2,541/1 skipped, native 1,083/17 ignored plus
+integrations, TypeScript/build/format/strict-Clippy, share-clean, signature, one-copy, DMG and
+fresh-launch gates pass. `/Applications/Praelude.app` is running and the old app copy is absent.
+The live schema-21 DB is byte-identical before/after install. Hidden `com.christian.codakiller`
+and `codakiller` storage/Keychain identifiers remain deliberately for compatibility.
+
+DMG: `releases/v10.0.0/Praelude-10.0.0.dmg`, 10,585,072 bytes, SHA-256
+`21c919e1957739463f62330e7e5d573fa82fd4156e3aedf64b7439e1fcb9b1cf`; strict ad-hoc CDHash
+`0ca95a28f083b3b885a493efb6937845835cd010` (not notarized). The older Windows v9.1.0 candidate
+below is unchanged and still awaits native Windows acceptance; future Windows packages use
+Praelude branding.
 
 **v9.1.0 / schema 21 is a PACKAGED WINDOWS x64 CANDIDATE; real Windows 10/11 acceptance is
 PENDING (2026-08-31).** Package source commit

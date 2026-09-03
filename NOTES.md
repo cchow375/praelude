@@ -2,6 +2,31 @@
 
 ## Decisions
 
+- **v10.0.0 renames the visible product to Praelude and installs one dark interface system
+  (2026-09-03).** Product/package/window/executable/tutorial/settings/TTS branding, the app icon
+  and future package filenames now use Praelude; new profiles default the wake word to `praelude`.
+  `com.christian.codakiller`, the existing Application Support path, `codakiller.db`, Keychain
+  service, durable storage keys, migration sentinels and historical export filename stay unchanged
+  as hidden compatibility contracts. Changing them in a visual rename would strand the live graph,
+  TCC permissions or stored settings. Implementation is `e67b3c2`; the installed database matches
+  its pre-install backup byte-for-byte.
+
+- **The v10 visual contract is dark, quiet, sans and disclosure-first (2026-09-03).** Global
+  tokens now use near-black neutral surfaces, SF/system sans, restrained hairlines, moderate
+  radii and one blue-white accent. The narrower shell, larger primary targets and closed Settings
+  disclosures reduce simultaneous choices. Page-first Score and passage-selected Practice set
+  remain; Variants and secondary Settings are centered modal tasks. Desktop and 720×520 browser
+  QA caught a transformed-containing-block dialog bug and compact-panel clipping; both were fixed
+  before packaging (vault B100). Full frontend/native/build/lint/package/install gates pass.
+
+- **Praelude v10.0.0 is installed, not merely packaged (2026-09-03).** The signed ad-hoc app is
+  `/Applications/Praelude.app`; the old `/Applications/CodaKiller.app` is absent. DMG
+  `releases/v10.0.0/Praelude-10.0.0.dmg` is 10,585,072 bytes, SHA-256
+  `21c919e1957739463f62330e7e5d573fa82fd4156e3aedf64b7439e1fcb9b1cf`, CDHash
+  `0ca95a28f083b3b885a493efb6937845835cd010`. Live schema 21 integrity/FK/counts and exact DB
+  hash pass; backup/rollback facts live in the v10 record. The v9.1.0 Windows EXE remains the old
+  unaccepted candidate; future Windows packaging emits Praelude names.
+
 - **v9.1.3 removes the visible composer wall from selected Score passages (2026-09-03).** The
   score-local `BlockForm` has a `compact` presentation only in `ScoreView`: its surface shows the
   primary Start set action plus two clean entry points, Variants and Settings. Each opens a

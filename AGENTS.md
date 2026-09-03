@@ -1,4 +1,4 @@
-# CodaKiller repository entry point
+# Praelude repository entry point
 
 The binding project context and operating manual live in the Obsidian vault:
 
@@ -9,7 +9,13 @@ stay in this repository; product truth, Roadmap, Flaws, Changelog, tutorial, and
 stay in the vault. After **every** code/doc/decision change, obey the vault UPDATE PROTOCOL before
 reporting completion.
 
-Current source boundary: **v9.1.0 / schema 21 PACKAGED WINDOWS x64 CANDIDATE; NATIVE WINDOWS/
+Current source boundary: **Praelude v10.0.0 / schema 21 SHIPPED + INSTALLED ON MAC 2026-09-03.**
+The visible rename and dark full-app interface overhaul are installed at
+`/Applications/Praelude.app`. Implementation `e67b3c2`; frontend 2,541/1 skipped, native
+1,083/17 ignored plus integrations, build/lint/package/signature/one-copy and exact live-data
+preservation gates pass. Hidden legacy identifiers remain for compatibility only. The old v9.1.0
+Windows installer is unchanged and still needs native acceptance; future output is branded
+Praelude. Historical source boundary: **v9.1.0 / schema 21 PACKAGED WINDOWS x64 CANDIDATE; NATIVE WINDOWS/
 RECIPIENT ACCEPTANCE PENDING 2026-08-31.** Package source commit
 `2d33004888a97c3ebcb4b7799bf54029efd15626` produced the final unsigned current-user NSIS
 installer `releases/v9.1.0/windows/CodaKiller-9.1.0-Windows-x64-Setup.exe`, **7,654,002 bytes**,
