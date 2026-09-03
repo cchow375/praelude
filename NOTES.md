@@ -2,6 +2,16 @@
 
 ## Decisions
 
+- **The next unshipped Score source is page-first and passage-first (2026-09-02).** Christian
+  rejected the continuous reader and always-open rail composer as visually noisy. `ScoreView`
+  now renders the current page (or the explicit two-page view) only; Previous/Next and keyboard
+  paging are the normal way through a score. Tricky Sections are closed by default. Selecting a
+  passage closes that rail and opens its `BlockForm` in a floating score-local practice window;
+  it can be dismissed without changing the passage or practice history. The compact window becomes
+  a contained bottom sheet at narrow/short sizes. This source change is TypeScript-clean and its
+  focused ScoreView suite passes, but is neither packaged nor installed, and does not alter the
+  exact v9.1 installer or its pending Windows acceptance boundary.
+
 - **v9.1.0 is a packaged Windows x64 candidate, not a native-Windows-accepted release
   (2026-08-31).** It is the same generic v9 product, never a friend-specific fork; schema remains
   21. Package source commit `2d33004888a97c3ebcb4b7799bf54029efd15626` produced the unsigned

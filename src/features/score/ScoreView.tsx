@@ -18,7 +18,6 @@ import type {
   SetFocusContextInput,
 } from "../rep/useRep";
 import { BlockForm } from "../rep/BlockForm";
-import { addRotationTarget, rotationTargetKey } from "../rotation/rotation";
 import {
   anchorForEdition,
   anchorKind,
@@ -519,9 +518,8 @@ interface ScoreNavigate {
 }
 
 type ScoreScaleMode = "width" | "page" | "overview" | "manual";
-type SectionTab = "practice" | "edit" | "marks" | "tutorial";
+type SectionTab = "edit" | "marks" | "tutorial";
 const SECTION_TABS: readonly [SectionTab, string][] = [
-  ["practice", "Practice"],
   ["edit", "Edit"],
   ["marks", "Score marks"],
   ["tutorial", "Tutorial"],
@@ -644,7 +642,7 @@ function newTargetDraftId(pieceId: number): string {
 
 export function ScoreView({
   pieceId,
-  pieceTitle = "This piece",
+  pieceTitle: _pieceTitle = "This piece",
   isActive = true,
   activeRange = null,
   defaultTargetBpm = null,
@@ -694,7 +692,7 @@ export function ScoreView({
   );
   const [selectedRegionId, setSelectedRegionId] = useState<number | null>(null);
   const [expandedRegionId, setExpandedRegionId] = useState<number | null>(null);
-  const [sectionTab, setSectionTab] = useState<SectionTab>("practice");
+  const [sectionTab, setSectionTab] = useState<SectionTab>("edit");
   const sectionTabRefs = useRef<
     Partial<Record<SectionTab, HTMLButtonElement | null>>
   >({});
@@ -703,10 +701,9 @@ export function ScoreView({
   const [mapping, setMapping] = useState<MappingDraft | null>(null);
   const [savingMap, setSavingMap] = useState(false);
   const [navigationNotice, setNavigationNotice] = useState<string | null>(null);
-  // Continuous reader virtualization: every scoped page gets a lightweight,
-  // correctly-sized slot, but only what intersects the score pane (plus one
-  // page of overscan) mounts a PdfPage/canvas. This keeps wheel scrolling
-  // natural without returning to the all-canvases memory spike.
+  // The reader is deliberately page-based. A turn replaces the page instead
+  // of dropping the pianist into a long document scroll; only an enlarged
+  // single page can scroll inside its own frame.
   const [visiblePages, setVisiblePages] = useState<Set<number>>(
     () => new Set([1]),
   );
@@ -716,7 +713,7 @@ export function ScoreView({
   // Default to one whole page in view: a true PDF-viewer feel, not a 25-page
   // strip. Fit-width/manual zoom still overflow into a within-page scroll.
   const [scaleMode, setScaleMode] = useState<ScoreScaleMode>("page");
-  const [sectionsVisible, setSectionsVisible] = useState(true);
+  const [sectionsVisible, setSectionsVisible] = useState(false);
   const [containerWidth, setContainerWidth] = useState(900);
   const [containerHeight, setContainerHeight] = useState(700);
   const [maxPageWidth, setMaxPageWidth] = useState(DEFAULT_PAGE_SIZE.width);
@@ -1142,16 +1139,15 @@ export function ScoreView({
     scrollRef.current?.scrollTo?.({ top: 0, left: 0, behavior: "auto" });
   }, [currentPage, pageCount, selectedMovementRange]);
 
-  const scopedPages = useMemo(
-    () =>
-      pageScopeEnd < pageScopeStart
-        ? []
-        : Array.from(
-            { length: pageScopeEnd - pageScopeStart + 1 },
-            (_, index) => pageScopeStart + index,
-          ),
-    [pageScopeEnd, pageScopeStart],
-  );
+  const scopedPages = useMemo(() => {
+    if (pageScopeEnd < pageScopeStart) return [];
+    const first = Math.min(pageScopeEnd, Math.max(pageScopeStart, currentPage));
+    // Keep the existing explicit two-page tool, but ordinary reading is always
+    // one sheet at a time. No continuous multi-page column is rendered.
+    return scaleMode === "overview" && first < pageScopeEnd
+      ? [first, first + 1]
+      : [first];
+  }, [currentPage, pageScopeEnd, pageScopeStart, scaleMode]);
 
   // Observe the lightweight slots, not the canvases. The dominant visible page
   // drives page number/context; every intersecting page feeds the bounded
@@ -2172,8 +2168,8 @@ export function ScoreView({
         });
         setSelectedRegionId(created.id);
         setExpandedRegionId(created.id);
-        setSectionTab("practice");
-        setSectionsVisible(true);
+        setSectionTab("edit");
+        setSectionsVisible(false);
         sectionsStashedRef.current = false;
         setTargetMode(false);
         setTargetDraftId(null);
@@ -2316,7 +2312,8 @@ export function ScoreView({
       }
       setSelectedRegionId(regionId);
       setExpandedRegionId(regionId);
-      setSectionTab("practice");
+      setSectionTab("edit");
+      setSectionsVisible(false);
       setNavigationNotice(null);
       if (!edition) return;
       const region = regions.find((item) => item.id === regionId);
@@ -2329,17 +2326,12 @@ export function ScoreView({
     [edition, jumpTo, mapping, regions],
   );
 
-  // Expanding a section near the bottom of the independently scrolling rail
-  // must reveal its practice controls immediately. Without this, the row
-  // expanded below the fold and looked as if nothing had happened at the
-  // 720x520 minimum window size.
+  // When the optional section rail is open, keep its selected row in view.
+  // The practice composer itself is now a separate floating surface.
   useLayoutEffect(() => {
     if (expandedRegionId == null) return;
     const item = regionItemRefs.current.get(expandedRegionId);
-    const practiceComposer = item?.querySelector<HTMLElement>(
-      ".score-practice-region .block-form",
-    );
-    (practiceComposer ?? item)?.scrollIntoView?.({
+    item?.scrollIntoView?.({
       block: "start",
       inline: "nearest",
     });
@@ -2402,7 +2394,8 @@ export function ScoreView({
       if (!region) return;
       setSelectedRegionId(regionId);
       setExpandedRegionId(regionId);
-      setSectionTab("practice");
+      setSectionTab("edit");
+      setSectionsVisible(false);
       setGraphError(null);
 
       const activeIsRunning = Boolean(
@@ -2792,8 +2785,8 @@ export function ScoreView({
       setSelectedRegionId(created.id);
       setExpandedRegionId(created.id);
       setSpotArmed(false);
-      // Practice, not marks: the practice controls must be one click away.
-      setSectionTab("practice");
+      setSectionTab("edit");
+      setSectionsVisible(false);
       setSpotUndo({ regionId: created.id, name, parentId: parent.id });
       setNavigationNotice(
         `${name} added inside ${parent.name} · mm. ${mStart}–${mEnd}.`,
@@ -2954,6 +2947,65 @@ export function ScoreView({
     } finally {
       setSelecting(false);
     }
+  };
+
+  // The composer is its own surface, not another section of the score rail.
+  // It appears only after a passage is selected and floats over unused score
+  // space; at small sizes CSS turns it into a contained bottom sheet.
+  const renderPracticePanel = (region: Region) => {
+    if (!onOpenBlock) return null;
+    const regionBlocks = blocks.filter((block) => block.region_id === region.id);
+    const effectiveParentId = effectiveParents.get(region.id) ?? null;
+    return (
+      <section
+        className="score-practice-window"
+        data-region-id={region.id}
+        aria-label="Practice set"
+      >
+        <header className="score-practice-window-head">
+          <div>
+            <span className="ck-label">Selected passage</span>
+            <strong>{contextualLabel(region)}</strong>
+            <small>mm. {region.m_start}–{region.m_end}</small>
+          </div>
+          <button
+            type="button"
+            className="score-practice-window-close"
+            aria-label="Close practice set panel"
+            onClick={() => {
+              setSelectedRegionId(null);
+              setExpandedRegionId(null);
+            }}
+          >
+            ×
+          </button>
+        </header>
+        {regionBlocks.length > 0 && (
+          <p className="score-practice-window-history">
+            {regionBlocks[0].attempts_recorded ?? regionBlocks[0].tries ?? regionBlocks[0].reps_done} attempts so far
+          </p>
+        )}
+        <BlockForm
+          key={`${region.id}:${region.name}:${region.m_start}:${region.m_end}`}
+          pieceId={pieceId}
+          regionId={region.id}
+          defaultMeasureStart={region.m_start}
+          defaultMeasureEnd={region.m_end}
+          defaultLabel={contextualLabel(region)}
+          defaultTargetBpm={defaultTargetBpm}
+          defaultCleanStreak={effectiveParentId != null ? 3 : defaultCleanStreak}
+          onOpen={onOpenBlock}
+          opening={opening}
+          blockedReason={
+            activeRange
+              ? activeRange.m_start === region.m_start && activeRange.m_end === region.m_end
+                ? "This passage is already active."
+                : "Close the active practice set before starting another."
+              : null
+          }
+        />
+      </section>
+    );
   };
 
   const renderRegionInspector = (region: Region) => {
@@ -3251,87 +3303,6 @@ export function ScoreView({
                 )}
               </div>
             ))}
-
-          {sectionTab === "practice" && onOpenBlock && (
-            <section
-              className="score-practice-region"
-              data-region-id={region.id}
-              aria-label="Start a practice set"
-            >
-              {regionBlocks.length > 0 && (
-                <ul className="score-region-blocks">
-                  {regionBlocks.slice(0, 2).map((block) => {
-                    const attempts =
-                      block.attempts_recorded ?? block.tries ?? block.reps_done;
-                    const outcome =
-                      block.mastery_basis === "total_attempts"
-                        ? block.mastery_status === "satisfied"
-                          ? "total plays complete"
-                          : "total plays in progress"
-                        : block.mastery_verified
-                          ? block.mastery_status === "satisfied"
-                            ? "mastery verified"
-                            : "mastery not yet"
-                          : "mastery unverified";
-                    return (
-                      <li key={block.block_id}>
-                        mm. {block.m_start}–{block.m_end}
-                        <span>
-                          {attempts} attempts · {outcome}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-              <button
-                type="button"
-                className="score-add-rotation"
-                onClick={() =>
-                  addRotationTarget({
-                    key: rotationTargetKey(pieceId, region.id),
-                    piece_id: pieceId,
-                    region_id: region.id,
-                    piece_title: pieceTitle,
-                    label: contextualLabel(region),
-                    m_start: region.m_start,
-                    m_end: region.m_end,
-                    sound_target: region.notes,
-                  })
-                }
-              >
-                Add to practice rotation
-              </button>
-              <BlockForm
-                key={`${region.id}:${region.name}:${region.m_start}:${region.m_end}`}
-                pieceId={pieceId}
-                regionId={region.id}
-                defaultMeasureStart={region.m_start}
-                defaultMeasureEnd={region.m_end}
-                defaultLabel={contextualLabel(region)}
-                defaultTargetBpm={defaultTargetBpm}
-                // Task C5: a one-gesture start on a sub-section defaults to
-                // three consecutive cleans (BlockForm always sends an explicit
-                // required_clean_streak, so session_plan_start's child default
-                // never gets a chance on this path). Still fully editable, and
-                // a top-level region keeps the persisted practice default
-                // exactly as before.
-                defaultCleanStreak={
-                  effectiveParentId != null ? 3 : defaultCleanStreak
-                }
-                onOpen={onOpenBlock}
-                opening={opening}
-                blockedReason={
-                  activeRange
-                    ? activeRange.m_start === region.m_start &&
-                      activeRange.m_end === region.m_end
-                      ? "This section is already active in the practice set above."
-                      : "Close the active practice set before starting another."
-                    : null
-                }
-              />
-            </section>
-          )}
 
           {sectionTab === "tutorial" && (
             <TutorialPanel pieceId={pieceId} regionId={region.id} />
@@ -3868,6 +3839,8 @@ export function ScoreView({
                 })}
               </div>
             </div>
+
+            {selectedRegion && renderPracticePanel(selectedRegion)}
 
             <button
               type="button"

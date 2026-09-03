@@ -432,11 +432,81 @@
   min-width: 100%;
   min-height: 100%;
   box-sizing: border-box;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: flex-start;
-  gap: var(--space-5);
-  padding: var(--space-5) var(--space-4) var(--space-8);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+
+/* Passage-first composition: the score remains readable behind one concise
+   floating practice window. This replaces the old always-open rail composer. */
+.score-practice-window {
+  position: absolute;
+  z-index: 7;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  width: min(390px, calc(100% - 2 * var(--space-3)));
+  max-height: calc(100% - 2 * var(--space-3));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: 0 18px 56px rgb(24 18 14 / 24%);
+}
+.score-practice-window-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.score-practice-window-head > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.score-practice-window-head strong {
+  overflow: hidden;
+  color: var(--ink-primary);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.score-practice-window-head small,
+.score-practice-window-history {
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+}
+.score-practice-window-close {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  color: var(--ink-secondary);
+  background: var(--surface-app);
+  font: inherit;
+  font-size: var(--text-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+.score-practice-window-history {
+  margin: 0;
+  padding: var(--space-2) var(--space-3) 0;
+}
+.score-practice-window .block-form {
+  min-height: 0;
+  margin: var(--space-2);
+  border: 0;
+  box-shadow: none;
+}
+.score-practice-window .block-form-body {
+  padding-right: var(--space-1);
 }
 
 /* Persistent lightweight document geometry. Only slots in the viewport render
@@ -1567,6 +1637,17 @@
   }
   .score-body.is-sections-hidden .score-sidebar-toggle {
     right: var(--space-2);
+  }
+}
+
+@media (max-width: 800px), (max-height: 620px) {
+  .score-practice-window {
+    top: auto;
+    right: var(--space-2);
+    bottom: var(--space-2);
+    left: var(--space-2);
+    width: auto;
+    max-height: min(72%, 520px);
   }
 }
 
