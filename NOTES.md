@@ -2,6 +2,15 @@
 
 ## Decisions
 
+- **v10.0.4 makes the selected-passage strip width-responsive, not height-responsive (2026-09-04).** A
+  `max-height` compact rule incorrectly forced even a 2,048px-wide, short Score window into a
+  two-column mobile grid, so Practice set, its summary, Start set, Variants and Settings competed
+  for the same visual band. The default strip now gives passage identity, Passage tools and the
+  practice launcher explicit desktop columns; the active-set notice owns a separate grid row. Only
+  a genuinely narrow (`≤800px`) viewport reflows it, with named grid areas and wrapping controls.
+  Rendered browser QA at 2,048×390 and the original 2,648×390 width found no overlap or clipping;
+  a fresh-context structural review also passed.
+
 - **v10.0.3 turns Tricky Sections back into a map, not an inspector (2026-09-04).** The score-side rail now contains only find/select/add controls and compact passage rows; selecting a row never expands Edit, Score marks or Tutorial into that rail. The selected-passage strip owns an explicit **Passage tools** launcher, which opens those three concerns in a focused dialog. Starting score-mark drawing closes that dialog first, then exposes its tool, review, undo, save and cancel controls in the top strip, so the PDF remains reachable; Review reopens the dialog only for per-mark edits. Fresh-context review caught that draw-surface deadlock and the top-strip correction resolves it. Focused ScoreView (81), layout/dialog (11), TypeScript and production build pass.
 
 - **v10.0.2 turns the selected Score passage into the top working strip (2026-09-04).** The selected-passage practice component no longer floats over the PDF or Tricky Sections. It directly replaces the Score toolbar, arranges the passage identity, start action and Variants/Settings horizontally, and returns the ordinary Score toolbar when closed. The Tricky Sections rail is modestly wider (`300–380px`) so it reads as a usable companion, not a squeezed afterthought. The short-height layout remains in flow at the top; it no longer revives the prior fixed bottom sheet. Focused ScoreView tests (81), TypeScript and production build pass; fresh-context review finds no remaining overlay behavior.
