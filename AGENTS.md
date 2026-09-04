@@ -4,7 +4,7 @@ The binding project context and operating manual live in the Obsidian vault:
 
 `/Users/c3/Desktop/christian's universe/Piano Practice/Praelude/AGENTS.md`
 
-Read that file completely, then open `(C) CodaKiller Command Center.md`. Code and engineering docs
+Read that file completely, then open `(C) Praelude Command Center.md`. Code and engineering docs
 stay in this repository; product truth, Roadmap, Flaws, Changelog, tutorial, and version records
 stay in the vault. After **every** code/doc/decision change, obey the vault UPDATE PROTOCOL before
 reporting completion.
