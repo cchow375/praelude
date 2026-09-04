@@ -450,7 +450,7 @@
   z-index: 9;
   display: grid;
   min-height: 76px;
-  grid-template-columns: minmax(230px, 1.25fr) minmax(0, 1fr) minmax(330px, 1.4fr);
+  grid-template-columns: minmax(210px, 0.8fr) minmax(158px, 190px) minmax(480px, 1.25fr);
   align-items: center;
   gap: var(--space-4);
   overflow: hidden;
@@ -571,7 +571,9 @@
   font-size: var(--text-xs);
   white-space: nowrap;
 }
-.score-practice-window-history { margin: 0; }
+.score-practice-window-history {
+  margin: 2px 0 0;
+}
 .score-practice-window .block-form {
   min-height: 0;
   min-width: 0;
@@ -610,15 +612,21 @@
 .score-practice-window .block-form--compact {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "head overview"
+    "notice notice";
   align-items: center;
-  column-gap: var(--space-3);
+  column-gap: var(--space-4);
+  row-gap: var(--space-2);
 }
 .score-practice-window .block-form--compact .block-form-head {
+  grid-area: head;
   display: flex;
   align-items: center;
   gap: var(--space-3);
 }
 .score-practice-window .block-compact-overview {
+  grid-area: overview;
   display: flex;
   min-width: 0;
   align-items: center;
@@ -635,6 +643,10 @@
   min-width: 120px;
   min-height: 52px;
   padding: var(--space-2) var(--space-3);
+}
+.score-practice-window .block-form--compact .ck-inline-status {
+  grid-area: notice;
+  margin: 0;
 }
 
 /* Persistent lightweight document geometry. Only slots in the viewport render
@@ -1868,7 +1880,7 @@
   }
 }
 
-@media (max-width: 800px), (max-height: 620px) {
+@media (max-width: 800px) {
   .score-practice-window {
     /* The selected passage is a toolbar replacement at every size. Never
        resurrect the old floating/bottom-sheet composer over the music. */
@@ -1876,10 +1888,18 @@
     z-index: 9;
     min-height: 58px;
     grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "passage tools"
+      "set set";
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     overflow: visible;
   }
+
+  .score-practice-window-head { grid-area: passage; }
+  .score-passage-tools-launcher,
+  .score-passage-mapping-strip { grid-area: tools; }
+  .score-practice-window > .block-form { grid-area: set; }
 
   .score-practice-window-history {
     display: none;
@@ -1904,12 +1924,20 @@
   .score-practice-window .block-form--compact {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: var(--space-2);
   }
 
   .score-practice-window .block-compact-overview,
   .score-practice-window .block-compact-actions {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
+  }
+
+  .score-practice-window .block-compact-overview,
+  .score-practice-window .block-compact-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
   }
 
   .score-practice-window .block-compact-action {

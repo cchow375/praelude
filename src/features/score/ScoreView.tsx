@@ -2980,6 +2980,14 @@ export function ScoreView({
             <span className="ck-label">Selected passage</span>
             <strong>{contextualLabel(region)}</strong>
             <small>mm. {region.m_start}–{region.m_end}</small>
+            {regionBlocks.length > 0 && (
+              <p className="score-practice-window-history">
+                {regionBlocks[0].mastery_basis === "total_attempts" &&
+                regionBlocks[0].mastery_status === "satisfied"
+                  ? `${regionBlocks[0].attempt_target ?? regionBlocks[0].attempts_recorded ?? regionBlocks[0].tries ?? regionBlocks[0].reps_done} plays complete`
+                  : `${regionBlocks[0].attempts_recorded ?? regionBlocks[0].tries ?? regionBlocks[0].reps_done} attempts so far`}
+              </p>
+            )}
           </div>
           <button
             type="button"
@@ -3056,14 +3064,6 @@ export function ScoreView({
             <span>Passage tools</span>
             <small>Edit · marks · tutorial</small>
           </button>
-        )}
-        {regionBlocks.length > 0 && (
-          <p className="score-practice-window-history">
-            {regionBlocks[0].mastery_basis === "total_attempts" &&
-            regionBlocks[0].mastery_status === "satisfied"
-              ? `${regionBlocks[0].attempt_target ?? regionBlocks[0].attempts_recorded ?? regionBlocks[0].tries ?? regionBlocks[0].reps_done} plays complete`
-              : `${regionBlocks[0].attempts_recorded ?? regionBlocks[0].tries ?? regionBlocks[0].reps_done} attempts so far`}
-          </p>
         )}
         {onOpenBlock && (
           <BlockForm
