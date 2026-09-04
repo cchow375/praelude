@@ -31,7 +31,7 @@ TAURI_VERSION="$(node -p "require('$ROOT/src-tauri/tauri.conf.json').version")"
 [[ "$CARGO_VERSION" == "$VERSION" ]] || fail "Cargo.toml is $CARGO_VERSION, expected $VERSION"
 [[ "$TAURI_VERSION" == "$VERSION" ]] || fail "tauri.conf.json is $TAURI_VERSION, expected $VERSION"
 
-WORK_DIR="$(mktemp -d "${TMPDIR:-/private/tmp}/codakiller-package.XXXXXX")"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/private/tmp}/praelude-package.XXXXXX")"
 STAGE_DIR="$WORK_DIR/dmg-stage"
 MOUNT_DIR="$WORK_DIR/mount"
 mkdir -p "$STAGE_DIR" "$MOUNT_DIR" "$RELEASE_DIR"

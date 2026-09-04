@@ -2,7 +2,7 @@
 
 The binding project context and operating manual live in the Obsidian vault:
 
-`/Users/c3/Desktop/christian's universe/Piano Practice/CodaKiller/AGENTS.md`
+`/Users/c3/Desktop/christian's universe/Piano Practice/Praelude/AGENTS.md`
 
 Read that file completely, then open `(C) CodaKiller Command Center.md`. Code and engineering docs
 stay in this repository; product truth, Roadmap, Flaws, Changelog, tutorial, and version records

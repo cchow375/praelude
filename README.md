@@ -6,19 +6,18 @@ counts, times, remembers and runs the metronome without trying to judge the pian
 
 ## Status
 
-**Praelude v10.0.0 / schema 21 is shipped and installed on Mac (2026-09-03).** This release
-renames the visible product from CodaKiller and replaces the paper/serif interface with a
+**Praelude v10.0.4 / schema 21 is shipped and installed on Mac (2026-09-04).** Praelude is now
+the visible product, local project name and private GitHub repository. It replaces the paper/serif interface with a
 dark-by-default, system-sans, restrained UI across the full app. It keeps Score page-first,
 passage Practice set focused, secondary choices modal and Settings collapsed until requested.
-Implementation commit `e67b3c2`; frontend 2,541/1 skipped, native 1,083/17 ignored plus
+Implementation commit `48e7d00`; frontend 2,541/1 skipped, native 1,083/17 ignored plus
 integrations, TypeScript/build/format/strict-Clippy, share-clean, signature, one-copy, DMG and
 fresh-launch gates pass. `/Applications/Praelude.app` is running and the old app copy is absent.
 The live schema-21 DB is byte-identical before/after install. Hidden `com.christian.codakiller`
 and `codakiller` storage/Keychain identifiers remain deliberately for compatibility.
 
-DMG: `releases/v10.0.0/Praelude-10.0.0.dmg`, 10,585,575 bytes, SHA-256
-`caa3fe2623c34710dcafbaa7d71cfcf6b13e7579f53c5ee89f9fab6a2c776e17`; strict ad-hoc CDHash
-`e86e4f86d5f08c4c186d66ac81362eb1ffd2d1cb` (not notarized). The older Windows v9.1.0 candidate
+DMG: `releases/v10.0.4/Praelude-10.0.4.dmg`, 10,595,489 bytes, SHA-256
+`57704093cff103e82b9b357149baedb2622b53da390a5e5460c498eefa65b148` (not notarized). The older Windows v9.1.0 candidate
 below is unchanged and still awaits native Windows acceptance; future Windows packages use
 Praelude branding.
 

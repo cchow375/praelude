@@ -2,6 +2,9 @@
 
 ## Decisions
 
+- **Praelude is the canonical project name (2026-09-04).** The local repository is `~/praelude`, the private GitHub remote is `cchow375/praelude`, and all current project-facing documentation, notices, setup naming and release language use Praelude. `com.christian.codakiller`, `codakiller.db`, the Keychain service and durable storage keys remain deliberately as hidden compatibility contracts; renaming those would strand the installed practice history or macOS permissions. New setup overrides use `PRAELUDE_*`, while legacy `CODAKILLER_*` overrides remain accepted for existing automation. Historical CodaKiller artifact names and archival documents retain their factual names.
+
+
 - **v10.0.4 makes the selected-passage strip width-responsive, not height-responsive (2026-09-04).** A
   `max-height` compact rule incorrectly forced even a 2,048px-wide, short Score window into a
   two-column mobile grid, so Practice set, its summary, Start set, Variants and Settings competed

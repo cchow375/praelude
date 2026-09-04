@@ -1,8 +1,8 @@
-CodaKiller — Third-Party Notices
+Praelude — Third-Party Notices
 ================================
 
 This distribution includes open-source software. These notices cover the
-standalone components most directly redistributed by CodaKiller.
+standalone components most directly redistributed by Praelude.
 
 hear
 ----

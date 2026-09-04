@@ -7,7 +7,7 @@
 #   - Idempotent. Prints nothing secret. Never writes the key to a file.
 #   - Refuses to overwrite an existing, DIFFERING entry unless --force.
 #   - Source secrets file is only read, never modified.
-#   - Key lands in Keychain: service "codakiller", account "gemini".
+#   - Key lands in the legacy-compatible Keychain service "codakiller", account "gemini".
 #
 # The key is NEVER passed in argv (visible via `ps`) and the write path is
 # genuinely tty-independent. It is fed to `security -i` (interactive command
@@ -41,9 +41,9 @@
 
 set -euo pipefail
 
-SERVICE="${CODAKILLER_KC_SERVICE:-codakiller}"
-ACCOUNT="${CODAKILLER_KC_ACCOUNT:-gemini}"
-SRC="${CODAKILLER_SECRETS_FILE:-$HOME/piano-coach/data/secrets.env}"
+SERVICE="${PRAELUDE_KC_SERVICE:-${CODAKILLER_KC_SERVICE:-codakiller}}"
+ACCOUNT="${PRAELUDE_KC_ACCOUNT:-${CODAKILLER_KC_ACCOUNT:-gemini}}"
+SRC="${PRAELUDE_SECRETS_FILE:-${CODAKILLER_SECRETS_FILE:-$HOME/piano-coach/data/secrets.env}}"
 FORCE=0
 
 usage() {
@@ -57,9 +57,11 @@ Migrates GEMINI_API_KEY from the legacy secrets file into the macOS Keychain
   --help    Show this help.
 
 Environment overrides (for testing):
-  CODAKILLER_KC_SERVICE    Keychain service name (default: codakiller)
-  CODAKILLER_KC_ACCOUNT    Keychain account name (default: gemini)
-  CODAKILLER_SECRETS_FILE  Source secrets file (default: ~/piano-coach/data/secrets.env)
+  PRAELUDE_KC_SERVICE      Keychain service name (default: legacy-compatible codakiller)
+  PRAELUDE_KC_ACCOUNT      Keychain account name (default: gemini)
+  PRAELUDE_SECRETS_FILE    Source secrets file (default: ~/piano-coach/data/secrets.env)
+
+Legacy CODAKILLER_* overrides remain supported for existing automation.
 EOF
 }
 

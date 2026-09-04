@@ -1,21 +1,21 @@
-# CodaKiller — code repo (docs live in the Obsidian vault)
+# Praelude — code repo (docs live in the Obsidian vault)
 
-This is the **code** for CodaKiller (Tauri v2, Rust + React/TS). The project's
+This is the **code** for Praelude (Tauri v2, Rust + React/TS). The project's
 **canonical documentation, operating manual, roadmap, flaws register, changelog, and
 version history live in the Obsidian vault**, not here:
 
-> **`~/Desktop/christian's universe/Piano Practice/CodaKiller/`**
-> Start at `AGENTS.md` there, then `(C) CodaKiller Command Center.md`. The portable
-> whole-project summary is `CodaKiller.md`.
+> **`~/Desktop/christian's universe/Piano Practice/Praelude/`**
+> Start at `AGENTS.md` there, then `(C) Praelude Command Center.md`. The portable
+> whole-project summary is `Praelude.md`.
 
 ## 🔒 Binding rule (from the vault AGENTS.md — the most important one)
 
 **After EVERY change or session, before reporting done, run the UPDATE PROTOCOL:**
 
 1. Log it in the vault `(C) Changelog.md` (date · what · why · files).
-2. Refresh the vault `CodaKiller.md` (portable summary + its `Last updated:` line).
+2. Refresh the vault `Praelude.md` (portable summary + its `Last updated:` line).
 3. Update the affected vault living docs — `(C) Roadmap.md`, `(C) Flaws.md` (never delete
-   a flaw; move to Resolved), the `(C) CodaKiller Command Center.md` status/threads, and
+   a flaw; move to Resolved), the `(C) Praelude Command Center.md` status/threads, and
    **`(C) How To Use.md` whenever anything user-facing changes** (voice grammar/vocabulary,
    UI flows, defaults, permissions/setup) — bump its `Matches: vX.Y.Z` line; the tutorial
    must always describe the installed app exactly.
