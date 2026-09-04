@@ -2956,8 +2956,8 @@ export function ScoreView({
   };
 
   // The composer is its own surface, not another section of the score rail.
-  // It appears only after a passage is selected and floats over unused score
-  // space; at small sizes CSS turns it into a contained bottom sheet.
+  // It replaces the Score toolbar after a passage is selected, keeping the
+  // score and Tricky Sections unobscured below it.
   const renderPracticePanel = (region: Region) => {
     if (!onOpenBlock) return null;
     const regionBlocks = blocks.filter((block) => block.region_id === region.id);
@@ -3362,6 +3362,9 @@ export function ScoreView({
       data-pencil={pencilMode ? "on" : "off"}
       aria-label="PDF score viewer"
     >
+      {selectedRegion ? (
+        renderPracticePanel(selectedRegion)
+      ) : (
       <header className="score-toolbar">
         <div className="score-edition-group">
           <label className="score-edition">
@@ -3643,6 +3646,7 @@ export function ScoreView({
           </div>
         </details>
       </header>
+      )}
 
       {targetMode && !targetAnchor && (
         <div className="score-active-tool-status" role="status">
@@ -3849,8 +3853,6 @@ export function ScoreView({
                 })}
               </div>
             </div>
-
-            {selectedRegion && renderPracticePanel(selectedRegion)}
 
             <button
               type="button"

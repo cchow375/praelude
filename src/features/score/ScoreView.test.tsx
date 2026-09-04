@@ -932,6 +932,8 @@ describe("ScoreView", () => {
     ).toBeTruthy();
     expect(screen.getByRole("region", { name: "Practice set" })).toBeTruthy();
     const practiceSet = screen.getByRole("region", { name: "Practice set" });
+    expect(screen.queryByRole("button", { name: "Score tools" })).toBeNull();
+    expect(practiceSet.className).toContain("score-practice-window");
     expect(
       (within(practiceSet).getByLabelText("From measure") as HTMLInputElement)
         .value,
@@ -2577,19 +2579,18 @@ describe("ScoreView measure mapping", () => {
         />,
       );
       await screen.findByLabelText("Score page 1");
-      await selectParent();
 
       fireEvent.click(getScoreTool("Pencil"));
       expect(
         screen.getByRole("button", { name: "Score tools" }).textContent,
       ).toContain("Pencil on");
+      // Selecting the passage now replaces this toolbar with its Practice set
+      // strip, so enter pencil mode before opening the selected passage.
+      await selectParent();
       fireEvent.click(screen.getByRole("button", { name: "⊕ Isolate a spot" }));
-      fireEvent.click(screen.getByRole("button", { name: "Score tools" }));
       expect(
-        screen
-          .getByRole("button", { name: "Pencil" })
-          .getAttribute("aria-pressed"),
-      ).toBe("false");
+        window.document.querySelector(".score-view")?.getAttribute("data-pencil"),
+      ).toBe("off");
       expect(
         screen
           .getByRole("button", { name: "Cancel — drag inside Rolled Chords" })
