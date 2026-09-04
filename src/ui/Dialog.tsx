@@ -6,6 +6,7 @@ export interface DialogProps {
   onClose: () => void;
   title?: ReactNode;
   label?: string;
+  className?: string;
   children?: ReactNode;
 }
 
@@ -13,7 +14,14 @@ export interface DialogProps {
  * Minimal modal for confirm cards. Hairline-bordered surface over a dim
  * backdrop; Escape and backdrop click both close. No decorative chrome.
  */
-export function Dialog({ open, onClose, title, label, children }: DialogProps) {
+export function Dialog({
+  open,
+  onClose,
+  title,
+  label,
+  className,
+  children,
+}: DialogProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
@@ -31,7 +39,7 @@ export function Dialog({ open, onClose, title, label, children }: DialogProps) {
   return (
     <div className="ck-dialog-backdrop" onClick={onClose}>
       <div
-        className="ck-dialog"
+        className={`ck-dialog${className ? ` ${className}` : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={label}

@@ -167,6 +167,15 @@ function getScoreTool(name: string | RegExp): HTMLElement {
   return screen.getByRole("button", { name });
 }
 
+/** Selected passages keep the map quiet; their editor is opened explicitly
+ * from the top Practice strip. */
+function openPassageTools(): HTMLElement {
+  fireEvent.click(
+    screen.getByRole("button", { name: "Open passage tools" }),
+  );
+  return screen.getByRole("dialog", { name: /Passage tools for/i });
+}
+
 /** Enter target mode, drag one rectangle on page 1, and confirm the candidate
  * measure range so the draft is ready to save. */
 async function drawAndConfirmTarget() {
@@ -291,7 +300,7 @@ afterEach(() => {
 });
 
 describe("ScoreView", () => {
-  it("orders sections by measure and expands controls directly beneath only the chosen row", async () => {
+  it("orders sections by measure and opens their controls only from the top strip", async () => {
     const regions = [
       {
         id: 3,
@@ -352,14 +361,13 @@ describe("ScoreView", () => {
       block: "start",
       inline: "nearest",
     });
-    expect(
-      rows[1].closest(".score-region-item")?.querySelector('[role="tablist"]'),
-    ).toBeTruthy();
+    expect(rows[1].closest(".score-region-item")?.querySelector('[role="tablist"]')).toBeNull();
+    openPassageTools();
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Close passage tools" }));
     fireEvent.click(rows[2]);
-    expect(
-      rows[2].closest(".score-region-item")?.querySelector('[role="tablist"]'),
-    ).toBeTruthy();
+    expect(rows[2].closest(".score-region-item")?.querySelector('[role="tablist"]')).toBeNull();
+    openPassageTools();
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
   });
 
@@ -485,8 +493,9 @@ describe("ScoreView", () => {
         await screen.findByText(/No title, no measure numbers/i),
       ).toBeTruthy();
       expect(
-        screen.getByRole("button", { name: "⊕ Isolate a spot" }),
+        openPassageTools().querySelector('[aria-label="Close passage tools"]'),
       ).toBeTruthy();
+      expect(screen.getByRole("button", { name: "⊕ Isolate a spot" })).toBeTruthy();
     });
 
     it("defaults '+ Add' to a sub-section of the selected section, and lets you opt out", async () => {
@@ -744,6 +753,7 @@ describe("ScoreView", () => {
         name: "Development, measures 40 to 56",
       }),
     );
+    openPassageTools();
     fireEvent.click(screen.getByRole("tab", { name: "Score marks" }));
     fireEvent.click(
       screen.getByRole("button", {
@@ -774,11 +784,15 @@ describe("ScoreView", () => {
       clientY: 400,
     });
     fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 500, clientY: 400 });
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
     fireEvent.change(screen.getByLabelText("Annotation 1 type"), {
       target: { value: "note" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Save score annotations" }),
+      within(screen.getByRole("dialog", { name: /Passage tools for/i })).getByRole(
+        "button",
+        { name: "Save score annotations" },
+      ),
     );
 
     await waitFor(() =>
@@ -834,6 +848,7 @@ describe("ScoreView", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Development, measures 40 to 56" }),
     );
+    openPassageTools();
     fireEvent.click(screen.getByRole("tab", { name: "Score marks" }));
     fireEvent.click(
       screen.getByRole("button", {
@@ -899,6 +914,7 @@ describe("ScoreView", () => {
         name: "Development, measures 40 to 56",
       }),
     );
+    openPassageTools();
     fireEvent.click(screen.getByRole("tab", { name: "Edit" }));
 
     fireEvent.change(screen.getByLabelText("Tricky section title"), {
@@ -1128,6 +1144,7 @@ describe("ScoreView", () => {
         name: "Development, measures 40 to 56",
       }),
     );
+    openPassageTools();
 
     const edit = screen.getByRole("tab", { name: "Edit" });
     edit.focus();
@@ -1848,6 +1865,7 @@ describe("ScoreView", () => {
         name: "Development, measures 40 to 56",
       }),
     );
+    openPassageTools();
     fireEvent.click(screen.getByRole("tab", { name: "Score marks" }));
     fireEvent.click(
       screen.getByRole("button", {
@@ -2536,6 +2554,7 @@ describe("ScoreView measure mapping", () => {
       ).toBeNull();
 
       await selectParent();
+      openPassageTools();
       const arm = await screen.findByRole("button", {
         name: "⊕ Isolate a spot",
       });
@@ -2587,6 +2606,7 @@ describe("ScoreView measure mapping", () => {
       // Selecting the passage now replaces this toolbar with its Practice set
       // strip, so enter pencil mode before opening the selected passage.
       await selectParent();
+      openPassageTools();
       fireEvent.click(screen.getByRole("button", { name: "⊕ Isolate a spot" }));
       expect(
         window.document.querySelector(".score-view")?.getAttribute("data-pencil"),
@@ -2608,6 +2628,7 @@ describe("ScoreView measure mapping", () => {
           name: "Edit score annotations for Rolled Chords",
         }),
       );
+      fireEvent.click(screen.getByRole("button", { name: "Review" }));
       fireEvent.click(screen.getByRole("button", { name: "⊕ Isolate a spot" }));
 
       expect(
@@ -2621,7 +2642,10 @@ describe("ScoreView measure mapping", () => {
         ),
       ).toBeTruthy();
       expect(
-        screen.getByRole("button", { name: "Save score annotations" }),
+        within(screen.getByRole("dialog", { name: /Passage tools for/i })).getByRole(
+          "button",
+          { name: "Save score annotations" },
+        ),
       ).toBeTruthy();
     });
 
@@ -2761,6 +2785,7 @@ describe("ScoreView measure mapping", () => {
       render(<ScoreView pieceId={7} api={api} adapter={makePdf(1).adapter} />);
       await screen.findByLabelText("Score page 1");
       await selectParent();
+      openPassageTools();
 
       fireEvent.click(screen.getByRole("button", { name: "⊕ Isolate a spot" }));
       await dragOnPageOne();
@@ -2798,6 +2823,7 @@ describe("ScoreView measure mapping", () => {
       );
       await screen.findByLabelText("Score page 1");
       await selectParent();
+      openPassageTools();
 
       expect(
         screen.getByRole("button", { name: "⊕ Isolate a spot" }),
@@ -2983,6 +3009,7 @@ describe("ScoreView measure mapping", () => {
       );
       await screen.findByLabelText("Score page 1");
       await selectParent();
+      openPassageTools();
       await screen.findByRole("button", {
         name: "Rolled Chords · Spot 1, box on page 1",
       });

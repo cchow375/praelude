@@ -49,6 +49,7 @@ import type { Stroke } from "./marks/strokes";
 import { REGION_COLORS, RegionEditor } from "../pieces/RegionEditor";
 import { useCrud } from "../rep/useCrud";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
+import { Dialog } from "../../ui/Dialog";
 import { createCommandId } from "../../services/commandId";
 import { TutorialPanel } from "../tutorials/TutorialPanel";
 import { unknownMapping, validMeasureRange } from "./atlas/draft";
@@ -693,6 +694,10 @@ export function ScoreView({
   const [selectedRegionId, setSelectedRegionId] = useState<number | null>(null);
   const [expandedRegionId, setExpandedRegionId] = useState<number | null>(null);
   const [sectionTab, setSectionTab] = useState<SectionTab>("edit");
+  // The score map is for finding passages, not for editing one. Passage
+  // details, score marks and tutorial content live in this focused surface
+  // opened from the selected-passage strip.
+  const [sectionToolsOpen, setSectionToolsOpen] = useState(false);
   const sectionTabRefs = useRef<
     Partial<Record<SectionTab, HTMLButtonElement | null>>
   >({});
@@ -2604,6 +2609,9 @@ export function ScoreView({
     setSelectedRegionId(region.id);
     setExpandedRegionId(region.id);
     setSectionTab("marks");
+    // The user is about to drag directly on the PDF. A modal over that
+    // surface would make the instruction impossible to complete.
+    setSectionToolsOpen(false);
     setMapping({ regionId: region.id, rects: [...existing], tool: "box" });
     setNavigationNotice(
       "Choose Box, Highlight, or Note, then drag directly on the score.",
@@ -2959,7 +2967,6 @@ export function ScoreView({
   // It replaces the Score toolbar after a passage is selected, keeping the
   // score and Tricky Sections unobscured below it.
   const renderPracticePanel = (region: Region) => {
-    if (!onOpenBlock) return null;
     const regionBlocks = blocks.filter((block) => block.region_id === region.id);
     const effectiveParentId = effectiveParents.get(region.id) ?? null;
     return (
@@ -2979,6 +2986,13 @@ export function ScoreView({
             className="score-practice-window-close"
             aria-label="Close practice set panel"
             onClick={() => {
+              if (mapping?.regionId === region.id) {
+                setNavigationNotice(
+                  "Save or cancel the open score-mark edits before closing this passage.",
+                );
+                return;
+              }
+              setSectionToolsOpen(false);
               setSelectedRegionId(null);
               setExpandedRegionId(null);
             }}
@@ -2986,6 +3000,63 @@ export function ScoreView({
             ×
           </button>
         </header>
+        {mapping?.regionId === region.id ? (
+          <div className="score-passage-mapping-strip" role="group" aria-label="Score mark controls">
+            <span className="score-passage-mapping-label">Score marks</span>
+            <div role="radiogroup" aria-label="Score annotation tool">
+              {(["box", "highlight", "note"] as PdfAnchorKind[]).map((tool) => (
+                <button
+                  key={tool}
+                  type="button"
+                  role="radio"
+                  aria-checked={mapping.tool === tool}
+                  className={mapping.tool === tool ? "is-on" : ""}
+                  onClick={() => setMapping((current) => current ? { ...current, tool } : current)}
+                >
+                  {tool === "box" ? "Box" : tool === "highlight" ? "Highlight" : "Note"}
+                </button>
+              ))}
+            </div>
+            <span className="score-passage-mapping-count">
+              {mapping.rects.length} draft mark{mapping.rects.length === 1 ? "" : "s"}
+            </span>
+            <button type="button" onClick={() => { setSectionTab("marks"); setSectionToolsOpen(true); }}>
+              Review
+            </button>
+            <button
+              type="button"
+              aria-label="Undo last score annotation"
+              disabled={mapping.rects.length === 0}
+              onClick={() => setMapping((current) => current ? { ...current, rects: current.rects.slice(0, -1) } : current)}
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              className="is-save"
+              aria-label="Save score annotations"
+              disabled={savingMap}
+              onClick={() => void persistMapping(mapping.rects)}
+            >
+              Save
+            </button>
+            <button type="button" onClick={() => setMapping(null)}>Cancel</button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="score-passage-tools-launcher"
+            aria-label="Open passage tools"
+            aria-haspopup="dialog"
+            onClick={() => {
+              setSectionTab("edit");
+              setSectionToolsOpen(true);
+            }}
+          >
+            <span>Passage tools</span>
+            <small>Edit · marks · tutorial</small>
+          </button>
+        )}
         {regionBlocks.length > 0 && (
           <p className="score-practice-window-history">
             {regionBlocks[0].mastery_basis === "total_attempts" &&
@@ -2994,31 +3065,33 @@ export function ScoreView({
               : `${regionBlocks[0].attempts_recorded ?? regionBlocks[0].tries ?? regionBlocks[0].reps_done} attempts so far`}
           </p>
         )}
-        <BlockForm
-          key={`${region.id}:${region.name}:${region.m_start}:${region.m_end}`}
-          pieceId={pieceId}
-          regionId={region.id}
-          defaultMeasureStart={region.m_start}
-          defaultMeasureEnd={region.m_end}
-          defaultLabel={contextualLabel(region)}
-          defaultTargetBpm={defaultTargetBpm}
-          defaultCleanStreak={effectiveParentId != null ? 3 : defaultCleanStreak}
-          presentation="compact"
-          onOpen={onOpenBlock}
-          opening={opening}
-          blockedReason={
-            activeRange
-              ? activeRange.m_start === region.m_start && activeRange.m_end === region.m_end
-                ? "This passage is already active."
-                : "Close the active practice set before starting another."
-              : null
-          }
-        />
+        {onOpenBlock && (
+          <BlockForm
+            key={`${region.id}:${region.name}:${region.m_start}:${region.m_end}`}
+            pieceId={pieceId}
+            regionId={region.id}
+            defaultMeasureStart={region.m_start}
+            defaultMeasureEnd={region.m_end}
+            defaultLabel={contextualLabel(region)}
+            defaultTargetBpm={defaultTargetBpm}
+            defaultCleanStreak={effectiveParentId != null ? 3 : defaultCleanStreak}
+            presentation="compact"
+            onOpen={onOpenBlock}
+            opening={opening}
+            blockedReason={
+              activeRange
+                ? activeRange.m_start === region.m_start && activeRange.m_end === region.m_end
+                  ? "This passage is already active."
+                  : "Close the active practice set before starting another."
+                : null
+            }
+          />
+        )}
       </section>
     );
   };
 
-  const renderRegionInspector = (region: Region) => {
+  const renderSectionToolsDialog = (region: Region) => {
     if (!edition) return null;
     const regionBlocks = blocks.filter(
       (block) => block.region_id === region.id,
@@ -3031,11 +3104,36 @@ export function ScoreView({
     const effectiveParentId = effectiveParents.get(region.id) ?? null;
     const canIsolateSpot = Boolean(savedAnchor?.rects.length);
     const mappingThisRegion = mapping?.regionId === region.id ? mapping : null;
+    const closeSectionTools = () => {
+      setSectionToolsOpen(false);
+    };
     return (
-      <div
-        className="score-region-inspector"
-        aria-label={`${region.name} controls`}
+      <Dialog
+        open={sectionToolsOpen}
+        onClose={closeSectionTools}
+        label={`Passage tools for ${region.name}`}
+        className="score-section-tools-dialog"
+        title={
+          <div className="score-section-tools-title">
+            <div>
+              <span className="ck-label">Passage tools</span>
+              <strong>{contextualLabel(region)}</strong>
+              <small>
+                mm. {region.m_start}–{region.m_end}
+              </small>
+            </div>
+            <button
+              type="button"
+              className="score-section-tools-close"
+              aria-label="Close passage tools"
+              onClick={closeSectionTools}
+            >
+              ×
+            </button>
+          </div>
+        }
       >
+        <section className="score-region-inspector">
         <div
           className="score-section-tabs"
           role="tablist"
@@ -3318,7 +3416,13 @@ export function ScoreView({
             <TutorialPanel pieceId={pieceId} regionId={region.id} />
           )}
         </div>
-      </div>
+          <footer className="score-section-tools-footer">
+            <button type="button" onClick={closeSectionTools}>
+              Done
+            </button>
+          </footer>
+        </section>
+      </Dialog>
     );
   };
 
@@ -4037,7 +4141,6 @@ export function ScoreView({
                   const stale = edition
                     ? editionHasStaleAnchor(region, edition)
                     : false;
-                  const expanded = expandedRegionId === region.id;
                   const noteSummary =
                     region.notes?.trim() &&
                     region.notes.trim() !== region.name.trim()
@@ -4045,7 +4148,7 @@ export function ScoreView({
                       : null;
                   return (
                     <div
-                      className={`score-region-item ${expanded ? "is-expanded" : ""} ${isChild ? "is-child" : ""}`}
+                      className={`score-region-item ${isChild ? "is-child" : ""}`}
                       key={region.id}
                       ref={(node) => {
                         if (node) regionItemRefs.current.set(region.id, node);
@@ -4055,21 +4158,8 @@ export function ScoreView({
                       <button
                         type="button"
                         className={`score-region-row ${selectedRegionId === region.id ? "is-selected" : ""}`}
-                        aria-expanded={expanded}
                         aria-label={`${regionLabel}, measures ${region.m_start} to ${region.m_end}`}
-                        onClick={() => {
-                          if (expanded) {
-                            if (mapping?.regionId === region.id) {
-                              setNavigationNotice(
-                                "Save or cancel the open score-mark edits before closing this section.",
-                              );
-                              return;
-                            }
-                            setExpandedRegionId(null);
-                            return;
-                          }
-                          selectRegion(region.id);
-                        }}
+                        onClick={() => selectRegion(region.id)}
                       >
                         <span
                           className="score-region-dot"
@@ -4105,10 +4195,9 @@ export function ScoreView({
                           className="score-region-chevron"
                           aria-hidden="true"
                         >
-                          {expanded ? "⌄" : "›"}
+                          ›
                         </span>
                       </button>
-                      {expanded && renderRegionInspector(region)}
                     </div>
                   );
                 })}
@@ -4251,6 +4340,8 @@ export function ScoreView({
           />
         </div>
       )}
+
+      {selectedRegion && renderSectionToolsDialog(selectedRegion)}
     </section>
   );
 }

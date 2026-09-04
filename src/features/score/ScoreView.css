@@ -496,6 +496,81 @@
   line-height: 1;
   cursor: pointer;
 }
+.score-passage-tools-launcher {
+  display: grid;
+  min-width: 152px;
+  min-height: 52px;
+  align-content: center;
+  justify-items: start;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  color: var(--ink-primary);
+  background: var(--surface-app);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.score-passage-tools-launcher:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--hairline));
+  background: var(--surface-hover);
+}
+.score-passage-tools-launcher span { font-weight: 600; }
+.score-passage-tools-launcher small {
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+}
+.score-passage-mapping-strip {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--hairline));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-app));
+}
+.score-passage-mapping-label {
+  padding: 0 var(--space-2);
+  color: var(--ink-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.score-passage-mapping-strip [role="radiogroup"] {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+}
+.score-passage-mapping-strip button {
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--ink-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.score-passage-mapping-strip [role="radio"] {
+  border-radius: 0;
+}
+.score-passage-mapping-strip [role="radio"].is-on {
+  color: var(--ink-primary);
+  background: var(--surface-raised);
+}
+.score-passage-mapping-strip .is-save {
+  color: var(--accent-contrast);
+  background: var(--accent);
+}
+.score-passage-mapping-count {
+  color: var(--ink-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
 .score-practice-window-history { margin: 0; }
 .score-practice-window .block-form {
   min-height: 0;
@@ -1203,7 +1278,7 @@
 
 .score-section-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-1);
 }
 .score-section-tabs button {
@@ -1225,6 +1300,106 @@
   border-color: var(--accent);
   color: var(--accent);
   background: var(--surface-active);
+}
+
+/* Passage editing is a focused sheet, never an expanding column inside the
+   score map. The map can now do one quiet job: find the passage. */
+.score-section-tools-dialog {
+  width: min(720px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  padding: 0;
+  overflow: hidden;
+}
+.score-section-tools-dialog .ck-dialog-head {
+  margin: 0;
+  padding: var(--space-4) var(--space-5) var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.score-section-tools-dialog .ck-dialog-body {
+  min-height: 0;
+  max-height: min(650px, calc(100vh - 150px));
+}
+.score-section-tools-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.score-section-tools-title > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.score-section-tools-title strong {
+  overflow: hidden;
+  color: var(--ink-primary);
+  font-size: var(--text-lg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.score-section-tools-title small { color: var(--ink-tertiary); font-size: var(--text-sm); }
+.score-section-tools-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  color: var(--ink-secondary);
+  background: var(--surface-app);
+  font: inherit;
+  font-size: var(--text-lg);
+  cursor: pointer;
+}
+.score-region-inspector {
+  display: grid;
+  min-height: 0;
+  max-height: inherit;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5) var(--space-4);
+}
+.score-region-inspector > [role="tabpanel"] {
+  min-height: 0;
+  overflow: auto;
+  padding-right: var(--space-1);
+}
+.score-region-inspector .score-section-tabs {
+  padding: 4px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-app);
+}
+.score-region-inspector .score-section-tabs button {
+  min-height: 36px;
+  border-color: transparent;
+  border-radius: calc(var(--radius-sm) + 2px);
+  font-size: var(--text-sm);
+}
+.score-region-inspector .score-section-tabs button.is-active {
+  border-color: var(--hairline);
+  color: var(--ink-primary);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-card);
+}
+.score-region-inspector .score-spot-controls {
+  margin: 0;
+  padding: 0;
+}
+.score-section-tools-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--hairline);
+}
+.score-section-tools-footer button {
+  min-width: 90px;
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--accent-contrast);
+  background: var(--accent);
+  font: inherit;
+  cursor: pointer;
 }
 
 .score-region-inspector p {
@@ -1744,6 +1919,11 @@
   }
 
   .score-practice-window .block-compact-action small {
+    display: none;
+  }
+
+  .score-passage-mapping-label,
+  .score-passage-mapping-count {
     display: none;
   }
 }
