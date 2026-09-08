@@ -2,7 +2,9 @@
 
 The binding operating manual is `/Users/c3/Desktop/christian's universe/Piano Practice/Praelude/AGENTS.md`. Read it, then the vault `(C) Praelude Command Center.md`. Code and engineering evidence live here; current product truth, tutorial, Roadmap, Flaws, Changelog and version records live in that vault. Obey its UPDATE PROTOCOL before reporting completion.
 
-**Last updated: 2026-09-07. Current source: v11.0.0 / schema 21 SOURCE CANDIDATE; release/install verification in progress.** Installed remains v10.1.0 at `/Applications/Praelude.app`. The existing v10.1 native Score permission is now available: this session opened the real 25-page Scherzo score and 51 saved regions. A new v11 launch may re-prompt; its package/install/native facts remain pending until tested.
+**Last updated: 2026-09-08. Praelude v11.0.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` on 2026-09-07 at 23:53 EDT; implementation `a338581`. Fresh native launch passed twice and all 46 database tables plus the DB bytes are unchanged.
+
+**Native boundary:** Today, Studio, rank path, practice record, Pieces, Settings and canceled purchase/profile previews are verified in the installed app. The new ad-hoc build renewed macOS Desktop-folder and Speech permissions at 23:53:43; Score waits at “Finding score editions…” until Desktop access is allowed. Native Score/Variants remain pending that prompt, which computer-use tooling cannot accept. Custom-cover picker selection/save remains unverified (B109); the picker was canceled and no artwork or preferences changed.
 
 v11 implements Studio, the ranked furnished room and earned-coin economy; a practical glass interface; Today launchpad; library cover grid/list, chosen artwork, search/sort and rest/restore. Native storage uses the existing `setting` table with atomic revision checks and leaves schema 21/practice history intact. Local profile only: accounts, sync and friends are unbuilt. Assistant stays off/on hold.
 

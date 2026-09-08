@@ -1,0 +1,36 @@
+{
+  "checked_at": "2026-09-08T03:59:45.751236+00:00",
+  "version": "11.0.0",
+  "schema": 21,
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "tables_compared": 46,
+  "changed_tables": [],
+  "database_byte_identical": true,
+  "database_sha256": "b285c5a0624769aeccc27a2543f9b414eb1b22750fa2c551e60f02cfee553cb4",
+  "open_sessions": 0,
+  "open_blocks": 0,
+  "counts": {
+    "piece": 11,
+    "rep_block": 352,
+    "rep": 3237,
+    "session": 63,
+    "event": 12233
+  },
+  "native_launches": 2,
+  "native_verified": [
+    "Today",
+    "Studio: 204 XP, Prelude 3, 50 coins",
+    "rank path",
+    "practice record",
+    "Pieces library",
+    "Settings",
+    "purchase preview and cancel",
+    "local profile dialog and cancel"
+  ],
+  "pending": [
+    "Native Score and Variants awaiting renewed macOS Desktop permission",
+    "Native cover image picker-to-thumbnail verification",
+    "Real microphone and Steinway acceptance"
+  ]
+}

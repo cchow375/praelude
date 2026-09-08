@@ -1,0 +1,14 @@
+{
+  "verified_canonical_app": "/Applications/Praelude.app",
+  "spotlight_matches": [
+    "/Applications/Praelude.app"
+  ],
+  "matches_in_scanned_app_candidates": [
+    "/Applications/Praelude.app"
+  ],
+  "scanned_candidates": 23,
+  "legacy_app_absent": true,
+  "build_bundle_removed": true,
+  "full_home_recursive_audit": "incomplete: directory reads stalled; interrupted without changing permissions",
+  "scope_limit": "Spotlight and the scanned locations establish one known app; unindexed copies in unscanned locations are not ruled out"
+}

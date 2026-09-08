@@ -1,0 +1,43 @@
+{
+  "version": "11.0.0",
+  "implementation_commit": "a338581",
+  "installed_at_local": "2026-09-07 23:53 EDT",
+  "installed_app": "/Applications/Praelude.app",
+  "bundle_identifier": "com.christian.codakiller",
+  "architecture": "arm64",
+  "minimum_macos": "13.0",
+  "signature": "ad-hoc; not notarized",
+  "cdhash": "eb19805326b4008e3a5cac1ed6bfcf472c870e98",
+  "dmg": "/Users/c3/praelude/releases/v11.0.0/Praelude-11.0.0.dmg",
+  "dmg_bytes": 10691711,
+  "dmg_sha256": "dc51618396ecf532efa0a058a86f77a7451e186cac610c9d745f28da2d610417",
+  "frontend_tests": {
+    "passed": 2595,
+    "skipped": 1
+  },
+  "native_unit_tests": {
+    "passed": 1106,
+    "ignored": 18,
+    "workers": 4
+  },
+  "native_integration_tests_passed": 28,
+  "build_lint": [
+    "TypeScript",
+    "Vite production",
+    "Rustfmt",
+    "Clippy all targets and features with warnings denied",
+    "Tauri native release build"
+  ],
+  "package_gates": [
+    "share-clean before and after DMG mount",
+    "exact mounted layout and bundled notices",
+    "strict code signature",
+    "arm64 / macOS13 / version / identity",
+    "privacy usage strings",
+    "DMG checksum",
+    "installed executable matches DMG",
+    "verified DB backup and app rollback",
+    "fresh native launch twice",
+    "byte-identical DB and all46tables unchanged"
+  ]
+}
