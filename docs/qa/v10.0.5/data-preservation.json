@@ -1,0 +1,39 @@
+{
+  "before": {
+    "timestamp": "2026-09-07-214212",
+    "schema": 21,
+    "backup": "/Users/c3/Library/Application Support/com.christian.codakiller/backups/(C) pre-v10.0.5-install-2026-09-07-214212.db",
+    "backup_sha256": "539c600e35f838a44812a40792a4187fef6e9284e6b92ca2bbc6c30dca8a5946",
+    "live_sha256": "b285c5a0624769aeccc27a2543f9b414eb1b22750fa2c551e60f02cfee553cb4",
+    "counts": {
+      "piece": 11,
+      "rep_block": 352,
+      "rep": 3237,
+      "session": 63,
+      "event": 12233
+    },
+    "integrity": "ok",
+    "foreign_keys": 0,
+    "open_sessions": 0,
+    "open_blocks": 0,
+    "rollback": "/Users/c3/Library/CodaKiller-rollbacks/Praelude-v10.0.4-rollback-2026-09-07-214212.app.tar.gz",
+    "rollback_sha256": "4760b222f22e53156fd6a3e2430556350e5ac4664b88119654e207b7bec72466",
+    "logical_sha256": "6e12110128ceb5fa8e2e2d55fc8749237ac4cea6785f6645d680f41056861a74"
+  },
+  "after_launch": {
+    "schema": 21,
+    "integrity": "ok",
+    "foreign_keys": 0,
+    "counts": {
+      "piece": 11,
+      "rep_block": 352,
+      "rep": 3237,
+      "session": 63,
+      "event": 12233
+    },
+    "open_sessions": 0,
+    "open_blocks": 0,
+    "logical_sha256": "6e12110128ceb5fa8e2e2d55fc8749237ac4cea6785f6645d680f41056861a74",
+    "live_sha256": "b285c5a0624769aeccc27a2543f9b414eb1b22750fa2c551e60f02cfee553cb4"
+  }
+}
