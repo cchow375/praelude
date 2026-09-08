@@ -69,6 +69,8 @@ import {
   type PiecePlan,
 } from "../features/notebook/lines";
 import { BANNER_MAX_CHARS } from "../features/score/bannerText";
+import { getVariantLibraryMock, saveVariantLibraryMock, resetVariantLibraryMock } from "./variantLibraryMock";
+import type { VariantLibrary } from "../features/rep/useVariantLibrary";
 
 // Release cleanliness sentinel. Production builds statically dead-strip this
 // module; the share-clean gate rejects any artifact that contains this marker.
@@ -3709,6 +3711,10 @@ function routeCommand(cmd: string, args: unknown): unknown {
       return null;
     }
     // Shell-level mounts.
+    case "variant_library_get":
+      return getVariantLibraryMock();
+    case "variant_library_save":
+      return saveVariantLibraryMock(argsRecord(args).library as VariantLibrary);
     case "settings_snapshot":
       return CURRENT_SETTINGS_SNAPSHOT;
     case "settings_update": {
@@ -4776,6 +4782,7 @@ export function installTauriDevMock(
 ): void {
   if (installed) return;
   installed = true;
+  resetVariantLibraryMock();
   (
     window as unknown as {
       __CODAKILLER_DEV_MOCK_SENTINEL__?: string;

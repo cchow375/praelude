@@ -28,6 +28,7 @@ mod session_plan;
 mod streaks;
 mod tutorials;
 mod v8_backfill;
+mod variant_library;
 mod warmups;
 
 pub use day_photos::{sha256_hex, DayPhotoRow};
@@ -56,6 +57,7 @@ pub(crate) use streaks::LifetimeStreakEvidence;
 pub use streaks::{
     StreakSummary, DEFAULT_STREAK_THRESHOLD_MINUTES, STREAK_THRESHOLD_DEFENSIVE_MAX_MINUTES,
 };
+pub use variant_library::VariantLibrary;
 pub use warmups::{WarmupRoutine, WarmupRoutineSaveInput, WarmupSystemPiece};
 
 use std::path::Path;

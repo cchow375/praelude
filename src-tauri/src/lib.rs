@@ -82,6 +82,19 @@ fn set_setting(key: String, value: String, store: State<'_, Arc<Store>>) -> Resu
 }
 
 #[tauri::command]
+fn variant_library_get(store: State<'_, Arc<Store>>) -> Result<store::VariantLibrary, String> {
+    store.variant_library_get()
+}
+
+#[tauri::command]
+fn variant_library_save(
+    library: store::VariantLibrary,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::VariantLibrary, String> {
+    store.variant_library_save(library)
+}
+
+#[tauri::command]
 fn settings_snapshot(store: State<'_, Arc<Store>>) -> settings::SettingsSnapshot {
     settings::snapshot(&store)
 }
@@ -4018,6 +4031,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_setting,
             set_setting,
+            variant_library_get,
+            variant_library_save,
             settings_snapshot,
             settings_update,
             api_key_save,

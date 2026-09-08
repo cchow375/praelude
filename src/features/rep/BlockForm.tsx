@@ -13,6 +13,8 @@ import {
   formatSetEstimate,
 } from "./estimate";
 import "../../ui/forms.css";
+import { useVariantLibrary, VARIANT_PRESETS, variantNameKey } from "./useVariantLibrary";
+import { VariantLibraryControls } from "./VariantLibraryControls";
 
 // ---------------------------------------------------------------------------
 // Compose a practice block, then open it. Measures + start/target tempo define
@@ -60,20 +62,6 @@ interface BlockFormProps {
   /** A calm score-overlay entry point: details open in focused dialogs. */
   presentation?: "default" | "compact";
 }
-
-/** One-tap variant presets (spec §5.3). Order matches Christian's list. */
-const VARIANT_PRESETS: Array<{ label: string; name: string }> = [
-  { label: "Slow", name: "slow" },
-  { label: "Dotted", name: "dotted" },
-  { label: "Reverse dotted", name: "reverse dotted" },
-  { label: "Staccato", name: "staccato" },
-  { label: "Tenuto", name: "tenuto" },
-  { label: "Legato", name: "legato" },
-  { label: "Left hand only", name: "left hand only" },
-  { label: "Right hand only", name: "right hand only" },
-  { label: "Hands separate", name: "hands separate" },
-  { label: "Blocked chords", name: "blocked chords" },
-];
 
 const STREAK_TARGETS = [3, 5, 7, 10] as const;
 const PLAY_TARGETS = [5, 10, 15, 25] as const;
@@ -238,6 +226,7 @@ export function BlockForm({
   );
   const [demotionFirst, setDemotionFirst] = useState("3");
   const [demotionRepeat, setDemotionRepeat] = useState("2");
+  const variantLibrary = useVariantLibrary();
   const [variants, setVariants] = useState<DraftVariant[]>([]);
   const nextVariantId = useRef(1);
   const [focus, setFocus] = useState("tempo");
@@ -822,13 +811,25 @@ export function BlockForm({
             mode rather than inventing competing advancement semantics. The
             draft stays in memory if the pianist switches back. */}
         {targetMode === "streak" ? (
-          <fieldset className="ck-field ck-variant-chain">
+          <fieldset className="ck-field ck-variant-chain"
+            onKeyDown={(event) => {
+              // Enter edits/adds a variant; it must never implicitly start
+              // practice through the enclosing form's submit button.
+              if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
+                event.preventDefault();
+              }
+            }}
+          >
             <legend className="ck-label">Variant chain</legend>
+            <VariantLibraryControls state={variantLibrary}
+              stages={variants.map(v => ({ name: v.name, clean_streak: v.clean_streak ?? v.reps }))}
+              onApply={stages => setVariants(stages.map(stage => ({ ...stage, reps: stage.clean_streak, draftId: nextVariantId.current++ })))} />
             <div className="ck-chip-row" aria-label="Variant presets">
               {[
                 ...VARIANT_PRESETS,
-                ...customChips.map((name) => ({ label: name, name })),
-              ].map((preset) => (
+                ...(variantLibrary.library?.custom_variants ?? []).map(name => ({ label: name, name })),
+                ...customChips.filter(name => !variantLibrary.library?.custom_variants.some(saved => variantNameKey(saved) === variantNameKey(name))).map((name) => ({ label: name, name })),
+              ].filter(preset => !variantLibrary.library?.hidden_variants.some(name => variantNameKey(name) === variantNameKey(preset.name))).map((preset) => (
                 <button
                   key={preset.name}
                   type="button"
@@ -852,6 +853,7 @@ export function BlockForm({
               <button
                 type="button"
                 className="ck-chip ck-custom-variant-toggle"
+                title="Add a one-off stage. Use Manage variants to save a permanent shortcut."
                 aria-expanded={customVariantOpen}
                 aria-controls="custom-variant-editor"
                 onClick={() => setCustomVariantOpen((open) => !open)}
@@ -869,7 +871,8 @@ export function BlockForm({
                   className="ck-input"
                   type="text"
                   value={customVariantText}
-                  placeholder="Custom variant…"
+                  placeholder="One-off variant…"
+                  maxLength={80}
                   aria-label="Custom variant name"
                   onChange={(e) => setCustomVariantText(e.target.value)}
                   onKeyDown={(e) => {

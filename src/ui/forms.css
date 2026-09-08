@@ -204,10 +204,6 @@
   color: var(--surface-raised);
   background: var(--ink-primary);
 }
-.block-form--compact.is-variants-customizing .ck-chain-help,
-.block-form--compact.is-variants-customizing .ck-chain-list {
-  display: none;
-}
 @media (max-width: 480px) {
   .block-compact-actions,
   .block-form--compact.is-variants-customizing .ck-chip-row {

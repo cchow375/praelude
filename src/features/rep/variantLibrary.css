@@ -1,0 +1,17 @@
+.variant-library { display: grid; gap: 10px; min-width: 0; }
+.variant-library > button { justify-self: start; }
+.variant-routines, .variant-library-manager { display: grid; gap: 10px; min-width: 0; }
+.variant-library-manager { padding: 12px; border: 1px solid var(--line, #363636); border-radius: 12px; }
+.variant-library small { display: block; overflow-wrap: anywhere; }
+.variant-library-add { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.variant-library-add .ck-field { flex: 1 1 180px; min-width: 0; }
+.variant-library-visibility { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px 16px; }
+.variant-library-item { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.variant-library-item label { display: flex; align-items: center; gap: 8px; flex: 1; min-height: 32px; overflow-wrap: anywhere; min-width: 0; }
+.variant-library-item input { flex: 0 0 auto; }
+.variant-library-routine { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--line, #363636); padding-top: 8px; }
+.variant-library-routine > div { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
+.variant-library .ck-chip { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+.variant-library-item { flex-wrap: wrap; }
+.variant-library-delete { display: flex; flex-wrap: wrap; gap: 8px; flex: 1 1 100%; min-width: 0; padding: 8px; border: 1px solid var(--line, #363636); border-radius: 8px; }
+.variant-library-delete > small { flex: 1 1 100%; }

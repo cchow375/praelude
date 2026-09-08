@@ -1,6 +1,6 @@
 [package]
 name = "praelude"
-version = "10.0.5"
+version = "10.1.0"
 description = "Voice-first practice and rep tracker for pianists"
 authors = ["Praelude contributors"]
 edition = "2021"
