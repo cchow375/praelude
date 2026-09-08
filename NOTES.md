@@ -1,5 +1,7 @@
 # NOTES
 
+- **2026-09-07 / v10.1.0 release:** `1543c06`, full frontend 2554/1 skipped and native 1088/17 ignored + integrations, strict lint/format/build/package/data gates pass. Ad-hoc replacement again invalidated Desktop-folder and Speech Recognition code requirements; TCC logs explicitly confirm renewed prompts. Score awaits Desktop Allow; no native Variants acceptance claimed until that gate is cleared. DB bytes and full graph remain unchanged.
+
 ## Decisions
 
 - **v10.1 saves a user-local variant library without migrating the practice graph (2026-09-07).** `practice.variant_library` is an optional typed JSON value in the existing settings table. Missing reads return revision0/empty custom names/hidden names/routines without writing defaults. Saves validate the entire payload then compare-and-swap its revision under an immediate SQLite transaction; stale writes and corrupt stored data refuse rather than overwriting a library. Custom names/visibility are global across pieces. Routines copy ordered stage names and consecutive-clean counts; applying one copies/replaces the draft chain, and hiding/removing shortcuts never rewrites saved routines, active contracts or practice history. UI uses native commands, not browser-local persistence. Empty app profiles keep generic built-in shortcuts only.
