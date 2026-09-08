@@ -100,7 +100,7 @@ describe("PiecesPanel", () => {
 
     render(<PiecesPanel onOpenBlock={vi.fn()} />);
     await waitFor(() =>
-      expect(screen.getByText("No active pieces here.")).toBeTruthy(),
+      expect(screen.getByText("Your next piece starts here")).toBeTruthy(),
     );
 
     fireEvent.click(
@@ -161,7 +161,7 @@ describe("PiecesPanel", () => {
     expect(activeTitles[1]).toContain("Liebestraum No. 3");
     expect(within(active).queryByText("Old étude")).toBeNull();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Archived 1" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Resting 1" }));
     expect(screen.getByText("Old étude")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Actions for Old étude" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Restore" }));

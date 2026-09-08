@@ -8,7 +8,7 @@ import {
   PraeludeMark,
   ListIcon,
   NoteIcon,
-  OrbitIcon,
+  StudioIcon,
   SheetIcon,
   SlidersIcon,
   SparkIcon,
@@ -33,12 +33,8 @@ interface TodayWorkspaceProps {
   assistantEnabled?: boolean;
 }
 
-/**
- * The app's main menu. Not a landing page: a quiet app mark, the date, and
- * launcher entries. "Today's Practice" opens the real day surfaces as a window
- * over this menu (day-sheet-first, spec C5); the rest of the entries jump
- * straight to a workspace.
- */
+/** A quiet practice launchpad: music first, today's notes beside it, and
+ * supporting workspaces a single click away. No progress is invented here. */
 export function TodayWorkspace({
   onOpenAtlas,
   onOpenWarmups,
@@ -90,69 +86,97 @@ export function TodayWorkspace({
           <span className="today-menu-wordmark">Praelude</span>
         </div>
 
-        <p className="today-date today-menu-date">{todayLabel()}</p>
-        <StreakLine summary={streak} />
+        <header className="today-welcome">
+          <p className="today-date today-menu-date">{todayLabel()}</p>
+          <h1>A space for your practice.</h1>
+          <StreakLine summary={streak} />
+        </header>
 
         <nav className="today-menu-nav" aria-label="Main menu">
-          <button
-            ref={practiceTriggerRef}
-            type="button"
-            className="today-menu-item is-primary"
-            onClick={() => setPracticeOpen(true)}
-          >
-            <SheetIcon className="today-menu-icon" />
-            <span>Today's Practice</span>
-          </button>
-          <button
-            type="button"
-            className="today-menu-item"
-            onClick={onOpenAtlas}
-          >
-            <NoteIcon className="today-menu-icon" />
-            <span>Score</span>
-          </button>
-          <button
-            type="button"
-            className="today-menu-item"
-            onClick={onOpenWarmups}
-          >
-            <WarmupIcon className="today-menu-icon" />
-            <span>Warmups</span>
-          </button>
-          {assistantEnabled && (
+          <div className="today-practice-launchers">
             <button
               type="button"
-              className="today-menu-item"
-              onClick={onOpenBrain}
+              aria-label="Score"
+              className="today-menu-item today-score-launch is-primary"
+              onClick={onOpenAtlas}
             >
-              <SparkIcon className="today-menu-icon" />
-              <span>{ASSISTANT}</span>
+              <NoteIcon className="today-menu-icon" />
+              <span className="today-launch-copy">
+                <strong>Open Score</strong>
+                <span>Your music. One passage at a time.</span>
+              </span>
+              <span className="today-launch-arrow" aria-hidden="true">↗</span>
             </button>
-          )}
-          <button
-            type="button"
-            className="today-menu-item"
-            onClick={onOpenLedger}
-          >
-            <ListIcon className="today-menu-icon" />
-            <span>Pieces</span>
-          </button>
-          <button
-            type="button"
-            className="today-menu-item"
-            onClick={onOpenUniverse}
-          >
-            <OrbitIcon className="today-menu-icon" />
-            <span>Universe</span>
-          </button>
-          <button
-            type="button"
-            className="today-menu-item"
-            onClick={onOpenSettings}
-          >
-            <SlidersIcon className="today-menu-icon" />
-            <span>Settings</span>
-          </button>
+            <button
+              ref={practiceTriggerRef}
+              type="button"
+              aria-label="Today's Practice"
+              className="today-menu-item today-notes-launch"
+              onClick={() => setPracticeOpen(true)}
+            >
+              <SheetIcon className="today-menu-icon" />
+              <span className="today-launch-copy">
+                <strong>Today's Practice</strong>
+                <span>Your plan, notes, and next steps.</span>
+              </span>
+              <span className="today-launch-arrow" aria-hidden="true">↗</span>
+            </button>
+          </div>
+
+          <div className="today-workspace-links">
+            <button
+              type="button"
+              aria-label="Pieces"
+              className="today-menu-item"
+              onClick={onOpenLedger}
+            >
+              <ListIcon className="today-menu-icon" />
+              <span className="today-launch-copy">
+                <strong>Pieces</strong>
+                <span>Your repertoire</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-label="Warmups"
+              className="today-menu-item"
+              onClick={onOpenWarmups}
+            >
+              <WarmupIcon className="today-menu-icon" />
+              <span className="today-launch-copy">
+                <strong>Warmups</strong>
+                <span>Settle into playing</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-label="Studio"
+              className="today-menu-item"
+              onClick={onOpenUniverse}
+            >
+              <StudioIcon className="today-menu-icon" />
+              <span className="today-launch-copy">
+                <strong>Studio</strong>
+                <span>Watch your practice grow</span>
+              </span>
+            </button>
+          </div>
+
+          <div className="today-utility-links">
+            <button type="button" className="today-utility-link" onClick={onOpenCalendar}>
+              Calendar
+            </button>
+            {assistantEnabled && (
+              <button type="button" className="today-utility-link" onClick={onOpenBrain}>
+                <SparkIcon />
+                {ASSISTANT}
+              </button>
+            )}
+            <button type="button" className="today-utility-link" onClick={onOpenSettings}>
+              <SlidersIcon />
+              Settings
+            </button>
+          </div>
         </nav>
       </div>
     </div>

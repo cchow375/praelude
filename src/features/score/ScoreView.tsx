@@ -3554,8 +3554,7 @@ export function ScoreView({
             id={targetInstructionsId}
             className="score-atlas-draw-instructions"
           >
-            Drag one rectangle directly on a rendered score page. Its normalized
-            geometry stays independent of zoom.
+            Drag a rectangle around the passage you want to mark.
           </span>
         </div>
 

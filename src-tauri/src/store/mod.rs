@@ -26,6 +26,7 @@ mod score_atlas;
 mod score_marks;
 mod session_plan;
 mod streaks;
+mod studio;
 mod tutorials;
 mod v8_backfill;
 mod variant_library;
@@ -57,6 +58,7 @@ pub(crate) use streaks::LifetimeStreakEvidence;
 pub use streaks::{
     StreakSummary, DEFAULT_STREAK_THRESHOLD_MINUTES, STREAK_THRESHOLD_DEFENSIVE_MAX_MINUTES,
 };
+pub use studio::StudioSnapshot;
 pub use variant_library::VariantLibrary;
 pub use warmups::{WarmupRoutine, WarmupRoutineSaveInput, WarmupSystemPiece};
 

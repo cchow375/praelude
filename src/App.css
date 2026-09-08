@@ -17,7 +17,6 @@ body,
 }
 
 html {
-  color-scheme: dark;
   background: var(--bg);
   scrollbar-color: var(--hairline-strong) transparent;
   scrollbar-width: thin;
@@ -31,7 +30,7 @@ body {
   font-weight: var(--weight-normal);
   color: var(--ink-primary);
   background-color: var(--surface-app);
-  background-image: none;
+  background-image: var(--canvas-glow);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -80,13 +79,6 @@ button {
 }
 
 button,
-input,
-select,
-textarea {
-  color-scheme: dark;
-}
-
-button,
 [role="button"],
 a {
   -webkit-tap-highlight-color: transparent;
@@ -97,7 +89,7 @@ button:active:not(:disabled),
   transform: translateY(1px);
 }
 
-/* A focus ring you cannot miss: ink blue at 8.6:1 on paper. The outline
+/* A visible focus ring across both appearances. The outline
    follows each element's own border-radius, so nothing is set here that would
    change an element's shape when it takes focus. */
 :focus-visible {
@@ -110,8 +102,7 @@ button:active:not(:disabled),
   color: var(--selection-ink);
 }
 
-/* Scrollbars on paper terms: no track chrome, an ink thumb that darkens on
-   hover. Keeps the webview from painting a macOS dark overlay bar. */
+/* Quiet scrollbars retain a visible thumb in both appearances. */
 ::-webkit-scrollbar {
   width: 11px;
   height: 11px;
@@ -141,4 +132,11 @@ button:active:not(:disabled),
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:active:not(:disabled), [role="button"]:active { transform: none; }
+}
+@media (forced-colors: active) {
+  button, input, select, textarea { forced-color-adjust: auto; }
 }

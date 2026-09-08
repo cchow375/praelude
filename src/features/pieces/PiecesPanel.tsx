@@ -168,18 +168,18 @@ export function PiecesPanel({
           <p className="ck-kicker">Your repertoire</p>
           <h2 className="pieces-heading">Pieces Library</h2>
           <p className="pieces-subheading">
-            Add your own scores, organize them your way, and choose what to practice.
+            A place for every score. Space for what you’re practicing now.
           </p>
         </div>
         <div className="pieces-header-actions">
           <button
             type="button"
-            className="pieces-scan"
+            className="pieces-scan is-primary"
             aria-label="Add a piece"
             aria-pressed={adding}
             onClick={() => setAdding((v) => !v)}
           >
-            <span>Add Piece</span>
+            <span aria-hidden="true">＋</span><span>Add Piece</span>
           </button>
           <button
             type="button"
@@ -219,7 +219,10 @@ export function PiecesPanel({
       )}
 
       {loading ? (
-        <p className="pieces-empty">Loading…</p>
+        <div className="piece-library-loading" role="status" aria-label="Loading pieces">
+          <span>Loading your library…</span>
+          <div aria-hidden="true">{[1, 2, 3, 4].map((id) => <i key={id} />)}</div>
+        </div>
       ) : (
         <PieceLibrary
           pieces={pieces}

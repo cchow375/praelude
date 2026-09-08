@@ -4,21 +4,28 @@
    ========================================================================== */
 
 .settings {
-  max-width: 720px;
+  width: min(100%, 780px);
+  margin: 0 auto;
+  padding: 8px 0 32px;
   color: var(--ink);
   font-family: var(--font-sans);
 }
 
 .settings-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--s-4);
-  margin-bottom: var(--s-4);
+  margin-bottom: 24px;
+  padding: 16px 0;
+  background: var(--bg);
 }
 .settings-head h2 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.75rem;
   font-weight: 600;
   color: var(--ink);
 }
@@ -204,7 +211,7 @@
 .settings input:not([type="checkbox"]):not([type="range"]),
 .settings select {
   width: 100%;
-  min-height: 32px;
+  min-height: 40px;
   padding-inline: var(--s-2);
   border: 1px solid var(--hairline);
   border-radius: var(--r-sm);
@@ -214,15 +221,16 @@
 }
 .settings input:focus-visible,
 .settings select:focus-visible {
-  outline: none;
-  border-color: var(--hairline-strong);
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  border-color: var(--accent);
 }
 
 .settings-check {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  min-height: 32px;
+  min-height: 40px;
   align-self: end;
   font-size: 0.8125rem;
   color: var(--ink-dim);
@@ -359,4 +367,43 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+.settings-subtitle {
+  margin: 6px 0 0;
+  color: var(--ink-faint);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+.settings .ck-disclosure {
+  margin-bottom: 10px;
+  padding-inline: 18px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-card);
+}
+.settings .ck-disclosure-summary { min-height: 62px; gap: 12px; }
+.settings .ck-disclosure-summary::before { order: 2; margin-left: auto; flex: none; }
+.settings .ck-disclosure-body { padding-bottom: 20px; }
+.settings .ck-disclosure[open] .ck-disclosure-summary { border-bottom: 1px solid var(--hairline); margin-bottom: 12px; }
+.settings .settings-section-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--surface-hover);
+  color: var(--ink-dim);
+}
+.settings-check input { flex: none; width: 17px; height: 17px; accent-color: var(--accent); }
+.settings-check.settings-wide { padding-block: 8px; }
+.settings-check small { font-size: 0.75rem; line-height: 1.5; }
+.settings-group { gap: 18px; }
+.settings-row { gap: 8px; }
+.settings-key-actions { flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .settings-head { gap: 12px; }
+  .settings-subtitle { max-width: 28ch; }
+  .settings .ck-disclosure { padding-inline: 14px; }
 }

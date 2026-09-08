@@ -91,12 +91,14 @@ const defaultApi: SettingsApi = {
 };
 
 export function SettingsPanel({
+  onThemeSaved,
   onInterfaceScaleSaved,
   onPracticeDefaultCleanStreakSaved,
   api = defaultApi,
   brainInvoker,
   platform = runtimePlatform(),
 }: {
+  onThemeSaved?: (theme: SettingsSnapshot["theme"]) => void;
   onInterfaceScaleSaved?: (scale: number) => void;
   onPracticeDefaultCleanStreakSaved?: (target: number) => void;
   api?: SettingsApi;
@@ -126,7 +128,7 @@ export function SettingsPanel({
         if (active) {
           const normalized = {
             ...next,
-            theme: "dark" as const,
+            theme: next.theme === "light" || next.theme === "auto" ? next.theme : "dark" as const,
             interface_scale: Number.isFinite(next.interface_scale)
               ? next.interface_scale
               : 90,
@@ -218,6 +220,7 @@ export function SettingsPanel({
       acceptCommittedSettings(next);
       setValue(next);
       setAliasDrafts(aliasStrings(next.verdict_aliases));
+      onThemeSaved?.(next.theme);
       onInterfaceScaleSaved?.(next.interface_scale);
       onPracticeDefaultCleanStreakSaved?.(next.practice_default_clean_streak);
       setMessage(
@@ -246,7 +249,10 @@ export function SettingsPanel({
   return (
     <form className="settings" aria-label="Praelude settings" onSubmit={save}>
       <header className="settings-head">
-        <h2>Settings</h2>
+        <div>
+          <h2>Settings</h2>
+          <p className="settings-subtitle">Make Praelude feel right at your piano.</p>
+        </div>
         <div className="settings-head-actions">
           <Button variant="primary" type="submit" disabled={saving}>
             {saving ? "Saving…" : "Save"}
@@ -860,8 +866,20 @@ export function SettingsPanel({
         }
       >
         <div className="settings-group">
+          <label className="settings-row">
+            <span>Appearance</span>
+            <select
+              aria-label="Appearance"
+              value={value.theme}
+              onChange={(event) => setValue({ ...value, theme: event.target.value as SettingsSnapshot["theme"] })}
+            >
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="auto">System</option>
+            </select>
+          </label>
           <p className="settings-note">
-            Praelude uses its dark practice-room interface.
+            Glass follows your system's reduced transparency and motion preferences.
           </p>
           <label className="settings-scale">
             <span>

@@ -71,6 +71,7 @@ import {
 import { BANNER_MAX_CHARS } from "../features/score/bannerText";
 import { getVariantLibraryMock, saveVariantLibraryMock, resetVariantLibraryMock } from "./variantLibraryMock";
 import type { VariantLibrary } from "../features/rep/useVariantLibrary";
+import { resetStudioMock, studioSnapshotMock, studioMutationMock } from "./studioMock";
 
 // Release cleanliness sentinel. Production builds statically dead-strip this
 // module; the share-clean gate rejects any artifact that contains this marker.
@@ -3701,6 +3702,19 @@ function routeCommand(cmd: string, args: unknown): unknown {
       }
     // Task B1: generic settings key/value pair (distinct from the typed
     // settings_snapshot/settings_update projection below).
+    case "piece_covers_get": {
+      const ids = ((args ?? {}) as { ids?: number[] }).ids ?? [];
+      return Object.fromEntries(ids.flatMap((id) => {
+        const cover = mockGenericSettings.get(`pieces.cover.${id}`);
+        return cover ? [[id, cover]] : [];
+      }));
+    }
+    case "piece_cover_set": {
+      const record = (args ?? {}) as { id: number; dataUrl: string | null };
+      if (record.dataUrl) mockGenericSettings.set(`pieces.cover.${record.id}`, record.dataUrl);
+      else mockGenericSettings.delete(`pieces.cover.${record.id}`);
+      return null;
+    }
     case "get_setting": {
       const key = ((args ?? {}) as { key?: string }).key ?? "";
       return mockGenericSettings.get(key) ?? null;
@@ -4587,6 +4601,12 @@ function routeCommand(cmd: string, args: unknown): unknown {
     // Today / Universe.
     case "universe_snapshot":
       return universeSnapshot();
+    case "studio_snapshot":
+      return studioSnapshotMock();
+    case "studio_purchase":
+    case "studio_equip":
+    case "studio_profile_save":
+      return studioMutationMock(cmd, argsRecord(args));
 
     // Day streak (Task A2) — derived from the same fixture days history_days
     // serves, so the mock can never show a streak the mock history does not
@@ -4783,6 +4803,7 @@ export function installTauriDevMock(
   if (installed) return;
   installed = true;
   resetVariantLibraryMock();
+  resetStudioMock();
   (
     window as unknown as {
       __CODAKILLER_DEV_MOCK_SENTINEL__?: string;

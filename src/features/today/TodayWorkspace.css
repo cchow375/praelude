@@ -1,98 +1,176 @@
-/* ── Main menu ─────────────────────────────────────────────────────────── */
+/* Practice launchpad. Translucency stays on the control layer; the rest of
+   the workspace is a calm, opaque canvas with no ambient motion. */
 .today-menu {
   display: flex;
   min-height: 100%;
-  padding: clamp(1.5rem, 6vh, 5rem) clamp(1.25rem, 5vw, 4rem);
-  background:
-    radial-gradient(circle at 50% 22%, rgba(169, 191, 255, 0.06), transparent 32rem),
-    var(--bg);
+  padding: clamp(1.5rem, 6vh, 4rem) clamp(1.25rem, 5vw, 4rem);
+  background: var(--canvas-glow), var(--bg);
 }
 .today-menu-inner {
-  width: min(100%, 34rem);
+  width: min(100%, 56rem);
   margin: auto;
 }
 .today-menu-mark {
   display: flex;
   align-items: center;
-  gap: var(--s-2);
-  color: var(--ink);
+  gap: 10px;
+  color: var(--ink-dim);
 }
 .today-menu-mark-glyph {
-  width: 28px;
-  height: 28px;
-  padding: 4px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: 8px;
+  width: 30px;
+  height: 30px;
+  padding: 5px;
+  border: 1px solid var(--glass-border);
+  border-radius: 9px;
   color: var(--ink);
-  background: var(--surface-hover);
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
 }
 .today-menu-wordmark {
-  font-size: 1rem;
-  font-weight: 650;
+  font-size: 0.9375rem;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
-
+.today-welcome {
+  margin: clamp(1.5rem, 5vh, 3rem) 0 clamp(1.5rem, 4vh, 2.25rem);
+}
+.today-welcome h1 {
+  margin: 10px 0 12px;
+  max-width: 20ch;
+  font-size: clamp(1.85rem, 3.6vw, 2.75rem);
+  font-weight: 650;
+  letter-spacing: -0.045em;
+  line-height: 1.1;
+}
 .today-date,
 .ck-kicker {
   margin: 0;
   color: var(--ink-faint);
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.015em;
 }
-.today-menu-date {
-  margin-top: var(--s-5);
-}
-
-.today-menu-nav {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
-  margin-top: clamp(1.5rem, 4vh, 2.5rem);
+.today-menu-date { color: var(--ink-dim); }
+.today-menu-nav { display: grid; gap: 16px; }
+.today-practice-launchers {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 16px;
 }
 .today-menu-item {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--s-3);
+  gap: 14px;
   width: 100%;
-  min-height: 48px;
-  padding: 0 var(--s-4);
-  border: 0;
-  border-radius: var(--r-md);
-  background: transparent;
-  color: var(--ink-faint);
+  min-width: 0;
+  min-height: 88px;
+  padding: 20px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  color: var(--ink);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-card);
   font: inherit;
-  font-size: 1rem;
   text-align: left;
   cursor: pointer;
-  transition:
-    color var(--dur-fast) var(--ease-out),
-    background var(--dur-fast) var(--ease-out);
+  transition: border-color var(--dur-fast), background var(--dur-fast), box-shadow var(--dur-fast);
 }
 .today-menu-item:hover {
-  color: var(--ink);
-  background: var(--surface-hover);
+  border-color: var(--control-line);
+  background: var(--surface-popover);
 }
-.today-menu-item:active {
-  transform: translateY(1px);
-}
-.today-menu-item.is-primary {
-  color: var(--ink-inverse);
-  background: var(--ink);
+.today-launch-copy { display: grid; gap: 5px; min-width: 0; }
+.today-launch-copy strong {
   font-weight: 600;
+  font-size: 0.9375rem;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
 }
-.today-menu-item.is-primary .today-menu-icon {
-  color: var(--ink-inverse);
+.today-launch-copy > span {
+  color: var(--ink-dim);
+  font-size: 0.75rem;
+  line-height: 1.45;
 }
 .today-menu-icon {
   flex: none;
-  color: var(--ink-faint);
-}
-.today-menu-item:hover .today-menu-icon,
-.today-menu-item.is-primary .today-menu-icon {
+  width: 22px;
+  height: 22px;
   color: var(--ink-dim);
+}
+.today-practice-launchers .today-menu-item {
+  min-height: 160px;
+  align-items: flex-start;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px;
+}
+.today-practice-launchers .today-launch-copy strong { font-size: 1.25rem; }
+.today-practice-launchers .today-launch-copy > span { font-size: 0.8125rem; }
+.today-menu-item.is-primary {
+  background: linear-gradient(135deg, var(--glass-highlight), transparent 65%), var(--glass-bg);
+  border-color: var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-shadow);
+}
+.today-menu-item.is-primary:hover { background-color: var(--glass-bg-strong); }
+.today-menu-item.is-primary .today-menu-icon { color: var(--accent); }
+.today-launch-arrow {
+  position: absolute;
+  top: 21px;
+  right: 24px;
+  color: var(--ink-dim);
+  font-size: 1.25rem;
+}
+.today-workspace-links {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.today-workspace-links .today-menu-item { padding: 18px 16px; }
+.today-utility-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding-top: 4px;
+}
+.today-utility-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--ink-dim);
+  background: transparent;
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.today-utility-link:hover { color: var(--ink); background: var(--surface-hover); }
+@media (max-width: 760px) {
+  .today-menu { padding: 24px; }
+  .today-welcome { margin-block: 24px; }
+  .today-practice-launchers .today-menu-item { min-height: 144px; padding: 20px; }
+  .today-workspace-links { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .today-workspace-links .today-menu-item { align-items: flex-start; flex-direction: column; gap: 12px; }
+}
+@media (max-width: 480px) {
+  .today-practice-launchers { grid-template-columns: 1fr; }
+  .today-practice-launchers .today-menu-item { min-height: 128px; }
+  .today-workspace-links { grid-template-columns: 1fr; }
+  .today-workspace-links .today-menu-item { flex-direction: row; align-items: center; min-height: 76px; }
+}
+@media (max-height: 650px) and (min-width: 481px) {
+  .today-menu { padding-block: 22px; }
+  .today-menu-mark { display: none; }
+  .today-welcome { margin: 0 0 20px; }
+  .today-welcome h1 { font-size: 1.85rem; margin-block: 8px; }
+  .today-practice-launchers .today-menu-item { min-height: 130px; padding: 18px; gap: 12px; }
 }
 
 /* ── Today's Practice window (opens over the menu) ─────────────────────────
@@ -137,7 +215,9 @@
   gap: var(--s-4);
   padding: var(--s-2) var(--s-3) var(--s-2) var(--s-4);
   border-bottom: 1px solid var(--hairline);
-  background: var(--bg-sunken);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
 }
 /* Deliberately small: this is the window's name badge, not the page's title.
    The page titles itself with the date, in serif, on the sheet. */
@@ -160,8 +240,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
+  width: 40px;
+  height: 40px;
   border: 0;
   border-radius: var(--r-sm);
   background: transparent;
@@ -308,6 +388,7 @@
    deliberately show focus as a mark in the margin instead of a box, and a
    blanket rule here would out-specify that and re-box the page. */
 .today-menu-item:focus-visible,
+.today-utility-link:focus-visible,
 .today-practice-close:focus-visible,
 .today-suggested > summary:focus-visible,
 .today-error button:focus-visible,

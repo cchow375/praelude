@@ -1,0 +1,195 @@
+{
+  "captured_at": "2026-09-08T03:41:29.217360+00:00",
+  "db_sha256": "b285c5a0624769aeccc27a2543f9b414eb1b22750fa2c551e60f02cfee553cb4",
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "open_sessions": 0,
+  "open_blocks": 0,
+  "schema_version": 21,
+  "tables": {
+    "action_draft": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "attempt_adjustment": {
+      "rows": 8,
+      "sha256": "4d308d55e2d473bd01346e2363262f46421329e75cc799678eab43fd7b9b26b1"
+    },
+    "attempt_provenance": {
+      "rows": 3237,
+      "sha256": "66c9a0f69752cd3fd3bb28dc066026acedeb306fef8c2b6bfd5b8c4c8f9436c1"
+    },
+    "brain_thread": {
+      "rows": 11,
+      "sha256": "1c74facdc06a804922f68016c63d8909d3fa8b4c16be42116f6d2727f7876306"
+    },
+    "brain_turn": {
+      "rows": 152,
+      "sha256": "9c9c3f6f880991c495393c462cd0b336fbeb4f1ec6433837a4af3ba3fcc54fda"
+    },
+    "daily_work": {
+      "rows": 13,
+      "sha256": "536410c80d10b1bdef2886d0630d27edf8c4aac2250cafd06b3aeddecd6a76fc"
+    },
+    "data_anomaly": {
+      "rows": 792,
+      "sha256": "4f1c2277a03f1d7d9b85f1849ce06221e748894db62f58b326720c8da0b230b1"
+    },
+    "day_photo": {
+      "rows": 1,
+      "sha256": "6b74f01c021d744b62828b9637fd60fd08cefa3a6d1ada27b27256f6d586fe1c"
+    },
+    "day_sheet": {
+      "rows": 11,
+      "sha256": "f8c6b112dcff248921f79e69ba5a3fbd1e6d4494de5f409514b04ebab57523c8"
+    },
+    "dynamics_calibration_point": {
+      "rows": 15,
+      "sha256": "fef7133c1b3b435a28bcab25b7af1eb7fc74bc65a0af1e947896da83b5cf12ed"
+    },
+    "dynamics_profile": {
+      "rows": 3,
+      "sha256": "ab740ec3383f1a8e20e1729f208b82e81b220f4c67b6e0ca75b00d4623683611"
+    },
+    "event": {
+      "rows": 12233,
+      "sha256": "831e0bd8391e5c71597424e2f58f8785ff160b5d87a694a243c8ad4f82c9fba8"
+    },
+    "goal": {
+      "rows": 31,
+      "sha256": "8ab0c447de0968046d268f6af6e2777f35fb1d5038eb9cb1bf314a970de99549"
+    },
+    "measure_map": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "piece": {
+      "rows": 11,
+      "sha256": "c8cb9d37cecba0a4b1de7c2c95d47425f054b9a875bc722c6e585456e99b3c18"
+    },
+    "piece_folder": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "piece_movement": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "piece_plan": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "practice_interval": {
+      "rows": 320,
+      "sha256": "463ea5211cc4d27ee8a084ffb4dcc302ba3221ad018caa5d9509a556eb081ed8"
+    },
+    "practice_operation": {
+      "rows": 10351,
+      "sha256": "d8648a0dd510e15de39096099e3b9ad39beb63c13e7bd1877d31af47fdb79081"
+    },
+    "practice_recovery_action": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "practice_reflection": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "practice_safety_event": {
+      "rows": 2,
+      "sha256": "e50247aa8e6f85f8da3a1cd3ec716465cf8588826ed5987f54283bebb173dcfa"
+    },
+    "practice_set_context": {
+      "rows": 304,
+      "sha256": "ac75852e050154b9540946a3167794e1873d9978569a84aad71077d6d9ea10e9"
+    },
+    "protocol_template": {
+      "rows": 1,
+      "sha256": "857d1c035b27938f06980339061d1530a878c8fc94103f331315245e1fa0e888"
+    },
+    "region": {
+      "rows": 133,
+      "sha256": "4548d47622658a381d1fe7d6a14e444ba5c36488c860e8db63f609ef55cc38cb"
+    },
+    "rep": {
+      "rows": 3237,
+      "sha256": "2370146e61b43e9eda8d1b9f99c5db953fa36f8cba45cf6a4837d69f08cbbe49"
+    },
+    "rep_block": {
+      "rows": 352,
+      "sha256": "3861b51f9c5f871d7f811e8774800d28429cc8878f3031204c1c0027eac726ed"
+    },
+    "rep_replay": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "retention_check": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "retention_check_event": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "score_edition_calibration": {
+      "rows": 9,
+      "sha256": "9c3dae20049ddb5303b74ed06cc42865aec8d2d0f955db6698b2099c62edec3c"
+    },
+    "score_page_mark": {
+      "rows": 32,
+      "sha256": "533eb09d6e047221a9d24d238d4b9f8e0e6d01c22a13b583dcad3c6fcd402d59"
+    },
+    "score_section": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "session": {
+      "rows": 63,
+      "sha256": "1eb4f16c1c163eb6e056f850691acde683d0e71b65e87c68dc9e2e280cb7e396"
+    },
+    "session_event": {
+      "rows": 11797,
+      "sha256": "eb6e33d798270f9f90a6ffa7d26e7b825ca989afb202ce5c3e3bd60a48f03835"
+    },
+    "session_event_backfill": {
+      "rows": 11797,
+      "sha256": "5f098b65d4b815bfa41f210789221d1a565d975bf4c216521198d07ae999c7f8"
+    },
+    "set_contract": {
+      "rows": 352,
+      "sha256": "a0d1296f8489d8cdc6b6b06a0a3a7ecdaee4177c191dc4150339613801a66e76"
+    },
+    "setting": {
+      "rows": 24,
+      "sha256": "d188ea88e467c7a9612ad116b789b773170f8f4422c19f32ea16528bfea1085b"
+    },
+    "spot_review": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "target_meta": {
+      "rows": 71,
+      "sha256": "f9649109912dece3b79f61784d924d4e85a6acf77257eebe2a3450352fab3b91"
+    },
+    "tutorial_chapter": {
+      "rows": 11,
+      "sha256": "914675903b35c3d01f55541faef93a3c357bf54d6a55abbed0152376826272d6"
+    },
+    "tutorial_clip": {
+      "rows": 13,
+      "sha256": "08dd6517a6588ffda37f1c059b6f81798a3b8d9d65d548d9e9349967551e93ff"
+    },
+    "tutorial_video": {
+      "rows": 1,
+      "sha256": "a0a44df89ff878476435283d49ec03838f7a4172a0fce444a73850747f20b178"
+    },
+    "warmup_routine": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "warmup_routine_item": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

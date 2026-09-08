@@ -77,7 +77,9 @@ export function ReadOnlyDaySheet({
         </div>
       )}
 
-      {sheet.status !== "ready" ? null : sheet.body.length === 0 ? (
+      {sheet.status !== "ready" ? (
+        <p role="status">Reading this day’s notes…</p>
+      ) : sheet.body.length === 0 ? (
         <p className="ck-ro-empty" data-testid="read-only-empty">
           Nothing was written on this day.
         </p>

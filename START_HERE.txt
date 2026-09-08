@@ -1,33 +1,54 @@
-Praelude 10 for macOS
-=====================
+Praelude 11 for macOS
+====================
 
 What you need
 -------------
 - An Apple-silicon Mac (M1 or newer)
 - macOS 13 or newer
-- A PDF of any score you want to practise
+- Your own score PDF
 
 Install
 -------
 1. Drag Praelude into the Applications shortcut in this window.
 2. In Applications, Control-click Praelude and choose Open.
-3. If macOS still blocks it, open System Settings > Privacy & Security,
-   choose Open Anyway for Praelude, then confirm Open.
+3. If macOS blocks it, use System Settings > Privacy & Security >
+   Open Anyway for Praelude, then confirm Open.
 
-The extra first-open step is needed because this direct-download build is not
-notarized through Apple's paid Developer ID service.
+This direct-download build is ad-hoc signed, not notarized through Apple's
+Developer ID service. An update can renew macOS permissions for files or voice.
 
 Start practising
 ----------------
-1. Open Pieces.
-2. Choose Add Piece.
-3. Enter the title and optional composer, choose a PDF, and add it.
-4. Open the piece and start a practice set.
+1. Open Pieces > Library > Add Piece.
+2. Enter a title, choose a local PDF, and add it. Composer/folder are optional.
+3. Open the piece in Score and choose a passage in Tricky Sections.
+4. Set your goal and tempo, then Start set.
+5. Report each attempt with Clean, Sloppy or Again. You are the judge.
 
-A first-ever install for a new Mac user begins blank. Updating or reinstalling
-keeps that user's existing library. Your pieces, practice history, recordings,
-photos, and settings stay on your own Mac. The app contains no preloaded books,
-quotes, scores, practice history, recordings, or photos.
+The original PDF stays untouched. Use the piece menu to choose custom cover
+artwork, organize folders or Put to rest. Resting retains scores and history.
 
-Microphone and Speech Recognition permissions are only needed for hands-free
-voice controls. You can use the rest of the app without them.
+Make a room of your own
+----------------------
+Studio turns retained practice into a room, musical ranks and earned coins.
+Each ten focused minutes earns 1 XP; completed-set session milestones add
+bonuses. Rank path explains the exact rules. Furnish shows item prices and
+rank requirements; every purchase uses earned coins only. Owned furnishings
+and your local display name survive restart. Ranks celebrate commitment,
+not musical ability.
+
+Settings > Appearance offers Dark, Light or System. Choose Save to apply.
+
+Your data
+---------
+A new Mac user starts with a blank library. Updating or reinstalling preserves
+that user's existing library and practice history. Scores, covers, recordings,
+photos, settings and Studio stay local. No personal scores, practice history,
+books, quotes or recordings are preloaded.
+
+No account is required. Email login, cloud sync and friends are not connected;
+the Studio display name is local to this Mac.
+
+Microphone and Speech Recognition permission are only needed for hands-free
+voice. Keyboard/mouse practice works without them. Praelude never judges piano
+audio; optional Listen Back is for your own ears.

@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Shell } from "./shell/Shell";
 import { SettingsPanel } from "./features/settings/SettingsPanel";
 import { useSettings } from "./state/settings";
-import { applyTheme } from "./design/theme";
+import { watchTheme } from "./design/theme";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ReceiptCenterProvider } from "./features/receipts/ReceiptCenter";
 
@@ -17,10 +17,8 @@ async function applyInterfaceScale(percent: number) {
 function AppContent() {
   const { settings, acceptSetting } = useSettings();
 
-  // Praelude is dark by default and by design.
-  useEffect(() => {
-    applyTheme("dark");
-  }, []);
+  // Keep the saved appearance in sync, including live OS changes in System mode.
+  useEffect(() => watchTheme(settings.theme), [settings.theme]);
 
   useEffect(() => {
     void applyInterfaceScale(settings.interface_scale);
@@ -31,6 +29,7 @@ function AppContent() {
       defaultCleanStreak={settings.practice_default_clean_streak}
       settingsContent={
         <SettingsPanel
+          onThemeSaved={(theme) => acceptSetting("theme", theme)}
           onInterfaceScaleSaved={(scale) => {
             void applyInterfaceScale(scale);
           }}

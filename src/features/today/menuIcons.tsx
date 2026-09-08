@@ -108,6 +108,16 @@ export function OrbitIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Studio: a quiet practice room with a piano at its center. */
+export function StudioIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Glyph {...props}>
+      <path d="M4 20V5l8-3 8 3v15M4 20h16" />
+      <path d="M8 16v-5h8v5M8 14h8M10 11v3m3-3v3M9 16v2m6-2v2" />
+    </Glyph>
+  );
+}
+
 /** Settings: two labelled sliders. */
 export function SlidersIcon(props: SVGProps<SVGSVGElement>) {
   return (

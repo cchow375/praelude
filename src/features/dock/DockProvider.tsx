@@ -50,9 +50,10 @@ interface DockContextValue {
     id: string,
     defaultPosition: { x: number; y: number },
   ) => DockPanelState;
-  open: (id: string) => void;
+  open: (id: string, automatic?: boolean) => void;
   close: (id: string) => void;
-  minimize: (id: string) => void;
+  minimize: (id: string, automatic?: boolean) => void;
+  userActionVersion: (id: string) => number;
   focus: (id: string) => void;
   move: (id: string, x: number, y: number) => void;
   /** Task A6: pulses `flashing` true on panel `id`'s pill/chrome, then clears
@@ -91,6 +92,13 @@ const DockContext = createContext<DockContextValue | null>(null);
  */
 export function DockProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<DockState>(() => loadDockState());
+  // Ephemeral provenance lets navigation distinguish a musician's choice from
+  // an automatic reveal/tuck. It never changes the persisted dock format.
+  const userActions = useRef<Record<string, number>>({});
+  const userActionVersion = useCallback(
+    (id: string) => userActions.current[id] ?? 0,
+    [],
+  );
 
   // Persist after every commit, not on the initial load (which is itself a
   // read of what's already stored).
@@ -186,17 +194,22 @@ export function DockProvider({ children }: { children: ReactNode }) {
     [state],
   );
 
-  const open = useCallback((id: string) => {
+  const open = useCallback((id: string, automatic = false) => {
+    if (!automatic)
+      userActions.current[id] = (userActions.current[id] ?? 0) + 1;
     setState((prev) =>
       raiseZ(withPanel(prev, id, { open: true, minimized: false }), id),
     );
   }, []);
 
   const close = useCallback((id: string) => {
+    userActions.current[id] = (userActions.current[id] ?? 0) + 1;
     setState((prev) => withPanel(prev, id, { open: false }));
   }, []);
 
-  const minimize = useCallback((id: string) => {
+  const minimize = useCallback((id: string, automatic = false) => {
+    if (!automatic)
+      userActions.current[id] = (userActions.current[id] ?? 0) + 1;
     setState((prev) => withPanel(prev, id, { minimized: true }));
   }, []);
 
@@ -238,6 +251,7 @@ export function DockProvider({ children }: { children: ReactNode }) {
       open,
       close,
       minimize,
+      userActionVersion,
       focus,
       move,
       flash,
@@ -253,6 +267,7 @@ export function DockProvider({ children }: { children: ReactNode }) {
       open,
       close,
       minimize,
+      userActionVersion,
       focus,
       move,
       flash,
@@ -281,8 +296,11 @@ export { useDockContext };
  * show/hide/minimize a specific dock panel from anywhere in the tree. */
 export function useDock(id: string): {
   open: () => void;
+  openAutomatically: () => void;
   close: () => void;
   minimize: () => void;
+  minimizeAutomatically: () => void;
+  userActionVersion: number;
   flash: () => void;
   isOpen: boolean;
   isMinimized: boolean;
@@ -291,8 +309,11 @@ export function useDock(id: string): {
   const panel = ctx.state[id];
   return {
     open: () => ctx.open(id),
+    openAutomatically: () => ctx.open(id, true),
     close: () => ctx.close(id),
     minimize: () => ctx.minimize(id),
+    minimizeAutomatically: () => ctx.minimize(id, true),
+    userActionVersion: ctx.userActionVersion(id),
     flash: () => ctx.flash(id),
     isOpen: panel?.open ?? false,
     isMinimized: panel?.minimized ?? false,

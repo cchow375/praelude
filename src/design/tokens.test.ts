@@ -352,7 +352,7 @@ describe("Praelude dark token discipline", () => {
   });
 
   it("renders near-black surfaces with high-contrast light type", () => {
-    expect(hexOf("--bg")?.toLowerCase()).toBe("#090a0c");
+    expect(hexOf("--bg")?.toLowerCase()).toBe("#101216");
     expect(hexOf("--ink")?.toLowerCase()).toBe("#f5f7fa");
   });
 
@@ -380,7 +380,7 @@ describe("Praelude dark token discipline", () => {
   it("uses a restrained modern radius scale", () => {
     expect(css).toMatch(/--r-sm:\s*8px/);
     expect(css).toMatch(/--r-md:\s*12px/);
-    expect(css).toMatch(/--r-lg:\s*18px/);
+    expect(css).toMatch(/--r-lg:\s*22px/);
   });
 });
 
@@ -426,4 +426,18 @@ describe("dark contrast (WCAG 2.1, computed from the token values)", () => {
     expect(contrast(hexOf("--focus-ring")!, paper)).toBeGreaterThanOrEqual(3);
     expect(contrast(hexOf("--focus-ring")!, raised)).toBeGreaterThanOrEqual(3);
   });
+});
+
+
+describe("daylight appearance contrast", () => {
+  const light = /:root\[data-theme="light"\]\s*\{([^}]+)\}/.exec(decls)?.[1] ?? "";
+  const value = (name: string) => new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})\\b`).exec(light)?.[1];
+  it.each(["--ink", "--ink-dim", "--ink-faint", "--accent", "--signal-error", "--signal-success", "--signal-warning"])(
+    "%s remains readable on daylight content surfaces", (name) => {
+      expect(value(name)).toBeDefined();
+      for (const surface of ["--bg", "--bg-raised", "--bg-sunken"]) {
+        expect(contrast(value(name)!, value(surface)!)).toBeGreaterThanOrEqual(4.5);
+      }
+    },
+  );
 });

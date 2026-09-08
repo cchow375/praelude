@@ -9,6 +9,7 @@ mod keys;
 pub mod ledger;
 mod metrics;
 mod metronome;
+mod piece_covers;
 mod pieces;
 mod planner;
 mod platform;
@@ -3526,6 +3527,38 @@ fn universe_snapshot(store: State<'_, Arc<Store>>) -> Result<universe::UniverseS
     universe::snapshot(&store).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn studio_snapshot(store: State<'_, Arc<Store>>) -> Result<store::StudioSnapshot, String> {
+    store.studio_snapshot()
+}
+
+#[tauri::command]
+fn studio_purchase(
+    item_id: String,
+    expected_revision: u64,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::StudioSnapshot, String> {
+    store.studio_purchase(&item_id, expected_revision)
+}
+
+#[tauri::command]
+fn studio_equip(
+    item_id: String,
+    expected_revision: u64,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::StudioSnapshot, String> {
+    store.studio_equip(&item_id, expected_revision)
+}
+
+#[tauri::command]
+fn studio_profile_save(
+    display_name: String,
+    expected_revision: u64,
+    store: State<'_, Arc<Store>>,
+) -> Result<store::StudioSnapshot, String> {
+    store.studio_profile_save(&display_name, expected_revision)
+}
+
 /// Read-only disclosure of every migration/backfill-observed data anomaly,
 /// grouped by kind with counts. Anomalies are projected, never repaired; this
 /// command performs no writes and offers no correction actions.
@@ -4160,6 +4193,12 @@ pub fn run() {
             piece_field_update,
             progress_summary,
             universe_snapshot,
+            studio_snapshot,
+            studio_purchase,
+            studio_equip,
+            studio_profile_save,
+            piece_covers::piece_covers_get,
+            piece_covers::piece_cover_set,
             anomalies_list,
             brain_plan_preview,
             brain_ask,

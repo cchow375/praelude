@@ -70,7 +70,7 @@ export function ConfirmArchive({
           <p className="confirm-delete-label">
             Type <strong>{expected}</strong> to remove this piece from your
             library and move its files to the app’s trash. Practice history
-            stays, but this is not the reversible Archive action.
+            stays. To keep the piece in your library for later, choose Put to rest instead.
           </p>
           <input
             type="text"

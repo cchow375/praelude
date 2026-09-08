@@ -162,7 +162,7 @@ describe("DaySheetNav carry-forward (spec A8)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Previous day" }));
     await screen.findByTestId("read-only-day-sheet");
 
-    const carryButtons = screen.getAllByTestId("carry-to-today");
+    const carryButtons = await screen.findAllByTestId("carry-to-today");
     // One for the unchecked item, one for the block — none for the checked item.
     expect(carryButtons).toHaveLength(2);
   });
@@ -175,7 +175,7 @@ describe("DaySheetNav carry-forward (spec A8)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Previous day" }));
     await screen.findByTestId("read-only-day-sheet");
 
-    const [carryButton] = screen.getAllByTestId("carry-to-today");
+    const [carryButton] = await screen.findAllByTestId("carry-to-today");
     fireEvent.click(carryButton);
     await waitFor(() => expect(carryButton.textContent).toMatch(/added/i));
 
@@ -218,7 +218,7 @@ describe("DaySheetNav carry-forward (spec A8)", () => {
     await screen.findByTestId("day-sheet");
     fireEvent.click(screen.getByRole("button", { name: "Previous day" }));
     await screen.findByTestId("read-only-day-sheet");
-    const [carryButton] = screen.getAllByTestId("carry-to-today");
+    const [carryButton] = await screen.findAllByTestId("carry-to-today");
     fireEvent.click(carryButton);
     await waitFor(() => expect(carryButton.textContent).toMatch(/added/i));
 
@@ -235,7 +235,7 @@ describe("DaySheetNav carry-forward (spec A8)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Previous day" }));
     await screen.findByTestId("read-only-day-sheet");
 
-    const [carryButton] = screen.getAllByTestId("carry-to-today");
+    const [carryButton] = await screen.findAllByTestId("carry-to-today");
     fireEvent.click(carryButton);
     await waitFor(() => expect(carryButton.textContent).toMatch(/added/i));
 
@@ -245,7 +245,7 @@ describe("DaySheetNav carry-forward (spec A8)", () => {
     await screen.findByTestId("day-sheet");
     fireEvent.click(screen.getByRole("button", { name: "Previous day" }));
     await screen.findByTestId("read-only-day-sheet");
-    const [secondCarryButton] = screen.getAllByTestId("carry-to-today");
+    const [secondCarryButton] = await screen.findAllByTestId("carry-to-today");
     fireEvent.click(secondCarryButton);
     await waitFor(() =>
       expect(secondCarryButton.textContent).toMatch(/added/i),
@@ -279,7 +279,7 @@ describe("DaySheetNav carry-forward (spec A8)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Previous day" }));
     await screen.findByTestId("read-only-day-sheet");
 
-    const [alphaButton, betaButton] = screen.getAllByTestId("carry-to-today");
+    const [alphaButton, betaButton] = await screen.findAllByTestId("carry-to-today");
     // No waitFor between these two clicks: the second carry's flush() can
     // land while the first carry's save is still in flight.
     fireEvent.click(alphaButton);
@@ -305,7 +305,7 @@ describe("DaySheetNav carry-forward (spec A8)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Previous day" }));
     await screen.findByTestId("read-only-day-sheet");
 
-    const carryButtons = screen.getAllByTestId("carry-to-today");
+    const carryButtons = await screen.findAllByTestId("carry-to-today");
     // Second carry button belongs to the block line (item, then block).
     fireEvent.click(carryButtons[1]);
     await waitFor(() => expect(carryButtons[1].textContent).toMatch(/added/i));

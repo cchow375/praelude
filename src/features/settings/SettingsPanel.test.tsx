@@ -94,7 +94,7 @@ afterEach(cleanup);
 describe("SettingsPanel", () => {
   it("renders a Reset panel layout control in Appearance that calls resetDockLayout", async () => {
     render(<SettingsPanel api={api()} />);
-    await screen.findByText(/dark practice-room interface/i);
+    await screen.findByLabelText("Appearance");
 
     fireEvent.click(screen.getByRole("button", { name: "Reset panel layout" }));
 
@@ -190,16 +190,18 @@ describe("SettingsPanel", () => {
 
   it("loads typed values and saves one validated projection", async () => {
     const settingsApi = api();
+    const onThemeSaved = vi.fn();
     const onInterfaceScaleSaved = vi.fn();
     const onPracticeDefaultCleanStreakSaved = vi.fn();
     render(
       <SettingsPanel
         api={settingsApi}
+        onThemeSaved={onThemeSaved}
         onInterfaceScaleSaved={onInterfaceScaleSaved}
         onPracticeDefaultCleanStreakSaved={onPracticeDefaultCleanStreakSaved}
       />,
     );
-    await screen.findByText(/dark practice-room interface/i);
+    await screen.findByLabelText("Appearance");
     fireEvent.change(screen.getByLabelText("Interface scale"), {
       target: { value: "80" },
     });
@@ -210,7 +212,7 @@ describe("SettingsPanel", () => {
     await waitFor(() =>
       expect(settingsApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          theme: "dark",
+          theme: "auto",
           interface_scale: 80,
           practice_default_clean_streak: 7,
         }),
@@ -220,6 +222,7 @@ describe("SettingsPanel", () => {
       expect.objectContaining({ ladder_default_reps: expect.anything() }),
     );
     expect(settingsApi.update).toHaveBeenCalledTimes(1);
+    expect(onThemeSaved).toHaveBeenCalledWith("auto");
     expect(onInterfaceScaleSaved).toHaveBeenCalledWith(80);
     expect(onPracticeDefaultCleanStreakSaved).toHaveBeenCalledWith(7);
   });
@@ -227,7 +230,7 @@ describe("SettingsPanel", () => {
   it("exposes the sloppy-only demotion defaults with native bounds and saves them", async () => {
     const settingsApi = api();
     render(<SettingsPanel api={settingsApi} />);
-    await screen.findByText(/dark practice-room interface/i);
+    await screen.findByLabelText("Appearance");
 
     fireEvent.click(screen.getByText("Ladder defaults"));
     expect(
@@ -280,7 +283,7 @@ describe("SettingsPanel", () => {
       .mockResolvedValue(legacy as SettingsSnapshot);
 
     render(<SettingsPanel api={settingsApi} />);
-    await screen.findByText(/dark practice-room interface/i);
+    await screen.findByLabelText("Appearance");
     fireEvent.click(screen.getByText("Ladder defaults"));
 
     expect(
@@ -370,7 +373,7 @@ describe("SettingsPanel", () => {
         <SettingsPanel api={settingsApi} />
       </ReceiptCenterProvider>,
     );
-    await screen.findByText(/dark practice-room interface/i);
+    await screen.findByLabelText("Appearance");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
@@ -411,7 +414,7 @@ describe("SettingsPanel", () => {
 
   it("shows provider controls but no Knowledge or Books surfaces when enabled", async () => {
     render(<SettingsPanel api={api({ assistant_enabled: true })} />);
-    await screen.findByText(/dark practice-room interface/i);
+    await screen.findByLabelText("Appearance");
 
     expect(screen.getByRole("checkbox", { name: /^Assistant$/ })).toBeTruthy();
     expect(
@@ -430,7 +433,7 @@ describe("SettingsPanel", () => {
 
   it("hides BrainConnection and every other Assistant control when disabled, leaving only the toggle", async () => {
     render(<SettingsPanel api={api({ assistant_enabled: false })} />);
-    await screen.findByText(/dark practice-room interface/i);
+    await screen.findByLabelText("Appearance");
 
     const toggle = screen.getByRole("checkbox", { name: /^Assistant$/ });
     expect(toggle).toBeTruthy();
@@ -469,7 +472,7 @@ describe("SettingsPanel", () => {
   it("remaps a verdict hotkey by capturing the pressed key code (A6)", async () => {
     const settingsApi = api();
     render(<SettingsPanel api={settingsApi} />);
-    await screen.findByText(/dark practice-room interface/i);
+    await screen.findByLabelText("Appearance");
 
     // The mapping ships ON and readable, spelled the way Christian says it.
     expect(
@@ -504,7 +507,7 @@ describe("SettingsPanel", () => {
     const settingsApi = api();
     try {
       render(<SettingsPanel api={settingsApi} />);
-      await screen.findByText(/dark practice-room interface/i);
+      await screen.findByLabelText("Appearance");
       fireEvent.keyDown(screen.getByLabelText("Clean hotkey"), {
         code: "KeyZ",
         key: "z",
@@ -529,7 +532,7 @@ describe("SettingsPanel", () => {
   it("shows the spoken-ack toggle off, and says the chime still plays", async () => {
     const settingsApi = api();
     render(<SettingsPanel api={settingsApi} />);
-    await screen.findByText(/dark practice-room interface/i);
+    await screen.findByLabelText("Appearance");
 
     const toggle = screen.getByRole("checkbox", {
       name: /Speak confirmations aloud/,
@@ -553,7 +556,7 @@ describe("SettingsPanel", () => {
   it("exposes a bounded settle control and saves it with voice settings", async () => {
     const settingsApi = api();
     render(<SettingsPanel api={settingsApi} />);
-    await screen.findByText(/dark practice-room interface/i);
+    await screen.findByLabelText("Appearance");
     const input = screen.getByRole("spinbutton", {
       name: "Voice settle delay (ms)",
     }) as HTMLInputElement;

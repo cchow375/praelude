@@ -1,0 +1,16 @@
+{
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "tables_compared": 46,
+  "changed_tables": [
+    "setting"
+  ],
+  "changed_keys": [
+    "motivation.studio.v1"
+  ],
+  "practice_graph": "exactly unchanged",
+  "reopen": "native test passed",
+  "derived_xp": 204,
+  "rank": "Prelude 3",
+  "coins_before_purchase": 50
+}

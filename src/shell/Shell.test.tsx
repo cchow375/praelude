@@ -86,6 +86,7 @@ describe("Shell", () => {
       });
       repStateResponse = REP_SNAPSHOT_FIXTURE;
       render(<Shell />);
+      fireEvent.click(screen.getByRole("tab", { name: "Score" }));
       const hud = await screen.findByRole("region", {
         name: "Active practice set",
       });
@@ -96,6 +97,7 @@ describe("Shell", () => {
     it("keeps a deliberate 'Collapse set' choice across an ordinary window resize", async () => {
       repStateResponse = REP_SNAPSHOT_FIXTURE;
       render(<Shell />);
+      fireEvent.click(screen.getByRole("tab", { name: "Score" }));
       const hud = await screen.findByRole("region", {
         name: "Active practice set",
       });
@@ -125,7 +127,7 @@ describe("Shell", () => {
       "Warmups",
       "Assistant",
       "Pieces",
-      "Universe",
+      "Studio",
     ]);
   });
 
@@ -140,13 +142,13 @@ describe("Shell", () => {
   it("switches the mounted workspace when a nav target is chosen", async () => {
     render(<Shell />);
     await screen.findByTestId("workspace-today");
-    fireEvent.click(screen.getByRole("tab", { name: "Universe" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Studio" }));
     await waitFor(() =>
       expect(screen.getByTestId("workspace-universe")).toBeTruthy(),
     );
     expect(
       screen
-        .getByRole("tab", { name: "Universe" })
+        .getByRole("tab", { name: "Studio" })
         .getAttribute("aria-selected"),
     ).toBe("true");
   });

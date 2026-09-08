@@ -102,7 +102,7 @@ describe("PieceDetail block-open history revision", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+    fireEvent.click(screen.getByRole("button", { name: "Put to rest" }));
 
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith("piece_archive_set", {

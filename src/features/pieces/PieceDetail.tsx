@@ -282,7 +282,7 @@ export function PieceDetail({
             }
           }}
         >
-          Archive
+          Put to rest
         </button>
         <ConfirmArchive
           expected={piece.title}

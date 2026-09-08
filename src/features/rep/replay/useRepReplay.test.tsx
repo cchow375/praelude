@@ -289,8 +289,18 @@ describe("useRepReplay", () => {
     await recordTake(result);
     act(() => result.result.current.markReviewed());
     await act(async () => result.result.current.commitAfterVerdict(51));
+    // Review mode immediately arms the next take. `idle` is only a transient
+    // render before its zero-delay start; async act may already flush that
+    // timer. Check disposal after the next capture has actually started.
+    await waitFor(() => expect(result.result.current.phase).toBe("recording"));
+    expect(captureFactory).toHaveBeenCalledTimes(2);
     expect(api.save).not.toHaveBeenCalled();
-    expect(result.result.current.phase).toBe("idle");
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:take");
+    expect(result.result.current.takeUrl).toBeNull();
+    expect(result.result.current.durationMs).toBe(0);
+    expect(result.result.current.keep).toBe(false);
+    expect(result.result.current.reviewed).toBe(false);
+    expect(result.result.current.verdictCommitted).toBe(false);
     expect(result.result.current.enabled).toBe(true);
   });
 

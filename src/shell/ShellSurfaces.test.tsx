@@ -61,8 +61,8 @@ vi.mock("../features/ledger/LedgerCalendarWorkspace", () => ({
 }));
 
 const universeWorkspaceProps = vi.hoisted(() => ({ current: null as unknown }));
-vi.mock("../features/universe/UniverseWorkspace", () => ({
-  UniverseWorkspace: (props: unknown) => {
+vi.mock("../features/studio/StudioWorkspace", () => ({
+  StudioWorkspace: (props: unknown) => {
     universeWorkspaceProps.current = props;
     return <div data-testid="universe-workspace-stub" />;
   },
@@ -305,7 +305,7 @@ describe("Shell app-level practice surfaces", () => {
       }),
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: "Universe" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Studio" }));
     await screen.findByTestId("universe-workspace-stub");
     const universe = universeWorkspaceProps.current as {
       onOpenPractice: (piece: { piece_id: number; title: string }) => void;
@@ -323,14 +323,14 @@ describe("Shell app-level practice surfaces", () => {
 
     // A repeated deep link is a new navigation event even when the requested
     // piece ID is identical and the cached Score was changed in between.
-    fireEvent.click(screen.getByRole("tab", { name: "Universe" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Studio" }));
     act(() => universe.onOpenPractice({ piece_id: 42, title: "Poem" }));
     await screen.findByTestId("score-workspace-stub");
     expect(scoreWorkspaceProps.current).toEqual(
       expect.objectContaining({ requestedPieceId: 42, requestRevision: 2 }),
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: "Universe" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Studio" }));
     act(() => universe.onOpenLedger({ piece_id: 43, title: "Sonata" }));
     await screen.findByTestId("ledger-workspace-stub");
     expect(ledgerWorkspaceProps.current).toEqual(
@@ -373,6 +373,7 @@ describe("Shell app-level practice surfaces", () => {
         <Shell />
       </ReceiptCenterProvider>,
     );
+    fireEvent.click(screen.getByRole("tab", { name: "Score" }));
     const hud = await screen.findByRole("region", {
       name: "Active practice set",
     });
@@ -410,6 +411,7 @@ describe("Shell app-level practice surfaces", () => {
         <Shell />
       </ReceiptCenterProvider>,
     );
+    fireEvent.click(screen.getByRole("tab", { name: "Score" }));
     await screen.findByRole("region", { name: "Active practice set" });
     fireEvent.click(screen.getByRole("tab", { name: "Warmups" }));
     await screen.findByTestId("warmups-workspace-stub");
@@ -431,7 +433,7 @@ describe("Shell app-level practice surfaces", () => {
         <Shell />
       </ReceiptCenterProvider>,
     );
-    await screen.findByRole("region", { name: "Active practice set" });
+    await screen.findByRole("button", { name: "Restore Rep Counter" });
     invokeMock.mockClear();
 
     fireEvent.keyDown(document.body, { code: "Space", key: " " });
@@ -450,7 +452,7 @@ describe("Shell app-level practice surfaces", () => {
       ([command]) => command === "rep_check",
     ).length;
 
-    fireEvent.click(screen.getByRole("tab", { name: "Universe" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Studio" }));
     await screen.findByTestId("universe-workspace-stub");
     fireEvent.keyDown(document.body, { code: "Enter", key: "Enter" });
     expect(
@@ -458,31 +460,32 @@ describe("Shell app-level practice surfaces", () => {
     ).toHaveLength(recorded);
   });
 
-  it("keeps the rep panel reachable across every workspace tab (Task A3: shell-level, not per-view)", async () => {
+  it("keeps the active set reachable while browsing and restores it at the score", async () => {
     render(
       <ReceiptCenterProvider>
         <Shell />
       </ReceiptCenterProvider>,
     );
-    await screen.findByRole("dialog", { name: "Rep Counter" });
+    await screen.findByRole("button", { name: "Restore Rep Counter" });
+    expect(screen.queryByRole("dialog", { name: "Rep Counter" })).toBeNull();
 
-    // Universe, Ledger, and Score are all lazy-mounted, view-switched
-    // surfaces — the dock panel lives OUTSIDE that switch (mounted once at
-    // shell level, per the brief), so it must survive navigating to each.
-    fireEvent.click(screen.getByRole("tab", { name: "Universe" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Studio" }));
     await screen.findByTestId("universe-workspace-stub");
-    let panel = await screen.findByRole("dialog", { name: "Rep Counter" });
-    expect(within(panel).getByText("Scherzo No. 2")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Restore Rep Counter" }),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("tab", { name: "Score" }));
     await screen.findByTestId("score-workspace-stub");
-    panel = await screen.findByRole("dialog", { name: "Rep Counter" });
+    const panel = await screen.findByRole("dialog", { name: "Rep Counter" });
     expect(within(panel).getByText("Scherzo No. 2")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("tab", { name: "Today" }));
     await screen.findByTestId("workspace-today");
-    panel = await screen.findByRole("dialog", { name: "Rep Counter" });
-    expect(within(panel).getByText("Scherzo No. 2")).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Rep Counter" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Restore Rep Counter" }),
+    ).toBeTruthy();
   });
 
   it("mounts one Rotation panel at shell level with the authoritative rep controls", async () => {
@@ -534,6 +537,7 @@ describe("Shell app-level practice surfaces", () => {
     expect(mic.textContent).toContain("Unavailable");
     expect(mic.getAttribute("title")).toContain("unavailable on Windows");
 
+    fireEvent.click(screen.getByRole("tab", { name: "Score" }));
     await screen.findByRole("region", { name: "Active practice set" });
     expect(screen.getByText("Listen Back unavailable")).toBeTruthy();
     expect(
@@ -568,6 +572,7 @@ describe("Shell app-level practice surfaces", () => {
       name: "Mic unavailable",
     });
     expect((mic as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("tab", { name: "Score" }));
     await screen.findByRole("region", { name: "Active practice set" });
     expect(
       screen.getByRole("checkbox", {
@@ -583,6 +588,7 @@ describe("Shell app-level practice surfaces", () => {
         <Shell />
       </ReceiptCenterProvider>,
     );
+    fireEvent.click(screen.getByRole("tab", { name: "Score" }));
     await screen.findByRole("region", { name: "Active practice set" });
     const review = screen.getByRole("checkbox", {
       name: /Review each rep by listening back/,
@@ -620,6 +626,8 @@ describe("Shell app-level practice surfaces", () => {
         <Shell />
       </ReceiptCenterProvider>,
     );
+    fireEvent.click(screen.getByRole("tab", { name: "Score" }));
+    await screen.findByRole("region", { name: "Active practice set" });
     await emit("voice://status", { state: "muted" });
     const review = screen.getByRole("checkbox", {
       name: /Review each rep by listening back/,
@@ -660,6 +668,7 @@ describe("Shell app-level practice surfaces", () => {
         <Shell />
       </ReceiptCenterProvider>,
     );
+    fireEvent.click(screen.getByRole("tab", { name: "Score" }));
     const review = await screen.findByRole("checkbox", {
       name: /Review each rep by listening back/,
     });
@@ -1332,7 +1341,7 @@ describe("Shell — Assistant disabled", () => {
     const labels = within(nav)
       .getAllByRole("tab")
       .map((tab) => tab.textContent);
-    expect(labels).toEqual(["Today", "Score", "Warmups", "Pieces", "Universe"]);
+    expect(labels).toEqual(["Today", "Score", "Warmups", "Pieces", "Studio"]);
     expect(screen.queryByRole("tab", { name: "Assistant" })).toBeNull();
   });
 

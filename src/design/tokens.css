@@ -1,38 +1,9 @@
-/* ==========================================================================
-   Praelude — dark product token system
-   --------------------------------------------------------------------------
-   A near-black canvas, cool neutral surfaces, clear sans-serif type, and one
-   restrained blue-white accent. Historical paper token names remain because
-   older workspaces consume them; their values now resolve into this system.
-
-   Rules of the road for consumers:
-   - Components consume ONLY these variables; this file is the visual source
-     of truth. Never hard-code a hex in a feature stylesheet.
-   - Colour beyond ink + accent belongs to Universe/planets, region colours,
-     and the three semantic signals below.
-   - Every value here is checked against WCAG on paper (see CONTRAST block).
-
-   CONTRAST (WCAG 2.1, measured — not guessed — against --bg #FAF8F3):
-     --ink       #1A1714  16.82:1   (AAA body)
-     --ink-dim   #57514A   7.38:1   (AAA body)
-     --ink-faint #716A61   5.03:1   (AA body — see note)
-     --accent    #2C4A6E   8.56:1   (AAA body / link)
-     --pencil    #3A3733  11.15:1
-     --signal-error   #A8322A  6.27:1
-     --signal-success #2F6B43  5.99:1
-     --signal-warning #8A5A12  5.57:1
-     paper on --surface-ink        16.82:1
-     paper on --accent              8.56:1
-   NOTE on --ink-faint: the mockup's #8B8378 measures 3.52:1, which fails AA
-   for the ~116 small-label sites that consume this name. It is darkened to
-   #716A61 (same warm ramp, 5.03:1 on paper / 4.57:1 on the sunken well) so
-   the tertiary text tier is legible. The original tone is preserved as
-   --ink-ghost for genuinely decorative marks only.
-
-   THEME ATTRIBUTE: the app is paper-only. Tokens are defined on bare :root
-   AND on every data-theme value the app has ever written, so no historical
-   attribute value can leave a surface unstyled.
-   ========================================================================== */
+/* Praelude — studio material system.
+   Solid, high-contrast content sits beneath a restrained glass control layer.
+   Glass is for navigation and transient controls; notation and long-form text
+   stay opaque. Historical token names remain globally available for consumers.
+   Dark is the default; Light and System appearance remain freely available.
+*/
 
 :root,
 :root[data-theme="paper"],
@@ -41,9 +12,9 @@
   color-scheme: dark;
 
   /* --- Paper (surfaces) ------------------------------------------------- */
-  --bg: #090a0c;
-  --bg-raised: #121419;
-  --bg-sunken: #07080a;
+  --bg: #101216;
+  --bg-raised: #1a1d24;
+  --bg-sunken: #0c0e12;
   --paper: var(--bg);
   --paper-raised: var(--bg-raised);
   --paper-sunken: var(--bg-sunken);
@@ -52,17 +23,17 @@
 
   /* --- Ink (text) ------------------------------------------------------- */
   --ink: #f5f7fa;
-  --ink-dim: #b8bec8;
-  --ink-faint: #8f98a5;
+  --ink-dim: #c0c6d1;
+  --ink-faint: #9ba5b5;
   --ink-ghost: #69717c;
   --ink-inverse: #090a0c;
   --pencil: #e8ebf0;
   --pencil-dim: #a8afb9;
 
   /* --- Rules & hairlines ------------------------------------------------ */
-  --hairline: rgba(255, 255, 255, 0.08);
-  --hairline-strong: rgba(255, 255, 255, 0.14);
-  --control-line: rgba(255, 255, 255, 0.18);
+  --hairline: rgba(225, 234, 255, 0.09);
+  --hairline-strong: rgba(225, 234, 255, 0.19);
+  --control-line: rgba(225, 234, 255, 0.26);
   --paper-rule: rgba(255, 255, 255, 0.065);
   --paper-rule-strong: rgba(255, 255, 255, 0.11);
   --paper-margin: rgba(169, 191, 255, 0.18);
@@ -91,6 +62,18 @@
   --signal-success-wash: rgba(120, 220, 160, 0.1);
   --signal-warning-wash: rgba(241, 201, 122, 0.1);
 
+  /* Materials. The opaque fallback stays legible without backdrop support. */
+  --glass-bg: rgba(29, 34, 44, 0.78);
+  --glass-bg-strong: rgba(35, 40, 51, 0.94);
+  --glass-border: rgba(229, 239, 255, 0.16);
+  --glass-highlight: rgba(255, 255, 255, 0.075);
+  --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 12px 40px rgba(0, 0, 0, 0.2);
+  --glass-blur: 24px;
+  --glass-saturate: 1.25;
+  --canvas-glow: radial-gradient(ellipse at 22% 0%, rgba(116, 147, 207, 0.09), transparent 55%),
+    radial-gradient(ellipse at 94% 78%, rgba(129, 117, 178, 0.055), transparent 48%);
+
   /* --- Focus + selection ------------------------------------------------ */
   --focus-ring: #a9bfff;
   --focus-ring-width: 2px;
@@ -110,20 +93,10 @@
   --measure: 68ch; /* comfortable prose column */
   --measure-narrow: 46ch;
 
-  /* --- Radii ------------------------------------------------------------
-     TIGHTENED, NOT SOFTENED. Paper is trimmed, not moulded: a sheet has a cut
-     edge, so every radius came down from the v3 dark system —
-       --r-sm 6px -> 4px, --r-md 10px -> 6px, --r-lg 14px -> 10px,
-       --radius-xs 4px -> 2px (see the legacy block below).
-     BLAST RADIUS: app-wide, not local. --radius-sm/md/lg alias these three
-     names, and 209 of the 236 `border-radius` declarations under src/ resolve
-     through them (counted 2026-07-30) — cards, popovers, inputs, buttons, tabs,
-     the metronome panel, the score chrome. The 27 that do not are hard-coded
-     50% circles, 999px pills and 0. --radius-pill (999px) is unchanged.
-     A lane that wants a softer corner must change it here, with a reason. */
+  /* Radii follow nested surfaces: controls < panels < sheets. */
   --r-sm: 8px;
   --r-md: 12px;
-  --r-lg: 18px;
+  --r-lg: 22px;
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;
@@ -170,11 +143,11 @@
   --surface-hover: rgba(255, 255, 255, 0.055);
   --surface-active: rgba(255, 255, 255, 0.09);
   --surface-ink: #f5f7fa;
-  --surface-popover: #171a20;
+  --surface-popover: #20242d;
   --shadow-popover:
     0 28px 80px rgba(0, 0, 0, 0.52), 0 8px 24px rgba(0, 0, 0, 0.3),
     0 0 0 1px var(--hairline);
-  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.035), 0 12px 36px rgba(0, 0, 0, 0.18);
+  --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 8px 28px rgba(0, 0, 0, 0.13);
   --shadow-topbar: 0 1px 0 var(--hairline), 0 10px 30px rgba(0, 0, 0, 0.16);
   --radius-xs: 6px;
   --radius-sm: var(--r-sm);
@@ -300,4 +273,97 @@ body {
       transparent var(--paper-rule-gap)
     );
   background-attachment: local;
+}
+
+/* Daylight practice: warm neutral canvas, cool ink, opaque notation surfaces.
+   Semantic/text values all meet AA on both the canvas and raised surface. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3f4f7;
+  --bg-raised: #ffffff;
+  --bg-sunken: #e8ebf0;
+  --paper-edge: #d2d7e0;
+  --ink: #202630;
+  --ink-dim: #4e596b;
+  --ink-faint: #5d697c;
+  --ink-ghost: #8792a3;
+  --ink-inverse: #ffffff;
+  --pencil: #303a49;
+  --pencil-dim: #536076;
+  --hairline: rgba(38, 52, 78, 0.1);
+  --hairline-strong: rgba(38, 52, 78, 0.2);
+  --control-line: rgba(38, 52, 78, 0.34);
+  --paper-rule: rgba(38, 52, 78, 0.08);
+  --paper-rule-strong: rgba(38, 52, 78, 0.14);
+  --paper-margin: rgba(62, 93, 153, 0.2);
+  --accent: #335c9f;
+  --accent-hover: #254779;
+  --accent-contrast: #ffffff;
+  --accent-wash: rgba(51, 92, 159, 0.09);
+  --accent-line: rgba(51, 92, 159, 0.34);
+  --accent-invert-bg: #202630;
+  --accent-invert-ink: #ffffff;
+  --signal-error: #b33e38;
+  --signal-success: #287446;
+  --signal-warning: #855d13;
+  --signal-error-wash: rgba(179, 62, 56, 0.08);
+  --signal-success-wash: rgba(40, 116, 70, 0.08);
+  --signal-warning-wash: rgba(133, 93, 19, 0.08);
+  --focus-ring: #335c9f;
+  --selection-bg: rgba(51, 92, 159, 0.22);
+  --selection-ink: #202630;
+  --surface-hover: rgba(35, 50, 75, 0.045);
+  --surface-active: rgba(35, 50, 75, 0.085);
+  --surface-ink: #202630;
+  --surface-popover: #ffffff;
+  --shadow-popover: 0 28px 80px rgba(23, 35, 55, 0.14), 0 6px 20px rgba(23, 35, 55, 0.09), 0 0 0 1px var(--hairline);
+  --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 8px 28px rgba(30, 45, 70, 0.04);
+  --shadow-topbar: 0 1px 0 var(--hairline), 0 8px 24px rgba(23, 35, 55, 0.05);
+  --glass-bg: rgba(251, 253, 255, 0.76);
+  --glass-bg-strong: rgba(255, 255, 255, 0.94);
+  --glass-border: rgba(255, 255, 255, 0.9);
+  --glass-highlight: rgba(255, 255, 255, 0.48);
+  --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 12px 40px rgba(30, 48, 78, 0.07), 0 0 0 1px rgba(30, 48, 78, 0.06);
+  --canvas-glow: radial-gradient(ellipse at 18% 0%, rgba(146, 171, 218, 0.15), transparent 60%),
+    radial-gradient(ellipse at 98% 85%, rgba(194, 177, 215, 0.1), transparent 55%);
+}
+
+/* Prefer an opaque material for reduced transparency or stronger contrast.
+   The root attribute is also available to an explicit app preference. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root,
+  :root[data-theme="dark"],
+  :root[data-theme="paper"] {
+    --glass-bg: #20242d;
+    --glass-bg-strong: #20242d;
+    --glass-blur: 0px;
+    --glass-saturate: 1;
+    --glass-border: rgba(229, 239, 255, 0.4);
+    --canvas-glow: none;
+  }
+}
+:root[data-transparency="reduced"] {
+  --glass-bg: #20242d;
+  --glass-bg-strong: #20242d;
+  --glass-blur: 0px;
+  --glass-saturate: 1;
+  --canvas-glow: none;
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-theme="light"] {
+    --glass-bg: #f8f9fc;
+    --glass-bg-strong: #ffffff;
+    --glass-blur: 0px;
+    --glass-saturate: 1;
+    --glass-border: rgba(38, 52, 78, 0.3);
+    --canvas-glow: none;
+  }
+}
+:root[data-theme="light"][data-transparency="reduced"] {
+  --glass-bg: #f8f9fc;
+  --glass-bg-strong: #ffffff;
+  --glass-blur: 0px;
+  --glass-saturate: 1;
+  --canvas-glow: none;
 }

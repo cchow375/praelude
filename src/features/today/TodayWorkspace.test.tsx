@@ -113,7 +113,7 @@ describe("TodayWorkspace main menu", () => {
       "Warmups",
       "Assistant",
       "Pieces",
-      "Universe",
+      "Studio",
       "Settings",
     ]) {
       expect(screen.getByRole("button", { name: label })).toBeTruthy();
@@ -151,7 +151,7 @@ describe("TodayWorkspace main menu", () => {
     fireEvent.click(screen.getByRole("button", { name: "Score" }));
     fireEvent.click(screen.getByRole("button", { name: "Assistant" }));
     fireEvent.click(screen.getByRole("button", { name: "Pieces" }));
-    fireEvent.click(screen.getByRole("button", { name: "Universe" }));
+    fireEvent.click(screen.getByRole("button", { name: "Studio" }));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
     expect(onOpenAtlas).toHaveBeenCalledOnce();

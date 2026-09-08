@@ -33,6 +33,7 @@ import {
   type SetFocusContextInput,
 } from "../features/rep/useRep";
 import { DockProvider } from "../features/dock/DockProvider";
+import { PracticeDockPolicy } from "../features/dock/PracticeDockPolicy";
 import { RepPanel } from "../features/dock/RepPanel";
 import { PausedSetsTray } from "../features/dock/PausedSetsTray";
 import { ClockPanel } from "../features/dock/ClockPanel";
@@ -74,6 +75,10 @@ import {
   type RuntimePlatform,
 } from "../platform/runtimePlatform";
 import "./shell.css";
+import {
+  StudioProvider,
+  StudioNavProgress,
+} from "../features/studio/StudioProvider";
 
 /**
  * The app shell: five core workspace slots, an optional Assistant slot, and
@@ -99,7 +104,7 @@ const WORKSPACES = [
   { id: "brain", label: ASSISTANT },
   // The repertoire library leads; History and Calendar live inside it.
   { id: "ledger", label: "Pieces" },
-  { id: "universe", label: "Universe" },
+  { id: "universe", label: "Studio" },
 ] as const;
 
 type WorkspaceId = (typeof WORKSPACES)[number]["id"];
@@ -184,8 +189,8 @@ const NAV_ICONS: Record<WorkspaceId, ReactNode> = {
   ),
   universe: (
     <ShellGlyph>
-      <circle cx="12" cy="12" r="3.2" />
-      <ellipse cx="12" cy="12" rx="9.5" ry="4" transform="rotate(-28 12 12)" />
+      <path d="m4 9 8-5 8 5v10H4Z" />
+      <path d="M9 19v-7h6v7M9 15h6" />
     </ShellGlyph>
   ),
 };
@@ -246,9 +251,9 @@ const LedgerCalendarWorkspace = lazy(() =>
 
 // The Universe force graph (Phase 7). Lazy like the rest, but mounted with
 // navigation props so its detail panel can jump into Score and the Ledger.
-const UniverseWorkspace = lazy(() =>
-  import("../features/universe/UniverseWorkspace").then((m) => ({
-    default: m.UniverseWorkspace,
+const StudioWorkspace = lazy(() =>
+  import("../features/studio/StudioWorkspace").then((m) => ({
+    default: m.StudioWorkspace,
   })),
 );
 
@@ -401,6 +406,12 @@ export function Shell({
 }: ShellProps) {
   const isWindows = platform === "windows";
   const [view, setView] = useState<View>("today");
+  useEffect(() => {
+    // Each destination opens at its beginning; one workspace's scroll must
+    // never hide another workspace's title or essential practice action.
+    const stage = document.getElementById("shell-stage");
+    if (stage) stage.scrollTop = 0;
+  }, [view]);
   // The navigation remains one-click reachable, but Score can reclaim its
   // width when the pianist is reading. This is deliberately shell-local (not
   // a new durable preference): reopening the app always starts discoverable.
@@ -1127,7 +1138,9 @@ export function Shell({
         <button
           type="button"
           className="shell-rail-toggle"
-          aria-label={navCollapsed ? "Expand navigation" : "Collapse navigation"}
+          aria-label={
+            navCollapsed ? "Expand navigation" : "Collapse navigation"
+          }
           aria-expanded={!navCollapsed}
           title={navCollapsed ? "Expand navigation" : "Collapse navigation"}
           onClick={() => setNavCollapsed((collapsed) => !collapsed)}
@@ -1170,12 +1183,11 @@ export function Shell({
             );
           })}
         </nav>
+        <StudioNavProgress />
 
         <MicToggle
           status={
-            replayModeActive && voice.status === "live"
-              ? "muted"
-              : voice.status
+            replayModeActive && voice.status === "live" ? "muted" : voice.status
           }
           onToggle={voice.mute}
           downGuidance={voice.downGuidance}
@@ -1268,7 +1280,7 @@ export function Shell({
               )}
               {view === "universe" && (
                 <div data-testid="workspace-universe">
-                  <UniverseWorkspace
+                  <StudioWorkspace
                     onOpenPractice={openFromUniverse}
                     onOpenLedger={openLedgerForPiece}
                     streak={streak}
@@ -1279,9 +1291,7 @@ export function Shell({
                 <WarmupsWorkspace
                   activeRep={rep.snap}
                   onOpenBlock={rep.open}
-                  onRoutineComplete={() =>
-                    fireCompletionFx("warmup_routine")
-                  }
+                  onRoutineComplete={() => fireCompletionFx("warmup_routine")}
                 />
               )}
               {view === "ledger" && (
@@ -1436,7 +1446,10 @@ export function Shell({
   // alongside RepPanel each.
   return (
     <DockProvider>
-      <TodaySheetProvider>{shellTree}</TodaySheetProvider>
+      <PracticeDockPolicy practiceView={view === "score" || view === "warmups"} />
+      <TodaySheetProvider>
+        <StudioProvider>{shellTree}</StudioProvider>
+      </TodaySheetProvider>
       <RepPanel
         heardDelivery={voice.acceptedFinalDelivery}
         hotkeysActive={view === "score" || view === "warmups"}
@@ -1452,9 +1465,7 @@ export function Shell({
         replayCaptureOwnership={replayCaptureOwnership}
         replayAvailable={!isWindows}
         replayUnavailableReason={
-          isWindows
-            ? "Listen Back is unavailable in this Windows build."
-            : null
+          isWindows ? "Listen Back is unavailable in this Windows build." : null
         }
         onKeptTake={() => fireCompletionFx("reference_take")}
         onCheck={rep.check}

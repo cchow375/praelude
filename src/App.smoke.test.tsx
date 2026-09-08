@@ -49,7 +49,7 @@ describe("App shell smoke (v3)", () => {
       "Warmups",
       "Assistant",
       "Pieces",
-      "Universe",
+      "Studio",
     ]);
     expect(await screen.findByTestId("workspace-today")).toBeTruthy();
   });

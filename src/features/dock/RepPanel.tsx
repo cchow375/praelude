@@ -135,7 +135,7 @@ export function RepPanel({
   useEffect(() => {
     const isActive = props.snap?.set_state === "active";
     if (isActive && !wasActive.current) {
-      dock.open();
+      dock.openAutomatically();
     }
     wasActive.current = isActive;
     // Fire only on a genuine set_state transition — including `dock` (whose

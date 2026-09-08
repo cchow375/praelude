@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ConfirmDelete } from "../../components/ConfirmDelete";
 import { useCrud } from "../rep/useCrud";
+// Score mounts this editor directly, before the Pieces workspace is ever loaded.
+import "./Pieces.css";
 import type { BlockHistory, PieceMovement, Region } from "./types";
 import {
   movementForStoredStarts,
