@@ -19,10 +19,8 @@ import { RepReplayControl } from "./replay/RepReplayControl";
 import { useRepReplay } from "./replay/useRepReplay";
 import type { RepReplayCaptureOwnership } from "./replay/types";
 import { Button, type ButtonVariant } from "../../ui";
-import {
-  playRepFeedback,
-  unlockCompletionAudio,
-} from "../ritual/completionSound";
+import { unlockCompletionAudio } from "../ritual/completionSound";
+import { PracticeEnergy, usePracticeEnergy } from "../ritual/practiceEnergy";
 import "./RepHud.css";
 
 export interface RepHudProps {
@@ -224,7 +222,8 @@ export function RepHud({
   const [correctNote, setCorrectNote] = useState("");
   const [restartConfirm, setRestartConfirm] = useState(false);
   const [resetPulse, setResetPulse] = useState(false);
-  const [verdictPulse, setVerdictPulse] = useState<Verdict | null>(null);
+  const energyPulse = usePracticeEnergy(snap);
+  const verdictPulse = energyPulse?.verdict ?? null;
   const [celebration, setCelebration] = useState<RungCelebration | null>(null);
   const [stageCelebration, setStageCelebration] =
     useState<StageCelebration | null>(null);
@@ -250,11 +249,6 @@ export function RepHud({
   const prevStageNameRef = useRef<string | null>(null);
   const prevStageIndexRef = useRef<number | null>(null);
   const prevStageAttemptIdRef = useRef<number | null>(null);
-  // Seed from an existing set rather than replaying its most recent verdict
-  // when the HUD remounts after navigation.
-  const acknowledgedAttemptRef = useRef<
-    { blockId: number | null; attemptId: number | null } | undefined
-  >(undefined);
   const restartTriggerRef = useRef<HTMLButtonElement>(null);
   const restartConfirmRef = useRef<HTMLButtonElement>(null);
   // React state does not update until the next render, so keep a same-tick
@@ -326,33 +320,6 @@ export function RepHud({
       window.clearTimeout(timer);
     };
   }, [snap?.reset_count]);
-
-  // One short, tactile acknowledgement for every durably committed verdict—no
-  // fake sound on button-down and no replay on a polling render. Clean gets the
-  // satisfying bright spark; Sloppy/Again get quieter, honest confirmations.
-  useEffect(() => {
-    const attemptId = snap?.last_attempt_id ?? null;
-    const blockId = snap?.block_id ?? null;
-    const previous = acknowledgedAttemptRef.current;
-    acknowledgedAttemptRef.current = { blockId, attemptId };
-    if (
-      previous === undefined ||
-      attemptId == null ||
-      previous.blockId !== blockId ||
-      (previous.attemptId != null && attemptId <= previous.attemptId) ||
-      !snap?.last
-    ) {
-      return;
-    }
-    const verdict = snap.last.verdict;
-    if (verdict !== "clean" && verdict !== "flawed" && verdict !== "failed") {
-      return;
-    }
-    playRepFeedback(verdict);
-    setVerdictPulse(verdict);
-    const timer = window.setTimeout(() => setVerdictPulse(null), 520);
-    return () => window.clearTimeout(timer);
-  }, [snap?.last, snap?.last_attempt_id]);
 
   // Rung-completion celebration: when a clean steps the tempo up (the sole cause
   // of an upward BPM step in this engine) we reconstruct the filled rung the
@@ -539,9 +506,7 @@ export function RepHud({
     setNote("");
     try {
       const outcome = await onCheck(verdict, trimmed === "" ? null : trimmed);
-      await replay.commitAfterVerdict(
-        outcome?.snap.last_attempt_id ?? null,
-      );
+      await replay.commitAfterVerdict(outcome?.snap.last_attempt_id ?? null);
     } catch {
       // The typed note is part of the user's evidence. A rejected native write
       // must not erase it; restore the draft for an explicit retry.
@@ -864,22 +829,34 @@ export function RepHud({
       )}
 
       <div className="rep-hud-main">
+        <PracticeEnergy
+          progress={
+            mastered || chainComplete
+              ? 1
+              : headlineRequired
+                ? (headlineStreak ?? 0) / headlineRequired
+                : 0
+          }
+          pulse={energyPulse}
+          complete={mastered || chainComplete}
+          paused={paused}
+        />
         <div
           className={`rep-hud-streak ${celebration ? "is-rung-complete" : ""}`}
           aria-label={
             totalAttempts
               ? `Total plays ${tries} of ${totalAttemptTarget ?? "unavailable"}`
               : chained
-              ? `${stageName ?? "Variant"} ${headlineStreak} of ${headlineRequired} clean${
-                  snap.next_variant_stage_name
-                    ? `, next variation ${snap.next_variant_stage_name}`
-                    : ", last variation in the chain"
-                }`
-              : celebration
-                ? `Rung ${celebration.filledStreak} of ${celebration.filledStreak} clean at ${beatMark}${celebration.atBpm} — stepping to ${beatMark}${celebration.nextBpm}`
-                : climbingToTarget
-                  ? `Clean streak at this rung ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}, climbing to ${snap.target_bpm} BPM`
-                  : `${tempoMastery ? "Mastery proof at target" : "Current clean streak"} ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}`
+                ? `${stageName ?? "Variant"} ${headlineStreak} of ${headlineRequired} clean${
+                    snap.next_variant_stage_name
+                      ? `, next variation ${snap.next_variant_stage_name}`
+                      : ", last variation in the chain"
+                  }`
+                : celebration
+                  ? `Rung ${celebration.filledStreak} of ${celebration.filledStreak} clean at ${beatMark}${celebration.atBpm} — stepping to ${beatMark}${celebration.nextBpm}`
+                  : climbingToTarget
+                    ? `Clean streak at this rung ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}, climbing to ${snap.target_bpm} BPM`
+                    : `${tempoMastery ? "Mastery proof at target" : "Current clean streak"} ${streakValue ?? "unavailable"} of ${streakRequired ?? "unavailable"}`
           }
         >
           <span className="rep-hud-streak-value">

@@ -44,7 +44,11 @@ import { useSession } from "../features/session/useSession";
 import { SessionBar } from "../features/session/SessionBar";
 import { DayPhotoCapture } from "../features/ritual/DayPhotoCapture";
 import { dayPhotoPrompt, dayPhotoPromptDismiss } from "../features/ritual/api";
-import { detectMoment, useCompletionFx } from "../features/ritual/completionFx";
+import {
+  useRepCompletion,
+  useCompletionFx,
+} from "../features/ritual/completionFx";
+import { installCompletionAudioUnlock } from "../features/ritual/completionSound";
 import { useVoice } from "../features/voice/useVoice";
 import { useTtsDegraded } from "../features/voice/useTtsDegraded";
 import { VoiceToast } from "../features/voice/VoiceToast";
@@ -548,12 +552,8 @@ export function Shell({
   // A4: completion flourishes — set complete, mastery landing, day close.
   const { fire: fireCompletionFx, overlay: completionOverlay } =
     useCompletionFx();
-  const previousRepSnapRef = useRef<RepSnapshot | null>(null);
-  useEffect(() => {
-    const moment = detectMoment(previousRepSnapRef.current, rep.snap);
-    if (moment) fireCompletionFx(moment);
-    previousRepSnapRef.current = rep.snap;
-  }, [rep.snap, fireCompletionFx]);
+  useRepCompletion(rep.snap, fireCompletionFx);
+  useEffect(() => installCompletionAudioUnlock(), []);
   const repFallbackContext = useMemo<PracticeBrainContext | null>(() => {
     if (!rep.snap) return null;
     return {
@@ -1446,7 +1446,9 @@ export function Shell({
   // alongside RepPanel each.
   return (
     <DockProvider>
-      <PracticeDockPolicy practiceView={view === "score" || view === "warmups"} />
+      <PracticeDockPolicy
+        practiceView={view === "score" || view === "warmups"}
+      />
       <TodaySheetProvider>
         <StudioProvider>{shellTree}</StudioProvider>
       </TodaySheetProvider>

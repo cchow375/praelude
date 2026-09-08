@@ -96,7 +96,10 @@ describe("detectMoment", () => {
     // set_state even when a repaired ledger ceases to satisfy mastery
     // (store/practice_v2.rs:1329-1332). A visual may never fire off
     // set_state alone while mastery_status disagrees.
-    const mastered = snap({ set_state: "mastered", mastery_status: "not_satisfied" });
+    const mastered = snap({
+      set_state: "mastered",
+      mastery_status: "not_satisfied",
+    });
     expect(detectMoment(mastered, mastered)).toBeNull();
     expect(
       detectMoment(
@@ -107,7 +110,10 @@ describe("detectMoment", () => {
   });
 
   it("F2: an identical repeated snapshot fires nothing", () => {
-    const identical = snap({ set_state: "mastered", mastery_status: "not_satisfied" });
+    const identical = snap({
+      set_state: "mastered",
+      mastery_status: "not_satisfied",
+    });
     expect(detectMoment(identical, { ...identical })).toBeNull();
   });
 
@@ -115,7 +121,10 @@ describe("detectMoment", () => {
     let previous: RepSnapshot | null = null;
     let fired = 0;
     for (let i = 0; i < 10; i++) {
-      const next = snap({ set_state: "mastered", mastery_status: "not_satisfied" });
+      const next = snap({
+        set_state: "mastered",
+        mastery_status: "not_satisfied",
+      });
       if (detectMoment(previous, next)) fired++;
       previous = next;
     }
@@ -182,10 +191,45 @@ describe("useCompletionFx", () => {
     expect(css).not.toContain("matchMedia");
   });
 
-  it("every animation is under 1.5s", () => {
-    const css = readFileSync(join(HERE, "completionFx.css"), "utf8");
-    for (const [, seconds] of css.matchAll(/animation:[^;]*?([\d.]+)s/g)) {
-      expect(Number(seconds)).toBeLessThan(1.5);
-    }
+  it("gives chains a distinct finale only on authoritative satisfaction", () => {
+    const before = snap({
+      variant_stage_index: 1,
+      variant_chain_complete: false,
+    });
+    const complete = snap({
+      variant_stage_index: 1,
+      variant_chain_complete: true,
+      mastery_status: "satisfied",
+    });
+    expect(detectMoment(before, complete)).toBe("chain_complete");
+    expect(detectMoment(complete, { ...complete })).toBeNull();
+    expect(detectMoment(null, complete)).toBeNull();
+  });
+});
+
+describe("earned milestone provenance", () => {
+  it("does not replay fanfares for correction, undo/redo, remount or polls", async () => {
+    const { renderHook } = await import("@testing-library/react");
+    const { useRepCompletion } = await import("./completionFx");
+    const fire = vi.fn();
+    const before = snap({ last_attempt_id: 4 });
+    const done = snap({ last_attempt_id: 5, mastery_status: "satisfied" });
+    const { rerender, unmount } = renderHook(
+      ({ value }) => useRepCompletion(value, fire),
+      { initialProps: { value: before } },
+    );
+    rerender({ value: done });
+    expect(fire).toHaveBeenCalledTimes(1);
+    rerender({ value: { ...done } });
+    rerender({ value: before });
+    rerender({ value: done });
+    rerender({
+      value: { ...before, last_attempt_id: 5, last_adjustment_id: 7 },
+    });
+    rerender({ value: { ...done, last_adjustment_id: 8 } });
+    expect(fire).toHaveBeenCalledTimes(1);
+    unmount();
+    renderHook(() => useRepCompletion(done, fire));
+    expect(fire).toHaveBeenCalledTimes(1);
   });
 });

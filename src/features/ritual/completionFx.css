@@ -1,111 +1,201 @@
 .completion-fx {
+  --finale-color: #bfb0ff;
+  --finale-duration: 1.1s;
   position: fixed;
   inset: 0;
   display: grid;
   place-items: center;
-  /* The non-negotiable line: this layer can never intercept a press. */
   pointer-events: none;
   z-index: 45;
+  overflow: hidden;
+  isolation: isolate;
+  color: var(--finale-color);
 }
-
+.completion-fx[data-moment="set_complete"],
+.completion-fx[data-moment="mastery_landing"] {
+  --finale-duration: 2.2s;
+}
+.completion-fx[data-moment="chain_complete"] {
+  --finale-color: #ffd88d;
+  --finale-duration: 2.8s;
+}
 .completion-fx-mark {
-  width: 4rem;
-  height: 4rem;
-  border: 2px solid var(--ink);
-  border-radius: 50%;
-  opacity: 0;
-  animation: completion-bloom 1.1s ease-out 1 forwards;
-}
-
-.completion-fx::before,
-.completion-fx::after {
-  content: "";
   position: absolute;
-  width: 1.2rem;
-  height: 1.2rem;
-  border: 2px solid var(--accent);
-  border-radius: 3px;
-  opacity: 0;
-  transform: rotate(45deg);
-  animation: completion-spark 1.1s ease-out 1 forwards;
+  width: 90px;
+  height: 90px;
+  border: 1px solid currentColor;
+  border-radius: 28%;
+  animation: completion-bloom var(--finale-duration) ease-out both;
 }
-.completion-fx::before { margin: -6rem 0 0 -7rem; }
-.completion-fx::after { margin: 5rem 0 0 7rem; animation-delay: 75ms; }
-
-.completion-fx[data-moment="mastery_landing"] .completion-fx-mark {
-  border-color: var(--accent);
-  width: 5.5rem;
-  height: 5.5rem;
+.completion-fx-aura {
+  position: absolute;
+  width: min(740px, 100vw);
+  aspect-ratio: 1;
+  background: radial-gradient(
+    ellipse,
+    color-mix(in srgb, currentColor 26%, transparent),
+    transparent 68%
+  );
+  animation: completion-fade var(--finale-duration) ease-out both;
 }
-
-.completion-fx[data-moment="day_close"] .completion-fx-mark {
-  border-style: dashed;
+.completion-fx-wave {
+  position: absolute;
+  width: 120px;
+  aspect-ratio: 1;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  box-shadow:
+    0 0 22px color-mix(in srgb, currentColor 50%, transparent),
+    inset 0 0 16px color-mix(in srgb, currentColor 25%, transparent);
+  animation: completion-wave var(--finale-duration)
+    cubic-bezier(0.08, 0.6, 0.2, 1) both;
 }
-
-.completion-fx[data-moment="variant_stage"] .completion-fx-mark,
-.completion-fx[data-moment="reference_take"] .completion-fx-mark,
-.completion-fx[data-moment="warmup_routine"] .completion-fx-mark,
-.completion-fx[data-moment="rotation_cycle"] .completion-fx-mark {
-  width: 4.75rem;
-  height: 4.75rem;
-  border-color: var(--accent);
+.completion-fx-wave-late {
+  animation-delay: 160ms;
+  border-width: 1px;
+}
+.completion-fx-rays {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+.completion-fx-rays i {
+  position: absolute;
+  width: var(--size);
+  height: calc(var(--size) * 2.8);
+  background: currentColor;
+  border-radius: 2px;
+  box-shadow: 0 0 12px currentColor;
+  animation: completion-ray var(--finale-duration) var(--delay)
+    cubic-bezier(0.05, 0.65, 0.2, 1) both;
+}
+.completion-fx-rays i:nth-child(3n) {
+  background: #fff;
+  height: var(--size);
+  border-radius: 50%;
+}
+.completion-fx-rays i:nth-child(4n) {
+  background: transparent;
+  border: 1px solid currentColor;
+  height: var(--size);
+}
+.completion-fx-seal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 32px;
+  border-radius: 32px;
+  background: radial-gradient(
+    ellipse,
+    #171323eb 15%,
+    #171323b8 50%,
+    transparent 72%
+  );
+  animation: completion-seal var(--finale-duration) ease-out both;
+  text-align: center;
+  max-width: calc(100vw - 24px);
+}
+.completion-fx-star {
+  font-size: 60px;
+  line-height: 1;
+  text-shadow: 0 0 24px currentColor;
+}
+.completion-fx-title {
+  font-size: clamp(24px, 4vw, 36px);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  color: #fff;
+}
+.completion-fx-caption {
+  font-size: 13px;
+  color: #f4eaff;
+}
+.completion-fx[data-moment="chain_complete"] .completion-fx-star {
+  font-size: 84px;
+}
+.completion-fx[data-moment="chain_complete"] .completion-fx-mark {
   border-style: double;
   border-width: 4px;
 }
-
-.completion-fx[data-moment="set_complete"] .completion-fx-mark,
-.completion-fx[data-moment="mastery_landing"] .completion-fx-mark {
-  box-shadow: 0 0 0 12px color-mix(in srgb, var(--accent) 9%, transparent);
+.completion-fx[data-moment="variant_stage"] .completion-fx-seal {
+  transform: scale(0.85);
 }
-.completion-fx[data-moment="variant_stage"]::before,
-.completion-fx[data-moment="variant_stage"]::after,
-.completion-fx[data-moment="mastery_landing"]::before,
-.completion-fx[data-moment="mastery_landing"]::after {
-  width: 1.6rem;
-  height: 1.6rem;
+.completion-fx[data-moment="set_exit"] {
+  --finale-color: var(--ink-dim);
 }
-
 @keyframes completion-bloom {
   0% {
     opacity: 0;
-    transform: scale(0.6);
+    transform: scale(0.35) rotate(-45deg);
   }
-  35% {
+  18% {
     opacity: 0.9;
   }
   100% {
     opacity: 0;
-    transform: scale(1.35);
+    transform: scale(3.2) rotate(60deg);
   }
 }
-
-@keyframes completion-fade {
+@keyframes completion-wave {
   0% {
-    opacity: 0;
-  }
-  30%,
-  70% {
-    opacity: 0.7;
+    opacity: 0.85;
+    transform: scale(0.2);
   }
   100% {
     opacity: 0;
+    transform: scale(5.5);
   }
 }
-
-@keyframes completion-spark {
-  0% { opacity: 0; transform: translateY(12px) rotate(45deg) scale(0.45); }
-  36% { opacity: 0.82; }
-  100% { opacity: 0; transform: translateY(-28px) rotate(125deg) scale(1.2); }
+@keyframes completion-ray {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--angle)) translateY(-20px) scale(0.2);
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--angle)) translateY(calc(-1 * var(--distance)))
+      rotate(90deg) scale(0.3);
+  }
 }
-
-/* One static fade, no scale, no travel. */
+@keyframes completion-seal {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.82);
+  }
+  18%,
+  65% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-12px) scale(1.025);
+  }
+}
+@keyframes completion-fade {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  25%,
+  65% {
+    opacity: 1;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .completion-fx-mark {
-    animation: completion-fade 1.1s linear 1 forwards !important;
-    transform: none !important;
-  }
-  .completion-fx::before,
-  .completion-fx::after {
+  .completion-fx-mark,
+  .completion-fx-wave,
+  .completion-fx-rays {
     display: none;
+  }
+  .completion-fx-seal,
+  .completion-fx-aura {
+    animation: completion-fade var(--finale-duration) linear both;
+    transform: none !important;
   }
 }

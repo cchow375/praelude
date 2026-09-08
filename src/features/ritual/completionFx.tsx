@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import type { RepSnapshot } from "../rep/useRep";
 import { playCompletionSound } from "./completionSound";
 import "./completionFx.css";
@@ -19,6 +25,7 @@ import "./completionFx.css";
 
 export type CompletionMoment =
   | "set_complete"
+  | "chain_complete"
   /** An unfinished set left the active workspace: visual exit only, never a reward. */
   | "set_exit"
   | "mastery_landing"
@@ -28,7 +35,7 @@ export type CompletionMoment =
   | "reference_take"
   | "day_close";
 
-/** Long enough to read as a flourish, comfortably under the 1.5s ceiling. */
+/** Small moments stay brief; set and chain finales have a longer musical landing. */
 const FX_DURATION_MS = 1_100;
 
 function satisfied(snapshot: RepSnapshot | null): boolean {
@@ -61,6 +68,8 @@ export function detectMoment(
   // whose value is zero/false") that got the galaxy refuted. Edge-detected
   // on mastery_status alone: fires only the instant it flips to satisfied.
   if (!satisfied(previous) && satisfied(next)) {
+    if (next?.variant_chain_complete && !previous.variant_chain_complete)
+      return "chain_complete";
     if (next?.mastery_basis === "total_attempts") return "set_complete";
     return "mastery_landing";
   }
@@ -82,16 +91,46 @@ export function detectMoment(
   return null;
 }
 
+/** Reward only a fresh saved attempt; administrative repairs are silent. */
+export function useRepCompletion(
+  snap: RepSnapshot | null,
+  fire: (moment: CompletionMoment) => void,
+) {
+  const previous = useRef<RepSnapshot | null>(null);
+  const highWater = useRef(0);
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = snap;
+    if (!before || !snap || before.block_id !== snap.block_id) {
+      highWater.current = snap?.last_attempt_id ?? 0;
+      if (before && !snap && before.set_state === "active") fire("set_exit");
+      return;
+    }
+    const fresh = (snap.last_attempt_id ?? 0) > highWater.current;
+    highWater.current = Math.max(highWater.current, snap.last_attempt_id ?? 0);
+    const moment = detectMoment(before, snap);
+    if (moment && (moment === "set_exit" || fresh)) fire(moment);
+  }, [snap, fire]);
+}
+
 /** Fire-and-forget; the overlay removes itself. */
 export function useCompletionFx() {
   const [moment, setMoment] = useState<CompletionMoment | null>(null);
+  const [sequence, setSequence] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fire = useCallback((next: CompletionMoment) => {
     if (timer.current) clearTimeout(timer.current);
     if (next !== "set_exit") playCompletionSound(next);
     setMoment(next);
-    timer.current = setTimeout(() => setMoment(null), FX_DURATION_MS);
+    setSequence((value) => value + 1);
+    const duration =
+      next === "chain_complete"
+        ? 2800
+        : next === "mastery_landing" || next === "set_complete"
+          ? 2200
+          : FX_DURATION_MS;
+    timer.current = setTimeout(() => setMoment(null), duration);
   }, []);
 
   useEffect(
@@ -105,6 +144,7 @@ export function useCompletionFx() {
     fire,
     overlay: moment ? (
       <div
+        key={sequence}
         className="completion-fx"
         data-testid="completion-fx"
         data-moment={moment}
@@ -113,6 +153,54 @@ export function useCompletionFx() {
         aria-hidden="true"
       >
         <span className="completion-fx-mark" />
+        {moment !== "set_exit" && (
+          <>
+            <div className="completion-fx-aura" />
+            <div className="completion-fx-wave" />
+            <div className="completion-fx-wave completion-fx-wave-late" />
+            <div className="completion-fx-rays">
+              {Array.from(
+                { length: moment === "chain_complete" ? 72 : 40 },
+                (_, index) => (
+                  <i
+                    key={index}
+                    style={
+                      {
+                        "--angle": `${index * 137.508}deg`,
+                        "--distance": `${110 + (index % 7) * 23}px`,
+                        "--delay": `${(index % 6) * 35}ms`,
+                        "--size": `${3 + (index % 4) * 2}px`,
+                      } as CSSProperties
+                    }
+                  />
+                ),
+              )}
+            </div>
+            <div className="completion-fx-seal">
+              <span className="completion-fx-star">✦</span>
+              <span className="completion-fx-title">
+                {moment === "chain_complete"
+                  ? "Chain complete"
+                  : moment === "variant_stage"
+                    ? "Variation complete"
+                    : moment === "mastery_landing" || moment === "set_complete"
+                      ? "Set complete"
+                      : "Beautiful work"}
+              </span>
+              <span className="completion-fx-caption">
+                {moment === "chain_complete"
+                  ? "Every variation. One complete arc."
+                  : moment === "variant_stage"
+                    ? "Carry it into the next"
+                    : moment === "mastery_landing"
+                      ? "You built this, rep by rep"
+                      : moment === "set_complete"
+                        ? "Your play target, reached"
+                        : "A moment worth keeping"}
+              </span>
+            </div>
+          </>
+        )}
       </div>
     ) : null,
   };
