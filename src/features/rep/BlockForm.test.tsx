@@ -410,6 +410,39 @@ describe("BlockForm layout (A3 — un-bury the variants)", () => {
 });
 
 describe("BlockForm compact score presentation", () => {
+  it("submits the exposed goal and tempo controls without opening Settings", () => {
+    const onOpen = vi.fn();
+    render(<BlockForm pieceId={1} presentation="compact" onOpen={onOpen} />);
+    fireEvent.change(screen.getByLabelText("Start bpm"), { target: { value: "40" } });
+    fireEvent.change(screen.getByLabelText("Target bpm"), { target: { value: "60" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+    expect(onOpen.mock.calls[0][0]).toMatchObject({
+      focus: "tempo", start_bpm: 40, target_bpm: 60, use_metronome: true,
+    });
+    fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "notes" } });
+    expect(screen.queryByLabelText("Target bpm")).toBeNull();
+    expect(screen.queryByLabelText("Start bpm")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Use metronome"));
+    expect(screen.getByLabelText("Start bpm")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+    expect(onOpen.mock.calls[1][0]).toMatchObject({
+      focus: "notes", start_bpm: 40, target_bpm: null, use_metronome: true,
+    });
+  });
+
+  it("keeps Settings target mode connected to the exposed tempo and variants", () => {
+    const onOpen = vi.fn();
+    render(<BlockForm pieceId={1} presentation="compact" onOpen={onOpen} />);
+    fireEvent.click(screen.getByRole("button", { name: "Practice settings" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Total plays" }));
+    fireEvent.change(screen.getByLabelText("Total plays target"), { target: { value: "15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByLabelText("Target bpm")).toBeNull();
+    expect(screen.getByRole("button", { name: "Choose variants" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Start set" }));
+    expect(onOpen.mock.calls[0][0]).toMatchObject({ attempt_target: 15, target_bpm: null });
+  });
+
   it("keeps the score launchpad short and opens a focused, toggleable variant picker", () => {
     render(<BlockForm pieceId={1} presentation="compact" onOpen={vi.fn()} />);
 

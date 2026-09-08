@@ -662,6 +662,25 @@ export function ScoreView({
   onMeasureMapDirtyChange,
 }: ScoreViewProps) {
   const crud = useCrud();
+  const [workspaceElement, setWorkspaceElement] = useState<HTMLElement | null>(null);
+  const [practiceLayout, setPracticeLayout] = useState("narrow");
+  useLayoutEffect(() => {
+    if (!workspaceElement) return;
+    const updateLayout = () => {
+      const width = workspaceElement.getBoundingClientRect().width;
+      setPracticeLayout(width <= 470 ? "narrow" : width <= 740 ? "compact" : width <= 1000 ? "medium" : "wide");
+    };
+    updateLayout();
+    // Avoid CSS containment here: older WKWebView versions make contained
+    // elements the containing block for the viewport-centered fixed dialogs.
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(updateLayout);
+      observer.observe(workspaceElement);
+      return () => observer.disconnect();
+    }
+    window.addEventListener("resize", updateLayout);
+    return () => window.removeEventListener("resize", updateLayout);
+  }, [workspaceElement]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const scoreToolsRef = useRef<HTMLDetailsElement>(null);
   const pageSizesRef = useRef(new Map<number, PdfPageSize>());
@@ -2978,7 +2997,7 @@ export function ScoreView({
         <header className="score-practice-window-head">
           <div>
             <span className="ck-label">Selected passage</span>
-            <strong>{contextualLabel(region)}</strong>
+            <strong title={contextualLabel(region)}>{contextualLabel(region)}</strong>
             <small>mm. {region.m_start}–{region.m_end}</small>
             {regionBlocks.length > 0 && (
               <p className="score-practice-window-history">
@@ -2987,6 +3006,20 @@ export function ScoreView({
                   ? `${regionBlocks[0].attempt_target ?? regionBlocks[0].attempts_recorded ?? regionBlocks[0].tries ?? regionBlocks[0].reps_done} plays complete`
                   : `${regionBlocks[0].attempts_recorded ?? regionBlocks[0].tries ?? regionBlocks[0].reps_done} attempts so far`}
               </p>
+            )}
+            {mapping?.regionId !== region.id && (
+              <button
+                type="button"
+                className="score-passage-tools-launcher"
+                aria-label="Open passage tools"
+                aria-haspopup="dialog"
+                onClick={() => {
+                  setSectionTab("edit");
+                  setSectionToolsOpen(true);
+                }}
+              >
+                <span>Passage tools</span>
+              </button>
             )}
           </div>
           <button
@@ -3050,21 +3083,7 @@ export function ScoreView({
             </button>
             <button type="button" onClick={() => setMapping(null)}>Cancel</button>
           </div>
-        ) : (
-          <button
-            type="button"
-            className="score-passage-tools-launcher"
-            aria-label="Open passage tools"
-            aria-haspopup="dialog"
-            onClick={() => {
-              setSectionTab("edit");
-              setSectionToolsOpen(true);
-            }}
-          >
-            <span>Passage tools</span>
-            <small>Edit · marks · tutorial</small>
-          </button>
-        )}
+        ) : null}
         {onOpenBlock && (
           <BlockForm
             key={`${region.id}:${region.name}:${region.m_start}:${region.m_end}`}
@@ -3117,7 +3136,7 @@ export function ScoreView({
           <div className="score-section-tools-title">
             <div>
               <span className="ck-label">Passage tools</span>
-              <strong>{contextualLabel(region)}</strong>
+              <strong title={contextualLabel(region)}>{contextualLabel(region)}</strong>
               <small>
                 mm. {region.m_start}–{region.m_end}
               </small>
@@ -3460,6 +3479,8 @@ export function ScoreView({
 
   return (
     <section
+      ref={setWorkspaceElement}
+      data-practice-layout={practiceLayout}
       className={`score-view ${pencilMode ? "is-pencil" : ""} ${
         spotArmed ? "is-spot-armed" : ""
       }`}

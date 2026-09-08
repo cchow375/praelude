@@ -449,42 +449,48 @@
   position: relative;
   z-index: 9;
   display: grid;
-  min-height: 76px;
-  grid-template-columns: minmax(210px, 0.8fr) minmax(158px, 190px) minmax(480px, 1.25fr);
+  flex: none;
+  min-width: 0;
+  grid-template-columns: minmax(130px, 180px) minmax(0, 1fr);
   align-items: center;
-  gap: var(--space-4);
-  overflow: hidden;
-  padding: var(--space-3) var(--space-5);
+  gap: 12px 20px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--hairline);
   background: var(--surface-raised);
   box-shadow: var(--shadow-topbar);
 }
 .score-practice-window-head {
   display: flex;
+  min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: 6px;
 }
 .score-practice-window-head > div {
   display: grid;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
+}
+.score-practice-window-head .ck-label {
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: none;
 }
 .score-practice-window-head strong {
   overflow: hidden;
   color: var(--ink-primary);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.score-practice-window-head small,
-.score-practice-window-history {
+.score-practice-window-head small {
   color: var(--ink-tertiary);
   font-size: var(--text-xs);
 }
+.score-practice-window-history { display: none; }
 .score-practice-window-close {
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 26px;
   flex: 0 0 auto;
   padding: 0;
   border: 1px solid var(--hairline);
@@ -497,19 +503,15 @@
   cursor: pointer;
 }
 .score-passage-tools-launcher {
-  display: grid;
-  min-width: 152px;
-  min-height: 52px;
-  align-content: center;
-  justify-items: start;
-  gap: 2px;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
-  color: var(--ink-primary);
-  background: var(--surface-app);
+  justify-self: start;
+  min-height: 24px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--ink-secondary);
+  background: transparent;
   font: inherit;
-  text-align: left;
+  font-size: var(--text-xs);
   cursor: pointer;
 }
 .score-passage-tools-launcher:hover {
@@ -611,43 +613,103 @@
 }
 .score-practice-window .block-form--compact {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas:
-    "head overview"
-    "notice notice";
+  grid-template-columns: minmax(120px, 1fr) minmax(125px, 1fr) minmax(175px, 1.2fr) minmax(180px, 1.2fr);
   align-items: center;
-  column-gap: var(--space-4);
-  row-gap: var(--space-2);
+  gap: 12px;
+  padding: 0;
 }
-.score-practice-window .block-form--compact .block-form-head {
-  grid-area: head;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-.score-practice-window .block-compact-overview {
-  grid-area: overview;
-  display: flex;
+.score-practice-window .block-form-head { min-width: 0; }
+.score-practice-window .ck-primary.block-form-submit {
+  width: 100%;
   min-width: 0;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-3);
+  height: 54px;
+  border-radius: var(--radius-pill);
 }
-.score-practice-window .block-compact-summary { white-space: nowrap; }
+.score-practice-window .block-compact-overview { display: contents; }
+.score-practice-window .block-compact-goal { gap: 6px; }
+.score-practice-window .block-compact-goal .ck-label {
+  color: var(--ink-secondary);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.score-practice-window .block-compact-goal .ck-input {
+  height: 38px;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+.score-practice-window .block-compact-tempo { min-width: 0; }
+.score-practice-window .block-compact-tempo .ck-toggle-field {
+  min-height: 28px;
+  padding: 0;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+}
+.score-practice-window .block-compact-tempo .ck-toggle-field input { margin: 0; }
+.score-practice-window .block-tempo-fields {
+  display: grid;
+  gap: 4px;
+}
+.score-practice-window .block-tempo-fields .ck-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 68px;
+  align-items: center;
+  gap: 6px;
+}
+.score-practice-window .block-tempo-fields .ck-label {
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.score-practice-window .block-tempo-fields .ck-input {
+  height: 30px;
+  min-width: 0;
+  padding-inline: 7px;
+  font-size: var(--text-sm);
+}
 .score-practice-window .block-compact-actions {
-  display: flex;
-  flex: 1;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 .score-practice-window .block-compact-action {
-  min-width: 120px;
-  min-height: 52px;
-  padding: var(--space-2) var(--space-3);
+  min-width: 0;
+  min-height: 46px;
+  padding: 8px;
+  align-content: center;
+  text-align: center;
+  border-radius: var(--radius-pill);
 }
-.score-practice-window .block-form--compact .ck-inline-status {
-  grid-area: notice;
-  margin: 0;
-}
+.score-practice-window .block-compact-action > span { font-size: var(--text-sm); }
+.score-practice-window .block-compact-action > small { display: none; }
+.score-practice-window .block-form--compact > .ck-inline-status,
+.score-practice-window .block-form--compact > .ck-inline-error,
+.score-practice-window > .score-passage-mapping-strip { grid-column: 1 / -1; }
+.score-practice-window > .score-passage-mapping-strip { grid-row: 2; }
+
+/* ResizeObserver measures the workspace after app navigation takes its share.
+   Width states reflow the strip without creating a fixed-position containing
+   block for dialogs in older WKWebView versions. */
+.score-view:is([data-practice-layout="medium"], [data-practice-layout="compact"], [data-practice-layout="narrow"]) .score-practice-window { grid-template-columns: minmax(115px, 155px) minmax(0, 1fr); gap: 12px; }
+.score-view:is([data-practice-layout="medium"], [data-practice-layout="compact"], [data-practice-layout="narrow"]) .score-practice-window .block-form--compact {
+    grid-template-columns: minmax(110px, 1fr) minmax(125px, 1fr) minmax(175px, 1.2fr);
+  }
+.score-view:is([data-practice-layout="medium"], [data-practice-layout="compact"], [data-practice-layout="narrow"]) .score-practice-window .block-compact-actions { grid-column: 1 / 3; }
+.score-view:is([data-practice-layout="medium"], [data-practice-layout="compact"], [data-practice-layout="narrow"]) .score-practice-window .block-compact-tempo { grid-column: 3; grid-row: 1 / 3; }
+
+.score-view:is([data-practice-layout="compact"], [data-practice-layout="narrow"]) .score-practice-window { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 8px 12px; }
+.score-view:is([data-practice-layout="compact"], [data-practice-layout="narrow"]) .score-practice-window-head > div { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; }
+.score-view:is([data-practice-layout="compact"], [data-practice-layout="narrow"]) .score-practice-window-head > div > .ck-label { display: none; }
+.score-view:is([data-practice-layout="compact"], [data-practice-layout="narrow"]) .score-practice-window-head { align-items: center; }
+.score-view:is([data-practice-layout="compact"], [data-practice-layout="narrow"]) .score-practice-window-head > div { flex: 1; }
+.score-view:is([data-practice-layout="compact"], [data-practice-layout="narrow"]) .score-practice-window .block-form--compact { gap: 8px; }
+.score-view:is([data-practice-layout="compact"], [data-practice-layout="narrow"]) .score-practice-window .ck-primary.block-form-submit { height: 44px; }
+.score-view:is([data-practice-layout="compact"], [data-practice-layout="narrow"]) .score-practice-window .block-compact-action { min-height: 32px; padding: 5px; }
+
+.score-view[data-practice-layout="narrow"] .score-practice-window .block-form--compact { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.score-view[data-practice-layout="narrow"] .score-practice-window .block-compact-tempo { grid-column: 1; grid-row: 2; }
+.score-view[data-practice-layout="narrow"] .score-practice-window .block-compact-actions { grid-column: 2; grid-row: 2; grid-template-columns: minmax(0, 1fr); }
+
 
 /* Persistent lightweight document geometry. Only slots in the viewport render
    PdfPage; the others retain paper-sized placeholders, making the scrollbar and
@@ -1877,82 +1939,6 @@
   }
   .score-body.is-sections-hidden .score-sidebar-toggle {
     right: var(--space-2);
-  }
-}
-
-@media (max-width: 800px) {
-  .score-practice-window {
-    /* The selected passage is a toolbar replacement at every size. Never
-       resurrect the old floating/bottom-sheet composer over the music. */
-    position: relative;
-    z-index: 9;
-    min-height: 58px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "passage tools"
-      "set set";
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
-    overflow: visible;
-  }
-
-  .score-practice-window-head { grid-area: passage; }
-  .score-passage-tools-launcher,
-  .score-passage-mapping-strip { grid-area: tools; }
-  .score-practice-window > .block-form { grid-area: set; }
-
-  .score-practice-window-history {
-    display: none;
-  }
-
-  .score-practice-window-head .ck-label,
-  .score-practice-window-head small,
-  .score-practice-window .block-form-head .ck-form-heading,
-  .score-practice-window .block-compact-summary {
-    display: none;
-  }
-
-  .score-practice-window-head strong {
-    font-size: var(--text-sm);
-  }
-
-  .score-practice-window-close {
-    width: 30px;
-    height: 30px;
-  }
-
-  .score-practice-window .block-form--compact {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-  .score-practice-window .block-compact-overview,
-  .score-practice-window .block-compact-actions {
-    flex: 1 1 auto;
-  }
-
-  .score-practice-window .block-compact-overview,
-  .score-practice-window .block-compact-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-  }
-
-  .score-practice-window .block-compact-action {
-    min-width: auto;
-    min-height: 38px;
-    padding: var(--space-1) var(--space-2);
-  }
-
-  .score-practice-window .block-compact-action small {
-    display: none;
-  }
-
-  .score-passage-mapping-label,
-  .score-passage-mapping-count {
-    display: none;
   }
 }
 

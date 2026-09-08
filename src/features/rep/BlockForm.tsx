@@ -500,10 +500,50 @@ export function BlockForm({
     }
   };
 
-  const compactSummary =
-    focus === "tempo"
-      ? `${startBpm || "60"} BPM · ${useMetronome ? "metronome" : "no metronome"}`
-      : `${focus} · ${useMetronome ? `${startBpm || "60"} BPM click` : "no metronome"}`;
+  const goalControl = (
+    <label className="ck-field block-compact-goal">
+      <span className="ck-label">{compact ? "Goal" : "Practice focus"}</span>
+      <select className="ck-input" aria-label={compact ? "Goal" : "Focus"} value={focus}
+        onChange={(event) => {
+          const next = event.target.value;
+          setFocus(next);
+          if (next !== "tempo") setUseMetronome(false);
+        }}>
+        <option value="tempo">Tempo</option>
+        <option value="notes">Notes & accuracy</option>
+        <option value="phrasing">Phrasing</option>
+        <option value="dynamics">Dynamics</option>
+        <option value="memory">Memory</option>
+        <option value="hands">Hands / coordination</option>
+        <option value="other">Other</option>
+      </select>
+    </label>
+  );
+  const metronomeControl = (
+    <label className="ck-toggle-field">
+      <input type="checkbox" aria-label="Use metronome" checked={useMetronome}
+        onChange={(event) => setUseMetronome(event.target.checked)} />
+      <span><strong>Metronome</strong></span>
+    </label>
+  );
+  const tempoControls = (focus === "tempo" || useMetronome) && (
+    <div className="ck-field-grid ck-core-pair block-tempo-fields">
+      <label className="ck-field">
+        <span className="ck-label">{compact ? "Starting tempo" : focus === "tempo" ? "Start bpm" : "Metronome bpm"}</span>
+        <input className="ck-input" type="number" inputMode="numeric" min={1}
+          value={startBpm} aria-label="Start bpm" onChange={(event) => setStartBpm(event.target.value)} />
+      </label>
+      {focus === "tempo" && targetMode === "streak" && (
+        <label className="ck-field">
+          <span className="ck-label">{compact ? "Target tempo" : "Target bpm"}</span>
+          <input className="ck-input" type="number" inputMode="numeric" min={1}
+            value={targetBpm} placeholder={compact ? "—" : "Optional"} aria-label="Target bpm"
+            title="Target tempo (optional)"
+            onChange={(event) => setTargetBpm(event.target.value)} />
+        </label>
+      )}
+    </div>
+  );
 
   return (
     <form
@@ -513,7 +553,7 @@ export function BlockForm({
       onSubmit={submit}
     >
       <div className="block-form-head">
-        <h3 className="ck-form-heading">Practice set</h3>
+        {!compact && <h3 className="ck-form-heading">Practice set</h3>}
         <button
           type="submit"
           className="ck-primary block-form-submit"
@@ -523,15 +563,13 @@ export function BlockForm({
         </button>
       </div>
 
-      {blockedReason && (
-        <p className="ck-inline-status" role="status">
-          {blockedReason}
-        </p>
-      )}
-
       {compact ? (
         <div className="block-compact-overview">
-          <p className="block-compact-summary">{compactSummary}</p>
+          {goalControl}
+          <div className="block-compact-tempo">
+            {metronomeControl}
+            {tempoControls}
+          </div>
           <div className="block-compact-actions">
             <button
               type="button"
@@ -561,11 +599,17 @@ export function BlockForm({
               onClick={() => setCustomizer("settings")}
             >
               <span>Settings</span>
-              <small>Tempo, goal & more</small>
+              <small>{targetMode === "plays" ? "Total plays" : "Clean streak"}</small>
             </button>
           </div>
         </div>
       ) : null}
+
+      {blockedReason && (
+        <p className="ck-inline-status" role="status">
+          {blockedReason}
+        </p>
+      )}
 
       {compact && customizer ? (
         <button
@@ -645,78 +689,15 @@ export function BlockForm({
           </label>
         ) : null}
 
-        {/* Target: the tempo the pianist is driving toward (or a plain
-            metronome beat when a non-tempo focus still wants the click). */}
-        {(focus === "tempo" || useMetronome) && (
-          <div className="ck-field-grid ck-core-pair">
-            <label className="ck-field">
-              <span className="ck-label">
-                {focus === "tempo" ? "Start bpm" : "Metronome bpm"}
-              </span>
-              <input
-                className="ck-input"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                value={startBpm}
-                aria-label="Start bpm"
-                onChange={(e) => setStartBpm(e.target.value)}
-              />
-            </label>
-            {focus === "tempo" && targetMode === "streak" && (
-              <label className="ck-field">
-                <span className="ck-label">Target bpm</span>
-                <input
-                  className="ck-input"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  value={targetBpm}
-                  placeholder="optional"
-                  aria-label="Target bpm"
-                  onChange={(e) => setTargetBpm(e.target.value)}
-                />
-              </label>
-            )}
-          </div>
+        {!compact && (
+          <>
+            {tempoControls}
+            <div className="ck-field-grid ck-focus-grid">
+              {goalControl}
+              {metronomeControl}
+            </div>
+          </>
         )}
-
-        {/* Always visible from here down (Christian, spec §5.3): focus, the
-            variant chain, and the clean-streak target need zero clicks. */}
-        <div className="ck-field-grid ck-focus-grid">
-          <label className="ck-field">
-            <span className="ck-label">Practice focus</span>
-            <select
-              className="ck-input"
-              aria-label="Focus"
-              value={focus}
-              onChange={(event) => {
-                const next = event.target.value;
-                setFocus(next);
-                if (next !== "tempo") setUseMetronome(false);
-              }}
-            >
-              <option value="tempo">Tempo</option>
-              <option value="notes">Notes & accuracy</option>
-              <option value="phrasing">Phrasing</option>
-              <option value="dynamics">Dynamics</option>
-              <option value="memory">Memory</option>
-              <option value="hands">Hands / coordination</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
-          <label className="ck-toggle-field">
-            <input
-              type="checkbox"
-              aria-label="Use metronome"
-              checked={useMetronome}
-              onChange={(event) => setUseMetronome(event.target.checked)}
-            />
-            <span>
-              <strong>Metronome</strong>
-            </span>
-          </label>
-        </div>
 
         <fieldset className="ck-field ck-target-editor">
           <legend className="ck-label">Set target</legend>
