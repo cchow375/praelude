@@ -2,9 +2,11 @@
 
 The binding operating manual is `/Users/c3/Desktop/christian's universe/Piano Practice/Praelude/AGENTS.md`. Read it, then the vault `(C) Praelude Command Center.md`. Code and engineering evidence live here; current product truth, tutorial, Roadmap, Flaws, Changelog and version records live in that vault. Obey its UPDATE PROTOCOL before reporting completion.
 
-**Last updated: 2026-09-08. Praelude v11.0.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` on 2026-09-07 at 23:53 EDT; implementation `a338581`. Fresh native launch passed twice and all 46 database tables plus the DB bytes are unchanged.
+**Last updated: 2026-09-08. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
 
-**Native boundary:** Today, Studio, rank path, practice record, Pieces, Settings and canceled purchase/profile previews are verified in the installed app. The new ad-hoc build renewed macOS Desktop-folder and Speech permissions at 23:53:43; Score waits at “Finding score editions…” until Desktop access is allowed. Native Score/Variants remain pending that prompt, which computer-use tooling cannot accept. Custom-cover picker selection/save remains unverified (B109); the picker was canceled and no artwork or preferences changed.
+**Native boundary:** v11.1.0 launches and renders the real Beethoven Op.90 movement 2 score, selected passage and Variants dialog. The earlier Desktop/Score permission blocker is cleared. Progressive rep/set/chain effects passed independent live browser review; native audible quality, voice/chime overlap and Christian’s motivation verdict remain open. Cover-picker selection/save (B109), microphone/Steinway, real mapping and Windows acceptance remain separate.
+
+The Rep Counter now builds a luminous core, orbital arcs, a filling ring and progressively richer sparks as the current clean target fills. Sloppy/Again send falling fragments and deepen amber to coral on successive setbacks, capped at three. Set completion gets a larger radial bloom; a fully completed variant chain gets the largest gold finale. Original offline pluck/glass/air sounds rise and gain harmonics with progress, vary their ornaments, descend on setbacks and resolve into richer set/chain chords. Existing practice rules are unchanged: Total plays retains earned volume, and Again preserves variant-stage progress. No added XP penalty or automatic musical judgment.
 
 v11 implements Studio, the ranked furnished room and earned-coin economy; a practical glass interface; Today launchpad; library cover grid/list, chosen artwork, search/sort and rest/restore. Native storage uses the existing `setting` table with atomic revision checks and leaves schema 21/practice history intact. Local profile only: accounts, sync and friends are unbuilt. Assistant stays off/on hold.
 
@@ -12,8 +14,8 @@ The Studio contract is 1 XP per 600 focused seconds plus cumulative per-session 
 
 Resume from:
 
-- `docs/superpowers/specs/2026-09-08-v11-studio-design.md`
-- `docs/qa/v11.0.0/README.md` and its exact artifacts/data evidence
+- `docs/superpowers/specs/2026-09-08-practice-resonance.md`
+- `docs/qa/v11.1.0/README.md` and its exact artifacts/data evidence
 - `NOTES.md` (newest decisions first)
 - The vault Changelog and current tutorial
 

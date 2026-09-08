@@ -1,0 +1,24 @@
+{
+  "version": "11.1.0",
+  "implementation": "c411e7b",
+  "installed_at": "2026-09-08T16:58:29-04:00",
+  "installed_app": "/Applications/Praelude.app",
+  "cdhash": "bf6e9c2a969ffe2f5cdc9adf69614a71b7644b6c",
+  "dmg": "releases/v11.1.0/Praelude-11.1.0.dmg",
+  "dmg_bytes": 10694680,
+  "dmg_sha256": "511a281f4bfc9684cb55fc3a0f3ea93351c0d2c9333344cc4871e576b5ab9a0a",
+  "backup": "/Users/c3/Library/Application Support/Praelude Release Backups/v11.1.0-2026-09-08/pre-v11.1.0.db",
+  "db_sha256": "7aa93e4ef23834875e60b2c9a3946ddf2c522116044cf4cd54900bc6a71594b5",
+  "rollback": "/Users/c3/Library/Application Support/Praelude Release Backups/v11.1.0-2026-09-08/Praelude-11.0.0-rollback.zip",
+  "rollback_sha256": "b3e2500d99c315a4e472e586438d87974aaef1af6bdecf2b03921a02446d312b",
+  "native_checks": [
+    "two fresh launches",
+    "Today",
+    "real Beethoven score page 1 and selected passage page 3",
+    "Variants dialog open and Done",
+    "no practice or preference writes"
+  ],
+  "frontend_tests": 2614,
+  "native_unit_tests": 1106,
+  "signature": "ad-hoc; not notarized"
+}
