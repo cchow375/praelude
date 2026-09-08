@@ -1,6 +1,6 @@
 {
   "version": "11.0.0",
-  "implementation_commit": "a338581",
+  "implementation_commit": "a33858139430b99bd22c8a2d0fa06fa6b1b2f4f1",
   "installed_at_local": "2026-09-07 23:53 EDT",
   "installed_app": "/Applications/Praelude.app",
   "bundle_identifier": "com.christian.codakiller",
@@ -39,5 +39,9 @@
     "verified DB backup and app rollback",
     "fresh native launch twice",
     "byte-identical DB and all46tables unchanged"
-  ]
+  ],
+  "release_tag": "v11.0.0",
+  "release_tag_commit": "c8e31b8e14bd3470d99be4852f7687e7a5a53f63",
+  "private_origin_push": "main and v11.0.0 succeeded",
+  "app_copy_audit": "Spotlight and 23 scanned app candidates verified; full-home enumeration incomplete"
 }

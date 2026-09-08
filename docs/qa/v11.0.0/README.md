@@ -23,6 +23,7 @@ Studio replaces Universe with an original SVG room, ten musical ranks/ten divisi
 | Package identity | Installed arm64 v11.0.0 at `/Applications/Praelude.app`, strict ad-hoc seal, privacy strings verified; not notarized. Exact artifact below. |
 | One-copy | Spotlight resolves exactly `/Applications/Praelude.app`. Broad filesystem audit still running; no final pass claimed yet. |
 | Native Score / Variants | **Pending Desktop Allow.** Fresh TCC logs at 23:53:43 show renewed Desktop/Speech prompts/code requirement mismatch and microphone mismatch. Score waits at “Finding score editions…”. Computer use cannot accept the OS permission surface. |
+| App-copy scope | `one-copy-audit.json`: Spotlight and 23 scanned app candidates show only `/Applications/Praelude.app`; legacy/build bundles are absent. Full-home enumeration stalled and was stopped. |
 | Custom-cover picker (B109) | **Pending.** Browser chooser hung; native picker opened but computer-use accessibility could not inspect it. Canceled and restarted with no image saved. Three native cover tests and frontend preprocessing/validation pass; those are not UI picker acceptance. |
 
 ## Native and browser evidence
@@ -43,7 +44,7 @@ All three are fixed by `a33858139430b99bd22c8a2d0fa06fa6b1b2f4f1` and retained i
 
 ## Artifact and source
 
-DMG `releases/v11.0.0/Praelude-11.0.0.dmg`: **10,691,711 bytes**, SHA-256 `dc51618396ecf532efa0a058a86f77a7451e186cac610c9d745f28da2d610417`. Runtime implementation `a33858139430b99bd22c8a2d0fa06fa6b1b2f4f1`; the app was built from the same unchanged production files immediately before that commit. Installed arm64 CDHash `eb19805326b4008e3a5cac1ed6bfcf472c870e98`; ad-hoc signed, not notarized; privacy strings verified. Release tag `v11.0.0` is to be placed on the final release-doc commit; private-origin push is planned, not yet claimed.
+DMG `releases/v11.0.0/Praelude-11.0.0.dmg`: **10,691,711 bytes**, SHA-256 `dc51618396ecf532efa0a058a86f77a7451e186cac610c9d745f28da2d610417`. Runtime implementation `a33858139430b99bd22c8a2d0fa06fa6b1b2f4f1`; the app was built from the same unchanged production files immediately before that commit. Installed arm64 CDHash `eb19805326b4008e3a5cac1ed6bfcf472c870e98`; ad-hoc signed, not notarized; privacy strings verified. Release tag `v11.0.0` points to `c8e31b8e14bd3470d99be4852f7687e7a5a53f63`; the tag and private `origin/main` were pushed successfully. Read Git for the moving main tip after documentation-only follow-ups.
 
 ## Data, backup and rollback
 
@@ -55,4 +56,4 @@ Backup `/Users/c3/Library/Application Support/Praelude Release Backups/v11.0.0-2
 
 Allow the renewed Desktop prompt and verify installed Score/Variants; finish the custom-cover picker → rendered cover → restart path when controllable. Obtain Christian’s real practice and sustained motivation verdict. Accounts, real microphone/Steinway, real-provider mapping, clean-recipient and Windows-native acceptance remain separate.
 
-The event-derived focused-time estimate and commitment ranks do not assess playing. Corrections may lower spendable balance while ownership remains. The catalog has 25 initial items and one item per slot; continued Encore progression is not an endless furnishing library. Accounts/friends/cloud and the native SwiftUI Liquid Glass framework are not claims. The broad filesystem one-copy audit, final release-doc tag and private-origin push are still to be finalized at this documentation boundary.
+The event-derived focused-time estimate and commitment ranks do not assess playing. Corrections may lower spendable balance while ownership remains. The catalog has 25 initial items and one item per slot; continued Encore progression is not an endless furnishing library. Accounts/friends/cloud and the native SwiftUI Liquid Glass framework are not claims. Tag/private push are complete. The broad filesystem app-copy audit stalled on directory reads and was stopped; Spotlight and 23 scanned app candidates show only `/Applications/Praelude.app`. The old app and build bundle are absent. This does not rule out unindexed copies in unscanned locations; see `one-copy-audit.json`.
