@@ -5,7 +5,7 @@ export const meta = {
   phases: [{ title: "Find gaps" }, { title: "Verify gaps" }],
 };
 
-const ROOT = "/Users/c3/codakiller";
+const ROOT = process.env.PRAELUDE_REPO_ROOT ?? process.cwd();
 
 const CLUSTERS = [
   {
@@ -421,7 +421,7 @@ const RUST_CLUSTERS = [
       "src-tauri/src/intent/mod.rs",
       "src-tauri/src/intent/numbers.rs",
     ],
-    hint: `The backend half of CodaKiller's safety-critical deterministic voice hot loop (project golden rule: "Deterministic hot loop (regex intent router); the LLM brain is for open questions only" and "the user is the sensor; the app is the memory — speech only, human gives every verdict"). voice_loop.rs is 2203 lines with ~1211 test lines, intent/mod.rs is 1449 lines with ~624 test lines — both already deep, so this is a verify-existing-depth pass: sample their public match/parse entry points (grep "pub fn") and #[cfg(test)] boundaries rather than reading every line, and only report genuinely uncovered branches. intent/numbers.rs is only 252 lines with just 69 test lines (the thinnest ratio of the three) — read this one in FULL and name specific untested parsing branches (compound numbers, "a hundred and five" vs "one oh five", ordinals used where cardinals are expected). Also check for intent phrases that are substrings of a longer unrelated sentence (false-positive hot-loop match risk) and a false-negative fallthrough to the LLM brain on what should have deterministically matched.`,
+    hint: `The backend half of Praelude's safety-critical deterministic voice hot loop (project golden rule: "Deterministic hot loop (regex intent router); the LLM brain is for open questions only" and "the user is the sensor; the app is the memory — speech only, human gives every verdict"). voice_loop.rs is 2203 lines with ~1211 test lines, intent/mod.rs is 1449 lines with ~624 test lines — both already deep, so this is a verify-existing-depth pass: sample their public match/parse entry points (grep "pub fn") and #[cfg(test)] boundaries rather than reading every line, and only report genuinely uncovered branches. intent/numbers.rs is only 252 lines with just 69 test lines (the thinnest ratio of the three) — read this one in FULL and name specific untested parsing branches (compound numbers, "a hundred and five" vs "one oh five", ordinals used where cardinals are expected). Also check for intent phrases that are substrings of a longer unrelated sentence (false-positive hot-loop match risk) and a false-negative fallthrough to the LLM brain on what should have deterministically matched.`,
   },
   {
     key: "rs-metronome",
@@ -508,7 +508,7 @@ const GAPS_SCHEMA = {
 };
 
 function findPrompt(cluster) {
-  return `You are auditing test coverage in the CodaKiller frontend (Tauri v2 + React/TS, vitest + @testing-library/react) for the "${cluster.key}" feature cluster.
+  return `You are auditing test coverage in the Praelude frontend (Tauri v2 + React/TS, vitest + @testing-library/react) for the "${cluster.key}" feature cluster.
 
 Read these source files:
 ${absPaths(cluster.src)}
@@ -533,7 +533,7 @@ Rules:
 }
 
 function verifyPrompt(cluster, gaps) {
-  return `You are adversarially re-verifying a test-coverage gap report for the CodaKiller frontend's "${cluster.key}" cluster, with fresh eyes and no trust in the prior pass.
+  return `You are adversarially re-verifying a test-coverage gap report for the Praelude frontend's "${cluster.key}" cluster, with fresh eyes and no trust in the prior pass.
 
 Re-read the same source files:
 ${absPaths(cluster.src)}
@@ -554,7 +554,7 @@ Return ONLY the gaps that survive this verification, each with (kind, file, symb
 }
 
 function findPromptRust(cluster) {
-  return `You are auditing test coverage in the CodaKiller Rust backend (Tauri v2, rusqlite) for the "${cluster.key}" cluster.
+  return `You are auditing test coverage in the Praelude Rust backend (Tauri v2, rusqlite) for the "${cluster.key}" cluster.
 
 Read these files in full:
 ${absPaths(cluster.files)}
@@ -573,7 +573,7 @@ Rules:
 }
 
 function verifyPromptRust(cluster, gaps) {
-  return `You are adversarially re-verifying a test-coverage gap report for the CodaKiller Rust backend's "${cluster.key}" cluster, with fresh eyes and no trust in the prior pass.
+  return `You are adversarially re-verifying a test-coverage gap report for the Praelude Rust backend's "${cluster.key}" cluster, with fresh eyes and no trust in the prior pass.
 
 Re-read the same files:
 ${absPaths(cluster.files)}
@@ -593,7 +593,7 @@ Return ONLY the gaps that survive this verification. Correct any inaccuracies yo
 const integrationCluster = { key: "cross-feature-integration" };
 
 function integrationPrompt() {
-  return `You are auditing CROSS-FEATURE integration test coverage in the CodaKiller frontend (Tauri v2 + React/TS, at ${ROOT}/src).
+  return `You are auditing CROSS-FEATURE integration test coverage in the Praelude frontend (Tauri v2 + React/TS, at ${ROOT}/src).
 
 This app composes several features into real user flows. Using Grep/Read, find where one feature's module is imported/used by another (e.g. grep for cross-directory imports under src/features/*/ that reference a sibling feature directory), for flows such as:
 - Voice wake-cue -> Brain proposed_action -> ActionDraftCard confirm -> an actual rep/retention/session mutation (src/features/voice, src/features/brain, src/features/rep, src/features/session)
@@ -612,7 +612,7 @@ Only report seams you actually verified by reading the relevant files — do not
 const ipcBoundaryCluster = { key: "ipc-boundary-and-e2e" };
 
 function ipcBoundaryPrompt() {
-  return `You are auditing the IPC BOUNDARY and end-to-end integration test coverage between the CodaKiller React frontend and its Rust/Tauri backend, at ${ROOT}.
+  return `You are auditing the IPC BOUNDARY and end-to-end integration test coverage between the Praelude React frontend and its Rust/Tauri backend, at ${ROOT}.
 
 Read ${ROOT}/src-tauri/src/lib.rs and grep it for the full #[tauri::command] list (the real IPC command surface). Separately read ${ROOT}/src/devMock/tauriDevMock.ts (the dev-only invoke-interception mock used for browser-mode smoke testing) to see which commands it stubs. List ${ROOT}/src-tauri/tests/ (narrated_session_replay.rs, narrated_session_scherzo1/2/3.rs, narrated_voice_firewall.rs, knowledge_library.rs, stt_supervisor.rs, tts_gate.rs, tts_live.rs, replay_common/mod.rs, fixtures/*.json) and skim what these narrated-replay integration tests actually drive — per this project's CLAUDE.md they are "old-session speech/state-machine regression boundary; never a piano-grading benchmark", so treat them as a real but bounded integration harness, not exhaustive coverage.
 

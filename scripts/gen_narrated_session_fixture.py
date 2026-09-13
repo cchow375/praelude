@@ -6,11 +6,22 @@ verbatim raw_text + at_ms from the source, plus a per-segment adjudication.
 Every griffes segment is note-hunting narration; the contract's firewall must
 route all of them to `ignored` and mutate no state. The adjudication buckets
 are documentation/taxonomy — the harness asserts routed==expected regardless."""
-import json, collections
+import argparse
+import collections
+import json
+from pathlib import Path
 
-SRC = "/Users/c3/piano-coach/test_assets/narrated/griffes_narration.json"
-OUT = "/Users/c3/codakiller/src-tauri/tests/fixtures/narrated_session_griffes.json"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SRC = Path.home() / "piano-coach/test_assets/narrated/griffes_narration.json"
+DEFAULT_OUT = REPO_ROOT / "src-tauri/tests/fixtures/narrated_session_griffes.json"
 WAV_SHA = "48f2780ce73b70bca71783a82890e88a5a29d5a20fab667042a2f16922a1b42b"
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--source", type=Path, default=DEFAULT_SRC, help="source narration JSON")
+parser.add_argument("--output", type=Path, default=DEFAULT_OUT, help="generated fixture path")
+args = parser.parse_args()
+source_path = args.source.expanduser().resolve()
+output_path = args.output.expanduser().resolve()
 
 # index -> (classification, basis, checkpoint|None)
 # checkpoint asserts the running invariant AFTER the segment is processed.
@@ -45,7 +56,8 @@ OV = {
  78: ("ambient_ignored", "Final debrief line ('Let me try again') outside any rep block → inert.", {"metro_running": False, "block_active": False, "attempts_recorded": 0}),
 }
 
-data = json.load(open(SRC))
+with source_path.open(encoding="utf-8") as source_file:
+    data = json.load(source_file)
 segs = data["transcription"]
 out_segs = []
 for i, s in enumerate(segs):
@@ -67,7 +79,7 @@ fixture = {
     "session_id": "griffes",
     "piece_alias_hint": "Griffes",
     "source_wav_sha256": WAV_SHA,
-    "source_narration_json": SRC,
+    "source_narration_json": str(source_path),
     "segment_count": len(out_segs),
     "wake_word": None,
     "initial_state": {"metro_running": False, "metro_bpm": None, "block_active": False},
@@ -82,8 +94,11 @@ fixture = {
     ),
     "segments": out_segs,
 }
-json.dump(fixture, open(OUT, "w"), indent=2, ensure_ascii=False)
-print("wrote", OUT, "segments:", len(out_segs))
+output_path.parent.mkdir(parents=True, exist_ok=True)
+with output_path.open("w", encoding="utf-8") as output_file:
+    json.dump(fixture, output_file, indent=2, ensure_ascii=False)
+    output_file.write("\n")
+print("wrote", output_path, "segments:", len(out_segs))
 buckets = collections.Counter(s["classification"] for s in out_segs)
 print("buckets:", dict(buckets))
 ats = [s["at_ms"] for s in out_segs]

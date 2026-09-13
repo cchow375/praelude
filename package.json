@@ -3,7 +3,16 @@
   "private": true,
   "version": "11.1.0",
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || ^22.12.0 || >=24.0.0",
+    "npm": ">=10"
+  },
   "scripts": {
+    "doctor": "bash scripts/bootstrap-macos.sh --check",
+    "setup:mac": "bash scripts/bootstrap-macos.sh",
+    "docs:sync": "bash scripts/sync-project-docs.sh --sync",
+    "docs:check": "bash scripts/sync-project-docs.sh --check",
+    "project:check": "bash scripts/check-project-portability.sh",
     "dev": "vite",
     "dev:mock": "VITE_DEV_MOCK=1 vite",
     "build": "tsc && vite build",

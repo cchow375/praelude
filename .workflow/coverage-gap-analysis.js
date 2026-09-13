@@ -1,7 +1,7 @@
 export const meta = {
   name: "coverage-gap-analysis",
   description:
-    "Analyze CodaKiller test coverage: untested code + edge-case/error/integration gaps in tested code, with test skeletons",
+    "Analyze Praelude test coverage: untested code + edge-case/error/integration gaps in tested code, with test skeletons",
   phases: [{ title: "Untested code" }, { title: "Gap analysis" }],
 };
 
@@ -51,7 +51,7 @@ const GAP_SCHEMA = {
 };
 
 const FRONTEND_CONVENTIONS = `
-Repo: CodaKiller (Tauri v2, Rust + React/TS). Frontend tests use vitest + @testing-library/react.
+Repo: Praelude (Tauri v2, Rust + React/TS). Frontend tests use vitest + @testing-library/react.
 Conventions observed in this repo's existing tests:
 - Tauri IPC is mocked via: vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args) => invokeMock(...args) })) with invokeMock = vi.fn(), reset in beforeEach.
 - Hooks are tested with renderHook/act/waitFor from @testing-library/react.
@@ -62,7 +62,7 @@ Conventions observed in this repo's existing tests:
 `;
 
 const RUST_CONVENTIONS = `
-Repo: CodaKiller (Tauri v2, Rust backend under src-tauri/src). Rust tests use inline #[cfg(test)] mod tests { use super::*; ... } at the bottom of the same file, run via \`cargo test\`.
+Repo: Praelude (Tauri v2, Rust backend under src-tauri/src). Rust tests use inline #[cfg(test)] mod tests { use super::*; ... } at the bottom of the same file, run via \`cargo test\`.
 Conventions observed in this repo's existing tests:
 - In-memory SQLite for store tests: Connection::open_in_memory().unwrap(), then run the same migrations the real Store runs.
 - Fake/deterministic collaborators are hand-rolled structs implementing the relevant trait, e.g. a FixedClock implementing PracticeClock (stores a Mutex<String>, .set() to advance), and a RecEmitter implementing StateEmitter (Mutex<Vec<(String, Value)>>) to assert emitted events.
@@ -72,7 +72,7 @@ Conventions observed in this repo's existing tests:
 
 async function analyzeBatch(files, langNote, phaseName, label) {
   return agent(
-    `You are auditing test coverage for the CodaKiller codebase at /Users/c3/codakiller (src-tauri = Rust backend, src = React/TS frontend).
+    `You are auditing test coverage for the Praelude codebase in the current repository (src-tauri = Rust backend, src = React/TS frontend).
 
 ${langNote}
 
@@ -100,7 +100,7 @@ async function gapAnalyzeCritical(
   label,
 ) {
   return agent(
-    `You are auditing test coverage GAPS in ALREADY-TESTED, high-stakes CodaKiller modules at /Users/c3/codakiller.
+    `You are auditing test coverage GAPS in ALREADY-TESTED, high-stakes Praelude modules in the current repository.
 
 ${langNote}
 ${extraContext}

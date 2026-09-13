@@ -4,6 +4,18 @@ dist/
 releases/
 .DS_Store
 *.local
+.env
+.env.*
+!.env.example
+
+# Personal data and signing material never belong in source control
+*.db
+*.sqlite
+*.sqlite3
+*.p12
+*.pem
+*.key
+*.mobileprovision
 .superpowers/
 
 # Logs

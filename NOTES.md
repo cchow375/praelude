@@ -1,5 +1,41 @@
 # NOTES
 
+## Project portability (2026-09-13)
+
+- **The private Git repository is now the complete development handoff.** The editable Obsidian
+  vault remains the source on the original Mac, but its approved living Markdown and every version
+  record are mirrored under `docs/project/`. The small, Markdown-only v2/PianoCoach lineage is also
+  retained because the current manual refers to those lessons. `scripts/sync-project-docs.sh` owns the allowlist and
+  exact comparison; it must never expand to copy vault databases, score/output files, credentials,
+  app bundles or release backups. Root AGENTS/README/CLAUDE use repository-relative entry points so
+  a fresh clone does not require `/Users/c3/...` to understand the project.
+- **A development clone is not a personal-state migration.** The live database and Pieces tree are
+  machine-local and stored piece/PDF paths may be absolute. Another username/path can therefore
+  strand scores if only `codakiller.db` is copied. Until a dedicated migration is designed and
+  verified with encrypted backup, path relocation, integrity/count comparisons, permissions and
+  real Score/relaunch checks, the new-Mac promise is source development only.
+- **Setup is lockfile-led and non-destructive.** `npm run doctor` checks macOS/Xcode tools,
+  Node/npm, Rust/Cargo, `package-lock.json`, `src-tauri/Cargo.lock` and the universal `hear` helper.
+  `npm run setup:mac` then runs `npm ci`; it never installs global tools, writes secrets, touches
+  `/Applications` or opens the live database. The 2026-09-13 evidence machine used Node 26.4.0,
+  npm 11.17.0, Rust/Cargo 1.96.1 and Xcode 26.6; those are observed versions, not a newly claimed
+  minimum beyond the app's existing macOS 13 declaration. `.node-version` pins the known-good
+  Node toolchain; the declared/doctor-enforced dependency range is `^20.19`, `^22.12` or `>=24`
+  with npm 10+. Rust remains evidence-led rather than claiming an unmeasured MSRV.
+- **Portability verification preserved the native boundary.** Lockfile-exact `npm ci`, project/docs
+  checks and the production build pass. Frontend remains 2,614 passed / 1 skipped with four
+  workers. A sandboxed full native run reproduced the known `say` failure (1,105/1/18); the
+  authorized exact speech test passed, then the authorized four-worker suite passed 1,106/18 plus
+  integrations. This round changed no app source, schema, live database or installed app.
+- **Active helper paths are repository-relative.** The coverage-audit workflow uses
+  `PRAELUDE_REPO_ROOT` when supplied and otherwise the invoking repository directory; the narrated Griffes converter resolves its output from the script's
+  repository and accepts `--source` / `--output`. Historical QA prose may retain factual old paths,
+  but executable tooling must not require the original `/Users/c3/codakiller` checkout.
+- **The portability gate must itself work on stock macOS.** It uses Git's own search rather than an
+  undeclared `rg` dependency, rejects npm older than 10, and validates every approved source doc
+  plus nonempty version/lineage trees before docs sync can delete or replace mirrored files. The
+  missing-vault fallback is read-only and still validates the committed mirror structure.
+
 ## v11.1 — Practice resonance (2026-09-08)
 
 - **Christian rejected static feedback and repeated generic tones.** `practiceEnergy` renders working-contract charge and finite clean/setback impulses; `completionFx` renders stage/set/gold-chain finales. Setbacks cap at three expressive levels, with no new penalty or rule change. Total-play progress and Again's preserved variant-stage progress remain truthful. Reduced motion keeps static charge/color and fades.
