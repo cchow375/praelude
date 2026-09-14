@@ -24,14 +24,14 @@ no all-green full-suite or manual CUA acceptance is claimed. `ios/README.md` own
 Apple/musician research. B115 tracks device/signing acceptance and desktop parity limits. This is
 not an iOS shipment or a migration of Christian's Mac practice data.
 
-**Cable install:** a free Personal Team has produced verified signed Release 1.0.0/build1 with
-the paired iPad included in the profile (expiry 2026-09-21 21:24:58 UTC). The iPad Pro 12.9-inch
-(3rd generation), iPadOS 18.7.8, became unavailable during the first install attempt. Signed ready;
-awaiting restart/Developer Mode activation and installed launch. No hardware feature acceptance
-or Mac app/data change is claimed; signing/device identifiers stay local. The local-config
-Release build passes; ignored `releases/ios-personal/Praelude.app` preserves the signed app.
-`docs/qa/ios/personal-ipad-install.json` records signed-ready/pending-install evidence; the older
-unsigned manifest retains its original boundary.
+**Cable install:** free Personal Team Release 1.0.0/build1 installed at 17:51 EDT on iPad Pro
+12.9-inch (3rd generation), iPadOS 18.7.8, after the earlier disconnected attempt. The installed
+listing confirms version/build and Developer Mode is enabled. First launch was denied by a
+security/trust message; Developer App trust is pending before launch and feature QA can be checked.
+The profile expires 2026-09-21 21:24:58 UTC. Local-config signing passes, and ignored
+`releases/ios-personal/Praelude.app` preserves the signed app. The sanitized Personal Team
+manifest records verified installation/pending launch; historical unsigned evidence and Mac
+app/data remain unchanged.
 
 Project portability is now part of the canonical private repository. `docs/project/` mirrors the
 living manual and every Markdown version record; `docs/NEW_MAC_SETUP.md` separates a safe developer
@@ -49,8 +49,9 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 
 ## Open threads
 
-- [ ] iPad cable install: complete restart/Developer Mode activation, install the verified Personal
-      Team Release, and validate launch/device behavior. Signed ready is not installed acceptance.
+- [x] iPad cable install: Developer Mode enabled; Personal Team Release 1.0.0/build1 installed
+      at 17:51 EDT and confirmed in the device listing.
+- [ ] iPad first launch: complete Developer App trust, verify launch, then validate device behavior.
 - [ ] iOS1.0.0 candidate: complete phone backup UI acceptance,
       then signed physical iPhone/iPad
       import, persistence, audio/voice, interruption, accessibility and backup acceptance (B115).

@@ -12,11 +12,16 @@
   "executableSHA256": "5d9dd714285b2d53ab9d9ba5da9eae181e6e72b21863270a4e9fdc76b0091bf9",
   "deviceModel": "iPad Pro (12.9-inch) (3rd generation)",
   "deviceOS": "18.7.8",
-  "installStatus": "Pending: device disconnected during Developer Mode setup",
+  "installStatus": "Installed and version verified; first launch awaits developer trust",
   "launchAccepted": false,
   "sourceCommit": "bb5797c",
   "appSwiftSourcesSHA256": "685ddf15aab8829b76fe34d5db584d2e543faa6b324b4b6a73bb73572389ecdf",
-  "physicalDeviceAcceptance": "Not yet installed or launched; simulator evidence is unchanged.",
+  "physicalDeviceAcceptance": "Installation verified; first launch blocked by device trust/security check. Hardware feature acceptance remains open.",
   "localAppPath": "releases/ios-personal/Praelude.app",
-  "localSigningConfigurationVerified": true
+  "localSigningConfigurationVerified": true,
+  "lastCheckedAtUTC": "2026-09-14T21:53:01.681108+00:00",
+  "developerModeEnabled": true,
+  "installed": true,
+  "installedVersion": "1.0.0",
+  "installedBuild": "1"
 }

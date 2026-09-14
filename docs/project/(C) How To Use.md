@@ -5,18 +5,21 @@
 ## Separate iPhone/iPad development candidate
 
 The installed instructions below remain **Mac v11.1.0**. A separate **iOS1.0.0 DEVELOPMENT
-CANDIDATE** lives in repo `ios/` and has not been shipped or accepted on a physical iPhone/iPad.
+CANDIDATE** lives in repo `ios/`; it is installed on the iPad, with first launch pending. Full
+physical-device feature acceptance and App Store/TestFlight distribution remain separate.
 Read [the iOS build and usage guide](/Users/c3/praelude/ios/README.md) (repository `ios/README.md`)
 for native setup, exact scope and verification.
 
-**Cable install status:** the free Xcode Personal Team signed Release 1.0.0/build1 successfully.
-Installation is pending because the paired iPad became unavailable during the first attempt.
-Complete the device restart and **Settings → Privacy & Security → Developer Mode** confirmation,
-then use the Personal Team and the physical iPad destination in Xcode to Run. The current profile
-expires 2026-09-21 at 21:24:58 UTC; free Personal Team builds need rebuilding/reinstallation after
-seven days. The verified signed app is preserved locally at `releases/ios-personal/Praelude.app`,
-while Xcode uses the ignored local signing configuration for Run. The final device check still
-reports unavailable; no install or launch is verified. Signed ready is not hardware acceptance.
+**Cable install status:** free Personal Team Release 1.0.0/build1 installed on the iPad at 17:51 EDT.
+The device listing confirms version/build and Developer Mode is enabled. First launch was denied
+by a security/trust message. Open **Settings → General → VPN & Device Management**, select your
+**Developer App**, trust your developer certificate, complete the prompts, then open Praelude.
+This Personal Team trust step is documented in Apple's
+[Food Truck setup](https://developer.apple.com/documentation/swiftui/food-truck-building-a-swiftui-multiplatform-app).
+Launch and hardware feature QA are still unaccepted. The earlier disconnected install attempt
+is retained in the project history. The profile expires 2026-09-21 at 21:24:58 UTC; free Personal
+Team builds need rebuilding/reinstallation after seven days. The signed app remains locally at
+`releases/ios-personal/Praelude.app`; Xcode uses the ignored local signing configuration.
 
 In the candidate, **Today, Pieces, Progress** use phone tabs/iPad sidebar; accessibility text sizes
 use full-width tabs. Add a piece/PDF from Files, select a saved passage, and choose **Practice set**. Essential focus, target and tempo come

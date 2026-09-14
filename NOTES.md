@@ -4,21 +4,22 @@
 
 - **The native app is an independent target, not a mobile Tauri skin or Mac-data migration.**
   `ios/Praelude.xcodeproj` builds SwiftUI/PDFKit for iOS/iPadOS17+ with candidate identity
-  `com.christian.praelude.ios`, version1.0.0/build1. The installed Mac stays v11.1.0/schema21.
+  `com.christian.praelude.ios`, version 1.0.0/build1. The installed Mac stays v11.1.0/schema21.
   Native schema1 JSON and sandbox-relative score copies never access `codakiller.db`, legacy
-  Mac paths or Keychain services. The current status is DEVELOPMENT CANDIDATE, with physical
+  Mac paths or Keychain services. The current status is DEVELOPMENT CANDIDATE, with
   physical-device/distribution/full-parity gates open under B115; `ios/README.md` owns exact current evidence.
-- **Personal Team signing is verified; cable installation is pending (2026-09-14).** The user
-  completed Apple Account sign-in in Xcode. A development certificate/profile were generated,
-  and signed Release 1.0.0/build1 was verified with the connected iPad included in the profile,
-  fixtures/test plug-ins excluded, and expiry 2026-09-21 21:24:58 UTC. The iPad Pro 12.9-inch
-  (3rd generation), iPadOS 18.7.8, was paired over a cable but became unavailable during the first
-  install attempt. No installed launch or new feature acceptance is claimed; device restart/
-  Developer Mode activation is pending. A free Personal Team needs rebuilding/reinstallation
-  after its seven-day profile expires. Names, account/team/device identifiers, certificates and
-  profiles remain local. The signed app is preserved at ignored
-  `releases/ios-personal/Praelude.app`; sanitized `docs/qa/ios/personal-ipad-install.json` records
-  the signed build and pending install. Historical unsigned-build evidence is retained unchanged.
+- **Cable installation passes; first launch awaits developer trust (2026-09-14).** A free
+  Personal Team signed Release 1.0.0/build1 with the connected iPad included in its verified
+  profile, fixtures/test plug-ins excluded, and expiry 2026-09-21 21:24:58 UTC. After an earlier
+  device-unavailable attempt, devicectl installation succeeded at 17:51 EDT; the installed app
+  listing confirms 1.0.0/build1 on iPad Pro 12.9-inch (3rd generation), iPadOS 18.7.8. Developer
+  Mode is enabled. First launch was denied by a security/trust message; Developer App trust
+  under Settings → General → VPN & Device Management is the next step. Launch and feature QA
+  remain unaccepted. The signed app stays at ignored `releases/ios-personal/Praelude.app`;
+  sanitized `docs/qa/ios/personal-ipad-install.json` records install separately from launch.
+  Personal Team profiles need rebuilding/reinstallation after seven days. Signing/account/team/
+  device identifiers and assets remain local. Historical unsigned evidence and Mac app/data
+  are unchanged.
 - **Personal signing is local configuration.** `ios/Signing.xcconfig` optionally includes ignored
   `ios/Signing.local.xcconfig`; both generated Debug/Release configurations use the shared wrapper.
   The local file supplies `DEVELOPMENT_TEAM` and is restricted to the owner; no team identifier

@@ -26,7 +26,7 @@ was performed.
 | iPhone/iPad interface acceptance | All 8 distinct iPad scenarios and 7 of 8 phone scenarios passed across regression runs. Complete phone backup UI remains unaccepted; corrected maximum-text tests passed on both |
 | Generic simulator app build | Passed |
 | Release device build | Final source passed unsigned, arm64, iOS 17 minimum, iPhone and iPad families; exact artifact/source digests in [device-build.json](device-build.json) |
-| Personal iPad signing | Free Personal Team Release build and strict signature verification passed; the connected iPad is included in its profile. Installation is pending device reconnection and Developer Mode confirmation. See [personal-ipad-install.json](personal-ipad-install.json). |
+| Personal iPad installation | Free Personal Team Release signature passed; Developer Mode is enabled. Installation succeeded and the iPad reports 1.0.0/build1. First launch remains blocked by the device trust/security check. See [personal-ipad-install.json](personal-ipad-install.json). |
 | Release fixture exclusion | `--uitesting` launch path absent from production executable |
 | Existing desktop production build | Passed; existing chunk-size notice only |
 | Git-backed project manual | Passed `npm run docs:sync` and `npm run docs:check`; the Markdown mirror is current. |
@@ -134,8 +134,13 @@ Selected final screenshots are kept in [screenshots](screenshots/).
   device setup. On September 14, a wired iPad Pro (12.9-inch, 3rd generation) running iPadOS 18.7.8
   was detected and paired. The user signed into Xcode; free Personal Team signing produced a valid
   Release app and a profile authorizing that iPad, expiring September 21 at 21:24:58 UTC. The last
-  complete device query reported Developer Mode disabled; the device then became unavailable during
-  setup and the first install attempt could not locate it. No installation or launch is claimed.
+  query during initial setup reported Developer Mode disabled; the device then became unavailable
+  and the first install attempt could not locate it. After the user completed setup, a fresh query
+  confirmed Developer Mode enabled and developer services available. Installation succeeded at
+  17:51 EDT; a scoped installed-app query verified Praelude 1.0.0/build1. The first launch request
+  was denied by the device's signature/entitlements/untrusted-profile check. The prepared signature
+  and profile match were already verified; the user was directed to trust their personal developer
+  certificate in Settings. No successful launch or new hardware feature acceptance is claimed yet.
   This is personal development signing, not TestFlight, App Store distribution, or device acceptance.
   The signed build also passed using the ignored local signing configuration with no command-line
   team override. A separate project copy without that local file resolves normally, preserving
@@ -159,8 +164,8 @@ and parity work in the living flaw register.
 
 ## Next steps
 
-Reconnect and unlock the iPad after enabling and confirming Developer Mode, then install and launch
-the prepared signed app. Resolve the complete iPhone backup UI acceptance check. Test on a physical
+Complete the iPad's personal developer trust step and verify that the installed app launches.
+Resolve the complete iPhone backup UI acceptance check. Test on a physical
 iPhone and iPad with disposable practice data. Complete the hardware,
 Files-provider, accessibility and multiwindow checks before distribution. Plan desktop-data
 migration and remaining feature ports explicitly rather than treating this independent store as sync.

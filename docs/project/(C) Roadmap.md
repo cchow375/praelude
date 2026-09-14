@@ -23,22 +23,21 @@
   remains open after the final initial-Settings-navigation failure. The exact-source unsigned
   Release build passes; fixture flags/test plug-ins are absent. The current source/binary
   manifest and evidence are in `ios/README.md` and `docs/qa/ios/README.md`.
-- Cable install is **signed and ready, awaiting device activation**. User-completed free Personal
-  Team sign-in generated the certificate/profile and verified signed Release 1.0.0/build1. The
-  profile includes the paired iPad and expires 2026-09-21 at 21:24:58 UTC; fixtures/test plug-ins
-  are absent. The iPad became unavailable during the first install attempt. Restart/Developer
-  Mode activation and launch remain pending. A Release build using only the ignored local signing
-  config passes; `releases/ios-personal/Praelude.app` preserves the signed app locally. The
-  sanitized Personal Team manifest records pending installation; historical unsigned evidence
-  stays unchanged.
+- Cable installation is **verified; first-launch trust is pending**. Free Personal Team
+  Release 1.0.0/build1 installed at 17:51 EDT; the device listing confirms version/build and
+  Developer Mode is enabled. The prior device-unavailable attempt remains history. First launch
+  was denied by a security/trust message; Developer App trust must precede launch acceptance.
+  The profile expires 2026-09-21 at 21:24:58 UTC; fixtures/test plug-ins are absent. Local-config
+  signing passes and the signed app remains at ignored `releases/ios-personal/Praelude.app`.
+  The sanitized manifest records installation separately from launch; unsigned evidence is unchanged.
 - Status is **DEVELOPMENT CANDIDATE**, not device accepted or shipped. Mac migration/sync, cloud
   mapping, Listen Back, Studio furnishings/economy, desktop warmups and full history repair remain
   unported. Assistant stays OFF/ON HOLD.
 
 ### Next steps
 
-Complete device restart/Developer Mode activation and the iPad cable install, then validate the
-signed app with disposable data for Files/PDF/relaunch, persistence/backup, audio/voice/interruption and
+Complete iPad Developer App trust and verify launch, then validate the installed app with
+disposable data for Files/PDF/relaunch, persistence/backup, audio/voice/interruption and
 accessibility. Complete phone backup UI acceptance separately. Keep B115 open until its gates are proved. Plan Mac-data migration and remaining
 ports explicitly; the present implementation is not full desktop parity.
 

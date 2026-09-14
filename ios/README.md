@@ -3,19 +3,21 @@
 **Version 1.0.0 — DEVELOPMENT CANDIDATE. Last updated: 2026-09-14.** This is a native SwiftUI
 application target for iOS/iPadOS 17 and later. It is separate from the installed Mac
 Praelude v11.1.0/schema21 product. It has not been shipped through the App Store/TestFlight or
-accepted on a physical iPhone/iPad. Simulator evidence and hardware acceptance are different gates.
+completed physical-device feature acceptance. Simulator evidence and hardware acceptance are different gates.
 
-**Cable install status (2026-09-14): signed and ready, awaiting device activation.** A free
-Personal Team signed Release 1.0.0/build1 successfully; the verified profile includes the paired
-iPad Pro 12.9-inch (3rd generation) on iPadOS 18.7.8 and expires **2026-09-21 at 21:24:58 UTC**.
-Fixtures and test plug-ins are excluded. The device became unavailable during the first install
-attempt, so installation and launch have not been verified. Restart/Developer Mode activation
-remains the next step. The signed app is preserved locally at
-`releases/ios-personal/Praelude.app` (ignored by Git). The
-[sanitized Personal Team manifest](../docs/qa/ios/personal-ipad-install.json) records signing,
-expiry and the pending installation. A Release build using the ignored local signing configuration
-passed without a command-line team override. The historical unsigned-build manifest describes
-the earlier build; it and simulator acceptance remain unchanged. No install or launch is claimed.
+**Cable install status (2026-09-14): installed on iPad; first-launch trust pending.** Installation
+succeeded at 17:51 EDT, and the device app listing confirms version 1.0.0/build1 on the iPad Pro
+12.9-inch (3rd generation), iPadOS 18.7.8. Developer Mode is enabled. The earlier attempt failed
+when the device became unavailable; that is retained as history. The first launch was denied
+with a security/trust message. Developer App trust is the next step; launch and feature QA are
+not accepted yet.
+
+The free Personal Team profile expires **2026-09-21 at 21:24:58 UTC**. Fixtures/test plug-ins
+are excluded, and the signed app is preserved at ignored `releases/ios-personal/Praelude.app`.
+The [sanitized Personal Team manifest](../docs/qa/ios/personal-ipad-install.json) records signing,
+expiry and confirmed installation separately from pending launch. The local-config Release build
+passes without a CLI team override. The historical unsigned manifest and simulator evidence remain
+unchanged; no Mac app or practice data was touched.
 
 Praelude keeps the same rule on every device: **the pianist is the sensor; the app is the memory**.
 You supply Clean, Sloppy, or Again. The app records practice, runs a metronome, and keeps your score
@@ -160,6 +162,10 @@ App Store or TestFlight distribution. See [Apple's Personal Team rules](https://
    build, install, and launch the app. Use the normal scheme without UI-test fixture arguments.
    Apple's [physical-device running guide](https://developer.apple.com/documentation/xcode/running-your-app-on-simulated-or-physical-devices)
    describes automatic signing and device registration.
+6. If the first launch says the developer is untrusted, open **Settings → General → VPN & Device
+   Management** on the iPad/iPhone, select your **Developer App** entry, and trust your developer
+   certificate. Complete the prompts, then open Praelude again. This Personal Team trust step is
+   also described in Apple's [Food Truck sample setup](https://developer.apple.com/documentation/swiftui/food-truck-building-a-swiftui-multiplatform-app).
 
 For a portable checkout, the generated project reads `ios/Signing.xcconfig`, which optionally
 includes the ignored `ios/Signing.local.xcconfig`. Keep your Personal Team selection in that local
@@ -199,7 +205,7 @@ The **complete iPhone backup UI scenario remains open**: the last run failed at 
 navigation, before either picker. An earlier run logged all three Settings callbacks and reached
 export dismissal and Restore Recents/Cancel, but failed outdated picker-selector assertions.
 iPad backup UI is accepted; neither family has manual CUA acceptance. The **final unsigned Release
-build passes on the exact current source**: arm64, version1.0.0/build1, iOS17 minimum, both device
+build passes on the exact current source**: arm64, version 1.0.0/build1, iOS17 minimum, both device
 families, with fixture flags and test plug-ins excluded. The [device build manifest](../docs/qa/ios/device-build.json)
 records its SHA-256 and source digest. At that unsigned-build verification, no signing identities
 or connected physical devices were present. Exact results and failed runs are retained in the
@@ -223,7 +229,7 @@ acceptance, signing, and feature-parity boundary.
 
 ## Next steps
 
-Complete the iPhone backup UI acceptance, then run the candidate on a
-signed physical iPhone and iPad with disposable data. Verify real score import, durable repetitions, interruptions,
+Complete the iPad Developer App trust and verify launch, then test the installed candidate with
+disposable data. Complete iPhone backup UI acceptance and physical-iPhone checks separately. Verify real score import, durable repetitions, interruptions,
 voice/metronome behavior, accessibility, and backup restoration before calling it device-accepted.
 Plan Mac-data migration and any remaining desktop feature ports as explicit follow-up work.
