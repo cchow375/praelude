@@ -9,6 +9,15 @@ CANDIDATE** lives in repo `ios/` and has not been shipped or accepted on a physi
 Read [the iOS build and usage guide](/Users/c3/praelude/ios/README.md) (repository `ios/README.md`)
 for native setup, exact scope and verification.
 
+**Cable install status:** the free Xcode Personal Team signed Release 1.0.0/build1 successfully.
+Installation is pending because the paired iPad became unavailable during the first attempt.
+Complete the device restart and **Settings → Privacy & Security → Developer Mode** confirmation,
+then use the Personal Team and the physical iPad destination in Xcode to Run. The current profile
+expires 2026-09-21 at 21:24:58 UTC; free Personal Team builds need rebuilding/reinstallation after
+seven days. The verified signed app is preserved locally at `releases/ios-personal/Praelude.app`,
+while Xcode uses the ignored local signing configuration for Run. The final device check still
+reports unavailable; no install or launch is verified. Signed ready is not hardware acceptance.
+
 In the candidate, **Today, Pieces, Progress** use phone tabs/iPad sidebar; accessibility text sizes
 use full-width tabs. Add a piece/PDF from Files, select a saved passage, and choose **Practice set**. Essential focus, target and tempo come
 first; **Set rules**, **Variants**, Goals and the calendar have focused editors. Large verdict

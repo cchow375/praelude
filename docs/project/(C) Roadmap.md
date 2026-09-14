@@ -23,15 +23,23 @@
   remains open after the final initial-Settings-navigation failure. The exact-source unsigned
   Release build passes; fixture flags/test plug-ins are absent. The current source/binary
   manifest and evidence are in `ios/README.md` and `docs/qa/ios/README.md`.
+- Cable install is **signed and ready, awaiting device activation**. User-completed free Personal
+  Team sign-in generated the certificate/profile and verified signed Release 1.0.0/build1. The
+  profile includes the paired iPad and expires 2026-09-21 at 21:24:58 UTC; fixtures/test plug-ins
+  are absent. The iPad became unavailable during the first install attempt. Restart/Developer
+  Mode activation and launch remain pending. A Release build using only the ignored local signing
+  config passes; `releases/ios-personal/Praelude.app` preserves the signed app locally. The
+  sanitized Personal Team manifest records pending installation; historical unsigned evidence
+  stays unchanged.
 - Status is **DEVELOPMENT CANDIDATE**, not device accepted or shipped. Mac migration/sync, cloud
   mapping, Listen Back, Studio furnishings/economy, desktop warmups and full history repair remain
   unported. Assistant stays OFF/ON HOLD.
 
 ### Next steps
 
-Complete phone backup UI acceptance; then validate a signed
-physical iPhone/iPad with disposable data for Files/PDF/relaunch, persistence/backup, audio/voice/interruption and
-accessibility. Keep B115 open until its gates are proved. Plan Mac-data migration and remaining
+Complete device restart/Developer Mode activation and the iPad cable install, then validate the
+signed app with disposable data for Files/PDF/relaunch, persistence/backup, audio/voice/interruption and
+accessibility. Complete phone backup UI acceptance separately. Keep B115 open until its gates are proved. Plan Mac-data migration and remaining
 ports explicitly; the present implementation is not full desktop parity.
 
 ## Maintenance — fresh-Mac development portability (completed 2026-09-13)

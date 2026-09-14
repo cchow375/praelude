@@ -1,0 +1,3 @@
+// Keep this shared project portable. Put DEVELOPMENT_TEAM in the ignored
+// Signing.local.xcconfig beside this file for local device signing.
+#include? "Signing.local.xcconfig"

@@ -7,7 +7,25 @@
   `com.christian.praelude.ios`, version1.0.0/build1. The installed Mac stays v11.1.0/schema21.
   Native schema1 JSON and sandbox-relative score copies never access `codakiller.db`, legacy
   Mac paths or Keychain services. The current status is DEVELOPMENT CANDIDATE, with physical
-  device/signing/full-parity gates open under B115; `ios/README.md` owns exact current evidence.
+  physical-device/distribution/full-parity gates open under B115; `ios/README.md` owns exact current evidence.
+- **Personal Team signing is verified; cable installation is pending (2026-09-14).** The user
+  completed Apple Account sign-in in Xcode. A development certificate/profile were generated,
+  and signed Release 1.0.0/build1 was verified with the connected iPad included in the profile,
+  fixtures/test plug-ins excluded, and expiry 2026-09-21 21:24:58 UTC. The iPad Pro 12.9-inch
+  (3rd generation), iPadOS 18.7.8, was paired over a cable but became unavailable during the first
+  install attempt. No installed launch or new feature acceptance is claimed; device restart/
+  Developer Mode activation is pending. A free Personal Team needs rebuilding/reinstallation
+  after its seven-day profile expires. Names, account/team/device identifiers, certificates and
+  profiles remain local. The signed app is preserved at ignored
+  `releases/ios-personal/Praelude.app`; sanitized `docs/qa/ios/personal-ipad-install.json` records
+  the signed build and pending install. Historical unsigned-build evidence is retained unchanged.
+- **Personal signing is local configuration.** `ios/Signing.xcconfig` optionally includes ignored
+  `ios/Signing.local.xcconfig`; both generated Debug/Release configurations use the shared wrapper.
+  The local file supplies `DEVELOPMENT_TEAM` and is restricted to the owner; no team identifier
+  appears in the tracked wrapper/project/generator. The optional include resolves without a local
+  file for portable unsigned/simulator work. Repeated project generation is byte-identical;
+  build-settings checks pass with the local team and with the local file absent. A full Release
+  build using only the local config, without a command-line team override, also passes.
 - **The iOS handoff needs full Xcode.** Command Line Tools and the Mac bootstrap do not install
   an iOS SDK or simulator runtime. Repo AGENTS/README/CLAUDE and `docs/NEW_MAC_SETUP.md` link to
   `ios/README.md` for the separate native build/tests/signing workflow.
@@ -96,7 +114,8 @@
   1.0.0/build1, iOS17 minimum, device families1/2; fixture flags and test plug-ins are absent.
   `docs/qa/ios/device-build.json` records executable SHA-256
   `346a9de01b35d478a0a27a554e125610ebc959a57c5cc31f940088d7783d7871` and source digest.
-  Fresh checks found zero valid signing identities and zero connected physical devices.
+  At that earlier unsigned-build gate, checks found zero valid signing identities and zero
+  connected physical devices; the later Personal Team signing event above is separate evidence.
   DEBUG fixtures use a separate UI-test store; normal first launch remains blank and the Release
   executable excludes fixture code. An unsigned device build does not establish physical acceptance.
 

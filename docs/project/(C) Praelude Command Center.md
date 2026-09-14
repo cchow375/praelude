@@ -24,6 +24,15 @@ no all-green full-suite or manual CUA acceptance is claimed. `ios/README.md` own
 Apple/musician research. B115 tracks device/signing acceptance and desktop parity limits. This is
 not an iOS shipment or a migration of Christian's Mac practice data.
 
+**Cable install:** a free Personal Team has produced verified signed Release 1.0.0/build1 with
+the paired iPad included in the profile (expiry 2026-09-21 21:24:58 UTC). The iPad Pro 12.9-inch
+(3rd generation), iPadOS 18.7.8, became unavailable during the first install attempt. Signed ready;
+awaiting restart/Developer Mode activation and installed launch. No hardware feature acceptance
+or Mac app/data change is claimed; signing/device identifiers stay local. The local-config
+Release build passes; ignored `releases/ios-personal/Praelude.app` preserves the signed app.
+`docs/qa/ios/personal-ipad-install.json` records signed-ready/pending-install evidence; the older
+unsigned manifest retains its original boundary.
+
 Project portability is now part of the canonical private repository. `docs/project/` mirrors the
 living manual and every Markdown version record; `docs/NEW_MAC_SETUP.md` separates a safe developer
 clone from an unverified transfer of personal practice state; `npm run doctor` checks prerequisites,
@@ -40,6 +49,8 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 
 ## Open threads
 
+- [ ] iPad cable install: complete restart/Developer Mode activation, install the verified Personal
+      Team Release, and validate launch/device behavior. Signed ready is not installed acceptance.
 - [ ] iOS1.0.0 candidate: complete phone backup UI acceptance,
       then signed physical iPhone/iPad
       import, persistence, audio/voice, interruption, accessibility and backup acceptance (B115).

@@ -26,6 +26,7 @@ was performed.
 | iPhone/iPad interface acceptance | All 8 distinct iPad scenarios and 7 of 8 phone scenarios passed across regression runs. Complete phone backup UI remains unaccepted; corrected maximum-text tests passed on both |
 | Generic simulator app build | Passed |
 | Release device build | Final source passed unsigned, arm64, iOS 17 minimum, iPhone and iPad families; exact artifact/source digests in [device-build.json](device-build.json) |
+| Personal iPad signing | Free Personal Team Release build and strict signature verification passed; the connected iPad is included in its profile. Installation is pending device reconnection and Developer Mode confirmation. See [personal-ipad-install.json](personal-ipad-install.json). |
 | Release fixture exclusion | `--uitesting` launch path absent from production executable |
 | Existing desktop production build | Passed; existing chunk-size notice only |
 | Git-backed project manual | Passed `npm run docs:sync` and `npm run docs:check`; the Markdown mirror is current. |
@@ -129,9 +130,16 @@ Selected final screenshots are kept in [screenshots](screenshots/).
 
 ## Unaccepted boundaries
 
-- **Signing and physical installation:** this Mac currently has no signing identity and no
-  connected physical iOS device. The Release device binary compiles; it is not a signed installer,
-  TestFlight build, App Store upload, or device-accepted release.
+- **Physical installation:** the earlier unsigned-build manifest records the environment before
+  device setup. On September 14, a wired iPad Pro (12.9-inch, 3rd generation) running iPadOS 18.7.8
+  was detected and paired. The user signed into Xcode; free Personal Team signing produced a valid
+  Release app and a profile authorizing that iPad, expiring September 21 at 21:24:58 UTC. The last
+  complete device query reported Developer Mode disabled; the device then became unavailable during
+  setup and the first install attempt could not locate it. No installation or launch is claimed.
+  This is personal development signing, not TestFlight, App Store distribution, or device acceptance.
+  The signed build also passed using the ignored local signing configuration with no command-line
+  team override. A separate project copy without that local file resolves normally, preserving
+  fresh-clone portability. No account identifiers, private keys or profiles are committed.
 - **Hardware:** microphone permissions, downloaded speech language support, command recognition
   over an acoustic piano, voice/metronome overlap, sustained output timing, audio interruptions,
   external keyboards/page-turn pedals and VoiceOver require physical-device acceptance.
@@ -151,7 +159,8 @@ and parity work in the living flaw register.
 
 ## Next steps
 
-Resolve the complete iPhone backup UI acceptance check. Select an Apple development team and test a signed
-build on a physical iPhone and iPad with disposable practice data. Complete the hardware,
+Reconnect and unlock the iPad after enabling and confirming Developer Mode, then install and launch
+the prepared signed app. Resolve the complete iPhone backup UI acceptance check. Test on a physical
+iPhone and iPad with disposable practice data. Complete the hardware,
 Files-provider, accessibility and multiwindow checks before distribution. Plan desktop-data
 migration and remaining feature ports explicitly rather than treating this independent store as sync.

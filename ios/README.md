@@ -5,6 +5,18 @@ application target for iOS/iPadOS 17 and later. It is separate from the installe
 Praelude v11.1.0/schema21 product. It has not been shipped through the App Store/TestFlight or
 accepted on a physical iPhone/iPad. Simulator evidence and hardware acceptance are different gates.
 
+**Cable install status (2026-09-14): signed and ready, awaiting device activation.** A free
+Personal Team signed Release 1.0.0/build1 successfully; the verified profile includes the paired
+iPad Pro 12.9-inch (3rd generation) on iPadOS 18.7.8 and expires **2026-09-21 at 21:24:58 UTC**.
+Fixtures and test plug-ins are excluded. The device became unavailable during the first install
+attempt, so installation and launch have not been verified. Restart/Developer Mode activation
+remains the next step. The signed app is preserved locally at
+`releases/ios-personal/Praelude.app` (ignored by Git). The
+[sanitized Personal Team manifest](../docs/qa/ios/personal-ipad-install.json) records signing,
+expiry and the pending installation. A Release build using the ignored local signing configuration
+passed without a command-line team override. The historical unsigned-build manifest describes
+the earlier build; it and simulator acceptance remain unchanged. No install or launch is claimed.
+
 Praelude keeps the same rule on every device: **the pianist is the sensor; the app is the memory**.
 You supply Clean, Sloppy, or Again. The app records practice, runs a metronome, and keeps your score
 close. It never listens to the piano to grade your playing. A normal first launch is blank.
@@ -125,11 +137,51 @@ interface flows. Test data is restricted to DEBUG launches with `--uitesting --s
 resets only the separate UI-test store. Release builds have no fixture path. Synthetic fixture
 scores contain no personal repertoire or practice records.
 
-Physical-device installation requires selecting your development team under Signing & Capabilities,
-connecting a supported iPhone/iPad, choosing that destination, and using an appropriate signing
-profile. The candidate bundle identifier is `com.christian.praelude.ios`. App Store/TestFlight
-distribution additionally requires its normal signing, archive, upload, privacy, and review work;
-none of those steps is implied by a simulator build.
+### Install on your own iPad or iPhone for free
+
+A paid developer membership is **not required** to install this app on your own device through
+Xcode. Sign in with your Apple Account and use its **Personal Team**. Apple manages that team's
+development certificates and profiles through Xcode. This is personal device testing, not
+App Store or TestFlight distribution. See [Apple's Personal Team rules](https://developer.apple.com/help/account/basics/about-your-developer-account).
+
+1. Open `ios/Praelude.xcodeproj` in full Xcode. In **Xcode → Settings → Apple Accounts**, add
+   your Apple Account and complete any sign-in or agreement prompts yourself.
+2. Connect and unlock the iPad/iPhone by cable. Complete the device's **Trust This Computer**
+   prompt if it appears, and select the physical device as the **Praelude** scheme's destination.
+3. On the device, open **Settings → Privacy & Security → Developer Mode** and turn it on.
+   Restart when prompted, then confirm enablement after the restart and enter the device passcode.
+   The option appears after pairing with Xcode has begun. See [Apple's Developer Mode instructions](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device).
+4. In Xcode, select the **Praelude app target → Signing & Capabilities**, enable
+   **Automatically manage signing**, and select your **Personal Team**. If **Set Up Signing**
+   appears, use it to select the team. The candidate identifier is `com.christian.praelude.ios`;
+   if Xcode reports it unavailable, use a unique identifier for that personal build and keep it
+   stable for later refreshes.
+5. Choose **Product → Run**. Let Xcode register the device, create its development profile,
+   build, install, and launch the app. Use the normal scheme without UI-test fixture arguments.
+   Apple's [physical-device running guide](https://developer.apple.com/documentation/xcode/running-your-app-on-simulated-or-physical-devices)
+   describes automatic signing and device registration.
+
+For a portable checkout, the generated project reads `ios/Signing.xcconfig`, which optionally
+includes the ignored `ios/Signing.local.xcconfig`. Keep your Personal Team selection in that local
+file so regenerating the shared project retains signing without adding the team identifier to Git:
+
+```xcconfig
+DEVELOPMENT_TEAM = YOUR_PERSONAL_TEAM_ID
+```
+
+Use your own team identifier locally. The local file is optional; simulator and unsigned builds
+work without it. Certificates and provisioning profiles remain managed by Xcode on this Mac.
+
+**Refresh every seven days:** Personal Team provisioning profiles expire seven days after issuance.
+Reconnect the device and rebuild/reinstall through Xcode when they expire. Keep the same Apple
+Account, team, and bundle identifier; do not delete the app as part of the refresh. Apple currently
+limits Personal Teams to three devices and three installed apps per device. See
+[Apple's current limits and renewal requirement](https://developer.apple.com/help/account/basics/about-your-developer-account).
+
+A successful install and launch must still be followed by device checks for score import, saved
+practice, audio, speech, interruptions and backup. This guide does not change the development
+candidate's acceptance status. App Store/TestFlight distribution requires separate membership,
+signing, archive/upload, privacy and review work.
 
 ## Verification and remaining acceptance
 
@@ -149,8 +201,9 @@ export dismissal and Restore Recents/Cancel, but failed outdated picker-selector
 iPad backup UI is accepted; neither family has manual CUA acceptance. The **final unsigned Release
 build passes on the exact current source**: arm64, version1.0.0/build1, iOS17 minimum, both device
 families, with fixture flags and test plug-ins excluded. The [device build manifest](../docs/qa/ios/device-build.json)
-records its SHA-256 and source digest. Verification found no signing identities or connected
-physical devices. Exact results and failed runs are retained in the acceptance ledger.
+records its SHA-256 and source digest. At that unsigned-build verification, no signing identities
+or connected physical devices were present. Exact results and failed runs are retained in the
+acceptance ledger.
 
 Independent iPhone simulator screenshots verify the maximum-text correction in both orientations:
 verdict labels fit their controls, all three verdicts are reachable by scrolling, the page index

@@ -5,3 +5,4 @@ ReleaseDerivedData/
 xcuserdata/
 *.ipa
 *.xcarchive/
+Signing.local.xcconfig

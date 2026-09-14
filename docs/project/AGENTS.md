@@ -195,9 +195,22 @@ scenarios pass across regression runs, including corrected large-text checks. iP
 complete phone backup UI stays open after a final initial-Settings-navigation failure. The final
 exact-source unsigned Release build passes, with fixture flags/test plug-ins absent; no all-green
 full-suite or manual CUA acceptance is claimed.
-Physical-device/signing
+Physical-device/distribution
 acceptance and desktop parity are open under B115. Do not install it over the Mac app, seed
 personal practice, claim automatic migration/sync, or label the native candidate shipped.
+
+**Cable install (2026-09-14): signed and ready, awaiting device activation.** User-completed free
+Personal Team sign-in produced a verified development certificate/profile and signed
+Release 1.0.0/build1, with fixtures/test plug-ins excluded. The profile includes the paired
+iPad Pro 12.9-inch (3rd generation), iPadOS 18.7.8, and expires 2026-09-21 at 21:24:58 UTC.
+The device became unavailable during the first install attempt; restart/Developer Mode activation
+and installed launch remain pending. No hardware acceptance or Mac app/data change is claimed.
+The historical unsigned manifest stays unchanged; private signing/device identifiers stay local.
+The optional ignored `ios/Signing.local.xcconfig` supplies `DEVELOPMENT_TEAM` through the shared
+wrapper; keep that personal configuration and provisioning assets outside Git. A full Release
+build with that local config passes without a CLI team override. The signed app is preserved at
+ignored `releases/ios-personal/Praelude.app`; `docs/qa/ios/personal-ipad-install.json` is the
+sanitized signed-build/pending-install record. No install or launch has been verified.
 
 **Last updated: 2026-09-14. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup. The private Git repository now carries a curated copy of the complete living project manual, version records, a new-Mac guide and a machine doctor/bootstrap script; personal data remains deliberately outside Git.
 

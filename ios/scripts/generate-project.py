@@ -12,12 +12,13 @@ def obj(key, body):
     return value
 def q(value): return json.dumps(str(value))
 def array(values): return '(' + ', '.join(values) + (',)' if values else ')')
-def configs(prefix, settings):
+def configs(prefix, settings, base_config=None):
     ids = []
     for mode in ('Debug', 'Release'):
         options = dict(settings)
         options.update({'ENABLE_TESTABILITY': 'YES' if mode == 'Debug' else 'NO', 'SWIFT_OPTIMIZATION_LEVEL': '-Onone' if mode == 'Debug' else '-O', 'SWIFT_ACTIVE_COMPILATION_CONDITIONS': 'DEBUG' if mode == 'Debug' else '', 'DEBUG_INFORMATION_FORMAT': 'dwarf' if mode == 'Debug' else 'dwarf-with-dsym'})
-        ids.append(obj(prefix+mode, 'isa = XCBuildConfiguration; name = '+mode+'; buildSettings = {'+' '.join(k+' = '+q(v)+';' for k,v in options.items())+'};'))
+        base = 'baseConfigurationReference = '+base_config+'; ' if base_config else ''
+        ids.append(obj(prefix+mode, 'isa = XCBuildConfiguration; name = '+mode+'; '+base+'buildSettings = {'+' '.join(k+' = '+q(v)+';' for k,v in options.items())+'};'))
     return obj(prefix+'configs', 'isa = XCConfigurationList; buildConfigurations = '+array(ids)+'; defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
 app_files=[]; app_sources=[]; resources=[]
 for path in sorted((root/'Praelude').rglob('*.swift')):
@@ -45,12 +46,13 @@ test_product=obj('testProduct', 'isa = PBXFileReference; explicitFileType = wrap
 products=obj('products', 'isa = PBXGroup; name = Products; children = '+array([app_product,test_product,unit_product])+'; sourceTree = "<group>";')
 app_group=obj('appGroup','isa = PBXGroup; name = Praelude; children = '+array(app_files)+'; sourceTree = "<group>";')
 test_group=obj('testGroup','isa = PBXGroup; name = PraeludeUITests; children = '+array(test_files)+'; sourceTree = "<group>";')
-main=obj('main','isa = PBXGroup; children = '+array([app_group,test_group,unit_group,products])+'; sourceTree = "<group>";')
+signing_config=obj('Signing.xcconfig', 'isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Signing.xcconfig"; sourceTree = SOURCE_ROOT;')
+main=obj('main','isa = PBXGroup; children = '+array([signing_config,app_group,test_group,unit_group,products])+'; sourceTree = "<group>";')
 def phase(key, isa, files): return obj(key, 'isa = '+isa+'; buildActionMask = 2147483647; files = '+array(files)+'; runOnlyForDeploymentPostprocessing = 0;')
 app_phases=[phase('sources','PBXSourcesBuildPhase',app_sources),phase('frameworks','PBXFrameworksBuildPhase',[]),phase('resources','PBXResourcesBuildPhase',resources)]
 test_phases=[phase('testSources','PBXSourcesBuildPhase',test_sources),phase('testFrameworks','PBXFrameworksBuildPhase',[]),phase('testResources','PBXResourcesBuildPhase',[])]
 common={'IPHONEOS_DEPLOYMENT_TARGET':'17.0','SDKROOT':'iphoneos','SWIFT_VERSION':'6.0','TARGETED_DEVICE_FAMILY':'1,2','CODE_SIGN_STYLE':'Automatic','CLANG_ENABLE_MODULES':'YES','SWIFT_STRICT_CONCURRENCY':'complete','ENABLE_USER_SCRIPT_SANDBOXING':'YES'}
-project_configs=configs('project',common)
+project_configs=configs('project',common,signing_config)
 app_config=configs('app',{'PRODUCT_BUNDLE_IDENTIFIER':'com.christian.praelude.ios','PRODUCT_NAME':'Praelude','INFOPLIST_FILE':'Praelude/Info.plist','GENERATE_INFOPLIST_FILE':'NO','MARKETING_VERSION':'1.0.0','CURRENT_PROJECT_VERSION':'1','ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon','ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME':'AccentColor','SUPPORTED_PLATFORMS':'iphoneos iphonesimulator','SUPPORTS_MACCATALYST':'NO','LD_RUNPATH_SEARCH_PATHS':'$(inherited) @executable_path/Frameworks'})
 app_target=obj('appTarget','isa = PBXNativeTarget; name = Praelude; productName = Praelude; productType = "com.apple.product-type.application"; productReference = '+app_product+'; buildConfigurationList = '+app_config+'; buildPhases = '+array(app_phases)+'; buildRules = (); dependencies = ();')
 proxy=obj('proxy','isa = PBXContainerItemProxy; containerPortal = '+ident('project')+'; proxyType = 1; remoteGlobalIDString = '+app_target+'; remoteInfo = Praelude;')

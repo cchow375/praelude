@@ -58,6 +58,20 @@ simulator runs, and physical-device signing. The target supports iOS/iPadOS17+ a
 sandbox library; this handoff does not migrate the installed Mac practice data. Its current status
 is a development candidate, with device/distribution acceptance tracked separately.
 
+For cable installation on your own device, a free **Personal Team** is sufficient: sign in to
+your Apple Account in Xcode, enable Developer Mode on the paired device, and use automatic
+signing. Rebuild/reinstall after the seven-day provisioning profile expires. The
+[iOS guide](../ios/README.md#install-on-your-own-ipad-or-iphone-for-free) links Apple
+requirements and gives the complete flow. Configure your own local signing; do not copy another
+Mac's credentials, certificates, provisioning profiles or device identifiers into Git. The
+generated project loads `ios/Signing.xcconfig`, which optionally includes ignored
+`ios/Signing.local.xcconfig`; put your own `DEVELOPMENT_TEAM` selection only in that local file.
+It is optional for simulator/unsigned work and survives project regeneration. See the native
+guide for the example; do not add the local file or signing assets to Git. The original Mac
+verified a Release build using this mechanism. Its locally preserved signed app is at ignored
+`releases/ios-personal/Praelude.app`; that artifact is not transferred by a clone. A signed build
+is not installed-device acceptance; follow the native guide for the current install status.
+
 ## 3. Prove the checkout
 
 ```bash
