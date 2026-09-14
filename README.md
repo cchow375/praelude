@@ -1,5 +1,9 @@
 # Praelude
 
+Native iPhone/iPad development candidate: [iOS build, usage and acceptance](ios/README.md).
+It requires full Xcode with an iOS SDK and compatible simulator runtime; the Mac bootstrap
+does not install these. The guide covers native build/tests and physical-device signing.
+
 Praelude is a native piano practice and repertoire tracker for macOS, built with Tauri v2,
 Rust, React and TypeScript. The pianist supplies every Clean, Sloppy or Again verdict;
 Praelude counts, times, remembers, runs the metronome and organizes local scores. It does

@@ -1,6 +1,33 @@
 # Praelude — How To Use
 
-**Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-09-13.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.
+**Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-09-14.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.
+
+## Separate iPhone/iPad development candidate
+
+The installed instructions below remain **Mac v11.1.0**. A separate **iOS1.0.0 DEVELOPMENT
+CANDIDATE** lives in repo `ios/` and has not been shipped or accepted on a physical iPhone/iPad.
+Read [the iOS build and usage guide](/Users/c3/praelude/ios/README.md) (repository `ios/README.md`)
+for native setup, exact scope and verification.
+
+In the candidate, **Today, Pieces, Progress** use phone tabs/iPad sidebar; accessibility text sizes
+use full-width tabs. Add a piece/PDF from Files, select a saved passage, and choose **Practice set**. Essential focus, target and tempo come
+first; **Set rules**, **Variants**, Goals and the calendar have focused editors. Large verdict
+controls, pause/resume and Undo record your judgment. For on-device English speech, open
+**Score options (…) → Hands-free commands → Enable hands-free**. While listening, choose **Off**
+in practice controls or **Turn voice off** in Score options; touch needs no microphone.
+Settings exports/restores the independent
+native library and PDFs. If the native library cannot be read, ordinary edits/export are unavailable.
+Choosing a valid backup in Restore first preserves and verifies an identical copy of the original
+ledger, then replaces it; failed preservation leaves it read-only. Native backup does not import
+Mac schema21 data or provide automatic sync. The combined backup export/cancel/restore UI flow
+passes on the iPad simulator; complete iPhone UI acceptance remains open after an initial Settings
+navigation failure. See the native guide for the exact boundary.
+Listen Back, cloud mapping, furnished Studio/economy and full desktop warmups/history repair remain
+outside this candidate. With accessibility text sizes, the candidate keeps the score above a
+scrollable practice panel and places Clean first; verdict labels keep the requested size. This
+layout keeps labels inside their controls, all three verdicts reachable by scrolling, and the
+score visible; both iPhone orientations have independent simulator screenshot verification.
+The installed Mac tutorial and its Matches line are unchanged.
 
 ## Start a useful practice session
 

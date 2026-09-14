@@ -45,6 +45,19 @@ npm run project:check
 The setup script runs `npm ci`. Cargo downloads its locked dependencies on the first Rust build.
 No global package install is performed by the script.
 
+### Native iPhone/iPad development
+
+The separate SwiftUI candidate in `ios/` requires **full Xcode**, its **iOS SDK**, and a compatible
+**iOS simulator runtime**. Command Line Tools alone cannot build or run it. Install the needed
+runtime through [Xcode Settings → Components](https://developer.apple.com/documentation/xcode/downloading-and-installing-additional-xcode-components).
+`npm run setup:mac` prepares the Mac/Tauri checkout;
+it does not install Xcode or iOS runtimes.
+
+Follow [the iOS build and usage guide](../ios/README.md) for project generation, native tests,
+simulator runs, and physical-device signing. The target supports iOS/iPadOS17+ and uses an independent
+sandbox library; this handoff does not migrate the installed Mac practice data. Its current status
+is a development candidate, with device/distribution acceptance tracked separately.
+
 ## 3. Prove the checkout
 
 ```bash

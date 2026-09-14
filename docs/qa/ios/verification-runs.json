@@ -1,0 +1,514 @@
+{
+  "note": "Historical runs retain their failures. Final case acceptance is explained in README.md; this is not physical-device acceptance.",
+  "runs": [
+    {
+      "artifact": "praelude-ios-ipad-3.xcresult",
+      "result": "Failed",
+      "passedTests": 16,
+      "failedTests": 4,
+      "skippedTests": 0,
+      "startedAtUnix": 1789355245.773,
+      "finishedAtUnix": 1789355806.983,
+      "devices": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "54C17AA0-46F6-4FD8-BF47-0EDA28F9CA9D",
+            "deviceName": "Praelude iPad",
+            "modelName": "iPad Air 11-inch (M3)",
+            "osBuildNumber": "23F77",
+            "osVersion": "26.5",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 4,
+          "passedTests": 16,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "failures": [
+        {
+          "test": "PraeludeUITests/testBackupDialogsAndDarkAppearance()",
+          "message": "XCTAssertTrue failed - Attributes: Application, 0x1089da580, pid: 37108, label: 'Praelude'"
+        },
+        {
+          "test": "PraeludeUITests/testBlankInstallAndAddPaperPiece()",
+          "message": "XCTAssertTrue failed"
+        },
+        {
+          "test": "VerifierTests/testFocusModeRetainsNativePinchZoom()",
+          "message": "XCTAssertGreaterThan failed: (\"7.901463414634151\") is not greater than (\"9.876829268292688\") - The native PDF measure marker must visibly enlarge after a pinch."
+        },
+        {
+          "test": "VerifierTests/testVariantSetupAndAgainPreserveStageProgress()",
+          "message": "Failed to get matching snapshot: No matches found for Elements matching predicate '\"confirmStartSet\" IN identifiers' from input {("
+        }
+      ]
+    },
+    {
+      "artifact": "praelude-ios-ipad-4.xcresult",
+      "result": "Failed",
+      "passedTests": 15,
+      "failedTests": 2,
+      "skippedTests": 0,
+      "startedAtUnix": 1789356037.027,
+      "finishedAtUnix": 1789356521.915,
+      "devices": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "54C17AA0-46F6-4FD8-BF47-0EDA28F9CA9D",
+            "deviceName": "Praelude iPad",
+            "modelName": "iPad Air 11-inch (M3)",
+            "osBuildNumber": "23F77",
+            "osVersion": "26.5",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 2,
+          "passedTests": 15,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "failures": [
+        {
+          "test": "PraeludeUITests/testBackupDialogsAndDarkAppearance()",
+          "message": "XCTAssertTrue failed - Attributes: Application, 0x106322580, pid: 38908, label: 'Praelude'"
+        },
+        {
+          "test": "VerifierTests/testFocusModeRetainsNativePinchZoom()",
+          "message": "XCTAssertGreaterThan failed: (\"7.901463414634151\") is not greater than (\"9.876829268292688\") - The native PDF measure marker must visibly enlarge after a pinch."
+        }
+      ]
+    },
+    {
+      "artifact": "praelude-ios-ipad-focus-6.xcresult",
+      "result": "Passed",
+      "passedTests": 1,
+      "failedTests": 0,
+      "skippedTests": 0,
+      "startedAtUnix": 1789356900.334,
+      "finishedAtUnix": 1789357044.733,
+      "devices": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "54C17AA0-46F6-4FD8-BF47-0EDA28F9CA9D",
+            "deviceName": "Praelude iPad",
+            "modelName": "iPad Air 11-inch (M3)",
+            "osBuildNumber": "23F77",
+            "osVersion": "26.5",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 0,
+          "passedTests": 1,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "failures": []
+    },
+    {
+      "artifact": "praelude-ios-ipad-backup-150ms.xcresult",
+      "result": "Failed",
+      "passedTests": 0,
+      "failedTests": 1,
+      "skippedTests": 0,
+      "startedAtUnix": 1789358018.376,
+      "finishedAtUnix": 1789358188.606,
+      "devices": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "54C17AA0-46F6-4FD8-BF47-0EDA28F9CA9D",
+            "deviceName": "Praelude iPad",
+            "modelName": "iPad Air 11-inch (M3)",
+            "osBuildNumber": "23F77",
+            "osVersion": "26.5",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 1,
+          "passedTests": 0,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "failures": [
+        {
+          "test": "PraeludeUITests/testBackupDialogsAndDarkAppearance()",
+          "message": "Failed to tap \"Restore backup\" Button: No matches found for Elements matching predicate '\"Restore backup\" IN identifiers' from input {("
+        }
+      ]
+    },
+    {
+      "artifact": "praelude-ios-phone-final.xcresult",
+      "result": "Failed",
+      "passedTests": 16,
+      "failedTests": 5,
+      "skippedTests": 0,
+      "startedAtUnix": 1789358430.495,
+      "finishedAtUnix": 1789358943.829,
+      "devices": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "BA9A7EEB-CADA-4197-BCD7-4762A57F11BA",
+            "deviceName": "Praelude iPhone",
+            "modelName": "iPhone 17 Pro",
+            "osBuildNumber": "23F77",
+            "osVersion": "26.5",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 5,
+          "passedTests": 16,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "failures": [
+        {
+          "test": "PraeludeUITests/testBackupDialogsAndDarkAppearance()",
+          "message": "XCTAssertTrue failed - Attributes: Application, 0x1069e9680, pid: 44470, label: 'Praelude'"
+        },
+        {
+          "test": "VerifierTests/testFocusModeRetainsNativePinchZoom()",
+          "message": "XCTAssertTrue failed - Attributes: Application, 0x1153c8640, pid: 44935, label: 'Praelude'"
+        },
+        {
+          "test": "PraeludeUITests/testMetronomeAndPages()",
+          "message": "XCTAssertTrue failed"
+        },
+        {
+          "test": "PraeludeUITests/testScorePracticeCorrectionAndRelaunch()",
+          "message": "XCTAssertTrue failed"
+        },
+        {
+          "test": "VerifierTests/testTotalPlaysCountsEveryHumanVerdict()",
+          "message": "XCTAssertTrue failed - Attributes: Application, 0x115688500, pid: 45159, label: 'Praelude'"
+        }
+      ]
+    },
+    {
+      "artifact": "praelude-ios-phone-ui-verified.xcresult",
+      "result": "Failed",
+      "passedTests": 7,
+      "failedTests": 1,
+      "skippedTests": 0,
+      "startedAtUnix": 1789359005.273,
+      "finishedAtUnix": 1789359356.048,
+      "devices": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "BA9A7EEB-CADA-4197-BCD7-4762A57F11BA",
+            "deviceName": "Praelude iPhone",
+            "modelName": "iPhone 17 Pro",
+            "osBuildNumber": "23F77",
+            "osVersion": "26.5",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 1,
+          "passedTests": 7,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "failures": [
+        {
+          "test": "PraeludeUITests/testBackupDialogsAndDarkAppearance()",
+          "message": "XCTAssertTrue failed - Attributes: Application, 0x117bfcdc0, pid: 45845, label: 'Praelude'"
+        }
+      ]
+    },
+    {
+      "artifact": "praelude-ios-phone-accessibility-final.xcresult",
+      "result": "Failed",
+      "passedTests": 0,
+      "failedTests": 2,
+      "skippedTests": 0,
+      "startedAtUnix": 1789359375.532,
+      "finishedAtUnix": 1789359542.451,
+      "devices": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "BA9A7EEB-CADA-4197-BCD7-4762A57F11BA",
+            "deviceName": "Praelude iPhone",
+            "modelName": "iPhone 17 Pro",
+            "osBuildNumber": "23F77",
+            "osVersion": "26.5",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 2,
+          "passedTests": 0,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "failures": [
+        {
+          "test": "VerifierTests/testRotationLargeTextAndMetronomeLock()",
+          "message": "XCTAssertTrue failed - Attributes: Application, 0x113f81680, pid: 46776, label: 'Praelude'"
+        },
+        {
+          "test": "PraeludeUITests/testScorePracticeCorrectionAndRelaunch()",
+          "message": "XCTAssertTrue failed"
+        }
+      ]
+    },
+    {
+      "artifact": "praelude-ios-ipad-final.xcresult",
+      "result": "Passed",
+      "passedTests": 3,
+      "failedTests": 0,
+      "skippedTests": 0,
+      "startedAtUnix": 1789360084.941,
+      "finishedAtUnix": 1789360308.69,
+      "devices": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "54C17AA0-46F6-4FD8-BF47-0EDA28F9CA9D",
+            "deviceName": "Praelude iPad",
+            "modelName": "iPad Air 11-inch (M3)",
+            "osBuildNumber": "23F77",
+            "osVersion": "26.5",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 0,
+          "passedTests": 3,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "failures": []
+    },
+    {
+      "artifact": "praelude-ios-phone-final-regression.xcresult",
+      "result": "Failed",
+      "passedTests": 1,
+      "failedTests": 1,
+      "skippedTests": 0,
+      "startedAtUnix": 1789360368.066,
+      "finishedAtUnix": 1789360526.515,
+      "devices": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "BA9A7EEB-CADA-4197-BCD7-4762A57F11BA",
+            "deviceName": "Praelude iPhone",
+            "modelName": "iPhone 17 Pro",
+            "osBuildNumber": "23F77",
+            "osVersion": "26.5",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 1,
+          "passedTests": 1,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "failures": [
+        {
+          "test": "PraeludeUITests/testBackupDialogsAndDarkAppearance()",
+          "message": "XCTAssertTrue failed - Attributes: Application, 0x107964280, pid: 49059, label: 'Praelude'"
+        }
+      ]
+    },
+    {
+      "artifact": "praelude-ios-phone-settings-target.xcresult",
+      "result": "Failed",
+      "passedTests": 0,
+      "failedTests": 1,
+      "skippedTests": 0,
+      "startedAtUnix": 1789360599.416,
+      "finishedAtUnix": 1789360905.068,
+      "devices": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "BA9A7EEB-CADA-4197-BCD7-4762A57F11BA",
+            "deviceName": "Praelude iPhone",
+            "modelName": "iPhone 17 Pro",
+            "osBuildNumber": "23F77",
+            "osVersion": "26.5",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 1,
+          "passedTests": 0,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "failures": [
+        {
+          "test": "PraeludeUITests/testBackupDialogsAndDarkAppearance()",
+          "message": "XCTAssertTrue failed - Attributes: Application, 0x10b369680, pid: 49619, label: 'Praelude'"
+        }
+      ]
+    },
+    {
+      "artifact": "praelude-ios-phone-backup-accepted.xcresult",
+      "result": "Failed",
+      "passedTests": 0,
+      "failedTests": 1,
+      "skippedTests": 0,
+      "startedAtUnix": 1789360954.741,
+      "finishedAtUnix": 1789361048.862,
+      "devices": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "BA9A7EEB-CADA-4197-BCD7-4762A57F11BA",
+            "deviceName": "Praelude iPhone",
+            "modelName": "iPhone 17 Pro",
+            "osBuildNumber": "23F77",
+            "osVersion": "26.5",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 1,
+          "passedTests": 0,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "failures": [
+        {
+          "test": "PraeludeUITests/testBackupDialogsAndDarkAppearance()",
+          "message": "XCTAssertTrue failed - Attributes: Application, 0x108d70140, pid: 50364, label: 'Praelude'"
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "file": "screenshots/ipad-focus-zoom.png",
+      "sourceResult": "praelude-ios-ipad-focus-6.xcresult",
+      "sourceAttachment": "6478BEEE-65E4-4268-B859-7F2F703468CB.png",
+      "passingCase": "testFocusModeRetainsNativePinchZoom",
+      "sha256": "f52b4ddfc07842108d3cedecb2edd1e2cb0b9e0f96c667cdbc0e9927550ac1ec"
+    },
+    {
+      "file": "screenshots/iphone-score.png",
+      "sourceResult": "praelude-ios-phone-ui-verified.xcresult",
+      "sourceAttachment": "FDF78365-0C9F-43A9-8608-98BDDC41FEB0.png",
+      "sha256": "b9644496dc0135b2842e06ab671fd37843e785aa2140ace1c84d7fb8a9145acb",
+      "passingCase": "testScorePracticeCorrectionAndRelaunch"
+    },
+    {
+      "file": "screenshots/iphone-practice.png",
+      "sourceResult": "praelude-ios-phone-ui-verified.xcresult",
+      "sourceAttachment": "E264A83C-1906-4693-A7BF-BEB876278912.png",
+      "sha256": "a53c08aeaf97258912378ab521bcadd6d6d0b1637eb8c1657cdf513a2ac5c728",
+      "passingCase": "testScorePracticeCorrectionAndRelaunch"
+    },
+    {
+      "file": "screenshots/ipad-score.png",
+      "sourceResult": "praelude-ios-ipad-final.xcresult",
+      "sourceAttachment": "4F28DB6C-99FA-458D-B721-AF6D34C82756.png",
+      "passingCase": "PraeludeUITests/testScorePracticeCorrectionAndRelaunch()",
+      "nativePNGVisuallyReviewed": true,
+      "sha256": "ccfd410840c60cab2afee35848f0f38ddc5a26baf550d9a9faa2c0da2178fa99"
+    },
+    {
+      "file": "screenshots/ipad-practice.png",
+      "sourceResult": "praelude-ios-ipad-final.xcresult",
+      "sourceAttachment": "9C99DD77-B3C5-4361-A1B9-EC19A5053CF0.png",
+      "passingCase": "PraeludeUITests/testScorePracticeCorrectionAndRelaunch()",
+      "nativePNGVisuallyReviewed": true,
+      "sha256": "a1a8a296d635667e76858861374faf3e15e9db387d78ad49e4f354190276c1f5"
+    },
+    {
+      "file": "screenshots/ipad-dark.png",
+      "sourceResult": "praelude-ios-ipad-final.xcresult",
+      "sourceAttachment": "C9BFD9D1-93E0-4AD4-917A-49D191346632.png",
+      "passingCase": "PraeludeUITests/testBackupDialogsAndDarkAppearance()",
+      "nativePNGVisuallyReviewed": true,
+      "sha256": "e21130edc6fb9d4363045e2c065c57814262d44139c73e5aa7aad4a6a92aed35"
+    },
+    {
+      "file": "screenshots/ipad-large-text.png",
+      "sourceResult": "praelude-ios-ipad-final.xcresult",
+      "sourceAttachment": "A82A7546-277B-42C3-8B04-B55DCF7ABC16.png",
+      "passingCase": "VerifierTests/testRotationLargeTextAndMetronomeLock()",
+      "nativePNGVisuallyReviewed": true,
+      "sha256": "c329ca528bdd8864fe5bcdb4c0bcc73438c498b9c86ec14b50c24cf602809e8f"
+    },
+    {
+      "file": "screenshots/ipad-large-text-landscape.png",
+      "sourceResult": "praelude-ios-ipad-final.xcresult",
+      "sourceAttachment": "C0A02016-7556-43F4-AB7C-3DFC3B6EF360.png",
+      "passingCase": "VerifierTests/testRotationLargeTextAndMetronomeLock()",
+      "nativePNGVisuallyReviewed": true,
+      "sha256": "687a8ad471610fa92d2a28481d9457809f99bab461f2683f8b74fc0d38cdb498"
+    },
+    {
+      "file": "screenshots/ipad-backup-exporter.png",
+      "sourceResult": "praelude-ios-ipad-final.xcresult",
+      "sourceAttachment": "BA08F8FE-4DD2-4958-B3E2-64B433381E61.png",
+      "passingCase": "PraeludeUITests/testBackupDialogsAndDarkAppearance()",
+      "nativePNGVisuallyReviewed": true,
+      "sha256": "611059d07a709b1703c5ca8f9978e833a7657ee37badabe49b95b132801d0807"
+    },
+    {
+      "file": "screenshots/iphone-large-text-portrait.png",
+      "sourceResult": "praelude-ios-phone-final-regression.xcresult",
+      "sourceAttachment": "BE2D6638-A9C1-449B-B230-6B8B01E46C36.png",
+      "passingCase": "VerifierTests/testRotationLargeTextAndMetronomeLock()",
+      "nativePNGVisuallyReviewed": true,
+      "sha256": "9c0455f82ab8b562ff67093b89471a7237da3c7fc0eef457b1df1b9cfe431954"
+    },
+    {
+      "file": "screenshots/iphone-large-text-landscape.png",
+      "sourceResult": "praelude-ios-phone-final-regression.xcresult",
+      "sourceAttachment": "AF6EE430-05F5-477B-8B7A-8B53C1C17660.png",
+      "passingCase": "VerifierTests/testRotationLargeTextAndMetronomeLock()",
+      "nativePNGVisuallyReviewed": true,
+      "sha256": "48699bf72ef86303b155f223b81106caab5b9dc4649cd00944f5c78c8a723cc7"
+    }
+  ]
+}

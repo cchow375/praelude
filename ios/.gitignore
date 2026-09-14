@@ -1,0 +1,7 @@
+.build/
+DerivedData/
+ReleaseDerivedData/
+*.xcresult/
+xcuserdata/
+*.ipa
+*.xcarchive/

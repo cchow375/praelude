@@ -6,3 +6,7 @@ project-manual links before acting. Do not rely on historical CodaKiller paths o
 Current boundary: Praelude v11.1.0 / schema 21 is shipped and installed on the original Mac.
 The private repository is the complete development handoff; personal practice state and secrets
 remain outside Git. Preserve the documented legacy storage identifiers for compatibility.
+
+The separate iPhone/iPad development candidate is under `ios/`. Read [`ios/README.md`](ios/README.md)
+for native build/tests and signing. It requires full Xcode with an iOS SDK and simulator runtime;
+`npm run setup:mac` does not install iOS development components.

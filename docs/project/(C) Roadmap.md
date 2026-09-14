@@ -1,8 +1,38 @@
 # Praelude — Roadmap
 
-**Last updated: 2026-09-13. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
+**Last updated: 2026-09-14. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
 
 **Native boundary:** v11.1.0 launches and renders the real Beethoven Op.90 movement 2 score, selected passage and Variants dialog. The earlier Desktop/Score permission blocker is cleared. Progressive rep/set/chain effects passed independent live browser review; native audible quality, voice/chime overlap and Christian’s motivation verdict remain open. Cover-picker selection/save (B109), microphone/Steinway, real mapping and Windows acceptance remain separate.
+
+## iOS1.0.0 — Native iPhone/iPad candidate (development, 2026-09-14)
+
+- Christian's request is a musician-first native redesign: plain Apple surfaces, large controls,
+  page-first music, essential actions first, focused sheets and iPad score windows. SwiftUI for
+  iOS/iPadOS17+ lives under `ios/`; the installed Mac remains v11.1.0/schema21.
+- Native scope includes pieces/PDF import, PDFKit reading, saved passages, Clean streak/Total plays,
+  20–300 BPM tempo/ladder, variants/routines, pause/resume/undo, actual history/calendar, optional
+  goals, metadata/Resting, settings and backup/restore. Native PCM audio and explicit on-device
+  English speech implement timekeeping/commands. Durable state precedes rewards.
+- An independent schema1 JSON store owns sandbox-relative score copies; the Mac SQLite database
+  and personal library are outside this target. Damaged/newer native data stays read-only; a
+  deliberate valid backup restore copies and byte-verifies the original before replacement.
+  Unreadable fallback export is refused. Swift 6 compilation, unsigned Release arm64 device build,
+  22 core tests, 2,041 service assertions and 13 native app-hosted tests pass on each iPhone/iPad
+  simulator. All eight iPad UI scenarios and seven of eight phone scenarios pass across regression
+  runs, including corrected large-text checks. iPad backup UI passes; complete phone backup UI
+  remains open after the final initial-Settings-navigation failure. The exact-source unsigned
+  Release build passes; fixture flags/test plug-ins are absent. The current source/binary
+  manifest and evidence are in `ios/README.md` and `docs/qa/ios/README.md`.
+- Status is **DEVELOPMENT CANDIDATE**, not device accepted or shipped. Mac migration/sync, cloud
+  mapping, Listen Back, Studio furnishings/economy, desktop warmups and full history repair remain
+  unported. Assistant stays OFF/ON HOLD.
+
+### Next steps
+
+Complete phone backup UI acceptance; then validate a signed
+physical iPhone/iPad with disposable data for Files/PDF/relaunch, persistence/backup, audio/voice/interruption and
+accessibility. Keep B115 open until its gates are proved. Plan Mac-data migration and remaining
+ports explicitly; the present implementation is not full desktop parity.
 
 ## Maintenance — fresh-Mac development portability (completed 2026-09-13)
 
@@ -53,6 +83,7 @@ Use the next real practice session to judge the escalating visual/audio rewards,
 
 ## Current independent lanes
 
+- **iOS1.0.0:** SwiftUI development candidate under `ios/`, independent schema1 storage. Exact scope/evidence in `ios/README.md`; device/signing/parity boundaries are B115.
 - **Windows v9.1.0:** exact historical unsigned x64 NSIS candidate remains unchanged. Windows-native cargo tests and real Windows 10/11 install, PDF/audio, persistence and uninstall are pending; no voice/Listen Back/system TTS/volume boost. A later branded package is a separate release.
 - **Custom-cover picker:** automated browser image selection hung; the native chooser opened but could not be inspected by computer use, then was canceled with no saved image. Preprocessing/native persistence/validation pass; picker/render/restart acceptance remains pending (B109).
 - **Native audio and mapping:** real microphone/Steinway and one authorized real-provider mapping still need their own evidence. No browser fixture closes them.

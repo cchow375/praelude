@@ -19,6 +19,7 @@ entry point for every session — read it, then jump to
 
 ## Where everything lives (docs here, code there)
 
+- **Native iPhone/iPad (`~/praelude/ios/`):** SwiftUI source/project, independent native core and tests; read `ios/README.md` for setup, current scope and acceptance. The installed Mac remains the separate Tauri product.
 - **Docs (this vault folder, `Piano Practice/Praelude/`):** this AGENTS.md, the portable
   summary [[Praelude]], the hub [[(C) Praelude Command Center]], [[(C) Motivation]],
   [[(C) Roadmap]], [[(C) Flaws]], [[(C) Changelog]], and `versions/` (immutable per-version
@@ -181,7 +182,24 @@ Every version record and every roadmap phase MUST end with a clear "Next steps" 
 
 ## Status
 
-**Last updated: 2026-09-13. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup. The private Git repository now carries a curated copy of the complete living project manual, version records, a new-Mac guide and a machine doctor/bootstrap script; personal data remains deliberately outside Git.
+**Native iOS lane (2026-09-14): iOS1.0.0 DEVELOPMENT CANDIDATE.** Code and setup/scope/evidence
+live in `~/praelude/ios/README.md`; Apple/musician design rationale is `ios/DESIGN.md`. This is a
+separate SwiftUI iOS/iPadOS17+ app with plain system surfaces, large controls, focused sheets and
+native score windows. It implements local score/practice/organizing flows using an independent
+schema1 JSON store and sandbox-relative PDFs. It never opens the Mac schema21 database. Unreadable
+native data stays read-only until deliberate validated recovery preserves and byte-verifies the
+original before replacement; export refuses the unreadable fallback. Swift 6 compilation, unsigned
+Release arm64 device build, 22 core tests, 2,041 service assertions and 13 native app-hosted tests
+pass on each iPhone and iPad simulator. All eight iPad UI scenarios and seven of eight phone
+scenarios pass across regression runs, including corrected large-text checks. iPad backup UI passes;
+complete phone backup UI stays open after a final initial-Settings-navigation failure. The final
+exact-source unsigned Release build passes, with fixture flags/test plug-ins absent; no all-green
+full-suite or manual CUA acceptance is claimed.
+Physical-device/signing
+acceptance and desktop parity are open under B115. Do not install it over the Mac app, seed
+personal practice, claim automatic migration/sync, or label the native candidate shipped.
+
+**Last updated: 2026-09-14. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup. The private Git repository now carries a curated copy of the complete living project manual, version records, a new-Mac guide and a machine doctor/bootstrap script; personal data remains deliberately outside Git.
 
 **Native boundary:** v11.1.0 launches and renders the real Beethoven Op.90 movement 2 score, selected passage and Variants dialog. The earlier Desktop/Score permission blocker is cleared. Progressive rep/set/chain effects passed independent live browser review; native audible quality, voice/chime overlap and Christian’s motivation verdict remain open. Cover-picker selection/save (B109), microphone/Steinway, real mapping and Windows acceptance remain separate.
 

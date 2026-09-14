@@ -7,7 +7,9 @@ project operating manual mirrored from the editable Obsidian vault. Then read:
 - [`docs/project/Praelude.md`](docs/project/Praelude.md)
 - [`NOTES.md`](NOTES.md)
 - [`docs/NEW_MAC_SETUP.md`](docs/NEW_MAC_SETUP.md) when this is a new checkout
-- [`docs/qa/v11.1.0/README.md`](docs/qa/v11.1.0/README.md) for the latest release evidence
+- [`docs/qa/v11.1.0/README.md`](docs/qa/v11.1.0/README.md) for the installed Mac release evidence
+- [`ios/README.md`](ios/README.md) for the separate iPhone/iPad development candidate, full Xcode
+  and iOS SDK/runtime requirements, build/tests and signing; Mac bootstrap does not install iOS runtimes
 
 This private repository is the complete development handoff. On the original Mac, the editable
 vault is `~/Desktop/christian's universe/Piano Practice/Praelude`; after every required vault

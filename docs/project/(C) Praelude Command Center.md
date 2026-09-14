@@ -1,12 +1,28 @@
 # Praelude — Command Center
 
-**Last updated: 2026-09-13. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
+**Last updated: 2026-09-14. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
 
 **Native boundary:** v11.1.0 launches and renders the real Beethoven Op.90 movement 2 score, selected passage and Variants dialog. The earlier Desktop/Score permission blocker is cleared. Progressive rep/set/chain effects passed independent live browser review; native audible quality, voice/chime overlap and Christian’s motivation verdict remain open. Cover-picker selection/save (B109), microphone/Steinway, real mapping and Windows acceptance remain separate.
 
 This is the live entry map. Historical release detail belongs in [[(C) Changelog]] and `versions/`; historical implementation phases remain in [[(C) Roadmap]]. Never restart an old lane from a stale snapshot.
 
 ## Current work
+
+**Native iPhone/iPad candidate:** `~/praelude/ios/` is a separate SwiftUI iOS1.0.0 DEVELOPMENT
+CANDIDATE for iOS/iPadOS17+. Plain system surfaces, large controls, focused native sheets and iPad
+score windows support PDF reading, local pieces/passages, deterministic rep/tempo/variant practice,
+optional on-device voice, goals/calendar/history and backups. Its schema1 JSON store keeps unreadable
+data read-only; deliberate valid backup recovery copies and byte-verifies the original before
+replacement, and export refuses the unreadable fallback. The installed Mac remains v11.1.0/schema21.
+Swift 6 compilation, unsigned Release arm64 device build, 22 core tests, 2,041 service assertions
+and 13 native app-hosted tests pass on each iPhone and iPad simulator. All eight distinct iPad UI
+scenarios and seven of eight phone scenarios pass across runs, including corrected large-text checks.
+iPad backup UI passes; complete phone backup UI stays open after a final initial-Settings failure.
+The final exact-source unsigned Release build passes with fixture flags/test plug-ins absent;
+no all-green full-suite or manual CUA acceptance is claimed. `ios/README.md` owns native scope/setup/evidence;
+`ios/DESIGN.md` owns the
+Apple/musician research. B115 tracks device/signing acceptance and desktop parity limits. This is
+not an iOS shipment or a migration of Christian's Mac practice data.
 
 Project portability is now part of the canonical private repository. `docs/project/` mirrors the
 living manual and every Markdown version record; `docs/NEW_MAC_SETUP.md` separates a safe developer
@@ -24,6 +40,11 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 
 ## Open threads
 
+- [ ] iOS1.0.0 candidate: complete phone backup UI acceptance,
+      then signed physical iPhone/iPad
+      import, persistence, audio/voice, interruption, accessibility and backup acceptance (B115).
+- [ ] Native parity: no Mac schema21 migration/sync, Listen Back, cloud mapping, furnished Studio/coin
+      economy, desktop warmup suite or full historical repair interface.
 - [x] v11.1 progressive practice feedback, independent review, package/install and exact preservation. Runtime `c411e7b`; `docs/qa/v11.1.0/` is the current evidence ledger.
 - [x] Fresh-Mac development portability: current manual/version records are Git-backed; clone,
       toolchain, bootstrap, verification and local-only state boundaries are documented and checked.
@@ -54,6 +75,7 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 
 | Need | Open |
 | --- | --- |
+| Native iPhone/iPad candidate | repo `ios/README.md` (setup/scope/evidence), `ios/DESIGN.md` (design/source rationale) |
 | Binding process and install preference | [[AGENTS]]; Git mirror `docs/project/AGENTS.md` |
 | Portable current overview | [[Praelude]] |
 | Installed tutorial | [[(C) How To Use]] |

@@ -1,0 +1,176 @@
+# Praelude for iPhone and iPad
+
+**Version 1.0.0 — DEVELOPMENT CANDIDATE. Last updated: 2026-09-14.** This is a native SwiftUI
+application target for iOS/iPadOS 17 and later. It is separate from the installed Mac
+Praelude v11.1.0/schema21 product. It has not been shipped through the App Store/TestFlight or
+accepted on a physical iPhone/iPad. Simulator evidence and hardware acceptance are different gates.
+
+Praelude keeps the same rule on every device: **the pianist is the sensor; the app is the memory**.
+You supply Clean, Sloppy, or Again. The app records practice, runs a metronome, and keeps your score
+close. It never listens to the piano to grade your playing. A normal first launch is blank.
+
+## The native interface
+
+The iPhone has three labeled tabs: **Today, Pieces, Progress**. iPad uses a collapsible system
+sidebar and a score workspace that adapts to window width; accessibility text sizes use full-width
+tabs so sidebar labels stay readable. Plain surfaces, system typography,
+large touch controls, one indigo action tint, and native sheets replace the desktop panel layout.
+There are no decorative gradients or simulated draggable desktop windows. Native system materials
+separate controls from the readable score. The rationale and primary-source research are in
+[DESIGN.md](DESIGN.md).
+
+- **Today:** return to the current set, open recent pieces, and see recorded work. Goals has its
+  own toolbar button and focused editor; goals are optional and never impose a practice plan.
+- **Pieces:** import a PDF from Files, search by title/composer, sort, edit notes/details, or move
+  a piece to Resting without losing its record.
+- **Score:** PDFKit page reading and zoom, saved measure-range passages, a focused set composer,
+  and large verdict buttons. iPad can explicitly open a score in a separate system window.
+- **Practice:** Clean streak or fixed Total plays, hands/focus, optional tempo ladder, ordered
+  variants and saved routines, pause/resume, current-set undo, and recorded sessions. Saving a rep
+  is independent of audio and feedback. A running/paused set cannot be silently replaced.
+- **Progress:** actual time, repetitions, completed sets, practice days, session details, and a
+  date-based practice calendar. Native levels advance every 100 earned XP; these are effort
+  feedback and are separate from the Mac Studio economy. Daily views group sessions by start date.
+- **Settings:** System/Light/Dark, score display-awake behavior, optional practice feedback,
+  backup export/restore, and the compact practice/keyboard guide.
+
+## Start practicing
+
+1. In **Pieces**, choose **Add piece**, enter a title, and import an unlocked score PDF from Files.
+   The app keeps its own copy; your source file is unchanged. You can also create a piece before
+   attaching a score. Imports accept up to 100 MB and 2,000 pages.
+2. Open the piece. Turn pages with the visible arrows; pinch to zoom.
+   Open **Passages** to add a title, measure range, score page, and focus.
+3. Choose the passage or whole piece and open **Practice set**. Start with the focus, clean
+   target, and tempo. **Set rules** holds count basis and hands. Variants and the optional tempo
+   ladder apply to Clean streak; Total plays uses one fixed tempo and no variants.
+4. Record **Clean**, **Sloppy**, or **Again** after playing. Sloppy restarts the current clean run.
+   Again preserves a variant stage's progress; with a plain clean streak it restarts the run.
+   All three verdicts count toward Total plays. Use Undo for the most recent verdict.
+5. Pause when stepping away, resume from Today, and finish the session when done. The app pauses
+   practice for backgrounding and restores saved work after reopening.
+
+The native tempo range is **20–300 BPM**. The metronome uses an audio-buffer loop scheduled by
+the audio engine, not a UI timer. Audio interruptions and disconnected routes stop playback with
+a recoverable state. Real-device output, sustained timing, and piano-room acoustics still need
+hardware acceptance.
+
+## Voice and keyboard
+
+Open **Score options (…) → Hands-free commands → Enable hands-free** to opt in. While listening,
+use **Off** in the practice controls or **Turn voice off** in Score options to stop. Starting the
+app does not ask for microphone access. The native speech path requires supported **on-device US English recognition**;
+if it is unavailable, voice refuses and the touch controls remain available. It never falls back
+to a server. Only final recognized command phrases dispatch actions; partial text does not log reps.
+
+Supported phrases include **clean**, **sloppy**, **again**, **undo**, **pause**, **resume**,
+**metronome start/stop**, **tempo 96**, **next page**, and **previous page**. This is a narrower
+command vocabulary than the Mac app. Microphone permission, speech availability, acoustic
+reliability, and speech/metronome overlap require physical-device testing.
+
+While the score is open, keyboard shortcuts are **←/→** for pages, **Space** for the metronome,
+**1/2/3** for Clean/Sloppy/Again, and **⌘Z** for Undo. A Bluetooth page turner configured to emit
+left/right keyboard arrows can use those bindings. MIDI and proprietary pedal protocols are not
+implemented or claimed as accepted.
+
+## Local data and backups
+
+The app uses its own sandbox-relative `Application Support/Praelude/library.json` store with
+**schema1**, plus owned PDFs in `Scores/`. Native mutations validate and write atomically before
+publishing observable state. A damaged or newer-format library opens read-only. Ordinary writes
+and export are refused so an empty fallback cannot overwrite a useful backup. Deliberately restoring
+a validated native backup first copies the original ledger to `library-preserved-<UUID>.json` and
+verifies identical bytes, then atomically installs the replacement. Failed preservation or replacement
+keeps the store read-only; the original is retained. A blank new library can still export.
+Desktop `codakiller.db`, schema21, absolute score paths, and Keychain credentials are never loaded
+or modified by this target.
+
+Settings exports a native JSON backup containing the library and its referenced score PDFs.
+The score-data limit is 200 MB; restore files are bounded at 280 MB to account for encoded data.
+Restore requires finishing the current set, a visible confirmation, valid references, and readable
+PDFs. It stages PDFs under new local filenames before committing the replacement library and
+cleans up staged files if validation fails. Backups are not encrypted by the application; choose
+their destination deliberately. Exporting to iCloud Drive is file storage, not automatic app sync.
+
+The native format does **not** import the Mac SQLite database or convert a Mac export. No migration,
+account sync, cloud mapping, Listen Back, furnished Studio/coin inventory, desktop warmup suite,
+PDF ink/Pencil editing, or full historical repair interface is implemented. Advanced desktop
+mastery/demotion policies and multiple parked sets are also outside this candidate; it keeps one
+running or paused set at a time. The Assistant remains off and on hold.
+See the precise [scope matrix](DESIGN.md#native-scope-and-desktop-differences).
+
+## Build and run
+
+Use Xcode with the iOS SDK and a compatible simulator runtime. No package download or third-party
+UI dependency is required. The app project, core Swift package, generator, and tests are in this
+directory. From the repository root:
+
+```sh
+python3 ios/scripts/generate-project.py
+bash ios/scripts/check.sh
+open ios/Praelude.xcodeproj
+```
+
+Select the **Praelude** scheme and an iPhone or iPad simulator, then Run. The check script runs the
+Foundation core tests, deterministic voice/metronome-pattern checks, and an unsigned simulator
+build. To run only the deterministic checks:
+
+```sh
+bash ios/scripts/check.sh --core-only
+```
+
+For native verification, choose a simulator and use **Product → Test** with the **Praelude** scheme.
+It includes **PraeludeAppTests** for native PDF/storage behavior and **PraeludeUITests** for actual
+interface flows. Test data is restricted to DEBUG launches with `--uitesting --seed`; `--uitesting --reset`
+resets only the separate UI-test store. Release builds have no fixture path. Synthetic fixture
+scores contain no personal repertoire or practice records.
+
+Physical-device installation requires selecting your development team under Signing & Capabilities,
+connecting a supported iPhone/iPad, choosing that destination, and using an appropriate signing
+profile. The candidate bundle identifier is `com.christian.praelude.ios`. App Store/TestFlight
+distribution additionally requires its normal signing, archive, upload, privacy, and review work;
+none of those steps is implied by a simulator build.
+
+## Verification and remaining acceptance
+
+The [native acceptance ledger](../docs/qa/ios/README.md) records the environment, exact gates,
+review findings, selected screenshots, and remaining device boundaries.
+
+**Current verification:** full Swift 6 compilation and the unsigned Release arm64 device build
+pass for both device families with an iOS 17 minimum. The Foundation core has **22 passing tests**;
+deterministic service checks have **2,041 passing assertions**. All **13 native app-hosted tests**
+pass on **each iPhone and iPad simulator**, including PDF recovery. **All 8 distinct iPad UI
+scenarios pass across regression runs**, including the final three-case backup/practice/large-text
+suite. **7 of 8 iPhone UI scenarios pass**, including the corrected maximum-text test.
+
+The **complete iPhone backup UI scenario remains open**: the last run failed at initial Settings
+navigation, before either picker. An earlier run logged all three Settings callbacks and reached
+export dismissal and Restore Recents/Cancel, but failed outdated picker-selector assertions.
+iPad backup UI is accepted; neither family has manual CUA acceptance. The **final unsigned Release
+build passes on the exact current source**: arm64, version1.0.0/build1, iOS17 minimum, both device
+families, with fixture flags and test plug-ins excluded. The [device build manifest](../docs/qa/ios/device-build.json)
+records its SHA-256 and source digest. Verification found no signing identities or connected
+physical devices. Exact results and failed runs are retained in the acceptance ledger.
+
+Independent iPhone simulator screenshots verify the maximum-text correction in both orientations:
+verdict labels fit their controls, all three verdicts are reachable by scrolling, the page index
+is untruncated, and the score remains visible. Corrected iPhone and iPad large-text regression
+tests pass. The requested Dynamic Type size is preserved.
+
+Focused pinch zoom is accepted on the iPad simulator: PDFKit scale
+changed from 1.240418 to 2.869110 on the same page (2.31×), with independently reviewed crisp
+enlarged notation. The Release executable excludes the DEBUG fixture path. A device build is
+not physical-device acceptance or distribution.
+
+Physical iPhone/iPad import/relaunch/backup tests, VoiceOver and largest Dynamic Type, external
+keyboard/pedal behavior, interruption handling, long-session audio, and voice over an acoustic
+piano remain separate acceptance checks. The installed Mac app and its live database were outside
+this native implementation's mutation scope. B115 in the project flaw register tracks the native
+acceptance, signing, and feature-parity boundary.
+
+## Next steps
+
+Complete the iPhone backup UI acceptance, then run the candidate on a
+signed physical iPhone and iPad with disposable data. Verify real score import, durable repetitions, interruptions,
+voice/metronome behavior, accessibility, and backup restoration before calling it device-accepted.
+Plan Mac-data migration and any remaining desktop feature ports as explicit follow-up work.

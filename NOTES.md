@@ -1,5 +1,105 @@
 # NOTES
 
+## Native iPhone/iPad candidate (2026-09-14)
+
+- **The native app is an independent target, not a mobile Tauri skin or Mac-data migration.**
+  `ios/Praelude.xcodeproj` builds SwiftUI/PDFKit for iOS/iPadOS17+ with candidate identity
+  `com.christian.praelude.ios`, version1.0.0/build1. The installed Mac stays v11.1.0/schema21.
+  Native schema1 JSON and sandbox-relative score copies never access `codakiller.db`, legacy
+  Mac paths or Keychain services. The current status is DEVELOPMENT CANDIDATE, with physical
+  device/signing/full-parity gates open under B115; `ios/README.md` owns exact current evidence.
+- **The iOS handoff needs full Xcode.** Command Line Tools and the Mac bootstrap do not install
+  an iOS SDK or simulator runtime. Repo AGENTS/README/CLAUDE and `docs/NEW_MAC_SETUP.md` link to
+  `ios/README.md` for the separate native build/tests/signing workflow.
+- **The UI is content-first and uses system containers.** iPhone Today/Pieces/Progress tabs,
+  compact-width adaptation, iPad sidebar and explicit system score windows replace desktop
+  floating panels. Accessibility text sizes use full-width tabs after simulator review found
+  sidebar wrapping. Initial sidebar presentation and Close score use `.automatic` so iPadOS
+  chooses the layout for the current window; explicitly opening a score still selects `.detailOnly`.
+  Setup variants/routines and passage editing navigate within one focused sheet.
+  Goals and calendar are optional toolbar destinations. Plain system colors/typography and large
+  verdict controls use no decorative gradients. Apple HIG materials/sheets/windows and forScore
+  page/performance precedents are cited in `ios/DESIGN.md`; they informed the design rather than
+  supplying copied app UI.
+- **Accessibility acceptance needs visible text, not only hit-target measurements.** Maximum
+  Dynamic Type on iPhone exposed verdict text outside its button backgrounds in landscape,
+  truncated page labels, and a PDF area that collapsed in portrait despite 44-point hit checks.
+  The candidate fix preserves the requested text size: only at accessibility sizes, the practice
+  panel scrolls within at most 60% of the workspace/520 points, reserving score space above.
+  Verdicts use intrinsic text heights, omit decorative icons and place Clean first; passage
+  navigation uses an icon and page indices remain untruncated. Independent native iPhone PNG
+  review verifies contained labels, all three verdicts reachable by scrolling, readable page
+  indices and visible score area in both orientations. Post-fix geometry/PDF/interaction/metronome
+  checks passed; six obsolete child-StaticText selectors failed because SwiftUI exposes combined
+  button labels. The corrected combined-label iPhone test passes (63.975 seconds), as does the
+  strengthened iPad case (55.432 seconds). Independent PNG review verifies both orientations.
+  These accepted regressions do not make the entire phone UI suite green.
+- **Backup UI acceptance differs by simulator family.** The final iPad combined export/cancel/
+  restore case passes (71.983 seconds). An earlier phone run logged all three Settings callbacks,
+  export plus native grabber dismissal, and Restore Recents plus Cancel; its obsolete Browse-only
+  picker assertions failed. The corrected final phone rerun instead failed at initial Settings
+  navigation (37.965 seconds), before either picker, so the complete phone case stays unaccepted.
+  Provider-aware Cancel/grabber and `DOC.browsingRoot Source:` selectors are harness corrections;
+  no production picker routing changed. A manual CUA attempt failed to capture the correct
+  Simulator window and activated no app controls, so it supplies no manual acceptance evidence.
+- **Settings has an explicit touch target.** A plain button with a 44×44 content shape and stable
+  `appSettings` identifier improves the target boundary. Source review passes, but it is not a
+  proved cure for intermittent automated input. The score empty state now says “No score attached”
+  instead of generic promotional copy.
+- **Every human verdict is durable before reward.** The Foundation core projects a saved event
+  ledger, validates candidate state and references, then atomically replaces the JSON before
+  publishing observable state. Event IDs are idempotent; Undo retains original events with undo
+  metadata. Damaged/newer stores refuse ordinary writes and misleading fallback exports. Native
+  setups have one active/paused set, count
+  targets of 1–100 and tempos of 20–300 BPM. Total plays is fixed-tempo/variant-free; Again preserves a
+  variant stage's progress. Separate sessions preserve piece attribution and date boundaries.
+- **Native media paths differ from desktop helpers.** PDF import copies security-scoped Files
+  content into owned UUID filenames after PDFKit validation. Backup includes referenced PDFs;
+  restore stages new filenames and validates before replacing the library. Bounds are 100 MB/2000
+  pages per imported PDF, 200 MB referenced score payload per export, 280 MB encoded restore file,
+  and 64 MiB core JSON. Failed restore cleans staged files; backups are not Mac schema21 imports.
+- **Read-only recovery is explicit and preserves evidence.** The original unreadable/newer-format
+  regular, nonsymlink ledger is copied to `library-preserved-<UUID>.json` and byte-verified before
+  a deliberately selected, validated backup replaces it atomically. Preservation or write failure
+  leaves the store read-only. Export rejects the unreadable fallback instead of producing a
+  misleading empty backup; a legitimate new empty library can export normally. The preserved
+  original remains available after recovery. Core Date encoding uses Foundation reference-date
+  values to avoid the rounding drift observed with millisecond conversion.
+- **Metronome and speech are native, with an explicit hardware boundary.** A precomputed PCM bar
+  loops on AVAudioEngine's sample clock; UI beat polling does not schedule ticks. Audio-session
+  coordination and interruption/route handling keep optional speech/output ownership explicit.
+  Voice opt-in is Score options → Hands-free commands → Enable hands-free; Off appears in
+  practice controls only while listening. The in-app guide and native tutorial use that exact flow.
+  Speech requests permission only after opt-in, requires on-device US English recognition, and
+  dispatches only final exact phrases; there is no cloud fallback and no piano grading. Hardware
+  reliability, audio/voice overlap and musician ergonomics need real iPhone/iPad evidence.
+- **A dispatched XCTest pinch does not prove PDF zoom.** Early small synthetic pinches returned
+  successfully without changing notation size. Native scale diagnostics showed a valid zoom range;
+  the initial fit-only diagnosis was not supported. A realistic larger finger spread changed
+  PDFKit scale from 1.240418 to 2.869110 (2.31×) on the same page, and independent screenshot
+  review confirmed crisp enlarged notation. Keep an actual scale/notation-growth assertion;
+  gesture dispatch alone is insufficient acceptance. This is simulator evidence, not device QA.
+- **Native effort levels are not the Mac Studio.** Actual focused time/completed-set milestones
+  derive XP; each native level is 100 XP. No furnishing ownership, coins, ranks, or personal profile
+  is migrated. Daily views group sessions by their start date. Unported desktop scope includes
+  full warmups/history repair, advanced mastery/demotion/parked-set policies, PDF markup/Pencil,
+  cloud mapping, Listen Back and account sync. Assistant remains OFF/ON HOLD.
+- **Verification is target-specific.** Direct `swiftc -typecheck` against the real simulator SDK
+  passes for the native UI/core/services. Sandboxed Xcode macro plugins initially returned
+  `swift-plugin-server ... malformed response`; the authorized typecheck passed. Subsequent full
+  Swift 6 compilation and unsigned Release arm64 device build pass for both families/iOS 17+.
+  The core has 22 passing tests and deterministic service checks have 2,041 passing assertions.
+  All 13 native app-hosted tests pass on each iPhone and iPad simulator, including PDF recovery.
+  All eight distinct iPad UI scenarios pass across regression runs, including the final three-case
+  suite; seven of eight phone scenarios pass, including the corrected AX case. Complete phone
+  backup UI remains open. The final exact-source unsigned arm64 Release build passes: version
+  1.0.0/build1, iOS17 minimum, device families1/2; fixture flags and test plug-ins are absent.
+  `docs/qa/ios/device-build.json` records executable SHA-256
+  `346a9de01b35d478a0a27a554e125610ebc959a57c5cc31f940088d7783d7871` and source digest.
+  Fresh checks found zero valid signing identities and zero connected physical devices.
+  DEBUG fixtures use a separate UI-test store; normal first launch remains blank and the Release
+  executable excludes fixture code. An unsigned device build does not establish physical acceptance.
+
 ## Project portability (2026-09-13)
 
 - **The private Git repository is now the complete development handoff.** The editable Obsidian
