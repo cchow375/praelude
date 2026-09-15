@@ -6,8 +6,10 @@ pass. Final-toolbar iPad9 passes 3/3 and Phone4 passes 2/2. iPad7 and Phone2/3 s
 scoped cases: five targeted iPad and seven distinct phone scenarios have passing evidence across
 regressions. Phone3 closes the historical complete-phone-backup simulator UI gap. The final
 frozen-source signed Release and all preserved app files verify. Earlier failed bundles remain
-failed; no all-green full-scheme claim is made. Physical PDF backup access is still blocked, so
-no 1.1 install or hardware feature acceptance is claimed; the iPad remains 1.0.0/build1.
+failed; no all-green full-scheme claim is made. **1.1.0/build2 is installed on the iPad as of
+September 14 at 20:56 EDT**, after successful complete pre/post file preservation checks. Automatic
+launch was denied; the user launch/trust step, migration and physical features remain unaccepted.
+Earlier 20:50–20:52 EDT backup failures are retained as history in the versioned QA ledger.
 
 Use the versioned 1.1 ledger for current work. The section below retains the 1.0 test results,
 failures, manifests and installed-candidate boundary as historical evidence; they have not been

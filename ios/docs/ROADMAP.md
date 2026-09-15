@@ -20,7 +20,7 @@ verdict from an install or informal feedback. Follow the QA ledger for subsequen
 
 ## Current work: score markup and a clearer mobile workspace
 
-The 1.1.0/build2/schema2 candidate is implemented and undergoing final verification separately
+The 1.1.0/build2/schema2 candidate has completed its scoped simulator/build verification separately
 from the baseline:
 
 - Native score annotation with Apple Pencil/PencilKit, persistent per-page drawing data and safe
@@ -40,13 +40,15 @@ Current evidence includes 36 hosted tests passing on both simulators. iPad9's fi
 finger/meter/Focus run passes 3/3; iPad7 supplies boxes and accessibility markup. Phone3 passes
 finger/backup/Focus, with four other phone UI cases from Phone2. These are five targeted iPad and
 seven phone scenarios across regression runs, not one all-green full-scheme run. Phone4's final
-toolbar recheck passes 2/2, and exact-source signing/artifact verification passes. The physical iPad is still 1.0.0/build1,
-with full PDF backup blocked by EPERM after two probes. Simulator passes do not establish hardware
-acceptance.
+toolbar recheck passes 2/2, and exact-source signing/artifact verification passes. The physical iPad now has 1.1.0/build2 installed (September 14, 20:56 EDT). After user readiness,
+complete pre/post copies matched both owned files; earlier failed attempts remain historical.
+Automatic launch was denied, so user launch/trust, migration and physical-feature checks remain
+pending. Simulator passes do not establish hardware acceptance.
 
-**Next steps:** obtain complete device backup before updating, then deliberate physical-device tests
-for Pencil alignment/persistence, real touches, audio, voice and interruption behavior. Preserve
-the original library through migration and verify an in-place update with disposable data.
+**Next steps:** finish opening the installed update (Developer App trust if prompted), verify
+schema2 migration and the preserved original, then check Pencil alignment/persistence, real
+touches, audio, voice and interruptions with disposable data. The in-place update and pre-launch
+file preservation are already verified.
 
 ## Follow-up acceptance and scope
 

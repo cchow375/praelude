@@ -24,20 +24,26 @@ failed; no all-green full-scheme or physical-feature claim is made.
 
 Phone3 pre-Undo/after-Redo images verify visible ink after the PDF/PencilKit gesture correction.
 The 44-point toolbar entry and corrected offscreen meter-test guards now pass on iPad9. The
-historical phone backup UI gap is closed by Phone3 simulator evidence. Physical backup and Pencil
-remain open. See [current QA](/Users/c3/praelude/docs/qa/ios/1.1.0/README.md).
+historical phone backup UI gap is closed by Phone3 simulator evidence. This update's complete
+file preservation passes; physical Pencil and in-app backup/restore acceptance remain open. See [current QA](/Users/c3/praelude/docs/qa/ios/1.1.0/README.md).
 
-**Final signed candidate, physical hold:** 1.1 signing/profile/fixture checks pass for the preserved snapshot
-at ignored `releases/ios-personal-1.1.0/Praelude.app`; the final rebuild includes all gesture/toolbar fixes, with stable input hashes and verified signature/profile. The profile expires 2026-09-21 21:24:58 UTC. The installed
-iPad still reports 1.0.0/build1. Two full-copy probes failed reading its PDF with EPERM; ledger copy
-passes with no active set. The helper now checks all owned file hashes after installation as well
-as before it, retains both private copies, and blocks launch on any difference. No complete backup,
-1.1 update or hardware feature acceptance is claimed.
+**Installed mobile candidate, launch pending:** the iPad now reports **1.1.0/build2**, installed
+at 20:56 EDT on September 14 from source `124707d`. Complete private copies before and after
+installation match all owned file names, byte counts and SHA-256. The preserved ledger is schema1;
+first-launch schema2 migration has not been accepted. Automatic launch was denied with a generic
+security/unlock error, with exact cause unproven. User unlock/open and conditional Developer App
+trust are pending; this is not physical-feature acceptance. The signed candidate remains at ignored
+`releases/ios-personal-1.1.0/Praelude.app`, with profile expiry September 21 at 21:24:58 UTC.
+
+Earlier PDF-copy probes and the 20:50 refresh failed before installation. The 20:52 Xcode container
+download failed on a SplashBoard snapshot cache with CoreDevice7000/POSIX1; only partial caches
+were obtained. Complete copying succeeded after the user reported ready, clearing the former hold.
+The helper retained both verified copies and used no deletion, reset, restore or explicit termination.
 
 **Historical native baseline:** 1.0 installed at 17:51 EDT with Developer Mode enabled; the initial
 launch request encountered developer trust. Later user activity does not replace a controlled
 launch/feature verdict. Its app and QA remain unchanged: 22 core, 2,041 service, 13 hosted per
-simulator, 8/8 distinct iPad and 7/8 phone UI across runs. Phone3 now closes the complete phone backup UI gap with simulator evidence; physical backup remains open.
+simulator, 8/8 distinct iPad and 7/8 phone UI across runs. Phone3 now closes the complete phone backup UI gap with simulator evidence; physical in-app backup/restore remains open.
 B115 keeps physical/distribution, Mac-sync and unported feature limits open. Mac v11.1.0/schema21
 and its personal data are untouched; Assistant stays off/on hold.
 
@@ -58,12 +64,12 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 ## Open threads
 
 - [x] Mobile 1.1.0 scoped simulator checks and final exact-source signed Release verification.
-- [ ] Device update: obtain complete PDF backup access, then verify the same app's install version,
-      full pre/post file hashes and controlled launch before any hardware acceptance claim.
-- [x] Mobile developer handoff and helper28 fake-device safety checks; real full-copy gate remains open.
+- [x] Device update: 1.1.0/build2 installed at 20:56 EDT; complete owned-library pre/post file comparison passes.
+- [ ] Controlled device launch and first-launch schema2 migration; unlock/open and conditional trust pending.
+- [x] Mobile developer handoff and helper28 fake-device safety checks; this update's real full-copy gate passes.
 - [x] Historical iPad cable install: Developer Mode enabled, 1.0.0/build1 confirmed at 17:51 EDT.
 - [ ] Physical Pencil/audio/voice, interruption, accessibility, sharing/Print and backup acceptance (B115).
-- [x] Complete phone backup UI: Phone3 export/cancel/restore/cancel passes; physical backup remains open.
+- [x] Complete phone backup UI: Phone3 export/cancel/restore/cancel passes; physical in-app backup/restore remains open.
 - [ ] Native parity: Mac schema21 migration/sync, Listen Back, cloud mapping, full Studio economy,
       desktop warmups/history repair and broader forScore tools remain separate scope.
 - [x] v11.1 progressive practice feedback, independent review, package/install and exact preservation. Runtime `c411e7b`; `docs/qa/v11.1.0/` is the current evidence ledger.

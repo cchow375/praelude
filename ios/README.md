@@ -1,8 +1,9 @@
 # Praelude Mobile
 
 **1.1.0/build2 · schema2 · DEVELOPMENT CANDIDATE · updated 2026-09-14.**
-Native SwiftUI, PDFKit and PencilKit for iPhone/iPad on iOS/iPadOS 17+. The confirmed physical iPad
-installation remains **1.0.0/build1**. The Mac product remains **v11.1.0/schema21**; this work does
+Native SwiftUI, PDFKit and PencilKit for iPhone/iPad on iOS/iPadOS 17+. The physical iPad now has
+**1.1.0/build2 installed**, with all owned files verified unchanged before first launch. Automatic
+launch was denied; the user launch/trust step and physical-feature acceptance remain pending. The Mac product remains **v11.1.0/schema21**; this work does
 not replace its app or access its practice data.
 
 The pianist supplies every verdict. Praelude keeps the score, counts repetitions, remembers targets
@@ -104,11 +105,14 @@ file name, length and SHA-256 before launch. There are at most two full copies p
 in ignored private folders. A failed post-install check reports installed-but-unverified status;
 it never launches, restores or uninstalls automatically on that failure.
 
-**Current physical hold:** two authorized full-copy probes failed reading the installed app's PDF
-with EPERM, although the schema1 ledger copies successfully and has no active set. Complete backup
-access remains required before updating; no 1.1 device install was attempted. The original 1.0
-installation is verified. Its initial launch request encountered developer trust; later user
-activity and an imported PDF do not constitute a fresh controlled launch or broad feature verdict.
+**Installed September 14 at 20:56 EDT:** after the user confirmed the iPad was ready, the
+complete pre-update backup passed. The helper rebuilt/signed Release and installed **1.1.0/build2**
+over the same app identifier. The complete post-install copy matches both owned files (one ledger
+and one PDF) by name, size and SHA-256. The pre-launch ledger remains schema1 with no active set.
+Both private backups are retained. Automatic launch was denied; the exact security/lock cause is
+unproven. The user was asked to unlock and tap Praelude, completing Developer App trust only if
+prompted. Launch, schema2 migration and physical-feature acceptance remain separate open gates.
+No uninstall, restore, reset, termination, Mac app replacement or Mac data change occurred.
 
 ## Current acceptance, with history kept separate
 
@@ -120,7 +124,7 @@ activity and an imported PDF do not constitute a fresh controlled launch or broa
 | Live ink | Newer iPad pre-Undo capture visibly shows the stroke, independently reviewed; an earlier blank capture remains unexplained. Phone3 pre-Undo/after-Redo images also show ink; physical Pencil acceptance remains pending |
 | Phone current regression | `phone3`: 36/36 hosted and all 3 selected UI pass; Phone2 supplies the other 4 UI passes. All 7 distinct phone scenarios have passing evidence across runs; Phone4 final-toolbar finger 91.652 s/meter 84.624 s also passes 2/2 |
 | Signed Release | Final frozen-source 1.1 build passes signature/profile, arm64/iOS17/both-family and fixture exclusion checks; production inputs stayed stable and all preserved app files match |
-| Physical update | Blocked on complete PDF backup access; installed version remains 1.0.0/build1 |
+| Physical update | Installed 1.1.0/build2; complete two-file pre/post preservation passed; automatic launch denied and user launch/trust step pending |
 
 The final verified signed candidate is preserved outside Git at
 `releases/ios-personal-1.1.0/Praelude.app`; its [manifest](../docs/qa/ios/1.1.0/signed-release.json)
@@ -131,8 +135,10 @@ physical-feature, App Store or TestFlight acceptance is claimed.
 The [historical 1.0 ledger](../docs/qa/ios/README.md#historical-10-candidate-evidence) retains its
 22 core / 2,041 service / 13 hosted checks on each simulator and 8/8 distinct iPad / 7/8 phone UI
 scenarios across runs. Those results are not counted as new 1.1 passes. Its then-open complete phone backup
-UI gap is now closed by the Phone3 simulator flow; physical backup preservation remains open. Newer evidence is tracked only in the [1.1 ledger](../docs/qa/ios/1.1.0/README.md).
+UI gap is now closed by the Phone3 simulator flow. Physical in-place update preservation now
+passes separately; backup export/restore and broader device workflows retain their own acceptance
+gates. Newer evidence is tracked in the [1.1 ledger](../docs/qa/ios/1.1.0/README.md).
 
-**Next steps:** obtain complete device backup access before updating. Then record install, preserved data and launch
-separately. Physical Pencil precision, sharing/printing, VoiceOver, keyboard/pedals, sustained audio,
+**Next steps:** finish opening the installed update and verify schema2 migration/preserved original.
+Installation and full pre-launch file preservation already pass. Physical Pencil precision, sharing/printing, VoiceOver, keyboard/pedals, sustained audio,
 interruptions and voice over an acoustic piano still require their own acceptance.

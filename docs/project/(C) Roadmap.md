@@ -4,12 +4,13 @@
 
 **Native boundary:** v11.1.0 launches and renders the real Beethoven Op.90 movement 2 score, selected passage and Variants dialog. The earlier Desktop/Score permission blocker is cleared. Progressive rep/set/chain effects passed independent live browser review; native audible quality, voice/chime overlap and Christian’s motivation verdict remain open. Cover-picker selection/save (B109), microphone/Steinway, real mapping and Windows acceptance remain separate.
 
-## iOS1.1.0 — Score markup and mobile handoff (candidate verified; device update held, 2026-09-14)
+## iOS1.1.0 — Score markup and mobile handoff (candidate installed; launch pending, 2026-09-14)
 
 Native **1.1.0/build2/schema2** implements visual passage boxes, editable PencilKit ink, original
 targets in Progress history, separate annotated-PDF export/share/Print and expanded metronome/rewards.
-Plain native surfaces and adaptive controls keep the music central. The installed iPad remains
-1.0.0/build1; this is not full forScore/desktop parity, physical-feature acceptance or shipment.
+Plain native surfaces and adaptive controls keep the music central. The iPad now reports
+1.1.0/build2, installed at 20:56 EDT from source `124707d`; this is not full forScore/desktop parity,
+physical-feature acceptance or shipment.
 
 [Mobile README](/Users/c3/praelude/ios/README.md), [task context](/Users/c3/praelude/ios/AGENTS.md),
 [module/check guide](/Users/c3/praelude/ios/docs/DEVELOPMENT.md),
@@ -27,14 +28,20 @@ failed; no all-green full-scheme or physical-feature claim is made.
 
 Phone2's zero strokes led to explicit PDF/PencilKit gesture arbitration; Phone3 ink is visibly
 present. iPad9 verifies the 44-point toolbar entry, finger persistence, meter controls and Focus
-after corrected offscreen-test guards. The physical iPad remains 1.0.0/build1. Two complete-PDF
-backup probes still fail EPERM despite a readable ledger/no active set; no update is accepted.
+after corrected offscreen-test guards. Earlier PDF-copy probes failed with EPERM. The 20:50
+guarded refresh again failed the complete copy, with only a generic failure reported. The 20:52
+Xcode container download failed with CoreDevice7000/POSIX1 on a SplashBoard snapshot cache.
+After the user reported ready, complete copying succeeded and the helper installed 1.1.0/build2.
+All owned file names, byte counts and SHA-256 match in the complete private pre/post copies.
+Automatic launch was denied with a generic security/unlock error; exact cause is unproven.
+The preserved ledger remains schema1 until first-launch migration is separately verified.
 
 ### Next steps
 
-Resolve full protected-PDF copying
-and hashes before the in-place update, then report version, all preserved files and launch separately.
-Keep physical Pencil/audio/voice, printing, VoiceOver, keyboard/pedals, interruptions, real device-backup preservation and sync/parity limits open under B115 until their own evidence is recorded.
+Confirm controlled launch after user unlock/open and conditional Developer App trust, then verify
+schema2 migration. This update's version and complete file preservation pass; launch remains separate.
+Keep physical Pencil/audio/voice, printing, VoiceOver, keyboard/pedals, interruptions, in-app backup/restore
+and sync/parity limits open under B115 until their own evidence is recorded.
 
 ## iOS1.0.0 — Historical native baseline (2026-09-14)
 
@@ -122,7 +129,7 @@ Use the next real practice session to judge the escalating visual/audio rewards,
 
 ## Current independent lanes
 
-- **iOS1.0.0:** SwiftUI development candidate under `ios/`, independent schema1 storage. Exact scope/evidence in `ios/README.md`; device/signing/parity boundaries are B115.
+- **iOS1.1.0/build2:** SwiftUI development candidate under `ios/`, independent schema2 storage; source `124707d`. Exact scope/evidence in `ios/README.md`; device/physical-feature/parity boundaries are B115.
 - **Windows v9.1.0:** exact historical unsigned x64 NSIS candidate remains unchanged. Windows-native cargo tests and real Windows 10/11 install, PDF/audio, persistence and uninstall are pending; no voice/Listen Back/system TTS/volume boost. A later branded package is a separate release.
 - **Custom-cover picker:** automated browser image selection hung; the native chooser opened but could not be inspected by computer use, then was canceled with no saved image. Preprocessing/native persistence/validation pass; picker/render/restart acceptance remains pending (B109).
 - **Native audio and mapping:** real microphone/Steinway and one authorized real-provider mapping still need their own evidence. No browser fixture closes them.

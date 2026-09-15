@@ -7,6 +7,12 @@ iPad finger/meter/Focus and phone drawing/backup/Focus checks pass; final phone-
 exact-source signed-build checks also pass. QA retains exact scopes and earlier failed runs. The
 [QA ledger](../../docs/qa/ios/README.md) records the accepted build and outstanding checks.
 
+**Installed-device note (September 14, 20:56 EDT):** 1.1.0/build2 is installed and all owned
+files match the pre-update backup. Automatic launch was denied; unlock the iPad and tap Praelude,
+completing Developer App trust only if prompted. Launch/migration and physical features remain
+unaccepted. See the [installation guide](INSTALL_ON_IPAD.md); another installation is unnecessary
+just to retry opening the app.
+
 ## Open your score
 
 In **Pieces**, choose **Add piece** and import a PDF from Files. The app keeps a copy and leaves

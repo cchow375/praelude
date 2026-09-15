@@ -4,6 +4,32 @@ This is the mutable native development history. It does not change shipped Mac v
 establish App Store/TestFlight shipment. See [current QA](../../docs/qa/ios/1.1.0/README.md) for exact
 build/run evidence and [the roadmap](ROADMAP.md) for remaining scope.
 
+## September 14, 20:56 EDT — update installed, data preservation verified
+
+**Installed September 14 at 20:56 EDT:** after the user confirmed the iPad was ready, the
+complete pre-update backup passed. The helper rebuilt/signed Release and installed **1.1.0/build2**
+over the same app identifier. The complete post-install copy matches both owned files (one ledger
+and one PDF) by name, size and SHA-256. The pre-launch ledger remains schema1 with no active set.
+Both private backups are retained. Automatic launch was denied; the exact security/lock cause is
+unproven. The user was asked to unlock and tap Praelude, completing Developer App trust only if
+prompted. Launch, schema2 migration and physical-feature acceptance remain separate open gates.
+No uninstall, restore, reset, termination, Mac app replacement or Mac data change occurred.
+
+**Next steps:** finish the device launch/trust step and verify schema migration, then physical
+feature acceptance. See the separate installed-artifact and preservation record in current QA.
+
+## September 14, 20:50–20:52 EDT — historical attempts blocked before installation
+
+**Update attempt, September 14 at 20:50–20:52 EDT:** the user-requested refresh stopped at
+its full pre-install backup, before building, installing or launching. Xcode's **Download
+Container** also failed with CoreDevice7000/POSIX1 while reading a SplashBoard snapshot cache;
+its partial cache copy contains no verified practice folder. A subsequent read-only status check
+then reported 1.0.0/build1. These failures did not prove the iPad was locked. The requested
+unlock/open-app interaction preceded the later successful backup/update recorded above. No uninstall, restore, reset or termination was performed.
+
+**Next steps at that boundary:** obtain device interaction and complete backup before installation.
+The subsequent update above clears that gate; launch remains separate. Source is `124707d`.
+
 ## 1.1.0/build2 — development candidate, 2026-09-14
 
 - Select passages with multiple translucent boxes across systems/pages, move/resize them, keep
@@ -26,14 +52,14 @@ build/run evidence and [the roadmap](ROADMAP.md) for remaining scope.
 
 Scoped simulator/build verification passes: 36 hosted tests pass on each simulator; iPad9 passes its
 three final-toolbar cases, with other iPad/phone scenarios accepted across recorded regressions.
-Phone4 toolbar verification passes 2/2; final exact-source signing and byte-verified artifact preservation pass. The confirmed physical iPad installation remains 1.0.0/build1;
-complete PDF backup access is required before updating. A signed 1.1 snapshot is preserved outside
+Phone4 toolbar verification passes 2/2; final exact-source signing and byte-verified artifact preservation pass. The physical iPad was subsequently updated to 1.1.0/build2 with complete pre/post
+file verification; automatic launch was denied. See the dated installation entry above. A signed 1.1 snapshot is preserved outside
 Git, and includes the final gesture/toolbar changes with stable input hashes. Physical Pencil/audio/voice,
 printing, device accessibility, migration/sync and full desktop/forScore parity are separate gates.
 
-**Next steps:** verify complete device backup, then
-record installation, file preservation and launch separately. Keep the QA ledger's failures and
-scoped simulator results visible.
+**Next steps:** finish launch/trust and verify migration/physical features. Installation and
+complete pre-launch file preservation are recorded separately from those open gates. Keep the
+QA ledger's failures and scoped simulator results visible.
 
 ## 1.0.0/build1 — historical native candidate, 2026-09-14
 

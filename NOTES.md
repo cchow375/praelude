@@ -1,5 +1,35 @@
 # NOTES
 
+## Physical update installed (2026-09-14, 20:56 EDT; launch pending)
+
+**Installed September 14 at 20:56 EDT:** after the user confirmed the iPad was ready, the
+complete pre-update backup passed. The helper rebuilt/signed Release and installed **1.1.0/build2**
+over the same app identifier. The complete post-install copy matches both owned files (one ledger
+and one PDF) by name, size and SHA-256. The pre-launch ledger remains schema1 with no active set.
+Both private backups are retained. Automatic launch was denied; the exact security/lock cause is
+unproven. The user was asked to unlock and tap Praelude, completing Developer App trust only if
+prompted. Launch, schema2 migration and physical-feature acceptance remain separate open gates.
+No uninstall, restore, reset, termination, Mac app replacement or Mac data change occurred.
+
+The installed product is the helper's fresh `ios/DeviceDerivedData` Release rebuild, not an
+assumption that the earlier preserved app has the same executable hash. The QA install record
+tracks its actual artifact. Raw device data, backup manifests and identities remain outside Git.
+
+## Historical physical update retries (2026-09-14, 20:50–20:52 EDT)
+
+**Update attempt, September 14 at 20:50–20:52 EDT:** the user-requested refresh stopped at
+its full pre-install backup, before building, installing or launching. Xcode's **Download
+Container** also failed with CoreDevice7000/POSIX1 while reading a SplashBoard snapshot cache;
+its partial cache copy contains no verified practice folder. A subsequent read-only status check
+then reported 1.0.0/build1. These failures did not prove the iPad was locked. The requested
+unlock/open-app interaction preceded the later successful backup/update recorded above. No uninstall, restore, reset or termination was performed.
+
+The current source is `124707d`, tag `ios-v1.1.0-candidate.1`. This attempt did not rebuild or
+replace the signed artifact. The Xcode fallback used a private temporary destination; no private
+file names, device identifiers or container content belongs in Git. The QA attempt manifest records
+only sanitized outcomes. Corrected the living roadmap's stale independent-lane source label to
+1.1/schema2; historical installed 1.0/schema1 and Mac v11.1/schema21 boundaries are unchanged.
+
 ## Mobile handoff and native update safety (2026-09-14, 1.1 candidate verified; device backup hold)
 
 - **Mobile work has a local entry point without splitting Git.** `ios/AGENTS.md`,
@@ -67,15 +97,17 @@
   `releases/ios-personal-1.1.0/Praelude.app`; the old 1.0 full tree and earlier 1.1 snapshot are retained.
   Profile expiry remains 2026-09-21 21:24:58 UTC. The public manifest records a dirty source snapshot,
   exact command and hashes; private logs/input maps stay beside the ignored app. The final build
-  includes gesture/toolbar corrections. No device query/install/launch/backup retry was performed.
+  includes gesture/toolbar corrections. No device query/install/launch/backup retry was performed during that earlier artifact build;
+  the later physical update is recorded separately above.
 - **Current handoff documentation names the actual mobile lane.** `ios/README.md` now describes
   the 1.1/schema2 source, module/workspace links, helper28 and current acceptance rather than
   presenting the 1.0 baseline as current. `docs/NEW_MAC_SETUP.md` points directly to the dedicated
   installation/renewal guide and explicit workspace/helper tasks. Shipped Mac/Windows records and
   historical native 1.0 manifests remain unchanged.
-- **1.1 scoped implementation gates pass; physical update is held.** Native Score/Pencil,
+- **Historical pre-install boundary after scoped implementation gates.** Native Score/Pencil,
   schema2 migration and audio-feedback changes have recorded core/hosted/scoped UI/build evidence.
-  Complete app-owned PDF copying still fails EPERM, so no 1.1 device update is accepted. Mac data
+  Complete app-owned PDF copying failed EPERM at that boundary. The later successful backup and
+ 1.1 installation are recorded above; physical launch/features remain separate. Mac data
   and shipped records stay unchanged. Apple PDFPageOverlayViewProvider and forScore references
   inform the design; they do not establish broad feature parity or physical Pencil/audio acceptance.
 

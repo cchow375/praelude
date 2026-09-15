@@ -5,10 +5,11 @@
 ## Separate iPhone/iPad development candidate
 
 The installed Mac tutorial below still matches **Mac v11.1.0/schema21**. Native mobile source is
-**1.1.0/build2/schema2 DEVELOPMENT CANDIDATE**, while the confirmed iPad installation remains
-**1.0.0/build1**. New 1.1 controls are described in the
+**1.1.0/build2/schema2 DEVELOPMENT CANDIDATE** from source `124707d`; the iPad now confirms
+**1.1.0/build2 installed** at 20:56 EDT on September 14. Controlled launch and first-launch schema2
+migration remain pending. Its controls are described in the
 [current mobile guide](/Users/c3/praelude/ios/README.md) and
-[Using Mobile](/Users/c3/praelude/ios/docs/USING_MOBILE.md); they are not a claim that the new app is installed.
+[Using Mobile](/Users/c3/praelude/ios/docs/USING_MOBILE.md).
 
 In the candidate, Today/Pieces/Progress use phone tabs and an adaptive iPad sidebar. Import a PDF,
 read pages or enter Focus, draw multiple passage boxes with optional measure labels, and use
@@ -34,7 +35,7 @@ failed; no all-green full-scheme or physical-feature claim is made.
 Phone3 visually verifies ink before Undo and after Redo; a prior iPad blank capture has an
 unexplained cause. The corrected drawing gestures and 44-point toolbar controls have scoped
 simulator evidence. The complete phone backup-dialog UI passes. Physical Pencil precision,
-printing, acoustic audio/voice, VoiceOver and real backup preservation remain separate checks.
+printing, acoustic audio/voice, VoiceOver and in-app backup/restore remain separate checks.
 
 For free setup, conditional developer trust and seven-day renewal use
 [Install on iPad](/Users/c3/praelude/ios/docs/INSTALL_ON_IPAD.md). Help/status are read-only;
@@ -43,12 +44,20 @@ Pause/end practice and leave the app idle. The helper has 28 passing fake-device
 retains full pre/post copies, compares every file name/length/hash before launch and never uninstalls
 or automatically restores. A failed post-install comparison says installed-but-unverified and blocks launch.
 
-**Device update remains on hold:** two complete-backup attempts failed reading the app-owned PDF
-with EPERM, despite a readable ledger with no active set. No 1.1 update proceeds without complete
-backup access. The 1.0 installation is verified; its original launch request encountered developer
-trust, and later user activity is not broad feature acceptance. If trust is requested, follow
-Settings → General → VPN & Device Management → Developer App as explained in the installation guide.
-The signed 1.1 snapshot is preserved outside Git; the final exact-source signed build includes the gesture/toolbar fixes and passes verification. Its free profile expires 2026-09-21 21:24:58 UTC. The Mac Matches line stays unchanged.
+**Device update installed; launch pending:** the guarded refresh now installed 1.1.0/build2 and
+verified all owned file names, byte counts and SHA-256 against complete private pre/post copies.
+The preserved ledger is still schema1; migration will be checked after launch. Earlier PDF-copy
+probes failed with EPERM. The 20:50 refresh again failed the complete copy, with only a generic
+failure reported. The 20:52 Xcode container download failed with CoreDevice7000/POSIX1 on a
+snapshot cache and did not create a complete practice backup. Copying succeeded after the user
+reported ready, so the prior update hold is cleared.
+
+Automatic launch was denied with a generic security/unlock error whose cause is unproven.
+Unlock the iPad and tap Praelude. If it requests Developer App trust, follow Settings → General →
+VPN & Device Management → Developer App as explained in the installation guide. Controlled launch
+and hardware acceptance remain pending. No deletion, reset, restore or explicit termination was used.
+The signed 1.1 snapshot remains outside Git and its profile expires September 21 at 21:24:58 UTC.
+The Mac Matches line stays unchanged.
 
 ## Start a useful practice session
 

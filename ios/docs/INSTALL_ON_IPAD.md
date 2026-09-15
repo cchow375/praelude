@@ -148,6 +148,18 @@ Use the app's **Settings → Export backup** periodically for its supported port
 Keep important backups outside the Mac as well: this private Git repository excludes all practice
 data and does not back up either the iPad library or these local recovery folders.
 
+## If copying is denied before installation
+
+Unlock the connected iPad, open Praelude, pause any running set and leave the app idle on screen
+before retrying. A generic file-permission error does not prove the device is locked. If copying
+continues to fail, retain the incomplete copies and inspect the error before another attempt.
+On September 14, both the helper's owned-library copy and Xcode's Download Container were denied;
+the latter failed on a SplashBoard snapshot cache. After the user confirmed device readiness,
+the helper's complete backup succeeded and 1.1 installed with matching pre/post files. The earlier
+permission cause remains unproven. A partially downloaded container is not a verified backup. No reinstall, restore or deletion is an accepted workaround for missing data
+preservation. See the [current installation](../../docs/qa/ios/1.1.0/personal-ipad-install.json)
+and [earlier failed attempts](../../docs/qa/ios/1.1.0/device-update-attempt.json).
+
 ## What an install proves
 
 An installed version and successful launch are separate from score/annotation persistence, Pencil,

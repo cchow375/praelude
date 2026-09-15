@@ -182,7 +182,7 @@ Every version record and every roadmap phase MUST end with a clear "Next steps" 
 
 ## Status
 
-**Current mobile milestone (2026-09-14): 1.1.0/build2 DEVELOPMENT CANDIDATE, schema2; scoped checks complete, device update held.**
+**Current mobile milestone (2026-09-14): 1.1.0/build2 DEVELOPMENT CANDIDATE, schema2; scoped checks complete; installed, launch pending.**
 The native SwiftUI/PDFKit/PencilKit app adds visual passage boxes, editable ink, recorded-target
 history, separate annotated-PDF sharing/Print and metronome/reward controls. It uses its own JSON
 ledger and owned scores; schema1 migration preserves the original. Mac schema21 data is untouched.
@@ -203,14 +203,20 @@ proven persistent defect. The 44-point toolbar change now has iPad9 entry eviden
 controls are revealed before meter assertions. Phone3 closes the historical complete-phone-backup
 UI gap with simulator evidence. Current QA is `docs/qa/ios/1.1.0/README.md`.
 
-**Final signed candidate and update hold:** verified signed 1.1 is preserved at ignored
+**Final signed candidate and installed-device boundary:** verified signed 1.1 is preserved at ignored
 `releases/ios-personal-1.1.0/Praelude.app`; signing/profile, arm64/iOS17/both families, fixture
 exclusion and full-copy hashes pass. The final rebuild includes the gesture/toolbar fixes and diagnostics; all production inputs remained stable during compilation. The profile expires 2026-09-21 at 21:24:58 UTC. Local team selection
 stays only in ignored `ios/Signing.local.xcconfig`; no private identity/device data belongs in Git.
-The installed iPad remains 1.0.0/build1. Two full-backup probes failed reading its PDF with EPERM;
-its schema1 ledger copies and has no active set. No update proceeds without complete backup access.
-The helper compares every owned file name/length/hash in pre/post-install copies before launch,
-refuses running sets and never uninstalls or restores automatically. Both copies remain private.
+The iPad now reports **1.1.0/build2**, installed at 20:56 EDT on September 14 from source `124707d`.
+The guarded refresh retained complete private pre/post copies and verified identical owned file
+names, byte counts and SHA-256 before requesting launch. The preserved ledger remains schema1;
+first-launch schema2 migration has not been accepted. Automatic launch was denied with a generic
+security/unlock error; its exact cause is unproven. Unlock/open Praelude and conditional Developer
+App trust are the next user steps; controlled launch and hardware acceptance remain pending.
+Earlier PDF-copy probes failed with CoreDevice7000/POSIX1 EPERM. The 20:50 refresh again failed
+the complete copy, with only a generic failure reported. The 20:52 Xcode container download
+failed with CoreDevice7000/POSIX1 on a SplashBoard snapshot cache and produced only partial caches. After the user reported ready, complete copying succeeded and the prior update hold cleared.
+No deletion, reset, automatic restore or explicit termination was used. Both verified copies stay private.
 
 **Historical baseline:** 1.0 installed at 17:51 EDT on 2026-09-14 with Developer Mode enabled; its
 initial launch request was denied by developer trust. Later user activity is not a controlled

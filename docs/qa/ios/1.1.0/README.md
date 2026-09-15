@@ -1,9 +1,10 @@
 # Native mobile 1.1.0 acceptance
 
 **2026-09-14 · 1.1.0/build2 DEVELOPMENT CANDIDATE · schema2 · scoped simulator/build verification complete.**
-The final frozen-source signed Release and its preserved copy are verified. The physical iPad
-still reports **1.0.0/build1**; complete PDF backup access remains blocked, so no 1.1 installation
-or hardware feature acceptance is claimed. Mac v11.1.0/schema21 application/data are unchanged.
+The physical iPad now has **1.1.0/build2 installed**, with complete pre/post owned-library file
+identity verified. Automatic launch was denied; launch/migration and hardware feature acceptance
+remain pending. The earlier frozen-source signed artifact remains preserved; the installed helper
+rebuild is recorded separately. Mac v11.1.0/schema21 application/data are unchanged.
 
 The [1.0 ledger](../README.md#historical-10-candidate-evidence) and its manifests/screenshots remain
 historical evidence. Passing 1.0 checks are not silently counted as current 1.1 regression passes.
@@ -34,8 +35,9 @@ install/refresh helper. See [current usage](../../../../ios/docs/USING_MOBILE.md
 | iPad latest selected UI | **`ipad9` passes 3/3**: finger, meter and Focus. `ipad7` supplies boxes and accessibility markup; five targeted 1.1 iPad scenarios pass across runs |
 | iPhone 1.1 hosted/UI regression | `phone3.xcresult`: **36/36 hosted + 3/3 selected UI pass**: finger 52.960 s, backup 62.827 s, Focus 24.024 s. Phone2 supplies boxes, accessibility markup, meter/feedback and accessibility practice passes; seven distinct scenarios pass across runs; `phone4` final-toolbar finger 91.652 s/meter 84.624 s also passes 2/2 |
 | 1.1 signed Release and fixture exclusion | **Final frozen-source build passed**; [sanitized manifest](signed-release.json). Stable inputs, signature/profile/fixture checks, and all preserved app file hashes verified |
-| Physical pre-update backup | Ledger can be copied, but full backup still fails reading the app-owned PDF; no complete native copy/hash acceptance |
-| Physical 1.1 install/launch/feature acceptance | Not performed/accepted; the existing 1.0 app and its data remain in place |
+| Physical pre/post-update backup | Passed after user readiness: two files, including one PDF, match by name/size/SHA-256; both copies retained |
+| Physical 1.1 installation | Installed 1.1.0/build2 at 20:56 EDT on September 14; same bundle identifier |
+| Physical launch/migration/features | Automatic launch denied; exact cause unproven. User launch/trust step and feature acceptance remain pending |
 
 The `ipad3` result bundle as a whole is **failed: 35 passed / 1 failed**. Its 35 app-hosted tests
 pass; the additional finger-ink UI case failed. The `touchdiag` UI group is also **failed: one
@@ -189,14 +191,34 @@ xcodebuild -project ios/Praelude.xcodeproj -scheme Praelude \
 
 ## Physical device and deployment helper
 
-Read-only devicectl queries confirm the existing 1.0 app's data container contains a schema1
-ledger and one PDF. A single-ledger copy succeeds and its active set is absent. Full directory
-copy fails at the PDF with CoreDevice error 7000 / underlying POSIX error 1, although its metadata
-says readable/0644/non-symlink. The last authorized one-time retry also failed; no automatic repeat,
-install, launch or termination followed. Device unlock/protected-file access remains unresolved;
-the cause is not claimed proven from the lock-state flags alone.
+**Installed September 14 at 20:56 EDT:** after the user confirmed the iPad was ready, the
+complete pre-update backup passed. The helper rebuilt/signed Release and installed **1.1.0/build2**
+over the same app identifier. The complete post-install copy matches both owned files (one ledger
+and one PDF) by name, size and SHA-256. The pre-launch ledger remains schema1 with no active set.
+Both private backups are retained. Automatic launch was denied; the exact security/lock cause is
+unproven. The user was asked to unlock and tap Praelude, completing Developer App trust only if
+prompted. Launch, schema2 migration and physical-feature acceptance remain separate open gates.
+No uninstall, restore, reset, termination, Mac app replacement or Mac data change occurred.
 
-The helper therefore stops before building/installing an update. Complete backups and hashes
+Current installation: [sanitized installation record](personal-ipad-install.json).
+
+**Historical failed attempts, September 14 at 20:50–20:52 EDT:** the user-requested refresh stopped at
+its full pre-install backup, before building, installing or launching. Xcode's **Download
+Container** also failed with CoreDevice7000/POSIX1 while reading a SplashBoard snapshot cache;
+its partial cache copy contains no verified practice folder. A subsequent read-only status check
+then reported 1.0.0/build1. These failures do not prove the iPad was locked. After the requested
+unlock/open-app interaction, the subsequent complete backup passed as recorded above; the earlier
+denial's exact cause remains unproven. No uninstall, restore, reset or termination was performed.
+
+Sanitized earlier failure: [device update attempt](device-update-attempt.json).
+
+**Earlier two-probe history:** read-only devicectl queries found a schema1 ledger and one PDF
+in the then-installed 1.0 app. A ledger-only copy succeeded with no active set. Both full-directory
+probes failed at the PDF with CoreDevice7000/POSIX1 despite readable/0644/non-symlink metadata.
+The helper stopped before building or installing on those failures. The later complete copying
+and update now pass; the earlier denial's cause and the current launch denial's cause are unproven.
+
+Complete backups and hashes
 stay in ignored private local folders under `releases/ios-device-backups/`; no personal score,
 ledger, account, team or device identifier is committed. Fake-device tests cover refusal of running
 sets, changed ledgers, bad profiles, missing devices, failed copies and fixture-bearing binaries.
@@ -212,17 +234,19 @@ No fake test or signed-app preparation is a substitute for real full backup veri
 ## Remaining acceptance
 
 Scoped iPad9/Phone3/Phone4 checks and the final signed build pass. Earlier failed bundles remain
-failed; these results are not one all-green full-scheme run. Obtain complete protected-PDF backup
-access before any update, then verify installed version and full pre/post file preservation before
-launch/migration acceptance. No third backup probe or 1.1 install has been performed.
+failed; these results are not one all-green full-scheme run. The installed version and complete
+pre/post file preservation now pass. Finish the device launch/trust step, then verify schema2
+migration and the preserved original ledger separately. Earlier failed copy attempts remain
+history; no rebuild/reinstall is required merely to retry opening the installed app.
 
 Physical Pencil input/precision, long-session audio, speech over an acoustic piano, interruptions,
 VoiceOver, hardware keyboard/pedals, actual printing and provider-specific sharing remain their own
 gates. The historical complete iPhone backup UI gap is closed by the passing `phone3` simulator
-flow; physical-device backup and the real full-copy preservation gate remain open.
+flow. Physical full-copy update preservation now passes; app backup export/restore and broader
+physical workflows remain separate acceptance gates.
 Mac SQLite migration/sync, full Studio economy, advanced desktop practice policies/warmups/history
 repair, Listen Back and cloud mapping remain separate scope. Assistant stays off/on hold. This is
 neither a full forScore clone nor App Store/TestFlight shipment. B115 remains open.
 
-**Next steps:** resolve the real complete-backup gate, then record any authorized update and
-physical validation separately. Retain failed-run explanations and the precise simulator scope.
+**Next steps:** finish the device launch/trust step, verify schema migration and retained original,
+then record physical-feature validation. Retain failed-run explanations and precise simulator scope.

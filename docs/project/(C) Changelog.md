@@ -10,6 +10,16 @@
 
 ---
 
+### 2026-09-14 · Mobile 1.1 installed with library preserved; launch pending
+
+- **Why:** Christian requested the iPad update and then reported the device ready for another guarded attempt. Source `124707d` supplies native 1.1.0/build2/schema2.
+- **Earlier attempts retained:** the 20:50 EDT refresh stopped at the complete owned-library copy, before build/install/launch. At 20:52, Xcode Download Container failed with CoreDevice7000/POSIX1 on a SplashBoard snapshot cache; its partial caches were not a verified practice backup. A status check still reported 1.0.0/build1. These follow the earlier PDF-copy probes; none establishes the underlying cause.
+- **Successful update:** after the user reported ready, complete pre-install copying succeeded at 20:55:48 EDT. The helper built/signed and installed the same app; status now confirms **1.1.0/build2**. The complete post-install copy at 20:56:18 matched all owned file names, byte counts and SHA-256. Both verified copies remain private. No deletion, reset, restore or explicit termination was used.
+- **Launch boundary:** automatic launch was denied with a generic security/unlock error. Exact cause is unproven. The user was asked to unlock/open Praelude and handle Developer App trust only if requested. Controlled launch, first-launch schema2 migration and physical-feature acceptance remain pending; the preserved pre-launch ledger is schema1. The signing-profile expiry remains September 21 at 21:24:58 UTC.
+- **Handoff:** the previous full-copy update hold is cleared for this installation; in-app backup/restore and physical Pencil/audio/voice/printing acceptance are still separate. Current independent lanes now identify 1.1/build2/schema2, and prior commit-pending fixes point to `124707d`.
+- **Touched:** the seven vault living documents; the parent task separately updates mobile setup/QA/NOTES and the sanitized device-update manifest. Mac v11.1.0/schema21, its tutorial Matches line, app and data are unchanged.
+- **Next:** confirm controlled launch and migration, then record physical musician-workflow evidence without treating installation as feature acceptance.
+
 ### 2026-09-14 · Mobile 1.1 candidate verified; device update held on complete backup
 
 - **Why:** Christian asked for a clearer mobile project, practical score markup/Pencil workflows, cleaner score/practice controls, improved metronome/feedback, and a simple free-install refresh every seven days. Native milestone 1.1.0/build2 is implemented, with scoped simulator checks and final signed-build verification passed. No new device install or physical-feature acceptance is claimed.
