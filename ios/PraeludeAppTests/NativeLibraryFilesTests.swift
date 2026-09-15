@@ -1,4 +1,5 @@
 import PDFKit
+import PencilKit
 import UIKit
 import XCTest
 @testable import Praelude
@@ -321,6 +322,109 @@ final class NativeLibraryFilesTests: XCTestCase {
         let completed = try snapshot(target)
         XCTAssertThrowsError(try NativeLibraryFiles(store: target).restoreBackup(backup.data))
         try assertUnchanged(completed, store: target)
+    }
+
+    @MainActor
+    private func drawingData() -> Data {
+        let points = [CGPoint(x: 10, y: 20), CGPoint(x: 200, y: 80)].enumerated().map { index, location in
+            PKStrokePoint(location: location, timeOffset: Double(index) / 10, size: CGSize(width: 3, height: 3),
+                          opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        }
+        let path = PKStrokePath(controlPoints: points, creationDate: Date(timeIntervalSince1970: 1_700_000_000))
+        return PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black), path: path)]).dataRepresentation()
+    }
+
+    @MainActor
+    func testMarkupAndPracticeSnapshotRoundTripWithByteIdenticalInkAndPDF() async throws {
+        let source = try fixture()
+        let piece = try addPDF(to: source)
+        let files = NativeLibraryFiles(store: source)
+        let ink = drawingData()
+        try files.saveDrawing(pieceID: piece.id, page: 2, data: ink)
+        let passage = Passage(pieceID: piece.id, title: "Shape this phrase", page: 2,
+                              regions: [PassageRegion(page: 2, x: 0.1, y: 0.2, width: 0.7, height: 0.15)])
+        try source.savePassage(passage)
+        try source.startSet(PracticeConfiguration(pieceID: piece.id, passageID: passage.id))
+        try source.record(.clean); try source.endSession(); try source.deletePassage(passage.id)
+        let originalPDF = try Data(contentsOf: XCTUnwrap(files.scoreURL(for: piece)))
+        let backup = try files.makeBackup()
+        let target = try fixture()
+        try NativeLibraryFiles(store: target).restoreBackup(backup.data)
+        XCTAssertEqual(target.state.schemaVersion, 2)
+        XCTAssertEqual(target.drawing(pieceID: piece.id, page: 2), ink)
+        XCTAssertEqual(try PKDrawing(data: XCTUnwrap(target.drawing(pieceID: piece.id, page: 2))).strokes.count, 1)
+        XCTAssertEqual(target.state.history.last?.configuration.passageSnapshot, passage)
+        XCTAssertEqual(target.progress.totalAttempts, 1)
+        let restored = try XCTUnwrap(target.pieces.first)
+        XCTAssertNotEqual(restored.pdfFileName, piece.pdfFileName)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(NativeLibraryFiles(store: target).scoreURL(for: restored))), originalPDF)
+        XCTAssertEqual(PracticeStore(directory: target.directory).state, target.state)
+    }
+
+    @MainActor
+    func testDamagedInkIsRejectedAtSaveExportAndRestoreWithoutChangingLibrary() async throws {
+        let source = try fixture()
+        let piece = try addPDF(to: source)
+        let files = NativeLibraryFiles(store: source)
+        try files.saveDrawing(pieceID: piece.id, page: 1, data: drawingData())
+        let before = try snapshot(source)
+        XCTAssertThrowsError(try files.saveDrawing(pieceID: piece.id, page: 1, data: Data("not PencilKit".utf8)))
+        try assertUnchanged(before, store: source)
+        let backup = try files.makeBackup()
+        let damaged = try editingBackup(backup.data) { object in
+            var library = try XCTUnwrap(object["library"] as? [String: Any])
+            var drawings = try XCTUnwrap(library["scoreDrawings"] as? [[String: Any]])
+            drawings[0]["data"] = Data("not PencilKit".utf8).base64EncodedString()
+            library["scoreDrawings"] = drawings; object["library"] = library
+        }
+        let target = try fixture()
+        try addPDF(to: target, title: "Keep this library")
+        let targetBefore = try snapshot(target)
+        XCTAssertThrowsError(try NativeLibraryFiles(store: target).restoreBackup(damaged))
+        try assertUnchanged(targetBefore, store: target)
+        // Core remains portable and opaque; export's native guard catches damaged persisted encodings.
+        try source.saveDrawing(pieceID: piece.id, page: 1, data: Data("damaged stored ink".utf8))
+        XCTAssertThrowsError(try files.makeBackup())
+    }
+
+    @MainActor
+    func testPDFReplacementPreservesInkAndRegionsWithoutStagingNewFiles() async throws {
+        let store = try fixture()
+        let piece = try addPDF(to: store)
+        let files = NativeLibraryFiles(store: store)
+        let replacement = try pdfSource(for: store, pages: 2, label: "Different same-length score")
+        try files.saveDrawing(pieceID: piece.id, page: 1, data: drawingData())
+        let withInk = try snapshot(store)
+        XCTAssertThrowsError(try files.importPDF(replacement.url, title: piece.title, composer: piece.composer, replacing: piece))
+        try assertUnchanged(withInk, store: store)
+        try files.saveDrawing(pieceID: piece.id, page: 1, data: Data())
+        let passage = Passage(pieceID: piece.id, title: "Marked phrase", regions: [PassageRegion(page: 1, x: 0, y: 0, width: 1, height: 0.2)])
+        try store.savePassage(passage)
+        let withRegion = try snapshot(store)
+        XCTAssertThrowsError(try files.importPDF(replacement.url, title: piece.title, composer: piece.composer, replacing: piece))
+        try assertUnchanged(withRegion, store: store)
+    }
+
+    @MainActor
+    func testSchemaOneBackupRestoresLegacyMeasuresWithoutRequiringMarkupFields() async throws {
+        let source = try fixture()
+        let piece = try addPDF(to: source)
+        let passage = Passage(pieceID: piece.id, title: "Original measures", startMeasure: 3, endMeasure: 8)
+        try source.savePassage(passage)
+        let backup = try NativeLibraryFiles(store: source).makeBackup()
+        let legacy = try editingBackup(backup.data) { object in
+            var library = try XCTUnwrap(object["library"] as? [String: Any])
+            library["schemaVersion"] = 1; library.removeValue(forKey: "scoreDrawings")
+            var passages = try XCTUnwrap(library["passages"] as? [[String: Any]])
+            passages[0].removeValue(forKey: "regions")
+            library["passages"] = passages; object["library"] = library
+        }
+        let target = try fixture()
+        try NativeLibraryFiles(store: target).restoreBackup(legacy)
+        XCTAssertEqual(target.state.schemaVersion, 2)
+        XCTAssertEqual(target.state.passages, [passage])
+        XCTAssertTrue(target.state.scoreDrawings.isEmpty)
+        XCTAssertFalse(PracticeStore(directory: target.directory).isReadOnly)
     }
 
     @MainActor

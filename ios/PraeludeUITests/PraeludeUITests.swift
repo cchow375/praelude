@@ -101,11 +101,19 @@ final class PraeludeUITests: XCTestCase {
         let hideSidebar = app.buttons["Hide Sidebar"]
         if hideSidebar.waitForExistence(timeout: 2), hideSidebar.isHittable { hideSidebar.press(forDuration: 0.15) }
         let query = app.buttons.matching(identifier: "appSettings")
+        // Each tab owns a Settings toolbar; inactive tabs can expose zero-sized copies.
+        // Asking those copies for hittability raises an XCTest activation-point error.
+        func visibleSettings() -> XCUIElement? {
+            query.allElementsBoundByIndex.first {
+                let frame = $0.frame
+                return frame.width > 1 && frame.height > 1 && app.frame.contains(frame) && $0.isHittable
+            }
+        }
         let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            query.allElementsBoundByIndex.contains { $0.isHittable }
+            visibleSettings() != nil
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 10), .completed, app.debugDescription)
-        query.allElementsBoundByIndex.first { $0.isHittable }?.press(forDuration: 0.15)
+        visibleSettings()?.press(forDuration: 0.15)
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10), app.debugDescription)
     }
     @MainActor private func dismissFilePicker(_ app: XCUIApplication) {

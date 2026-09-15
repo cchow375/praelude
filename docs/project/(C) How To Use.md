@@ -4,42 +4,51 @@
 
 ## Separate iPhone/iPad development candidate
 
-The installed instructions below remain **Mac v11.1.0**. A separate **iOS1.0.0 DEVELOPMENT
-CANDIDATE** lives in repo `ios/`; it is installed on the iPad, with first launch pending. Full
-physical-device feature acceptance and App Store/TestFlight distribution remain separate.
-Read [the iOS build and usage guide](/Users/c3/praelude/ios/README.md) (repository `ios/README.md`)
-for native setup, exact scope and verification.
+The installed Mac tutorial below still matches **Mac v11.1.0/schema21**. Native mobile source is
+**1.1.0/build2/schema2 DEVELOPMENT CANDIDATE**, while the confirmed iPad installation remains
+**1.0.0/build1**. New 1.1 controls are described in the
+[current mobile guide](/Users/c3/praelude/ios/README.md) and
+[Using Mobile](/Users/c3/praelude/ios/docs/USING_MOBILE.md); they are not a claim that the new app is installed.
 
-**Cable install status:** free Personal Team Release 1.0.0/build1 installed on the iPad at 17:51 EDT.
-The device listing confirms version/build and Developer Mode is enabled. First launch was denied
-by a security/trust message. Open **Settings → General → VPN & Device Management**, select your
-**Developer App**, trust your developer certificate, complete the prompts, then open Praelude.
-This Personal Team trust step is documented in Apple's
-[Food Truck setup](https://developer.apple.com/documentation/swiftui/food-truck-building-a-swiftui-multiplatform-app).
-Launch and hardware feature QA are still unaccepted. The earlier disconnected install attempt
-is retained in the project history. The profile expires 2026-09-21 at 21:24:58 UTC; free Personal
-Team builds need rebuilding/reinstallation after seven days. The signed app remains locally at
-`releases/ios-personal/Praelude.app`; Xcode uses the ignored local signing configuration.
+In the candidate, Today/Pieces/Progress use phone tabs and an adaptive iPad sidebar. Import a PDF,
+read pages or enter Focus, draw multiple passage boxes with optional measure labels, and use
+Annotate score for PencilKit tools or explicit Draw with finger. Ink Undo/Redo is separate from
+practice Undo. Progress → session → What you practiced shows the original recorded target.
+Score options → Share annotated score creates a new flattened-ink PDF for system Files/sharing/Print;
+practice boxes are excluded and the source score/editable ink remain intact.
 
-In the candidate, **Today, Pieces, Progress** use phone tabs/iPad sidebar; accessibility text sizes
-use full-width tabs. Add a piece/PDF from Files, select a saved passage, and choose **Practice set**. Essential focus, target and tempo come
-first; **Set rules**, **Variants**, Goals and the calendar have focused editors. Large verdict
-controls, pause/resume and Undo record your judgment. For on-device English speech, open
-**Score options (…) → Hands-free commands → Enable hands-free**. While listening, choose **Off**
-in practice controls or **Turn voice off** in Score options; touch needs no microphone.
-Settings exports/restores the independent
-native library and PDFs. If the native library cannot be read, ordinary edits/export are unavailable.
-Choosing a valid backup in Restore first preserves and verifies an identical copy of the original
-ledger, then replaces it; failed preservation leaves it read-only. Native backup does not import
-Mac schema21 data or provide automatic sync. The combined backup export/cancel/restore UI flow
-passes on the iPad simulator; complete iPhone UI acceptance remains open after an initial Settings
-navigation failure. See the native guide for the exact boundary.
-Listen Back, cloud mapping, furnished Studio/economy and full desktop warmups/history repair remain
-outside this candidate. With accessibility text sizes, the candidate keeps the score above a
-scrollable practice panel and places Clean first; verdict labels keep the requested size. This
-layout keeps labels inside their controls, all three verdicts reachable by scrolling, and the
-score visible; both iPhone orientations have independent simulator screenshot verification.
-The installed Mac tutorial and its Matches line are unchanged.
+Choose a passage or whole piece, then set focus/target/tempo. Clean/Sloppy/Again record your judgment;
+pause/resume and Undo preserve the practice contract. The metronome adds meter, beat accents/silence,
+subdivisions, sound/volume and optional haptics. Optional voice is at Score options → Hands-free
+commands → Enable hands-free; it uses supported on-device English recognition and never grades piano.
+Native schema2 backup contains the independent library, PDFs and editable ink. It does not import
+Mac SQLite data or provide automatic sync. See the workflow guide for source labels and error handling.
+
+**Current simulator limits:** 29 core tests, 2,166 service assertions, 28 fake-device helper tests and 36/36 native hosted tests
+on each simulator pass. The final-toolbar iPad9 selected run passes 3/3: finger 59.497 s, meter 61.653 s,
+Focus 23.719 s. iPad7 supplies box editing/relaunch and accessibility markup in both orientations;
+five targeted iPad scenarios pass across runs. Phone3 passes 36 hosted plus 3 selected UI, and Phone2
+supplies the other four UI passes: seven distinct phone scenarios pass across runs. Phone4 also passes its final-toolbar finger 91.652 s/meter 84.624 s recheck. Final exact-source signed Release verification passes. Earlier failed runs remain
+failed; no all-green full-scheme or physical-feature claim is made.
+
+Phone3 visually verifies ink before Undo and after Redo; a prior iPad blank capture has an
+unexplained cause. The corrected drawing gestures and 44-point toolbar controls have scoped
+simulator evidence. The complete phone backup-dialog UI passes. Physical Pencil precision,
+printing, acoustic audio/voice, VoiceOver and real backup preservation remain separate checks.
+
+For free setup, conditional developer trust and seven-day renewal use
+[Install on iPad](/Users/c3/praelude/ios/docs/INSTALL_ON_IPAD.md). Help/status are read-only;
+`npm run ios:refresh -- --device "YOUR IPAD NAME"` explicitly builds and updates an existing app.
+Pause/end practice and leave the app idle. The helper has 28 passing fake-device safety tests: it
+retains full pre/post copies, compares every file name/length/hash before launch and never uninstalls
+or automatically restores. A failed post-install comparison says installed-but-unverified and blocks launch.
+
+**Device update remains on hold:** two complete-backup attempts failed reading the app-owned PDF
+with EPERM, despite a readable ledger with no active set. No 1.1 update proceeds without complete
+backup access. The 1.0 installation is verified; its original launch request encountered developer
+trust, and later user activity is not broad feature acceptance. If trust is requested, follow
+Settings → General → VPN & Device Management → Developer App as explained in the installation guide.
+The signed 1.1 snapshot is preserved outside Git; the final exact-source signed build includes the gesture/toolbar fixes and passes verification. Its free profile expires 2026-09-21 21:24:58 UTC. The Mac Matches line stays unchanged.
 
 ## Start a useful practice session
 

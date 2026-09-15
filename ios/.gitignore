@@ -1,6 +1,8 @@
 .build/
 DerivedData/
 ReleaseDerivedData/
+DeviceDerivedData/
+__pycache__/
 *.xcresult/
 xcuserdata/
 *.ipa

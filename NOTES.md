@@ -1,6 +1,85 @@
 # NOTES
 
-## Native iPhone/iPad candidate (2026-09-14)
+## Mobile handoff and native update safety (2026-09-14, 1.1 candidate verified; device backup hold)
+
+- **Mobile work has a local entry point without splitting Git.** `ios/AGENTS.md`,
+  `ios/docs/DEVELOPMENT.md`, `INSTALL_ON_IPAD.md`, `ROADMAP.md` and the optional editor workspace
+  define native-only context, module ownership, checks, free signing and seven-day renewal.
+  The same repo owns Mac and mobile; their product versions and data stores remain independent.
+  The editor workspace uses explicit process tasks and argument arrays, mobile-relative cwd, and a
+  sequential generate/check default build. Device status and refresh are separate named tasks;
+  opening the workspace triggers no build, install or background command.
+- **Explicit deployment is data-preserving and fails closed.** `ios/scripts/device.py` prints
+  help without contacting Xcode; devices/status are read-only. Install/refresh use subprocess
+  argument arrays, Apple's JSON devicectl interface, local automatic signing and exact app ID.
+  Existing Application Support/Praelude (ledger plus Scores) is copied to an ignored timestamped
+  private backup with file hashes. Running sets, invalid/changed ledgers, failed copying, profile
+  mismatch/expiry and fixture-bearing binaries block installation. Independent review found that
+  ledger-only post-install checking missed PDF loss/mutation. The helper now takes a second full
+  copy after installation and compares every file name, length and SHA-256 before launch. A
+  mismatch or failed copy retains the backups and explicitly reports installed-but-unverified
+  status. Exactly two full copies are allowed per refresh, with a small pre-install ledger recheck.
+  No uninstall, reset, silent identity change, active-set termination or raw signing/device log output is permitted.
+  Twenty-eight fake-device tests currently pass, including PDF-only deletion/same-size mutation,
+  post-install copy failure and an initially empty library gaining files; native deployment is a separate gate.
+- **Actual device-copy probe is incomplete, not falsely accepted.** Read-only devicectl inventory,
+  details and installed-app queries pass for 1.0.0/build1. The app-owned tree has a readable schema1
+  ledger, no active set, and one PDF. Single-ledger copy passes. Two authorized full-copy probes
+  fail reading that PDF with CoreDevice7000/underlying POSIX1 EPERM, despite readable/0644/non-symlink metadata. Lock-state
+  fields passcodeRequired=true/unlockedSinceBoot=true are observations, not a proven lock predicate.
+  The helper correctly stops; no install/launch/termination occurred. Wait for device unlock/access
+  before retrying the complete copy and hashes. Failed copies stay in ignored local probe folders.
+- **Original visual targets and annotated PDF export are separate candidate features.**
+  Progress session history opens `RecordedPassageView` with the set's saved passage snapshot,
+  read-only against its score; shortcut edits/deletion do not rewrite those boxes. `ScoreExport`
+  creates a separate PDF with flattened ink but no practice boxes, leaving source PDFs and editable
+  PencilKit data untouched; `ScoreShareView` delegates Files/sharing/Print to the system sheet.
+  Three iPad hosted export tests now pass, including rotated/cropped render alignment; native
+  share/Print flows and physical output remain pending.
+  Source guards address unfinished box drafts and unsaved ink; adaptive teardown retains pending
+  drawings in shared state under active verification. `ios/docs/USING_MOBILE.md` documents current
+  controls without claiming installation or physical acceptance.
+- **1.1 QA remains scoped to the actual run.** Core29/services2,166/helper28 and 36 hosted tests
+  on both simulators pass. iPad9 final-toolbar selection passes finger 59.497 s, meter 61.653 s and
+  Focus 23.719 s; iPad7 supplies boxes/AX markup. Phone3 supplies finger/backup/Focus and Phone2 the
+  other four UI cases. Five targeted iPad and seven phone scenarios pass across runs; Phone4's final
+  toolbar recheck passes 91.652 s/84.624 s, and exact-source signing passes. iPad8 passed 36 hosted and Focus 29.081 s
+  but failed UI entry/Reset virtualization; it remains a failed bundle, not an all-green rerun.
+- **Phone gesture arbitration fixes actual missing input.** Phone2's drawing contained zero
+  strokes. PDF pan now waits for the PencilKit drawing recognizer; Phone3 passes 52.960 s with
+  visible pre-Undo/after-Redo ink, plus backup 62.827 s and Focus 24.024 s. iPad9 finger persistence
+  also passes after the toolbar change. The older blank iPad6 image has an unresolved cause;
+  it does not establish a persistent rendering defect. Physical Pencil precision is separate.
+- **Reward and preview evidence is actual native output.** The saved-passage thumbnail now crops
+  around the target union so selected notation is recognizable. A native video shows the earned
+  Clean 1-of-5 response at 28.0–28.5 s and absent by 29 s, with score/verdict controls unobscured; a
+  synthetic frame is preserved in the 1.1 QA screenshots. These images do not establish physical
+  Pencil, audio/haptics, or printing acceptance.
+- **Toolbar hit targets now have iPad interaction evidence.** iPad8's centered Annotate press
+  did not enter drawing with a 40×36 image frame. Close/Annotate/Metronome/Options now use 44×44
+  frames and rectangular hit regions; iPad9 finger entry/persistence passes. Offscreen and virtualized
+  form controls caused separate meter-test failures; bounded swipes and explicit reveal guards
+  precede the passing iPad9 meter case. Phone4 passes the final toolbar on iPhone (finger 91.652 s, meter 84.624 s).
+- **Final signed 1.1 candidate is preserved and verified.** The frozen-source two-job Release
+  build passes version 1.1.0/build2, arm64/iOS17/both families. Production inputs stayed stable;
+  strict signature, signed entitlements/profile/device inclusion and fixture exclusion pass.
+  Executable SHA-256 is `f472faa3ddc85949bc9b3c4ab5d1734a2dd19ff42c00328307e9b5a2ee58dd12`. All nine files are byte-verified at ignored
+  `releases/ios-personal-1.1.0/Praelude.app`; the old 1.0 full tree and earlier 1.1 snapshot are retained.
+  Profile expiry remains 2026-09-21 21:24:58 UTC. The public manifest records a dirty source snapshot,
+  exact command and hashes; private logs/input maps stay beside the ignored app. The final build
+  includes gesture/toolbar corrections. No device query/install/launch/backup retry was performed.
+- **Current handoff documentation names the actual mobile lane.** `ios/README.md` now describes
+  the 1.1/schema2 source, module/workspace links, helper28 and current acceptance rather than
+  presenting the 1.0 baseline as current. `docs/NEW_MAC_SETUP.md` points directly to the dedicated
+  installation/renewal guide and explicit workspace/helper tasks. Shipped Mac/Windows records and
+  historical native 1.0 manifests remain unchanged.
+- **1.1 scoped implementation gates pass; physical update is held.** Native Score/Pencil,
+  schema2 migration and audio-feedback changes have recorded core/hosted/scoped UI/build evidence.
+  Complete app-owned PDF copying still fails EPERM, so no 1.1 device update is accepted. Mac data
+  and shipped records stay unchanged. Apple PDFPageOverlayViewProvider and forScore references
+  inform the design; they do not establish broad feature parity or physical Pencil/audio acceptance.
+
+## Historical native iPhone/iPad 1.0 candidate (2026-09-14)
 
 - **The native app is an independent target, not a mobile Tauri skin or Mac-data migration.**
   `ios/Praelude.xcodeproj` builds SwiftUI/PDFKit for iOS/iPadOS17+ with candidate identity

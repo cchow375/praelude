@@ -41,7 +41,7 @@ struct SetComposerView: View {
                         Text(passage?.title ?? store.pieces.first { $0.id == pieceID }?.title ?? "Practice")
                             .font(.headline)
                         if let passage {
-                            Text("\(passage.measureLabel) · page \(passage.page)")
+                            Text(passage.locationLabel)
                                 .font(.subheadline).foregroundStyle(.secondary)
                         } else {
                             Text("Whole piece").font(.subheadline).foregroundStyle(.secondary)

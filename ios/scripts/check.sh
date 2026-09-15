@@ -9,6 +9,7 @@ swift test --package-path "$IOS_ROOT"
 xcrun swiftc -parse-as-library \
   "$IOS_ROOT/Praelude/Services/VoiceCommand.swift" \
   "$IOS_ROOT/Praelude/Services/MetronomePattern.swift" \
+  "$IOS_ROOT/Praelude/Services/PracticeFeedbackEvent.swift" \
   "$IOS_ROOT/ServiceChecks/main.swift" \
   -o "$CHECK_TEMP/services-check"
 "$CHECK_TEMP/services-check"

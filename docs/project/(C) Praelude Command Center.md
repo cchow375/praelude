@@ -8,30 +8,38 @@ This is the live entry map. Historical release detail belongs in [[(C) Changelog
 
 ## Current work
 
-**Native iPhone/iPad candidate:** `~/praelude/ios/` is a separate SwiftUI iOS1.0.0 DEVELOPMENT
-CANDIDATE for iOS/iPadOS17+. Plain system surfaces, large controls, focused native sheets and iPad
-score windows support PDF reading, local pieces/passages, deterministic rep/tempo/variant practice,
-optional on-device voice, goals/calendar/history and backups. Its schema1 JSON store keeps unreadable
-data read-only; deliberate valid backup recovery copies and byte-verifies the original before
-replacement, and export refuses the unreadable fallback. The installed Mac remains v11.1.0/schema21.
-Swift 6 compilation, unsigned Release arm64 device build, 22 core tests, 2,041 service assertions
-and 13 native app-hosted tests pass on each iPhone and iPad simulator. All eight distinct iPad UI
-scenarios and seven of eight phone scenarios pass across runs, including corrected large-text checks.
-iPad backup UI passes; complete phone backup UI stays open after a final initial-Settings failure.
-The final exact-source unsigned Release build passes with fixture flags/test plug-ins absent;
-no all-green full-suite or manual CUA acceptance is claimed. `ios/README.md` owns native scope/setup/evidence;
-`ios/DESIGN.md` owns the
-Apple/musician research. B115 tracks device/signing acceptance and desktop parity limits. This is
-not an iOS shipment or a migration of Christian's Mac practice data.
+**Current mobile work — 1.1.0/build2/schema2 DEVELOPMENT CANDIDATE, scoped verification complete:** visual passage boxes,
+PencilKit ink, recorded-target history, annotated-PDF sharing/Print, metronome and reward controls
+are implemented in the independent native target. Open [current mobile guide](/Users/c3/praelude/ios/README.md),
+[task context](/Users/c3/praelude/ios/AGENTS.md), [development](/Users/c3/praelude/ios/docs/DEVELOPMENT.md),
+[install/renewal](/Users/c3/praelude/ios/docs/INSTALL_ON_IPAD.md), [workflow guide](/Users/c3/praelude/ios/docs/USING_MOBILE.md)
+and [mobile roadmap](/Users/c3/praelude/ios/docs/ROADMAP.md). Same Git repo, separate mobile workspace.
 
-**Cable install:** free Personal Team Release 1.0.0/build1 installed at 17:51 EDT on iPad Pro
-12.9-inch (3rd generation), iPadOS 18.7.8, after the earlier disconnected attempt. The installed
-listing confirms version/build and Developer Mode is enabled. First launch was denied by a
-security/trust message; Developer App trust is pending before launch and feature QA can be checked.
-The profile expires 2026-09-21 21:24:58 UTC. Local-config signing passes, and ignored
-`releases/ios-personal/Praelude.app` preserves the signed app. The sanitized Personal Team
-manifest records verified installation/pending launch; historical unsigned evidence and Mac
-app/data remain unchanged.
+**Current QA:** 29 core tests, 2,166 service assertions, 28 fake-device helper tests and 36/36 native hosted tests
+on each simulator pass. The final-toolbar iPad9 selected run passes 3/3: finger 59.497 s, meter 61.653 s,
+Focus 23.719 s. iPad7 supplies box editing/relaunch and accessibility markup in both orientations;
+five targeted iPad scenarios pass across runs. Phone3 passes 36 hosted plus 3 selected UI, and Phone2
+supplies the other four UI passes: seven distinct phone scenarios pass across runs. Phone4 also passes its final-toolbar finger 91.652 s/meter 84.624 s recheck. Final exact-source signed Release verification passes. Earlier failed runs remain
+failed; no all-green full-scheme or physical-feature claim is made.
+
+Phone3 pre-Undo/after-Redo images verify visible ink after the PDF/PencilKit gesture correction.
+The 44-point toolbar entry and corrected offscreen meter-test guards now pass on iPad9. The
+historical phone backup UI gap is closed by Phone3 simulator evidence. Physical backup and Pencil
+remain open. See [current QA](/Users/c3/praelude/docs/qa/ios/1.1.0/README.md).
+
+**Final signed candidate, physical hold:** 1.1 signing/profile/fixture checks pass for the preserved snapshot
+at ignored `releases/ios-personal-1.1.0/Praelude.app`; the final rebuild includes all gesture/toolbar fixes, with stable input hashes and verified signature/profile. The profile expires 2026-09-21 21:24:58 UTC. The installed
+iPad still reports 1.0.0/build1. Two full-copy probes failed reading its PDF with EPERM; ledger copy
+passes with no active set. The helper now checks all owned file hashes after installation as well
+as before it, retains both private copies, and blocks launch on any difference. No complete backup,
+1.1 update or hardware feature acceptance is claimed.
+
+**Historical native baseline:** 1.0 installed at 17:51 EDT with Developer Mode enabled; the initial
+launch request encountered developer trust. Later user activity does not replace a controlled
+launch/feature verdict. Its app and QA remain unchanged: 22 core, 2,041 service, 13 hosted per
+simulator, 8/8 distinct iPad and 7/8 phone UI across runs. Phone3 now closes the complete phone backup UI gap with simulator evidence; physical backup remains open.
+B115 keeps physical/distribution, Mac-sync and unported feature limits open. Mac v11.1.0/schema21
+and its personal data are untouched; Assistant stays off/on hold.
 
 Project portability is now part of the canonical private repository. `docs/project/` mirrors the
 living manual and every Markdown version record; `docs/NEW_MAC_SETUP.md` separates a safe developer
@@ -49,14 +57,15 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 
 ## Open threads
 
-- [x] iPad cable install: Developer Mode enabled; Personal Team Release 1.0.0/build1 installed
-      at 17:51 EDT and confirmed in the device listing.
-- [ ] iPad first launch: complete Developer App trust, verify launch, then validate device behavior.
-- [ ] iOS1.0.0 candidate: complete phone backup UI acceptance,
-      then signed physical iPhone/iPad
-      import, persistence, audio/voice, interruption, accessibility and backup acceptance (B115).
-- [ ] Native parity: no Mac schema21 migration/sync, Listen Back, cloud mapping, furnished Studio/coin
-      economy, desktop warmup suite or full historical repair interface.
+- [x] Mobile 1.1.0 scoped simulator checks and final exact-source signed Release verification.
+- [ ] Device update: obtain complete PDF backup access, then verify the same app's install version,
+      full pre/post file hashes and controlled launch before any hardware acceptance claim.
+- [x] Mobile developer handoff and helper28 fake-device safety checks; real full-copy gate remains open.
+- [x] Historical iPad cable install: Developer Mode enabled, 1.0.0/build1 confirmed at 17:51 EDT.
+- [ ] Physical Pencil/audio/voice, interruption, accessibility, sharing/Print and backup acceptance (B115).
+- [x] Complete phone backup UI: Phone3 export/cancel/restore/cancel passes; physical backup remains open.
+- [ ] Native parity: Mac schema21 migration/sync, Listen Back, cloud mapping, full Studio economy,
+      desktop warmups/history repair and broader forScore tools remain separate scope.
 - [x] v11.1 progressive practice feedback, independent review, package/install and exact preservation. Runtime `c411e7b`; `docs/qa/v11.1.0/` is the current evidence ledger.
 - [x] Fresh-Mac development portability: current manual/version records are Git-backed; clone,
       toolchain, bootstrap, verification and local-only state boundaries are documented and checked.

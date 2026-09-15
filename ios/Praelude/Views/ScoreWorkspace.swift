@@ -2,13 +2,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 private enum ScoreSheet: String, Identifiable {
-    case setup, passages, metronome, pages, voice
+    case setup, passages, metronome, pages, voice, passageDetails, share
     var id: String { rawValue }
 }
 
 struct ScoreWorkspace: View {
     let pieceID: UUID
     let onClose: (() -> Void)?
+    var sharedMarkup: ScoreMarkupState? = nil
     @Environment(PracticeStore.self) private var store
     @Environment(MetronomeService.self) private var metronome
     @Environment(SpeechCommandService.self) private var speech
@@ -22,6 +23,10 @@ struct ScoreWorkspace: View {
     @AppStorage("ios.feedback") private var feedbackEnabled = true
     @State private var voiceOwnerID = UUID()
     @State private var page = 1
+    @State private var localMarkup = ScoreMarkupState()
+    private var markup: ScoreMarkupState { sharedMarkup ?? localMarkup }
+    @State private var drawAfterDismiss: Passage?
+    @State private var confirmDiscardSelection = false
     @State private var selectedPassage: Passage?
     @State private var sheet: ScoreSheet?
     @State private var setupAfterDismiss = false
@@ -30,9 +35,22 @@ struct ScoreWorkspace: View {
     @State private var importing = false
     @State private var ending = false
     @State private var error: String?
+    @State private var sharingURL: URL?
     private var piece: Piece? { store.state.pieces.first { $0.id == pieceID } }
     private var active: ActiveSet? { store.activeSet?.configuration.pieceID == pieceID ? store.activeSet : nil }
     private var scoreURL: URL? { piece.flatMap { NativeLibraryFiles(store: store).scoreURL(for: $0) } }
+    private var savedPassages: [Passage] { store.state.passages.filter { $0.pieceID == pieceID } }
+    private var visibleRegions: [PassageRegion] {
+        let snapshot = active?.configuration.passageSnapshot?.regions ?? []
+        let snapshotIDs = Set(snapshot.map(\.id))
+        return savedPassages.flatMap(\.regions).filter { !snapshotIDs.contains($0.id) } + snapshot
+    }
+    private var emphasizedIDs: Set<UUID> { Set((active?.configuration.passageSnapshot ?? selectedPassage)?.regions.map(\.id) ?? []) }
+    private var practicedIDs: Set<UUID> {
+        let practiced = (store.state.history + [active].compactMap { $0 }).filter { !$0.effectiveAttempts.isEmpty }
+            .compactMap(\.configuration.passageSnapshot).flatMap(\.regions)
+        return Set(visibleRegions.filter { practiced.contains($0) }.map(\.id))
+    }
     var body: some View {
         Group {
             if let piece {
@@ -40,7 +58,12 @@ struct ScoreWorkspace: View {
                     ZStack {
                         Color(.secondarySystemBackground)
                         if let scoreURL, FileManager.default.fileExists(atPath: scoreURL.path) {
-                            PagedScoreView(url: scoreURL, page: $page, twoPages: twoPages && sizeClass == .regular, focusPageTurns: focusMode, onTurnPage: turnPage, onPageChanged: savePage)
+                            PagedScoreView(url: scoreURL, page: $page, twoPages: twoPages && sizeClass == .regular, focusPageTurns: focusMode, markup: markup,
+                                           regions: visibleRegions, emphasizedIDs: emphasizedIDs, practicedIDs: practicedIDs,
+                                           drawingData: { store.drawing(pieceID: pieceID, page: $0) },
+                                           saveDrawing: persistInk, onRegionSelected: { id in
+                                               selectedPassage = savedPassages.first { $0.regions.contains { $0.id == id } }
+                                           }, onTurnPage: turnPage, onPageChanged: savePage)
                                 .accessibilityIdentifier("scorePDF")
 
                         } else {
@@ -53,8 +76,16 @@ struct ScoreWorkspace: View {
                             }
                         }
                     }
+                    .overlay(alignment: .bottom) {
+                        if markup.mode == .reading {
+                            PracticeFeedbackView(feedback: runtime.feedback, setID: active?.id)
+                                .padding(.bottom, 12).allowsHitTesting(false)
+                        }
+                    }
                     .safeAreaInset(edge: .top, spacing: 0) {
-                        if focusMode {
+                        if markup.mode != .reading {
+                            markupHeader
+                        } else if focusMode {
                             HStack {
                                 Button { focusMode = false } label: { Label("Exit focus", systemImage: "arrow.down.right.and.arrow.up.left") }.buttonStyle(.bordered)
                                 Spacer()
@@ -65,19 +96,24 @@ struct ScoreWorkspace: View {
                                 Button { sheet = .passages } label: {
                                     if dynamicTypeSize.isAccessibilitySize {
                                         Image(systemName: "bookmark").frame(minWidth: 44)
-                                            .accessibilityLabel(selectedPassage?.measureLabel ?? "Passages")
+                                            .accessibilityLabel(selectedPassage?.title ?? "Passages")
                                     } else {
-                                        Label(selectedPassage?.measureLabel ?? "Passages", systemImage: "bookmark")
+                                        Label(selectedPassage?.title ?? "Passages", systemImage: "bookmark")
                                             .lineLimit(1).font(.subheadline.weight(.medium))
+                                            .frame(minHeight: 44).contentShape(Rectangle())
                                     }
                                 }.frame(minHeight: 44).accessibilityIdentifier("passages")
+                                Button { beginSelection(nil) } label: { Image(systemName: "rectangle.badge.plus").frame(width: 44, height: 44) }
+                                    .accessibilityLabel("Draw passage").accessibilityIdentifier("drawPassageOnScore")
                                 Spacer(minLength: 8)
                                 pageControls(compact: false)
                             }.padding(.horizontal, 16).background(.bar)
                         }
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if !focusMode {
+                        if markup.mode == .selecting {
+                            selectionTools
+                        } else if markup.mode == .reading && !focusMode {
                             if dynamicTypeSize.isAccessibilitySize {
                                 ScrollView {
                                     practiceDock.fixedSize(horizontal: false, vertical: true)
@@ -90,11 +126,13 @@ struct ScoreWorkspace: View {
                     }
                 }
                 .navigationTitle(piece.title).navigationBarTitleDisplayMode(.inline)
-                .toolbar(focusMode ? .hidden : .visible, for: .navigationBar)
+                .toolbar(focusMode || markup.mode != .reading ? .hidden : .visible, for: .navigationBar)
                 .toolbar {
-                    if let onClose { ToolbarItem(placement: .topBarLeading) { Button(action: onClose) { Image(systemName: "chevron.down") }.accessibilityLabel("Close score") } }
+                    if let onClose { ToolbarItem(placement: .topBarLeading) { Button(action: onClose) { Image(systemName: "chevron.down").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Close score") } }
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button { sheet = .metronome } label: { Image(systemName: metronome.isPlaying ? "metronome.fill" : "metronome") }
+                        Button { beginWriting() } label: { Image(systemName: "pencil.tip.crop.circle").frame(width: 44, height: 44).contentShape(Rectangle()) }
+                            .accessibilityLabel("Annotate score").accessibilityIdentifier("annotateScore")
+                        Button { sheet = .metronome } label: { Image(systemName: metronome.isPlaying ? "metronome.fill" : "metronome").frame(width: 44, height: 44).contentShape(Rectangle()) }
                             .accessibilityLabel("Metronome").accessibilityIdentifier("openMetronome")
                         Menu {
                             Button { focusMode = true } label: { Label("Focus on score", systemImage: "arrow.up.left.and.arrow.down.right") }
@@ -103,30 +141,60 @@ struct ScoreWorkspace: View {
                                 if supportsMultipleWindows { Button("Open score in new window", systemImage: "rectangle.on.rectangle") { openWindow(value: pieceID) } }
                             }
                             Button("Passages", systemImage: "bookmark") { sheet = .passages }
+                            Button("Draw a passage", systemImage: "rectangle.dashed") { beginSelection(nil) }
+                            if let selectedPassage {
+                                Button("Edit passage boxes", systemImage: "rectangle.and.pencil.and.ellipsis") { beginSelection(selectedPassage) }
+                                Button("Passage details", systemImage: "slider.horizontal.3") { sheet = .passageDetails }
+                                Button("Practice whole piece", systemImage: "doc") { self.selectedPassage = nil }
+                            }
                             Button(speech.isListening ? "Turn voice off" : "Hands-free commands", systemImage: speech.isListening ? "mic.slash" : "mic") {
                                 if speech.isListening { speech.stop() } else { sheet = .voice }
                             }
                             Button("Replace score PDF", systemImage: "doc.badge.plus") { importing = true }
+                            Button("Share annotated score", systemImage: "square.and.arrow.up") {
+                                guard markup.flushInk() else { return }
+                                perform { sharingURL = try ScoreExport.annotatedPDF(pieceID: pieceID, store: store); sheet = .share }
+                            }.disabled(scoreURL == nil)
                             if active != nil { Button("End practice", systemImage: "stop.circle", role: .destructive) { ending = true } }
-                        } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Score options")
+                        } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Score options")
                     }
                 }
             } else { ContentUnavailableView("Piece unavailable", systemImage: "music.note") }
         }
         .sheet(item: $sheet, onDismiss: {
-            if setupAfterDismiss { setupAfterDismiss = false; sheet = .setup }
+            if let sharingURL { try? FileManager.default.removeItem(at: sharingURL.deletingLastPathComponent()); self.sharingURL = nil }
+            if let passage = drawAfterDismiss { drawAfterDismiss = nil; markup.begin(passage, baseline: savedPassages.first { $0.id == passage.id }) }
+            else if setupAfterDismiss { setupAfterDismiss = false; sheet = .setup }
         }) { item in
             switch item {
             case .setup: SetComposerView(pieceID: pieceID, passage: selectedPassage, onStarted: { refreshAudio() })
             case .passages: PassagePickerView(pieceID: pieceID, currentPage: page, onSelect: { passage in
                 selectedPassage = passage; page = passage.page; savePage(page)
                 if store.activeSet == nil || store.activeSet?.isComplete == true { setupAfterDismiss = true }
-            })
+            }, onDraw: { passage in drawAfterDismiss = passage ?? newPassage() })
+            case .passageDetails:
+                if let selectedPassage {
+                    NavigationStack {
+                        PassageEditorView(passage: selectedPassage, pageCount: max(1, piece?.pageCount ?? 1)) {
+                            self.selectedPassage = store.state.passages.first { $0.id == selectedPassage.id }; sheet = nil
+                        }.toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { sheet = nil } } }
+                    }
+                }
             case .metronome: MetronomeView()
-            case .pages: if let scoreURL { ScorePagePicker(url: scoreURL, currentPage: page, onSelect: { page = $0; savePage($0) }) }
+            case .pages: if let scoreURL { ScorePagePicker(url: scoreURL, currentPage: page, onSelect: { if markup.flushInk() { page = $0; savePage($0) } }) }
             case .voice: voiceSheet
+            case .share: if let sharingURL { ScoreShareView(url: sharingURL) }
             }
         }
+        .confirmationDialog("Discard these passage edits?", isPresented: $confirmDiscardSelection, titleVisibility: .visible) {
+            Button("Discard edits", role: .destructive) { markup.finish() }
+            Button("Keep editing", role: .cancel) {}
+        }
+        .confirmationDialog("Ink changed in another window", isPresented: Binding(get: { markup.conflictPage != nil }, set: { if !$0 { markup.conflictPage = nil } }), titleVisibility: .visible, presenting: markup.conflictPage) { page in
+            Button("Keep my drawing") { markup.resolveInkConflict(page, true) }
+            Button("Use the saved drawing", role: .destructive) { markup.resolveInkConflict(page, false) }
+            Button("Keep editing", role: .cancel) { markup.conflictPage = nil }
+        } message: { _ in Text("Both windows edited this page. Choose which drawing to keep. Your unsaved drawing stays open until you decide.") }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
             guard let piece else { return }
             perform {
@@ -141,8 +209,13 @@ struct ScoreWorkspace: View {
         } message: { Text("Your repetitions and time stay saved. Unfinished work remains in your history.") }
         .alert("Couldn’t complete that", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
         .onAppear { page = piece?.lastPage ?? 1; runtime.scoreAppeared(ownerID: voiceOwnerID) }
-        .onDisappear { speech.stop(ifOwnedBy: voiceOwnerID); runtime.scoreDisappeared(ownerID: voiceOwnerID) }
+        .onDisappear { _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); runtime.scoreDisappeared(ownerID: voiceOwnerID) }
         .onChange(of: pieceID) { _, _ in page = piece?.lastPage ?? 1; selectedPassage = nil; speech.stop(ifOwnedBy: voiceOwnerID) }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { _ = markup.flushInk() } }
+        .onChange(of: markup.errorMessage) { _, message in if let message { error = message; markup.errorMessage = nil } }
+        .onChange(of: store.state.passages) { _, passages in
+            if let selectedPassage { self.selectedPassage = passages.first { $0.id == selectedPassage.id } }
+        }
         .onChange(of: active?.currentBPM) { _, _ in refreshAudio() }
         .onChange(of: active?.status) { _, _ in refreshAudio(); runtime.updateScreenAwake() }
         .background {
@@ -152,6 +225,141 @@ struct ScoreWorkspace: View {
             }.keyboardShortcut(.space, modifiers: [])
                 .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
         }
+    }
+    private var markupHeader: some View {
+        @Bindable var markup = markup
+        let shortScreen = verticalSizeClass == .compact
+        let simplifiedLabels = shortScreen || dynamicTypeSize.isAccessibilitySize
+        return VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                if markup.mode == .selecting {
+                    Button { confirmDiscardSelection = true } label: {
+                        if simplifiedLabels {
+                            Image(systemName: "xmark").font(.system(size: 20))
+                                .frame(width: 44, height: 44).contentShape(Rectangle())
+                        } else {
+                            Text("Cancel").frame(minWidth: 60, minHeight: 44).contentShape(Rectangle())
+                        }
+                    }.accessibilityLabel("Cancel")
+                }
+                if shortScreen {
+                    pageControls(compact: true)
+                } else if !simplifiedLabels {
+                    Text(markup.mode == .selecting ? "Select passage" : "Write on score")
+                        .font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    if markup.mode == .selecting { saveSelection() }
+                    else if markup.flushInk() { markup.mode = .reading }
+                } label: {
+                    Text("Done").fontWeight(.semibold).fixedSize(horizontal: true, vertical: false)
+                        .frame(minWidth: 60, minHeight: 44).contentShape(Rectangle())
+                }
+                .disabled(markup.mode == .selecting && markup.regions.isEmpty)
+                .accessibilityIdentifier("finishScoreMarkup")
+            }
+            if markup.mode == .writing {
+                HStack(spacing: 8) {
+                    Toggle(isOn: $markup.fingerDrawing) {
+                        if simplifiedLabels {
+                            Image(systemName: "hand.draw").font(.system(size: 20))
+                                .frame(width: 32, height: 32)
+                        } else {
+                            Text("Draw with finger").font(.subheadline)
+                        }
+                    }
+                    .accessibilityLabel("Draw with finger")
+                    .accessibilityIdentifier("fingerDrawing")
+                    Button(action: markup.undoInk) {
+                        Image(systemName: "arrow.uturn.backward").font(.system(size: 20))
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }.disabled(!markup.canUndoInk).accessibilityLabel("Undo ink")
+                    Button(action: markup.redoInk) {
+                        Image(systemName: "arrow.uturn.forward").font(.system(size: 20))
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }.disabled(!markup.canRedoInk).accessibilityLabel("Redo ink")
+                }
+            }
+            if !shortScreen {
+                let status = markup.mode == .selecting ? "\(markup.regions.count) \(markup.regions.count == 1 ? "box" : "boxes")" : markup.fingerDrawing ? "Finger drawing on" : "Pencil writes · fingers navigate"
+                if dynamicTypeSize.isAccessibilitySize {
+                    pageControls(compact: true)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text(status).font(.subheadline).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("markupStatus")
+                } else {
+                    HStack {
+                        Text(status).font(.subheadline).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("markupStatus")
+                        Spacer(minLength: 0)
+                        pageControls(compact: true)
+                    }
+                }
+            }
+        }.padding(.horizontal, 14).padding(.bottom, 4).background(.regularMaterial)
+    }
+    private var selectionTools: some View {
+        VStack(spacing: 2) {
+            if verticalSizeClass != .compact && !dynamicTypeSize.isAccessibilitySize {
+                Text("Drag to add a box. Drag a box or its corners to edit.")
+                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            }
+            HStack(spacing: 20) {
+                Button { markup.undoSelection() } label: {
+                    Image(systemName: "arrow.uturn.backward").font(.system(size: 20))
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .disabled(!markup.canUndoSelection).accessibilityLabel("Undo")
+                .accessibilityIdentifier("undoBox")
+                Button { markup.redoSelection() } label: {
+                    Image(systemName: "arrow.uturn.forward").font(.system(size: 20))
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .disabled(!markup.canRedoSelection).accessibilityLabel("Redo")
+                .accessibilityIdentifier("redoBox")
+                Spacer(minLength: 0)
+                Button { markup.removeSelected() } label: {
+                    Image(systemName: "trash").font(.system(size: 20))
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .disabled(markup.selectedRegionID == nil).accessibilityLabel("Remove selected box")
+                .accessibilityIdentifier("removeBox")
+            }
+        }.padding(.horizontal, 20).padding(.top, 8).background(.regularMaterial)
+    }
+    private func newPassage() -> Passage {
+        let count = savedPassages.count + 1
+        return Passage(pieceID: pieceID, title: "Passage \(count)", page: page)
+    }
+    private func beginSelection(_ passage: Passage?) {
+        focusMode = false
+        guard scoreURL != nil else { importing = true; return }
+        markup.begin(passage ?? newPassage(), baseline: passage)
+    }
+    private func beginWriting() {
+        guard scoreURL != nil else { importing = true; return }
+        focusMode = false; markup.mode = .writing
+    }
+    private func saveSelection() {
+        guard var draft = markup.draft, !draft.regions.isEmpty else { return }
+        perform {
+            draft.page = draft.regions.map(\.page).min() ?? page
+            try store.savePassage(draft, replacing: markup.baseline)
+            selectedPassage = draft; markup.finish()
+        }
+    }
+    private func persistInk(_ page: Int, _ data: Data, _ expected: Data?) -> Bool {
+        do {
+            guard store.drawing(pieceID: pieceID, page: page) == expected else {
+                markup.conflictPage = page
+                return false
+            }
+            try NativeLibraryFiles(store: store).saveDrawing(pieceID: pieceID, page: page, data: data)
+            return true
+        } catch { markup.errorMessage = "Ink could not be saved. \(error.localizedDescription)"; return false }
     }
     @ViewBuilder private var practiceDock: some View {
         VStack(spacing: 12) {
@@ -164,7 +372,7 @@ struct ScoreWorkspace: View {
                             Text("\(active.totalPlays) repetitions saved").font(.subheadline).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button { perform { try store.undo() } } label: { Image(systemName: "arrow.uturn.backward") }.accessibilityLabel("Undo last repetition").keyboardShortcut("z", modifiers: .command)
+                        Button { perform { try runtime.undo() } } label: { Image(systemName: "arrow.uturn.backward") }.accessibilityLabel("Undo last repetition").keyboardShortcut("z", modifiers: .command)
                     }
                     HStack(spacing: 12) {
                         Button("Finish") { perform { try store.endSession(); metronome.stop() } }.buttonStyle(.bordered).frame(maxWidth: .infinity)
@@ -180,7 +388,7 @@ struct ScoreWorkspace: View {
                                 .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).accessibilityIdentifier("repProgress")
                         }
                         Spacer(minLength: 4)
-                        Button { perform { try store.undo() } } label: { Image(systemName: "arrow.uturn.backward").frame(width: 44, height: 44) }
+                        Button { perform { try runtime.undo() } } label: { Image(systemName: "arrow.uturn.backward").frame(width: 44, height: 44) }
                             .accessibilityLabel("Undo last repetition").accessibilityIdentifier("undoRep").keyboardShortcut("z", modifiers: .command)
                             .disabled(!active.attempts.contains { $0.undoneAt == nil })
                         Button { togglePause() } label: { Image(systemName: active.status == .paused ? "play.fill" : "pause.fill").frame(width: 44, height: 44) }
@@ -209,8 +417,8 @@ struct ScoreWorkspace: View {
                 HStack(spacing: 12) {
                     Button { sheet = .passages } label: {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(selectedPassage?.measureLabel ?? "Whole piece").font(.headline)
-                            Text(selectedPassage?.title ?? "Choose a passage").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                            Text(selectedPassage?.title ?? "Whole piece").font(.headline)
+                            Text(selectedPassage?.locationLabel ?? "Choose a passage").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                         }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 54).contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityIdentifier("choosePassage")
                     Button { sheet = .setup } label: { Label("Start set", systemImage: "play.fill").frame(minHeight: 36) }
@@ -241,6 +449,7 @@ struct ScoreWorkspace: View {
             }
                 .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 12 : 0)
                 .frame(maxWidth: .infinity).frame(minHeight: 72)
+                .contentShape(Rectangle())
                 .foregroundStyle(primary ? Color(uiColor: .systemBackground) : Color.primary)
                 .background(primary ? Color.accentColor : Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 16))
         }.buttonStyle(.plain).keyboardShortcut(key, modifiers: []).accessibilityIdentifier("verdict_\(verdict.rawValue)")
@@ -282,7 +491,7 @@ struct ScoreWorkspace: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { sheet = nil } } }
         }.presentationDetents([.large])
     }
-    private func turnPage(_ direction: Int) { page = min(max(1, piece?.pageCount ?? 1), max(1, page + direction * (twoPages && sizeClass == .regular ? 2 : 1))); savePage(page) }
+    private func turnPage(_ direction: Int) { guard markup.flushInk() else { return }; page = min(max(1, piece?.pageCount ?? 1), max(1, page + direction * (twoPages && sizeClass == .regular ? 2 : 1))); savePage(page) }
     private func savePage(_ page: Int) { perform { try store.updateLastPage(pieceID: pieceID, page: page) } }
     private func perform(_ action: () throws -> Void) { do { try action() } catch { self.error = error.localizedDescription } }
     private func togglePause() {
@@ -295,11 +504,8 @@ struct ScoreWorkspace: View {
                 metronome.setTempo(active.currentBPM)
                 throw PracticeError.conflict("The click was restored to your set tempo. Repeat the passage before recording it.")
             }
-            let saved = try store.record(verdict)
-            if saved {
-                FeedbackService.shared.isEnabled = feedbackEnabled
-                FeedbackService.shared.verdictSaved(completedSet: store.activeSet?.isComplete == true)
-            }
+            FeedbackService.shared.isEnabled = feedbackEnabled
+            _ = try runtime.record(verdict)
         }
     }
     private func refreshAudio() {
@@ -311,12 +517,12 @@ struct ScoreWorkspace: View {
     }
     private func handleVoice(_ command: VoiceCommand) {
         // A modal editor owns its own input; speech never writes through an open setup sheet.
-        guard sheet == nil || sheet == .voice else { return }
+        guard markup.mode == .reading, sheet == nil || sheet == .voice else { return }
         switch command {
         case .clean: record(.clean)
         case .sloppy: record(.sloppy)
         case .again: record(.again)
-        case .undo: if active != nil { perform { try store.undo() } }
+        case .undo: if active != nil { perform { try runtime.undo() } }
         case .pause: if active != nil { perform { try store.pause() } }
         case .resume: if active != nil { perform { try store.resume() } }
         case .metronomeStart:

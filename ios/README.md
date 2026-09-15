@@ -1,235 +1,138 @@
-# Praelude for iPhone and iPad
+# Praelude Mobile
 
-**Version 1.0.0 — DEVELOPMENT CANDIDATE. Last updated: 2026-09-14.** This is a native SwiftUI
-application target for iOS/iPadOS 17 and later. It is separate from the installed Mac
-Praelude v11.1.0/schema21 product. It has not been shipped through the App Store/TestFlight or
-completed physical-device feature acceptance. Simulator evidence and hardware acceptance are different gates.
+**1.1.0/build2 · schema2 · DEVELOPMENT CANDIDATE · updated 2026-09-14.**
+Native SwiftUI, PDFKit and PencilKit for iPhone/iPad on iOS/iPadOS 17+. The confirmed physical iPad
+installation remains **1.0.0/build1**. The Mac product remains **v11.1.0/schema21**; this work does
+not replace its app or access its practice data.
 
-**Cable install status (2026-09-14): installed on iPad; first-launch trust pending.** Installation
-succeeded at 17:51 EDT, and the device app listing confirms version 1.0.0/build1 on the iPad Pro
-12.9-inch (3rd generation), iPadOS 18.7.8. Developer Mode is enabled. The earlier attempt failed
-when the device became unavailable; that is retained as history. The first launch was denied
-with a security/trust message. Developer App trust is the next step; launch and feature QA are
-not accepted yet.
+The pianist supplies every verdict. Praelude keeps the score, counts repetitions, remembers targets
+and runs the metronome. It never grades piano audio or invents practice progress. Normal launches
+start blank; synthetic scores and practice exist only in the separate DEBUG UI-test store.
 
-The free Personal Team profile expires **2026-09-21 at 21:24:58 UTC**. Fixtures/test plug-ins
-are excluded, and the signed app is preserved at ignored `releases/ios-personal/Praelude.app`.
-The [sanitized Personal Team manifest](../docs/qa/ios/personal-ipad-install.json) records signing,
-expiry and confirmed installation separately from pending launch. The local-config Release build
-passes without a CLI team override. The historical unsigned manifest and simulator evidence remain
-unchanged; no Mac app or practice data was touched.
+## Open the mobile project
 
-Praelude keeps the same rule on every device: **the pianist is the sensor; the app is the memory**.
-You supply Clean, Sloppy, or Again. The app records practice, runs a metronome, and keeps your score
-close. It never listens to the piano to grade your playing. A normal first launch is blank.
+Use this `ios/` folder inside the existing Git repository; do not create a nested repository.
+Open [Praelude.xcodeproj](Praelude.xcodeproj) in Xcode, or the optional
+[Praelude Mobile workspace](Praelude%20Mobile.code-workspace) in your editor. Workspace tasks are
+explicit: generate, check/build, open Xcode, helper tests, read-only status and device refresh.
+Nothing runs automatically when the workspace opens.
 
-## The native interface
+- [Agent context](AGENTS.md): native product and safety contracts.
+- [Development guide](docs/DEVELOPMENT.md): prerequisites, module map and test commands.
+- [Using Mobile](docs/USING_MOBILE.md): current candidate controls and musician workflows.
+- [Install on iPad](docs/INSTALL_ON_IPAD.md): free Personal Team setup and seven-day refresh.
+- [Mobile roadmap](docs/ROADMAP.md), [candidate changes](docs/CHANGELOG.md) and
+  [design rationale](DESIGN.md): scope, native history and Apple/forScore research.
+- [Current 1.1 QA](../docs/qa/ios/1.1.0/README.md): exact evidence and remaining gates.
 
-The iPhone has three labeled tabs: **Today, Pieces, Progress**. iPad uses a collapsible system
-sidebar and a score workspace that adapts to window width; accessibility text sizes use full-width
-tabs so sidebar labels stay readable. Plain surfaces, system typography,
-large touch controls, one indigo action tint, and native sheets replace the desktop panel layout.
-There are no decorative gradients or simulated draggable desktop windows. Native system materials
-separate controls from the readable score. The rationale and primary-source research are in
-[DESIGN.md](DESIGN.md).
-
-- **Today:** return to the current set, open recent pieces, and see recorded work. Goals has its
-  own toolbar button and focused editor; goals are optional and never impose a practice plan.
-- **Pieces:** import a PDF from Files, search by title/composer, sort, edit notes/details, or move
-  a piece to Resting without losing its record.
-- **Score:** PDFKit page reading and zoom, saved measure-range passages, a focused set composer,
-  and large verdict buttons. iPad can explicitly open a score in a separate system window.
-- **Practice:** Clean streak or fixed Total plays, hands/focus, optional tempo ladder, ordered
-  variants and saved routines, pause/resume, current-set undo, and recorded sessions. Saving a rep
-  is independent of audio and feedback. A running/paused set cannot be silently replaced.
-- **Progress:** actual time, repetitions, completed sets, practice days, session details, and a
-  date-based practice calendar. Native levels advance every 100 earned XP; these are effort
-  feedback and are separate from the Mac Studio economy. Daily views group sessions by start date.
-- **Settings:** System/Light/Dark, score display-awake behavior, optional practice feedback,
-  backup export/restore, and the compact practice/keyboard guide.
-
-## Start practicing
-
-1. In **Pieces**, choose **Add piece**, enter a title, and import an unlocked score PDF from Files.
-   The app keeps its own copy; your source file is unchanged. You can also create a piece before
-   attaching a score. Imports accept up to 100 MB and 2,000 pages.
-2. Open the piece. Turn pages with the visible arrows; pinch to zoom.
-   Open **Passages** to add a title, measure range, score page, and focus.
-3. Choose the passage or whole piece and open **Practice set**. Start with the focus, clean
-   target, and tempo. **Set rules** holds count basis and hands. Variants and the optional tempo
-   ladder apply to Clean streak; Total plays uses one fixed tempo and no variants.
-4. Record **Clean**, **Sloppy**, or **Again** after playing. Sloppy restarts the current clean run.
-   Again preserves a variant stage's progress; with a plain clean streak it restarts the run.
-   All three verdicts count toward Total plays. Use Undo for the most recent verdict.
-5. Pause when stepping away, resume from Today, and finish the session when done. The app pauses
-   practice for backgrounding and restores saved work after reopening.
-
-The native tempo range is **20–300 BPM**. The metronome uses an audio-buffer loop scheduled by
-the audio engine, not a UI timer. Audio interruptions and disconnected routes stop playback with
-a recoverable state. Real-device output, sustained timing, and piano-room acoustics still need
-hardware acceptance.
-
-## Voice and keyboard
-
-Open **Score options (…) → Hands-free commands → Enable hands-free** to opt in. While listening,
-use **Off** in the practice controls or **Turn voice off** in Score options to stop. Starting the
-app does not ask for microphone access. The native speech path requires supported **on-device US English recognition**;
-if it is unavailable, voice refuses and the touch controls remain available. It never falls back
-to a server. Only final recognized command phrases dispatch actions; partial text does not log reps.
-
-Supported phrases include **clean**, **sloppy**, **again**, **undo**, **pause**, **resume**,
-**metronome start/stop**, **tempo 96**, **next page**, and **previous page**. This is a narrower
-command vocabulary than the Mac app. Microphone permission, speech availability, acoustic
-reliability, and speech/metronome overlap require physical-device testing.
-
-While the score is open, keyboard shortcuts are **←/→** for pages, **Space** for the metronome,
-**1/2/3** for Clean/Sloppy/Again, and **⌘Z** for Undo. A Bluetooth page turner configured to emit
-left/right keyboard arrows can use those bindings. MIDI and proprietary pedal protocols are not
-implemented or claimed as accepted.
-
-## Local data and backups
-
-The app uses its own sandbox-relative `Application Support/Praelude/library.json` store with
-**schema1**, plus owned PDFs in `Scores/`. Native mutations validate and write atomically before
-publishing observable state. A damaged or newer-format library opens read-only. Ordinary writes
-and export are refused so an empty fallback cannot overwrite a useful backup. Deliberately restoring
-a validated native backup first copies the original ledger to `library-preserved-<UUID>.json` and
-verifies identical bytes, then atomically installs the replacement. Failed preservation or replacement
-keeps the store read-only; the original is retained. A blank new library can still export.
-Desktop `codakiller.db`, schema21, absolute score paths, and Keychain credentials are never loaded
-or modified by this target.
-
-Settings exports a native JSON backup containing the library and its referenced score PDFs.
-The score-data limit is 200 MB; restore files are bounded at 280 MB to account for encoded data.
-Restore requires finishing the current set, a visible confirmation, valid references, and readable
-PDFs. It stages PDFs under new local filenames before committing the replacement library and
-cleans up staged files if validation fails. Backups are not encrypted by the application; choose
-their destination deliberately. Exporting to iCloud Drive is file storage, not automatic app sync.
-
-The native format does **not** import the Mac SQLite database or convert a Mac export. No migration,
-account sync, cloud mapping, Listen Back, furnished Studio/coin inventory, desktop warmup suite,
-PDF ink/Pencil editing, or full historical repair interface is implemented. Advanced desktop
-mastery/demotion policies and multiple parked sets are also outside this candidate; it keeps one
-running or paused set at a time. The Assistant remains off and on hold.
-See the precise [scope matrix](DESIGN.md#native-scope-and-desktop-differences).
-
-## Build and run
-
-Use Xcode with the iOS SDK and a compatible simulator runtime. No package download or third-party
-UI dependency is required. The app project, core Swift package, generator, and tests are in this
-directory. From the repository root:
+Install full Xcode, the iOS SDK and a compatible simulator runtime. Mac bootstrap and Command Line
+Tools alone do not supply those components. From this folder:
 
 ```sh
-python3 ios/scripts/generate-project.py
-bash ios/scripts/check.sh
-open ios/Praelude.xcodeproj
+python3 scripts/generate-project.py
+bash scripts/check.sh
+open Praelude.xcodeproj
 ```
 
-Select the **Praelude** scheme and an iPhone or iPad simulator, then Run. The check script runs the
-Foundation core tests, deterministic voice/metronome-pattern checks, and an unsigned simulator
-build. To run only the deterministic checks:
+Select **Praelude** and an iPhone/iPad simulator, then Run. The check script runs the Foundation
+core, deterministic services and simulator compilation. Use `bash scripts/check.sh --core-only`
+for core/services, `python3 -m unittest discover -s scripts -p 'test_*.py'` for the fake-device
+helper tests, and **Product → Test** for app-hosted/native UI tests. Full commands are in the
+[development guide](docs/DEVELOPMENT.md).
+
+## What the candidate does
+
+Phone navigation uses **Today, Pieces, Progress** tabs; iPad uses an adaptive sidebar, with tabs at
+accessibility text sizes. Plain system surfaces, readable notation, large touch controls and focused
+sheets keep the score prominent. There are no decorative gradients or simulated desktop windows.
+
+- **Scores:** import from Files, read page by page, pinch to zoom, enter Focus, and use two-page or
+  separate score windows where the iPad layout supports them.
+- **Passages and ink:** draw multiple boxes across systems/pages, move/resize them, add optional
+  measure labels, and reopen cropped previews. Write with PencilKit tools or enable finger drawing;
+  ink has its own Undo/Redo and remains editable separately from the PDF. Unsaved edits and
+  simultaneous-window conflicts have explicit handling.
+- **Practice:** Clean streak or Total plays, focus/hands, tempo, optional clean-streak ladders,
+  ordered variants/routines, pause/resume and current-set Undo. A saved repetition precedes rewards;
+  an active set cannot be silently replaced.
+- **Metronome:** 20–300 BPM, Tap tempo, meter, per-beat accents/silence, subdivisions, Wood/Click/Bell,
+  volume and optional haptics. Reward sounds/haptics have separate preferences.
+- **History and organization:** real sessions, dates, repetitions and effort levels; optional goals,
+  recent pieces, search, notes and Resting. A recorded visual target opens read-only from Progress
+  even after its saved shortcut changes. Native effort levels are separate from Mac Studio.
+- **Sharing:** Score options → **Share annotated score** creates a separate flattened-ink PDF for
+  system Files/sharing/Print. Practice boxes are excluded; the original score and editable ink stay
+  in the library. A native backup preserves the editable library instead.
+
+For the complete flow, see [Using Mobile](docs/USING_MOBILE.md). Optional voice starts at
+**Score options → Hands-free commands → Enable hands-free** and requires supported on-device US
+English recognition. It never falls back to server recognition. Touch needs no microphone.
+While the score is open, **←/→** change pages, **Space** toggles metronome, **1/2/3** record
+Clean/Sloppy/Again, and **⌘Z** undoes. Keyboard-emulating pedals can use those keys; MIDI and
+proprietary pedal protocols are not implemented.
+
+## Independent data and safe device refresh
+
+Native schema2 lives in the app's own `Library/Application Support/Praelude/library.json`, with
+owned PDFs under `Scores/`. It includes editable ink and original visual-target snapshots. Migrating
+a schema1 native ledger preserves its original first. Writes validate and save atomically before
+observable state and rewards change. Unreadable/newer data remains read-only; deliberate validated
+recovery preserves and byte-verifies the original before replacement. An unreadable empty fallback
+cannot be exported. Settings backup/restore includes the native library, PDFs and editable drawings.
+
+This is not Mac SQLite migration, Mac-export conversion or automatic sync. Cloud measure mapping,
+Listen Back, full Studio furnishings/coin economy, desktop warmups/history repair and advanced
+practice policies remain separate scope. Assistant is off/on hold. PencilKit annotation is not a
+claim of complete forScore parity; layers, stamps, text tools and its broader document/library
+workflows remain outside this candidate.
+
+A paid developer membership is unnecessary for personal testing. Follow the
+[installation guide](docs/INSTALL_ON_IPAD.md) for Xcode sign-in, ignored `Signing.local.xcconfig`,
+Developer Mode, conditional Developer App trust and rebuilding when the free profile expires.
+From the repository root:
 
 ```sh
-bash ios/scripts/check.sh --core-only
+npm run ios:device -- --help
+npm run ios:status -- --device "YOUR IPAD NAME"
+# Explicit update of an existing installation after setup and preservation checks:
+npm run ios:refresh -- --device "YOUR IPAD NAME"
 ```
 
-For native verification, choose a simulator and use **Product → Test** with the **Praelude** scheme.
-It includes **PraeludeAppTests** for native PDF/storage behavior and **PraeludeUITests** for actual
-interface flows. Test data is restricted to DEBUG launches with `--uitesting --seed`; `--uitesting --reset`
-resets only the separate UI-test store. Release builds have no fixture path. Synthetic fixture
-scores contain no personal repertoire or practice records.
+Help/status are read-only. Refresh refuses a running set, makes a verified full pre-update copy,
+rechecks the ledger, then installs over the same identifier. A second complete copy must match every
+file name, length and SHA-256 before launch. There are at most two full copies per update, retained
+in ignored private folders. A failed post-install check reports installed-but-unverified status;
+it never launches, restores or uninstalls automatically on that failure.
 
-### Install on your own iPad or iPhone for free
+**Current physical hold:** two authorized full-copy probes failed reading the installed app's PDF
+with EPERM, although the schema1 ledger copies successfully and has no active set. Complete backup
+access remains required before updating; no 1.1 device install was attempted. The original 1.0
+installation is verified. Its initial launch request encountered developer trust; later user
+activity and an imported PDF do not constitute a fresh controlled launch or broad feature verdict.
 
-A paid developer membership is **not required** to install this app on your own device through
-Xcode. Sign in with your Apple Account and use its **Personal Team**. Apple manages that team's
-development certificates and profiles through Xcode. This is personal device testing, not
-App Store or TestFlight distribution. See [Apple's Personal Team rules](https://developer.apple.com/help/account/basics/about-your-developer-account).
+## Current acceptance, with history kept separate
 
-1. Open `ios/Praelude.xcodeproj` in full Xcode. In **Xcode → Settings → Apple Accounts**, add
-   your Apple Account and complete any sign-in or agreement prompts yourself.
-2. Connect and unlock the iPad/iPhone by cable. Complete the device's **Trust This Computer**
-   prompt if it appears, and select the physical device as the **Praelude** scheme's destination.
-3. On the device, open **Settings → Privacy & Security → Developer Mode** and turn it on.
-   Restart when prompted, then confirm enablement after the restart and enter the device passcode.
-   The option appears after pairing with Xcode has begun. See [Apple's Developer Mode instructions](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device).
-4. In Xcode, select the **Praelude app target → Signing & Capabilities**, enable
-   **Automatically manage signing**, and select your **Personal Team**. If **Set Up Signing**
-   appears, use it to select the team. The candidate identifier is `com.christian.praelude.ios`;
-   if Xcode reports it unavailable, use a unique identifier for that personal build and keep it
-   stable for later refreshes.
-5. Choose **Product → Run**. Let Xcode register the device, create its development profile,
-   build, install, and launch the app. Use the normal scheme without UI-test fixture arguments.
-   Apple's [physical-device running guide](https://developer.apple.com/documentation/xcode/running-your-app-on-simulated-or-physical-devices)
-   describes automatic signing and device registration.
-6. If the first launch says the developer is untrusted, open **Settings → General → VPN & Device
-   Management** on the iPad/iPhone, select your **Developer App** entry, and trust your developer
-   certificate. Complete the prompts, then open Praelude again. This Personal Team trust step is
-   also described in Apple's [Food Truck sample setup](https://developer.apple.com/documentation/swiftui/food-truck-building-a-swiftui-multiplatform-app).
+| 1.1 gate | Confirmed result |
+| --- | --- |
+| Core / services / deployment helper | 29 tests / 2,166 assertions / 28 fake-device tests pass |
+| Native app-hosted | 36/36 pass on each simulator: iPad8 and Phone3 |
+| Latest iPad selected UI (`ipad9`) | **3/3 pass**: finger 59.497 s, meter 61.653 s, Focus 23.719 s. iPad7 supplies boxes and accessibility markup; five targeted scenarios pass across runs. Failed earlier bundles remain evidence |
+| Live ink | Newer iPad pre-Undo capture visibly shows the stroke, independently reviewed; an earlier blank capture remains unexplained. Phone3 pre-Undo/after-Redo images also show ink; physical Pencil acceptance remains pending |
+| Phone current regression | `phone3`: 36/36 hosted and all 3 selected UI pass; Phone2 supplies the other 4 UI passes. All 7 distinct phone scenarios have passing evidence across runs; Phone4 final-toolbar finger 91.652 s/meter 84.624 s also passes 2/2 |
+| Signed Release | Final frozen-source 1.1 build passes signature/profile, arm64/iOS17/both-family and fixture exclusion checks; production inputs stayed stable and all preserved app files match |
+| Physical update | Blocked on complete PDF backup access; installed version remains 1.0.0/build1 |
 
-For a portable checkout, the generated project reads `ios/Signing.xcconfig`, which optionally
-includes the ignored `ios/Signing.local.xcconfig`. Keep your Personal Team selection in that local
-file so regenerating the shared project retains signing without adding the team identifier to Git:
+The final verified signed candidate is preserved outside Git at
+`releases/ios-personal-1.1.0/Praelude.app`; its [manifest](../docs/qa/ios/1.1.0/signed-release.json)
+records source hashes and the dirty-working-tree boundary. The profile expires **2026-09-21 at
+21:24:58 UTC**. The older signed 1.0 app remains unchanged. No current all-green full-suite,
+physical-feature, App Store or TestFlight acceptance is claimed.
 
-```xcconfig
-DEVELOPMENT_TEAM = YOUR_PERSONAL_TEAM_ID
-```
+The [historical 1.0 ledger](../docs/qa/ios/README.md#historical-10-candidate-evidence) retains its
+22 core / 2,041 service / 13 hosted checks on each simulator and 8/8 distinct iPad / 7/8 phone UI
+scenarios across runs. Those results are not counted as new 1.1 passes. Its then-open complete phone backup
+UI gap is now closed by the Phone3 simulator flow; physical backup preservation remains open. Newer evidence is tracked only in the [1.1 ledger](../docs/qa/ios/1.1.0/README.md).
 
-Use your own team identifier locally. The local file is optional; simulator and unsigned builds
-work without it. Certificates and provisioning profiles remain managed by Xcode on this Mac.
-
-**Refresh every seven days:** Personal Team provisioning profiles expire seven days after issuance.
-Reconnect the device and rebuild/reinstall through Xcode when they expire. Keep the same Apple
-Account, team, and bundle identifier; do not delete the app as part of the refresh. Apple currently
-limits Personal Teams to three devices and three installed apps per device. See
-[Apple's current limits and renewal requirement](https://developer.apple.com/help/account/basics/about-your-developer-account).
-
-A successful install and launch must still be followed by device checks for score import, saved
-practice, audio, speech, interruptions and backup. This guide does not change the development
-candidate's acceptance status. App Store/TestFlight distribution requires separate membership,
-signing, archive/upload, privacy and review work.
-
-## Verification and remaining acceptance
-
-The [native acceptance ledger](../docs/qa/ios/README.md) records the environment, exact gates,
-review findings, selected screenshots, and remaining device boundaries.
-
-**Current verification:** full Swift 6 compilation and the unsigned Release arm64 device build
-pass for both device families with an iOS 17 minimum. The Foundation core has **22 passing tests**;
-deterministic service checks have **2,041 passing assertions**. All **13 native app-hosted tests**
-pass on **each iPhone and iPad simulator**, including PDF recovery. **All 8 distinct iPad UI
-scenarios pass across regression runs**, including the final three-case backup/practice/large-text
-suite. **7 of 8 iPhone UI scenarios pass**, including the corrected maximum-text test.
-
-The **complete iPhone backup UI scenario remains open**: the last run failed at initial Settings
-navigation, before either picker. An earlier run logged all three Settings callbacks and reached
-export dismissal and Restore Recents/Cancel, but failed outdated picker-selector assertions.
-iPad backup UI is accepted; neither family has manual CUA acceptance. The **final unsigned Release
-build passes on the exact current source**: arm64, version 1.0.0/build1, iOS17 minimum, both device
-families, with fixture flags and test plug-ins excluded. The [device build manifest](../docs/qa/ios/device-build.json)
-records its SHA-256 and source digest. At that unsigned-build verification, no signing identities
-or connected physical devices were present. Exact results and failed runs are retained in the
-acceptance ledger.
-
-Independent iPhone simulator screenshots verify the maximum-text correction in both orientations:
-verdict labels fit their controls, all three verdicts are reachable by scrolling, the page index
-is untruncated, and the score remains visible. Corrected iPhone and iPad large-text regression
-tests pass. The requested Dynamic Type size is preserved.
-
-Focused pinch zoom is accepted on the iPad simulator: PDFKit scale
-changed from 1.240418 to 2.869110 on the same page (2.31×), with independently reviewed crisp
-enlarged notation. The Release executable excludes the DEBUG fixture path. A device build is
-not physical-device acceptance or distribution.
-
-Physical iPhone/iPad import/relaunch/backup tests, VoiceOver and largest Dynamic Type, external
-keyboard/pedal behavior, interruption handling, long-session audio, and voice over an acoustic
-piano remain separate acceptance checks. The installed Mac app and its live database were outside
-this native implementation's mutation scope. B115 in the project flaw register tracks the native
-acceptance, signing, and feature-parity boundary.
-
-## Next steps
-
-Complete the iPad Developer App trust and verify launch, then test the installed candidate with
-disposable data. Complete iPhone backup UI acceptance and physical-iPhone checks separately. Verify real score import, durable repetitions, interruptions,
-voice/metronome behavior, accessibility, and backup restoration before calling it device-accepted.
-Plan Mac-data migration and any remaining desktop feature ports as explicit follow-up work.
+**Next steps:** obtain complete device backup access before updating. Then record install, preserved data and launch
+separately. Physical Pencil precision, sharing/printing, VoiceOver, keyboard/pedals, sustained audio,
+interruptions and voice over an acoustic piano still require their own acceptance.

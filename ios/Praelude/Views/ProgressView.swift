@@ -214,6 +214,36 @@ private struct SessionDetailView: View {
                     LabeledContent("Completed sets", value: "\(session.completedSets)")
                     if !session.focus.isEmpty { LabeledContent("Focus", value: session.focus) }
                 }
+                let sets = (store.state.history + [store.activeSet].compactMap { $0 }).filter { $0.sessionID == sessionID }
+                if !sets.isEmpty {
+                    Section("What you practiced") {
+                        ForEach(sets) { set in
+                            if let passage = set.configuration.passageSnapshot,
+                               let piece = store.pieces.first(where: { $0.id == session.pieceID }),
+                               let url = NativeLibraryFiles(store: store).scoreURL(for: piece), !passage.regions.isEmpty {
+                                NavigationLink {
+                                    RecordedPassageView(url: url, passage: passage)
+                                } label: {
+                                    HStack(spacing: 14) {
+                                        PassagePreview(url: url, passage: passage).frame(width: 96, height: 76)
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            Text(passage.title).font(.headline)
+                                            Text(passage.locationLabel).font(.subheadline).foregroundStyle(.secondary)
+                                            Text("\(set.effectiveAttempts.count) reps · \(set.configuration.focus)")
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }.padding(.vertical, 4)
+                                }
+                            } else {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(set.configuration.passageSnapshot?.title ?? "Whole piece").font(.headline)
+                                    Text("\(set.effectiveAttempts.count) reps · \(set.configuration.focus)")
+                                        .font(.subheadline).foregroundStyle(.secondary)
+                                }.padding(.vertical, 4)
+                            }
+                        }
+                    }
+                }
                 if !session.attempts.isEmpty {
                     Section("Recorded repetitions") {
                         ForEach(Array(session.attempts.enumerated()), id: \.element.id) { index, attempt in

@@ -1,5 +1,20 @@
 # Native iPhone/iPad candidate acceptance
 
+**Current candidate: [1.1.0/build2/schema2](1.1.0/README.md), scoped simulator/build verification
+complete (2026-09-14).** Core29/services2,166/helper28 and 36 native hosted tests on each simulator
+pass. Final-toolbar iPad9 passes 3/3 and Phone4 passes 2/2. iPad7 and Phone2/3 supply the remaining
+scoped cases: five targeted iPad and seven distinct phone scenarios have passing evidence across
+regressions. Phone3 closes the historical complete-phone-backup simulator UI gap. The final
+frozen-source signed Release and all preserved app files verify. Earlier failed bundles remain
+failed; no all-green full-scheme claim is made. Physical PDF backup access is still blocked, so
+no 1.1 install or hardware feature acceptance is claimed; the iPad remains 1.0.0/build1.
+
+Use the versioned 1.1 ledger for current work. The section below retains the 1.0 test results,
+failures, manifests and installed-candidate boundary as historical evidence; they have not been
+overwritten or promoted to 1.1 acceptance.
+
+## Historical 1.0 candidate evidence
+
 **2026-09-14 · native candidate 1.0.0/build1 · schema1.** This ledger covers the new
 `ios/` target. It is not a Mac release or physical-device acceptance. Installed macOS
 Praelude remains v11.1.0/schema21; no Mac application replacement or live-data migration

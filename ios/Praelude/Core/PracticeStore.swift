@@ -17,6 +17,8 @@ import Observation
     public var sessions: [PracticeSession] { state.sessions }
     public var activeSet: ActiveSet? { state.activeSet }
     public var preferences: Preferences { state.preferences }
+    public static let maximumDrawingBytes = 8 * 1024 * 1024
+    public static let maximumTotalDrawingBytes = 32 * 1024 * 1024
 
     public init(directory: URL, now: @escaping () -> Date = Date.init,
                 writeData: @escaping (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) },
@@ -29,11 +31,21 @@ import Observation
                 guard data.count <= 64 * 1024 * 1024 else { throw PracticeError.invalid("The practice library exceeds the supported size.") }
                 var restored = try Self.decoder().decode(LibraryState.self, from: data)
                 try Self.validate(restored)
+                let needsMigration = restored.schemaVersion == 1
+                if needsMigration {
+                    preservedOriginalURL = try preserveOriginal(prefix: "library-schema1")
+                    restored.schemaVersion = 2
+                }
                 // Never credit time while the app was absent. Persist this pause before exposing it.
-                if restored.activeSet?.status == .running {
-                    restored.activeSet?.status = .paused; restored.activeSet?.lastCheckpoint = nil
+                if needsMigration || restored.activeSet?.status == .running {
+                    if restored.activeSet?.status == .running {
+                        restored.activeSet?.status = .paused; restored.activeSet?.lastCheckpoint = nil
+                    }
                     restored.revision += 1
-                    try writeData(Self.encoder().encode(restored), fileURL)
+                    try Self.validate(restored)
+                    let migrated = try Self.encoder().encode(restored)
+                    guard migrated.count <= 64 * 1024 * 1024 else { throw PracticeError.invalid("The migrated library exceeds the supported size.") }
+                    try writeData(migrated, fileURL)
                 }
                 state = restored
             }
@@ -66,6 +78,10 @@ import Observation
     public func updatePiece(_ piece: Piece) throws {
         try transaction { next in
             guard let index = next.pieces.firstIndex(where: { $0.id == piece.id }) else { throw PracticeError.invalid("This piece is no longer in your library.") }
+            let old = next.pieces[index]
+            if old.pdfFileName != piece.pdfFileName || old.pageCount != piece.pageCount {
+                try Self.requireReplaceableScore(pieceID: piece.id, in: next)
+            }
             next.pieces[index] = piece
         }
     }
@@ -84,6 +100,7 @@ import Observation
             }
             next.pieces.removeAll { $0.id == id }; next.passages.removeAll { $0.pieceID == id }
             next.goals.removeAll { $0.pieceID == id }
+            next.scoreDrawings.removeAll { $0.pieceID == id }
         }
     }
     public func updateLastPage(pieceID: UUID, page: Int) throws {
@@ -93,15 +110,50 @@ import Observation
         }
     }
     public func savePassage(_ passage: Passage) throws {
+        try savePassage(passage, expected: nil, compareExpected: false)
+    }
+    /// A new passage passes nil; an editor passes the exact saved value it opened.
+    public func savePassage(_ passage: Passage, replacing expected: Passage?) throws {
+        try savePassage(passage, expected: expected, compareExpected: true)
+    }
+    private func savePassage(_ passage: Passage, expected: Passage?, compareExpected: Bool) throws {
         try transaction { next in
+            if compareExpected {
+                guard expected == nil || expected?.id == passage.id,
+                      next.passages.first(where: { $0.id == passage.id }) == expected else {
+                    throw PracticeError.conflict("This passage changed in another window. Your edits are still open. Cancel and reopen the passage to use its latest saved version.")
+                }
+            }
             if let index = next.passages.firstIndex(where: { $0.id == passage.id }) { next.passages[index] = passage }
             else { next.passages.append(passage) }
+        }
+    }
+    public func drawing(pieceID: UUID, page: Int) -> Data? {
+        state.scoreDrawings.first { $0.pieceID == pieceID && $0.page == page }?.data
+    }
+    /// Native callers validate PencilKit encoding before calling this Foundation-only boundary.
+    /// Empty data removes the saved drawing; it does not create an empty record.
+    public func saveDrawing(pieceID: UUID, page: Int, data: Data) throws {
+        try transaction { next in
+            guard let piece = next.pieces.first(where: { $0.id == pieceID }), piece.pdfFileName != nil,
+                  page >= 1, page <= piece.pageCount else { throw PracticeError.invalid("Choose an existing score page before saving ink.") }
+            guard data.count <= Self.maximumDrawingBytes else { throw PracticeError.invalid("This page has reached the supported 8 MB of ink.") }
+            next.scoreDrawings.removeAll { $0.pieceID == pieceID && $0.page == page }
+            if !data.isEmpty { next.scoreDrawings.append(ScoreDrawing(pieceID: pieceID, page: page, data: data)) }
+        }
+    }
+    public func requireReplaceableScore(pieceID: UUID) throws { try Self.requireReplaceableScore(pieceID: pieceID, in: state) }
+    private static func requireReplaceableScore(pieceID: UUID, in state: LibraryState) throws {
+        let snapshots = (state.history + [state.activeSet].compactMap { $0 }).compactMap { $0.configuration.passageSnapshot }
+        guard !state.scoreDrawings.contains(where: { $0.pieceID == pieceID }),
+              !(state.passages + snapshots).contains(where: { $0.pieceID == pieceID && !$0.regions.isEmpty }) else {
+            throw PracticeError.conflict("This score has ink or marked passages. Import the new PDF as a separate piece to preserve those marks and practice history.")
         }
     }
     public func deletePassage(_ id: UUID) throws {
         try transaction { next in
             guard next.activeSet?.configuration.passageID != id else { throw PracticeError.conflict("End the current set before removing its passage.") }
-            // Historic configurations retain their measure-independent focus snapshot; unlink only the optional navigation reference.
+            // Keep the original passage snapshot in history; unlink only its navigation reference.
             next.passages.removeAll { $0.id == id }
             for index in next.history.indices where next.history[index].configuration.passageID == id { next.history[index].configuration.passageID = nil }
         }
@@ -110,6 +162,8 @@ import Observation
     public func startSet(_ configuration: PracticeConfiguration) throws {
         let date = now()
         try transaction { next in
+            var configuration = configuration
+            configuration.passageSnapshot = configuration.passageID.flatMap { id in next.passages.first { $0.id == id && $0.pieceID == configuration.pieceID } }
             try PracticeEngine.validate(configuration)
             if let active = next.activeSet {
                 guard active.status == .completed else { throw PracticeError.conflict("Pause or finish your current set before starting another.") }
@@ -224,14 +278,17 @@ import Observation
     }
     public static func decodeBackup(_ data: Data) throws -> LibraryState {
         guard data.count <= 64 * 1024 * 1024 else { throw PracticeError.invalid("The practice library exceeds the supported 64 MB size.") }
-        let state = try decoder().decode(LibraryState.self, from: data); try validate(state); return state
+        var state = try decoder().decode(LibraryState.self, from: data); try validate(state)
+        state.schemaVersion = 2
+        return state
     }
     public func restoreBackup(_ restored: LibraryState) throws {
         guard state.activeSet == nil else { throw PracticeError.conflict("End your current set before restoring a backup.") }
         guard restored.activeSet?.status != .running else { throw PracticeError.invalid("This backup contains a running set. Pause it on the source device before exporting.") }
         try Self.validate(restored)
-        if isReadOnly { try recoverUnreadableLibrary(with: restored); return }
-        try transaction { next in next = restored }
+        var migrated = restored; migrated.schemaVersion = 2
+        if isReadOnly { try recoverUnreadableLibrary(with: migrated); return }
+        try transaction { next in next = migrated }
     }
 
     /// The caller explicitly chose Restore. Preserve and verify the unreadable original before
@@ -243,16 +300,7 @@ import Observation
         let data = try Self.encoder().encode(next)
         guard data.count <= 64 * 1024 * 1024 else { throw PracticeError.invalid("The restored practice library exceeds the supported 64 MB size.") }
         do {
-            let original = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-            guard original.isRegularFile == true, original.isSymbolicLink != true else {
-                throw PracticeError.unavailable("The original library could not be preserved as a regular file. Restore has not replaced it.")
-            }
-            let preserved = directory.appendingPathComponent("library-preserved-\(UUID().uuidString).json")
-            try preserveFile(fileURL, preserved)
-            guard FileManager.default.contentsEqual(atPath: fileURL.path, andPath: preserved.path) else {
-                throw PracticeError.unavailable("The preserved library could not be verified. Restore has not replaced the original.")
-            }
-            preservedOriginalURL = preserved
+            preservedOriginalURL = try preserveOriginal(prefix: "library-preserved")
             try writeData(data, fileURL)
             state = next
             isReadOnly = false
@@ -261,6 +309,19 @@ import Observation
             errorMessage = "Restore could not safely replace the unreadable library. The original is preserved. \(error.localizedDescription)"
             throw error
         }
+    }
+
+    private func preserveOriginal(prefix: String) throws -> URL {
+        let original = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard original.isRegularFile == true, original.isSymbolicLink != true else {
+            throw PracticeError.unavailable("The original library could not be preserved as a regular file. It has not been replaced.")
+        }
+        let preserved = directory.appendingPathComponent("\(prefix)-\(UUID().uuidString).json")
+        try preserveFile(fileURL, preserved)
+        guard FileManager.default.contentsEqual(atPath: fileURL.path, andPath: preserved.path) else {
+            throw PracticeError.unavailable("The preserved library could not be verified. The original has not been replaced.")
+        }
+        return preserved
     }
 
     private func transaction(_ change: (inout LibraryState) throws -> Void) throws {
@@ -312,7 +373,7 @@ import Observation
         // Bounds also keep calendar formatting and duration-to-Int conversions safe for imported data.
         func date(_ value: Date) -> Bool { value.timeIntervalSince1970.isFinite && (0...4_102_444_800).contains(value.timeIntervalSince1970) }
         let maximumFocusedSeconds: Double = 100 * 366 * 24 * 60 * 60
-        try require(state.schemaVersion == 1 && state.revision >= 0, "This practice library uses an unsupported format.")
+        try require((1...2).contains(state.schemaVersion) && state.revision >= 0, "This practice library uses an unsupported format.")
         try require(state.revision < Int.max - 1 && state.pieces.count <= 10000 && state.passages.count <= 100000 && state.history.count <= 100000 && state.sessions.count <= 100000 && state.goals.count <= 10000 && state.routines.count <= 10000, "The library contains more records than this version supports.")
         try require(unique(state.pieces.map(\.id)) && unique(state.passages.map(\.id)) && unique(state.sessions.map(\.id)) && unique(state.goals.map(\.id)) && unique(state.routines.map(\.id)), "The library contains duplicate record identifiers.")
         let pieceIDs = Set(state.pieces.map(\.id)); let sessionIDs = Set(state.sessions.map(\.id))
@@ -323,11 +384,42 @@ import Observation
                 try require(!name.isEmpty && name.count <= 255 && !name.contains("/") && !name.contains("\\") && !name.contains("..") && name.lowercased().hasSuffix(".pdf") && !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }), "A score filename is not a local PDF filename.")
             }
         }
-        for passage in state.passages {
-            let pageCount = state.pieces.first { $0.id == passage.pieceID }?.pageCount ?? 0
-            try require(pieceIDs.contains(passage.pieceID) && text(passage.title) && text(passage.focus) && (1...100000).contains(passage.startMeasure) && (passage.startMeasure...100000).contains(passage.endMeasure) && (1...max(1, pageCount)).contains(passage.page), "A passage has an invalid piece, measure range, or page.")
+        func validatePassage(_ passage: Passage) throws {
+            let piece = state.pieces.first { $0.id == passage.pieceID }
+            try require(piece != nil && text(passage.title) && text(passage.focus) && (1...max(1, piece?.pageCount ?? 0)).contains(passage.page), "A passage has an invalid piece, title, or page.")
+            switch (passage.startMeasure, passage.endMeasure) {
+            case (nil, nil): break
+            case (.some(let start), .some(let end)):
+                try require((1...100000).contains(start) && end >= start && end <= 100000, "A passage has an invalid measure range.")
+            default: throw PracticeError.invalid("Enter both measure numbers or leave both empty.")
+            }
+            try require(passage.regions.count <= 256 && unique(passage.regions.map(\.id)), "A passage contains too many marks or duplicate mark identifiers.")
+            for region in passage.regions {
+                try require(piece?.pdfFileName != nil && region.page >= 1 && region.page <= (piece?.pageCount ?? 0), "A passage mark references a missing score page.")
+                try require([region.x, region.y, region.width, region.height].allSatisfy(\.isFinite)
+                            && region.x >= 0 && region.y >= 0 && region.width > 0 && region.height > 0
+                            && region.x + region.width <= 1 && region.y + region.height <= 1,
+                            "A passage mark must fit within its score page.")
+            }
+        }
+        for passage in state.passages { try validatePassage(passage) }
+        try require(unique(state.passages.flatMap(\.regions).map(\.id)), "Saved passages contain duplicate mark identifiers.")
+        try require(state.scoreDrawings.count <= 10000, "The library contains too many pages of ink.")
+        var drawingPages = Set<String>()
+        var drawingBytes = 0
+        for drawing in state.scoreDrawings {
+            let piece = state.pieces.first { $0.id == drawing.pieceID }
+            try require(piece?.pdfFileName != nil && drawing.page >= 1 && drawing.page <= (piece?.pageCount ?? 0), "A drawing references a missing score page.")
+            try require(drawingPages.insert("\(drawing.pieceID):\(drawing.page)").inserted, "The library contains duplicate drawings for a score page.")
+            try require(!drawing.data.isEmpty && drawing.data.count <= maximumDrawingBytes, "A page drawing is empty or exceeds the supported 8 MB size.")
+            drawingBytes += drawing.data.count
+            try require(drawingBytes <= maximumTotalDrawingBytes, "The library has reached its supported 32 MB of ink. Export a backup before continuing.")
         }
         let sets = state.history + [state.activeSet].compactMap { $0 }
+        if state.schemaVersion == 1 {
+            try require(state.scoreDrawings.isEmpty && state.passages.allSatisfy { $0.regions.isEmpty && $0.startMeasure != nil && $0.endMeasure != nil }
+                        && sets.allSatisfy { $0.configuration.passageSnapshot == nil }, "A legacy library contains unsupported markup fields.")
+        }
         try require(unique(sets.map(\.id)) && unique(sets.flatMap(\.attempts).map(\.id)), "Practice events contain duplicate identifiers.")
         try require(state.history.allSatisfy { $0.status == .ended || $0.status == .completed }, "History contains an unfinished set.")
         try require(state.activeSet?.status != .ended, "An ended set cannot be active.")
@@ -336,6 +428,10 @@ import Observation
             try require(pieceIDs.contains(set.configuration.pieceID) && sessionIDs.contains(set.sessionID), "A practice set references a missing piece or session.")
             if let passageID = set.configuration.passageID {
                 try require(state.passages.contains { $0.id == passageID && $0.pieceID == set.configuration.pieceID }, "A practice set references a missing passage.")
+            }
+            if let snapshot = set.configuration.passageSnapshot {
+                try require(snapshot.pieceID == set.configuration.pieceID && (set.configuration.passageID == nil || snapshot.id == set.configuration.passageID), "A practice set contains an unrelated passage snapshot.")
+                try validatePassage(snapshot)
             }
             try require(date(set.startedAt) && set.endedAt.map(date) != false && set.lastCheckpoint.map(date) != false && set.activeSeconds.isFinite && (0...maximumFocusedSeconds).contains(set.activeSeconds), "A practice set contains invalid timing.")
             try require((set.status == .running) == (set.lastCheckpoint != nil), "A practice set has inconsistent pause state.")

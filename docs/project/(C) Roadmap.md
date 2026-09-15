@@ -4,7 +4,39 @@
 
 **Native boundary:** v11.1.0 launches and renders the real Beethoven Op.90 movement 2 score, selected passage and Variants dialog. The earlier Desktop/Score permission blocker is cleared. Progressive rep/set/chain effects passed independent live browser review; native audible quality, voice/chime overlap and Christian’s motivation verdict remain open. Cover-picker selection/save (B109), microphone/Steinway, real mapping and Windows acceptance remain separate.
 
-## iOS1.0.0 — Native iPhone/iPad candidate (development, 2026-09-14)
+## iOS1.1.0 — Score markup and mobile handoff (candidate verified; device update held, 2026-09-14)
+
+Native **1.1.0/build2/schema2** implements visual passage boxes, editable PencilKit ink, original
+targets in Progress history, separate annotated-PDF export/share/Print and expanded metronome/rewards.
+Plain native surfaces and adaptive controls keep the music central. The installed iPad remains
+1.0.0/build1; this is not full forScore/desktop parity, physical-feature acceptance or shipment.
+
+[Mobile README](/Users/c3/praelude/ios/README.md), [task context](/Users/c3/praelude/ios/AGENTS.md),
+[module/check guide](/Users/c3/praelude/ios/docs/DEVELOPMENT.md),
+[installation/renewal](/Users/c3/praelude/ios/docs/INSTALL_ON_IPAD.md) and
+[mobile roadmap](/Users/c3/praelude/ios/docs/ROADMAP.md) make the same Git repo usable as a focused
+mobile workspace. The helper has 28 passing fake-device tests, including full file-hash comparison
+before/after installation and no launch on a post-install discrepancy. It never deletes the app.
+
+Current native evidence: 29 core tests, 2,166 service assertions, 28 fake-device helper tests and 36/36 native hosted tests
+on each simulator pass. The final-toolbar iPad9 selected run passes 3/3: finger 59.497 s, meter 61.653 s,
+Focus 23.719 s. iPad7 supplies box editing/relaunch and accessibility markup in both orientations;
+five targeted iPad scenarios pass across runs. Phone3 passes 36 hosted plus 3 selected UI, and Phone2
+supplies the other four UI passes: seven distinct phone scenarios pass across runs. Phone4 also passes its final-toolbar finger 91.652 s/meter 84.624 s recheck. Final exact-source signed Release verification passes. Earlier failed runs remain
+failed; no all-green full-scheme or physical-feature claim is made.
+
+Phone2's zero strokes led to explicit PDF/PencilKit gesture arbitration; Phone3 ink is visibly
+present. iPad9 verifies the 44-point toolbar entry, finger persistence, meter controls and Focus
+after corrected offscreen-test guards. The physical iPad remains 1.0.0/build1. Two complete-PDF
+backup probes still fail EPERM despite a readable ledger/no active set; no update is accepted.
+
+### Next steps
+
+Resolve full protected-PDF copying
+and hashes before the in-place update, then report version, all preserved files and launch separately.
+Keep physical Pencil/audio/voice, printing, VoiceOver, keyboard/pedals, interruptions, real device-backup preservation and sync/parity limits open under B115 until their own evidence is recorded.
+
+## iOS1.0.0 — Historical native baseline (2026-09-14)
 
 - Christian's request is a musician-first native redesign: plain Apple surfaces, large controls,
   page-first music, essential actions first, focused sheets and iPad score windows. SwiftUI for
@@ -23,7 +55,7 @@
   remains open after the final initial-Settings-navigation failure. The exact-source unsigned
   Release build passes; fixture flags/test plug-ins are absent. The current source/binary
   manifest and evidence are in `ios/README.md` and `docs/qa/ios/README.md`.
-- Cable installation is **verified; first-launch trust is pending**. Free Personal Team
+- Historical cable installation is **verified; its initial launch request encountered trust**. Free Personal Team
   Release 1.0.0/build1 installed at 17:51 EDT; the device listing confirms version/build and
   Developer Mode is enabled. The prior device-unavailable attempt remains history. First launch
   was denied by a security/trust message; Developer App trust must precede launch acceptance.
@@ -36,10 +68,10 @@
 
 ### Next steps
 
-Complete iPad Developer App trust and verify launch, then validate the installed app with
-disposable data for Files/PDF/relaunch, persistence/backup, audio/voice/interruption and
-accessibility. Complete phone backup UI acceptance separately. Keep B115 open until its gates are proved. Plan Mac-data migration and remaining
-ports explicitly; the present implementation is not full desktop parity.
+Retain these baseline results as history; current source acceptance belongs to the 1.1 section above.
+Obtain a controlled device launch/feature verdict, handling developer trust if the device requests
+it, and use the current Phone3 result for the now-closed simulator backup gap. Mac-data migration and remaining ports
+are explicit follow-up work; this baseline is not full desktop parity.
 
 ## Maintenance — fresh-Mac development portability (completed 2026-09-13)
 

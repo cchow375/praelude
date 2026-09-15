@@ -1,11 +1,13 @@
 # Praelude for iPhone and iPad
 
-**iOS1.0.0 DEVELOPMENT CANDIDATE · 2026-09-14.** This is a native SwiftUI implementation for
+**Design baseline: iOS1.0.0 DEVELOPMENT CANDIDATE · 2026-09-14.** This is a native SwiftUI implementation for
 iOS/iPadOS17+ with its own local, device-private store. Its
 contract is the same as the Mac app: **the pianist supplies the verdict; Praelude records it**.
 It never estimates musical quality from microphone audio. A new installation starts blank.
 Native data uses a sandbox-relative schema1 JSON store and owned PDFs; the separate installed Mac
-v11.1.0/schema21 SQLite database is outside this target.
+v11.1.0/schema21 SQLite database is outside this target. The next score-markup milestone is in
+development; the matrix below describes the 1.0 baseline until its new native gates finish.
+Current work and remaining scope are tracked in [the mobile roadmap](docs/ROADMAP.md).
 
 ## Design direction
 
@@ -82,6 +84,34 @@ This follows [Sheets](https://developer.apple.com/design/human-interface-guideli
 [Designing for iPadOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-ipados):
 retain context, minimize unnecessary modal transitions on the larger display, and avoid clutter
 from excessive windows.
+
+## Pencil and annotation direction for the next milestone
+
+Keep an explicit annotation mode with a small native tool surface. Default to Pencil input while
+fingers retain reading/zoom behavior; offer a clearly labeled finger-drawing option for musicians
+without a Pencil. Undo for marks belongs to that editing context; practice Undo continues to mean
+the latest verdict. A page change, background transition, or window closing must not discard marks.
+
+forScore demonstrates useful details: optional automatic Pencil entry/exit, prevention of finger
+drawing, separate annotation layers, and symbols/text as distinct tools. Adopt these selectively;
+each adds interaction and persistence obligations. A compact Pencil/eraser workflow does not imply
+layers, stamps, text tools, document editing, or complete forScore parity.
+[forScore's annotation guide](https://forscore.co/documentation/annotation/).
+
+Use public `PDFPageOverlayViewProvider` with PencilKit for page overlays. Apple supplies overlay
+layout and rotation handling and documents the view lifecycle. Store drawing data outside the
+ephemeral overlay, keyed to stable piece/page identity, and persist edits through the same durable
+store boundary. Reopening must rebuild the canvas from stored data. Do not depend on PDFKit's
+private view hierarchy for placement or retain the canvas as the only copy.
+[Apple's PDFKit overlay presentation](https://developer.apple.com/videos/play/wwdc2022/10089/).
+
+Editable PencilKit data and a portable annotated PDF are separate artifacts. Apple describes PDF
+annotation appearances and optional burn-in when exporting. The 1.1 candidate now renders a new
+sharing/printing PDF with flattened ink, keeping the source and editable drawing unchanged. Passage
+boxes stay out of that exported copy. Verify marks on rotated/cropped pages and at different zoom
+levels using actual Pencil input and native tests; three iPad hosted export tests now cover render alignment, while share/Print UI and physical output
+acceptance remain pending. Recorded practice also opens a read-only original-target view, so later passage edits
+do not rewrite what a session meant. See [the candidate usage guide](docs/USING_MOBILE.md).
 
 ## Accessibility and musician ergonomics
 

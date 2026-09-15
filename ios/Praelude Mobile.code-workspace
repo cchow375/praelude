@@ -1,0 +1,146 @@
+{
+  "folders": [
+    {
+      "name": "Praelude Mobile",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/.build": true,
+      "**/DerivedData": true,
+      "**/ReleaseDerivedData": true,
+      "**/DeviceDerivedData": true,
+      "**/__pycache__": true
+    },
+    "search.exclude": {
+      "**/*.xcresult": true,
+      "**/Signing.local.xcconfig": true
+    }
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Mobile: build",
+        "dependsOn": [
+          "Mobile: generate project",
+          "Mobile: check and build simulator"
+        ],
+        "dependsOrder": "sequence",
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "Mobile: generate project",
+        "type": "process",
+        "command": "python3",
+        "args": [
+          "scripts/generate-project.py"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "Mobile: core and service checks",
+        "type": "process",
+        "command": "bash",
+        "args": [
+          "scripts/check.sh",
+          "--core-only"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}"
+        },
+        "problemMatcher": [],
+        "group": "test"
+      },
+      {
+        "label": "Mobile: check and build simulator",
+        "type": "process",
+        "command": "bash",
+        "args": [
+          "scripts/check.sh"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "Mobile: test deployment helper",
+        "type": "process",
+        "command": "python3",
+        "args": [
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_*.py"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}"
+        },
+        "problemMatcher": [],
+        "group": "test"
+      },
+      {
+        "label": "Mobile: open Xcode",
+        "type": "process",
+        "command": "open",
+        "args": [
+          "Praelude.xcodeproj"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "Mobile: device status (read only)",
+        "type": "process",
+        "command": "python3",
+        "args": [
+          "scripts/device.py",
+          "status",
+          "--device",
+          "${input:mobileDeviceName}"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "Mobile: refresh device (build and install)",
+        "type": "process",
+        "command": "python3",
+        "args": [
+          "scripts/device.py",
+          "refresh",
+          "--device",
+          "${input:mobileDeviceName}"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}"
+        },
+        "problemMatcher": []
+      }
+    ],
+    "inputs": [
+      {
+        "id": "mobileDeviceName",
+        "type": "promptString",
+        "description": "Exact iPad/iPhone name. Leave blank only when one device is connected.",
+        "default": ""
+      }
+    ]
+  }
+}

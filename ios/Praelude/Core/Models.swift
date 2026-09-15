@@ -24,20 +24,54 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+/// A rectangle in the unrotated page overlay, normalized from its top-left corner.
+public struct PassageRegion: Identifiable, Codable, Equatable, Sendable {
+    public var id: UUID
+    public var page: Int
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+    public init(id: UUID = UUID(), page: Int, x: Double, y: Double, width: Double, height: Double) {
+        self.id = id; self.page = page; self.x = x; self.y = y; self.width = width; self.height = height
+    }
+}
+
+public struct ScoreDrawing: Codable, Equatable, Sendable {
+    public var pieceID: UUID
+    public var page: Int
+    public var data: Data
+    public init(pieceID: UUID, page: Int, data: Data) { self.pieceID = pieceID; self.page = page; self.data = data }
+}
+
 public struct Passage: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var pieceID: UUID
     public var title: String
-    public var startMeasure: Int
-    public var endMeasure: Int
+    public var startMeasure: Int?
+    public var endMeasure: Int?
     public var page: Int
     public var focus: String
-    public init(id: UUID = UUID(), pieceID: UUID, title: String, startMeasure: Int = 1,
-                endMeasure: Int = 4, page: Int = 1, focus: String = "Pulse") {
+    public var regions: [PassageRegion]
+    public init(id: UUID = UUID(), pieceID: UUID, title: String, startMeasure: Int? = nil,
+                endMeasure: Int? = nil, page: Int = 1, focus: String = "Pulse", regions: [PassageRegion] = []) {
         self.id = id; self.pieceID = pieceID; self.title = title; self.startMeasure = startMeasure
-        self.endMeasure = endMeasure; self.page = page; self.focus = focus
+        self.endMeasure = endMeasure; self.page = page; self.focus = focus; self.regions = regions
     }
-    public var measureLabel: String { startMeasure == endMeasure ? "m. \(startMeasure)" : "mm. \(startMeasure)–\(endMeasure)" }
+    public var measureLabel: String {
+        guard let startMeasure, let endMeasure else { return "" }
+        return startMeasure == endMeasure ? "m. \(startMeasure)" : "mm. \(startMeasure)–\(endMeasure)"
+    }
+    private enum CodingKeys: String, CodingKey { case id, pieceID, title, startMeasure, endMeasure, page, focus, regions }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id); pieceID = try values.decode(UUID.self, forKey: .pieceID)
+        title = try values.decode(String.self, forKey: .title)
+        startMeasure = try values.decodeIfPresent(Int.self, forKey: .startMeasure)
+        endMeasure = try values.decodeIfPresent(Int.self, forKey: .endMeasure)
+        page = try values.decode(Int.self, forKey: .page); focus = try values.decode(String.self, forKey: .focus)
+        regions = try values.decodeIfPresent([PassageRegion].self, forKey: .regions) ?? []
+    }
 }
 
 public struct VariantStage: Identifiable, Codable, Equatable, Sendable {
@@ -77,13 +111,16 @@ public struct PracticeConfiguration: Codable, Equatable, Sendable {
     public var stages: [VariantStage]
     public var hands: String
     public var useMetronome: Bool
+    public var passageSnapshot: Passage?
     public init(pieceID: UUID, passageID: UUID? = nil, focus: String = "Pulse",
                 basis: CompletionBasis = .cleanStreak, targetCount: Int = 5,
                 startBPM: Double = 60, targetBPM: Double = 60, tempoStep: TempoStep = .fixed(4),
-                stages: [VariantStage] = [], hands: String = "Both hands", useMetronome: Bool = false) {
+                stages: [VariantStage] = [], hands: String = "Both hands", useMetronome: Bool = false,
+                passageSnapshot: Passage? = nil) {
         self.pieceID = pieceID; self.passageID = passageID; self.focus = focus; self.basis = basis
         self.targetCount = targetCount; self.startBPM = startBPM; self.targetBPM = targetBPM
         self.tempoStep = tempoStep; self.stages = stages; self.hands = hands; self.useMetronome = useMetronome
+        self.passageSnapshot = passageSnapshot
     }
 }
 
@@ -172,10 +209,11 @@ public struct Preferences: Codable, Equatable, Sendable {
 }
 
 public struct LibraryState: Codable, Equatable, Sendable {
-    public var schemaVersion: Int = 1
+    public var schemaVersion: Int = 2
     public var revision: Int = 0
     public var pieces: [Piece] = []
     public var passages: [Passage] = []
+    public var scoreDrawings: [ScoreDrawing] = []
     public var activeSet: ActiveSet?
     public var history: [ActiveSet] = []
     public var sessions: [PracticeSession] = []
@@ -183,6 +221,23 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public var routines: [PracticeRoutine] = []
     public var preferences = Preferences()
     public init() {}
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, revision, pieces, passages, scoreDrawings, activeSet, history, sessions, goals, routines, preferences
+    }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try values.decode(Int.self, forKey: .schemaVersion)
+        revision = try values.decode(Int.self, forKey: .revision)
+        pieces = try values.decode([Piece].self, forKey: .pieces)
+        passages = try values.decode([Passage].self, forKey: .passages)
+        scoreDrawings = try values.decodeIfPresent([ScoreDrawing].self, forKey: .scoreDrawings) ?? []
+        activeSet = try values.decodeIfPresent(ActiveSet.self, forKey: .activeSet)
+        history = try values.decode([ActiveSet].self, forKey: .history)
+        sessions = try values.decode([PracticeSession].self, forKey: .sessions)
+        goals = try values.decode([PracticeGoal].self, forKey: .goals)
+        routines = try values.decode([PracticeRoutine].self, forKey: .routines)
+        preferences = try values.decode(Preferences.self, forKey: .preferences)
+    }
 }
 
 public struct PracticeProgress: Equatable, Sendable {

@@ -68,6 +68,9 @@ struct AppRootView: View {
     private var usesSidebar: Bool { UIDevice.current.userInterfaceIdiom == .pad && !dynamicTypeSize.isAccessibilitySize }
     @State private var destination = Destination.today
     @State private var selectedPiece: UUID?
+    @State private var scoreMarkup = ScoreMarkupState()
+    @State private var pendingScoreNavigation: (() -> Void)?
+    @State private var confirmLeaveScore = false
     @State private var phoneScore: ScoreRoute?
     @State private var sheet: RootSheet?
     @State private var incomingURL: URL?
@@ -87,7 +90,7 @@ struct AppRootView: View {
                     List {
                         ForEach(Destination.allCases) { item in
                             Button {
-                                destination = item; selectedPiece = nil
+                                navigateFromScore { destination = item; selectedPiece = nil }
                             } label: { Label(item.rawValue, systemImage: item.symbol).frame(minHeight: 32) }
                             .listRowBackground(destination == item && selectedPiece == nil ? Color.accentColor.opacity(0.10) : Color.clear)
                         }
@@ -112,8 +115,8 @@ struct AppRootView: View {
                             #if DEBUG
                             if ProcessInfo.processInfo.arguments.contains("--uitesting") { NSLog("PraeludeUITest: Close score action") }
                             #endif
-                            self.selectedPiece = nil; sidebarVisibility = .automatic
-                        }) }
+                            navigateFromScore { self.selectedPiece = nil; sidebarVisibility = .automatic }
+                        }, sharedMarkup: scoreMarkup) }
                         else { content(destination).toolbar { ToolbarItem(placement: .topBarTrailing) { settingsButton } } }
                     }
                 }.navigationSplitViewStyle(.balanced)
@@ -126,7 +129,7 @@ struct AppRootView: View {
                     }
                 }
                 .fullScreenCover(item: $phoneScore) { route in
-                    NavigationStack { ScoreWorkspace(pieceID: route.id, onClose: { phoneScore = nil }) }
+                    NavigationStack { ScoreWorkspace(pieceID: route.id, onClose: { navigateFromScore { phoneScore = nil } }, sharedMarkup: scoreMarkup) }
                 }
             }
         }
@@ -189,6 +192,13 @@ struct AppRootView: View {
             }
             Button("Cancel", role: .cancel) { pendingBackup = nil }
         } message: { Text("The backup replaces pieces, practice history, passages and goals on this device. Export your current library first if you want to keep both.") }
+        .confirmationDialog("Leave this passage unfinished?", isPresented: $confirmLeaveScore, titleVisibility: .visible) {
+            Button("Discard passage edits", role: .destructive) {
+                let action = pendingScoreNavigation; pendingScoreNavigation = nil
+                scoreMarkup.finish(); scoreMarkup = ScoreMarkupState(); action?()
+            }
+            Button("Keep selecting", role: .cancel) { pendingScoreNavigation = nil }
+        } message: { Text("Tap Done on the score to save your boxes before leaving.") }
         .alert("Couldn’t complete that", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
         .onChange(of: usesSidebar) { _, showSidebar in
             if showSidebar, let route = phoneScore {
@@ -228,8 +238,28 @@ struct AppRootView: View {
         }
     }
     private func openPiece(_ id: UUID) {
-        if usesSidebar { selectedPiece = id; sidebarVisibility = .detailOnly }
-        else { phoneScore = ScoreRoute(id: id) }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--uitesting") { NSLog("PraeludeUITest: Open piece action") }
+        #endif
+        if selectedPiece == id || phoneScore?.id == id { sidebarVisibility = .detailOnly; return }
+        navigateFromScore {
+            if usesSidebar { selectedPiece = id; sidebarVisibility = .detailOnly }
+            else { phoneScore = ScoreRoute(id: id) }
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--uitesting") { NSLog("PraeludeUITest: Open piece assigned, sidebar=%d", usesSidebar) }
+            #endif
+        }
+    }
+    private func navigateFromScore(_ action: @escaping () -> Void) {
+        guard scoreMarkup.flushInk() else {
+            error = "Your ink has not been saved. Return to the score and resolve the saving message before leaving."
+            return
+        }
+        if scoreMarkup.mode == .selecting {
+            pendingScoreNavigation = action; confirmLeaveScore = true
+        } else {
+            scoreMarkup = ScoreMarkupState(); action()
+        }
     }
     private func prepareExport() {
         do { backup = try NativeLibraryFiles(store: store).makeBackup(); exporting = true }

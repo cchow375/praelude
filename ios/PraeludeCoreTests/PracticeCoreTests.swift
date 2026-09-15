@@ -367,6 +367,168 @@ final class PracticeCoreTests: XCTestCase {
         XCTAssertFalse(PracticeStore(directory: directory).isReadOnly)
     }
 
+    @MainActor private func legacyData(_ state: LibraryState) throws -> Data {
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        json["schemaVersion"] = 1; json.removeValue(forKey: "scoreDrawings")
+        var passages = try XCTUnwrap(json["passages"] as? [[String: Any]])
+        for index in passages.indices { passages[index].removeValue(forKey: "regions") }
+        json["passages"] = passages
+        if var active = json["activeSet"] as? [String: Any], var config = active["configuration"] as? [String: Any] {
+            config.removeValue(forKey: "passageSnapshot"); active["configuration"] = config; json["activeSet"] = active
+        }
+        return try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
+    }
+
+    @MainActor func testLegacyMigrationPreservesOriginalAndPracticeBeforePublishingSchemaTwo() async throws {
+        let (store, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let passage = Passage(pieceID: store.pieces[0].id, title: "Legacy measures", startMeasure: 9, endMeasure: 12, page: 2)
+        try store.savePassage(passage); try store.record(.clean)
+        let original = try legacyData(store.state)
+        try original.write(to: store.fileURL, options: .atomic)
+        let migrated = PracticeStore(directory: directory)
+        XCTAssertFalse(migrated.isReadOnly)
+        XCTAssertEqual(migrated.state.schemaVersion, 2)
+        XCTAssertEqual(migrated.state.revision, store.state.revision + 1)
+        XCTAssertEqual(migrated.state.passages, [passage])
+        XCTAssertEqual(migrated.state.passages[0].measureLabel, "mm. 9–12")
+        XCTAssertEqual(migrated.activeSet?.attempts, store.activeSet?.attempts)
+        XCTAssertEqual(migrated.activeSet?.status, .paused)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(migrated.preservedOriginalURL)), original)
+        XCTAssertTrue(try XCTUnwrap(migrated.preservedOriginalURL).lastPathComponent.hasPrefix("library-schema1-"))
+        let reopened = PracticeStore(directory: directory)
+        XCTAssertEqual(reopened.state, migrated.state)
+        XCTAssertNil(reopened.preservedOriginalURL, "Schema two must not migrate again")
+        XCTAssertEqual(try PracticeStore.decodeBackup(original).schemaVersion, 2)
+    }
+
+    @MainActor func testLegacyMigrationPreserveAndWriteFailuresNeverOverwriteOriginal() async throws {
+        let (store, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let original = try legacyData(store.state)
+        try original.write(to: store.fileURL, options: .atomic)
+        var writes = 0
+        let preserveFailure = PracticeStore(directory: directory, writeData: { _, _ in writes += 1 },
+                                            preserveFile: { _, _ in throw CocoaError(.fileWriteNoPermission) })
+        XCTAssertTrue(preserveFailure.isReadOnly); XCTAssertEqual(writes, 0)
+        XCTAssertEqual(try Data(contentsOf: store.fileURL), original)
+        let writeFailure = PracticeStore(directory: directory, writeData: { _, _ in throw CocoaError(.fileWriteOutOfSpace) })
+        XCTAssertTrue(writeFailure.isReadOnly)
+        XCTAssertEqual(try Data(contentsOf: store.fileURL), original)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(writeFailure.preservedOriginalURL)), original)
+        XCTAssertThrowsError(try writeFailure.addPiece(Piece(title: "Cannot overwrite")))
+        let retried = PracticeStore(directory: directory)
+        XCTAssertFalse(retried.isReadOnly); XCTAssertEqual(retried.state.schemaVersion, 2)
+    }
+
+    @MainActor func testOptionalMeasuresAndVisualRegionBoundsRejectWithoutChangingDisk() async throws {
+        let (store, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var piece = store.pieces[0]; piece.pdfFileName = "fixture.pdf"; try store.updatePiece(piece)
+        let region = PassageRegion(page: 2, x: 0.1, y: 0.2, width: 0.8, height: 0.1)
+        let passage = Passage(pieceID: piece.id, title: "This phrase", page: 2, regions: [region])
+        try store.savePassage(passage)
+        XCTAssertEqual(passage.measureLabel, "")
+        let before = store.state; let bytes = try Data(contentsOf: store.fileURL)
+        var badMeasure = passage; badMeasure.startMeasure = 3
+        XCTAssertThrowsError(try store.savePassage(badMeasure))
+        badMeasure.endMeasure = 2
+        XCTAssertThrowsError(try store.savePassage(badMeasure))
+        var invalidRegions = [PassageRegion]()
+        var invalid = region; invalid.x = .nan; invalidRegions.append(invalid)
+        invalid = region; invalid.y = .infinity; invalidRegions.append(invalid)
+        invalid = region; invalid.width = 0; invalidRegions.append(invalid)
+        invalid = region; invalid.x = -0.1; invalidRegions.append(invalid)
+        invalid = region; invalid.height = 1; invalidRegions.append(invalid)
+        invalid = region; invalid.page = 9; invalidRegions.append(invalid)
+        for region in invalidRegions {
+            var invalidPassage = passage; invalidPassage.regions = [region]
+            XCTAssertThrowsError(try store.savePassage(invalidPassage))
+        }
+        var duplicate = passage; duplicate.regions = [region, region]
+        XCTAssertThrowsError(try store.savePassage(duplicate))
+        duplicate = passage; duplicate.id = UUID()
+        XCTAssertThrowsError(try store.savePassage(duplicate), "Two saved passages must not share a mark identifier used by score tap routing")
+        XCTAssertEqual(store.state, before); XCTAssertEqual(try Data(contentsOf: store.fileURL), bytes)
+    }
+
+    @MainActor func testDrawingPersistenceRemovalAndSizeBounds() async throws {
+        let (store, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var piece = store.pieces[0]; piece.pdfFileName = "fixture.pdf"; try store.updatePiece(piece)
+        let ink = Data([1, 2, 3, 4]) // Core stores opaque data; the native boundary validates PencilKit.
+        try store.saveDrawing(pieceID: piece.id, page: 1, data: ink)
+        XCTAssertEqual(PracticeStore(directory: directory).drawing(pieceID: piece.id, page: 1), ink)
+        XCTAssertThrowsError(try store.saveDrawing(pieceID: piece.id, page: 9, data: ink))
+        XCTAssertThrowsError(try store.saveDrawing(pieceID: UUID(), page: 1, data: ink))
+        let before = store.state
+        XCTAssertThrowsError(try store.saveDrawing(pieceID: piece.id, page: 1, data: Data(count: PracticeStore.maximumDrawingBytes + 1)))
+        XCTAssertEqual(store.state, before)
+        var tooLarge = store.state
+        tooLarge.scoreDrawings = (1...5).map { ScoreDrawing(pieceID: piece.id, page: $0, data: Data(count: PracticeStore.maximumDrawingBytes)) }
+        XCTAssertThrowsError(try PracticeStore.validate(tooLarge))
+        var duplicate = store.state; duplicate.scoreDrawings.append(duplicate.scoreDrawings[0])
+        XCTAssertThrowsError(try PracticeStore.validate(duplicate))
+        try store.saveDrawing(pieceID: piece.id, page: 1, data: Data())
+        XCTAssertNil(store.drawing(pieceID: piece.id, page: 1))
+        XCTAssertTrue(store.state.scoreDrawings.isEmpty)
+    }
+
+    @MainActor func testDrawingWriteFailureRetainsPriorInkInMemoryAndOnDisk() async throws {
+        let (store, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try store.pause()
+        var piece = store.pieces[0]; piece.pdfFileName = "fixture.pdf"; try store.updatePiece(piece)
+        try store.saveDrawing(pieceID: piece.id, page: 1, data: Data([1]))
+        let bytes = try Data(contentsOf: store.fileURL)
+        let failing = PracticeStore(directory: directory, writeData: { _, _ in throw CocoaError(.fileWriteOutOfSpace) })
+        XCTAssertThrowsError(try failing.saveDrawing(pieceID: piece.id, page: 1, data: Data([2])))
+        XCTAssertEqual(failing.drawing(pieceID: piece.id, page: 1), Data([1]))
+        XCTAssertEqual(try Data(contentsOf: store.fileURL), bytes)
+    }
+
+    @MainActor func testPassageCompareAndSwapRejectsStaleEditsDeletionAndDuplicateCreation() async throws {
+        let (store, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let original = Passage(pieceID: store.pieces[0].id, title: "Original")
+        try store.savePassage(original, replacing: nil)
+        var newer = original; newer.title = "Edited in the other window"
+        try store.savePassage(newer, replacing: original)
+        var stale = original; stale.focus = "Balance"
+        let bytes = try Data(contentsOf: store.fileURL)
+        XCTAssertThrowsError(try store.savePassage(stale, replacing: original))
+        XCTAssertThrowsError(try store.savePassage(stale, replacing: nil))
+        XCTAssertEqual(store.state.passages, [newer])
+        XCTAssertEqual(try Data(contentsOf: store.fileURL), bytes)
+        try store.deletePassage(newer.id)
+        XCTAssertThrowsError(try store.savePassage(stale, replacing: newer), "Saving a stale editor must not resurrect a deleted passage")
+        var unrelated = original; unrelated.id = UUID()
+        XCTAssertThrowsError(try store.savePassage(unrelated, replacing: original))
+        XCTAssertTrue(store.state.passages.isEmpty)
+    }
+
+    @MainActor func testPracticeKeepsOriginalVisualPassageAfterEditingAndDeleting() async throws {
+        let (store, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try store.endSession()
+        var piece = store.pieces[0]; piece.pdfFileName = "fixture.pdf"; try store.updatePiece(piece)
+        let original = Passage(pieceID: piece.id, title: "Opening phrase", page: 2,
+                               regions: [PassageRegion(page: 2, x: 0.1, y: 0.2, width: 0.7, height: 0.1)])
+        try store.savePassage(original)
+        try store.startSet(PracticeConfiguration(pieceID: piece.id, passageID: original.id))
+        XCTAssertEqual(store.activeSet?.configuration.passageSnapshot, original)
+        var edited = original; edited.title = "Renamed"; edited.regions[0].y = 0.5
+        try store.savePassage(edited); try store.record(.clean); try store.endSession(); try store.deletePassage(original.id)
+        XCTAssertNil(store.state.history.last?.configuration.passageID)
+        XCTAssertEqual(store.state.history.last?.configuration.passageSnapshot, original)
+        XCTAssertEqual(PracticeStore(directory: directory).state.history.last?.configuration.passageSnapshot, original)
+        piece.pdfFileName = "replacement.pdf"
+        XCTAssertThrowsError(try store.updatePiece(piece), "Historic marked regions still belong to the original PDF")
+        var corrupt = store.state
+        corrupt.history[corrupt.history.count - 1].configuration.passageSnapshot?.pieceID = UUID()
+        XCTAssertThrowsError(try PracticeStore.validate(corrupt))
+    }
+
     @MainActor func testUnsafeTimingAndMetadataAreRejectedBeforeRestore() async throws {
         let (store, directory) = try fixture()
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -85,7 +85,12 @@ struct TodayView: View {
                 if !recentPieces.isEmpty {
                     Section("At your piano") {
                         ForEach(recentPieces) { piece in
-                            Button { onOpenPiece(piece.id) } label: {
+                            Button {
+                                #if DEBUG
+                                if ProcessInfo.processInfo.arguments.contains("--uitesting") { NSLog("PraeludeUITest: Today row action") }
+                                #endif
+                                onOpenPiece(piece.id)
+                            } label: {
                                 LibraryPieceRow(piece: piece, lastPractice: lastPractice(piece.id))
                             }
                             .buttonStyle(.plain)

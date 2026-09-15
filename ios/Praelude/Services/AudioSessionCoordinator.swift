@@ -5,7 +5,7 @@ import Foundation
 @MainActor
 final class AudioSessionCoordinator {
     static let shared = AudioSessionCoordinator()
-    enum Client: Hashable { case metronome, speech }
+    enum Client: Hashable { case metronome, speech, feedback }
 
     private var clients: Set<Client> = []
     private var configurationObservers: [(willChange: () -> Void, didChange: () -> Void)] = []

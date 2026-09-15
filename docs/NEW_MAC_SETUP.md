@@ -53,24 +53,27 @@ runtime through [Xcode Settings → Components](https://developer.apple.com/docu
 `npm run setup:mac` prepares the Mac/Tauri checkout;
 it does not install Xcode or iOS runtimes.
 
-Follow [the iOS build and usage guide](../ios/README.md) for project generation, native tests,
-simulator runs, and physical-device signing. The target supports iOS/iPadOS17+ and uses an independent
-sandbox library; this handoff does not migrate the installed Mac practice data. Its current status
-is a development candidate, with device/distribution acceptance tracked separately.
+Open the focused [Praelude Mobile workspace](../ios/Praelude%20Mobile.code-workspace), or the
+[Xcode project](../ios/Praelude.xcodeproj), inside this same Git repository. Follow the
+[current mobile guide](../ios/README.md) and [module/check guide](../ios/docs/DEVELOPMENT.md)
+for generation, native tests and simulator work. No workspace task runs automatically. The target
+supports iOS/iPadOS17+ and uses an independent schema2 sandbox library; this handoff does not
+migrate installed Mac practice data.
 
-For cable installation on your own device, a free **Personal Team** is sufficient: sign in to
-your Apple Account in Xcode, enable Developer Mode on the paired device, and use automatic
-signing. Rebuild/reinstall after the seven-day provisioning profile expires. The
-[iOS guide](../ios/README.md#install-on-your-own-ipad-or-iphone-for-free) links Apple
-requirements and gives the complete flow. Configure your own local signing; do not copy another
-Mac's credentials, certificates, provisioning profiles or device identifiers into Git. The
-generated project loads `ios/Signing.xcconfig`, which optionally includes ignored
-`ios/Signing.local.xcconfig`; put your own `DEVELOPMENT_TEAM` selection only in that local file.
-It is optional for simulator/unsigned work and survives project regeneration. See the native
-guide for the example; do not add the local file or signing assets to Git. The original Mac
-verified a Release build using this mechanism. Its locally preserved signed app is at ignored
-`releases/ios-personal/Praelude.app`; that artifact is not transferred by a clone. A signed build
-is not installed-device acceptance; follow the native guide for the current install status.
+A paid Developer Program membership is not required for personal cable testing. The dedicated
+[installation and seven-day renewal guide](../ios/docs/INSTALL_ON_IPAD.md) explains Xcode Personal
+Team sign-in, Developer Mode, conditional developer trust and the explicit safe refresh helper.
+Use `npm run ios:device -- --help` or `npm run ios:status -- --device "YOUR IPAD NAME"` for read-only
+setup checks; `npm run ios:refresh -- --device "YOUR IPAD NAME"` is an explicit build/install action.
+It refuses running sets and requires complete pre/post-install file preservation before launch.
+
+The generated project reads `ios/Signing.xcconfig`, which optionally includes ignored
+`ios/Signing.local.xcconfig`. Keep your own `DEVELOPMENT_TEAM` only in that local file; it is not
+needed for simulator/unsigned work and survives generation. Do not transfer another Mac's
+credentials, certificates, profiles or device identifiers through Git. Signed artifacts and
+private backups are excluded from a clone. See the [current native QA](qa/ios/1.1.0/README.md)
+for signed-snapshot, installed-version and device-backup boundaries; a signed build is not physical
+feature acceptance.
 
 ## 3. Prove the checkout
 

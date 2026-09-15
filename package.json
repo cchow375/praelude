@@ -24,7 +24,14 @@
     "qa:shots": "bash scripts/qa-shots.sh",
     "ios:project": "python3 ios/scripts/generate-project.py",
     "ios:check": "bash ios/scripts/check.sh",
-    "ios:open": "open ios/Praelude.xcodeproj"
+    "ios:open": "open ios/Praelude.xcodeproj",
+    "ios:device": "python3 ios/scripts/device.py",
+    "ios:devices": "python3 ios/scripts/device.py devices",
+    "ios:status": "python3 ios/scripts/device.py status",
+    "ios:install": "python3 ios/scripts/device.py install",
+    "ios:refresh": "python3 ios/scripts/device.py refresh",
+    "ios:launch": "python3 ios/scripts/device.py launch",
+    "ios:test:tools": "python3 -m unittest discover -s ios/scripts -p 'test_*.py'"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

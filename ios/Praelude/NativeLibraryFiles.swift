@@ -1,5 +1,6 @@
 import Foundation
 import PDFKit
+import PencilKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -14,6 +15,7 @@ struct NativeLibraryFiles {
         return scoresDirectory.appendingPathComponent(name)
     }
     func importPDF(_ url: URL, title: String, composer: String, replacing piece: Piece? = nil) throws -> UUID {
+        if let piece { try store.requireReplaceableScore(pieceID: piece.id) }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
@@ -40,10 +42,24 @@ struct NativeLibraryFiles {
         // Previous PDFs remain recoverable until a deliberate storage-cleanup workflow exists.
         return saved.id
     }
+    func saveDrawing(pieceID: UUID, page: Int, data: Data) throws {
+        if !data.isEmpty { try Self.validateDrawing(data) }
+        try store.saveDrawing(pieceID: pieceID, page: page, data: data)
+    }
+    private static func validateDrawing(_ data: Data) throws {
+        guard data.count <= PracticeStore.maximumDrawingBytes else { throw PracticeError.invalid("This page has reached the supported 8 MB of ink.") }
+        do {
+            guard !(try PKDrawing(data: data)).strokes.isEmpty else {
+                throw PracticeError.invalid("The drawing contains no readable strokes.")
+            }
+        }
+        catch { throw PracticeError.invalid("This page contains damaged ink. Your saved drawing has not been replaced.") }
+    }
     func makeBackup() throws -> NativeBackupDocument {
         guard !store.isReadOnly else {
             throw PracticeError.unavailable("The saved library could not be read. Restore a valid backup before exporting; the unreadable original will be preserved.")
         }
+        for drawing in store.state.scoreDrawings { try Self.validateDrawing(drawing.data) }
         try store.checkpoint()
         var files: [String: Data] = [:]
         var bytes = 0
@@ -69,6 +85,7 @@ struct NativeLibraryFiles {
         var backup = try JSONDecoder().decode(NativeBackup.self, from: data)
         guard backup.version == 1 else { throw PracticeError.invalid("This backup needs a newer version of Praelude.") }
         try PracticeStore.validate(backup.library)
+        for drawing in backup.library.scoreDrawings { try Self.validateDrawing(drawing.data) }
         try FileManager.default.createDirectory(at: scoresDirectory, withIntermediateDirectories: true)
         var staged: [URL] = []
         var remapped: [String: String] = [:]
