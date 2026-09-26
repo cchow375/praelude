@@ -56,8 +56,9 @@ struct ScoreWorkspace: View {
             if let piece {
                 GeometryReader { geometry in
                     ZStack {
-                        PraeludeColor.paper
                         if let scoreURL, FileManager.default.fileExists(atPath: scoreURL.path) {
+                            // Pinned paper-white, not the paper/stage token: the score stays paper in both appearances.
+                            PraeludeColor.scorePaper
                             PagedScoreView(url: scoreURL, page: $page, twoPages: twoPages && sizeClass == .regular, focusPageTurns: focusMode, markup: markup,
                                            regions: visibleRegions, emphasizedIDs: emphasizedIDs, practicedIDs: practicedIDs,
                                            drawingData: { store.drawing(pieceID: pieceID, page: $0) },
@@ -67,6 +68,7 @@ struct ScoreWorkspace: View {
                                 .accessibilityIdentifier("scorePDF")
 
                         } else {
+                            PraeludeColor.paper
                             ContentUnavailableView {
                                 Label(piece.pdfFileName == nil ? "No score attached" : "Score unavailable", systemImage: "pianokeys")
                             } description: {
