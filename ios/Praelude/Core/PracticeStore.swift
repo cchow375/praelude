@@ -161,18 +161,22 @@ import Observation
                     throw PracticeError.invalid("This page has reached the supported 8 MB of ink.")
                 }
             }
-            var remainingNew = strokes
+            // Ordinal = position in the caller's own array, before any filtering below, so splitting
+            // the same drawing the same way on two devices assigns the same ordinal — and therefore
+            // the same stable id (see `InkStroke.stableID`) — to the same stroke on both.
+            var remainingNew: [(ordinal: Int, data: Data)] = Array(strokes.enumerated())
             for index in next.inkStrokes.indices
             where next.inkStrokes[index].pieceID == pieceID && next.inkStrokes[index].page == page
                 && next.inkStrokes[index].layer == layer && next.inkStrokes[index].deletedAt == nil {
-                if let match = remainingNew.firstIndex(of: next.inkStrokes[index].data) {
+                if let match = remainingNew.firstIndex(where: { $0.data == next.inkStrokes[index].data }) {
                     remainingNew.remove(at: match)
                 } else {
                     next.inkStrokes[index].deletedAt = date; next.inkStrokes[index].updatedAt = date
                 }
             }
-            for data in remainingNew {
-                next.inkStrokes.append(InkStroke(pieceID: pieceID, page: page, layer: layer, data: data, createdAt: date, updatedAt: date))
+            for (ordinal, data) in remainingNew {
+                let id = InkStroke.stableID(pieceID: pieceID, page: page, layer: layer, data: data, ordinal: ordinal)
+                next.inkStrokes.append(InkStroke(id: id, pieceID: pieceID, page: page, layer: layer, data: data, createdAt: date, updatedAt: date))
             }
         }
     }
@@ -197,13 +201,94 @@ import Observation
             throw PracticeError.conflict("This score has ink or marked passages. Import the new PDF as a separate piece to preserve those marks and practice history.")
         }
     }
+    /// §8: deleting archives rather than erases. The row stays — with `archived` and the sync
+    /// tombstone `deletedAt` both set — so its history stays reachable and a future sync engine
+    /// sees a real tombstone instead of a row that silently vanished from one replica. Every
+    /// passage-listing View is expected to filter `archived` (`PassagePickerView`, `ScoreWorkspace`).
+    /// As before archiving existed, a finished set's own `passageSnapshot` already preserves
+    /// everything needed to show what was practiced, so history's *live* navigation reference is
+    /// still unlinked — it should not invite jumping back into an archived passage.
     public func deletePassage(_ id: UUID) throws {
+        let date = now()
         try transaction { next in
             guard next.activeSet?.configuration.passageID != id else { throw PracticeError.conflict("End the current set before removing its passage.") }
-            // Keep the original passage snapshot in history; unlink only its navigation reference.
-            next.passages.removeAll { $0.id == id }
-            for index in next.history.indices where next.history[index].configuration.passageID == id { next.history[index].configuration.passageID = nil }
+            guard let index = next.passages.firstIndex(where: { $0.id == id }) else { throw PracticeError.invalid("This passage is no longer in your library.") }
+            next.passages[index].archived = true
+            next.passages[index].deletedAt = date
+            next.passages[index].updatedAt = date
+            for historyIndex in next.history.indices where next.history[historyIndex].configuration.passageID == id {
+                next.history[historyIndex].configuration.passageID = nil
+            }
         }
+    }
+    /// §8: moves the given regions out of `id`'s passage into a brand-new passage. The original
+    /// keeps every other region, its learning history and its schedule; the new passage starts
+    /// fresh (§4d "never lose user data" is about practice evidence, and the split-off boxes have
+    /// none yet). Region ids move with their regions, so the library-wide "every mark id is unique"
+    /// invariant (`validate`) holds without regenerating them.
+    @discardableResult public func splitPassage(_ id: UUID, movingRegionIDs: Set<UUID>, newTitle: String) throws -> Passage {
+        let date = now()
+        var created: Passage!
+        try transaction { next in
+            guard let index = next.passages.firstIndex(where: { $0.id == id && !$0.archived }) else {
+                throw PracticeError.invalid("This passage is no longer in your library.")
+            }
+            var original = next.passages[index]
+            let moving = original.regions.filter { movingRegionIDs.contains($0.id) }
+            guard !moving.isEmpty, moving.count < original.regions.count else {
+                throw PracticeError.invalid("Choose at least one box to split off, and leave at least one behind.")
+            }
+            original.regions.removeAll { movingRegionIDs.contains($0.id) }
+            original.page = original.regions.map(\.page).min() ?? original.page
+            original.updatedAt = date
+            next.passages[index] = original
+            let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            let split = Passage(pieceID: original.pieceID, title: trimmed.isEmpty ? "\(original.title) (split)" : trimmed,
+                                page: moving.map(\.page).min() ?? original.page, focus: original.focus, regions: moving,
+                                color: original.color, parentPassageID: original.id,
+                                createdAt: date, updatedAt: date)
+            next.passages.append(split)
+            created = split
+        }
+        return created
+    }
+    /// §8/R2 "join the seams": folds `secondaryIDs` into `primary`. `primary` keeps its own id,
+    /// title, learning state and schedule — it is the survivor a caller keeps navigating to. Every
+    /// secondary passage's regions move (not copy) into `primary`, so the global mark-id-uniqueness
+    /// invariant holds, and each secondary is archived (never hard-deleted) with its id recorded in
+    /// `joinedFromPassageIDs` for provenance and future undo.
+    @discardableResult public func mergePassages(primary: UUID, into secondaryIDs: [UUID]) throws -> Passage {
+        let date = now()
+        var merged: Passage!
+        try transaction { next in
+            guard !secondaryIDs.isEmpty, !secondaryIDs.contains(primary) else {
+                throw PracticeError.invalid("Choose at least one other passage to merge in.")
+            }
+            guard let primaryIndex = next.passages.firstIndex(where: { $0.id == primary && !$0.archived }) else {
+                throw PracticeError.invalid("This passage is no longer in your library.")
+            }
+            var result = next.passages[primaryIndex]
+            for secondaryID in secondaryIDs {
+                guard let secondaryIndex = next.passages.firstIndex(where: { $0.id == secondaryID && !$0.archived }),
+                      next.passages[secondaryIndex].pieceID == result.pieceID else {
+                    throw PracticeError.invalid("Choose passages from the same piece to merge.")
+                }
+                var secondary = next.passages[secondaryIndex]
+                result.regions.append(contentsOf: secondary.regions)
+                for provenanceID in secondary.joinedFromPassageIDs + [secondary.id]
+                where !result.joinedFromPassageIDs.contains(provenanceID) {
+                    result.joinedFromPassageIDs.append(provenanceID)
+                }
+                secondary.regions = []
+                secondary.archived = true; secondary.deletedAt = date; secondary.updatedAt = date
+                next.passages[secondaryIndex] = secondary
+            }
+            result.page = result.regions.map(\.page).min() ?? result.page
+            result.updatedAt = date
+            next.passages[primaryIndex] = result
+            merged = result
+        }
+        return merged
     }
 
     public func startSet(_ configuration: PracticeConfiguration) throws {
