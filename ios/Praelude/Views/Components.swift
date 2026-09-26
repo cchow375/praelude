@@ -14,12 +14,12 @@ struct PracticeMetric: View {
                     .accessibilityHidden(true)
             }
             Text(value)
-                .font(.title2.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.primary)
+                .praeludeNumeral(26)
+                .foregroundStyle(PraeludeColor.ink)
                 .contentTransition(.numericText())
             Text(title)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PraeludeColor.inkSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
@@ -41,8 +41,8 @@ struct PraeludeEmptyState: View {
         } actions: {
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                    .buttonStyle(.praeludePrimary)
+                    .frame(maxWidth: 320)
             }
         }
     }
@@ -55,9 +55,9 @@ struct ScoreThumbnail: View {
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: size * 0.4, weight: .regular))
-            .foregroundStyle(.tint)
+            .foregroundStyle(PraeludeColor.inkSecondary)
             .frame(width: size, height: size * 1.22)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
+            .background(PraeludeColor.inkFillQuiet, in: RoundedRectangle(cornerRadius: PraeludeRadius.tight))
             .accessibilityHidden(true)
     }
 }

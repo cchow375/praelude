@@ -34,15 +34,14 @@ private struct FeedbackMark: View {
     let reduceMotion: Bool
     @State private var appeared = false
     private var isSetback: Bool { event.kind == .sloppy || event.kind == .again }
-    private var color: Color { isSetback ? .orange : .accentColor }
-    private var symbol: String {
+    private var color: Color { isSetback ? PraeludeColor.inkSecondary : PraeludeColor.ink }
+    private var glyph: PraeludeGlyph {
         switch event.kind {
-        case .clean: "checkmark"
-        case .sloppy: "arrow.uturn.backward"
-        case .again: "arrow.clockwise"
-        case .variant, .tempo: "arrow.up"
-        case .set: "checkmark.circle.fill"
-        case .chain: "checkmark.seal.fill"
+        case .clean: .verdictClean
+        case .sloppy: .verdictSloppy
+        case .again: .verdictAgain
+        case .variant, .tempo: .tempo
+        case .set, .chain: .verdictClean
         }
     }
 
@@ -67,18 +66,18 @@ private struct FeedbackMark: View {
                 Circle().trim(from: 0, to: appeared || reduceMotion ? event.progress : 0)
                     .stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(-90)).frame(width: 42, height: 42)
-                Image(systemName: symbol).font(.system(size: event.kind.isCompletion ? 24 : 18, weight: .semibold))
+                PraeludeIcon(glyph: glyph, size: event.kind.isCompletion ? 22 : 16, weight: 2)
                     .foregroundStyle(color)
                     .scaleEffect(reduceMotion ? 1 : appeared ? 1 : 0.8 - event.intensity * 0.1)
             }.frame(width: 52, height: 52)
             VStack(alignment: .leading, spacing: 3) {
                 Text(event.title).font(.headline)
-                Text(event.detail).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                Text(event.detail).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(2)
             }
         }
         .padding(.horizontal, 18).padding(.vertical, 12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
-        .overlay(RoundedRectangle(cornerRadius: 22).stroke(.primary.opacity(0.08), lineWidth: 0.5))
+        .praeludeScoreChrome()
+        .clipShape(RoundedRectangle(cornerRadius: PraeludeRadius.panel, style: .continuous))
         .frame(maxWidth: 320)
         .task {
             if reduceMotion { appeared = true }

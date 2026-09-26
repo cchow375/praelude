@@ -126,13 +126,14 @@ struct SetComposerView: View {
                     Label("Start set", systemImage: "play.fill")
                         .font(.headline).frame(maxWidth: .infinity, minHeight: 44)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.praeludePrimary)
                 .accessibilityIdentifier("confirmStartSet")
-                .controlSize(.large)
                 .disabled(currentSetPreventsStart || saving || store.isReadOnly ||
                           focus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .padding(.horizontal, 20).padding(.vertical, 12).background(.regularMaterial)
+                .padding(.horizontal, 20).padding(.vertical, 12).praeludeSurfacePanel().praeludeHairline(.top)
             }
+            .scrollContentBackground(.hidden)
+            .background(PraeludeColor.paper)
             .navigationTitle("Practice set")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

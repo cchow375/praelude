@@ -73,9 +73,9 @@ struct LibraryView: View {
                                    systemImage: piece.status == .active ? "archivebox" : "tray.and.arrow.up") {
                                 changeStatus(piece)
                             }
-                            .tint(.indigo)
+                            .tint(PraeludeColor.ink)
                             Button("Details", systemImage: "pencil") { editingPiece = piece }
-                                .tint(.gray)
+                                .tint(PraeludeColor.inkSecondary)
                         }
                     }
                 } footer: {
@@ -85,6 +85,8 @@ struct LibraryView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(PraeludeColor.paper)
         .navigationTitle("Pieces")
         .searchable(text: $search, prompt: "Title or composer")
         .toolbar {

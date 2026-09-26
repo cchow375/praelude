@@ -52,14 +52,19 @@ struct SettingsView: View {
 
             Section {
                 LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
-                Text("You are the sensor. Praelude is the memory.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    PraeludeMusicGlyph(symbol: .quarterNote, size: 15).foregroundStyle(PraeludeColor.inkTertiary)
+                    Text("You are the sensor. Praelude is the memory.")
+                        .font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
+                }
             } header: {
                 Text("Praelude")
             } footer: {
                 Text("Your verdict supplies every musical judgment. Praelude counts, times, and remembers; it does not listen to or grade your playing.")
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(PraeludeColor.paper)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -103,6 +108,8 @@ private struct PracticeGuideView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(PraeludeColor.paper)
         .navigationTitle("Practicing with Praelude")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -126,6 +133,8 @@ private struct PracticeShortcutsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(PraeludeColor.paper)
         .navigationTitle("Keyboard and page turners")
         .navigationBarTitleDisplayMode(.inline)
     }

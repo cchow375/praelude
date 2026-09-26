@@ -56,8 +56,9 @@ struct ScoreWorkspace: View {
             if let piece {
                 GeometryReader { geometry in
                     ZStack {
-                        Color(.secondarySystemBackground)
                         if let scoreURL, FileManager.default.fileExists(atPath: scoreURL.path) {
+                            // Pinned paper-white, not the paper/stage token: the score stays paper in both appearances.
+                            PraeludeColor.scorePaper
                             PagedScoreView(url: scoreURL, page: $page, twoPages: twoPages && sizeClass == .regular, focusPageTurns: focusMode, markup: markup,
                                            regions: visibleRegions, emphasizedIDs: emphasizedIDs, practicedIDs: practicedIDs,
                                            drawingData: { store.drawing(pieceID: pieceID, page: $0) },
@@ -67,12 +68,13 @@ struct ScoreWorkspace: View {
                                 .accessibilityIdentifier("scorePDF")
 
                         } else {
+                            PraeludeColor.paper
                             ContentUnavailableView {
                                 Label(piece.pdfFileName == nil ? "No score attached" : "Score unavailable", systemImage: "pianokeys")
                             } description: {
                                 Text(piece.pdfFileName == nil ? "Practice from a paper score, or add a PDF to keep your music here." : "The saved PDF could not be opened. Choose the score again to keep practicing.")
                             } actions: {
-                                Button("Add score PDF") { importing = true }.buttonStyle(.bordered)
+                                Button("Add score PDF") { importing = true }.buttonStyle(.praeludeQuiet).frame(maxWidth: 220)
                             }
                         }
                     }
@@ -87,27 +89,28 @@ struct ScoreWorkspace: View {
                             markupHeader
                         } else if focusMode {
                             HStack {
-                                Button { focusMode = false } label: { Label("Exit focus", systemImage: "arrow.down.right.and.arrow.up.left") }.buttonStyle(.bordered)
+                                Button { focusMode = false } label: { Label("Exit focus", systemImage: "arrow.down.right.and.arrow.up.left") }.buttonStyle(.praeludeQuiet).fixedSize()
                                 Spacer()
                                 pageControls(compact: true)
-                            }.padding(.horizontal, 16).padding(.vertical, 8).background(.regularMaterial)
+                            }.padding(.horizontal, 16).padding(.vertical, 8).praeludeScoreChrome()
                         } else if piece.pageCount > 0 {
                             HStack {
                                 Button { sheet = .passages } label: {
                                     if dynamicTypeSize.isAccessibilitySize {
-                                        Image(systemName: "bookmark").frame(minWidth: 44)
+                                        PraeludeIcon(glyph: .passageBox, size: 20).frame(minWidth: 44)
                                             .accessibilityLabel(selectedPassage?.title ?? "Passages")
                                     } else {
-                                        Label(selectedPassage?.title ?? "Passages", systemImage: "bookmark")
-                                            .lineLimit(1).font(.subheadline.weight(.medium))
+                                        Label {
+                                            Text(selectedPassage?.title ?? "Passages").lineLimit(1).font(.subheadline.weight(.medium))
+                                        } icon: { PraeludeIcon(glyph: .passageBox, size: 16) }
                                             .frame(minHeight: 44).contentShape(Rectangle())
                                     }
                                 }.frame(minHeight: 44).accessibilityIdentifier("passages")
-                                Button { beginSelection(nil) } label: { Image(systemName: "rectangle.badge.plus").frame(width: 44, height: 44) }
+                                Button { beginSelection(nil) } label: { PraeludeIcon(glyph: .passageBox, size: 20).frame(width: 44, height: 44) }
                                     .accessibilityLabel("Draw passage").accessibilityIdentifier("drawPassageOnScore")
                                 Spacer(minLength: 8)
                                 pageControls(compact: false)
-                            }.padding(.horizontal, 16).background(.bar)
+                            }.padding(.horizontal, 16).praeludeScoreChrome()
                         }
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -119,7 +122,7 @@ struct ScoreWorkspace: View {
                                     practiceDock.fixedSize(horizontal: false, vertical: true)
                                 }
                                 .frame(height: min(520, geometry.size.height * 0.6))
-                                .background(.regularMaterial)
+                                .praeludeScoreChrome()
                                 .accessibilityIdentifier("accessiblePracticeControls")
                             } else { practiceDock }
                         }
@@ -132,7 +135,7 @@ struct ScoreWorkspace: View {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button { beginWriting() } label: { Image(systemName: "pencil.tip.crop.circle").frame(width: 44, height: 44).contentShape(Rectangle()) }
                             .accessibilityLabel("Annotate score").accessibilityIdentifier("annotateScore")
-                        Button { sheet = .metronome } label: { Image(systemName: metronome.isPlaying ? "metronome.fill" : "metronome").frame(width: 44, height: 44).contentShape(Rectangle()) }
+                        Button { sheet = .metronome } label: { PraeludeIcon(glyph: .metronome, size: 22).frame(width: 44, height: 44).contentShape(Rectangle()) }
                             .accessibilityLabel("Metronome").accessibilityIdentifier("openMetronome")
                         Menu {
                             Button { focusMode = true } label: { Label("Focus on score", systemImage: "arrow.up.left.and.arrow.down.right") }
@@ -299,7 +302,7 @@ struct ScoreWorkspace: View {
                     }
                 }
             }
-        }.padding(.horizontal, 14).padding(.bottom, 4).background(.regularMaterial)
+        }.padding(.horizontal, 14).padding(.bottom, 4).praeludeScoreChrome()
     }
     private var selectionTools: some View {
         VStack(spacing: 2) {
@@ -328,7 +331,7 @@ struct ScoreWorkspace: View {
                 .disabled(markup.selectedRegionID == nil).accessibilityLabel("Remove selected box")
                 .accessibilityIdentifier("removeBox")
             }
-        }.padding(.horizontal, 20).padding(.top, 8).background(.regularMaterial)
+        }.padding(.horizontal, 20).padding(.top, 8).praeludeScoreChrome()
     }
     private func newPassage() -> Passage {
         let count = savedPassages.count + 1
@@ -366,63 +369,67 @@ struct ScoreWorkspace: View {
             if let active {
                 if active.isComplete {
                     HStack {
-                        Image(systemName: "checkmark.circle.fill").font(.title).foregroundStyle(.green)
+                        PraeludeIcon(glyph: .verdictClean, size: 26).foregroundStyle(PraeludeColor.ink)
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Set complete").font(.headline)
-                            Text("\(active.totalPlays) repetitions saved").font(.subheadline).foregroundStyle(.secondary)
+                            Text("\(active.totalPlays) repetitions saved").font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
                         }
                         Spacer()
-                        Button { perform { try runtime.undo() } } label: { Image(systemName: "arrow.uturn.backward") }.accessibilityLabel("Undo last repetition").keyboardShortcut("z", modifiers: .command)
+                        Button { perform { try runtime.undo() } } label: { Image(systemName: "arrow.uturn.backward") }
+                            .buttonStyle(.praeludeEdgeControl)
+                            .accessibilityLabel("Undo last repetition").keyboardShortcut("z", modifiers: .command)
                     }
                     HStack(spacing: 12) {
-                        Button("Finish") { perform { try store.endSession(); metronome.stop() } }.buttonStyle(.bordered).frame(maxWidth: .infinity)
+                        Button("Finish") { perform { try store.endSession(); metronome.stop() } }.buttonStyle(.praeludeQuiet)
                         Button("Another set") {
                             perform { try store.endSet(); sheet = .setup }
-                        }.buttonStyle(.borderedProminent).frame(maxWidth: .infinity)
-                    }.controlSize(.large)
+                        }.buttonStyle(.praeludePrimary)
+                    }
                 } else {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(active.currentStage?.name ?? active.configuration.focus).font(.subheadline.weight(.semibold)).lineLimit(1)
                             Text(active.status == .paused ? "Paused" : "\(active.progressCount) of \(active.requiredCount) \(active.configuration.basis == .cleanStreak ? "clean" : "plays") · \(Int(active.currentBPM)) BPM")
-                                .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).accessibilityIdentifier("repProgress")
+                                .font(.subheadline.monospacedDigit()).foregroundStyle(PraeludeColor.inkSecondary).accessibilityIdentifier("repProgress")
                         }
                         Spacer(minLength: 4)
-                        Button { perform { try runtime.undo() } } label: { Image(systemName: "arrow.uturn.backward").frame(width: 44, height: 44) }
+                        Button { perform { try runtime.undo() } } label: { Image(systemName: "arrow.uturn.backward") }
+                            .buttonStyle(.praeludeEdgeControl)
                             .accessibilityLabel("Undo last repetition").accessibilityIdentifier("undoRep").keyboardShortcut("z", modifiers: .command)
                             .disabled(!active.attempts.contains { $0.undoneAt == nil })
-                        Button { togglePause() } label: { Image(systemName: active.status == .paused ? "play.fill" : "pause.fill").frame(width: 44, height: 44) }
+                        Button { togglePause() } label: { Image(systemName: active.status == .paused ? "play.fill" : "pause.fill") }
+                            .buttonStyle(.praeludeEdgeControl)
                             .accessibilityLabel(active.status == .paused ? "Resume practice" : "Pause practice").accessibilityIdentifier("pausePractice")
                     }
-                    SwiftUI.ProgressView(value: active.progressFraction).tint(.accentColor).accessibilityLabel("Set progress")
+                    SwiftUI.ProgressView(value: active.progressFraction).tint(PraeludeColor.live).accessibilityLabel("Set progress")
                     let verdictLayout = dynamicTypeSize.isAccessibilitySize && sizeClass == .compact && verticalSizeClass != .compact
                         ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 10))
                     verdictLayout {
                         if dynamicTypeSize.isAccessibilitySize {
-                            verdictButton(.clean, title: "Clean", symbol: "checkmark", key: "1", primary: true)
-                            verdictButton(.sloppy, title: "Sloppy", symbol: "exclamationmark", key: "2", primary: false)
-                            verdictButton(.again, title: "Again", symbol: "arrow.counterclockwise", key: "3", primary: false)
+                            verdictButton(.clean, title: "Clean", glyph: .verdictClean, key: "1", primary: true)
+                            verdictButton(.sloppy, title: "Sloppy", glyph: .verdictSloppy, key: "2", primary: false)
+                            verdictButton(.again, title: "Again", glyph: .verdictAgain, key: "3", primary: false)
                         } else {
-                            verdictButton(.again, title: "Again", symbol: "arrow.counterclockwise", key: "3", primary: false)
-                            verdictButton(.sloppy, title: "Sloppy", symbol: "exclamationmark", key: "2", primary: false)
-                            verdictButton(.clean, title: "Clean", symbol: "checkmark", key: "1", primary: true)
+                            verdictButton(.again, title: "Again", glyph: .verdictAgain, key: "3", primary: false)
+                            verdictButton(.sloppy, title: "Sloppy", glyph: .verdictSloppy, key: "2", primary: false)
+                            verdictButton(.clean, title: "Clean", glyph: .verdictClean, key: "1", primary: true)
                         }
                     }.disabled(active.status != .running).opacity(active.status == .running ? 1 : 0.45)
                 }
             } else if let other = store.activeSet, !other.isComplete {
                 Text("A set is open for \(store.state.pieces.first { $0.id == other.configuration.pieceID }?.title ?? "another piece").")
-                    .font(.callout).foregroundStyle(.secondary)
-                Button("Finish current practice") { ending = true }.buttonStyle(.bordered).controlSize(.large)
+                    .font(.callout).foregroundStyle(PraeludeColor.inkSecondary)
+                Button("Finish current practice") { ending = true }.buttonStyle(.praeludeQuiet)
             } else {
                 HStack(spacing: 12) {
                     Button { sheet = .passages } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(selectedPassage?.title ?? "Whole piece").font(.headline)
-                            Text(selectedPassage?.locationLabel ?? "Choose a passage").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                            Text(selectedPassage?.locationLabel ?? "Choose a passage").font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
                         }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 54).contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityIdentifier("choosePassage")
                     Button { sheet = .setup } label: { Label("Start set", systemImage: "play.fill").frame(minHeight: 36) }
-                        .buttonStyle(.borderedProminent).controlSize(.large).accessibilityIdentifier("startSet")
+                        .buttonStyle(.praeludePrimary).fixedSize(horizontal: true, vertical: false).accessibilityIdentifier("startSet")
                 }
             }
             if let failure = store.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
@@ -430,7 +437,8 @@ struct ScoreWorkspace: View {
             if let failure = speech.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
             if speech.isListening && speech.ownerID == voiceOwnerID {
                 HStack(spacing: 8) {
-                    Image(systemName: "mic.fill").foregroundStyle(.tint)
+                    Circle().fill(PraeludeColor.live).frame(width: 6, height: 6)
+                    PraeludeIcon(glyph: .mic, size: 14).foregroundStyle(PraeludeColor.live)
                     Text(speech.status).font(.caption)
                     Spacer()
                     Button("Off") { speech.stop() }.font(.caption.weight(.semibold))
@@ -439,20 +447,21 @@ struct ScoreWorkspace: View {
         }
         .padding(.horizontal, sizeClass == .regular ? 24 : 16).padding(.vertical, 14)
         .frame(maxWidth: sizeClass == .regular ? 760 : .infinity)
-        .frame(maxWidth: .infinity).background(.regularMaterial)
+        .frame(maxWidth: .infinity)
+        .praeludeScoreChrome()
+        .praeludeHairline(.top)
     }
-    private func verdictButton(_ verdict: Verdict, title: String, symbol: String, key: KeyEquivalent, primary: Bool) -> some View {
+    private func verdictButton(_ verdict: Verdict, title: String, glyph: PraeludeGlyph, key: KeyEquivalent, primary: Bool) -> some View {
         Button { record(verdict) } label: {
             VStack(spacing: 7) {
-                if !dynamicTypeSize.isAccessibilitySize { Image(systemName: symbol).font(.title3.weight(.semibold)) }
+                if !dynamicTypeSize.isAccessibilitySize { PraeludeIcon(glyph: glyph, size: 22) }
                 Text(title).font(.headline).fixedSize(horizontal: false, vertical: true)
             }
-                .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 12 : 0)
-                .frame(maxWidth: .infinity).frame(minHeight: 72)
-                .contentShape(Rectangle())
-                .foregroundStyle(primary ? Color(uiColor: .systemBackground) : Color.primary)
-                .background(primary ? Color.accentColor : Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 16))
-        }.buttonStyle(.plain).keyboardShortcut(key, modifiers: []).accessibilityIdentifier("verdict_\(verdict.rawValue)")
+            .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 12 : 0)
+        }
+        .buttonStyle(.praeludeVerdict(emphasis: primary))
+        .keyboardShortcut(key, modifiers: [])
+        .accessibilityIdentifier("verdict_\(verdict.rawValue)")
     }
     private func pageControls(compact: Bool) -> some View {
         HStack(spacing: compact ? 8 : 4) {
