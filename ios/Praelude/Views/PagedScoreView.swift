@@ -64,6 +64,13 @@ struct PagedScoreView: UIViewRepresentable {
     var regions: [PassageRegion] = []
     var emphasizedIDs: Set<UUID> = []
     var practicedIDs: Set<UUID> = []
+    /// §7 page tools: this piece's own (already-filtered) page edits. Empty means the plain
+    /// `1...pageCount` identity order — every piece starts this way, so a call site that never
+    /// passes this behaves exactly as before.
+    var pageEdits: [PageEdit] = []
+    /// §7 links: repeat/D.S./coda tap regions, keyed to the *displayed* page (see "(C) Schema3.md").
+    var scoreLinks: [ScoreLink] = []
+    var onLinkActivated: (ScoreLink) -> Void = { _ in }
     var drawingData: (Int) -> Data? = { _ in nil }
     var saveDrawing: (Int, Data, Data?) -> Bool = { _, _, _ in false }
     var onRegionSelected: (UUID) -> Void = { _ in }
@@ -90,7 +97,8 @@ struct PagedScoreView: UIViewRepresentable {
         view.isInMarkupMode = true
         view.pageOverlayViewProvider = context.coordinator
         context.coordinator.pdfView = view
-        view.document = PDFDocument(url: url)
+        context.coordinator.loadedURL = url
+        view.document = context.coordinator.loadDocument(url: url, pageEdits: pageEdits)
         if let target = view.document?.page(at: max(0, page - 1)) { view.go(to: target) }
         context.coordinator.observer = NotificationCenter.default.addObserver(forName: .PDFViewPageChanged, object: view, queue: .main) { [weak coordinator = context.coordinator, weak view] _ in
             MainActor.assumeIsolated {
@@ -101,16 +109,16 @@ struct PagedScoreView: UIViewRepresentable {
                 coordinator.parent.onPageChanged(index)
             }
         }
-        context.coordinator.loadedURL = url
         context.coordinator.connectControls()
         return view
     }
     func updateUIView(_ view: ZoomableScorePDFView, context: Context) {
         let sourceChanged = context.coordinator.loadedURL != url || context.coordinator.parent.markup !== markup
+            || context.coordinator.loadedPageEdits != pageEdits
         guard context.coordinator.adoptParent(self) else { return }
         if sourceChanged {
             context.coordinator.clearOverlays()
-            view.document = PDFDocument(url: url); context.coordinator.loadedURL = url
+            view.document = context.coordinator.loadDocument(url: url, pageEdits: pageEdits); context.coordinator.loadedURL = url
             view.refreshScaleRange()
         }
         let mode: PDFDisplayMode = twoPages ? .twoUp : .singlePage
@@ -131,6 +139,10 @@ struct PagedScoreView: UIViewRepresentable {
     @MainActor final class Coordinator: NSObject, UIGestureRecognizerDelegate, @preconcurrency PDFPageOverlayViewProvider, PKCanvasViewDelegate {
         var parent: PagedScoreView
         var loadedURL: URL?
+        var loadedPageEdits: [PageEdit] = []
+        /// §7 page tools: this piece's effective reading order, `displayOrder`-indexed (index 0 is
+        /// display page 1). Rebuilt by `loadDocument` whenever the source URL or page edits change.
+        var effectivePages: [EffectivePage] = []
         var observer: NSObjectProtocol?
         weak var pdfView: PDFView?
         var overlays: [Int: ScorePageOverlay] = [:]
@@ -153,6 +165,19 @@ struct PagedScoreView: UIViewRepresentable {
             parent = updated
             if changed { connectControls() }
             return true
+        }
+        /// Loads `url`'s source PDF and resolves it against `pageEdits` into the document PDFKit
+        /// actually displays: the source directly when the effective order is trivial (no page
+        /// tool has touched this piece — the common case, and the same load PDFKit always did),
+        /// or a composed in-memory document once crop/rotation/reorder/insert/delete are in play.
+        func loadDocument(url: URL, pageEdits: [PageEdit]) -> PDFDocument? {
+            loadedPageEdits = pageEdits
+            let raw = PDFDocument(url: url)
+            let sourceCount = raw?.pageCount ?? 0
+            let pages = PageLayout.effectivePages(pageEdits: pageEdits, sourcePageCount: sourceCount)
+            effectivePages = pages
+            guard let raw else { return nil }
+            return ScorePageComposer.isIdentity(pages, sourcePageCount: sourceCount) ? raw : ScorePageComposer.composedDocument(source: raw, effectivePages: pages)
         }
         func clearOverlays() {
             for overlay in overlays.values { toolPicker.removeObserver(overlay.canvas) }
@@ -196,7 +221,11 @@ struct PagedScoreView: UIViewRepresentable {
         }
         func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
             guard let document = view.document else { return nil }
-            let number = document.index(for: page) + 1
+            let displayIndex = document.index(for: page) + 1
+            // Ink/passage regions stay anchored to the *source* page regardless of page-tool
+            // reordering (see "(C) Schema3.md"); a generated blank/staff page has none, so it gets
+            // no overlay at all — there is nothing on it for ink or passages to attach to.
+            guard displayIndex >= 1, displayIndex <= effectivePages.count, let number = effectivePages[displayIndex - 1].sourcePage else { return nil }
             if let overlay = overlays[number] { return overlay }
             let overlay = ScorePageOverlay(page: number, markup: parent.markup)
             overlay.inkReadOnly = !parent.allowsInk
@@ -359,8 +388,25 @@ struct PagedScoreView: UIViewRepresentable {
             guard recognizer.state == .ended, let view = recognizer.view as? PDFView else { return }
             if parent.focusPageTurns {
                 parent.onTurnPage(recognizer.location(in: view).x < view.bounds.width / 3 ? -1 : 1)
-            } else if let page = view.page(for: recognizer.location(in: view), nearest: false), let document = view.document,
-                      let overlay = overlays[document.index(for: page) + 1] {
+                return
+            }
+            guard let tappedPage = view.page(for: recognizer.location(in: view), nearest: false), let document = view.document else { return }
+            let displayIndex = document.index(for: tappedPage) + 1
+            // §7 links: a repeat/D.S./coda tap region is defined on the *displayed* page, in PDF
+            // page-space (bottom-left origin), independent of whether that page has an ink overlay.
+            if !parent.scoreLinks.isEmpty {
+                let crop = tappedPage.bounds(for: .cropBox)
+                if crop.width > 0, crop.height > 0 {
+                    let pageLocal = view.convert(recognizer.location(in: view), to: tappedPage)
+                    let fraction = CGPoint(x: (pageLocal.x - crop.minX) / crop.width, y: 1 - (pageLocal.y - crop.minY) / crop.height)
+                    if let link = parent.scoreLinks.reversed().first(where: { $0.sourcePage == displayIndex && ($0.sourceRegion?.contains(fraction) ?? false) }) {
+                        parent.onLinkActivated(link)
+                        return
+                    }
+                }
+            }
+            if displayIndex >= 1, displayIndex <= effectivePages.count, let sourcePage = effectivePages[displayIndex - 1].sourcePage,
+               let overlay = overlays[sourcePage] {
                 let point = overlay.convert(recognizer.location(in: view), from: view)
                 if let region = overlay.displayedRegions.reversed().first(where: { $0.page == overlay.pageNumber && $0.rect(in: overlay.bounds.size).contains(point) }) {
                     parent.onRegionSelected(region.id)
@@ -375,6 +421,7 @@ struct PagedScoreView: UIViewRepresentable {
 
 struct ScorePagePicker: View {
     let url: URL
+    var pageEdits: [PageEdit] = []
     let currentPage: Int
     let onSelect: (Int) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -404,7 +451,7 @@ struct ScorePagePicker: View {
             }
             .navigationTitle("Pages").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .onAppear { document = PDFDocument(url: url) }
+            .onAppear { document = ScorePageComposer.displayDocument(url: url, pageEdits: pageEdits) }
         }.presentationDetents([.large])
     }
 }

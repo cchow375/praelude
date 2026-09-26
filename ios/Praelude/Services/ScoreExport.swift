@@ -20,8 +20,19 @@ import UIKit
               (1...2000).contains(document.pageCount) else {
             throw PracticeError.invalid("This score could not be exported. Choose an unlocked PDF smaller than 100 MB.")
         }
+        // §7 page tools: export walks the same effective reading order the reader shows — crop,
+        // rotation, reordering, deletion and blank/staff insertions all included. A piece with no
+        // page edits yet gets back exactly `1...pageCount` in order, so this is a no-op for the
+        // overwhelmingly common score that has never touched a page tool.
+        let effectivePages = PageLayout.effectivePages(pageEdits: store.state.pageEdits, pieceID: pieceID, sourcePageCount: piece.pageCount)
+        guard (1...2000).contains(effectivePages.count) else {
+            throw PracticeError.invalid("This score's page count cannot be exported safely.")
+        }
+        let referenceSize = ScorePageComposer.referenceSize(document)
         // Several stroke rows can now share a page (§4d); group them so each page still exports as
-        // one merged drawing.
+        // one merged drawing. Ink stays anchored to the *source* page regardless of page-tool
+        // reordering (see "(C) Schema3.md"), so the lookup key here is `effective.sourcePage`, not
+        // the page's position in the reading order.
         let inkByPage = Dictionary(grouping: store.state.inkStrokes.filter { $0.pieceID == pieceID && $0.deletedAt == nil && $0.layer == .mine }, by: \.page)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Praelude-Export-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -34,9 +45,11 @@ import UIKit
             }
             var rotations: [Int] = []
             do {
-                for index in 0..<document.pageCount {
+                for effective in effectivePages {
                     try autoreleasepool {
-                        guard let page = document.page(at: index) else { throw PracticeError.invalid("A score page could not be read.") }
+                        guard let page = ScorePageComposer.renderedPage(source: document, effective: effective, fallbackSize: referenceSize) else {
+                            throw PracticeError.invalid("A score page could not be read.")
+                        }
                         let media = page.bounds(for: .mediaBox), crop = page.bounds(for: .cropBox)
                         guard validBox(media), validBox(crop), media.contains(crop), page.rotation.isMultiple(of: 90) else {
                             throw PracticeError.invalid("This score contains page dimensions that cannot be exported safely.")
@@ -58,7 +71,7 @@ import UIKit
                         page.draw(with: .mediaBox, to: context)
                         context.restoreGState()
                         page.rotation = rotation
-                        if let rows = inkByPage[index + 1], !rows.isEmpty {
+                        if let sourcePage = effective.sourcePage, let rows = inkByPage[sourcePage], !rows.isEmpty {
                             try drawInk(rows.map(\.data), crop: crop, context: context)
                         }
                         context.endPDFPage()
@@ -70,7 +83,7 @@ import UIKit
                 throw error
             }
             try checkSize(renderedURL)
-            guard let rendered = PDFDocument(url: renderedURL), rendered.pageCount == document.pageCount else {
+            guard let rendered = PDFDocument(url: renderedURL), rendered.pageCount == effectivePages.count else {
                 throw PracticeError.unavailable("The exported score could not be verified.")
             }
             for (index, rotation) in rotations.enumerated() { rendered.page(at: index)?.rotation = rotation }
