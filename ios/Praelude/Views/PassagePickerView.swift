@@ -47,8 +47,8 @@ struct PassagePickerView: View {
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button("Delete", systemImage: "trash", role: .destructive) { pendingDelete = passage }
-                        Button("Boxes", systemImage: "rectangle.dashed") { draw(passage) }.tint(.indigo)
-                        Button("Details", systemImage: "slider.horizontal.3") { editingPassage = passage }.tint(.gray)
+                        Button("Boxes", systemImage: "rectangle.dashed") { draw(passage) }.tint(PraeludeColor.ink)
+                        Button("Details", systemImage: "slider.horizontal.3") { editingPassage = passage }.tint(PraeludeColor.inkSecondary)
                     }
                 }
             }
@@ -175,7 +175,7 @@ struct PassagePreview: View {
         return UIGraphicsImageRenderer(size: crop.size).image { context in
             context.cgContext.translateBy(x: -crop.minX, y: -crop.minY)
             image.draw(at: .zero)
-            context.cgContext.setFillColor(UIColor.systemIndigo.withAlphaComponent(0.105).cgColor)
+            context.cgContext.setFillColor(UIColor(PraeludeColor.ink).withAlphaComponent(0.105).cgColor)
             for box in boxes { context.cgContext.fill(box) }
         }
     }

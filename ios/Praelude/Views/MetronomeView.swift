@@ -17,36 +17,37 @@ struct MetronomeView: View {
                     VStack(spacing: 20) {
                         VStack(spacing: 2) {
                             Text("\(Int(metronome.bpm))")
-                                .font(.system(size: 76, weight: .light, design: .rounded).monospacedDigit())
+                                .praeludeNumeral(76, weight: .bold)
+                                .foregroundStyle(PraeludeColor.ink)
                                 .contentTransition(.numericText()).accessibilityLabel("\(Int(metronome.bpm)) beats per minute")
-                            Text("BEATS PER MINUTE").font(.caption.weight(.medium)).tracking(1.2).foregroundStyle(.secondary)
+                            Text("BEATS PER MINUTE").font(.caption.weight(.medium)).tracking(1.2).foregroundStyle(PraeludeColor.inkSecondary)
                         }
                         HStack(spacing: 14) {
                             Button { metronome.setTempo(metronome.bpm - 1) } label: {
-                                Image(systemName: "minus").frame(minWidth: 44, minHeight: 44)
-                            }.buttonStyle(.bordered).accessibilityLabel("Decrease tempo")
+                                Image(systemName: "minus")
+                            }.buttonStyle(.praeludeEdgeControl).accessibilityLabel("Decrease tempo")
                             Slider(value: $metronome.bpm, in: 20...300, step: 1)
                                 .accessibilityLabel("Tempo").accessibilityIdentifier("sliderTempo")
                             Button { metronome.setTempo(metronome.bpm + 1) } label: {
-                                Image(systemName: "plus").frame(minWidth: 44, minHeight: 44)
-                            }.buttonStyle(.bordered).accessibilityLabel("Increase tempo")
+                                Image(systemName: "plus")
+                            }.buttonStyle(.praeludeEdgeControl).accessibilityLabel("Increase tempo")
                         }.disabled(lockedTempo)
                         if lockedTempo {
                             Label("Tempo follows your practice set.", systemImage: "lock.fill")
-                                .font(.footnote).foregroundStyle(.secondary)
+                                .font(.footnote).foregroundStyle(PraeludeColor.inkSecondary)
                         }
                         HStack(spacing: 12) {
                             Button { metronome.tap() } label: {
                                 Text("Tap tempo").frame(maxWidth: .infinity, minHeight: 28)
-                            }.buttonStyle(.bordered).disabled(lockedTempo)
+                            }.buttonStyle(.praeludeQuiet).disabled(lockedTempo)
                             Button {
                                 if let active = store.activeSet, !active.isComplete { metronome.setTempo(active.currentBPM) }
                                 metronome.toggle()
                             } label: {
                                 Label(metronome.isPlaying ? "Stop" : "Start", systemImage: metronome.isPlaying ? "stop.fill" : "play.fill")
                                     .frame(maxWidth: .infinity, minHeight: 28)
-                            }.buttonStyle(.borderedProminent).accessibilityIdentifier("toggleMetronome")
-                        }.controlSize(.large)
+                            }.buttonStyle(.praeludePrimary).accessibilityIdentifier("toggleMetronome")
+                        }
                     }.padding(.vertical, 8)
                 }.listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
 
@@ -111,6 +112,8 @@ struct MetronomeView: View {
                     Section { Text(error).font(.footnote).foregroundStyle(.secondary) }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(PraeludeColor.paper)
             .navigationTitle("Metronome").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }.presentationDetents([.large]).presentationDragIndicator(.visible)
@@ -128,8 +131,8 @@ struct MetronomeView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 48)
             .contentShape(Rectangle())
-            .foregroundStyle(current ? Color.white : accent == .muted ? Color.secondary : Color.primary)
-            .background(current ? Color.accentColor : Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            .foregroundStyle(current ? PraeludeColor.paper : accent == .muted ? PraeludeColor.inkTertiary : PraeludeColor.ink)
+            .background(current ? PraeludeColor.ink : PraeludeColor.inkFillQuiet, in: RoundedRectangle(cornerRadius: PraeludeRadius.control))
             .scaleEffect(pulseOn && !reduceMotion ? 1.04 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: pulseOn)
         }

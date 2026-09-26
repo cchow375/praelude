@@ -25,18 +25,23 @@ struct TodayView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 17) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(activeSet.isComplete ? "Set complete" : activeSet.status == .paused ? "Paused set" : "Current set")
-                                .font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                            Text(piece.title).font(.title2.weight(.semibold))
+                            HStack(spacing: 6) {
+                                if activeSet.status == .running {
+                                    Circle().fill(PraeludeColor.live).frame(width: 6, height: 6)
+                                }
+                                Text(activeSet.isComplete ? "Set complete" : activeSet.status == .paused ? "Paused set" : "Practicing now")
+                                    .font(.caption.weight(.medium)).foregroundStyle(PraeludeColor.inkSecondary)
+                            }
+                            Text(piece.title).praeludeDisplay(24)
                             if !activeSet.configuration.focus.isEmpty {
-                                Text(activeSet.configuration.focus).font(.subheadline).foregroundStyle(.secondary)
+                                Text(activeSet.configuration.focus).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
                             }
                         }
                         HStack(spacing: 22) {
-                            Label("\(Int(activeSet.currentBPM)) bpm", systemImage: "metronome")
-                            Label("\(activeSet.totalPlays) played", systemImage: "repeat")
+                            Label { Text("\(Int(activeSet.currentBPM)) bpm") } icon: { PraeludeIcon(glyph: .tempo, size: 16) }
+                            Label { Text("\(activeSet.totalPlays) played") } icon: { Image(systemName: "repeat") }
                         }
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
                         Button {
                             continuePractice(activeSet, pieceID: piece.id)
                         } label: {
@@ -45,10 +50,10 @@ struct TodayView: View {
                                 .font(.headline)
                                 .frame(maxWidth: .infinity, minHeight: 38)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
+                        .buttonStyle(.praeludePrimary)
                     }
                     .padding(.vertical, 7)
+                    .listRowBackground(Color.clear)
                 }
             }
 
@@ -105,6 +110,8 @@ struct TodayView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(PraeludeColor.paper)
         .navigationTitle("Today")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

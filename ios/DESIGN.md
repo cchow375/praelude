@@ -11,11 +11,13 @@ Current work and remaining scope are tracked in [the mobile roadmap](docs/ROADMA
 
 ## Design direction
 
-The score and the next useful action deserve the most space. Use the system font, large titles,
-plain grouped surfaces, native lists, semantic colors, a single indigo action tint, and generous
-spacing. There are no decorative gradients, glowing backgrounds, hero slogans, dashboard cards
-inside cards, or fabricated activity. Musical titles, composer names, and the actual score are
-the visual identity.
+The score and the next useful action deserve the most space. Use large titles, native lists, and
+generous spacing. Color and type follow the monochrome design system in
+[`(C) Design System.md`](docs/%28C%29%20Design%20System.md) — paper/ink in light, stage
+(black lacquer) in dark, with one rare warm accent reserved for live states (a listening
+microphone, a set being practiced now), never a decorative indigo/blue action tint. There are no
+decorative gradients, glowing backgrounds, hero slogans, dashboard cards inside cards, or
+fabricated activity. Musical titles, composer names, and the actual score are the visual identity.
 
 Materials belong to the controls above the content. Prefer the system's presentation, tab bar,
 toolbar, and sheet materials. Keep the score paper opaque and legible. Custom glass is limited
@@ -134,22 +136,22 @@ do not rewrite what a session meant. See [the candidate usage guide](docs/USING_
 This matrix is the implementation/acceptance contract. A checked-in feature still needs the
 corresponding simulator or hardware evidence before it can be described as accepted.
 
-| Area | iPhone/iPad contract | Difference or acceptance boundary |
-| --- | --- | --- |
-| Library | Local pieces, imported PDF, metadata, reversible resting | App sandbox owns imported copies; no absolute Mac file paths |
-| Score | Native PDF reading, page controls, zoom, retained position | PDFKit replaces desktop PDF.js/custom protocol |
-| Practice | User-supplied verdicts, durable history, resumable sets, undo | Native store is independent; no automatic Mac database migration |
-| Targets | Clean streak and fixed total plays | Must preserve the meaning of each verdict; no invented musical judgment |
-| Tempo/variants | 1–100 count targets,20–300 BPM, fixed/percentage ascent, ordered stage targets, saved editable routines | No desktop demotion/mastery-proof policies or multi-set parking; one running/paused set at a time |
-| Metronome | Offline timekeeping and interruption handling | Native audio implementation; hardware output remains a device check |
-| Progress | Recorded effort and history, commitment-based recognition | Desktop furnished Studio and coin inventory are not automatically migrated |
-| Goals/calendar | Optional goals with piece/date/completion; browse sessions by date | No imposed plan, reminders, or scheduled notifications; daily records group sessions by start date |
-| Voice | Explicit opt-in on-device US English final-phrase commands; no server fallback | Narrower vocabulary than Mac; microphone/acoustic reliability needs device acceptance |
-| Score markup | PDF reading and measure-range passage records | PDF ink/Pencil editing, geometric score marks and mapping tools are unimplemented in this candidate |
-| History and warmups | Native current-set Undo plus session/attempt inspection | Full historical repair UI, desktop warmup library and teaching tools are unported |
-| Mapping/Assistant | Do not imply unavailable capability | Assistant remains off/on hold; cloud mapping is a separate feature boundary |
-| Backup | Explicit validated export/import; read-only recovery copies and byte-verifies the original before replacement; unreadable fallback export is refused | Files sharing is not account sync; no implied iCloud multi-device sync or Mac migration |
-| Distribution | Xcode simulator/device target; candidate1.0.0/build1 | App Store/TestFlight require signing and distribution work plus device QA; candidate is not shipped |
+| Area                | iPhone/iPad contract                                                                                                                                 | Difference or acceptance boundary                                                                   |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Library             | Local pieces, imported PDF, metadata, reversible resting                                                                                             | App sandbox owns imported copies; no absolute Mac file paths                                        |
+| Score               | Native PDF reading, page controls, zoom, retained position                                                                                           | PDFKit replaces desktop PDF.js/custom protocol                                                      |
+| Practice            | User-supplied verdicts, durable history, resumable sets, undo                                                                                        | Native store is independent; no automatic Mac database migration                                    |
+| Targets             | Clean streak and fixed total plays                                                                                                                   | Must preserve the meaning of each verdict; no invented musical judgment                             |
+| Tempo/variants      | 1–100 count targets,20–300 BPM, fixed/percentage ascent, ordered stage targets, saved editable routines                                              | No desktop demotion/mastery-proof policies or multi-set parking; one running/paused set at a time   |
+| Metronome           | Offline timekeeping and interruption handling                                                                                                        | Native audio implementation; hardware output remains a device check                                 |
+| Progress            | Recorded effort and history, commitment-based recognition                                                                                            | Desktop furnished Studio and coin inventory are not automatically migrated                          |
+| Goals/calendar      | Optional goals with piece/date/completion; browse sessions by date                                                                                   | No imposed plan, reminders, or scheduled notifications; daily records group sessions by start date  |
+| Voice               | Explicit opt-in on-device US English final-phrase commands; no server fallback                                                                       | Narrower vocabulary than Mac; microphone/acoustic reliability needs device acceptance               |
+| Score markup        | PDF reading and measure-range passage records                                                                                                        | PDF ink/Pencil editing, geometric score marks and mapping tools are unimplemented in this candidate |
+| History and warmups | Native current-set Undo plus session/attempt inspection                                                                                              | Full historical repair UI, desktop warmup library and teaching tools are unported                   |
+| Mapping/Assistant   | Do not imply unavailable capability                                                                                                                  | Assistant remains off/on hold; cloud mapping is a separate feature boundary                         |
+| Backup              | Explicit validated export/import; read-only recovery copies and byte-verifies the original before replacement; unreadable fallback export is refused | Files sharing is not account sync; no implied iCloud multi-device sync or Mac migration             |
+| Distribution        | Xcode simulator/device target; candidate1.0.0/build1                                                                                                 | App Store/TestFlight require signing and distribution work plus device QA; candidate is not shipped |
 
 ## Acceptance checklist
 

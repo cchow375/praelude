@@ -33,6 +33,7 @@ struct PraeludeApp: App {
             AppRootView()
                 .environment(store).environment(metronome).environment(speech).environment(runtime)
                 .preferredColorScheme(colorScheme)
+                .tint(PraeludeColor.ink)
                 .onChange(of: store.state.preferences.keepScreenAwake) { _, _ in runtime.updateScreenAwake() }
         }
         WindowGroup("Score", for: UUID.self) { $pieceID in
@@ -42,6 +43,7 @@ struct PraeludeApp: App {
             }
             .environment(store).environment(metronome).environment(speech).environment(runtime)
             .preferredColorScheme(colorScheme)
+            .tint(PraeludeColor.ink)
         }
     }
     private var colorScheme: ColorScheme? {
@@ -92,7 +94,7 @@ struct AppRootView: View {
                             Button {
                                 navigateFromScore { destination = item; selectedPiece = nil }
                             } label: { Label(item.rawValue, systemImage: item.symbol).frame(minHeight: 32) }
-                            .listRowBackground(destination == item && selectedPiece == nil ? Color.accentColor.opacity(0.10) : Color.clear)
+                            .listRowBackground(destination == item && selectedPiece == nil ? PraeludeColor.inkFillQuiet : Color.clear)
                         }
                         if !store.state.pieces.isEmpty {
                             Section("On your music stand") {
@@ -107,6 +109,8 @@ struct AppRootView: View {
                             }
                         }
                     }
+                    .scrollContentBackground(.hidden)
+                    .background(PraeludeColor.paper)
                     .navigationTitle("Praelude")
                     .navigationSplitViewColumnWidth(min: 230, ideal: 270, max: 340)
                 } detail: {
@@ -138,16 +142,20 @@ struct AppRootView: View {
                 HStack(spacing: 12) {
                     Button { openPiece(active.configuration.pieceID) } label: {
                         HStack {
-                            Image(systemName: active.isComplete ? "checkmark.circle.fill" : "pianokeys")
+                            if active.status == .running {
+                                Circle().fill(PraeludeColor.live).frame(width: 7, height: 7)
+                            } else {
+                                PraeludeIcon(glyph: active.isComplete ? .verdictClean : .metronome, size: 18).foregroundStyle(PraeludeColor.ink)
+                            }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(store.state.pieces.first { $0.id == active.configuration.pieceID }?.title ?? "Practice").font(.subheadline.weight(.semibold)).lineLimit(1)
-                                Text(active.isComplete ? "Set complete" : active.status == .paused ? "Paused · tap to resume" : "\(active.progressCount) of \(active.requiredCount) · \(Int(active.currentBPM)) BPM").font(.caption).foregroundStyle(.secondary)
+                                Text(active.isComplete ? "Set complete" : active.status == .paused ? "Paused · tap to resume" : "\(active.progressCount) of \(active.requiredCount) · \(Int(active.currentBPM)) BPM").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
                             }
                             Spacer()
-                            Image(systemName: "chevron.up")
+                            Image(systemName: "chevron.up").foregroundStyle(PraeludeColor.inkTertiary)
                         }.frame(minHeight: 52).contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityIdentifier("resumePractice")
-                }.padding(.horizontal, 20).background(.regularMaterial)
+                }.padding(.horizontal, 20).praeludeSurfacePanel().praeludeHairline(.top)
             }
         }
         .sheet(item: $sheet, onDismiss: {
@@ -211,7 +219,7 @@ struct AppRootView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             if let message = store.errorMessage {
                 Text(message)
-                    .font(.callout).padding().frame(maxWidth: .infinity).background(.regularMaterial).foregroundStyle(.red)
+                    .font(.callout).padding().frame(maxWidth: .infinity).praeludeSurfacePanel().praeludeHairline(.bottom).foregroundStyle(.red)
             }
         }
     }

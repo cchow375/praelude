@@ -30,7 +30,7 @@ struct RecordedPassageView: View {
                     Button("Next", systemImage: "chevron.right") { step(1) }
                         .labelStyle(.iconOnly).frame(width: 48, height: 48)
                         .disabled(page >= (pages.last ?? page))
-                }.padding(.horizontal).background(.regularMaterial)
+                }.padding(.horizontal).praeludeScoreChrome()
             }
             .navigationTitle(passage.title).navigationBarTitleDisplayMode(.inline)
     }

@@ -42,9 +42,10 @@ struct PracticeProgressView: View {
                         HStack(alignment: .firstTextBaseline) {
                             Text("Level \(max(0, progress.xp) / 100 + 1)").font(.headline)
                             Spacer()
-                            Text("\(progress.xp) XP").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                            Text("\(progress.xp) XP").font(.subheadline.monospacedDigit()).foregroundStyle(PraeludeColor.inkSecondary)
                         }
                         SwiftUI.ProgressView(value: Double(max(0, progress.xp) % 100), total: 100)
+                            .tint(PraeludeColor.ink)
                             .accessibilityLabel("Practice level progress")
                             .accessibilityValue("\(max(0, progress.xp) % 100) of 100 experience points")
                         Text("\(100 - max(0, progress.xp) % 100) XP to your next level")
@@ -88,6 +89,8 @@ struct PracticeProgressView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(PraeludeColor.paper)
         .navigationTitle("Progress")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -181,11 +184,11 @@ private struct WeekPracticeView: View {
                 VStack(spacing: 9) {
                     Spacer(minLength: 0)
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(seconds(on: day) > 0 ? Color.accentColor : Color.secondary.opacity(0.15))
+                        .fill(seconds(on: day) > 0 ? PraeludeColor.ink : PraeludeColor.inkFillQuiet)
                         .frame(height: max(3, 80 * seconds(on: day) / largest))
                     Text(day, format: .dateTime.weekday(.narrow))
                         .font(.caption)
-                        .foregroundStyle(calendar.isDateInToday(day) ? .primary : .secondary)
+                        .foregroundStyle(calendar.isDateInToday(day) ? PraeludeColor.ink : PraeludeColor.inkTertiary)
                 }
                 .frame(maxWidth: .infinity)
                 .accessibilityElement(children: .ignore)

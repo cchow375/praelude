@@ -392,7 +392,7 @@ struct ScorePagePicker: View {
                                     }
                                     Text("\(index + 1)").font(.subheadline.monospacedDigit())
                                 }.padding(8).frame(maxWidth: .infinity).contentShape(Rectangle())
-                                    .background(index + 1 == currentPage ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+                                    .background(index + 1 == currentPage ? PraeludeColor.inkFillQuiet : Color.clear, in: RoundedRectangle(cornerRadius: PraeludeRadius.control))
                             }.buttonStyle(.plain).accessibilityLabel("Page \(index + 1)")
                         }
                     }
