@@ -37,6 +37,10 @@ enum PraeludeColor {
 
     // Score paper: pinned paper-white regardless of appearance.
     static let scorePaper = rgb(0.984, 0.976, 0.957)
+    // Score ink: anything drawn ON the score page (passage boxes, handles, thumbnails) sits on
+    // pinned paper-white, so it must use pinned ink too — never the dynamic `ink`, which turns
+    // parchment in dark mode and would vanish against the page.
+    static let scoreInk = rgb(0.094, 0.082, 0.071)
 
     // The one rare accent — a warm stage-light amber, never blue, indigo, violet, or purple.
     // Reserved for live state: a listening microphone, the progress of a set being practiced now.

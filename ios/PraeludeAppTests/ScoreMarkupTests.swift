@@ -31,7 +31,7 @@ final class ScoreMarkupTests: XCTestCase {
     /// (previously `.systemIndigo`/`.systemTeal`) — practiced/emphasized/selected states read by
     /// alpha weight only, matching the one-accent monochrome palette (§3a).
     @MainActor func testPassageBoxColorsStayMonochromeAcrossEveryState() throws {
-        let ink = UIColor(PraeludeColor.ink)
+        let ink = UIColor(PraeludeColor.scoreInk)
         var inkHue: CGFloat = 0, inkSaturation: CGFloat = 0, inkBrightness: CGFloat = 0, inkAlpha: CGFloat = 0
         XCTAssertTrue(ink.getHue(&inkHue, saturation: &inkSaturation, brightness: &inkBrightness, alpha: &inkAlpha))
         func assertSameHue(_ color: UIColor, _ message: String, file: StaticString = #filePath, line: UInt = #line) {
@@ -40,6 +40,12 @@ final class ScoreMarkupTests: XCTestCase {
             XCTAssertEqual(hue, inkHue, accuracy: 0.0001, message, file: file, line: line)
             XCTAssertEqual(saturation, inkSaturation, accuracy: 0.0001, message, file: file, line: line)
             XCTAssertEqual(brightness, inkBrightness, accuracy: 0.0001, message, file: file, line: line)
+            // The score page is pinned paper-white in both appearances, so marks drawn on it must
+            // stay dark ink in dark mode too (a dynamic ink would resolve to parchment and vanish).
+            let dark = color.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
+            var darkBrightness: CGFloat = 0
+            XCTAssertTrue(dark.getHue(nil, saturation: nil, brightness: &darkBrightness, alpha: nil), file: file, line: line)
+            XCTAssertLessThan(darkBrightness, 0.2, "\(message) (dark appearance)", file: file, line: line)
         }
         for practiced in [false, true] {
             for emphasized in [false, true] {

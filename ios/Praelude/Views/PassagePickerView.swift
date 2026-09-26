@@ -176,7 +176,7 @@ struct PassagePreview: View {
         return UIGraphicsImageRenderer(size: crop.size).image { context in
             context.cgContext.translateBy(x: -crop.minX, y: -crop.minY)
             image.draw(at: .zero)
-            context.cgContext.setFillColor(UIColor(PraeludeColor.ink).withAlphaComponent(0.105).cgColor)
+            context.cgContext.setFillColor(UIColor(PraeludeColor.scoreInk).withAlphaComponent(0.105).cgColor)
             for box in boxes { context.cgContext.fill(box) }
         }
     }

@@ -8,15 +8,15 @@ import PencilKit
 /// the one place `draw(_:)` is allowed to name a color — everything it draws comes from `ink`.
 enum ScorePassageBoxStyle {
     static func fillColor(practiced: Bool, emphasized: Bool) -> UIColor {
-        UIColor(PraeludeColor.ink).withAlphaComponent(emphasized ? 0.105 : (practiced ? 0.032 : 0.055))
+        UIColor(PraeludeColor.scoreInk).withAlphaComponent(emphasized ? 0.105 : (practiced ? 0.032 : 0.055))
     }
     static func strokeColor(practiced: Bool, selected: Bool) -> UIColor {
-        UIColor(PraeludeColor.ink).withAlphaComponent(selected ? 0.55 : (practiced ? 0.12 : 0.20))
+        UIColor(PraeludeColor.scoreInk).withAlphaComponent(selected ? 0.55 : (practiced ? 0.12 : 0.20))
     }
     /// The selected box's own corner resize handles — a touch more opaque than its edge stroke so
     /// the drag points read clearly against the page.
     static func handleRingColor() -> UIColor {
-        UIColor(PraeludeColor.ink).withAlphaComponent(0.65)
+        UIColor(PraeludeColor.scoreInk).withAlphaComponent(0.65)
     }
 }
 
