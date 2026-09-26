@@ -55,6 +55,22 @@ final class MetronomeService {
         get { settings.haptics }
         set { settings.haptics = newValue; persistSettings() }
     }
+    /// Bars of the ordinary click played once, unlooped, before the music starts (0 = off).
+    var countInBars: Int {
+        get { settings.countInBars }
+        set {
+            let value = min(4, max(0, newValue))
+            guard value != settings.countInBars else { return }
+            settings.countInBars = value
+            settingsChanged()
+        }
+    }
+    /// When on, backgrounding the app (including locking the screen) leaves the click running,
+    /// using the `audio` background mode; when off (default), backgrounding stops it as before.
+    var keepRunningWhenLocked: Bool {
+        get { settings.keepRunningWhenLocked }
+        set { settings.keepRunningWhenLocked = newValue; persistSettings() }
+    }
     var accents: [BeatAccent] { settings.accents }
     private(set) var isPlaying = false
     /// One-based displayed beat; zero while stopped.
@@ -62,6 +78,12 @@ final class MetronomeService {
     private(set) var pulse = 0
     private(set) var beatSequence: Int64 = 0
     private(set) var beatProgress = 0.0
+    /// True while a count-in bar (not yet the music) is sounding.
+    private(set) var isCountingIn = false
+    /// True while the current bar is a pulse-check "off" bar (R14) — silent by design, not a fault.
+    private(set) var isDropoutSilent = false
+    /// The active pulse-check dropout cycle (§11 R14 hook), or `nil` when the click plays every bar.
+    private(set) var dropoutPlan: MetronomeDropoutPlan?
     private(set) var errorMessage: String?
 
     @ObservationIgnored private let engine = AVAudioEngine()
@@ -77,6 +99,7 @@ final class MetronomeService {
     @ObservationIgnored private let beatHaptic = UIImpactFeedbackGenerator(style: .soft)
     @ObservationIgnored private var rebuilding = false
     @ObservationIgnored private var audioRequiresRelaunch = false
+    @ObservationIgnored private var resumeAfterInterruption = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -89,11 +112,25 @@ final class MetronomeService {
             didChange: { [weak self] in self?.resumeEngineAfterConfiguration() }
         )
         observe(AVAudioSession.interruptionNotification) { [weak self] notification in
-            guard let raw = notification.interruptionType,
-                  AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
-            self?.stopWithReason("Metronome stopped for an audio interruption. Tap Play when ready.")
+            guard let self, let raw = notification.interruptionType,
+                  let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+            switch type {
+            case .began:
+                self.resumeAfterInterruption = self.stopWithReason("Metronome stopped for an audio interruption. Tap Play when ready.")
+            case .ended:
+                guard self.resumeAfterInterruption else { return }
+                self.resumeAfterInterruption = false
+                let options = notification.interruptionOptions.map { AVAudioSession.InterruptionOptions(rawValue: $0) } ?? []
+                guard options.contains(.shouldResume) else { return }
+                self.errorMessage = nil
+                self.start()
+            @unknown default: break
+            }
         }
-        observe(UIApplication.didEnterBackgroundNotification) { [weak self] _ in self?.stop() }
+        observe(UIApplication.didEnterBackgroundNotification) { [weak self] _ in
+            guard let self, !self.settings.keepRunningWhenLocked else { return }
+            self.stop()
+        }
         observe(AVAudioSession.routeChangeNotification) { [weak self] notification in
             guard let raw = notification.routeReason,
                   AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable else { return }
@@ -125,6 +162,8 @@ final class MetronomeService {
             beat = 1
             pulse = 1
             beatProgress = 0
+            isCountingIn = settings.countInBars > 0
+            isDropoutSilent = false
             if hapticsEnabled { beatHaptic.prepare() }
             startDisplayUpdates()
         } catch {
@@ -144,12 +183,25 @@ final class MetronomeService {
         beat = 0
         pulse = 0
         beatProgress = 0
+        isCountingIn = false
+        isDropoutSilent = false
         lastAbsoluteBeat = nil
         AudioSessionCoordinator.shared.release(.metronome)
     }
 
     func toggle() { isPlaying ? stop() : start() }
     func setTempo(_ value: Double) { guard value.isFinite else { return }; bpm = value }
+
+    /// R14 pulse check: the practice track calls this to make the click drop out for
+    /// `plan.barsOff` bars every `plan.barsOn` bars (and back to `nil` to return to playing every
+    /// bar). This is the mechanism only — deciding *when* to apply it is a rules-track concern.
+    func applyDropoutPlan(_ plan: MetronomeDropoutPlan?) {
+        guard plan == nil || plan?.isValid == true, plan != dropoutPlan else { return }
+        dropoutPlan = plan
+        guard isPlaying else { return }
+        do { try playBar(); beat = 1 }
+        catch { stopWithReason("The metronome could not update: \(error.localizedDescription)") }
+    }
 
     func tap() {
         if let value = tapEstimator.tap(at: ProcessInfo.processInfo.systemUptime) { setTempo(value) }
@@ -201,44 +253,68 @@ final class MetronomeService {
         let pattern = try MetronomePattern(bpm: bpm, beatsPerBar: beatsPerBar,
                                           subdivision: subdivision, sampleRate: sampleRate, accents: settings.accents, sound: settings.sound)
         barFrames = AVAudioFramePosition(pattern.frameCount)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(barFrames)),
-              let samples = buffer.floatChannelData?[0] else { throw MetronomeError.invalidAudioFormat }
-        buffer.frameLength = AVAudioFrameCount(barFrames)
-        let waveform = pattern.renderSamples()
-        waveform.withUnsafeBufferPointer { source in
-            if let base = source.baseAddress { samples.update(from: base, count: source.count) }
-        }
+        let bar = pattern.renderSamples()
         engine.connect(player, to: engine.mainMixerNode, format: format)
         engine.prepare()
         try engine.start()
-        player.scheduleBuffer(buffer, at: nil, options: .loops)
+        // A count-in plays the ordinary bar once, unlooped, then the (possibly dropout-cycled)
+        // music queues right behind it — `scheduleBuffer(at: nil)` plays buffers back-to-back in
+        // the order scheduled, so no manual timestamp arithmetic is needed for a sample-accurate join.
+        if settings.countInBars > 0 {
+            let countIn = try makeBuffer(format: format, samples: Array(repeating: bar, count: settings.countInBars).flatMap { $0 })
+            player.scheduleBuffer(countIn, at: nil, options: [])
+        }
+        let cycle: [Float]
+        if let plan = dropoutPlan, plan.isValid {
+            let silentBar = [Float](repeating: 0, count: pattern.frameCount)
+            cycle = Array(repeating: bar, count: plan.barsOn).flatMap { $0 } + Array(repeating: silentBar, count: plan.barsOff).flatMap { $0 }
+        } else {
+            cycle = bar
+        }
+        let loop = try makeBuffer(format: format, samples: cycle)
+        player.scheduleBuffer(loop, at: nil, options: .loops)
         player.volume = Float(settings.volume)
         player.play()
     }
 
+    private func makeBuffer(format: AVAudioFormat, samples: [Float]) throws -> AVAudioPCMBuffer {
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)),
+              let channel = buffer.floatChannelData?[0] else { throw MetronomeError.invalidAudioFormat }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer { source in
+            if let base = source.baseAddress { channel.update(from: base, count: source.count) }
+        }
+        return buffer
+    }
+
+    /// Polling cadence is display-only: `MetronomeClock.position` recomputes the exact bar/beat
+    /// from the engine's absolute sample clock every time, so a late or irregular poll (a busy
+    /// main thread) can only delay what is *shown*, never drift what is *played* (see
+    /// "MetronomeDriftTests").
     private func startDisplayUpdates() {
         displayTask?.cancel()
         displayTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(33))
                 guard !Task.isCancelled, let self, self.isPlaying else { return }
-                if let nodeTime = self.player.lastRenderTime,
-                   let time = self.player.playerTime(forNodeTime: nodeTime), time.sampleTime >= 0 {
-                    let position = time.sampleTime % self.barFrames
-                    let continuousBeat = Double(position) / Double(self.barFrames) * Double(self.beatsPerBar)
-                    let nextBeat = min(self.beatsPerBar, Int(continuousBeat) + 1)
-                    let absoluteBeat = time.sampleTime / self.barFrames * Int64(self.beatsPerBar) + Int64(nextBeat - 1)
-                    if absoluteBeat != self.lastAbsoluteBeat {
-                        self.lastAbsoluteBeat = absoluteBeat
-                        self.beatSequence &+= 1
-                        if self.hapticsEnabled, self.settings.accents[nextBeat - 1] != .muted {
-                            self.beatHaptic.impactOccurred(intensity: self.settings.accents[nextBeat - 1] == .accented ? 0.8 : 0.4)
-                        }
+                guard let nodeTime = self.player.lastRenderTime,
+                      let time = self.player.playerTime(forNodeTime: nodeTime), time.sampleTime >= 0,
+                      let position = MetronomeClock.position(sampleTime: time.sampleTime, barFrames: self.barFrames,
+                                                              beatsPerBar: self.beatsPerBar, subdivision: self.subdivision,
+                                                              countInBars: self.settings.countInBars, dropoutPlan: self.dropoutPlan)
+                else { continue }
+                if position.absoluteBeatIndex != self.lastAbsoluteBeat {
+                    self.lastAbsoluteBeat = position.absoluteBeatIndex
+                    self.beatSequence &+= 1
+                    if self.hapticsEnabled, !position.isSilentBar, self.settings.accents[position.beat - 1] != .muted {
+                        self.beatHaptic.impactOccurred(intensity: self.settings.accents[position.beat - 1] == .accented ? 0.8 : 0.4)
                     }
-                    self.beat = nextBeat
-                    self.beatProgress = continuousBeat - floor(continuousBeat)
-                    self.pulse = min(self.beatsPerBar * self.subdivision, Int(continuousBeat * Double(self.subdivision)) + 1)
                 }
+                self.beat = position.beat
+                self.beatProgress = position.beatProgress
+                self.pulse = position.pulse
+                self.isCountingIn = position.isCountIn
+                self.isDropoutSilent = position.isSilentBar
             }
         }
     }
@@ -255,10 +331,12 @@ final class MetronomeService {
         catch { stopWithReason("Audio output changed. Tap Play to restart the metronome.") }
     }
 
-    private func stopWithReason(_ message: String) {
+    @discardableResult
+    private func stopWithReason(_ message: String) -> Bool {
         let wasPlaying = isPlaying
         stop()
         if wasPlaying { errorMessage = message }
+        return wasPlaying
     }
 
     private func observe(_ name: Notification.Name, action: @escaping @MainActor @Sendable (AudioNotificationContext) -> Void) {

@@ -1,7 +1,7 @@
 import Foundation
 
 enum MetronomeSound: String, Codable, CaseIterable, Sendable {
-    case wood, click, bell
+    case wood, click, bell, glass
     var title: String { rawValue.capitalized }
 }
 
@@ -97,9 +97,9 @@ struct MetronomePattern {
             guard accent != .muted else { continue }
             let mainBeat = pulse.isMultiple(of: subdivision)
             let strong = mainBeat && accent == .accented
-            let amplitude = strong ? 0.56 : (mainBeat ? 0.36 : 0.16)
+            let amplitude = (strong ? 0.56 : (mainBeat ? 0.36 : 0.16)) * (sound == .glass ? 1.3 : 1)
             let frequency = strong ? 1_650.0 : (mainBeat ? 1_150.0 : 870.0)
-            let duration = sound == .bell ? 0.045 : 0.026
+            let duration = sound == .bell ? 0.045 : (sound == .glass ? 0.018 : 0.026)
             let count = min(Int(sampleRate * duration), frameCount - start)
             var noiseState = UInt64(pulse + 1) &* 2_654_435_761
             for frame in 0..<max(0, count) {
@@ -116,6 +116,11 @@ struct MetronomePattern {
                     wave = (sin(2 * .pi * frequency * time) + noise * 0.4) * exp(-time * 280)
                 case .bell:
                     wave = (sin(2 * .pi * frequency * time) + 0.18 * sin(2 * .pi * frequency * 2.76 * time)) * exp(-time * 95)
+                case .glass:
+                    // Brighter and shorter than the other three: a higher-harmonic tone plus a
+                    // strong noise "chiff" at onset, decaying fast — cuts through a loud acoustic
+                    // instrument's low-mid energy instead of blending under it (§13).
+                    wave = (sin(2 * .pi * frequency * 2.4 * time) * 0.55 + noise * 0.6) * exp(-time * 520)
                 }
                 samples[start + frame] += Float(amplitude * attack * endFade * wave)
             }

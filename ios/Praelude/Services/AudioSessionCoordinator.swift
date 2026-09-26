@@ -5,7 +5,10 @@ import Foundation
 @MainActor
 final class AudioSessionCoordinator {
     static let shared = AudioSessionCoordinator()
-    enum Client: Hashable { case metronome, speech, feedback }
+    /// `.tuner` and `.recording` both need microphone input, exactly like `.speech`; `.drone` is
+    /// playback-only, like `.metronome`/`.feedback`. Any mix of these may be active together —
+    /// a drone or the metronome must keep playing while the tuner listens or a take records.
+    enum Client: Hashable { case metronome, speech, feedback, tuner, drone, recording }
 
     private var clients: Set<Client> = []
     private var configurationObservers: [(willChange: () -> Void, didChange: () -> Void)] = []
@@ -34,8 +37,9 @@ final class AudioSessionCoordinator {
             try session.setActive(false, options: .notifyOthersOnDeactivation)
             return
         }
-        let category: AVAudioSession.Category = proposed.contains(.speech) ? .playAndRecord : .playback
-        let options: AVAudioSession.CategoryOptions = proposed.contains(.speech)
+        let needsInput = proposed.contains(.speech) || proposed.contains(.tuner) || proposed.contains(.recording)
+        let category: AVAudioSession.Category = needsInput ? .playAndRecord : .playback
+        let options: AVAudioSession.CategoryOptions = needsInput
             ? [.defaultToSpeaker, .mixWithOthers, .allowBluetoothHFP]
             : [.mixWithOthers]
         let changesFormat = session.category != category || session.categoryOptions != options
@@ -57,11 +61,15 @@ final class AudioNotificationBag: @unchecked Sendable {
 /// Copy values before entering main-actor isolation; Notification itself is not Sendable.
 struct AudioNotificationContext: Sendable {
     let interruptionType: UInt?
+    /// Only meaningful alongside `interruptionType == .ended`: whether the system says it is safe
+    /// to resume (`AVAudioSession.InterruptionOptions.shouldResume`).
+    let interruptionOptions: UInt?
     let routeReason: UInt?
     let sourceID: ObjectIdentifier?
 
     init(_ notification: Notification) {
         interruptionType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+        interruptionOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
         routeReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
         sourceID = notification.object.map { ObjectIdentifier($0 as AnyObject) }
     }

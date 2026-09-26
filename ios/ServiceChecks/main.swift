@@ -79,7 +79,9 @@ import Foundation
             expect(accentPeak > regularPeak, "User-selected accent is stronger")
             waveforms.append(waveform)
         }
-        expect(waveforms[0] != waveforms[1] && waveforms[1] != waveforms[2] && waveforms[0] != waveforms[2], "Three sounds differ")
+        for i in waveforms.indices {
+            for j in waveforms.indices where j > i { expect(waveforms[i] != waveforms[j], "Sound \(i) and \(j) differ") }
+        }
         let silent = try MetronomePattern(bpm: 120, beatsPerBar: 4, subdivision: 4, sampleRate: 8_000, accents: [.muted, .muted, .muted, .muted])
         expect(silent.renderSamples().allSatisfy { $0 == 0 }, "All-muted meter is silent")
         expect(BeatAccent.regular.next.next.next == .regular, "Accent cycle returns to original")
