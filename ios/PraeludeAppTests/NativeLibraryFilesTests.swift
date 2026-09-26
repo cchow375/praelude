@@ -414,16 +414,16 @@ final class NativeLibraryFilesTests: XCTestCase {
         let backup = try NativeLibraryFiles(store: source).makeBackup()
         let legacy = try editingBackup(backup.data) { object in
             var library = try XCTUnwrap(object["library"] as? [String: Any])
-            library["schemaVersion"] = 1; library.removeValue(forKey: "scoreDrawings")
+            library["schemaVersion"] = 1; library.removeValue(forKey: "inkStrokes")
             var passages = try XCTUnwrap(library["passages"] as? [[String: Any]])
             passages[0].removeValue(forKey: "regions")
             library["passages"] = passages; object["library"] = library
         }
         let target = try fixture()
         try NativeLibraryFiles(store: target).restoreBackup(legacy)
-        XCTAssertEqual(target.state.schemaVersion, 2)
-        XCTAssertEqual(target.state.passages, [passage])
-        XCTAssertTrue(target.state.scoreDrawings.isEmpty)
+        XCTAssertEqual(target.state.schemaVersion, 3)
+        XCTAssertEqual(target.state.passages.map(\.id), [passage.id])
+        XCTAssertTrue(target.state.inkStrokes.isEmpty)
         XCTAssertFalse(PracticeStore(directory: target.directory).isReadOnly)
     }
 

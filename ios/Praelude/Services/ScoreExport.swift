@@ -20,7 +20,9 @@ import UIKit
               (1...2000).contains(document.pageCount) else {
             throw PracticeError.invalid("This score could not be exported. Choose an unlocked PDF smaller than 100 MB.")
         }
-        let drawings = store.state.scoreDrawings.filter { $0.pieceID == pieceID }
+        // Several stroke rows can now share a page (§4d); group them so each page still exports as
+        // one merged drawing.
+        let inkByPage = Dictionary(grouping: store.state.inkStrokes.filter { $0.pieceID == pieceID && $0.deletedAt == nil && $0.layer == .mine }, by: \.page)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Praelude-Export-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         do {
@@ -56,8 +58,8 @@ import UIKit
                         page.draw(with: .mediaBox, to: context)
                         context.restoreGState()
                         page.rotation = rotation
-                        if let saved = drawings.first(where: { $0.page == index + 1 }) {
-                            try drawInk(saved.data, crop: crop, context: context)
+                        if let rows = inkByPage[index + 1], !rows.isEmpty {
+                            try drawInk(rows.map(\.data), crop: crop, context: context)
                         }
                         context.endPDFPage()
                     }
@@ -83,12 +85,20 @@ import UIKit
         }
     }
 
-    private static func drawInk(_ data: Data, crop: CGRect, context: CGContext) throws {
-        guard !data.isEmpty, data.count <= PracticeStore.maximumDrawingBytes else { throw PracticeError.invalid("This page contains ink that is too large to export.") }
-        let drawing: PKDrawing
-        do { drawing = try PKDrawing(data: data) }
-        catch { throw PracticeError.invalid("This page contains damaged ink. Its saved data has been preserved.") }
-        guard !drawing.strokes.isEmpty else { throw PracticeError.invalid("This page contains no readable ink strokes. Its saved data has been preserved.") }
+    /// Merges one page's stroke rows (each an app-encoded, possibly multi-stroke `PKDrawing` blob)
+    /// into a single drawing before rendering, so a page ink now spans several sync-ready rows
+    /// exports exactly as it would have as one schema2 blob.
+    private static func drawInk(_ blobs: [Data], crop: CGRect, context: CGContext) throws {
+        var strokes: [PKStroke] = []
+        for data in blobs {
+            guard !data.isEmpty, data.count <= PracticeStore.maximumDrawingBytes else { throw PracticeError.invalid("This page contains ink that is too large to export.") }
+            let piece: PKDrawing
+            do { piece = try PKDrawing(data: data) }
+            catch { throw PracticeError.invalid("This page contains damaged ink. Its saved data has been preserved.") }
+            strokes.append(contentsOf: piece.strokes)
+        }
+        guard !strokes.isEmpty else { throw PracticeError.invalid("This page contains no readable ink strokes. Its saved data has been preserved.") }
+        let drawing = PKDrawing(strokes: strokes)
         let bounds = drawing.bounds
         guard validCoordinates(bounds), drawing.strokes.count <= 100_000 else { throw PracticeError.invalid("This page contains ink that cannot be exported safely.") }
         let clipped = bounds.intersection(CGRect(origin: .zero, size: crop.size))
