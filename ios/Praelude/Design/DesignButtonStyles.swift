@@ -10,6 +10,7 @@ import SwiftUI
 /// action on a screen (Start set, Add your first piece), not every prominent button.
 struct PraeludePrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.headline)
@@ -20,7 +21,7 @@ struct PraeludePrimaryButtonStyle: ButtonStyle {
                 in: RoundedRectangle(cornerRadius: PraeludeRadius.control, style: .continuous)
             )
             .scaleEffect(configuration.isPressed ? 0.975 : 1)
-            .animation(PraeludeMotion.tap, value: configuration.isPressed)
+            .animation(PraeludeMotion.tap(reduceMotion: reduceMotion), value: configuration.isPressed)
     }
 }
 
@@ -28,6 +29,7 @@ struct PraeludePrimaryButtonStyle: ButtonStyle {
 /// with the primary one on the same screen.
 struct PraeludeQuietButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.headline)
@@ -37,7 +39,7 @@ struct PraeludeQuietButtonStyle: ButtonStyle {
                 configuration.isPressed ? PraeludeColor.inkFillPressed : PraeludeColor.inkFillQuiet,
                 in: RoundedRectangle(cornerRadius: PraeludeRadius.control, style: .continuous)
             )
-            .animation(PraeludeMotion.tap, value: configuration.isPressed)
+            .animation(PraeludeMotion.tap(reduceMotion: reduceMotion), value: configuration.isPressed)
     }
 }
 
@@ -46,6 +48,7 @@ struct PraeludeQuietButtonStyle: ButtonStyle {
 /// the eye finds Clean first without hiding Sloppy/Again as equally real, equally tappable choices.
 struct PraeludeVerdictButtonStyle: ButtonStyle {
     var emphasis: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(maxWidth: .infinity, minHeight: PraeludeMetric.verdictHeight)
@@ -55,7 +58,7 @@ struct PraeludeVerdictButtonStyle: ButtonStyle {
                 in: RoundedRectangle(cornerRadius: PraeludeRadius.verdict, style: .continuous)
             )
             .scaleEffect(configuration.isPressed ? 0.965 : 1)
-            .animation(PraeludeMotion.tap, value: configuration.isPressed)
+            .animation(PraeludeMotion.tap(reduceMotion: reduceMotion), value: configuration.isPressed)
     }
 }
 
@@ -63,13 +66,14 @@ struct PraeludeVerdictButtonStyle: ButtonStyle {
 /// from the bench.
 struct PraeludeEdgeControlButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(width: PraeludeMetric.edgeControl, height: PraeludeMetric.edgeControl)
             .foregroundStyle(PraeludeColor.ink.opacity(isEnabled ? 1 : 0.35))
             .background(PraeludeColor.inkFillQuiet, in: Circle())
             .scaleEffect(configuration.isPressed ? 0.92 : 1)
-            .animation(PraeludeMotion.tap, value: configuration.isPressed)
+            .animation(PraeludeMotion.tap(reduceMotion: reduceMotion), value: configuration.isPressed)
     }
 }
 

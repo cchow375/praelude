@@ -115,11 +115,13 @@ in the repo for compliance. Both fonts are registered via `UIAppFonts` in `Info.
 
 Restyled: Today (empty state, active-set card), the sidebar/tabs and app-wide tint, the library
 list (including the swipe-action `.indigo` removal), the score workspace chrome and practice dock
-(including the verdict buttons, the practice-feedback acknowledgement mark, and the passage
-picker's `.indigo` removal), the set composer, the metronome, progress, and settings. Every
-`.indigo`, decorative `Color.accentColor`, `.buttonStyle(.bordered/.borderedProminent)`, and
-default `.regularMaterial` card in `ios/Praelude/Views/` was removed or replaced — verified by
-grep, not just by eye.
+(including the verdict buttons, the practice-feedback acknowledgement mark, the passage picker's
+`.indigo` removal, and the on-score passage boxes' `.systemIndigo`/`.systemTeal` removal in
+`ScorePageOverlay`, which a case-sensitive `.indigo` grep had missed), the set composer, the
+metronome, progress, and settings. Every `.indigo`/`.systemIndigo`/`.systemTeal`, decorative
+`Color.accentColor`, `.buttonStyle(.bordered/.borderedProminent)`, and default `.regularMaterial`
+card in `ios/Praelude/Views/` was removed or replaced — verified by a case-insensitive grep, not
+just by eye.
 
 ## Evidence
 

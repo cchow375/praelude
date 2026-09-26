@@ -13,7 +13,10 @@ struct LibraryView: View {
     private var visiblePieces: [Piece] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
         return store.pieces.filter { piece in
-            piece.status == collection && (query.isEmpty ||
+            // Resting is the one opt-out state; every other status (including a future one no
+            // producer creates yet, like `.completed`) belongs in Active so it is never hidden
+            // from both tabs at once.
+            (collection == .resting ? piece.status == .resting : piece.status != .resting) && (query.isEmpty ||
                 piece.title.localizedStandardContains(query) ||
                 piece.composer.localizedStandardContains(query))
         }.sorted { left, right in
@@ -132,6 +135,7 @@ struct LibraryView: View {
         do {
             try store.setPieceStatus(piece.id, status: piece.status == .active ? .resting : .active)
             errorMessage = nil
+            PraeludeHaptic.confirm()
         } catch { errorMessage = error.localizedDescription }
     }
 }
@@ -225,6 +229,7 @@ private struct PieceDetailsView: View {
         do {
             draft.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
             draft.composer = draft.composer.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft.updatedAt = Date()
             try store.updatePiece(draft)
             dismiss()
         } catch { errorMessage = error.localizedDescription }

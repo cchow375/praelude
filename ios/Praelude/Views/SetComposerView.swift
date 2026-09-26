@@ -58,7 +58,7 @@ struct SetComposerView: View {
                     Stepper(value: $startBPM, in: 20...300, step: 1) {
                         LabeledContent("Starting tempo", value: "\(Int(startBPM)) bpm")
                     }
-                    Toggle("Metronome", isOn: $useMetronome)
+                    Toggle("Metronome", isOn: $useMetronome).praeludeToggleHaptic(useMetronome)
                 } footer: {
                     Text("Start with a tempo where you can hear and feel the work.")
                 }
@@ -84,7 +84,7 @@ struct SetComposerView: View {
 
                 if basis == .cleanStreak {
                     Section {
-                        Toggle("Tempo ladder", isOn: $useLadder)
+                        Toggle("Tempo ladder", isOn: $useLadder).praeludeToggleHaptic(useLadder)
                         if useLadder {
                             Stepper(value: $targetBPM, in: startBPM...300, step: 1) {
                                 LabeledContent("Target tempo", value: "\(Int(targetBPM)) bpm")

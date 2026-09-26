@@ -12,7 +12,8 @@ struct TodayView: View {
     }
 
     private var recentPieces: [Piece] {
-        let active = store.pieces.filter { $0.status == .active }
+        // Resting is the one opt-out state; any other status belongs here (see LibraryView.visiblePieces).
+        let active = store.pieces.filter { $0.status != .resting }
         return Array(active.sorted { left, right in
             (lastPractice(left.id) ?? left.createdAt) > (lastPractice(right.id) ?? right.createdAt)
         }.prefix(5))

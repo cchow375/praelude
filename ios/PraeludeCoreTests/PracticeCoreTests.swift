@@ -5,9 +5,10 @@ import XCTest
 final class PracticeCoreTests: XCTestCase {
     @MainActor private func fixture(target: Int = 3, basis: CompletionBasis = .cleanStreak,
                                     start: Double = 60, end: Double = 60,
-                                    stages: [VariantStage] = []) throws -> (PracticeStore, URL) {
+                                    stages: [VariantStage] = [],
+                                    now: @escaping () -> Date = Date.init) throws -> (PracticeStore, URL) {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-ios-tests-\(UUID())")
-        let store = PracticeStore(directory: directory)
+        let store = PracticeStore(directory: directory, now: now)
         let piece = Piece(title: "Test score", pageCount: 8)
         try store.addPiece(piece)
         try store.startSet(PracticeConfiguration(pieceID: piece.id, basis: basis, targetCount: target,
@@ -381,13 +382,19 @@ final class PracticeCoreTests: XCTestCase {
                     "notebookEntries", "profile"] {
             json.removeValue(forKey: key)
         }
-        var passages = try XCTUnwrap(json["passages"] as? [[String: Any]])
-        for index in passages.indices {
-            for key in ["color", "parentPassageID", "joinedFromPassageIDs", "archived", "learningState",
-                        "schedule", "parkedUntil", "performanceTempo", "createdAt", "updatedAt", "deletedAt"] {
-                passages[index].removeValue(forKey: key)
-            }
+        let schema3OnlyPassageKeys = ["color", "parentPassageID", "joinedFromPassageIDs", "archived", "learningState",
+                                      "schedule", "parkedUntil", "performanceTempo", "createdAt", "updatedAt", "deletedAt"]
+        func stripSchema3PassageFields(_ passage: inout [String: Any]) {
+            for key in schema3OnlyPassageKeys { passage.removeValue(forKey: key) }
         }
+        // A `passageSnapshot` is a full `Passage` copy embedded inside `activeSet`/`history`, not
+        // inside `passages` — a genuine schema2 file lacked the same schema3-only fields there too.
+        func stripSnapshot(_ configuration: inout [String: Any]) {
+            guard var snapshot = configuration["passageSnapshot"] as? [String: Any] else { return }
+            stripSchema3PassageFields(&snapshot); configuration["passageSnapshot"] = snapshot
+        }
+        var passages = try XCTUnwrap(json["passages"] as? [[String: Any]])
+        for index in passages.indices { stripSchema3PassageFields(&passages[index]) }
         json["passages"] = passages
         var pieces = try XCTUnwrap(json["pieces"] as? [[String: Any]])
         for index in pieces.indices {
@@ -398,7 +405,14 @@ final class PracticeCoreTests: XCTestCase {
         }
         json["pieces"] = pieces
         if var active = json["activeSet"] as? [String: Any], var config = active["configuration"] as? [String: Any] {
-            config.removeValue(forKey: "goal"); active["configuration"] = config; json["activeSet"] = active
+            config.removeValue(forKey: "goal"); stripSnapshot(&config); active["configuration"] = config; json["activeSet"] = active
+        }
+        if var history = json["history"] as? [[String: Any]] {
+            for index in history.indices {
+                guard var config = history[index]["configuration"] as? [String: Any] else { continue }
+                stripSnapshot(&config); history[index]["configuration"] = config
+            }
+            json["history"] = history
         }
         return json
     }
@@ -439,6 +453,14 @@ final class PracticeCoreTests: XCTestCase {
         XCTAssertEqual(migratedPassage.learningState, .new, "A migrated passage starts New, like one drawn today")
         XCTAssertEqual(migratedPassage.createdAt, migrationDate, "Schema1 never had a createdAt; migration backfills one")
         XCTAssertEqual(migratedPassage.updatedAt, migrationDate)
+        // Minor: ruleSettings/rewardsState/profile are wholly new schema3 collections — a decoded
+        // schema1/2 file always constructs them fresh via `= Date()` property defaults (the wall
+        // clock), not the injected migration clock. Migration must restamp them so this is
+        // deterministic, the same way it already backfills the sentinel-based fields above.
+        XCTAssertEqual(migrated.state.ruleSettings.updatedAt, migrationDate)
+        XCTAssertEqual(migrated.state.rewardsState.updatedAt, migrationDate)
+        XCTAssertEqual(migrated.state.profile.updatedAt, migrationDate)
+        XCTAssertEqual(migrated.state.profile.joinDate, migrationDate, "A migrated library must not invent a join date from wall-clock migration time")
         XCTAssertTrue(migrated.state.inkStrokes.isEmpty, "Schema1 predates ink entirely")
         XCTAssertEqual(migrated.activeSet?.attempts, store.activeSet?.attempts)
         XCTAssertEqual(migrated.activeSet?.status, .paused)
@@ -477,6 +499,53 @@ final class PracticeCoreTests: XCTestCase {
         XCTAssertEqual(migrated.drawing(pieceID: piece.id, page: 2), ink, "The compatibility reader keeps working after migration")
         XCTAssertEqual(try Data(contentsOf: XCTUnwrap(migrated.preservedOriginalURL)), original)
         XCTAssertTrue(try XCTUnwrap(migrated.preservedOriginalURL).lastPathComponent.hasPrefix("library-schema2-"))
+    }
+
+    /// Blocker-adjacent regression (major, data-safety): `migrateToSchema3` must sweep the epoch
+    /// sentinel out of every `passageSnapshot` it can reach, not just top-level `passages` — a
+    /// snapshot lives inside `activeSet`/`history` instead, which the original sweep never visited,
+    /// so a migrated library was written to disk with `createdAt`/`updatedAt` frozen at the Unix
+    /// epoch inside every set's snapshot forever (schema3 never migrates twice).
+    @MainActor func testSchema2MigrationSweepsEpochSentinelFromPassageSnapshotsInActiveSetAndHistory() async throws {
+        let (store, directory) = try fixture(target: 1)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let piece = store.pieces[0]
+        try store.record(.clean) // completes fixture()'s own snapshot-less set so it is out of the way
+        let historyPassage = Passage(pieceID: piece.id, title: "Reviewed passage", page: 1)
+        let activePassage = Passage(pieceID: piece.id, title: "Current passage", page: 2)
+        try store.savePassage(historyPassage); try store.savePassage(activePassage)
+        try store.startSet(PracticeConfiguration(pieceID: piece.id, passageID: historyPassage.id, targetCount: 1))
+        XCTAssertEqual(store.activeSet?.configuration.passageSnapshot?.id, historyPassage.id)
+        try store.record(.clean) // completes it: the snapshot now travels into `history`
+        try store.startSet(PracticeConfiguration(pieceID: piece.id, passageID: activePassage.id, targetCount: 1))
+        XCTAssertEqual(store.activeSet?.configuration.passageSnapshot?.id, activePassage.id)
+        XCTAssertTrue(store.state.history.contains { $0.configuration.passageSnapshot?.id == historyPassage.id })
+
+        let original = try schema2Data(store.state)
+        try original.write(to: store.fileURL, options: .atomic)
+        let migrationDate = Date(timeIntervalSince1970: 1_800_000_002)
+        let migrated = PracticeStore(directory: directory, now: { migrationDate })
+        XCTAssertFalse(migrated.isReadOnly)
+        XCTAssertEqual(migrated.state.schemaVersion, 3)
+
+        let activeSnapshot = try XCTUnwrap(migrated.state.activeSet?.configuration.passageSnapshot)
+        XCTAssertEqual(activeSnapshot.id, activePassage.id)
+        XCTAssertEqual(activeSnapshot.createdAt, migrationDate, "A schema2 snapshot never had its own createdAt either")
+        XCTAssertEqual(activeSnapshot.updatedAt, migrationDate)
+
+        let historySnapshot = try XCTUnwrap(migrated.state.history.first { $0.configuration.passageSnapshot?.id == historyPassage.id }?.configuration.passageSnapshot)
+        XCTAssertEqual(historySnapshot.createdAt, migrationDate, "A history entry's snapshot must be swept too, not only the live activeSet")
+        XCTAssertEqual(historySnapshot.updatedAt, migrationDate)
+
+        // Minor: the same determinism gap for the collections schema1/2 never had at all.
+        XCTAssertEqual(migrated.state.ruleSettings.updatedAt, migrationDate)
+        XCTAssertEqual(migrated.state.rewardsState.updatedAt, migrationDate)
+        XCTAssertEqual(migrated.state.profile.updatedAt, migrationDate)
+        XCTAssertEqual(migrated.state.profile.joinDate, migrationDate)
+
+        // Idempotent: migrating the already-migrated state again must not move the timestamp.
+        let remigrated = SchemaMigration.migrateToSchema3(migrated.state, at: migrationDate.addingTimeInterval(60))
+        XCTAssertEqual(remigrated, migrated.state)
     }
 
     @MainActor func testLegacyMigrationPreserveAndWriteFailuresNeverOverwriteOriginal() async throws {
@@ -616,6 +685,21 @@ final class PracticeCoreTests: XCTestCase {
         XCTAssertEqual(afterPageTurn.lastPage, 3)
         XCTAssertNotEqual(afterPageTurn.lastPageUpdatedAt, piece.lastPageUpdatedAt)
         XCTAssertEqual(afterPageTurn.updatedAt, piece.updatedAt, "Turning a page must not look like a metadata edit to sync")
+    }
+
+    /// Major regression (data-safety): `setPieceStatus` takes no caller struct to trust (just an id
+    /// and a status), so — like `updateLastPage`/`recordWarmupUse` — the store itself must stamp
+    /// `updatedAt`, or an Active/Resting change loses to any older edit under last-write-wins.
+    @MainActor func testSetPieceStatusBumpsUpdatedAtUnderTheStoreClock() async throws {
+        var current = Date(timeIntervalSince1970: 1_800_000_000)
+        let (store, directory) = try fixture(now: { current })
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let originalUpdatedAt = store.pieces[0].updatedAt
+        current = current.addingTimeInterval(60)
+        try store.setPieceStatus(store.pieces[0].id, status: .resting)
+        XCTAssertEqual(store.pieces[0].status, .resting)
+        XCTAssertEqual(store.pieces[0].updatedAt, current, "A status change is a metadata edit and must bump the LWW clock")
+        XCTAssertNotEqual(store.pieces[0].updatedAt, originalUpdatedAt)
     }
 
     @MainActor func testNewEntityCRUDUpsertsAndSoftDeletes() async throws {

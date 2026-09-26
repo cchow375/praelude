@@ -183,7 +183,7 @@ private struct WeekPracticeView: View {
             ForEach(days, id: \.self) { day in
                 VStack(spacing: 9) {
                     Spacer(minLength: 0)
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: PraeludeRadius.tight)
                         .fill(seconds(on: day) > 0 ? PraeludeColor.ink : PraeludeColor.inkFillQuiet)
                         .frame(height: max(3, 80 * seconds(on: day) / largest))
                     Text(day, format: .dateTime.weekday(.narrow))

@@ -27,6 +27,33 @@ final class ScoreMarkupTests: XCTestCase {
         XCTAssertEqual(state.mode, .selecting)
     }
 
+    /// Blocker regression (design): the score's passage boxes must never carry a second accent hue
+    /// (previously `.systemIndigo`/`.systemTeal`) — practiced/emphasized/selected states read by
+    /// alpha weight only, matching the one-accent monochrome palette (§3a).
+    @MainActor func testPassageBoxColorsStayMonochromeAcrossEveryState() throws {
+        let ink = UIColor(PraeludeColor.ink)
+        var inkHue: CGFloat = 0, inkSaturation: CGFloat = 0, inkBrightness: CGFloat = 0, inkAlpha: CGFloat = 0
+        XCTAssertTrue(ink.getHue(&inkHue, saturation: &inkSaturation, brightness: &inkBrightness, alpha: &inkAlpha))
+        func assertSameHue(_ color: UIColor, _ message: String, file: StaticString = #filePath, line: UInt = #line) {
+            var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+            XCTAssertTrue(color.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha), file: file, line: line)
+            XCTAssertEqual(hue, inkHue, accuracy: 0.0001, message, file: file, line: line)
+            XCTAssertEqual(saturation, inkSaturation, accuracy: 0.0001, message, file: file, line: line)
+            XCTAssertEqual(brightness, inkBrightness, accuracy: 0.0001, message, file: file, line: line)
+        }
+        for practiced in [false, true] {
+            for emphasized in [false, true] {
+                assertSameHue(ScorePassageBoxStyle.fillColor(practiced: practiced, emphasized: emphasized),
+                              "fill practiced=\(practiced) emphasized=\(emphasized) must stay ink-colored")
+                for selected in [false, true] {
+                    assertSameHue(ScorePassageBoxStyle.strokeColor(practiced: practiced, selected: selected),
+                                  "stroke practiced=\(practiced) selected=\(selected) must stay ink-colored")
+                }
+            }
+        }
+        assertSameHue(ScorePassageBoxStyle.handleRingColor(), "corner handle ring must stay ink-colored")
+    }
+
     @MainActor func testNormalizedBoxesClampToPageAndRemainStableAtNewSize() async throws {
         let size = CGSize(width: 1000, height: 1400)
         let box = try XCTUnwrap(PassageRegion.clamped(page: 3, rect: CGRect(x: -100, y: 140, width: 300, height: 280), size: size))

@@ -1,5 +1,24 @@
 import UIKit
+import SwiftUI
 import PencilKit
+
+/// Passage-box coloring for the score overlay (§3a: one monochrome ink/paper/gray family, with the
+/// one rare amber accent reserved for genuinely live state — a passage box is neither). Practiced,
+/// emphasized and selected are distinguished by alpha weight only, never by a second hue, so this is
+/// the one place `draw(_:)` is allowed to name a color — everything it draws comes from `ink`.
+enum ScorePassageBoxStyle {
+    static func fillColor(practiced: Bool, emphasized: Bool) -> UIColor {
+        UIColor(PraeludeColor.ink).withAlphaComponent(emphasized ? 0.105 : (practiced ? 0.032 : 0.055))
+    }
+    static func strokeColor(practiced: Bool, selected: Bool) -> UIColor {
+        UIColor(PraeludeColor.ink).withAlphaComponent(selected ? 0.55 : (practiced ? 0.12 : 0.20))
+    }
+    /// The selected box's own corner resize handles — a touch more opaque than its edge stroke so
+    /// the drag points read clearly against the page.
+    static func handleRingColor() -> UIColor {
+        UIColor(PraeludeColor.ink).withAlphaComponent(0.65)
+    }
+}
 
 /// PDFKit owns page sizing, rotation and zoom; all geometry stays in page-local coordinates.
 @MainActor final class ScorePageOverlay: UIView, UIGestureRecognizerDelegate {
@@ -63,16 +82,16 @@ import PencilKit
             let box = region.rect(in: bounds.size)
             let selected = markup.mode == .selecting && markup.selectedRegionID == region.id
             let emphasized = emphasizedIDs.contains(region.id) || markup.mode == .selecting
-            let color: UIColor = practicedIDs.contains(region.id) && !emphasized ? .systemTeal : .systemIndigo
-            context.setFillColor(color.withAlphaComponent(emphasized ? 0.105 : 0.055).cgColor)
+            let practiced = practicedIDs.contains(region.id) && !emphasized
+            context.setFillColor(ScorePassageBoxStyle.fillColor(practiced: practiced, emphasized: emphasized).cgColor)
             context.fill(box)
-            context.setStrokeColor(color.withAlphaComponent(selected ? 0.55 : 0.20).cgColor)
+            context.setStrokeColor(ScorePassageBoxStyle.strokeColor(practiced: practiced, selected: selected).cgColor)
             context.setLineWidth(selected ? 1.25 : 0.6); context.stroke(box)
             if selected {
                 for corner in corners(box) {
                     context.setFillColor(UIColor.white.cgColor)
                     context.fillEllipse(in: CGRect(x: corner.x-4, y: corner.y-4, width: 8, height: 8))
-                    context.setStrokeColor(color.withAlphaComponent(0.65).cgColor)
+                    context.setStrokeColor(ScorePassageBoxStyle.handleRingColor().cgColor)
                     context.strokeEllipse(in: CGRect(x: corner.x-4, y: corner.y-4, width: 8, height: 8))
                 }
             }

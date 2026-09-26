@@ -140,7 +140,7 @@ struct ScoreWorkspace: View {
                         Menu {
                             Button { focusMode = true } label: { Label("Focus on score", systemImage: "arrow.up.left.and.arrow.down.right") }
                             if sizeClass == .regular {
-                                Toggle("Two pages", isOn: $twoPages)
+                                Toggle("Two pages", isOn: $twoPages).praeludeToggleHaptic(twoPages)
                                 if supportsMultipleWindows { Button("Open score in new window", systemImage: "rectangle.on.rectangle") { openWindow(value: pieceID) } }
                             }
                             Button("Passages", systemImage: "bookmark") { sheet = .passages }
@@ -274,6 +274,7 @@ struct ScoreWorkspace: View {
                     }
                     .accessibilityLabel("Draw with finger")
                     .accessibilityIdentifier("fingerDrawing")
+                    .praeludeToggleHaptic(markup.fingerDrawing)
                     Button(action: markup.undoInk) {
                         Image(systemName: "arrow.uturn.backward").font(.system(size: 20))
                             .frame(width: 44, height: 44).contentShape(Rectangle())
@@ -350,6 +351,7 @@ struct ScoreWorkspace: View {
         guard var draft = markup.draft, !draft.regions.isEmpty else { return }
         perform {
             draft.page = draft.regions.map(\.page).min() ?? page
+            draft.updatedAt = Date()
             try store.savePassage(draft, replacing: markup.baseline)
             selectedPassage = draft; markup.finish()
         }
@@ -442,6 +444,7 @@ struct ScoreWorkspace: View {
                     Text(speech.status).font(.caption)
                     Spacer()
                     Button("Off") { speech.stop() }.font(.caption.weight(.semibold))
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }.accessibilityElement(children: .combine)
             }
         }

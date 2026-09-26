@@ -92,10 +92,14 @@ import Observation
             next.pieces[index] = piece
         }
     }
+    /// A narrow, store-owned counter like `updateLastPage`/`recordWarmupUse` (no caller struct to
+    /// trust): it takes just an id and a status, so the store itself must stamp `updatedAt`, or an
+    /// Active/Resting change made offline would silently lose to any older edit under last-write-wins.
     public func setPieceStatus(_ id: UUID, status: PieceStatus) throws {
+        let date = now()
         try transaction { next in
             guard let index = next.pieces.firstIndex(where: { $0.id == id }) else { throw PracticeError.invalid("Piece not found.") }
-            next.pieces[index].status = status
+            next.pieces[index].status = status; next.pieces[index].updatedAt = date
         }
     }
     /// A piece with practice evidence stays available in Resting; its ledger is never deleted.

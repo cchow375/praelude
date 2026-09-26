@@ -93,12 +93,12 @@ struct MetronomeView: View {
                         Slider(value: $metronome.volume, in: 0...1).accessibilityLabel("Metronome volume")
                         Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary).accessibilityHidden(true)
                     }
-                    Toggle("Beat haptics", isOn: $metronome.hapticsEnabled)
+                    Toggle("Beat haptics", isOn: $metronome.hapticsEnabled).praeludeToggleHaptic(metronome.hapticsEnabled)
                 }
 
                 Section {
-                    Toggle("Reward sounds", isOn: $feedback.soundsEnabled)
-                    Toggle("Reward haptics", isOn: $feedback.hapticsEnabled)
+                    Toggle("Reward sounds", isOn: $feedback.soundsEnabled).praeludeToggleHaptic(feedback.soundsEnabled)
+                    Toggle("Reward haptics", isOn: $feedback.hapticsEnabled).praeludeToggleHaptic(feedback.hapticsEnabled)
                     Slider(value: $feedback.volume, in: 0...1).accessibilityLabel("Reward volume").disabled(!feedback.soundsEnabled)
                 } header: {
                     Text("Practice feedback")

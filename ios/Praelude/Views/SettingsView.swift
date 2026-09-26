@@ -18,8 +18,8 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Keep score awake", isOn: preference(\.keepScreenAwake))
-                Toggle("Practice feedback", isOn: $feedbackEnabled)
+                Toggle("Keep score awake", isOn: preference(\.keepScreenAwake)).praeludeToggleHaptic(store.preferences.keepScreenAwake)
+                Toggle("Practice feedback", isOn: $feedbackEnabled).praeludeToggleHaptic(feedbackEnabled)
             } header: {
                 Text("At the piano")
             } footer: {

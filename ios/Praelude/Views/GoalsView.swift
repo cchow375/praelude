@@ -143,7 +143,7 @@ private struct GoalEditorView: View {
                         Text(piece.title).tag(Optional(piece.id))
                     }
                 }
-                Toggle("Set a date", isOn: $hasDate)
+                Toggle("Set a date", isOn: $hasDate).praeludeToggleHaptic(hasDate)
                 if hasDate {
                     DatePicker("Return to it", selection: $date, displayedComponents: .date)
                 }

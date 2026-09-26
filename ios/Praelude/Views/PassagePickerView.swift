@@ -119,7 +119,7 @@ struct PassageEditorView: View {
                 else { Stepper("Page \(page)", value: $page, in: 1...pageCount) }
             }
             Section {
-                Toggle("Measure numbers", isOn: $showMeasures)
+                Toggle("Measure numbers", isOn: $showMeasures).praeludeToggleHaptic(showMeasures)
                 if showMeasures {
                     TextField("First measure", text: $firstMeasure).keyboardType(.numberPad)
                     TextField("Last measure", text: $lastMeasure).keyboardType(.numberPad)
@@ -136,6 +136,7 @@ struct PassageEditorView: View {
             draft.startMeasure = showMeasures ? Int(firstMeasure) : nil
             draft.endMeasure = showMeasures ? Int(lastMeasure) : nil
             draft.page = draft.regions.map(\.page).min() ?? page
+            draft.updatedAt = Date()
             try store.savePassage(draft, replacing: baseline); onSaved()
         } catch { errorMessage = error.localizedDescription }
     }
@@ -150,7 +151,7 @@ struct PassagePreview: View {
             if let thumbnail { Image(uiImage: thumbnail).resizable().scaledToFit() }
             else { Image(systemName: "rectangle.dashed").foregroundStyle(.secondary) }
         }
-        .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 5))
+        .background(Color.white).clipShape(RoundedRectangle(cornerRadius: PraeludeRadius.tight))
         .accessibilityLabel("Visual target, \(passage.locationLabel)")
         .task(id: passage) { thumbnail = Self.makeThumbnail(url: url, passage: passage) }
     }

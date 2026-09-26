@@ -49,8 +49,8 @@ keep Codable-stable. Schema3's alternative is: one `updatedAt` per record is the
 same way the codebase already trusted it for `createdAt` — they replace the stored record wholesale
 and do not second-guess it. An editor is expected to set `updatedAt = Date()` when it constructs the
 edited struct, the same way it already sets whichever field it actually changed. The exceptions are
-narrow, store-owned counters with no caller struct to trust: `updateLastPage` (`lastPageUpdatedAt`)
-and `recordWarmupUse` (`lastUsedAt`/`useCount`).
+narrow, store-owned counters with no caller struct to trust: `updateLastPage` (`lastPageUpdatedAt`),
+`setPieceStatus` (`updatedAt`), and `recordWarmupUse` (`lastUsedAt`/`useCount`).
 
 **Guest-mode ownership:** `Profile.ownerID: UUID?` stays `nil` until an account exists. It is the one
 field the backend/sync track needs; Core does not stamp an `ownerID` on every row; because today's

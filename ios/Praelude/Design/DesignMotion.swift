@@ -40,3 +40,12 @@ enum PraeludeHaptic {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 }
+
+extension View {
+    /// Fires the shared toggle haptic whenever `value` changes — the app-wide feedback for a
+    /// `Toggle` switch, matching `PraeludeHaptic`'s own doc ("used for the toggles ... that didn't
+    /// previously have any"). Attach right after the `Toggle` it describes.
+    func praeludeToggleHaptic(_ value: some Equatable) -> some View {
+        onChange(of: value) { _, _ in PraeludeHaptic.toggle() }
+    }
+}

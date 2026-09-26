@@ -78,7 +78,11 @@ struct PagedScoreView: UIViewRepresentable {
         pageTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         pageTap.delegate = context.coordinator
         view.addGestureRecognizer(pageTap)
-        view.backgroundColor = .secondarySystemBackground
+        // Opaque, so this is the color actually shown in the margins/gutter around page content —
+        // the `PraeludeColor.scorePaper` layer `ScoreWorkspace` places behind this view never shows
+        // through. Pinned paper-white like that token, not a system gray, so the score reads as one
+        // paper surface up to its edges in both appearances (§3a: score paper never goes dark).
+        view.backgroundColor = UIColor(PraeludeColor.scorePaper)
         view.displayDirection = .horizontal
         view.displayMode = twoPages ? .twoUp : .singlePage
         view.displaysAsBook = false
@@ -388,7 +392,7 @@ struct ScorePagePicker: View {
                                     if let pdfPage = document.page(at: index) {
                                         Image(uiImage: pdfPage.thumbnail(of: CGSize(width: 180, height: 250), for: .cropBox))
                                             .resizable().scaledToFit().frame(height: 160)
-                                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                                            .clipShape(RoundedRectangle(cornerRadius: PraeludeRadius.tight))
                                     }
                                     Text("\(index + 1)").font(.subheadline.monospacedDigit())
                                 }.padding(8).frame(maxWidth: .infinity).contentShape(Rectangle())

@@ -25,7 +25,10 @@ inner.move(to: CGPoint(x: 448, y: 382)); inner.addLine(to: CGPoint(x: 512, y: 38
 inner.addCurve(to: CGPoint(x: 614, y: 474), control1: CGPoint(x: 574, y: 382), control2: CGPoint(x: 614, y: 416))
 inner.addCurve(to: CGPoint(x: 512, y: 566), control1: CGPoint(x: 614, y: 532), control2: CGPoint(x: 574, y: 566))
 inner.addLine(to: CGPoint(x: 448, y: 566))
-context.setStrokeColor(CGColor(red: 169/255, green: 191/255, blue: 255/255, alpha: 1))
+// Monochrome ink family, not blue: the same warm-neutral hue as the rest of the palette, one
+// step dimmer than the outer stroke so the mark keeps its nested two-tone depth (§3a — no
+// purple/indigo/violet/blue accent anywhere in the app, including its own icon).
+context.setStrokeColor(CGColor(red: 158/255, green: 150/255, blue: 138/255, alpha: 1))
 context.setLineWidth(38); context.addPath(inner); context.strokePath()
 let representation = NSBitmapImageRep(cgImage: context.makeImage()!)
 let output = URL(fileURLWithPath: CommandLine.arguments[1])

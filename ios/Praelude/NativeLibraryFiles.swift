@@ -32,7 +32,7 @@ struct NativeLibraryFiles {
         let destination = scoresDirectory.appendingPathComponent(name)
         try data.write(to: destination, options: [.atomic, .completeFileProtectionUnlessOpen])
         var saved = piece ?? Piece(title: title, composer: composer)
-        saved.pdfFileName = name; saved.pageCount = document.pageCount; saved.lastPage = 1
+        saved.pdfFileName = name; saved.pageCount = document.pageCount; saved.lastPage = 1; saved.updatedAt = Date()
         do {
             if piece != nil { try store.updatePiece(saved) } else { try store.addPiece(saved) }
         } catch {

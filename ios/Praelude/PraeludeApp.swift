@@ -98,7 +98,7 @@ struct AppRootView: View {
                         }
                         if !store.state.pieces.isEmpty {
                             Section("On your music stand") {
-                                ForEach(store.state.pieces.filter { $0.status == .active }.prefix(8)) { piece in
+                                ForEach(store.state.pieces.filter { $0.status != .resting }.prefix(8)) { piece in
                                     Button { openPiece(piece.id) } label: {
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text(piece.title).foregroundStyle(.primary).lineLimit(2)
