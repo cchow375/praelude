@@ -367,8 +367,48 @@ final class PracticeCoreTests: XCTestCase {
         XCTAssertFalse(PracticeStore(directory: directory).isReadOnly)
     }
 
-    @MainActor private func legacyData(_ state: LibraryState) throws -> Data {
+    /// Strips every schema3-only field from an encoded schema3 state, leaving a genuine schema2
+    /// shape (still has regions/ink/passageSnapshot) — schema2's own ink key, `scoreDrawings`, is
+    /// rebuilt from `inkStrokes` since that is the one field schema3 actually reshaped.
+    @MainActor private func schema2Shape(_ state: LibraryState) throws -> [String: Any] {
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        json["schemaVersion"] = 2
+        let strokes = try XCTUnwrap(json["inkStrokes"] as? [[String: Any]])
+        json["scoreDrawings"] = strokes.map { ["pieceID": $0["pieceID"]!, "page": $0["page"]!, "data": $0["data"]!] }
+        for key in ["inkStrokes", "instruments", "tags", "folders", "setlists", "bookmarks", "pageEdits", "scoreLinks",
+                    "textAnnotations", "stampAnnotations", "coldGrades", "breakPointTaps", "ruleSettings", "ruleEvents",
+                    "warmupExercises", "recordings", "rewardLedger", "badges", "milestoneEvents", "rewardsState",
+                    "notebookEntries", "profile"] {
+            json.removeValue(forKey: key)
+        }
+        var passages = try XCTUnwrap(json["passages"] as? [[String: Any]])
+        for index in passages.indices {
+            for key in ["color", "parentPassageID", "joinedFromPassageIDs", "archived", "learningState",
+                        "schedule", "parkedUntil", "performanceTempo", "createdAt", "updatedAt", "deletedAt"] {
+                passages[index].removeValue(forKey: key)
+            }
+        }
+        json["passages"] = passages
+        var pieces = try XCTUnwrap(json["pieces"] as? [[String: Any]])
+        for index in pieces.indices {
+            for key in ["instrumentID", "tagIDs", "folderIDs", "difficulty", "customCoverRef", "performanceDates",
+                        "updatedAt", "lastPageUpdatedAt", "deletedAt"] {
+                pieces[index].removeValue(forKey: key)
+            }
+        }
+        json["pieces"] = pieces
+        if var active = json["activeSet"] as? [String: Any], var config = active["configuration"] as? [String: Any] {
+            config.removeValue(forKey: "goal"); active["configuration"] = config; json["activeSet"] = active
+        }
+        return json
+    }
+    @MainActor private func schema2Data(_ state: LibraryState) throws -> Data {
+        try JSONSerialization.data(withJSONObject: schema2Shape(state), options: [.sortedKeys])
+    }
+    /// A genuine schema1 payload, built the same way real schema1 files looked (see git history for
+    /// `Models.swift`): additionally strips regions/ink/passageSnapshot, which schema1 never had.
+    @MainActor private func legacyData(_ state: LibraryState) throws -> Data {
+        var json = try schema2Shape(state)
         json["schemaVersion"] = 1; json.removeValue(forKey: "scoreDrawings")
         var passages = try XCTUnwrap(json["passages"] as? [[String: Any]])
         for index in passages.indices { passages[index].removeValue(forKey: "regions") }
@@ -379,27 +419,64 @@ final class PracticeCoreTests: XCTestCase {
         return try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
     }
 
-    @MainActor func testLegacyMigrationPreservesOriginalAndPracticeBeforePublishingSchemaTwo() async throws {
+    @MainActor func testLegacySchema1MigrationPreservesOriginalAndPracticeBeforePublishingSchema3() async throws {
         let (store, directory) = try fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
         let passage = Passage(pieceID: store.pieces[0].id, title: "Legacy measures", startMeasure: 9, endMeasure: 12, page: 2)
         try store.savePassage(passage); try store.record(.clean)
         let original = try legacyData(store.state)
         try original.write(to: store.fileURL, options: .atomic)
-        let migrated = PracticeStore(directory: directory)
+        let migrationDate = Date(timeIntervalSince1970: 1_800_000_000)
+        let migrated = PracticeStore(directory: directory, now: { migrationDate })
         XCTAssertFalse(migrated.isReadOnly)
-        XCTAssertEqual(migrated.state.schemaVersion, 2)
+        XCTAssertEqual(migrated.state.schemaVersion, 3)
         XCTAssertEqual(migrated.state.revision, store.state.revision + 1)
-        XCTAssertEqual(migrated.state.passages, [passage])
-        XCTAssertEqual(migrated.state.passages[0].measureLabel, "mm. 9–12")
+        XCTAssertEqual(migrated.state.passages.count, 1)
+        let migratedPassage = try XCTUnwrap(migrated.state.passages.first)
+        XCTAssertEqual(migratedPassage.id, passage.id)
+        XCTAssertEqual(migratedPassage.measureLabel, "mm. 9–12")
+        XCTAssertEqual(migratedPassage.regions, [])
+        XCTAssertEqual(migratedPassage.learningState, .new, "A migrated passage starts New, like one drawn today")
+        XCTAssertEqual(migratedPassage.createdAt, migrationDate, "Schema1 never had a createdAt; migration backfills one")
+        XCTAssertEqual(migratedPassage.updatedAt, migrationDate)
+        XCTAssertTrue(migrated.state.inkStrokes.isEmpty, "Schema1 predates ink entirely")
         XCTAssertEqual(migrated.activeSet?.attempts, store.activeSet?.attempts)
         XCTAssertEqual(migrated.activeSet?.status, .paused)
         XCTAssertEqual(try Data(contentsOf: XCTUnwrap(migrated.preservedOriginalURL)), original)
         XCTAssertTrue(try XCTUnwrap(migrated.preservedOriginalURL).lastPathComponent.hasPrefix("library-schema1-"))
         let reopened = PracticeStore(directory: directory)
         XCTAssertEqual(reopened.state, migrated.state)
-        XCTAssertNil(reopened.preservedOriginalURL, "Schema two must not migrate again")
-        XCTAssertEqual(try PracticeStore.decodeBackup(original).schemaVersion, 2)
+        XCTAssertNil(reopened.preservedOriginalURL, "Schema three must not migrate again")
+        XCTAssertEqual(try PracticeStore.decodeBackup(original).schemaVersion, 3)
+    }
+
+    @MainActor func testSchema2MigrationConvertsScoreDrawingsToInkStrokesLosslessly() async throws {
+        let (store, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var piece = store.pieces[0]; piece.pdfFileName = "fixture.pdf"; try store.updatePiece(piece)
+        let passage = Passage(pieceID: piece.id, title: "Bridge", page: 2,
+                              regions: [PassageRegion(page: 2, x: 0.1, y: 0.2, width: 0.5, height: 0.1)])
+        try store.savePassage(passage)
+        let ink = Data([9, 9, 2, 6])
+        try store.saveDrawing(pieceID: piece.id, page: 2, data: ink)
+        let original = try schema2Data(store.state)
+        try original.write(to: store.fileURL, options: .atomic)
+        let migrationDate = Date(timeIntervalSince1970: 1_800_000_001)
+        let migrated = PracticeStore(directory: directory, now: { migrationDate })
+        XCTAssertFalse(migrated.isReadOnly)
+        XCTAssertEqual(migrated.state.schemaVersion, 3)
+        XCTAssertEqual(migrated.state.passages.count, 1)
+        XCTAssertEqual(migrated.state.passages[0].regions.count, 1, "Schema2 regions survive untouched")
+        XCTAssertEqual(migrated.state.passages[0].createdAt, migrationDate, "A schema2 passage never had a createdAt either")
+        XCTAssertEqual(migrated.state.inkStrokes.count, 1)
+        let stroke = try XCTUnwrap(migrated.state.inkStrokes.first)
+        XCTAssertEqual(stroke.pieceID, piece.id); XCTAssertEqual(stroke.page, 2); XCTAssertEqual(stroke.layer, .mine)
+        XCTAssertEqual(stroke.data, ink, "Ink bytes must survive migration unchanged")
+        XCTAssertEqual(stroke.createdAt, migrationDate); XCTAssertEqual(stroke.updatedAt, migrationDate)
+        XCTAssertNil(stroke.deletedAt)
+        XCTAssertEqual(migrated.drawing(pieceID: piece.id, page: 2), ink, "The compatibility reader keeps working after migration")
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(migrated.preservedOriginalURL)), original)
+        XCTAssertTrue(try XCTUnwrap(migrated.preservedOriginalURL).lastPathComponent.hasPrefix("library-schema2-"))
     }
 
     @MainActor func testLegacyMigrationPreserveAndWriteFailuresNeverOverwriteOriginal() async throws {
@@ -418,7 +495,7 @@ final class PracticeCoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: XCTUnwrap(writeFailure.preservedOriginalURL)), original)
         XCTAssertThrowsError(try writeFailure.addPiece(Piece(title: "Cannot overwrite")))
         let retried = PracticeStore(directory: directory)
-        XCTAssertFalse(retried.isReadOnly); XCTAssertEqual(retried.state.schemaVersion, 2)
+        XCTAssertFalse(retried.isReadOnly); XCTAssertEqual(retried.state.schemaVersion, 3)
     }
 
     @MainActor func testOptionalMeasuresAndVisualRegionBoundsRejectWithoutChangingDisk() async throws {
@@ -465,13 +542,98 @@ final class PracticeCoreTests: XCTestCase {
         XCTAssertThrowsError(try store.saveDrawing(pieceID: piece.id, page: 1, data: Data(count: PracticeStore.maximumDrawingBytes + 1)))
         XCTAssertEqual(store.state, before)
         var tooLarge = store.state
-        tooLarge.scoreDrawings = (1...5).map { ScoreDrawing(pieceID: piece.id, page: $0, data: Data(count: PracticeStore.maximumDrawingBytes)) }
-        XCTAssertThrowsError(try PracticeStore.validate(tooLarge))
-        var duplicate = store.state; duplicate.scoreDrawings.append(duplicate.scoreDrawings[0])
-        XCTAssertThrowsError(try PracticeStore.validate(duplicate))
+        tooLarge.inkStrokes = (1...5).map { InkStroke(pieceID: piece.id, page: $0, data: Data(count: PracticeStore.maximumDrawingBytes)) }
+        XCTAssertThrowsError(try PracticeStore.validate(tooLarge), "32 MB total ink is still enforced across many stroke rows")
+        var duplicate = store.state; duplicate.inkStrokes.append(duplicate.inkStrokes[0])
+        XCTAssertThrowsError(try PracticeStore.validate(duplicate), "Duplicate stroke identifiers must be rejected")
         try store.saveDrawing(pieceID: piece.id, page: 1, data: Data())
         XCTAssertNil(store.drawing(pieceID: piece.id, page: 1))
-        XCTAssertTrue(store.state.scoreDrawings.isEmpty)
+        XCTAssertTrue(store.state.inkStrokes.filter { $0.deletedAt == nil }.isEmpty)
+    }
+
+    @MainActor func testReplaceInkDiffsByContentKeepingUnchangedRowsStable() async throws {
+        let (store, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var piece = store.pieces[0]; piece.pdfFileName = "fixture.pdf"; try store.updatePiece(piece)
+        let strokeA = Data([1]), strokeB = Data([2]), strokeC = Data([3])
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [strokeA, strokeB])
+        let firstPass = store.inkStrokes(pieceID: piece.id, page: 1, layer: .mine)
+        XCTAssertEqual(Set(firstPass.map(\.data)), [strokeA, strokeB])
+        let rowA = try XCTUnwrap(firstPass.first { $0.data == strokeA })
+        // Keep A, drop B, add C.
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [strokeA, strokeC])
+        let secondPass = store.inkStrokes(pieceID: piece.id, page: 1, layer: .mine)
+        XCTAssertEqual(Set(secondPass.map(\.data)), [strokeA, strokeC])
+        let rowAAgain = try XCTUnwrap(secondPass.first { $0.data == strokeA })
+        XCTAssertEqual(rowAAgain.id, rowA.id, "An unchanged stroke keeps its identity across saves")
+        XCTAssertEqual(rowAAgain.createdAt, rowA.createdAt, "An unchanged stroke's createdAt never moves")
+        XCTAssertTrue(store.state.inkStrokes.contains { $0.data == strokeB && $0.deletedAt != nil }, "A removed stroke is tombstoned, not erased")
+        XCTAssertEqual(store.state.inkStrokes.filter { $0.deletedAt == nil }.count, 2)
+        // Different layers of the same page never interfere.
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .teacher, strokes: [strokeA])
+        XCTAssertEqual(store.inkStrokes(pieceID: piece.id, page: 1, layer: .mine).count, 2)
+        XCTAssertEqual(store.inkStrokes(pieceID: piece.id, page: 1, layer: .teacher).count, 1)
+        XCTAssertEqual(store.inkStrokes(pieceID: piece.id, page: 1, layer: nil).count, 3)
+        try PracticeStore.validate(store.state)
+    }
+
+    @MainActor func testHonestyRejectsANegativeRewardLedgerEntry() async throws {
+        let (store, _) = try fixture()
+        try store.appendRewardLedgerEntry(RewardLedgerEntry(coinsDelta: 5, xpDelta: 2, reason: "Completed a set"))
+        XCTAssertEqual(store.state.rewardLedger.count, 1)
+        XCTAssertThrowsError(try store.appendRewardLedgerEntry(RewardLedgerEntry(coinsDelta: -1, reason: "A Sloppy verdict must never cost coins")))
+        XCTAssertThrowsError(try store.appendRewardLedgerEntry(RewardLedgerEntry(xpDelta: -1, reason: "A Sloppy verdict must never cost xp")))
+        XCTAssertEqual(store.state.rewardLedger.count, 1, "A rejected entry must not be partially recorded")
+    }
+
+    func testRuleSettingsDefaultsMatchTheSpecFlaggedValues() {
+        let settings = RuleSettings()
+        XCTAssertEqual(RuleID.allCases.count, 15)
+        XCTAssertEqual(settings.r1MaxMeasures, 4); XCTAssertEqual(settings.r1MaxSystems, 2)
+        XCTAssertEqual(settings.r4CleanIntervalsDays, [1, 3, 7, 14, 30]); XCTAssertEqual(settings.r4ShakyIntervalDays, 2)
+        XCTAssertEqual(settings.r5LearningStreak, 5); XCTAssertEqual(settings.r5ReviewStreak, 3)
+        XCTAssertEqual(settings.r6ResetsBeforeStepDown, 3); XCTAssertEqual(settings.r6StepDownPercent, 6)
+        XCTAssertEqual(settings.r7MaxIncreasesPerDay, 2)
+        XCTAssertEqual(settings.r8TapsToOfferSplit, 3)
+        XCTAssertEqual(settings.r9Minutes, 10); XCTAssertEqual(settings.r9Sets, 3)
+        XCTAssertEqual(settings.r10DistinctDays, 3); XCTAssertTrue(settings.r10RequiresFirstInSession)
+        XCTAssertEqual(settings.r11FinalWeekDays, 7); XCTAssertEqual(settings.r11FinalTwoWeeksDays, 14)
+        XCTAssertEqual(settings.r12SlowDownsPerDay, 2)
+        XCTAssertEqual(settings.r13ConsecutiveMissed, 2)
+        XCTAssertEqual(settings.r14DropoutBars, 2)
+        XCTAssertEqual(settings.r15MaxNewPerSession, 3)
+        XCTAssertTrue([settings.r1Enabled, settings.r2Enabled, settings.r3Enabled, settings.r4Enabled, settings.r5Enabled,
+                       settings.r6Enabled, settings.r7Enabled, settings.r8Enabled, settings.r9Enabled, settings.r10Enabled,
+                       settings.r11Enabled, settings.r12Enabled, settings.r13Enabled, settings.r14Enabled, settings.r15Enabled].allSatisfy { $0 },
+                      "Every rule is on by default")
+    }
+
+    @MainActor func testPieceLastPageHasItsOwnSyncClockSeparateFromMetadataUpdates() async throws {
+        let (store, _) = try fixture()
+        let piece = store.pieces[0]
+        try store.updateLastPage(pieceID: piece.id, page: 3)
+        let afterPageTurn = try XCTUnwrap(store.pieces.first)
+        XCTAssertEqual(afterPageTurn.lastPage, 3)
+        XCTAssertNotEqual(afterPageTurn.lastPageUpdatedAt, piece.lastPageUpdatedAt)
+        XCTAssertEqual(afterPageTurn.updatedAt, piece.updatedAt, "Turning a page must not look like a metadata edit to sync")
+    }
+
+    @MainActor func testNewEntityCRUDUpsertsAndSoftDeletes() async throws {
+        let (store, _) = try fixture()
+        let instrument = Instrument(family: .keyboard, name: "Piano", level: "Intermediate")
+        try store.saveInstrument(instrument)
+        XCTAssertEqual(store.state.instruments.map(\.name), ["Piano"])
+        var updated = instrument; updated.level = "Advanced"
+        try store.saveInstrument(updated)
+        XCTAssertEqual(store.state.instruments.count, 1)
+        XCTAssertEqual(store.state.instruments[0].level, "Advanced")
+        try store.deleteInstrument(instrument.id)
+        XCTAssertEqual(store.state.instruments.count, 1, "A soft delete keeps the row so sync can propagate it")
+        XCTAssertNotNil(store.state.instruments[0].deletedAt)
+        let entry = NotebookEntry(kind: .lessonPrep, pieceID: store.pieces[0].id, text: "Warm up slowly")
+        try store.saveNotebookEntry(entry)
+        XCTAssertEqual(store.state.notebookEntries.count, 1)
+        try PracticeStore.validate(store.state)
     }
 
     @MainActor func testDrawingWriteFailureRetainsPriorInkInMemoryAndOnDisk() async throws {

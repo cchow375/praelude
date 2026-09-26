@@ -59,7 +59,7 @@ struct NativeLibraryFiles {
         guard !store.isReadOnly else {
             throw PracticeError.unavailable("The saved library could not be read. Restore a valid backup before exporting; the unreadable original will be preserved.")
         }
-        for drawing in store.state.scoreDrawings { try Self.validateDrawing(drawing.data) }
+        for stroke in store.state.inkStrokes where stroke.deletedAt == nil { try Self.validateDrawing(stroke.data) }
         try store.checkpoint()
         var files: [String: Data] = [:]
         var bytes = 0
@@ -85,7 +85,7 @@ struct NativeLibraryFiles {
         var backup = try JSONDecoder().decode(NativeBackup.self, from: data)
         guard backup.version == 1 else { throw PracticeError.invalid("This backup needs a newer version of Praelude.") }
         try PracticeStore.validate(backup.library)
-        for drawing in backup.library.scoreDrawings { try Self.validateDrawing(drawing.data) }
+        for stroke in backup.library.inkStrokes where stroke.deletedAt == nil { try Self.validateDrawing(stroke.data) }
         try FileManager.default.createDirectory(at: scoresDirectory, withIntermediateDirectories: true)
         var staged: [URL] = []
         var remapped: [String: String] = [:]
