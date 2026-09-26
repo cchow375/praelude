@@ -350,7 +350,7 @@ final class NativeLibraryFilesTests: XCTestCase {
         let backup = try files.makeBackup()
         let target = try fixture()
         try NativeLibraryFiles(store: target).restoreBackup(backup.data)
-        XCTAssertEqual(target.state.schemaVersion, 2)
+        XCTAssertEqual(target.state.schemaVersion, 3)
         XCTAssertEqual(target.drawing(pieceID: piece.id, page: 2), ink)
         XCTAssertEqual(try PKDrawing(data: XCTUnwrap(target.drawing(pieceID: piece.id, page: 2))).strokes.count, 1)
         XCTAssertEqual(target.state.history.last?.configuration.passageSnapshot, passage)
@@ -373,9 +373,9 @@ final class NativeLibraryFilesTests: XCTestCase {
         let backup = try files.makeBackup()
         let damaged = try editingBackup(backup.data) { object in
             var library = try XCTUnwrap(object["library"] as? [String: Any])
-            var drawings = try XCTUnwrap(library["scoreDrawings"] as? [[String: Any]])
-            drawings[0]["data"] = Data("not PencilKit".utf8).base64EncodedString()
-            library["scoreDrawings"] = drawings; object["library"] = library
+            var strokes = try XCTUnwrap(library["inkStrokes"] as? [[String: Any]])
+            strokes[0]["data"] = Data("not PencilKit".utf8).base64EncodedString()
+            library["inkStrokes"] = strokes; object["library"] = library
         }
         let target = try fixture()
         try addPDF(to: target, title: "Keep this library")
