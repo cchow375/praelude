@@ -43,3 +43,7 @@ dist-ssr
 .claude/
 .claude-flow/
 .gstack/
+
+# Supabase CLI local/ephemeral state (never contains schema; safe to lose)
+supabase/.temp
+supabase/.branches
