@@ -63,8 +63,11 @@ public enum DecisionOutcome: Equatable, Sendable {
     case park(until: Date)
     /// R10: the passage has cleared performance-readiness.
     case performanceReady
-    /// R11: caps/flags as a performance date approaches.
-    case performanceCaps(cappedIntervalDays: Int, includeRunThroughs: Bool, notReadyPassageIDs: [UUID])
+    /// R11: caps/flags as a performance date approaches. `inFinalWeek` is what tells R15 whether to
+    /// treat every one of this piece's passages as due today (final week) or only cap intervals and
+    /// add run-throughs (the two weeks before that) — both leave `notReadyPassageIDs` at `[]` when
+    /// nothing is flagged, so that array alone cannot carry this distinction.
+    case performanceCaps(cappedIntervalDays: Int, includeRunThroughs: Bool, notReadyPassageIDs: [UUID], inFinalWeek: Bool)
     /// R12: suggest building (or resuming) a variant chain.
     case suggestVariants
     /// R13: suggest practicing this part/hand alone (from the instrument's own parts vocabulary).

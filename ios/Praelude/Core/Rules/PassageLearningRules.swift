@@ -134,6 +134,6 @@ extension PracticeRulesEngine {
         }
         return Decision(ruleID: .r11PerformanceDate, pieceID: pieceID, reason: reason, firedAt: context.now,
                          outcome: .performanceCaps(cappedIntervalDays: cappedIntervalDays, includeRunThroughs: true,
-                                                    notReadyPassageIDs: notReady))
+                                                    notReadyPassageIDs: notReady, inFinalWeek: inFinalWeek))
     }
 }
