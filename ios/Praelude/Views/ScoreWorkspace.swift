@@ -245,10 +245,10 @@ struct ScoreWorkspace: View {
     @ViewBuilder private func scoreView(url: URL) -> some View {
         PagedScoreView(url: url, page: $page, twoPages: twoPages && sizeClass == .regular, focusPageTurns: focusMode, markup: markup,
                        regions: visibleRegions, emphasizedIDs: emphasizedIDs, practicedIDs: practicedIDs,
-                       pageEdits: effectivePageEdits, scoreLinks: effectiveScoreLinks,
+                       pageEdits: effectivePageEdits, scoreLinks: effectiveScoreLinks, onLinkActivated: activateLink,
                        drawingData: { store.drawing(pieceID: pieceID, page: $0) },
                        saveDrawing: persistInk, onRegionSelected: onRegionSelected,
-                       onLinkActivated: activateLink, onTurnPage: turnPage, onPageChanged: savePage)
+                       onTurnPage: turnPage, onPageChanged: savePage)
             .accessibilityIdentifier("scorePDF")
     }
     private func onRegionSelected(_ id: UUID) {
