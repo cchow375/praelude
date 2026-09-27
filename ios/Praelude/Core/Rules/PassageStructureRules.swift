@@ -91,14 +91,17 @@ extension PracticeRulesEngine {
         let centers = context.breakPointTaps
             .filter { $0.passageID == passageID }
             .compactMap { tap -> (x: Double, y: Double)? in tapCenter(tap) }
-        guard centers.count >= context.settings.r8TapsToOfferSplit else { return nil }
+        // Clamped to at least 1: a misconfigured (zero or negative) `r8TapsToOfferSplit` must never
+        // let an empty `centers`/`bestNeighbors` reach the `.min()!`/`.max()!` below.
+        let threshold = max(1, context.settings.r8TapsToOfferSplit)
+        guard centers.count >= threshold else { return nil }
         let radius = context.settings.r8ClusterRadius
         var bestNeighbors: [Int] = []
         for i in centers.indices {
             let neighbors = centers.indices.filter { distance(centers[i], centers[$0]) <= radius }
             if neighbors.count > bestNeighbors.count { bestNeighbors = neighbors }
         }
-        guard bestNeighbors.count >= context.settings.r8TapsToOfferSplit else { return nil }
+        guard bestNeighbors.count >= threshold, !bestNeighbors.isEmpty else { return nil }
         let clusterCenters = bestNeighbors.map { centers[$0] }
         let minX = clusterCenters.map(\.x).min()!, maxX = clusterCenters.map(\.x).max()!
         let minY = clusterCenters.map(\.y).min()!, maxY = clusterCenters.map(\.y).max()!
