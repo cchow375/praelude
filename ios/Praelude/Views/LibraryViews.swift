@@ -1,24 +1,45 @@
+import PhotosUI
 import SwiftUI
+import UIKit
+
+/// One enum-driven `.sheet` for the whole screen (matching `ScoreWorkspace`'s `ScoreSheet`
+/// convention) rather than several independent `isPresented`/`item` sheets stacked on one view.
+private enum LibrarySheet: Identifiable {
+    case folders, tags, setlists, pieceDetails(Piece)
+    var id: String {
+        switch self {
+        case .folders: return "folders"
+        case .tags: return "tags"
+        case .setlists: return "setlists"
+        case .pieceDetails(let piece): return "details-\(piece.id)"
+        }
+    }
+}
 
 struct LibraryView: View {
     @Environment(PracticeStore.self) private var store
     @State private var search = ""
     @State private var collection: PieceStatus = .active
     @State private var sort: LibrarySort = .recent
-    @State private var editingPiece: Piece?
     @State private var errorMessage: String?
+    /// §7 library organization: at most one active folder and one active tag filter, combined with
+    /// the collection tab (AND, not OR) — "Resting pieces tagged Recital", not a wider search.
+    @State private var folderFilter: UUID?
+    @State private var tagFilter: UUID?
+    @State private var sheet: LibrarySheet?
+    /// §7: cover grid / list toggle. A per-device display preference, not library data, so
+    /// `AppStorage` (unlike everything under `PracticeStore`) is the right home for it.
+    @AppStorage("ios.library.showGrid") private var showGrid = false
     let onOpenPiece: (UUID) -> Void
     let onAddPiece: () -> Void
 
     private var visiblePieces: [Piece] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
         return store.pieces.filter { piece in
-            // Resting is the one opt-out state; every other status (including a future one no
-            // producer creates yet, like `.completed`) belongs in Active so it is never hidden
-            // from both tabs at once.
-            (collection == .resting ? piece.status == .resting : piece.status != .resting) && (query.isEmpty ||
-                piece.title.localizedStandardContains(query) ||
-                piece.composer.localizedStandardContains(query))
+            piece.status == collection
+                && (folderFilter == nil || piece.folderIDs.contains(folderFilter!))
+                && (tagFilter == nil || piece.tagIDs.contains(tagFilter!))
+                && (query.isEmpty || piece.title.localizedStandardContains(query) || piece.composer.localizedStandardContains(query))
         }.sorted { left, right in
             switch sort {
             case .recent:
@@ -37,16 +58,69 @@ struct LibraryView: View {
     }
 
     var body: some View {
+        Group {
+            if showGrid { gridBody } else { listBody }
+        }
+        .navigationTitle("Pieces")
+        .searchable(text: $search, prompt: "Title or composer")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(showGrid ? "List view" : "Grid view", systemImage: showGrid ? "list.bullet" : "square.grid.2x2") {
+                    showGrid.toggle()
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Sort pieces", selection: $sort) {
+                        ForEach(LibrarySort.allCases) { item in
+                            Text(item.rawValue).tag(item)
+                        }
+                    }
+                    Section {
+                        Button("Folders", systemImage: "folder") { sheet = .folders }
+                        Button("Tags", systemImage: "tag") { sheet = .tags }
+                        Button("Setlists", systemImage: "list.number") { sheet = .setlists }
+                    }
+                } label: {
+                    Label("Sort and organize", systemImage: "arrow.up.arrow.down")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Add piece", systemImage: "plus", action: onAddPiece)
+            }
+        }
+        .sheet(item: $sheet) { which in
+            switch which {
+            case .pieceDetails(let piece):
+                NavigationStack { PieceDetailsView(piece: piece) }
+            case .folders:
+                LibraryLabelPickerView(title: "Folders", allTitle: "All folders", all: store.state.folders,
+                                       count: { folder in store.pieces.filter { $0.folderIDs.contains(folder.id) }.count },
+                                       onSelect: { folderFilter = $0 },
+                                       onAdd: { try store.saveFolder(Folder(name: $0)) },
+                                       onRename: { folder, name in var f = folder; f.name = name; f.updatedAt = Date(); try store.saveFolder(f) },
+                                       onDelete: { try store.deleteFolder($0.id) })
+            case .tags:
+                LibraryLabelPickerView(title: "Tags", allTitle: "All tags", all: store.state.tags,
+                                       count: { tag in store.pieces.filter { $0.tagIDs.contains(tag.id) }.count },
+                                       onSelect: { tagFilter = $0 },
+                                       onAdd: { try store.saveTag(Tag(name: $0)) },
+                                       onRename: { tag, name in var t = tag; t.name = name; t.updatedAt = Date(); try store.saveTag(t) },
+                                       onDelete: { try store.deleteTag($0.id) })
+            case .setlists:
+                NavigationStack { SetlistsView(onOpenPiece: onOpenPiece) }
+            }
+        }
+    }
+
+    @ViewBuilder private var listBody: some View {
         List {
             Section {
-                Picker("Collection", selection: $collection) {
-                    Text("Active").tag(PieceStatus.active)
-                    Text("Resting").tag(PieceStatus.resting)
-                }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 6, trailing: 0))
+                collectionPicker
+                if folderFilter != nil || tagFilter != nil { activeFilterChips }
             }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 6, trailing: 0))
 
             if let errorMessage {
                 ErrorMessage(message: errorMessage)
@@ -65,19 +139,16 @@ struct LibraryView: View {
                         .buttonStyle(.plain)
                         .contextMenu {
                             Button("Open score", systemImage: "music.note") { onOpenPiece(piece.id) }
-                            Button("Edit details", systemImage: "pencil") { editingPiece = piece }
-                            Button(piece.status == .active ? "Move to Resting" : "Make active",
-                                   systemImage: piece.status == .active ? "archivebox" : "tray.and.arrow.up") {
-                                changeStatus(piece)
-                            }
+                            Button("Edit details", systemImage: "pencil") { sheet = .pieceDetails(piece) }
+                            statusMenuItems(for: piece)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(piece.status == .active ? "Rest" : "Activate",
                                    systemImage: piece.status == .active ? "archivebox" : "tray.and.arrow.up") {
-                                changeStatus(piece)
+                                changeStatus(piece, to: piece.status == .active ? .resting : .active)
                             }
                             .tint(PraeludeColor.ink)
-                            Button("Details", systemImage: "pencil") { editingPiece = piece }
+                            Button("Details", systemImage: "pencil") { sheet = .pieceDetails(piece) }
                                 .tint(PraeludeColor.inkSecondary)
                         }
                     }
@@ -90,27 +161,69 @@ struct LibraryView: View {
         }
         .scrollContentBackground(.hidden)
         .background(PraeludeColor.paper)
-        .navigationTitle("Pieces")
-        .searchable(text: $search, prompt: "Title or composer")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Sort pieces", selection: $sort) {
-                        ForEach(LibrarySort.allCases) { item in
-                            Text(item.rawValue).tag(item)
+    }
+
+    @ViewBuilder private var gridBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                collectionPicker
+                if folderFilter != nil || tagFilter != nil { activeFilterChips }
+                if let errorMessage { ErrorMessage(message: errorMessage) }
+                if visiblePieces.isEmpty {
+                    emptyState.frame(maxWidth: .infinity)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 16)], spacing: 20) {
+                        ForEach(visiblePieces) { piece in
+                            Button { onOpenPiece(piece.id) } label: { LibraryPieceGridCell(piece: piece) }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button("Open score", systemImage: "music.note") { onOpenPiece(piece.id) }
+                                    Button("Edit details", systemImage: "pencil") { sheet = .pieceDetails(piece) }
+                                    statusMenuItems(for: piece)
+                                }
                         }
                     }
-                } label: {
-                    Label("Sort pieces", systemImage: "arrow.up.arrow.down")
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Add piece", systemImage: "plus", action: onAddPiece)
+            .padding(16)
+        }
+        .background(PraeludeColor.paper)
+    }
+
+    private var collectionPicker: some View {
+        Picker("Collection", selection: $collection) {
+            Text("Active").tag(PieceStatus.active)
+            Text("Completed").tag(PieceStatus.completed)
+            Text("Resting").tag(PieceStatus.resting)
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var activeFilterChips: some View {
+        HStack(spacing: 8) {
+            if let folderFilter, let folder = store.state.folders.first(where: { $0.id == folderFilter }) {
+                filterChip(folder.name) { self.folderFilter = nil }
             }
+            if let tagFilter, let tag = store.state.tags.first(where: { $0.id == tagFilter }) {
+                filterChip(tag.name) { self.tagFilter = nil }
+            }
+            Spacer(minLength: 0)
         }
-        .sheet(item: $editingPiece) { piece in
-            NavigationStack { PieceDetailsView(piece: piece) }
+    }
+    private func filterChip(_ text: String, onClear: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            Text(text).font(.caption.weight(.medium)).lineLimit(1)
+            Button(action: onClear) { Image(systemName: "xmark.circle.fill").font(.caption) }.accessibilityLabel("Clear \(text) filter")
         }
+        .foregroundStyle(PraeludeColor.inkSecondary)
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(PraeludeColor.inkFillQuiet, in: Capsule())
+    }
+
+    @ViewBuilder private func statusMenuItems(for piece: Piece) -> some View {
+        if piece.status != .active { Button("Make active", systemImage: "tray.and.arrow.up") { changeStatus(piece, to: .active) } }
+        if piece.status != .completed { Button("Mark completed", systemImage: "checkmark.seal") { changeStatus(piece, to: .completed) } }
+        if piece.status != .resting { Button("Move to Resting", systemImage: "archivebox") { changeStatus(piece, to: .resting) } }
     }
 
     @ViewBuilder
@@ -120,9 +233,12 @@ struct LibraryView: View {
         } else if collection == .resting {
             PraeludeEmptyState(title: "Nothing resting", symbol: "archivebox",
                               message: "Move a piece here when you want to set it aside. Its history stays with you.")
+        } else if collection == .completed {
+            PraeludeEmptyState(title: "Nothing completed yet", symbol: "checkmark.seal",
+                              message: "Mark a piece completed once it's performance-ready and you're moving on.")
         } else {
             PraeludeEmptyState(title: "No pieces yet", symbol: "music.note.list",
-                              message: "Add a piece and bring in its PDF score from Files.",
+                              message: "Add a piece and bring in its score from Files, a scan, or your photos.",
                               actionTitle: "Add a piece", action: onAddPiece)
         }
     }
@@ -131,13 +247,42 @@ struct LibraryView: View {
         store.sessions.filter { $0.pieceID == pieceID }.map(\.startedAt).max()
     }
 
-    private func changeStatus(_ piece: Piece) {
+    private func changeStatus(_ piece: Piece, to status: PieceStatus) {
         do {
-            try store.setPieceStatus(piece.id, status: piece.status == .active ? .resting : .active)
+            try store.setPieceStatus(piece.id, status: status)
             errorMessage = nil
             PraeludeHaptic.confirm()
         } catch { errorMessage = error.localizedDescription }
     }
+}
+
+/// A piece's cover (§7: automatic first-page thumbnail, or a custom image) for the library grid and
+/// list, and for the cover picker in `PieceDetailsView`. Falls back to the plain `ScoreThumbnail`
+/// placeholder glyph until a render completes, or forever for a piece with no score PDF and no
+/// custom cover. Rendering itself is `ScoreThumbnailCache`'s job; this view is just its display and
+/// per-viewer cache lookup.
+struct PieceCoverView: View {
+    let piece: Piece
+    var size: CGFloat = 46
+    @Environment(PracticeStore.self) private var store
+    @State private var image: UIImage?
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
+                    .frame(width: size, height: size * 1.22).clipShape(RoundedRectangle(cornerRadius: PraeludeRadius.tight))
+            } else {
+                ScoreThumbnail(size: size)
+            }
+        }
+        .task(id: cacheIdentity) {
+            let pixelSize = CGSize(width: size, height: size * 1.22)
+            if let cached = ScoreThumbnailCache.shared.cached(for: piece, size: pixelSize) { image = cached; return }
+            image = await ScoreThumbnailCache.shared.load(for: piece, store: store, size: pixelSize)
+        }
+    }
+    /// Re-runs `.task` when the piece's own cover-affecting fields change (see `ScoreThumbnailCache`'s key).
+    private var cacheIdentity: String { "\(piece.id)_\(size)_\(piece.updatedAt.timeIntervalSince1970)_\(piece.customCoverRef ?? "")_\(piece.pdfFileName ?? "")" }
 }
 
 private enum LibrarySort: String, CaseIterable, Identifiable {
@@ -153,7 +298,7 @@ struct LibraryPieceRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            ScoreThumbnail()
+            PieceCoverView(piece: piece)
             VStack(alignment: .leading, spacing: 4) {
                 Text(piece.title).font(.headline).foregroundStyle(.primary)
                     .lineLimit(2)
@@ -185,25 +330,56 @@ struct LibraryPieceRow: View {
     }
 }
 
+/// §7 cover grid: the same piece a `LibraryPieceRow` shows, as a cover-forward card instead of a row.
+struct LibraryPieceGridCell: View {
+    let piece: Piece
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            PieceCoverView(piece: piece, size: 132).frame(maxWidth: .infinity, alignment: .center)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(piece.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
+                if !piece.composer.isEmpty { Text(piece.composer).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private enum PieceDetailSheet: String, Identifiable {
+    case addInstrument, tags, folders
+    var id: String { rawValue }
+}
+
 private struct PieceDetailsView: View {
     @Environment(PracticeStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var draft: Piece
     @State private var errorMessage: String?
+    @State private var detailSheet: PieceDetailSheet?
+    @State private var coverSelection: PhotosPickerItem?
+    @State private var coverError: String?
 
     init(piece: Piece) { _draft = State(initialValue: piece) }
 
     var body: some View {
         Form {
+            Section("Cover") { coverRow }
             Section("Piece") {
                 TextField("Title", text: $draft.title, axis: .vertical)
                     .textInputAutocapitalization(.words)
                 TextField("Composer", text: $draft.composer)
                     .textInputAutocapitalization(.words)
+                instrumentPicker
+                difficultyRow
                 Picker("Collection", selection: $draft.status) {
                     Text("Active").tag(PieceStatus.active)
+                    Text("Completed").tag(PieceStatus.completed)
                     Text("Resting").tag(PieceStatus.resting)
                 }
+            }
+            Section("Organization") {
+                Button { detailSheet = .folders } label: { organizationRow(title: "Folders", names: folderNames) }
+                Button { detailSheet = .tags } label: { organizationRow(title: "Tags", names: tagNames) }
             }
             Section("Notes") {
                 TextField("What would you like to remember?", text: $draft.notes, axis: .vertical)
@@ -223,8 +399,80 @@ private struct PieceDetailsView: View {
             }
         }
         .interactiveDismissDisabled()
+        .sheet(item: $detailSheet) { which in
+            switch which {
+            case .addInstrument: AddInstrumentView(onAdded: { draft.instrumentID = $0 })
+            case .tags: LibraryLabelMultiSelectView(title: "Tags", all: store.state.tags, selectedIDs: $draft.tagIDs)
+            case .folders: LibraryLabelMultiSelectView(title: "Folders", all: store.state.folders, selectedIDs: $draft.folderIDs)
+            }
+        }
     }
 
+    private var coverRow: some View {
+        let label = draft.customCoverRef == nil ? "Choose cover photo" : "Replace cover photo"
+        return HStack(spacing: 14) {
+            PieceCoverView(piece: draft, size: 64)
+            VStack(alignment: .leading, spacing: 6) {
+                PhotosPicker(selection: $coverSelection, matching: .images) {
+                    Text(label)
+                }
+                if draft.customCoverRef != nil {
+                    Button("Use automatic cover", role: .destructive) { removeCover() }
+                }
+                if let coverError { Text(coverError).font(.caption).foregroundStyle(.red) }
+            }
+            Spacer()
+        }
+        .onChange(of: coverSelection) { _, item in
+            guard let item else { return }
+            Task {
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self) else { return }
+                    draft = try NativeLibraryFiles(store: store).saveCustomCover(data, for: draft)
+                    coverError = nil
+                } catch { coverError = error.localizedDescription }
+                coverSelection = nil
+            }
+        }
+    }
+    private var instrumentPicker: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Picker("Instrument", selection: $draft.instrumentID) {
+                Text("None").tag(UUID?.none)
+                ForEach(store.state.instruments.filter { $0.deletedAt == nil }) { instrument in
+                    Text(instrument.name).tag(UUID?.some(instrument.id))
+                }
+            }
+            Button("Add an instrument…") { detailSheet = .addInstrument }.font(.caption)
+        }
+    }
+    private var difficultyRow: some View {
+        HStack {
+            Text("Difficulty")
+            Spacer()
+            ForEach(1...5, id: \.self) { star in
+                Button {
+                    draft.difficulty = draft.difficulty == star ? nil : star
+                    PraeludeHaptic.toggle()
+                } label: {
+                    Image(systemName: (draft.difficulty ?? 0) >= star ? "star.fill" : "star")
+                }.buttonStyle(.plain).foregroundStyle(PraeludeColor.ink)
+            }
+        }
+    }
+    private var folderNames: [String] { store.state.folders.filter { draft.folderIDs.contains($0.id) }.map(\.name) }
+    private var tagNames: [String] { store.state.tags.filter { draft.tagIDs.contains($0.id) }.map(\.name) }
+    private func organizationRow(title: String, names: [String]) -> some View {
+        HStack {
+            Text(title).foregroundStyle(.primary)
+            Spacer()
+            Text(names.isEmpty ? "None" : names.joined(separator: ", ")).foregroundStyle(.secondary).lineLimit(1)
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+        }.frame(minHeight: 32).contentShape(Rectangle())
+    }
+    private func removeCover() {
+        do { draft = try NativeLibraryFiles(store: store).removeCustomCover(for: draft) } catch { coverError = error.localizedDescription }
+    }
     private func save() {
         do {
             draft.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -233,5 +481,50 @@ private struct PieceDetailsView: View {
             try store.updatePiece(draft)
             dismiss()
         } catch { errorMessage = error.localizedDescription }
+    }
+}
+
+private struct AddInstrumentView: View {
+    let onAdded: (UUID) -> Void
+    @Environment(PracticeStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var family: InstrumentFamily = .keyboard
+    @State private var errorMessage: String?
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Name (e.g. “Piano”, “B♭ clarinet”)", text: $name)
+                Picker("Family", selection: $family) {
+                    ForEach(InstrumentFamily.allCases, id: \.self) { family in
+                        Text(Self.displayName(family)).tag(family)
+                    }
+                }
+                if let errorMessage { ErrorMessage(message: errorMessage) }
+            }
+            .navigationTitle("Add instrument").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add", action: add).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }.presentationDetents([.medium])
+    }
+    private func add() {
+        let instrument = Instrument(family: family, name: name.trimmingCharacters(in: .whitespacesAndNewlines))
+        do { try store.saveInstrument(instrument); onAdded(instrument.id); dismiss() } catch { errorMessage = error.localizedDescription }
+    }
+    static func displayName(_ family: InstrumentFamily) -> String {
+        switch family {
+        case .keyboard: return "Keyboard"
+        case .strings: return "Strings"
+        case .woodwinds: return "Woodwinds"
+        case .brass: return "Brass"
+        case .percussion: return "Percussion"
+        case .voice: return "Voice"
+        case .pluckedStrings: return "Plucked strings"
+        case .other: return "Other"
+        }
     }
 }
