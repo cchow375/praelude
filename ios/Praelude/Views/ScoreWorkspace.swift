@@ -31,6 +31,11 @@ struct ScoreWorkspace: View {
     @State private var sheet: ScoreSheet?
     @State private var setupAfterDismiss = false
     @State private var focusMode = false
+    /// §7 performance mode: a stronger focus that also hides the compact top row focus mode still
+    /// shows (Exit focus/jump-back/page indicator) and disables ink, so the only surviving
+    /// interaction is turning pages. Always implies `focusMode` (tap-zone-only turning, hidden
+    /// navigation bar and practice dock) — see `enterPerformanceMode`/`exitPerformanceMode`.
+    @State private var performanceMode = false
     @State private var twoPages = false
     @State private var halfPageTurns = false
     @State private var jumpBackStack: [Int] = []
@@ -88,6 +93,8 @@ struct ScoreWorkspace: View {
                     .safeAreaInset(edge: .top, spacing: 0) {
                         if markup.mode != .reading {
                             markupHeader
+                        } else if performanceMode {
+                            EmptyView()
                         } else if focusMode {
                             HStack {
                                 Button { focusMode = false } label: { Label("Exit focus", systemImage: "arrow.down.right.and.arrow.up.left") }.buttonStyle(.praeludeQuiet).fixedSize()
@@ -132,7 +139,7 @@ struct ScoreWorkspace: View {
                     }
                 }
                 .navigationTitle(piece.title).navigationBarTitleDisplayMode(.inline)
-                .toolbar(focusMode || markup.mode != .reading ? .hidden : .visible, for: .navigationBar)
+                .toolbar(focusMode || performanceMode || markup.mode != .reading ? .hidden : .visible, for: .navigationBar)
                 .toolbar {
                     if let onClose { ToolbarItem(placement: .topBarLeading) { Button(action: onClose) { Image(systemName: "chevron.down").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Close score") } }
                     ToolbarItemGroup(placement: .topBarTrailing) {
@@ -141,7 +148,9 @@ struct ScoreWorkspace: View {
                         Button { sheet = .metronome } label: { PraeludeIcon(glyph: .metronome, size: 22).frame(width: 44, height: 44).contentShape(Rectangle()) }
                             .accessibilityLabel("Metronome").accessibilityIdentifier("openMetronome")
                         Menu {
-                            Button { focusMode = true } label: { Label("Focus on score", systemImage: "arrow.up.left.and.arrow.down.right") }
+                            Button { performanceMode = false; focusMode = true } label: { Label("Focus on score", systemImage: "arrow.up.left.and.arrow.down.right") }
+                            Button { enterPerformanceMode() } label: { Label("Performance mode", systemImage: "rectangle.compress.vertical") }
+                                .accessibilityIdentifier("performanceMode")
                             if sizeClass == .regular {
                                 Toggle("Two pages", isOn: $twoPages).praeludeToggleHaptic(twoPages)
                                 if twoPages { Toggle("Half-page turns", isOn: $halfPageTurns).praeludeToggleHaptic(halfPageTurns) }
@@ -172,6 +181,11 @@ struct ScoreWorkspace: View {
                 }
             } else { ContentUnavailableView("Piece unavailable", systemImage: "music.note") }
         }
+        // §7 performance mode: hides literally everything else the system itself would still draw
+        // over the score — the status bar and the home-indicator/Dynamic Island's persistent
+        // overlays — on top of the app's own chrome already hidden above.
+        .statusBarHidden(performanceMode)
+        .persistentSystemOverlays(performanceMode ? .hidden : .automatic)
         .sheet(item: $sheet, onDismiss: {
             if let sharingURL { try? FileManager.default.removeItem(at: sharingURL.deletingLastPathComponent()); self.sharingURL = nil }
             if let passage = drawAfterDismiss { drawAfterDismiss = nil; markup.begin(passage, baseline: savedPassages.first { $0.id == passage.id }) }
@@ -244,11 +258,11 @@ struct ScoreWorkspace: View {
     /// `GeometryReader`/`ZStack` expression was too large for the type checker to solve in one pass.
     @ViewBuilder private func scoreView(url: URL) -> some View {
         PagedScoreView(url: url, page: $page, twoPages: twoPages && sizeClass == .regular, focusPageTurns: focusMode, markup: markup,
-                       regions: visibleRegions, emphasizedIDs: emphasizedIDs, practicedIDs: practicedIDs,
+                       allowsInk: !performanceMode, regions: visibleRegions, emphasizedIDs: emphasizedIDs, practicedIDs: practicedIDs,
                        pageEdits: effectivePageEdits, scoreLinks: effectiveScoreLinks, onLinkActivated: activateLink,
                        drawingData: { store.drawing(pieceID: pieceID, page: $0) },
                        saveDrawing: persistInk, onRegionSelected: onRegionSelected,
-                       onTurnPage: turnPage, onPageChanged: savePage)
+                       onTurnPage: turnPage, onLongPress: exitPerformanceMode, onPageChanged: savePage)
             .accessibilityIdentifier("scorePDF")
     }
     private func onRegionSelected(_ id: UUID) {
@@ -554,6 +568,19 @@ struct ScoreWorkspace: View {
         guard let target = jumpBackStack.popLast(), markup.flushInk() else { return }
         page = target
         savePage(page)
+    }
+    /// §7 performance mode. Refuses to enter with unsaved ink still pending, the same guard every
+    /// other page-changing action here already uses — performance mode is exited by a long press
+    /// with no confirmation, so it should never risk a silent ink loss on the way in.
+    private func enterPerformanceMode() {
+        guard markup.flushInk() else { return }
+        performanceMode = true; focusMode = true
+        PraeludeHaptic.confirm()
+    }
+    private func exitPerformanceMode() {
+        guard performanceMode else { return }
+        performanceMode = false; focusMode = false
+        PraeludeHaptic.toggle()
     }
     private func perform(_ action: () throws -> Void) { do { try action() } catch { self.error = error.localizedDescription } }
     private func togglePause() {

@@ -75,6 +75,9 @@ struct PagedScoreView: UIViewRepresentable {
     var saveDrawing: (Int, Data, Data?) -> Bool = { _, _, _ in false }
     var onRegionSelected: (UUID) -> Void = { _ in }
     var onTurnPage: (Int) -> Void = { _ in }
+    /// §7 performance mode: a long press anywhere on the score exits it. The only way out while
+    /// every other control is deliberately hidden, so it fires regardless of `focusPageTurns`.
+    var onLongPress: () -> Void = {}
     var onPageChanged: (Int) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     func makeUIView(context: Context) -> ZoomableScorePDFView {
@@ -85,6 +88,11 @@ struct PagedScoreView: UIViewRepresentable {
         pageTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         pageTap.delegate = context.coordinator
         view.addGestureRecognizer(pageTap)
+        let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.longPressed(_:)))
+        longPress.cancelsTouchesInView = false
+        longPress.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        longPress.delegate = context.coordinator
+        view.addGestureRecognizer(longPress)
         // Opaque, so this is the color actually shown in the margins/gutter around page content —
         // the `PraeludeColor.scorePaper` layer `ScoreWorkspace` places behind this view never shows
         // through. Pinned paper-white like that token, not a system gray, so the score reads as one
@@ -100,6 +108,7 @@ struct PagedScoreView: UIViewRepresentable {
         context.coordinator.loadedURL = url
         view.document = context.coordinator.loadDocument(url: url, pageEdits: pageEdits)
         if let target = view.document?.page(at: max(0, page - 1)) { view.go(to: target) }
+        context.coordinator.prefetchNeighbors(around: page)
         context.coordinator.observer = NotificationCenter.default.addObserver(forName: .PDFViewPageChanged, object: view, queue: .main) { [weak coordinator = context.coordinator, weak view] _ in
             MainActor.assumeIsolated {
                 guard let coordinator, let view, let current = view.currentPage, let doc = view.document else { return }
@@ -107,6 +116,7 @@ struct PagedScoreView: UIViewRepresentable {
                 guard index != coordinator.parent.page else { return }
                 coordinator.parent.page = index
                 coordinator.parent.onPageChanged(index)
+                coordinator.prefetchNeighbors(around: index)
             }
         }
         context.coordinator.connectControls()
@@ -134,6 +144,7 @@ struct PagedScoreView: UIViewRepresentable {
         if let observer = coordinator.observer { NotificationCenter.default.removeObserver(observer) }
         _ = coordinator.flush()
         coordinator.autosave?.cancel()
+        coordinator.prefetchTask?.cancel()
         uiView.pageOverlayViewProvider = nil
     }
     @MainActor final class Coordinator: NSObject, UIGestureRecognizerDelegate, @preconcurrency PDFPageOverlayViewProvider, PKCanvasViewDelegate {
@@ -151,6 +162,9 @@ struct PagedScoreView: UIViewRepresentable {
         var dirtyPages: Set<Int> = []
         var loading = false
         var autosave: Task<Void, Never>?
+        /// §7 reading: warms decode caches for pages the reader is about to turn to (see
+        /// `prefetchNeighbors`); cancelled and replaced on every page turn rather than left to pile up.
+        var prefetchTask: Task<Void, Never>?
         let toolPicker = PKToolPicker()
         init(parent: PagedScoreView) { self.parent = parent }
         /// Flush with the original piece's callbacks before a reused representable changes owners.
@@ -178,6 +192,30 @@ struct PagedScoreView: UIViewRepresentable {
             effectivePages = pages
             guard let raw else { return nil }
             return ScorePageComposer.isIdentity(pages, sourcePageCount: sourceCount) ? raw : ScorePageComposer.composedDocument(source: raw, effectivePages: pages)
+        }
+        /// §7 reading: "instant sharp render of heavy scans" for the pages just ahead of/behind
+        /// the one just displayed. This does not replace PDFKit's own page rendering with custom
+        /// tiling — it forces the (often dominant, for a large scanned image) cost of decoding a
+        /// page's embedded raster content to happen once, off the main thread, before the reader
+        /// actually turns there, rather than exactly when they do. `PDFPage.thumbnail(of:for:)` is
+        /// a synchronous CPU render with no UIKit main-thread affinity, so it is safe to call from
+        /// a detached background task; the returned image is discarded; only the decode work it
+        /// forces is the point.
+        func prefetchNeighbors(around displayIndex: Int) {
+            guard let document = pdfView?.document else { return }
+            let indices = [displayIndex - 1, displayIndex + 1, displayIndex + 2].filter { $0 >= 1 && $0 <= document.pageCount }
+            guard !indices.isEmpty else { return }
+            prefetchTask?.cancel()
+            prefetchTask = Task.detached(priority: .utility) {
+                for index in indices {
+                    guard !Task.isCancelled else { return }
+                    guard let page = document.page(at: index - 1) else { continue }
+                    let box = page.bounds(for: .cropBox)
+                    guard box.width > 0, box.height > 0 else { continue }
+                    let target = CGSize(width: min(1600, box.width * 2), height: min(1600, box.height * 2))
+                    _ = page.thumbnail(of: target, for: .cropBox)
+                }
+            }
         }
         func clearOverlays() {
             for overlay in overlays.values { toolPicker.removeObserver(overlay.canvas) }
@@ -386,6 +424,9 @@ struct PagedScoreView: UIViewRepresentable {
         }
         @objc func pageTapped(_ recognizer: UITapGestureRecognizer) {
             guard recognizer.state == .ended, let view = recognizer.view as? PDFView else { return }
+            // Focus/performance mode (§7 reading): every tap is a page turn, full stop — no link
+            // or region can fire underneath it. That is the whole point of that mode: one
+            // unambiguous gesture, safe to use without looking, chrome or not.
             if parent.focusPageTurns {
                 parent.onTurnPage(recognizer.location(in: view).x < view.bounds.width / 3 ? -1 : 1)
                 return
@@ -394,24 +435,32 @@ struct PagedScoreView: UIViewRepresentable {
             let displayIndex = document.index(for: tappedPage) + 1
             // §7 links: a repeat/D.S./coda tap region is defined on the *displayed* page, in PDF
             // page-space (bottom-left origin), independent of whether that page has an ink overlay.
-            if !parent.scoreLinks.isEmpty {
-                let crop = tappedPage.bounds(for: .cropBox)
-                if crop.width > 0, crop.height > 0 {
-                    let pageLocal = view.convert(recognizer.location(in: view), to: tappedPage)
-                    let fraction = CGPoint(x: (pageLocal.x - crop.minX) / crop.width, y: 1 - (pageLocal.y - crop.minY) / crop.height)
-                    if let link = parent.scoreLinks.reversed().first(where: { $0.sourcePage == displayIndex && ($0.sourceRegion?.contains(fraction) ?? false) }) {
-                        parent.onLinkActivated(link)
-                        return
-                    }
-                }
+            let crop = tappedPage.bounds(for: .cropBox)
+            let pageLocal = view.convert(recognizer.location(in: view), to: tappedPage)
+            let fraction = crop.width > 0 && crop.height > 0
+                ? CGPoint(x: (pageLocal.x - crop.minX) / crop.width, y: 1 - (pageLocal.y - crop.minY) / crop.height) : nil
+            if let fraction, !parent.scoreLinks.isEmpty,
+               let link = parent.scoreLinks.reversed().first(where: { $0.sourcePage == displayIndex && ($0.sourceRegion?.contains(fraction) ?? false) }) {
+                parent.onLinkActivated(link)
+                return
             }
             if displayIndex >= 1, displayIndex <= effectivePages.count, let sourcePage = effectivePages[displayIndex - 1].sourcePage,
                let overlay = overlays[sourcePage] {
                 let point = overlay.convert(recognizer.location(in: view), from: view)
                 if let region = overlay.displayedRegions.reversed().first(where: { $0.page == overlay.pageNumber && $0.rect(in: overlay.bounds.size).contains(point) }) {
                     parent.onRegionSelected(region.id)
+                    return
                 }
             }
+            // §7 reading: tap-zone turning is also available outside focus/performance mode, as a
+            // fallback once a tap has already missed every link and passage region above it — the
+            // left-edge/right-majority split matches the same zones `focusPageTurns` uses, so it
+            // feels like the same gesture whether or not the reading chrome happens to be visible.
+            parent.onTurnPage(recognizer.location(in: view).x < view.bounds.width / 3 ? -1 : 1)
+        }
+        @objc func longPressed(_ recognizer: UILongPressGestureRecognizer) {
+            guard recognizer.state == .began else { return }
+            parent.onLongPress()
         }
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool { parent.markup.mode == .reading }
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
