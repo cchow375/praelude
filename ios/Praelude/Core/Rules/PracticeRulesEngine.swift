@@ -39,3 +39,14 @@ extension Calendar {
         return self.date(byAdding: .day, value: days, to: day) ?? date.addingTimeInterval(Double(days) * 86400)
     }
 }
+
+extension PracticeRulesEngine {
+    /// Every `ActiveSet` that practiced this passage — `history` plus the live `activeSet` when it
+    /// belongs to this passage too — oldest first. Shared by R7, R9 and §10a, which all need "this
+    /// passage's own sets" rather than the whole library's.
+    static func allSets(forPassage passageID: UUID, context: RuleContext) -> [ActiveSet] {
+        (context.history + [context.activeSet].compactMap { $0 })
+            .filter { $0.configuration.passageID == passageID }
+            .sorted { $0.startedAt < $1.startedAt }
+    }
+}
