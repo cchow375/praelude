@@ -54,7 +54,7 @@ extension PracticeRulesEngine {
             let due = calendar.startOfDay(afterAdding: days, to: now)
             let newState: LearningState = current == .new ? .learning : current
             return (newState, PassageSchedule(dueDate: due, intervalDays: days, reviewStep: schedule.reviewStep),
-                    "Shaky. Review in \(days) days.")
+                    "Shaky. Review in \(pluralize(days, "day")).")
         case .clean:
             let intervals = settings.r4CleanIntervalsDays.sorted()
             guard !intervals.isEmpty else { return (current, schedule, "Clean, but no review ladder is configured.") }
@@ -67,7 +67,7 @@ extension PracticeRulesEngine {
             if newState == .learning && stepIndex >= reviewThreshold { newState = .review }
             let newReviewStep = min(stepIndex + 1, intervals.count - 1)
             return (newState, PassageSchedule(dueDate: due, intervalDays: days, reviewStep: newReviewStep),
-                    "Clean. Next review in \(days) days.")
+                    "Clean. Next review in \(pluralize(days, "day")).")
         }
     }
 
@@ -127,10 +127,10 @@ extension PracticeRulesEngine {
         let reason: String
         if inFinalWeek {
             reason = notReady.isEmpty
-                ? "\(daysUntil) days out. Every passage due; run-throughs on."
-                : "\(daysUntil) days out. \(notReady.count) passage\(notReady.count == 1 ? "" : "s") not performance-ready."
+                ? "\(pluralize(daysUntil, "day")) out. Every passage due; run-throughs on."
+                : "\(pluralize(daysUntil, "day")) out. \(pluralize(notReady.count, "passage")) not performance-ready."
         } else {
-            reason = "Two weeks out. Run-throughs added; reviews capped at \(cappedIntervalDays) days."
+            reason = "Two weeks out. Run-throughs added; reviews capped at \(pluralize(cappedIntervalDays, "day"))."
         }
         return Decision(ruleID: .r11PerformanceDate, pieceID: pieceID, reason: reason, firedAt: context.now,
                          outcome: .performanceCaps(cappedIntervalDays: cappedIntervalDays, includeRunThroughs: true,

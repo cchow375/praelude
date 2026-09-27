@@ -41,6 +41,15 @@ extension Calendar {
 }
 
 extension PracticeRulesEngine {
+    /// "1 day"/"3 days" — the shared count-plus-noun formatter every rule's reason text uses, so an
+    /// editable parameter set to 1 (or a performance-date countdown that lands on its last day) never
+    /// reads as a grammar mistake in copy the player actually sees (§3a: copy is dry and specific).
+    static func pluralize(_ count: Int, _ singular: String) -> String {
+        "\(count) \(singular)\(count == 1 ? "" : "s")"
+    }
+}
+
+extension PracticeRulesEngine {
     /// Every `ActiveSet` that practiced this passage — `history` plus the live `activeSet` when it
     /// belongs to this passage too — oldest first. Shared by R7, R9 and §10a, which all need "this
     /// passage's own sets" rather than the whole library's.

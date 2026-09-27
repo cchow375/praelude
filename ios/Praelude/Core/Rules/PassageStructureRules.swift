@@ -141,7 +141,7 @@ extension PracticeRulesEngine {
         guard vocabulary.count > 1 else { return nil }
         let suggestion = vocabulary[1]
         return Decision(ruleID: .r13PartsSeparately, pieceID: passage.pieceID, passageID: passageID,
-                         reason: "\(context.settings.r13ConsecutiveMissed) missed cold attempts in a row. Try \(suggestion) instead?",
+                         reason: "\(pluralize(context.settings.r13ConsecutiveMissed, "missed cold attempt")) in a row. Try \(suggestion) instead?",
                          firedAt: context.now, outcome: .suggestParts(suggestion))
     }
 }

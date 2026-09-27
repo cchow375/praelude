@@ -34,8 +34,8 @@ extension PracticeRulesEngine {
         guard overTime || overSets else { return nil }
         let until = context.calendar.startOfDay(afterAdding: 1, to: context.now)
         let reason = overTime
-            ? "\(context.settings.r9Minutes) minutes on this today. Back tomorrow."
-            : "\(trailingWithoutProgress) sets, no progress. Back tomorrow."
+            ? "\(pluralize(context.settings.r9Minutes, "minute")) on this today. Back tomorrow."
+            : "\(pluralize(trailingWithoutProgress, "set")), no progress. Back tomorrow."
         return Decision(ruleID: .r9StopGrinding, pieceID: passage.pieceID, passageID: passageID, reason: reason,
                          firedAt: context.now, outcome: .park(until: until))
     }
@@ -171,7 +171,7 @@ extension PracticeRulesEngine {
             guard let matchedPiece = context.pieces.first(where: { $0.id == pieceID }) else { continue }
             let days = nearestPerformanceDate(for: matchedPiece, context: context)
                 .flatMap { context.calendar.dateComponents([.day], from: today, to: $0).day } ?? 0
-            let reason = days <= 0 ? "Performance today. Run it through." : "\(days) day\(days == 1 ? "" : "s") out. Run it through."
+            let reason = days <= 0 ? "Performance today. Run it through." : "\(pluralize(days, "day")) out. Run it through."
             take(SessionItem(id: pieceID, kind: .runThrough, pieceID: pieceID, passageID: nil,
                               estimatedMinutes: perItem * runThroughMinutesMultiplier, reason: reason))
         }

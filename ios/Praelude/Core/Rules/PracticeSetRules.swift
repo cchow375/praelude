@@ -46,26 +46,38 @@ extension PracticeRulesEngine {
     // MARK: - R6 slow down
 
     /// R6 (§11): "3 resets in a row without half the goal." Replays `set`'s own attempts (undone ones
-    /// excluded), tracking the in-progress streak toward `set.requiredCount`: a Sloppy or manual
-    /// Reset zeroes it and records the streak's peak just before the zeroing (Again is neutral, per
-    /// R5, and does nothing here); reaching the goal clears the "in a row" count entirely, since only
-    /// *consecutive* failures with no intervening success should count toward the three. Fires when
-    /// the most recent `r6ResetsBeforeStepDown` such resets all peaked below half of `requiredCount`,
-    /// and steps the tempo down by `r6StepDownPercent` (a percent-based tempo ladder) or by one fixed
-    /// ladder step (a fixed-amount ladder) — the spec's "~6% or ladder step" mapped onto whichever
-    /// `TempoStep` the set is already configured with.
+    /// excluded), tracking the in-progress streak toward that attempt's own stage goal: a Sloppy or
+    /// manual Reset zeroes it and records the streak's peak (paired with the goal it was chasing)
+    /// just before the zeroing (Again is neutral, per R5, and does nothing here); reaching that goal
+    /// clears the "in a row" list entirely, since only *consecutive* failures with no intervening
+    /// success should count toward the three. Fires when the most recent `r6ResetsBeforeStepDown`
+    /// such resets each peaked below half of *their own* goal, and steps the tempo down by
+    /// `r6StepDownPercent` (a percent-based tempo ladder) or by one fixed ladder step (a fixed-amount
+    /// ladder) — the spec's "~6% or ladder step" mapped onto whichever `TempoStep` the set is already
+    /// configured with.
+    ///
+    /// Each attempt's own goal is looked up from `attempt.stageIndex` (stamped by the store at record
+    /// time) rather than assumed to be the set's *current* `requiredCount`: a variant chain (§10b)
+    /// gives every stage its own `targetCount`, and a stage transition only ever happens by reaching
+    /// that stage's goal, so replaying every historical attempt against one constant (the current,
+    /// possibly later, stage's goal) could fail to recognize an earlier stage's own graduation as
+    /// progress, or judge an earlier peak against the wrong half.
     public static func evaluateR6SlowDown(set: ActiveSet, context: RuleContext) -> Decision? {
         guard context.settings.r6Enabled, let passageID = set.configuration.passageID,
               let passage = context.passages.first(where: { $0.id == passageID }) else { return nil }
+        func goal(atStage index: Int) -> Int {
+            set.configuration.stages.indices.contains(index) ? set.configuration.stages[index].targetCount : set.configuration.targetCount
+        }
         var streak = 0
-        var peaksSinceProgress: [Int] = []
+        var peaksSinceProgress: [(streak: Int, goal: Int)] = []
         for attempt in set.attempts where attempt.undoneAt == nil {
+            let stageGoal = goal(atStage: attempt.stageIndex)
             switch attempt.verdict {
             case .clean:
                 streak += 1
-                if streak >= set.requiredCount { peaksSinceProgress = []; streak = 0 }
+                if streak >= stageGoal { peaksSinceProgress = []; streak = 0 }
             case .sloppy, .reset:
-                peaksSinceProgress.append(streak); streak = 0
+                peaksSinceProgress.append((streak, stageGoal)); streak = 0
             case .again:
                 break
             }
@@ -73,15 +85,14 @@ extension PracticeRulesEngine {
         let threshold = context.settings.r6ResetsBeforeStepDown
         guard peaksSinceProgress.count >= threshold else { return nil }
         let recent = peaksSinceProgress.suffix(threshold)
-        let half = Double(set.requiredCount) / 2
-        guard recent.allSatisfy({ Double($0) < half }) else { return nil }
+        guard recent.allSatisfy({ Double($0.streak) < Double($0.goal) / 2 }) else { return nil }
         let newBPM: Double
         switch set.configuration.tempoStep {
         case .percent: newBPM = max(1, (set.currentBPM * (1 - context.settings.r6StepDownPercent / 100)).rounded())
         case .fixed(let amount): newBPM = max(1, set.currentBPM - amount)
         }
         return Decision(ruleID: .r6SlowDown, pieceID: passage.pieceID, passageID: passageID,
-                         reason: "\(threshold) resets under half the goal. Down to \(Int(newBPM)).",
+                         reason: "\(pluralize(threshold, "reset")) under half the goal. Down to \(Int(newBPM)).",
                          firedAt: context.now, outcome: .tempoChange(newBPM: newBPM))
     }
 
@@ -152,7 +163,7 @@ extension PracticeRulesEngine {
         let plan = PulseCheckPlan(leadInBars: pulseCheckLeadInBars, silentBars: context.settings.r14DropoutBars,
                                    recoveryBars: pulseCheckRecoveryBars)
         return Decision(ruleID: .r14PulseCheck, pieceID: passage.pieceID, passageID: passageID,
-                         reason: "Near tempo. Metronome drops out for \(context.settings.r14DropoutBars) bars.",
+                         reason: "Near tempo. Metronome drops out for \(pluralize(context.settings.r14DropoutBars, "bar")).",
                          firedAt: context.now, outcome: .pulseCheck(plan))
     }
 }
