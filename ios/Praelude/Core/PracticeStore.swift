@@ -774,6 +774,11 @@ import Observation
         for piece in state.pieces {
             try require(piece.instrumentID == nil || instrumentIDs.contains(piece.instrumentID!), "A piece references a missing instrument.")
             try require(piece.difficulty == nil || (1...5).contains(piece.difficulty!), "A piece has an invalid difficulty.")
+            if let name = piece.customCoverRef {
+                try require(!name.isEmpty && name.count <= 255 && !name.contains("/") && !name.contains("\\") && !name.contains("..")
+                            && (name.lowercased().hasSuffix(".jpg") || name.lowercased().hasSuffix(".jpeg") || name.lowercased().hasSuffix(".png"))
+                            && !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }), "A piece has an invalid custom cover filename.")
+            }
             try require(piece.performanceDates.allSatisfy(date) && piece.performanceDates.count <= 100, "A piece has invalid performance dates.")
             try require(date(piece.updatedAt) && date(piece.lastPageUpdatedAt) && piece.deletedAt.map(date) != false, "A piece has invalid sync timing.")
         }
