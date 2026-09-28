@@ -899,7 +899,8 @@ import Observation
         try require(unique(state.stampAnnotations.map(\.id)) && state.stampAnnotations.count <= 50000, "The library contains duplicate or too many stamps.")
         for stamp in state.stampAnnotations {
             let piece = state.pieces.first { $0.id == stamp.pieceID }
-            try require(piece != nil && stamp.page >= 1 && stamp.page <= max(1, piece?.pageCount ?? 0) && stamp.position.isValid, "A stamp references a missing piece/page or has an invalid position.")
+            try require(piece != nil && stamp.page >= 1 && stamp.page <= max(1, piece?.pageCount ?? 0) && stamp.position.isValid
+                        && text(stamp.label ?? "", maximum: 20, blank: true), "A stamp references a missing piece/page or has an invalid position or label.")
         }
         let passageIDs = Set(state.passages.map(\.id))
         for passage in state.passages {

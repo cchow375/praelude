@@ -160,14 +160,9 @@ struct PassagePreview: View {
         let number = passage.regions.map(\.page).min() ?? passage.page
         guard let page = PDFDocument(url: url)?.page(at: max(0, number-1)) else { return nil }
         let image = page.thumbnail(of: CGSize(width: 480, height: 640), for: .cropBox)
-        let boxes = passage.regions.filter { $0.page == number }.map { region in
-            var rect = CGRect(x: region.x, y: region.y, width: region.width, height: region.height)
-            switch ((page.rotation % 360) + 360) % 360 {
-            case 90: rect = CGRect(x: 1-rect.maxY, y: rect.minX, width: rect.height, height: rect.width)
-            case 180: rect = CGRect(x: 1-rect.maxX, y: 1-rect.maxY, width: rect.width, height: rect.height)
-            case 270: rect = CGRect(x: rect.minY, y: 1-rect.maxX, width: rect.height, height: rect.width)
-            default: break
-            }
+        let boxes = passage.regions.filter { $0.page == number }.map { region -> CGRect in
+            let rect = CGRect(x: region.x, y: region.y, width: region.width, height: region.height)
+                .normalizedRotatedForDisplay(pageRotationDegrees: page.rotation)
             return CGRect(x: rect.minX*image.size.width, y: rect.minY*image.size.height,
                           width: rect.width*image.size.width, height: rect.height*image.size.height)
         }
