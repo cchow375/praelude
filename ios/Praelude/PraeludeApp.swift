@@ -53,9 +53,18 @@ struct PraeludeApp: App {
 
 private enum Destination: String, CaseIterable, Identifiable {
     case today = "Today", pieces = "Pieces", progress = "Progress"
+    case history = "History", calendar = "Calendar", notebook = "Notebook", insights = "Data"
     var id: String { rawValue }
     var symbol: String {
-        switch self { case .today: return "sun.max"; case .pieces: return "music.note.list"; case .progress: return "chart.bar.xaxis" }
+        switch self {
+        case .today: return "sun.max"
+        case .pieces: return "music.note.list"
+        case .progress: return "chart.bar.xaxis"
+        case .history: return "clock.arrow.circlepath"
+        case .calendar: return "calendar"
+        case .notebook: return "note.text"
+        case .insights: return "chart.xyaxis.line"
+        }
     }
 }
 private struct ScoreRoute: Identifiable { let id: UUID }
@@ -243,6 +252,10 @@ struct AppRootView: View {
         case .today: TodayView(onOpenPiece: openPiece, onAddPiece: { sheet = .add })
         case .pieces: LibraryView(onOpenPiece: openPiece, onAddPiece: { sheet = .add })
         case .progress: PracticeProgressView()
+        case .history: HistoryView()
+        case .calendar: CalendarView()
+        case .notebook: NotebookView()
+        case .insights: InsightsView()
         }
     }
     private func openPiece(_ id: UUID) {

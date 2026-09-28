@@ -39,15 +39,13 @@ public enum HistoryExport {
         return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
     /// RFC 4180-style CSV, one row per attempt, CRLF line endings — the shape a spreadsheet expects,
     /// so §15's "export CSV ... via share sheet/Files" reads directly into Numbers/Excel/Sheets.
     public static func csv(state: LibraryState) -> String {
+        // Built locally per call, not a shared `static let`: `ISO8601DateFormatter` is not `Sendable`,
+        // and this keeps the module free of global mutable state under strict concurrency.
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime]
         var lines = ["Date,Piece,Passage,Focus,Verdict,BPM"]
         for row in rows(state: state) {
             let fields = [isoFormatter.string(from: row.date), row.pieceTitle, row.passageTitle ?? "",
