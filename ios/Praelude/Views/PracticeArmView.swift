@@ -30,7 +30,7 @@ struct PracticeArmView: View {
                 tempoRow
                 HStack(spacing: 12) {
                     Button("More options", action: onOpenAdvanced).buttonStyle(.praeludeQuiet).fixedSize(horizontal: true, vertical: false)
-                    Button(action: start) {
+                    Button(action: { start() }) {
                         Label("Start", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 36)
                     }.buttonStyle(.praeludePrimary).accessibilityIdentifier("confirmStartSet")
                 }
@@ -74,7 +74,7 @@ struct PracticeArmView: View {
                     }
                 } label: { quickChip(Self.goalLabel(configuration.wrappedValue.goal)) }
                     .accessibilityIdentifier("armGoal")
-                Stepper(value: configuration.targetCount, in: 1...100) {
+                Stepper(value: targetCountBinding(configuration), in: 1...100) {
                     quickChip("\(configuration.wrappedValue.targetCount) \(configuration.wrappedValue.basis == .cleanStreak ? "clean" : "plays")")
                 }.labelsHidden().fixedSize().accessibilityIdentifier("armTargetCount")
                 if configuration.wrappedValue.basis == .cleanStreak {
@@ -102,7 +102,7 @@ struct PracticeArmView: View {
     private var tempoRow: some View {
         HStack {
             Spacer(minLength: 0)
-            TempoDial(bpm: configBinding.startBPM, numeralSize: 44, onTapTempo: {
+            TempoDial(bpm: startBPMBinding(configBinding), numeralSize: 44, onTapTempo: {
                 metronome.tap()
                 configBinding.wrappedValue.startBPM = metronome.bpm
             })
@@ -194,7 +194,11 @@ struct PracticeArmView: View {
     }
 }
 
-private extension Binding where Value == PracticeConfiguration {
-    var targetCount: Binding<Int> { Binding(get: { wrappedValue.targetCount }, set: { wrappedValue.targetCount = $0 }) }
-    var startBPM: Binding<Double> { Binding(get: { wrappedValue.startBPM }, set: { wrappedValue.startBPM = $0 }) }
+/// Narrows a `Binding<PracticeConfiguration>` to one of its fields, for controls (`Stepper`,
+/// `TempoDial`) that need a `Binding` to a single `Int`/`Double`, not the whole configuration.
+private func targetCountBinding(_ configuration: Binding<PracticeConfiguration>) -> Binding<Int> {
+    Binding(get: { configuration.wrappedValue.targetCount }, set: { configuration.wrappedValue.targetCount = $0 })
+}
+private func startBPMBinding(_ configuration: Binding<PracticeConfiguration>) -> Binding<Double> {
+    Binding(get: { configuration.wrappedValue.startBPM }, set: { configuration.wrappedValue.startBPM = $0 })
 }
