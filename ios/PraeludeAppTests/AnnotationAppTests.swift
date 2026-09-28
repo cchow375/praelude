@@ -1,3 +1,4 @@
+import PDFKit
 import PencilKit
 import SwiftUI
 import XCTest

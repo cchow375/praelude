@@ -287,7 +287,9 @@ struct PagedScoreView: UIViewRepresentable {
                 } catch { parent.markup.errorMessage = "Saved ink could not be reopened. The original is preserved."; overlay.inkReadOnly = true }
                 loading = false
             }
-            if let tool = parent.markup.tool.pkTool { overlay.canvas.tool = tool }
+            if parent.markup.tool != overlay.lastAssignedTool, let tool = parent.markup.tool.pkTool {
+                overlay.canvas.tool = tool; overlay.lastAssignedTool = parent.markup.tool
+            }
             refreshOtherLayersImage(overlay)
             overlay.refresh()
             // The custom AnnotationToolbar is now the primary tool/color/width picker (§3b: no stock
@@ -310,17 +312,21 @@ struct PagedScoreView: UIViewRepresentable {
             let blobs = parent.otherLayersInkData(number)
             var signature = blobs.count &* 31
             for blob in blobs { signature = signature ^ blob.hashValue }
+            // `otherLayersImage` is a `didSet`-observed property (redraws the overlay); reassigning it
+            // to the same instance on every refresh pass, even when nothing changed, was part of the
+            // same over-eager-reassignment issue `lastAssignedTool` documents above.
+            func apply(_ image: UIImage?) { if overlay.otherLayersImage !== image { overlay.otherLayersImage = image } }
             if let cached = otherLayersImageCache[number], cached.signature == signature {
-                overlay.otherLayersImage = cached.image; return
+                apply(cached.image); return
             }
             guard !blobs.isEmpty else {
-                otherLayersImageCache[number] = (signature, nil); overlay.otherLayersImage = nil; return
+                otherLayersImageCache[number] = (signature, nil); apply(nil); return
             }
             let drawing = (try? InkPerStroke.merge(blobs)) ?? PKDrawing()
             let scale = min(3, overlay.window?.screen.scale ?? UIScreen.main.scale)
             let image = drawing.strokes.isEmpty ? nil : drawing.image(from: CGRect(origin: .zero, size: overlay.bounds.size), scale: scale)
             otherLayersImageCache[number] = (signature, image)
-            overlay.otherLayersImage = image
+            apply(image)
         }
         func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
             #if DEBUG
@@ -336,7 +342,7 @@ struct PagedScoreView: UIViewRepresentable {
             guard current != canvasBaseline[number] else {
                 dirtyPages.remove(number); parent.markup.clearPendingInk(page: number); updateUndoState(); return
             }
-            parent.markup.rememberInk(page: number, data: current ?? Data(), expected: committed[number], document: parent.url)
+            parent.markup.rememberInk(page: number, data: current ?? Data(), expected: committed[number], document: parent.url, layer: parent.activeLayer)
             dirtyPages.insert(number); updateUndoState()
             autosave?.cancel()
             autosave = Task { @MainActor [weak self] in
@@ -381,7 +387,7 @@ struct PagedScoreView: UIViewRepresentable {
                 } else if let pending {
                     data = pending.data; expected = pending.expected
                 } else { success = false; continue }
-                parent.markup.rememberInk(page: number, data: data, expected: expected, document: parent.url)
+                parent.markup.rememberInk(page: number, data: data, expected: expected, document: parent.url, layer: parent.activeLayer)
                 if parent.saveDrawing(number, data, expected) {
                     committed[number] = data.isEmpty ? nil : data
                     canvasBaseline[number] = overlays[number].flatMap { encodedInk($0.canvas) }

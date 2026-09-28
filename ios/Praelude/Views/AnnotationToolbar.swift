@@ -31,10 +31,10 @@ struct AnnotationToolbar: View {
                 .accessibilityLabel("Draw with finger").accessibilityIdentifier("fingerDrawing")
                 .praeludeToggleHaptic(markup.fingerDrawing)
                 Button(action: markup.undoInk) {
-                    Image(systemName: "arrow.uturn.backward").font(.system(size: 20)).frame(width: 40, height: 40).contentShape(Rectangle())
+                    Image(systemName: "arrow.uturn.backward").font(.system(size: 20)).frame(width: 44, height: 44).contentShape(Rectangle())
                 }.disabled(!markup.canUndoInk).accessibilityLabel("Undo ink")
                 Button(action: markup.redoInk) {
-                    Image(systemName: "arrow.uturn.forward").font(.system(size: 20)).frame(width: 40, height: 40).contentShape(Rectangle())
+                    Image(systemName: "arrow.uturn.forward").font(.system(size: 20)).frame(width: 44, height: 44).contentShape(Rectangle())
                 }.disabled(!markup.canRedoInk).accessibilityLabel("Redo ink")
             }
             detailRow
@@ -59,7 +59,7 @@ struct AnnotationToolbar: View {
                 Image(systemName: symbolName(kind)).font(.system(size: 18))
                 if !simplifiedLabels { Text(kind.label).font(.caption2) }
             }
-            .frame(minWidth: 44, minHeight: 40).padding(.horizontal, 4)
+            .frame(minWidth: 44, minHeight: 44).padding(.horizontal, 4)
             .background(selected ? PraeludeColor.inkFillPressed : PraeludeColor.inkFillQuiet, in: RoundedRectangle(cornerRadius: PraeludeRadius.control))
         }
         .buttonStyle(.plain).foregroundStyle(PraeludeColor.ink)
@@ -84,6 +84,7 @@ struct AnnotationToolbar: View {
                     Button { markup.tool.color = color } label: {
                         Circle().fill(color.color).frame(width: 26, height: 26)
                             .overlay(Circle().strokeBorder(PraeludeColor.ink, lineWidth: markup.tool.color == color ? 2 : 0))
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityLabel(color.label).accessibilityIdentifier("annotationColor_\(color.rawValue)")
                 }
             }
@@ -125,7 +126,8 @@ struct AnnotationToolbar: View {
     private func stampButton(_ kind: StampKind, _ label: String?) -> some View {
         let selected = markup.armedStamp.map { $0.kind == kind && $0.label == label } ?? false
         return Button { markup.armedStamp = (kind, label); markup.selectedStampID = nil } label: {
-            PraeludeStamp(kind: kind, label: label, size: 26).padding(6)
+            PraeludeStamp(kind: kind, label: label, size: 26)
+                .frame(width: 44, height: 44)
                 .background(selected ? PraeludeColor.inkFillPressed : PraeludeColor.inkFillQuiet, in: RoundedRectangle(cornerRadius: PraeludeRadius.tight))
         }.buttonStyle(.plain).accessibilityIdentifier("stamp_\(kind.rawValue)_\(label ?? "plain")")
     }
@@ -146,7 +148,7 @@ struct AnnotationToolbar: View {
                     if markup.visibleLayers.contains(layer) { markup.visibleLayers.remove(layer) } else { markup.visibleLayers.insert(layer) }
                 } label: {
                     Image(systemName: markup.visibleLayers.contains(layer) ? "eye" : "eye.slash")
-                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
                 }.buttonStyle(.plain).foregroundStyle(layer == markup.activeLayer ? PraeludeColor.ink : PraeludeColor.inkSecondary)
                     .accessibilityLabel("\(layerLabel(layer)) layer \(markup.visibleLayers.contains(layer) ? "visible" : "hidden")")
                     .accessibilityIdentifier("layerVisibility_\(layer.rawValue)")

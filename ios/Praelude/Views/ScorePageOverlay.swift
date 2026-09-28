@@ -38,6 +38,15 @@ enum ScorePassageBoxStyle {
     /// — keeping this a plain image (not a second interactive `PKCanvasView`) makes another layer's
     /// ink structurally impossible to edit from here, not just a UI convention.
     var otherLayersImage: UIImage? { didSet { setNeedsDisplay() } }
+    /// Set by `PagedScoreView.Coordinator.refresh(_:)`, which runs on every SwiftUI update pass —
+    /// far more often than the tool actually changes. Reassigning `canvas.tool` unconditionally on
+    /// every one of those passes was observed to disrupt `canvas.undoManager`'s redo stack after a
+    /// real Undo (a live-UI-test-only symptom: `canRedo` stayed false long after Undo, though Undo
+    /// itself always worked correctly) — tracked per overlay (not globally) so a page's canvas still
+    /// always gets the current tool at least once when it is first created, but a refresh that finds
+    /// nothing changed skips the reassignment and the `PKInkingTool`/`PKEraserTool`/`PKLassoTool`
+    /// allocation it costs.
+    var lastAssignedTool: AnnotationTool?
     var emphasizedIDs: Set<UUID> = []
     var practicedIDs: Set<UUID> = []
     var onPencilBegan: () -> Void = {}
