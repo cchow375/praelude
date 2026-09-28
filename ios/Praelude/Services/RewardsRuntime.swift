@@ -94,28 +94,26 @@ final class RewardsRuntime {
     }
 
     /// Passage/piece performance-readiness (§11 R10 sets `Passage.learningState`; unreached today for
-    /// the same reason `awardOnTimeReviews` is — see its doc). Matched by title against milestones
-    /// already recorded of the same kind: exact for the common one-at-a-time case a rules track will
-    /// produce; a rare same-title double transition in one tick could under-count by one, which never
-    /// loses a passage's readiness itself (only, at most, defers one coin award to the next check).
+    /// the same reason `awardOnTimeReviews` is — see its doc). Matched by the passage/piece's stable
+    /// id (`MilestoneEvent.passageID`/`.pieceID`), not by `detail` text: two different passages can
+    /// share a generic default title (e.g. "mm. 1–4"), and matching by text would silently skip a
+    /// real second milestone that happens to render the same headline as an earlier one.
     private func awardPerformanceReadyMilestones(now: Date) throws {
         let readyPassages = store.state.passages.filter { $0.learningState == .performanceReady && $0.deletedAt == nil }
-        let recordedPassageDetails = Set(store.state.milestoneEvents.filter { $0.kind == MilestoneKind.passageReady.rawValue }.map(\.detail))
+        let recordedPassageIDs = Set(store.state.milestoneEvents.filter { $0.kind == MilestoneKind.passageReady.rawValue }.compactMap(\.passageID))
         for passage in readyPassages.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
-            let detail = MilestoneKind.passageReady.detail(passage.title)
-            guard !recordedPassageDetails.contains(detail) else { continue }
+            guard !recordedPassageIDs.contains(passage.id) else { continue }
             try award(.performanceReadyPassage)
-            try celebrate(.passageReady, detail: detail, now: now)
+            try celebrate(.passageReady, detail: MilestoneKind.passageReady.detail(passage.title), now: now, passageID: passage.id, pieceID: passage.pieceID)
         }
         let pieces = store.state.pieces.filter { $0.id != WarmupsPiece.id && $0.deletedAt == nil }
-        let recordedPieceDetails = Set(store.state.milestoneEvents.filter { $0.kind == MilestoneKind.pieceReady.rawValue }.map(\.detail))
+        let recordedPieceIDs = Set(store.state.milestoneEvents.filter { $0.kind == MilestoneKind.pieceReady.rawValue }.compactMap(\.pieceID))
         for piece in pieces.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+            guard !recordedPieceIDs.contains(piece.id) else { continue }
             let ownPassages = store.state.passages.filter { $0.pieceID == piece.id && !$0.archived && $0.deletedAt == nil }
             guard !ownPassages.isEmpty, ownPassages.allSatisfy({ $0.learningState == .performanceReady }) else { continue }
-            let detail = MilestoneKind.pieceReady.detail(piece.title)
-            guard !recordedPieceDetails.contains(detail) else { continue }
             try award(.pieceFullyReady)
-            try celebrate(.pieceReady, detail: detail, now: now)
+            try celebrate(.pieceReady, detail: MilestoneKind.pieceReady.detail(piece.title), now: now, pieceID: piece.id)
         }
     }
 
@@ -152,8 +150,8 @@ final class RewardsRuntime {
         }
     }
 
-    private func celebrate(_ kind: MilestoneKind, detail: String, now: Date) throws {
-        let event = MilestoneEvent(kind: kind.rawValue, date: now, detail: detail)
+    private func celebrate(_ kind: MilestoneKind, detail: String, now: Date, pieceID: UUID? = nil, passageID: UUID? = nil) throws {
+        let event = MilestoneEvent(kind: kind.rawValue, date: now, detail: detail, pieceID: pieceID, passageID: passageID)
         try store.recordMilestone(event)
         celebrationQueue.append(event)
         sound.play(.celebration)

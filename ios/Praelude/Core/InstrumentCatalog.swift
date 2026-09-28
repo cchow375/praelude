@@ -112,6 +112,20 @@ public enum InstrumentCatalog {
 }
 
 extension PracticeStore {
+    /// A saved `PracticeRoutine` named after `family`, pre-filled from
+    /// `InstrumentCatalog.defaultVariantNames(for:)`, so §6's "instrument-appropriate variant
+    /// defaults" are reachable from the exact place a player would look for them — the set
+    /// composer's existing "Apply a routine" menu (`VariantEditorView`) — rather than only existing
+    /// as a static list nothing ever reads. Idempotent per family, mirroring `seedWarmupsIfNeeded`;
+    /// `.other` has no default variants (free text covers it), so it seeds nothing.
+    public func seedDefaultVariantRoutineIfNeeded(family: InstrumentFamily) throws {
+        let names = InstrumentCatalog.defaultVariantNames(for: family)
+        guard !names.isEmpty else { return }
+        let routineName = "\(family.displayName) defaults"
+        guard !state.routines.contains(where: { $0.name == routineName }) else { return }
+        try saveRoutine(PracticeRoutine(name: routineName, stages: names.map { VariantStage(name: $0) }))
+    }
+
     /// One-tap instrument switch (§6): exactly one non-deleted instrument is primary at a time.
     /// `TodayView`/`WarmupsView` read `primaryInstrument` to decide which family's defaults/warmups
     /// to show; a piece keeps its own `instrumentID` independently and is never changed by this.

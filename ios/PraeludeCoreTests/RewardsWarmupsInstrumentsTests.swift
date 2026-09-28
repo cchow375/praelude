@@ -63,6 +63,32 @@ final class RewardsWarmupsInstrumentsTests: XCTestCase {
         XCTAssertGreaterThan(store.state.warmupExercises.count, firstCount, "a second family still seeds")
     }
 
+    @MainActor func testSaveWarmupExercisesBatchesIntoOneTransaction() throws {
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let before = store.state.revision
+        try store.saveWarmupExercises(WarmupCatalog.seedDefaults(family: .keyboard))
+        XCTAssertEqual(store.state.revision, before + 1, "seeding a whole family must be one atomic write, not one per exercise")
+        // Upsert semantics still hold: re-saving the same ids with a change replaces them in place.
+        var updated = store.state.warmupExercises
+        updated[0].isFavorite = true
+        try store.saveWarmupExercises(updated)
+        XCTAssertEqual(store.state.warmupExercises.count, updated.count, "re-saving the same ids must not duplicate rows")
+        XCTAssertTrue(store.state.warmupExercises.contains { $0.id == updated[0].id && $0.isFavorite })
+    }
+
+    @MainActor func testSeedDefaultVariantRoutineIfNeededIsIdempotentAndSkipsFamiliesWithNoDefaults() throws {
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try store.seedDefaultVariantRoutineIfNeeded(family: .keyboard)
+        XCTAssertEqual(store.state.routines.count, 1)
+        XCTAssertEqual(store.state.routines.first?.stages.map(\.name), InstrumentCatalog.defaultVariantNames(for: .keyboard))
+        try store.seedDefaultVariantRoutineIfNeeded(family: .keyboard)
+        XCTAssertEqual(store.state.routines.count, 1, "seeding twice must not duplicate the routine")
+        try store.seedDefaultVariantRoutineIfNeeded(family: .other)
+        XCTAssertEqual(store.state.routines.count, 1, ".other has no default variants and seeds nothing")
+    }
+
     @MainActor func testWarmupsPieceIsCreatedOnceAndFilteredFromRealPieces() throws {
         let (store, directory) = makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -324,6 +350,33 @@ final class RewardsWarmupsInstrumentsTests: XCTestCase {
     }
 
     // MARK: - MilestoneSharing hook
+
+    @MainActor func testMilestoneEventOutlivesTheHardDeletedPassageItPointsTo() throws {
+        // MilestoneEvent.pieceID/passageID exist purely for dedup-by-identity (see RewardsRuntime);
+        // unlike RuleEvent they are never existence-checked in validate, because a passage can be
+        // hard-deleted (deletePassage) after being celebrated and the library must still load.
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try store.addPiece(Piece(id: UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!, title: "Sonata"))
+        let pieceID = UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!
+        try store.savePassage(Passage(pieceID: pieceID, title: "mm. 1\u{2013}4"))
+        let passageID = store.state.passages[0].id
+        try store.recordMilestone(MilestoneEvent(kind: MilestoneKind.passageReady.rawValue, detail: "mm. 1\u{2013}4 is performance-ready.", pieceID: pieceID, passageID: passageID))
+        try store.deletePassage(passageID)
+        // Re-decoding the persisted bytes exercises the exact `validate` path `PracticeStore.init` runs.
+        let reloaded = PracticeStore(directory: directory)
+        XCTAssertFalse(reloaded.isReadOnly, reloaded.errorMessage ?? "")
+        XCTAssertEqual(reloaded.state.milestoneEvents.first?.passageID, passageID)
+    }
+
+    func testTwoPassagesWithTheSameTitleGetDistinctMilestoneIdentity() {
+        // The dedup key RewardsRuntime uses (passageID) must differ even when detail text collides.
+        let sharedTitle = "mm. 1\u{2013}4 is performance-ready."
+        let first = MilestoneEvent(kind: MilestoneKind.passageReady.rawValue, detail: sharedTitle, passageID: UUID())
+        let second = MilestoneEvent(kind: MilestoneKind.passageReady.rawValue, detail: sharedTitle, passageID: UUID())
+        XCTAssertEqual(first.detail, second.detail)
+        XCTAssertNotEqual(first.passageID, second.passageID)
+    }
 
     func testMilestoneShareCardProducesReadableTextForEveryKind() {
         for kind in MilestoneKind.allCases {

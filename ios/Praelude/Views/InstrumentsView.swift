@@ -105,6 +105,10 @@ struct InstrumentFormView: View {
     @State private var isPrimary: Bool
     @State private var errorMessage: String?
     private let existingID: UUID?
+    /// Preserved verbatim through an edit (`createdAt`, `deletedAt`) rather than reconstructed, the
+    /// same way `PieceDetailsView` edits a `@State` copy of the original struct instead of building
+    /// a fresh one — otherwise every edit would silently reset `createdAt` to the edit time.
+    private let existingRecord: Instrument?
     private let familyIsLocked: Bool
     var onSaved: (Instrument) -> Void = { _ in }
 
@@ -116,6 +120,7 @@ struct InstrumentFormView: View {
         _transposition = State(initialValue: InstrumentCatalog.suggestedTranspositions(for: lockedFamily).first)
         _isPrimary = State(initialValue: isFirst)
         existingID = nil
+        existingRecord = nil
         familyIsLocked = true
         self.onSaved = onSaved
     }
@@ -128,6 +133,7 @@ struct InstrumentFormView: View {
         _transposition = State(initialValue: existing.transposition)
         _isPrimary = State(initialValue: existing.isPrimary)
         existingID = existing.id
+        existingRecord = existing
         familyIsLocked = false
     }
 
@@ -199,11 +205,13 @@ struct InstrumentFormView: View {
             let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
             var instrument = Instrument(id: existingID ?? UUID(), family: family, name: trimmed, level: level,
                                         transposition: InstrumentCatalog.transpositionIsRelevant(for: family) ? transposition : nil,
-                                        isPrimary: isPrimary)
+                                        isPrimary: isPrimary, createdAt: existingRecord?.createdAt ?? Date())
             instrument.updatedAt = Date()
+            instrument.deletedAt = existingRecord?.deletedAt
             try store.saveInstrument(instrument)
             if isPrimary { try store.setPrimaryInstrument(instrument.id) }
             try store.seedWarmupsIfNeeded(family: family)
+            try store.seedDefaultVariantRoutineIfNeeded(family: family)
             onSaved(instrument)
             dismiss()
         } catch { errorMessage = error.localizedDescription }

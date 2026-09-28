@@ -81,8 +81,6 @@ extension PracticeStore {
     /// safe to call opportunistically rather than only once at a single call site.
     public func seedWarmupsIfNeeded(family: InstrumentFamily) throws {
         guard !state.warmupExercises.contains(where: { $0.instrumentFamily == family && $0.deletedAt == nil }) else { return }
-        for exercise in WarmupCatalog.seedDefaults(family: family) {
-            try saveWarmupExercise(exercise)
-        }
+        try saveWarmupExercises(WarmupCatalog.seedDefaults(family: family))
     }
 }

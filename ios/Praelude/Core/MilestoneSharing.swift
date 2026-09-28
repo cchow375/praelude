@@ -10,8 +10,8 @@ import Foundation
 /// (`ShareLink`) today, independent of this protocol.
 public protocol MilestoneSharePublisher: Sendable {
     /// Called after a milestone is durably recorded. Implementations should not throw for an
-    /// unreachable/未-signed-in backend; log and return instead, the same way today's app never lets
-    /// an optional side effect fail a saved practice event.
+    /// unreachable or not-signed-in backend; log and return instead, the same way today's app never
+    /// lets an optional side effect fail a saved practice event.
     func publish(_ event: MilestoneEvent, profile: Profile) async
 }
 
