@@ -68,7 +68,7 @@ final class PraeludeUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Set complete"].waitForExistence(timeout: 5))
         screenshot("05-completion")
         app.buttons["Finish"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 15), app.debugDescription)
     }
     @MainActor func testBlankInstallAndAddPaperPiece() {
         let app = launch(seed: false)

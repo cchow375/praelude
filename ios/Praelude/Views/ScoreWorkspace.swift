@@ -221,6 +221,13 @@ struct ScoreWorkspace: View {
         .onChange(of: active?.status) { _, newStatus in
             refreshAudio(); runtime.updateScreenAwake()
             if newStatus == .completed, let active { arm.computeAfterSet(active, store: store) }
+            // Covers every path back to "no active set for this piece" in one place — Finish,
+            // relaunching mid-set and then finishing, a different window ending the set, and so
+            // on — not just the touch actions below that already rearm explicitly. Without this,
+            // a `PracticeArmController` created fresh by a relaunch (`.onAppear`'s own
+            // `rearmIfIdle()` correctly declines to arm while a set is still paused/running) would
+            // otherwise stay unarmed forever once that set later completes.
+            if newStatus == nil { rearmIfIdle() }
         }
         .background {
             Button("Toggle metronome") {
