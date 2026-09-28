@@ -14,7 +14,7 @@ struct NativeLibraryFiles {
               !name.contains("..") else { return nil }
         return scoresDirectory.appendingPathComponent(name)
     }
-    func importPDF(_ url: URL, title: String, composer: String, replacing piece: Piece? = nil) throws -> UUID {
+    func importPDF(_ url: URL, title: String, composer: String, instrumentID: UUID? = nil, replacing piece: Piece? = nil) throws -> UUID {
         if let piece { try store.requireReplaceableScore(pieceID: piece.id) }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -31,7 +31,7 @@ struct NativeLibraryFiles {
         let name = UUID().uuidString + ".pdf"
         let destination = scoresDirectory.appendingPathComponent(name)
         try data.write(to: destination, options: [.atomic, .completeFileProtectionUnlessOpen])
-        var saved = piece ?? Piece(title: title, composer: composer)
+        var saved = piece ?? Piece(title: title, composer: composer, instrumentID: instrumentID)
         saved.pdfFileName = name; saved.pageCount = document.pageCount; saved.lastPage = 1; saved.updatedAt = Date()
         do {
             if piece != nil { try store.updatePiece(saved) } else { try store.addPiece(saved) }

@@ -204,6 +204,13 @@ private struct PieceDetailsView: View {
                     Text("Active").tag(PieceStatus.active)
                     Text("Resting").tag(PieceStatus.resting)
                 }
+                let liveInstruments = store.state.instruments.filter { $0.deletedAt == nil }
+                if !liveInstruments.isEmpty {
+                    Picker("Instrument", selection: $draft.instrumentID) {
+                        Text("None").tag(UUID?.none)
+                        ForEach(liveInstruments) { instrument in Text(instrument.name).tag(Optional(instrument.id)) }
+                    }
+                }
             }
             Section("Notes") {
                 TextField("What would you like to remember?", text: $draft.notes, axis: .vertical)

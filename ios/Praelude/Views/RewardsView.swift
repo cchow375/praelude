@@ -36,7 +36,7 @@ struct RewardsView: View {
                 .accessibilityLabel("\(rankProgress.divisionXP) of \(rankProgress.divisionXPRequired) experience toward the next division")
             HStack(spacing: 30) {
                 statTile(glyph: .coin, value: "\(totalCoins)", label: "Coins")
-                statTile(glyph: .streak, value: "\(streakDays)", label: streakDays == 1 ? "Day streak" : "Day streak")
+                statTile(glyph: .streak, value: "\(streakDays)", label: "Day streak")
                 statTile(glyph: .rank, value: "\(rankProgress.rank)", label: "Rank")
             }
             if store.state.rewardsState.streakFreezesAvailable > 0 {

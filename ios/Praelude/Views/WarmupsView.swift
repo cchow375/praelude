@@ -246,7 +246,9 @@ private struct WarmupKeyWheel: View {
                 .foregroundStyle(isSelected ? PraeludeColor.paper : PraeludeColor.ink)
                 .background(isSelected ? PraeludeColor.ink : PraeludeColor.inkFillQuiet, in: Circle())
                 .overlay(alignment: .topTrailing) {
-                    if isNeglected { Circle().fill(PraeludeColor.live).frame(width: 7, height: 7) }
+                    // Monochrome, not the live accent: a neglected key is a status, not a live state
+                    // (the design system reserves `.live` for exactly two places — see DesignColor.swift).
+                    if isNeglected { Circle().fill(PraeludeColor.inkSecondary).frame(width: 7, height: 7) }
                 }
         }
         .buttonStyle(.plain)

@@ -20,7 +20,10 @@ struct PraeludeApp: App {
         #endif
         let value = PracticeStore(directory: directory)
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--uitesting") && ProcessInfo.processInfo.arguments.contains("--seed") { UITestFixture.install(into: value) }
+        if ProcessInfo.processInfo.arguments.contains("--uitesting") {
+            if ProcessInfo.processInfo.arguments.contains("--seed") { UITestFixture.install(into: value) }
+            UITestFixture.ensureOnboarded(into: value)
+        }
         #endif
         let click = MetronomeService()
         let voice = SpeechCommandService()
@@ -268,7 +271,10 @@ struct AppRootView: View {
     /// Shows the oldest queued big celebration once it is safe to (§14: "never mid-set") — no
     /// active-set screen on top, and nothing already showing. A no-op call when nothing qualifies.
     private func presentNextCelebrationIfSafe() {
-        guard activeCelebration == nil, selectedPiece == nil, phoneScore == nil, !practicingWarmup, !showOnboarding else { return }
+        // "Never mid-set": also checked even when the practice screen itself has been navigated
+        // away from (iPad sidebar navigation lets a set keep running in the background).
+        guard activeCelebration == nil, selectedPiece == nil, phoneScore == nil, !practicingWarmup, !showOnboarding,
+              store.activeSet?.status != .running else { return }
         activeCelebration = rewards.dequeueCelebration()
     }
     private func openPiece(_ id: UUID) {
@@ -330,13 +336,22 @@ private struct RewardsWiring: ViewModifier {
                     })
                 }
             }
-            .onChange(of: store.state.revision) { _, _ in rewards.reconcile(); presentNextCelebrationIfSafe() }
+            // Targeted, not `store.state.revision` (bumped by every mutation in the app, including
+            // an ink stroke saved mid-drawing): reconcile only where a reward could newly qualify —
+            // a recorded/undone attempt, a set pushed to history, or app foreground — so annotating
+            // or editing library metadata never pays an O(n) reward-ledger scan it has nothing to
+            // do with. Reconcile is idempotent, so this is a scheduling choice, not a correctness one.
+            .onChange(of: store.activeSet?.attempts.count) { _, _ in rewards.reconcile(); presentNextCelebrationIfSafe() }
+            .onChange(of: store.state.history.count) { _, _ in rewards.reconcile(); presentNextCelebrationIfSafe() }
             .onChange(of: rewards.celebrationQueue.count) { _, _ in presentNextCelebrationIfSafe() }
             .onChange(of: scenePhase) { _, phase in if phase == .active { rewards.reconcile(); presentNextCelebrationIfSafe() } }
             .onChange(of: selectedPiece) { _, _ in presentNextCelebrationIfSafe() }
             .onChange(of: phoneScoreID) { _, _ in presentNextCelebrationIfSafe() }
             .onChange(of: practicingWarmup) { _, _ in presentNextCelebrationIfSafe() }
-            .onAppear { if hasNoLiveInstruments { showOnboarding = true } }
+            .onAppear {
+                if hasNoLiveInstruments { showOnboarding = true }
+                rewards.reconcile() // one catch-up pass for whatever happened since the last launch
+            }
             .onChange(of: hasNoLiveInstruments) { _, empty in
                 // Never force-closes here: deleting the last instrument reopens onboarding, but
                 // OnboardingView's own "Start practicing" button is what explicitly closes it —
