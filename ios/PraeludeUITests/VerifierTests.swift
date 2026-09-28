@@ -26,7 +26,7 @@ final class VerifierTests: XCTestCase {
         reveal(piece, in: app)
         piece.press(forDuration: 0.15)
         // §10a: the arm panel is already showing with rule defaults filled.
-        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
@@ -225,6 +225,6 @@ final class VerifierTests: XCTestCase {
                              "The real PDFKit scale must increase after the delivered pinch.\n\(app.debugDescription)")
         XCTAssertTrue(app.buttons["Page 1 of 4"].exists)
         app.buttons["Exit focus"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 3))
     }
 }

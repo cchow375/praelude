@@ -89,9 +89,9 @@ final class PracticeLoopUITests: XCTestCase {
         for _ in 0..<4 { app.buttons["verdict_clean"].press(forDuration: 0.15) }
         XCTAssertTrue(app.staticTexts["Set complete"].waitForExistence(timeout: 15), app.debugDescription)
         app.buttons["Another set"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertFalse(app.buttons["coldGrade_clean"].exists, app.debugDescription)
-        app.buttons["confirmStartSet"].press(forDuration: 0.15)
+        app.buttons["armStartSet"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
     }
 
@@ -117,7 +117,7 @@ final class PracticeLoopUITests: XCTestCase {
         openScore(app)
         // Whole-piece practice (no passage chosen yet) is armed immediately on opening the score,
         // and is never cold-gated — its tempo dial is interactive right away.
-        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 15), app.debugDescription)
         let tempo = app.staticTexts["tempoDialValue"]
         XCTAssertTrue(tempo.waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertEqual(tempoBPM(tempo), 60, app.debugDescription)

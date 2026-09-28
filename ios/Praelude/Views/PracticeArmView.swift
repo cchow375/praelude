@@ -32,7 +32,7 @@ struct PracticeArmView: View {
                     Button("More options", action: onOpenAdvanced).buttonStyle(.praeludeQuiet).fixedSize(horizontal: true, vertical: false)
                     Button(action: { start() }) {
                         Label("Start", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 36)
-                    }.buttonStyle(.praeludePrimary).accessibilityIdentifier("confirmStartSet")
+                    }.buttonStyle(.praeludePrimary).accessibilityIdentifier("armStartSet")
                 }
             }
             if let error { ErrorMessage(message: error) }

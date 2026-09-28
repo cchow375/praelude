@@ -89,7 +89,7 @@ final class MobileMarkupUITests: XCTestCase {
         app.buttons["removeBox"].press(forDuration: 0.15); checkCount(app, 2)
         app.buttons["undoBox"].press(forDuration: 0.15); checkCount(app, 3)
         app.buttons["finishScoreMarkup"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["passages"].label.contains("Passage"))
         app.buttons["Score options"].press(forDuration: 0.15)
         app.buttons["Edit passage boxes"].press(forDuration: 0.15)
@@ -139,7 +139,7 @@ final class MobileMarkupUITests: XCTestCase {
     @MainActor func testPracticeFeedbackAndMeterControls() {
         let app = XCUIApplication(); openScore(app)
         // §10a: the arm panel is already showing with defaults filled — one tap starts the set.
-        let confirm = app.buttons["confirmStartSet"]
+        let confirm = app.buttons["armStartSet"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 8)); settle(confirm, app: app); confirm.press(forDuration: 0.15)
         let clean = app.buttons["verdict_clean"]
         XCTAssertTrue(clean.waitForExistence(timeout: 8)); settle(clean, app: app); clean.tap()

@@ -21,10 +21,10 @@ final class PraeludeUITests: XCTestCase {
         piece.press(forDuration: 0.15)
         // §10a: the arm panel is already showing with rule defaults filled — no separate "start set"
         // tap opens it first, that trip through a modal is exactly what this track removed.
-        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 5))
     }
     @MainActor private func startSet(_ app: XCUIApplication) {
-        let start = app.buttons["confirmStartSet"]
+        let start = app.buttons["armStartSet"]
         XCTAssertTrue(start.waitForExistence(timeout: 5))
         start.press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 5), app.debugDescription)
@@ -68,7 +68,7 @@ final class PraeludeUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Set complete"].waitForExistence(timeout: 5))
         screenshot("05-completion")
         app.buttons["Finish"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 15), app.debugDescription)
     }
     @MainActor func testBlankInstallAndAddPaperPiece() {
         let app = launch(seed: false)
@@ -82,7 +82,7 @@ final class PraeludeUITests: XCTestCase {
         XCTAssertTrue(title.waitForExistence(timeout: 5), app.debugDescription)
         title.press(forDuration: 0.15); title.typeText("My practice")
         app.buttons["savePiece"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 5), app.debugDescription)
         screenshot("06-paper-score")
     }
     @MainActor func testMetronomeAndPages() {
@@ -97,7 +97,7 @@ final class PraeludeUITests: XCTestCase {
         screenshot("07-metronome")
         app.buttons["toggleMetronome"].press(forDuration: 0.15)
         app.buttons["Done"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 10))
     }
     @MainActor private func tapSettings(_ app: XCUIApplication) {
         let hideSidebar = app.buttons["Hide Sidebar"]
