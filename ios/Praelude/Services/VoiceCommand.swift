@@ -12,7 +12,7 @@ import Foundation
 /// matching — so an ambient conversational fragment ("no thanks", "again, like I said...") can
 /// never masquerade as a command. See "(C) Flaws.md" A1/B24 for why that firewall matters: real use
 /// at an acoustic instrument produced both missed words and false positives from ordinary speech.
-enum VoiceCommand: Equatable, Sendable {
+enum VoiceCommand: Equatable, Hashable, Sendable {
     case clean, sloppy, again, undo, pause, resume
     case shaky, missed
     case start, stop, next

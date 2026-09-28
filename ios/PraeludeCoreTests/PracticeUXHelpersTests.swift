@@ -79,4 +79,35 @@ final class PracticeUXHelpersTests: XCTestCase {
         XCTAssertEqual(PracticeUXHelpers.tempo(fromDragTranslation: .nan, startBPM: 120), 120)
         XCTAssertEqual(PracticeUXHelpers.tempo(fromDragTranslation: 10, startBPM: .infinity), 300)
     }
+
+    // MARK: - ladderRung(startBPM:targetBPM:currentBPM:step:)
+
+    func testLadderRungNilWhenThereIsNoLadder() {
+        XCTAssertNil(PracticeUXHelpers.ladderRung(startBPM: 100, targetBPM: 100, currentBPM: 100, step: .fixed(4)))
+        XCTAssertNil(PracticeUXHelpers.ladderRung(startBPM: 100, targetBPM: 90, currentBPM: 100, step: .fixed(4)))
+    }
+
+    func testLadderRungFirstAtStartingTempo() {
+        let result = PracticeUXHelpers.ladderRung(startBPM: 60, targetBPM: 80, currentBPM: 60, step: .fixed(4))
+        XCTAssertEqual(result?.rung, 1)
+    }
+
+    func testLadderRungLastAtTargetTempo() {
+        let result = PracticeUXHelpers.ladderRung(startBPM: 60, targetBPM: 80, currentBPM: 80, step: .fixed(4))
+        XCTAssertEqual(result?.rung, result?.total)
+    }
+
+    func testLadderRungMatchesExactStepSequence() {
+        // 60 -> 64 -> 68 -> 72 -> 76 -> 80: 6 rungs total, 76 is the 5th.
+        let result = PracticeUXHelpers.ladderRung(startBPM: 60, targetBPM: 80, currentBPM: 76, step: .fixed(4))
+        XCTAssertEqual(result?.rung, 5)
+        XCTAssertEqual(result?.total, 6)
+    }
+
+    func testLadderRungWithPercentStep() {
+        let result = PracticeUXHelpers.ladderRung(startBPM: 100, targetBPM: 110, currentBPM: 100, step: .percent(5))
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.rung, 1)
+        XCTAssertGreaterThan(result?.total ?? 0, 1)
+    }
 }

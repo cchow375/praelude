@@ -51,4 +51,27 @@ public enum PracticeUXHelpers {
         let delta = (-translationY / pointsPerStep).rounded()
         return min(max(startBPM + delta, bounds.lowerBound), bounds.upperBound)
     }
+
+    /// §10c HUD: "tempo, ladder rung, variant, passage name." A set's tempo ladder has no stored
+    /// rung index of its own (only the running `currentBPM`), so this replays `TempoStep.next(...)`
+    /// from `startBPM` to `targetBPM` — the exact same step sequence `PracticeEngine.project` itself
+    /// walks — to find where `currentBPM` falls in it. Rung 1 is the starting tempo (before any
+    /// clean streak has advanced it); the last rung is the target tempo. `nil` when there is no
+    /// ladder (`targetBPM <= startBPM`), so the HUD can simply omit the rung line.
+    public static func ladderRung(startBPM: Double, targetBPM: Double, currentBPM: Double, step: TempoStep) -> (rung: Int, total: Int)? {
+        guard targetBPM > startBPM, startBPM.isFinite, targetBPM.isFinite else { return nil }
+        var values = [startBPM]
+        var value = startBPM
+        // Bounded well above any realistic ladder (worst case: 20->300 BPM in 1 BPM fixed steps is
+        // 280 rungs) so a misconfigured near-zero step can never loop unboundedly.
+        while value < targetBPM, values.count < 500 {
+            let next = step.next(after: value, target: targetBPM)
+            guard next > value else { break } // a non-increasing step must never spin forever
+            value = next
+            values.append(value)
+        }
+        let total = values.count
+        let rung = values.firstIndex(where: { abs($0 - currentBPM) < 0.001 }).map { $0 + 1 } ?? total
+        return (rung: rung, total: total)
+    }
 }
