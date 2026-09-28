@@ -1,13 +1,15 @@
 import SwiftUI
 
-/// §16 Data: piece readiness and a shareable weekly recap. The score heatmap toggles per score from
-/// Score options (`ScoreHeatmapView`) since it colors one specific score's pages, not a cross-piece
-/// list — this screen points there rather than duplicating it.
+/// §16 Data (plus §4c's local stats): current/longest streak, total practice time, pieces
+/// performance-ready, rank/badges, piece readiness, and a shareable weekly recap. The score heatmap
+/// toggles per score from Score options (`ScoreHeatmapView`) since it colors one specific score's
+/// pages, not a cross-piece list — this screen points there rather than duplicating it.
 struct InsightsView: View {
     @Environment(PracticeStore.self) private var store
     @State private var showRecap = false
 
     private var context: RuleContext { RuleContext(state: store.state, now: Date(), calendar: .current) }
+    private var stats: LocalProfileStats { PracticeStats.localStats(state: store.state, context: context) }
     private var readiness: [PieceReadinessSummary] {
         store.state.pieces.filter { $0.status != .resting }
             .compactMap { PieceReadiness.evaluate(pieceID: $0.id, context: context) }
@@ -21,6 +23,23 @@ struct InsightsView: View {
                                   message: "Add a piece and start practicing. Readiness and your weekly recap build up here.")
                     .listRowBackground(Color.clear).listRowSeparator(.hidden)
             } else {
+                Section {
+                    HStack(alignment: .top, spacing: 20) {
+                        PracticeMetric(value: "\(stats.currentStreakDays)", title: "Current streak", symbol: "flame")
+                        PracticeMetric(value: "\(stats.longestStreakDays)", title: "Longest streak", symbol: "trophy")
+                    }.padding(.vertical, 4)
+                    HStack(alignment: .top, spacing: 20) {
+                        PracticeMetric(value: practiceDuration(stats.totalActiveSeconds), title: "Total practice", symbol: "clock")
+                        PracticeMetric(value: "\(stats.performanceReadyPieceCount)", title: "Pieces ready", symbol: "checkmark.seal")
+                    }.padding(.vertical, 4)
+                    if stats.badgeCount > 0 || stats.division > 1 || stats.rank != "Unranked" {
+                        LabeledContent("Rank", value: "\(stats.rank) · Division \(stats.division)")
+                        if stats.badgeCount > 0 { LabeledContent("Badges", value: "\(stats.badgeCount)") }
+                    }
+                } header: {
+                    Text("Your stats")
+                }
+
                 Section {
                     Button("Weekly recap", systemImage: "photo.on.rectangle") { showRecap = true }
                         .frame(minHeight: 36)

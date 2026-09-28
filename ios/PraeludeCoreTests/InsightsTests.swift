@@ -415,6 +415,83 @@ final class InsightsTests: XCTestCase {
 
     // MARK: - NotebookShareComposer
 
+    // MARK: - PracticeStats.longestStreakDays
+
+    private func session(startedAt: Date, seconds: TimeInterval = 300) -> PracticeSession {
+        var session = PracticeSession(pieceID: UUID(), focus: "Pulse", startedAt: startedAt)
+        session.activeSeconds = seconds
+        return session
+    }
+
+    func testLongestStreakIsZeroWithNoSessions() {
+        XCTAssertEqual(PracticeStats.longestStreakDays(state: LibraryState(), calendar: makeCalendar()), 0)
+    }
+
+    func testLongestStreakCountsAConsecutiveRunAndIgnoresAGap() {
+        let calendar = makeCalendar()
+        var state = LibraryState()
+        state.sessions = [1, 2, 3, 5].map { session(startedAt: makeDate(2026, 6, $0, calendar: calendar)) }
+        XCTAssertEqual(PracticeStats.longestStreakDays(state: state, calendar: calendar), 3)
+    }
+
+    func testLongestStreakDoesNotDoubleCountMultipleSessionsOnOneDay() {
+        let calendar = makeCalendar()
+        var state = LibraryState()
+        state.sessions = [
+            session(startedAt: makeDate(2026, 6, 1, 8, calendar: calendar)),
+            session(startedAt: makeDate(2026, 6, 1, 20, calendar: calendar)),
+            session(startedAt: makeDate(2026, 6, 2, 8, calendar: calendar)),
+        ]
+        XCTAssertEqual(PracticeStats.longestStreakDays(state: state, calendar: calendar), 2)
+    }
+
+    func testLongestStreakFindsTheLongestRunWhenLaterThanAnEarlierOne() {
+        let calendar = makeCalendar()
+        var state = LibraryState()
+        // A 2-day run, a gap, then a 4-day run: the later, longer run must win.
+        state.sessions = [10, 11, 15, 16, 17, 18].map { session(startedAt: makeDate(2026, 6, $0, calendar: calendar)) }
+        XCTAssertEqual(PracticeStats.longestStreakDays(state: state, calendar: calendar), 4)
+    }
+
+    func testLongestStreakCrossesADaylightSavingTransitionAsOneRun() {
+        let calendar = makeCalendar()
+        var state = LibraryState()
+        // 2026-03-08 is the actual US spring-forward date (see "(C) Rules Engine.md"'s own DST test).
+        state.sessions = [6, 7, 8, 9].map { session(startedAt: makeDate(2026, 3, $0, calendar: calendar)) }
+        XCTAssertEqual(PracticeStats.longestStreakDays(state: state, calendar: calendar), 4)
+    }
+
+    // MARK: - PracticeStats.localStats
+
+    func testLocalStatsAggregatesStreakTimeAndReadyPieces() {
+        let calendar = makeCalendar()
+        let now = makeDate(2026, 6, 15, calendar: calendar)
+        var rewards = RewardsState()
+        rewards.streakDays = 5; rewards.rank = "Adagio"; rewards.division = 2
+        var state = LibraryState()
+        state.rewardsState = rewards
+        state.badges = [Badge(key: "thirty_days"), Badge(key: "first_ready")]
+        state.sessions = [1, 2].map { session(startedAt: makeDate(2026, 6, $0, calendar: calendar), seconds: 600) }
+
+        let readyPiece = makePiece(title: "Ready piece")
+        let readyPassage = makePassage(pieceID: readyPiece.id, learningState: .performanceReady)
+        let inProgressPiece = makePiece(title: "In progress piece")
+        let inProgressPassage = makePassage(pieceID: inProgressPiece.id, learningState: .learning)
+        let restingPiece = { var p = makePiece(title: "Resting"); p.status = .resting; return p }()
+        state.pieces = [readyPiece, inProgressPiece, restingPiece]
+        state.passages = [readyPassage, inProgressPassage]
+
+        let context = makeContext(now: now, calendar: calendar, pieces: state.pieces, passages: state.passages)
+        let stats = PracticeStats.localStats(state: state, context: context)
+        XCTAssertEqual(stats.currentStreakDays, 5)
+        XCTAssertEqual(stats.longestStreakDays, 2)
+        XCTAssertEqual(stats.totalActiveSeconds, 1200)
+        XCTAssertEqual(stats.performanceReadyPieceCount, 1)
+        XCTAssertEqual(stats.rank, "Adagio")
+        XCTAssertEqual(stats.division, 2)
+        XCTAssertEqual(stats.badgeCount, 2)
+    }
+
     func testNotebookShareComposerFormatsEachKind() {
         let piece = makePiece(title: "Ballade")
         let daily = NotebookEntry(kind: .daily, pieceID: piece.id, text: "Left hand still rushing.")

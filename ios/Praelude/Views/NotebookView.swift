@@ -209,6 +209,15 @@ private struct NotebookEntryEditor: View {
         do {
             draft.text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
             draft.updatedAt = Date()
+            // Defensive, not just cosmetic: `PracticeStore.deletePiece`/`deletePassage` don't check
+            // notebook entries before removing a piece/passage, so an entry created before a deletion
+            // can carry a now-dangling reference `validate(_:)` would reject on save. The Picker/Toggle
+            // list above only ever adds currently-existing ids, so this only ever drops a stale one
+            // the editor itself never offered — never silently discards something the user just chose.
+            let validPieceIDs = Set(store.state.pieces.map(\.id))
+            if let pieceID = draft.pieceID, !validPieceIDs.contains(pieceID) { draft.pieceID = nil; draft.passageIDs = [] }
+            let validPassageIDs = Set(store.state.passages.map(\.id))
+            draft.passageIDs = draft.passageIDs.filter { validPassageIDs.contains($0) }
             try store.saveNotebookEntry(draft)
             dismiss()
         } catch { errorMessage = error.localizedDescription }

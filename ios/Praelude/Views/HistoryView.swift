@@ -190,6 +190,24 @@ private struct HistorySessionDetailView: View {
                         Text("Counts the passages you practiced this session whose tempo or schedule moved.")
                     }
                 }
+                let sets = (store.state.history + [store.activeSet].compactMap { $0 }).filter { $0.sessionID == sessionID }
+                if !sets.isEmpty {
+                    Section("Sets") {
+                        ForEach(sets) { set in
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(set.configuration.passageSnapshot?.title ?? "Whole piece").font(.subheadline.weight(.medium))
+                                    Text("\(set.effectiveAttempts.count) reps · \(set.configuration.focus)").font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 8)
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text("\(Int(set.currentBPM)) bpm").font(.subheadline.monospacedDigit())
+                                    Text(setStatusLabel(set)).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }.padding(.vertical, 3)
+                        }
+                    }
+                }
                 if !session.attempts.isEmpty {
                     Section("Recorded repetitions") {
                         ForEach(Array(session.attempts.enumerated()), id: \.element.id) { index, attempt in
@@ -213,6 +231,15 @@ private struct HistorySessionDetailView: View {
         }
         .navigationTitle("Session")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func setStatusLabel(_ set: ActiveSet) -> String {
+        switch set.status {
+        case .completed: return "Completed"
+        case .running: return "In progress"
+        case .paused: return "Paused"
+        case .ended: return "Ended early"
+        }
     }
 }
 

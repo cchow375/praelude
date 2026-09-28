@@ -117,7 +117,9 @@ struct TodayView: View {
                                           onMoveDown: index < sessionItems.count - 1 ? { move(index, by: 1) } : nil)
                         }
                         Button {
-                            if let first = sessionItems.first { startItem(first) }
+                            // Skip past a leading warmup (no practice flow to start yet) to the
+                            // first item "Start session" can actually begin.
+                            if let first = sessionItems.first(where: { $0.kind != .warmup }) { startItem(first) }
                         } label: {
                             Label("Start session", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 38)
                         }
