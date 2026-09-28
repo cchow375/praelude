@@ -355,6 +355,7 @@ struct ScoreWorkspace: View {
             draft.updatedAt = Date()
             try store.savePassage(draft, replacing: markup.baseline)
             selectedPassage = draft; markup.finish()
+            rearmIfIdle()
         }
     }
     private func persistInk(_ page: Int, _ data: Data, _ expected: Data?) -> Bool {

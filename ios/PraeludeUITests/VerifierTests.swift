@@ -25,7 +25,8 @@ final class VerifierTests: XCTestCase {
         let piece = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Practice study", "4 pages")).firstMatch
         reveal(piece, in: app)
         piece.press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["startSet"].waitForExistence(timeout: 10), app.debugDescription)
+        // §10a: the arm panel is already showing with rule defaults filled.
+        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
@@ -54,7 +55,8 @@ final class VerifierTests: XCTestCase {
     }
 
     @MainActor private func openComposer(_ app: XCUIApplication) {
-        app.buttons["startSet"].press(forDuration: 0.15)
+        // The full manual editor is "More options" from the arm panel now, not the default path.
+        app.buttons["More options"].press(forDuration: 0.15)
         waitForComposer(app)
     }
 
@@ -90,7 +92,7 @@ final class VerifierTests: XCTestCase {
         screenshot("verifier-total-plays-setup", app: app)
         startFromComposer(app)
         app.buttons["verdict_clean"].press(forDuration: 0.15); app.buttons["verdict_sloppy"].press(forDuration: 0.15); app.buttons["verdict_again"].press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["3 of 5 plays · 60 BPM"].exists, app.debugDescription)
+        XCTAssertTrue(app.staticTexts["3 of 5 plays"].exists, app.debugDescription)
         app.buttons["verdict_again"].press(forDuration: 0.15); app.buttons["verdict_sloppy"].press(forDuration: 0.15)
         XCTAssertTrue(app.staticTexts["Set complete"].waitForExistence(timeout: 3), app.debugDescription)
         screenshot("verifier-total-plays-complete", app: app)
@@ -117,7 +119,7 @@ final class VerifierTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Reverse dotted"].exists, app.debugDescription)
         XCTAssertFalse(app.staticTexts["Set complete"].exists)
         app.buttons["verdict_clean"].press(forDuration: 0.15); app.buttons["verdict_again"].press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["1 of 3 clean · 60 BPM"].exists, app.debugDescription)
+        XCTAssertTrue(app.staticTexts["1 of 3 clean"].exists, app.debugDescription)
         XCTAssertTrue(app.staticTexts["Reverse dotted"].exists)
         screenshot("verifier-variant-again", app: app)
         app.buttons["verdict_clean"].press(forDuration: 0.15); app.buttons["verdict_clean"].press(forDuration: 0.15)
@@ -223,6 +225,6 @@ final class VerifierTests: XCTestCase {
                              "The real PDFKit scale must increase after the delivered pinch.\n\(app.debugDescription)")
         XCTAssertTrue(app.buttons["Page 1 of 4"].exists)
         app.buttons["Exit focus"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["startSet"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 3))
     }
 }

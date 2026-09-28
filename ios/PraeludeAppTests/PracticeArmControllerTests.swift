@@ -34,7 +34,7 @@ final class PracticeArmControllerTests: XCTestCase {
     private func addPassage(_ store: PracticeStore, learningState: LearningState = .new,
                              startMeasure: Int? = nil, endMeasure: Int? = nil,
                              performanceTempo: Double? = nil, schedule: PassageSchedule = PassageSchedule()) throws -> (Piece, Passage) {
-        let piece = Piece(title: "Nocturne", composer: "Chopin")
+        let piece = Piece(title: "Nocturne", composer: "Chopin", pdfFileName: "nocturne.pdf", pageCount: 4)
         try store.addPiece(piece)
         let passage = Passage(pieceID: piece.id, title: "Opening", startMeasure: startMeasure, endMeasure: endMeasure,
                                learningState: learningState, schedule: schedule, performanceTempo: performanceTempo)
