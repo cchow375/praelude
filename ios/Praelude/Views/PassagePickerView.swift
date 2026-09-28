@@ -7,6 +7,10 @@ struct PassagePickerView: View {
     @State private var editingPassage: Passage?
     @State private var pendingDelete: Passage?
     @State private var errorMessage: String?
+    @State private var renamingPassage: Passage?
+    @State private var renameText = ""
+    @State private var splittingPassage: Passage?
+    @State private var mergingPassage: Passage?
     let pieceID: UUID
     let currentPage: Int
     let onSelect: (Passage) -> Void
@@ -42,8 +46,17 @@ struct PassagePickerView: View {
                         }.padding(.vertical, 6).contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityIdentifier("savedPassage_\(passage.id)")
                     .contextMenu {
+                        Button("Rename", systemImage: "pencil") { renameText = passage.title; renamingPassage = passage }
+                        Menu("Recolor", systemImage: "paintpalette") {
+                            Button("No color") { recolor(passage, to: nil) }
+                            ForEach(AnnotationColor.allCases) { color in Button(color.label) { recolor(passage, to: color) } }
+                        }
                         Button("Edit boxes", systemImage: "rectangle.dashed") { draw(passage) }
                         Button("Edit details", systemImage: "slider.horizontal.3") { editingPassage = passage }
+                        if passage.regions.count > 1 { Button("Split off boxes…", systemImage: "square.split.2x1") { splittingPassage = passage } }
+                        if passages.contains(where: { $0.id != passage.id && $0.pieceID == passage.pieceID }) {
+                            Button("Merge with…", systemImage: "square.stack") { mergingPassage = passage }
+                        }
                         Button("Delete passage", systemImage: "trash", role: .destructive) { pendingDelete = passage }
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -66,6 +79,17 @@ struct PassagePickerView: View {
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { editingPassage = nil } } }
                 }
             }
+            .sheet(item: $splittingPassage) { passage in
+                NavigationStack { PassageSplitView(passage: passage, onDone: { splittingPassage = nil }) }
+            }
+            .sheet(item: $mergingPassage) { passage in
+                NavigationStack { PassageMergeView(passage: passage, candidates: passages.filter { $0.id != passage.id && $0.pieceID == passage.pieceID }, onDone: { mergingPassage = nil }) }
+            }
+            .alert("Rename passage", isPresented: Binding(get: { renamingPassage != nil }, set: { if !$0 { renamingPassage = nil } })) {
+                TextField("Name", text: $renameText)
+                Button("Cancel", role: .cancel) { renamingPassage = nil }
+                Button("Save") { rename(renamingPassage, to: renameText); renamingPassage = nil }
+            }
             .confirmationDialog("Delete passage?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible, presenting: pendingDelete) { passage in
                 Button("Delete passage", role: .destructive) {
                     do { try store.deletePassage(passage.id) } catch { errorMessage = error.localizedDescription }
@@ -75,6 +99,104 @@ struct PassagePickerView: View {
         }
     }
     private func draw(_ passage: Passage?) { onDraw(passage); dismiss() }
+    private func recolor(_ passage: Passage, to color: AnnotationColor?) {
+        var edited = passage; edited.color = color?.rawValue; edited.updatedAt = Date()
+        do { try store.savePassage(edited, replacing: passage) } catch { errorMessage = error.localizedDescription }
+    }
+    private func rename(_ passage: Passage?, to title: String) {
+        guard var passage else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let baseline = passage
+        passage.title = trimmed; passage.updatedAt = Date()
+        do { try store.savePassage(passage, replacing: baseline) } catch { errorMessage = error.localizedDescription }
+    }
+}
+
+/// §8 "split": choose which of a passage's boxes move into a brand-new passage. The chooser lists
+/// boxes by page since that is how a musician would recognize them — there is no live score to tap
+/// on from the passage list, unlike drawing a box in `ScorePageOverlay`.
+private struct PassageSplitView: View {
+    @Environment(PracticeStore.self) private var store
+    let passage: Passage
+    let onDone: () -> Void
+    @State private var moving: Set<UUID> = []
+    @State private var title = ""
+    @State private var errorMessage: String?
+    private var regionsByPage: [(page: Int, regions: [PassageRegion])] {
+        Dictionary(grouping: passage.regions, by: \.page).sorted { $0.key < $1.key }.map { (page: $0.key, regions: $0.value) }
+    }
+    var body: some View {
+        Form {
+            if let errorMessage { Section { ErrorMessage(message: errorMessage) } }
+            ForEach(regionsByPage, id: \.page) { group in
+                Section("Page \(group.page)") {
+                    ForEach(Array(group.regions.enumerated()), id: \.element.id) { index, region in
+                        Button {
+                            if moving.contains(region.id) { moving.remove(region.id) } else { moving.insert(region.id) }
+                        } label: {
+                            HStack {
+                                Text("Box \(index + 1)").foregroundStyle(.primary)
+                                Spacer()
+                                if moving.contains(region.id) { Image(systemName: "checkmark").foregroundStyle(PraeludeColor.ink) }
+                            }
+                        }.accessibilityIdentifier("splitRegion_\(region.id)")
+                    }
+                }
+            }
+            Section("New passage name") { TextField("Name", text: $title) }
+        }
+        .navigationTitle("Split off boxes").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onDone) }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Split") {
+                    do { _ = try store.splitPassage(passage.id, movingRegionIDs: moving, newTitle: title); onDone() }
+                    catch { errorMessage = error.localizedDescription }
+                }.disabled(moving.isEmpty || moving.count >= passage.regions.count)
+            }
+        }
+    }
+}
+
+/// §8 "merge": fold one or more other passages from the same piece into this one. `passage` keeps
+/// its own learning history; every chosen passage's boxes move over and it is archived.
+private struct PassageMergeView: View {
+    @Environment(PracticeStore.self) private var store
+    let passage: Passage
+    let candidates: [Passage]
+    let onDone: () -> Void
+    @State private var chosen: Set<UUID> = []
+    @State private var errorMessage: String?
+    var body: some View {
+        Form {
+            if let errorMessage { Section { ErrorMessage(message: errorMessage) } }
+            Section { Text("\"\(passage.title)\" keeps its practice history. Every box below moves into it.").foregroundStyle(.secondary) }
+            Section("Merge in") {
+                ForEach(candidates) { candidate in
+                    Button {
+                        if chosen.contains(candidate.id) { chosen.remove(candidate.id) } else { chosen.insert(candidate.id) }
+                    } label: {
+                        HStack {
+                            Text(candidate.title).foregroundStyle(.primary)
+                            Spacer()
+                            if chosen.contains(candidate.id) { Image(systemName: "checkmark").foregroundStyle(PraeludeColor.ink) }
+                        }
+                    }.accessibilityIdentifier("mergeCandidate_\(candidate.id)")
+                }
+            }
+        }
+        .navigationTitle("Merge passages").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onDone) }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Merge") {
+                    do { _ = try store.mergePassages(primary: passage.id, into: Array(chosen)); onDone() }
+                    catch { errorMessage = error.localizedDescription }
+                }.disabled(chosen.isEmpty)
+            }
+        }
+    }
 }
 
 extension Passage {

@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import PencilKit
 
 private enum ScoreSheet: String, Identifiable {
     case setup, passages, metronome, pages, voice, passageDetails, share
@@ -36,6 +37,7 @@ struct ScoreWorkspace: View {
     @State private var ending = false
     @State private var error: String?
     @State private var sharingURL: URL?
+    @State private var editingTextBox: TextBoxAnnotation?
     private var piece: Piece? { store.state.pieces.first { $0.id == pieceID } }
     private var active: ActiveSet? { store.activeSet?.configuration.pieceID == pieceID ? store.activeSet : nil }
     private var scoreURL: URL? { piece.flatMap { NativeLibraryFiles(store: store).scoreURL(for: $0) } }
@@ -52,6 +54,29 @@ struct ScoreWorkspace: View {
             .compactMap(\.configuration.passageSnapshot).flatMap(\.regions)
         return Set(visibleRegions.filter { practiced.contains($0) }.map(\.id))
     }
+    // §8 recolor: every saved passage's chosen color, keyed by region so ScorePageOverlay can paint
+    // a box in the color its own passage (not necessarily the practicing one) was given.
+    private var passageColors: [UUID: String] {
+        var colors: [UUID: String] = [:]
+        for passage in savedPassages { guard let color = passage.color else { continue }; for region in passage.regions { colors[region.id] = color } }
+        return colors
+    }
+    private var visibleStamps: [StampAnnotation] { store.state.stampAnnotations.filter { $0.pieceID == pieceID && $0.deletedAt == nil } }
+    private var visibleTextBoxes: [TextBoxAnnotation] { store.state.textAnnotations.filter { $0.pieceID == pieceID && $0.deletedAt == nil } }
+    /// §7: the active layer's ink, merged back into one blob for `PagedScoreView`'s existing
+    /// whole-canvas conflict-check/load boundary — `persistInk` below is what actually splits a
+    /// save back into true per-stroke rows, so storage is per-stroke even though this boundary still
+    /// speaks one `Data` blob per page (see "(C) Schema3.md" — the compatibility shim's replacement).
+    private func mergedInkData(_ page: Int) -> Data? {
+        let rows = store.inkStrokes(pieceID: pieceID, page: page, layer: markup.activeLayer).map(\.data)
+        return rows.isEmpty ? nil : try? InkPerStroke.merge(rows).dataRepresentation()
+    }
+    /// Every visible layer other than the active one, flattened for `ScorePageOverlay`'s read-only
+    /// underlay (§7 "layers mine/teacher/performance show/hide").
+    private func otherLayersInk(_ page: Int) -> [Data] {
+        InkLayer.allCases.filter { $0 != markup.activeLayer && markup.visibleLayers.contains($0) }
+            .flatMap { store.inkStrokes(pieceID: pieceID, page: page, layer: $0).map(\.data) }
+    }
     var body: some View {
         Group {
             if let piece {
@@ -61,11 +86,13 @@ struct ScoreWorkspace: View {
                             // Pinned paper-white, not the paper/stage token: the score stays paper in both appearances.
                             PraeludeColor.scorePaper
                             PagedScoreView(url: scoreURL, page: $page, twoPages: twoPages && sizeClass == .regular, focusPageTurns: focusMode, markup: markup,
-                                           regions: visibleRegions, emphasizedIDs: emphasizedIDs, practicedIDs: practicedIDs,
-                                           drawingData: { store.drawing(pieceID: pieceID, page: $0) },
-                                           saveDrawing: persistInk, onRegionSelected: { id in
+                                           activeLayer: markup.activeLayer,
+                                           regions: visibleRegions, regionColors: passageColors, emphasizedIDs: emphasizedIDs, practicedIDs: practicedIDs,
+                                           stamps: visibleStamps, textBoxes: visibleTextBoxes, otherLayersInkData: otherLayersInk,
+                                           drawingData: mergedInkData, saveDrawing: persistInk, onRegionSelected: { id in
                                                selectedPassage = savedPassages.first { $0.regions.contains { $0.id == id } }
-                                           }, onTurnPage: turnPage, onPageChanged: savePage)
+                                           }, onPlaceStamp: placeStamp, onPlaceTextBox: placeTextBox, onEditTextBox: { editingTextBox = $0 },
+                                           onTurnPage: turnPage, onPageChanged: savePage)
                                 .accessibilityIdentifier("scorePDF")
 
                         } else {
@@ -207,6 +234,13 @@ struct ScoreWorkspace: View {
                 page = 1
             }
         }
+        .sheet(item: $editingTextBox) { box in
+            let isSaved = store.state.textAnnotations.contains { $0.id == box.id }
+            TextBoxEditorView(text: box.text, onSave: { text in
+                perform { try store.saveTextAnnotation(TextBoxAnnotation(id: box.id, pieceID: box.pieceID, page: box.page, region: box.region,
+                                                                          text: text, layer: box.layer, createdAt: box.createdAt)) }
+            }, onDelete: isSaved ? { perform { try store.deleteTextAnnotation(box.id) } } : nil)
+        }
         .confirmationDialog("End this practice session?", isPresented: $ending, titleVisibility: .visible) {
             Button("End practice", role: .destructive) { perform { try store.endSession(); metronome.stop(); speech.stop() } }
             Button("Cancel", role: .cancel) {}
@@ -217,6 +251,10 @@ struct ScoreWorkspace: View {
         .onChange(of: pieceID) { _, _ in page = piece?.lastPage ?? 1; selectedPassage = nil; speech.stop(ifOwnedBy: voiceOwnerID) }
         .onChange(of: scenePhase) { _, phase in if phase != .active { _ = markup.flushInk() } }
         .onChange(of: markup.errorMessage) { _, message in if let message { error = message; markup.errorMessage = nil } }
+        .onChange(of: markup.pendingQuickBox) { _, box in
+            guard let box else { return }
+            createQuickSubPassage(box); markup.pendingQuickBox = nil
+        }
         .onChange(of: store.state.passages) { _, passages in
             if let selectedPassage { self.selectedPassage = passages.first { $0.id == selectedPassage.id } }
         }
@@ -264,27 +302,7 @@ struct ScoreWorkspace: View {
                 .accessibilityIdentifier("finishScoreMarkup")
             }
             if markup.mode == .writing {
-                HStack(spacing: 8) {
-                    Toggle(isOn: $markup.fingerDrawing) {
-                        if simplifiedLabels {
-                            Image(systemName: "hand.draw").font(.system(size: 20))
-                                .frame(width: 32, height: 32)
-                        } else {
-                            Text("Draw with finger").font(.subheadline)
-                        }
-                    }
-                    .accessibilityLabel("Draw with finger")
-                    .accessibilityIdentifier("fingerDrawing")
-                    .praeludeToggleHaptic(markup.fingerDrawing)
-                    Button(action: markup.undoInk) {
-                        Image(systemName: "arrow.uturn.backward").font(.system(size: 20))
-                            .frame(width: 44, height: 44).contentShape(Rectangle())
-                    }.disabled(!markup.canUndoInk).accessibilityLabel("Undo ink")
-                    Button(action: markup.redoInk) {
-                        Image(systemName: "arrow.uturn.forward").font(.system(size: 20))
-                            .frame(width: 44, height: 44).contentShape(Rectangle())
-                    }.disabled(!markup.canRedoInk).accessibilityLabel("Redo ink")
-                }
+                AnnotationToolbar(markup: markup, simplifiedLabels: simplifiedLabels, onRemoveSelectedStamp: removeSelectedStamp)
             }
             if !shortScreen {
                 let status = markup.mode == .selecting ? "\(markup.regions.count) \(markup.regions.count == 1 ? "box" : "boxes")" : markup.fingerDrawing ? "Finger drawing on" : "Pencil writes · fingers navigate"
@@ -357,18 +375,56 @@ struct ScoreWorkspace: View {
             selectedPassage = draft; markup.finish()
         }
     }
+    /// §7 "true per-stroke storage": splits the canvas's current whole-page drawing into one row per
+    /// `PKStroke` (`InkPerStroke.split`) before writing, so an unchanged stroke keeps its own stable
+    /// id/`createdAt` (`PracticeStore.replaceInk`'s content diff) and a legacy coarse row is replaced
+    /// by its fine-grained equivalent losslessly the next time that page is saved.
     private func persistInk(_ page: Int, _ data: Data, _ expected: Data?) -> Bool {
         do {
-            guard store.drawing(pieceID: pieceID, page: page) == expected else {
-                markup.conflictPage = page
-                return false
-            }
-            try NativeLibraryFiles(store: store).saveDrawing(pieceID: pieceID, page: page, data: data)
+            guard mergedInkData(page) == expected else { markup.conflictPage = page; return false }
+            let strokes = data.isEmpty ? [] : InkPerStroke.split(try PKDrawing(data: data))
+            try store.replaceInk(pieceID: pieceID, page: page, layer: markup.activeLayer, strokes: strokes)
             return true
         } catch { markup.errorMessage = "Ink could not be saved. \(error.localizedDescription)"; return false }
     }
+    private func placeStamp(_ page: Int, _ position: NormalizedRect) {
+        guard let armed = markup.armedStamp else { return }
+        perform {
+            try store.saveStampAnnotation(StampAnnotation(pieceID: pieceID, page: page, position: position,
+                                                           kind: armed.kind, label: armed.label, layer: markup.activeLayer))
+        }
+    }
+    private func placeTextBox(_ page: Int, _ position: NormalizedRect) {
+        editingTextBox = TextBoxAnnotation(pieceID: pieceID, page: page, region: position, text: "", layer: markup.activeLayer)
+    }
+    private func removeSelectedStamp() {
+        guard let id = markup.selectedStampID else { return }
+        perform { try store.deleteStampAnnotation(id) }
+        markup.selectedStampID = nil
+    }
+    /// §8 "quick-create a sub-passage by drawing a box while practicing": the box drawn on
+    /// `markup.pendingQuickBox` becomes a brand-new passage, a child of whatever is currently
+    /// selected (or piece-level if practicing the whole piece), inheriting its focus/color but
+    /// starting its own fresh learning history (no practice evidence exists for it yet).
+    private func createQuickSubPassage(_ region: PassageRegion) {
+        perform {
+            let parent = selectedPassage
+            let siblingCount = savedPassages.filter { $0.parentPassageID == parent?.id }.count
+            let title = parent.map { "\($0.title) — spot \(siblingCount + 1)" } ?? "New spot \(siblingCount + 1)"
+            let passage = Passage(pieceID: pieceID, title: title, page: region.page, focus: parent?.focus ?? "Pulse",
+                                  regions: [region], color: parent?.color, parentPassageID: parent?.id)
+            try store.savePassage(passage)
+        }
+    }
     @ViewBuilder private var practiceDock: some View {
         VStack(spacing: 12) {
+            if markup.quickBoxArmed {
+                HStack {
+                    Text("Drag on the score to mark this spot.").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
+                    Spacer(minLength: 8)
+                    Button("Cancel") { markup.quickBoxArmed = false }.font(.caption.weight(.semibold)).accessibilityIdentifier("cancelQuickSubPassage")
+                }
+            }
             if let active {
                 if active.isComplete {
                     HStack {
@@ -400,6 +456,12 @@ struct ScoreWorkspace: View {
                             .buttonStyle(.praeludeEdgeControl)
                             .accessibilityLabel("Undo last repetition").accessibilityIdentifier("undoRep").keyboardShortcut("z", modifiers: .command)
                             .disabled(!active.attempts.contains { $0.undoneAt == nil })
+                        // §8: draw one box without stopping the set — a new sub-passage, not a mode
+                        // change, so the dock/HUD/music never move.
+                        Button { markup.quickBoxArmed = true } label: { PraeludeIcon(glyph: .passageBox, size: 20) }
+                            .buttonStyle(.praeludeEdgeControl)
+                            .accessibilityLabel("Mark a spot without stopping").accessibilityIdentifier("quickSubPassage")
+                            .disabled(active.status != .running || markup.quickBoxArmed)
                         Button { togglePause() } label: { Image(systemName: active.status == .paused ? "play.fill" : "pause.fill") }
                             .buttonStyle(.praeludeEdgeControl)
                             .accessibilityLabel(active.status == .paused ? "Resume practice" : "Pause practice").accessibilityIdentifier("pausePractice")

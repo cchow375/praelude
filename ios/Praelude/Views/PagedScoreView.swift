@@ -61,12 +61,26 @@ struct PagedScoreView: UIViewRepresentable {
     var focusPageTurns: Bool = false
     var markup: ScoreMarkupState
     var allowsInk = true
+    /// §7 layers: which layer `drawingData`/`saveDrawing` read/write. Changing it tears down and
+    /// reloads every overlay (see `Coordinator.adoptParent`) so the canvas never mixes two layers.
+    var activeLayer: InkLayer = .mine
     var regions: [PassageRegion] = []
+    /// Passage id -> its saved recolor token (§8), read by `ScorePageOverlay` for box fill/stroke.
+    var regionColors: [UUID: String] = [:]
     var emphasizedIDs: Set<UUID> = []
     var practicedIDs: Set<UUID> = []
+    var stamps: [StampAnnotation] = []
+    var textBoxes: [TextBoxAnnotation] = []
+    /// Ink attributed to any visible layer other than `markup.activeLayer`, flattened into one blob
+    /// list per page — the read-only underlay `Coordinator` merges and renders behind the editable
+    /// canvas. `ScoreWorkspace` supplies this (it has `PracticeStore` access; this view never does).
+    var otherLayersInkData: (Int) -> [Data] = { _ in [] }
     var drawingData: (Int) -> Data? = { _ in nil }
     var saveDrawing: (Int, Data, Data?) -> Bool = { _, _, _ in false }
     var onRegionSelected: (UUID) -> Void = { _ in }
+    var onPlaceStamp: (Int, NormalizedRect) -> Void = { _, _ in }
+    var onPlaceTextBox: (Int, NormalizedRect) -> Void = { _, _ in }
+    var onEditTextBox: (TextBoxAnnotation) -> Void = { _ in }
     var onTurnPage: (Int) -> Void = { _ in }
     var onPageChanged: (Int) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -141,9 +155,14 @@ struct PagedScoreView: UIViewRepresentable {
         var autosave: Task<Void, Never>?
         let toolPicker = PKToolPicker()
         init(parent: PagedScoreView) { self.parent = parent }
+        var otherLayersImageCache: [Int: (signature: Int, image: UIImage?)] = [:]
         /// Flush with the original piece's callbacks before a reused representable changes owners.
         func adoptParent(_ updated: PagedScoreView) -> Bool {
-            let changed = parent.url != updated.url || parent.markup !== updated.markup
+            // A layer switch reuses the exact document-switch path below: flush whatever is pending
+            // on the old layer, tear down every overlay, and reload from `drawingData`/`otherLayersInkData`
+            // — which `ScoreWorkspace` now reads against the *new* `markup.activeLayer` — instead of
+            // adding a second, parallel per-layer keying scheme to every dictionary in this class.
+            let changed = parent.url != updated.url || parent.markup !== updated.markup || parent.activeLayer != updated.activeLayer
             if changed {
                 guard flush() else { return false }
                 let oldMarkup = parent.markup
@@ -157,6 +176,7 @@ struct PagedScoreView: UIViewRepresentable {
         func clearOverlays() {
             for overlay in overlays.values { toolPicker.removeObserver(overlay.canvas) }
             overlays.removeAll(); committed.removeAll(); canvasBaseline.removeAll(); dirtyPages.removeAll()
+            otherLayersImageCache.removeAll()
         }
         func connectControls() {
             toolPicker.stateAutosaveName = "Praelude.ScoreTools"
@@ -251,7 +271,11 @@ struct PagedScoreView: UIViewRepresentable {
         func refreshOverlays() { for overlay in Array(overlays.values) { refresh(overlay) }; updateUndoState() }
         private func refresh(_ overlay: ScorePageOverlay) {
             overlay.displayedRegions = parent.regions
+            overlay.regionColors = parent.regionColors
             overlay.emphasizedIDs = parent.emphasizedIDs; overlay.practicedIDs = parent.practicedIDs
+            overlay.displayedStamps = parent.stamps; overlay.displayedTextBoxes = parent.textBoxes
+            overlay.onPlaceStamp = parent.onPlaceStamp; overlay.onPlaceTextBox = parent.onPlaceTextBox
+            overlay.onEditTextBox = parent.onEditTextBox
             let number = overlay.pageNumber
             if !dirtyPages.contains(number), parent.drawingData(number) != committed[number] {
                 loading = true
@@ -263,11 +287,40 @@ struct PagedScoreView: UIViewRepresentable {
                 } catch { parent.markup.errorMessage = "Saved ink could not be reopened. The original is preserved."; overlay.inkReadOnly = true }
                 loading = false
             }
+            if let tool = parent.markup.tool.pkTool { overlay.canvas.tool = tool }
+            refreshOtherLayersImage(overlay)
             overlay.refresh()
-            if parent.markup.mode == .writing && number == parent.page {
-                toolPicker.setVisible(true, forFirstResponder: overlay.canvas)
-                if !overlay.canvas.isFirstResponder { overlay.canvas.becomeFirstResponder() }
-            } else { toolPicker.setVisible(false, forFirstResponder: overlay.canvas) }
+            // The custom AnnotationToolbar is now the primary tool/color/width picker (§3b: no stock
+            // component look) and drives `canvas.tool` directly above, so the system floating palette
+            // stays hidden — showing both would let a person change tools somewhere `markup.tool`
+            // never hears about. `becomeFirstResponder` is kept for an inking tool regardless, since
+            // that alone (not picker visibility) is what keeps Apple Pencil's own double-tap/squeeze
+            // shortcuts live on this canvas.
+            toolPicker.setVisible(false, forFirstResponder: overlay.canvas)
+            if parent.markup.mode == .writing, number == parent.page, parent.markup.tool.kind.isInkingTool, !overlay.canvas.isFirstResponder {
+                overlay.canvas.becomeFirstResponder()
+            }
+        }
+        /// Regenerates the read-only merged snapshot of every visible-but-inactive ink layer, only
+        /// when that page's relevant content actually changed (a cheap content signature, not a full
+        /// re-render on every SwiftUI update pass).
+        private func refreshOtherLayersImage(_ overlay: ScorePageOverlay) {
+            guard overlay.bounds.width > 0, overlay.bounds.height > 0 else { return }
+            let number = overlay.pageNumber
+            let blobs = parent.otherLayersInkData(number)
+            var signature = blobs.count &* 31
+            for blob in blobs { signature = signature ^ blob.hashValue }
+            if let cached = otherLayersImageCache[number], cached.signature == signature {
+                overlay.otherLayersImage = cached.image; return
+            }
+            guard !blobs.isEmpty else {
+                otherLayersImageCache[number] = (signature, nil); overlay.otherLayersImage = nil; return
+            }
+            let drawing = (try? InkPerStroke.merge(blobs)) ?? PKDrawing()
+            let scale = min(3, overlay.window?.screen.scale ?? UIScreen.main.scale)
+            let image = drawing.strokes.isEmpty ? nil : drawing.image(from: CGRect(origin: .zero, size: overlay.bounds.size), scale: scale)
+            otherLayersImageCache[number] = (signature, image)
+            overlay.otherLayersImage = image
         }
         func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
             #if DEBUG
