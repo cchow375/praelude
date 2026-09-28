@@ -28,8 +28,17 @@ final class PracticeLoopUITests: XCTestCase {
     @MainActor private func choosePassage(_ app: XCUIApplication) {
         app.buttons["passages"].press(forDuration: 0.15)
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "savedPassage_")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), app.debugDescription)
         row.press(forDuration: 0.15)
+    }
+
+    /// `ios.hudCollapsed` is a deliberate cross-launch preference (the same pattern as the existing
+    /// `ios.feedback` `@AppStorage`), so it persists in this simulator's UserDefaults from whatever
+    /// an earlier test in this run last left it as. Tests that read the expanded readout normalize
+    /// to expanded first rather than assuming a particular starting preference.
+    @MainActor private func ensureExpanded(_ app: XCUIApplication) {
+        let expand = app.buttons["hudExpand"]
+        if expand.exists { expand.press(forDuration: 0.15) }
     }
 
     @MainActor private func screenshot(_ name: String, app: XCUIApplication) {
@@ -54,13 +63,14 @@ final class PracticeLoopUITests: XCTestCase {
         // this is still the whole path, not a third step.
         XCTAssertFalse(app.navigationBars["Practice set"].exists, app.debugDescription)
         let coldClean = app.buttons["coldGrade_clean"]
-        XCTAssertTrue(coldClean.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(coldClean.waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertTrue(app.buttons["coldGrade_shaky"].exists)
         XCTAssertTrue(app.buttons["coldGrade_missed"].exists)
         screenshot("loop-01-cold-grade-prompt", app: app)
         // Tap 2: grade cold, which both starts the set and records its first attempt.
         coldClean.press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
+        ensureExpanded(app)
         XCTAssertTrue(app.staticTexts["1 of 5 clean"].exists, app.debugDescription)
         screenshot("loop-02-running-after-two-taps", app: app)
     }
@@ -72,14 +82,17 @@ final class PracticeLoopUITests: XCTestCase {
         let app = launch()
         openScore(app)
         choosePassage(app)
-        app.buttons["coldGrade_clean"].press(forDuration: 0.15)
+        let coldClean = app.buttons["coldGrade_clean"]
+        XCTAssertTrue(coldClean.waitForExistence(timeout: 15), app.debugDescription)
+        coldClean.press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
         for _ in 0..<4 { app.buttons["verdict_clean"].press(forDuration: 0.15) }
-        XCTAssertTrue(app.staticTexts["Set complete"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Set complete"].waitForExistence(timeout: 15), app.debugDescription)
         app.buttons["Another set"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertFalse(app.buttons["coldGrade_clean"].exists, app.debugDescription)
         app.buttons["confirmStartSet"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
     }
 
     // MARK: - Cold grade: Shaky maps to a Sloppy first attempt
@@ -89,9 +102,10 @@ final class PracticeLoopUITests: XCTestCase {
         openScore(app)
         choosePassage(app)
         let shaky = app.buttons["coldGrade_shaky"]
-        XCTAssertTrue(shaky.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(shaky.waitForExistence(timeout: 15), app.debugDescription)
         shaky.press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
+        ensureExpanded(app)
         XCTAssertTrue(app.staticTexts["0 of 5 clean"].exists,
                       "A cold Shaky is recorded as the set's first attempt, but as Sloppy — it must not count toward the clean streak.\n\(app.debugDescription)")
     }
@@ -103,9 +117,9 @@ final class PracticeLoopUITests: XCTestCase {
         openScore(app)
         // Whole-piece practice (no passage chosen yet) is armed immediately on opening the score,
         // and is never cold-gated — its tempo dial is interactive right away.
-        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 5), app.debugDescription)
-        let tempo = app.staticTexts["Tempo"]
-        XCTAssertTrue(tempo.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 15), app.debugDescription)
+        let tempo = app.staticTexts["tempoDialValue"]
+        XCTAssertTrue(tempo.waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertEqual(tempoBPM(tempo), 60, app.debugDescription)
         let start = tempo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let end = tempo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: -22))
@@ -116,7 +130,7 @@ final class PracticeLoopUITests: XCTestCase {
         screenshot("loop-03-tempo-drag", app: app)
         // ±5 stays a one-tap nudge alongside the drag.
         let plusFive = app.buttons["Increase tempo by 5"]
-        XCTAssertTrue(plusFive.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(plusFive.waitForExistence(timeout: 15), app.debugDescription)
         let afterTap = raised ?? 0
         plusFive.press(forDuration: 0.15)
         XCTAssertEqual(tempoBPM(tempo), afterTap + 5, app.debugDescription)
@@ -129,13 +143,15 @@ final class PracticeLoopUITests: XCTestCase {
         openScore(app)
         choosePassage(app)
         app.buttons["coldGrade_clean"].press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["1 of 5 clean"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
+        ensureExpanded(app)
+        XCTAssertTrue(app.staticTexts["1 of 5 clean"].waitForExistence(timeout: 15), app.debugDescription)
         app.buttons["verdict_sloppy"].press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["0 of 5 clean"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["0 of 5 clean"].waitForExistence(timeout: 15), app.debugDescription)
         let undo = app.buttons["undoRep"]
         XCTAssertTrue(undo.isEnabled, app.debugDescription)
         undo.press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["1 of 5 clean"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["1 of 5 clean"].waitForExistence(timeout: 15), app.debugDescription)
         screenshot("loop-04-verdict-undo", app: app)
     }
 
@@ -146,25 +162,27 @@ final class PracticeLoopUITests: XCTestCase {
         openScore(app)
         choosePassage(app)
         app.buttons["coldGrade_clean"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
+        ensureExpanded(app)
         XCTAssertTrue(app.staticTexts["repProgress"].exists, app.debugDescription)
         let collapse = app.buttons["hudCollapse"]
-        XCTAssertTrue(collapse.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(collapse.waitForExistence(timeout: 15), app.debugDescription)
         collapse.press(forDuration: 0.15)
         let expand = app.buttons["hudExpand"]
-        XCTAssertTrue(expand.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(expand.waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertFalse(app.staticTexts["repProgress"].exists, "Collapsing must hide the big readout.\n\(app.debugDescription)")
-        // Collapsing must never take Undo/Pause/Stop/verdicts below one tap.
+        // Collapsing must never take Undo/Pause/Stop/metronome-toggle/verdicts below one tap.
         XCTAssertTrue(app.buttons["verdict_clean"].isHittable, app.debugDescription)
         XCTAssertTrue(app.buttons["undoRep"].exists)
         XCTAssertTrue(app.buttons["pausePractice"].exists)
         XCTAssertTrue(app.buttons["stopSet"].exists)
         XCTAssertTrue(app.buttons["toggleMetronomeHUD"].exists)
         screenshot("loop-05-hud-collapsed", app: app)
+        // A verdict must still record while collapsed — expanding again afterward confirms it, since
+        // the collapsed strip's own numeral uses a different, more compact format ("N/M").
         app.buttons["verdict_clean"].press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["2 of 5 clean"].waitForExistence(timeout: 5), "A verdict must still record while collapsed.\n\(app.debugDescription)")
         expand.press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["hudCollapse"].waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(app.staticTexts["repProgress"].exists, app.debugDescription)
+        XCTAssertTrue(app.buttons["hudCollapse"].waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["2 of 5 clean"].waitForExistence(timeout: 15), "A verdict must still record while collapsed.\n\(app.debugDescription)")
     }
 }

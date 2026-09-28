@@ -31,6 +31,7 @@ struct TempoDial: View {
                 .allowsHitTesting(!locked)
                 .gesture(dragGesture)
                 .opacity(locked ? 0.55 : 1)
+                .accessibilityIdentifier("tempoDialValue")
                 .accessibilityLabel("Tempo")
                 .accessibilityValue("\(Int(bpm.rounded())) beats per minute")
                 .accessibilityAdjustableAction { direction in
