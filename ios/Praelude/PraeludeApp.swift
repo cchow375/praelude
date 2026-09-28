@@ -7,6 +7,7 @@ struct PraeludeApp: App {
     @State private var metronome: MetronomeService
     @State private var speech: SpeechCommandService
     @State private var runtime: PracticeRuntime
+    @State private var rewards: RewardsRuntime
     @Environment(\.scenePhase) private var scenePhase
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -27,11 +28,12 @@ struct PraeludeApp: App {
         _metronome = State(initialValue: click)
         _speech = State(initialValue: voice)
         _runtime = State(initialValue: PracticeRuntime(store: value, metronome: click, speech: voice))
+        _rewards = State(initialValue: RewardsRuntime(store: value))
     }
     var body: some Scene {
         WindowGroup {
             AppRootView()
-                .environment(store).environment(metronome).environment(speech).environment(runtime)
+                .environment(store).environment(metronome).environment(speech).environment(runtime).environment(rewards)
                 .preferredColorScheme(colorScheme)
                 .tint(PraeludeColor.ink)
                 .onChange(of: store.state.preferences.keepScreenAwake) { _, _ in runtime.updateScreenAwake() }
@@ -41,7 +43,7 @@ struct PraeludeApp: App {
                 if let pieceID { ScoreWorkspace(pieceID: pieceID, onClose: nil) }
                 else { ContentUnavailableView("Choose a score", systemImage: "music.note.list") }
             }
-            .environment(store).environment(metronome).environment(speech).environment(runtime)
+            .environment(store).environment(metronome).environment(speech).environment(runtime).environment(rewards)
             .preferredColorScheme(colorScheme)
             .tint(PraeludeColor.ink)
         }
@@ -52,10 +54,16 @@ struct PraeludeApp: App {
 }
 
 private enum Destination: String, CaseIterable, Identifiable {
-    case today = "Today", pieces = "Pieces", progress = "Progress"
+    case today = "Today", pieces = "Pieces", warmups = "Warmups", progress = "Progress", rewards = "Rewards"
     var id: String { rawValue }
     var symbol: String {
-        switch self { case .today: return "sun.max"; case .pieces: return "music.note.list"; case .progress: return "chart.bar.xaxis" }
+        switch self {
+        case .today: return "sun.max"
+        case .pieces: return "music.note.list"
+        case .warmups: return "flame"
+        case .progress: return "chart.bar.xaxis"
+        case .rewards: return "rosette"
+        }
     }
 }
 private struct ScoreRoute: Identifiable { let id: UUID }
@@ -65,11 +73,17 @@ struct AppRootView: View {
     @Environment(PracticeStore.self) private var store
     @Environment(MetronomeService.self) private var metronome
     @Environment(SpeechCommandService.self) private var speech
+    @Environment(RewardsRuntime.self) private var rewards
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
     private var usesSidebar: Bool { UIDevice.current.userInterfaceIdiom == .pad && !dynamicTypeSize.isAccessibilitySize }
     @State private var destination = Destination.today
     @State private var selectedPiece: UUID?
+    @State private var practicingWarmup = false
+    @State private var activeCelebration: MilestoneEvent?
+    @State private var showOnboarding = false
+    private var hasNoLiveInstruments: Bool { store.state.instruments.filter { $0.deletedAt == nil }.isEmpty }
     @State private var scoreMarkup = ScoreMarkupState()
     @State private var pendingScoreNavigation: (() -> Void)?
     @State private var confirmLeaveScore = false
@@ -96,9 +110,9 @@ struct AppRootView: View {
                             } label: { Label(item.rawValue, systemImage: item.symbol).frame(minHeight: 32) }
                             .listRowBackground(destination == item && selectedPiece == nil ? PraeludeColor.inkFillQuiet : Color.clear)
                         }
-                        if !store.state.pieces.isEmpty {
+                        if !store.realPieces.isEmpty {
                             Section("On your music stand") {
-                                ForEach(store.state.pieces.filter { $0.status != .resting }.prefix(8)) { piece in
+                                ForEach(store.realPieces.filter { $0.status != .resting }.prefix(8)) { piece in
                                     Button { openPiece(piece.id) } label: {
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text(piece.title).foregroundStyle(.primary).lineLimit(2)
@@ -138,17 +152,18 @@ struct AppRootView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if selectedPiece == nil, phoneScore == nil, let active = store.activeSet, active.status != .ended {
+            if selectedPiece == nil, phoneScore == nil, !practicingWarmup, let active = store.activeSet, active.status != .ended {
+                let isWarmup = active.configuration.pieceID == WarmupsPiece.id
                 HStack(spacing: 12) {
-                    Button { openPiece(active.configuration.pieceID) } label: {
+                    Button { isWarmup ? (practicingWarmup = true) : openPiece(active.configuration.pieceID) } label: {
                         HStack {
                             if active.status == .running {
                                 Circle().fill(PraeludeColor.live).frame(width: 7, height: 7)
                             } else {
-                                PraeludeIcon(glyph: active.isComplete ? .verdictClean : .metronome, size: 18).foregroundStyle(PraeludeColor.ink)
+                                PraeludeIcon(glyph: active.isComplete ? .verdictClean : (isWarmup ? .warmup : .metronome), size: 18).foregroundStyle(PraeludeColor.ink)
                             }
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(store.state.pieces.first { $0.id == active.configuration.pieceID }?.title ?? "Practice").font(.subheadline.weight(.semibold)).lineLimit(1)
+                                Text(isWarmup ? active.configuration.focus : (store.state.pieces.first { $0.id == active.configuration.pieceID }?.title ?? "Practice")).font(.subheadline.weight(.semibold)).lineLimit(1)
                                 Text(active.isComplete ? "Set complete" : active.status == .paused ? "Paused · tap to resume" : "\(active.progressCount) of \(active.requiredCount) · \(Int(active.currentBPM)) BPM").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
                             }
                             Spacer()
@@ -158,6 +173,9 @@ struct AppRootView: View {
                 }.padding(.horizontal, 20).praeludeSurfacePanel().praeludeHairline(.top)
             }
         }
+        .modifier(RewardsWiring(activeCelebration: $activeCelebration, showOnboarding: $showOnboarding, practicingWarmup: $practicingWarmup,
+                                selectedPiece: selectedPiece, phoneScoreID: phoneScore?.id, hasNoLiveInstruments: hasNoLiveInstruments,
+                                presentNextCelebrationIfSafe: presentNextCelebrationIfSafe))
         .sheet(item: $sheet, onDismiss: {
             incomingURL = nil
             if let pendingPiece { self.pendingPiece = nil; openPiece(pendingPiece) }
@@ -240,10 +258,18 @@ struct AppRootView: View {
     }
     @ViewBuilder private func content(_ destination: Destination) -> some View {
         switch destination {
-        case .today: TodayView(onOpenPiece: openPiece, onAddPiece: { sheet = .add })
+        case .today: TodayView(onOpenPiece: openPiece, onAddPiece: { sheet = .add }, onContinueWarmup: { practicingWarmup = true })
         case .pieces: LibraryView(onOpenPiece: openPiece, onAddPiece: { sheet = .add })
+        case .warmups: WarmupsView(onStartPractice: { practicingWarmup = true })
         case .progress: PracticeProgressView()
+        case .rewards: RewardsView()
         }
+    }
+    /// Shows the oldest queued big celebration once it is safe to (§14: "never mid-set") — no
+    /// active-set screen on top, and nothing already showing. A no-op call when nothing qualifies.
+    private func presentNextCelebrationIfSafe() {
+        guard activeCelebration == nil, selectedPiece == nil, phoneScore == nil, !practicingWarmup, !showOnboarding else { return }
+        activeCelebration = rewards.dequeueCelebration()
     }
     private func openPiece(_ id: UUID) {
         #if DEBUG
@@ -272,5 +298,53 @@ struct AppRootView: View {
     private func prepareExport() {
         do { backup = try NativeLibraryFiles(store: store).makeBackup(); exporting = true }
         catch { self.error = error.localizedDescription }
+    }
+}
+
+/// The reward-runtime/celebration/onboarding wiring, pulled out of `AppRootView.body` into its own
+/// `ViewModifier` purely so the Swift type-checker has a smaller expression to solve — chaining this
+/// many `onChange`/`fullScreenCover`/`overlay` closures directly onto the already-large root view
+/// expression made it time out. Behavior is unchanged from an inline chain.
+private struct RewardsWiring: ViewModifier {
+    @Environment(PracticeStore.self) private var store
+    @Environment(RewardsRuntime.self) private var rewards
+    @Environment(\.scenePhase) private var scenePhase
+    @Binding var activeCelebration: MilestoneEvent?
+    @Binding var showOnboarding: Bool
+    @Binding var practicingWarmup: Bool
+    let selectedPiece: UUID?
+    let phoneScoreID: UUID?
+    let hasNoLiveInstruments: Bool
+    let presentNextCelebrationIfSafe: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .fullScreenCover(isPresented: $practicingWarmup) {
+                WarmupPracticeView(onClose: { practicingWarmup = false })
+            }
+            .overlay {
+                if let activeCelebration {
+                    CelebrationOverlayView(event: activeCelebration, onDismiss: {
+                        self.activeCelebration = nil
+                        presentNextCelebrationIfSafe()
+                    })
+                }
+            }
+            .onChange(of: store.state.revision) { _, _ in rewards.reconcile(); presentNextCelebrationIfSafe() }
+            .onChange(of: rewards.celebrationQueue.count) { _, _ in presentNextCelebrationIfSafe() }
+            .onChange(of: scenePhase) { _, phase in if phase == .active { rewards.reconcile(); presentNextCelebrationIfSafe() } }
+            .onChange(of: selectedPiece) { _, _ in presentNextCelebrationIfSafe() }
+            .onChange(of: phoneScoreID) { _, _ in presentNextCelebrationIfSafe() }
+            .onChange(of: practicingWarmup) { _, _ in presentNextCelebrationIfSafe() }
+            .onAppear { if hasNoLiveInstruments { showOnboarding = true } }
+            .onChange(of: hasNoLiveInstruments) { _, empty in
+                // Never force-closes here: deleting the last instrument reopens onboarding, but
+                // OnboardingView's own "Start practicing" button is what explicitly closes it —
+                // an instrument already exists by the time its confirmation screen shows.
+                if empty { showOnboarding = true }
+            }
+            .fullScreenCover(isPresented: $showOnboarding) {
+                OnboardingView(onFinished: { showOnboarding = false })
+            }
     }
 }

@@ -12,7 +12,7 @@ struct LibraryView: View {
 
     private var visiblePieces: [Piece] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return store.pieces.filter { piece in
+        return store.realPieces.filter { piece in
             // Resting is the one opt-out state; every other status (including a future one no
             // producer creates yet, like `.completed`) belongs in Active so it is never hidden
             // from both tabs at once.

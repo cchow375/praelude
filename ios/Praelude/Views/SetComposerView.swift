@@ -19,13 +19,22 @@ struct SetComposerView: View {
     @State private var saving = false
     let pieceID: UUID
     let passage: Passage?
+    /// A caller-supplied heading in place of the piece/passage title — e.g. a warmup exercise's
+    /// name, since `WarmupsPiece` has no title worth surfacing here (see `WarmupsView`).
+    let displayTitle: String?
     let onStarted: () -> Void
 
-    init(pieceID: UUID, passage: Passage? = nil, onStarted: @escaping () -> Void) {
+    /// `initialFocus`/`initialBPM` seed sensible defaults for a caller that already knows them (a
+    /// warmup's name and its kind-appropriate starting tempo, `WarmupCatalog.defaultBPM`) without
+    /// changing anything about how `start()` builds the `PracticeConfiguration` below.
+    init(pieceID: UUID, passage: Passage? = nil, displayTitle: String? = nil, initialFocus: String? = nil,
+         initialBPM: Double? = nil, onStarted: @escaping () -> Void) {
         self.pieceID = pieceID
         self.passage = passage
+        self.displayTitle = displayTitle
         self.onStarted = onStarted
-        _focus = State(initialValue: passage?.focus ?? "Pulse")
+        _focus = State(initialValue: initialFocus ?? passage?.focus ?? "Pulse")
+        if let initialBPM { _startBPM = State(initialValue: initialBPM); _targetBPM = State(initialValue: initialBPM) }
     }
 
     private var currentSetPreventsStart: Bool {
@@ -38,12 +47,12 @@ struct SetComposerView: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(passage?.title ?? store.pieces.first { $0.id == pieceID }?.title ?? "Practice")
+                        Text(displayTitle ?? passage?.title ?? store.pieces.first { $0.id == pieceID }?.title ?? "Practice")
                             .font(.headline)
                         if let passage {
                             Text(passage.locationLabel)
                                 .font(.subheadline).foregroundStyle(.secondary)
-                        } else {
+                        } else if displayTitle == nil {
                             Text("Whole piece").font(.subheadline).foregroundStyle(.secondary)
                         }
                     }

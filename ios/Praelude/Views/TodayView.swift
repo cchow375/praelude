@@ -6,6 +6,7 @@ struct TodayView: View {
     @State private var showGoals = false
     let onOpenPiece: (UUID) -> Void
     var onAddPiece: () -> Void = {}
+    var onContinueWarmup: () -> Void = {}
 
     private var todaySessions: [PracticeSession] {
         store.sessions.filter { Calendar.current.isDateInToday($0.startedAt) }
@@ -13,7 +14,8 @@ struct TodayView: View {
 
     private var recentPieces: [Piece] {
         // Resting is the one opt-out state; any other status belongs here (see LibraryView.visiblePieces).
-        let active = store.pieces.filter { $0.status != .resting }
+        // realPieces (not pieces): the internal warmups attachment point never browses as a piece.
+        let active = store.realPieces.filter { $0.status != .resting }
         return Array(active.sorted { left, right in
             (lastPractice(left.id) ?? left.createdAt) > (lastPractice(right.id) ?? right.createdAt)
         }.prefix(5))
@@ -23,6 +25,7 @@ struct TodayView: View {
         List {
             if let activeSet = store.activeSet,
                let piece = store.pieces.first(where: { $0.id == activeSet.configuration.pieceID }) {
+                let isWarmup = piece.id == WarmupsPiece.id
                 Section {
                     VStack(alignment: .leading, spacing: 17) {
                         VStack(alignment: .leading, spacing: 6) {
@@ -30,11 +33,11 @@ struct TodayView: View {
                                 if activeSet.status == .running {
                                     Circle().fill(PraeludeColor.live).frame(width: 6, height: 6)
                                 }
-                                Text(activeSet.isComplete ? "Set complete" : activeSet.status == .paused ? "Paused set" : "Practicing now")
+                                Text(activeSet.isComplete ? "Set complete" : activeSet.status == .paused ? "Paused set" : (isWarmup ? "Warming up" : "Practicing now"))
                                     .font(.caption.weight(.medium)).foregroundStyle(PraeludeColor.inkSecondary)
                             }
-                            Text(piece.title).praeludeDisplay(24)
-                            if !activeSet.configuration.focus.isEmpty {
+                            Text(isWarmup ? activeSet.configuration.focus : piece.title).praeludeDisplay(24)
+                            if !isWarmup, !activeSet.configuration.focus.isEmpty {
                                 Text(activeSet.configuration.focus).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
                             }
                         }
@@ -44,7 +47,8 @@ struct TodayView: View {
                         }
                         .font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
                         Button {
-                            continuePractice(activeSet, pieceID: piece.id)
+                            if isWarmup { errorMessage = nil; onContinueWarmup() }
+                            else { continuePractice(activeSet, pieceID: piece.id) }
                         } label: {
                             Label(activeSet.isComplete ? "Review set" : activeSet.status == .paused ? "Resume practice" : "Continue practice",
                                   systemImage: activeSet.isComplete ? "checkmark.circle" : "play.fill")
@@ -60,7 +64,7 @@ struct TodayView: View {
 
             if let errorMessage { ErrorMessage(message: errorMessage) }
 
-            if store.pieces.isEmpty {
+            if store.realPieces.isEmpty {
                 PraeludeEmptyState(title: "Start practicing", symbol: "pianokeys",
                                   message: "Add a piece and its PDF score, then choose a passage to practice.",
                                   actionTitle: "Add your first piece", action: onAddPiece)

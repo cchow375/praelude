@@ -104,7 +104,7 @@ final class RewardsRuntime {
         for passage in readyPassages.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
             guard !recordedPassageIDs.contains(passage.id) else { continue }
             try award(.performanceReadyPassage)
-            try celebrate(.passageReady, detail: MilestoneKind.passageReady.detail(passage.title), now: now, passageID: passage.id, pieceID: passage.pieceID)
+            try celebrate(.passageReady, detail: MilestoneKind.passageReady.detail(passage.title), now: now, pieceID: passage.pieceID, passageID: passage.id)
         }
         let pieces = store.state.pieces.filter { $0.id != WarmupsPiece.id && $0.deletedAt == nil }
         let recordedPieceIDs = Set(store.state.milestoneEvents.filter { $0.kind == MilestoneKind.pieceReady.rawValue }.compactMap(\.pieceID))

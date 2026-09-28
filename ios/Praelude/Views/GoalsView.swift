@@ -139,7 +139,7 @@ private struct GoalEditorView: View {
             Section {
                 Picker("Piece", selection: $draft.pieceID) {
                     Text("Any piece").tag(UUID?.none)
-                    ForEach(store.pieces) { piece in
+                    ForEach(store.realPieces) { piece in
                         Text(piece.title).tag(Optional(piece.id))
                     }
                 }
