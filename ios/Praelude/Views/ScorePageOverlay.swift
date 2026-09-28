@@ -53,7 +53,7 @@ enum ScorePassageBoxStyle {
     private var originalRegion: PassageRegion?
     private var drawingID = UUID()
     private var resizeCorner: Int?
-    private var selectionTap: UITapGestureRecognizer!
+    private(set) var selectionTap: UITapGestureRecognizer!
     private var quickBoxPreview: PassageRegion?
 
     init(page: Int, markup: ScoreMarkupState) {
@@ -174,8 +174,10 @@ enum ScorePassageBoxStyle {
         [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
          CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY)]
     }
-    @objc private func tap(_ recognizer: UITapGestureRecognizer) {
-        let point = recognizer.location(in: self)
+    @objc private func tap(_ recognizer: UITapGestureRecognizer) { handleTap(at: recognizer.location(in: self)) }
+    /// Point-based so tests can drive it directly without a live touch sequence (`UIGestureRecognizer.
+    /// location(in:)` has no public way to fake a location outside real touch tracking).
+    func handleTap(at point: CGPoint) {
         if markup.mode == .writing, markup.tool.kind == .stamp {
             handleStampTap(at: point); return
         }
