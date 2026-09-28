@@ -124,7 +124,8 @@ struct WarmupsView: View {
                                 if exercise.isFavorite { Image(systemName: "star.fill").font(.caption2) }
                                 Text(exercise.name).font(.subheadline.weight(.medium))
                             }
-                            .padding(.horizontal, 14).padding(.vertical, 9)
+                            .frame(minHeight: 44)
+                            .padding(.horizontal, 14)
                             .background(PraeludeColor.inkFillQuiet, in: Capsule())
                             .foregroundStyle(PraeludeColor.ink)
                         }.buttonStyle(.plain)
@@ -222,8 +223,8 @@ private struct WarmupKeyWheel: View {
     let neglectedKeys: Set<String>
     let onSelect: (String) -> Void
 
-    private let ringDiameter: CGFloat = 196
-    private let buttonSize: CGFloat = 40
+    private let ringDiameter: CGFloat = 216
+    private let buttonSize: CGFloat = 44 // the app's minimum touch target
     private var containerSize: CGFloat { ringDiameter + buttonSize + 4 }
 
     var body: some View {

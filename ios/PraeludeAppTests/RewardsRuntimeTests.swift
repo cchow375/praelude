@@ -139,6 +139,23 @@ final class RewardsRuntimeTests: XCTestCase {
         XCTAssertEqual(f.store.state.milestoneEvents.first { $0.kind == MilestoneKind.pieceReady.rawValue }?.pieceID, piece.id)
     }
 
+    @MainActor func testRankAndDivisionSnapshotStaysCurrentAsXPGrows() throws {
+        let f = fixture()
+        XCTAssertEqual(f.store.state.rewardsState.rank, "Unranked", "the struct default before anything is ever reconciled")
+        let piece = Piece(title: "Study")
+        try f.store.addPiece(piece)
+        for _ in 0..<3 {
+            try f.store.startSet(PracticeConfiguration(pieceID: piece.id, targetCount: 1, startBPM: 60, targetBPM: 60))
+            try f.store.record(.clean)
+            try f.store.endSet()
+        }
+        f.runtime.reconcile()
+        let totalXP = f.store.state.rewardLedger.reduce(0) { $0 + $1.xpDelta }
+        let expected = RewardsEngine.rankProgress(totalXP: totalXP)
+        XCTAssertEqual(f.store.state.rewardsState.rank, expected.rankName)
+        XCTAssertEqual(f.store.state.rewardsState.division, expected.division)
+    }
+
     // MARK: - Streak
 
     @MainActor func testQualifyingDayUpdatesStreakAndQueuesAMilestoneAtSevenDays() throws {

@@ -51,9 +51,11 @@ public struct MilestoneEvent: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
-/// Current standing (§14), derived by a future rewards engine from `rewardLedger` history and kept
-/// here as the fast-path snapshot the UI reads. A single settings-like record: record-level
-/// last-write-wins.
+/// Current standing (§14), derived from `rewardLedger`/session history by `RewardsRuntime.reconcile`
+/// (`Services/RewardsRuntime.swift`) and kept here as a persisted snapshot — today's `RewardsView`
+/// recomputes rank/division straight from the ledger for its own display, but a value that survives
+/// here without replaying the whole ledger is what a future profile/social sync reads. A single
+/// settings-like record: record-level last-write-wins.
 public struct RewardsState: Codable, Equatable, Sendable {
     public var rank: String = "Unranked"
     public var division: Int = 1

@@ -132,9 +132,19 @@ final class RewardsRuntime {
     }
 
     private func celebrateRankUpIfNeeded(xpBefore: Int) throws {
-        let before = RewardsEngine.rankProgress(totalXP: xpBefore).rank
+        let before = RewardsEngine.rankProgress(totalXP: xpBefore)
         let after = RewardsEngine.rankProgress(totalXP: totalXP)
-        guard after.rank > before else { return }
+        // `RewardsState.rank`/`.division` are documented as "the fast-path snapshot the UI reads"
+        // (Rewards.swift) — RewardsView actually recomputes from the ledger directly today, but a
+        // future profile/social sync (§4c: "ranks/badges") needs a persisted value to read without
+        // replaying the whole ledger, so keep it current here rather than leaving it dead at its
+        // struct default ("Unranked"/1) forever.
+        if after.rankName != store.state.rewardsState.rank || after.division != store.state.rewardsState.division {
+            var snapshot = store.state.rewardsState
+            snapshot.rank = after.rankName; snapshot.division = after.division
+            try store.updateRewardsState(snapshot)
+        }
+        guard after.rank > before.rank else { return }
         try celebrate(.rankUp, detail: MilestoneKind.rankUp.detail(after.rankName), now: Date())
     }
 
