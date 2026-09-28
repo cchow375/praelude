@@ -137,6 +137,7 @@ struct LibraryView: View {
                             LibraryPieceRow(piece: piece, lastPractice: lastPractice(piece.id))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("pieceRow")
                         .contextMenu {
                             Button("Open score", systemImage: "music.note") { onOpenPiece(piece.id) }
                             Button("Edit details", systemImage: "pencil") { sheet = .pieceDetails(piece) }
@@ -176,6 +177,7 @@ struct LibraryView: View {
                         ForEach(visiblePieces) { piece in
                             Button { onOpenPiece(piece.id) } label: { LibraryPieceGridCell(piece: piece) }
                                 .buttonStyle(.plain)
+                                .accessibilityIdentifier("pieceRow")
                                 .contextMenu {
                                     Button("Open score", systemImage: "music.note") { onOpenPiece(piece.id) }
                                     Button("Edit details", systemImage: "pencil") { sheet = .pieceDetails(piece) }

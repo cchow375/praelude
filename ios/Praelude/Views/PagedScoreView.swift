@@ -257,13 +257,26 @@ struct PagedScoreView: UIViewRepresentable {
                 parent.markup.conflictPage = nil; updateUndoState()
             }
         }
+        /// The source page a displayed page maps to. `effectivePages` (populated by `loadDocument`,
+        /// called from `makeUIView`/`updateUIView`) normally holds this piece's real effective
+        /// order; a Coordinator driven directly against a `view.document` set without going
+        /// through that path — as some white-box ink/hit-routing tests do — never populates it,
+        /// which (like a piece with no page edits at all) means the identity order: display page
+        /// N is source page N, exactly what `PageLayout.effectivePages` itself returns for an
+        /// empty `pageEdits` list.
+        private func sourcePage(forDisplayIndex displayIndex: Int) -> Int? {
+            guard displayIndex >= 1 else { return nil }
+            guard !effectivePages.isEmpty else { return displayIndex }
+            guard displayIndex <= effectivePages.count else { return nil }
+            return effectivePages[displayIndex - 1].sourcePage
+        }
         func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
             guard let document = view.document else { return nil }
             let displayIndex = document.index(for: page) + 1
             // Ink/passage regions stay anchored to the *source* page regardless of page-tool
             // reordering (see "(C) Schema3.md"); a generated blank/staff page has none, so it gets
             // no overlay at all — there is nothing on it for ink or passages to attach to.
-            guard displayIndex >= 1, displayIndex <= effectivePages.count, let number = effectivePages[displayIndex - 1].sourcePage else { return nil }
+            guard let number = sourcePage(forDisplayIndex: displayIndex) else { return nil }
             if let overlay = overlays[number] { return overlay }
             let overlay = ScorePageOverlay(page: number, markup: parent.markup)
             overlay.inkReadOnly = !parent.allowsInk
@@ -444,8 +457,7 @@ struct PagedScoreView: UIViewRepresentable {
                 parent.onLinkActivated(link)
                 return
             }
-            if displayIndex >= 1, displayIndex <= effectivePages.count, let sourcePage = effectivePages[displayIndex - 1].sourcePage,
-               let overlay = overlays[sourcePage] {
+            if let sourcePage = sourcePage(forDisplayIndex: displayIndex), let overlay = overlays[sourcePage] {
                 let point = overlay.convert(recognizer.location(in: view), from: view)
                 if let region = overlay.displayedRegions.reversed().first(where: { $0.page == overlay.pageNumber && $0.rect(in: overlay.bounds.size).contains(point) }) {
                     parent.onRegionSelected(region.id)

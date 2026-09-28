@@ -12,14 +12,35 @@ final class LibraryUITests: XCTestCase {
         return app
     }
     @MainActor private func goToLibrary(_ app: XCUIApplication) {
-        if !app.buttons["Pieces"].waitForExistence(timeout: 2) {
-            let showSidebar = app.buttons["Show Sidebar"]
-            if showSidebar.waitForExistence(timeout: 1), showSidebar.isHittable { showSidebar.press(forDuration: 0.15) }
-        }
         let pieces = app.buttons["Pieces"]
+        if !pieces.waitForExistence(timeout: 2) {
+            // On this simulator host the split view's sidebar can start collapsed, and (as
+            // PraeludeUITests's own comment on the same simulator notes) a single 150 ms press
+            // is sometimes lost — retry a few times rather than assume one press lands.
+            let showSidebar = app.buttons["Show Sidebar"]
+            for _ in 0..<5 {
+                if pieces.waitForExistence(timeout: 1) { break }
+                if showSidebar.exists, showSidebar.isHittable { showSidebar.press(forDuration: 0.15) }
+            }
+        }
         XCTAssertTrue(pieces.waitForExistence(timeout: 5), app.debugDescription)
         pieces.press(forDuration: 0.15)
         XCTAssertTrue(app.navigationBars["Pieces"].waitForExistence(timeout: 5), app.debugDescription)
+        // The sidebar can remain open as a persistent column at this width, leaving its "On your
+        // music stand" shortcut list (the same piece titles the tests below assert about) on
+        // screen alongside the Pieces list it just navigated to. Collapse it so every assertion
+        // below is scoped to the single, unambiguous Pieces screen — matching the Hide-Sidebar-
+        // first convention every other UI test file in this target already uses.
+        collapseSidebarIfShown(app)
+        XCTAssertTrue(app.navigationBars["Pieces"].waitForExistence(timeout: 5), app.debugDescription)
+    }
+    /// Presenting/dismissing a `.sheet()` (Folders, Setlists, Add piece…) can re-expand the
+    /// sidebar as a persistent column on this device width even after `goToLibrary` already
+    /// collapsed it once — collapse it again wherever a test is about to check for a piece title
+    /// that also appears in the sidebar's own "On your music stand" shortcut list.
+    @MainActor private func collapseSidebarIfShown(_ app: XCUIApplication) {
+        let hideSidebar = app.buttons["Hide Sidebar"]
+        if hideSidebar.waitForExistence(timeout: 1), hideSidebar.isHittable { hideSidebar.press(forDuration: 0.15) }
     }
     @MainActor private func screenshot(_ name: String) {
         RunLoop.current.run(until: Date().addingTimeInterval(0.4))
@@ -30,11 +51,17 @@ final class LibraryUITests: XCTestCase {
     @MainActor func testGridAndListToggleShowTheSamePieces() {
         let app = launch()
         goToLibrary(app)
-        XCTAssertTrue(app.staticTexts["Practice study"].waitForExistence(timeout: 5), app.debugDescription)
+        // Identifier, not a "Practice study" text match: that text can also match the same
+        // piece's row on Today or the sidebar's "On your music stand" shortcut list, which this
+        // identifier — set only on `LibraryView`'s own list/grid rows — cannot. `.firstMatch`
+        // (not a bare subscript) throughout this file: a SwiftUI transition can briefly render a
+        // row twice, and a bracket lookup demands exactly one match at the instant it resolves.
+        let pieceRow = app.buttons.matching(identifier: "pieceRow").firstMatch
+        XCTAssertTrue(pieceRow.waitForExistence(timeout: 5), app.debugDescription)
         screenshot("library-list")
         app.buttons["Grid view"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["List view"].waitForExistence(timeout: 5), "Toggling to grid must flip the same button back to \u{201c}List view\u{201d}")
-        XCTAssertTrue(app.staticTexts["Practice study"].waitForExistence(timeout: 5), "The same piece must still be visible in grid layout")
+        XCTAssertTrue(pieceRow.waitForExistence(timeout: 5), "The same piece must still be visible in grid layout")
         screenshot("library-grid")
         app.buttons["List view"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["Grid view"].waitForExistence(timeout: 5))
@@ -43,13 +70,14 @@ final class LibraryUITests: XCTestCase {
     @MainActor func testThreeWayCollectionFilterSeparatesActiveCompletedAndResting() {
         let app = launch()
         goToLibrary(app)
-        XCTAssertTrue(app.staticTexts["Practice study"].waitForExistence(timeout: 5))
+        let pieceRow = app.buttons.matching(identifier: "pieceRow").firstMatch
+        XCTAssertTrue(pieceRow.waitForExistence(timeout: 5))
         app.buttons["Completed"].press(forDuration: 0.15)
-        XCTAssertFalse(app.staticTexts["Practice study"].exists, "A still-Active piece must not show under Completed")
+        XCTAssertFalse(pieceRow.exists, "A still-Active piece must not show under Completed")
         app.buttons["Resting"].press(forDuration: 0.15)
-        XCTAssertFalse(app.staticTexts["Practice study"].exists, "A still-Active piece must not show under Resting")
+        XCTAssertFalse(pieceRow.exists, "A still-Active piece must not show under Resting")
         app.buttons["Active"].press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["Practice study"].waitForExistence(timeout: 5))
+        XCTAssertTrue(pieceRow.waitForExistence(timeout: 5))
     }
 
     @MainActor func testCreateFolderFilterByItThenClearTheFilter() {
@@ -64,12 +92,14 @@ final class LibraryUITests: XCTestCase {
         let recitalRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Recital")).firstMatch
         XCTAssertTrue(recitalRow.waitForExistence(timeout: 5), app.debugDescription)
         recitalRow.press(forDuration: 0.15)
+        collapseSidebarIfShown(app)
+        let pieceRow = app.buttons.matching(identifier: "pieceRow").firstMatch
         // Selecting an empty folder filters every piece out of the current (Active) tab.
         XCTAssertTrue(app.staticTexts["Recital"].waitForExistence(timeout: 5), "The active-filter chip must show the folder's name")
-        XCTAssertFalse(app.staticTexts["Practice study"].exists, "No piece has been added to the new folder yet")
+        XCTAssertFalse(pieceRow.exists, "No piece has been added to the new folder yet")
         screenshot("library-folder-filter")
         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Clear Recital filter")).firstMatch.press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["Practice study"].waitForExistence(timeout: 5), "Clearing the filter must restore the full Active list")
+        XCTAssertTrue(pieceRow.waitForExistence(timeout: 5), "Clearing the filter must restore the full Active list")
     }
 
     @MainActor func testCreateSetlistAddAPieceAndOpenIt() {
@@ -84,11 +114,18 @@ final class LibraryUITests: XCTestCase {
         let setlistRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Spring recital")).firstMatch
         XCTAssertTrue(setlistRow.waitForExistence(timeout: 5), app.debugDescription)
         setlistRow.press(forDuration: 0.15)
-        app.buttons["Add piece"].press(forDuration: 0.15)
-        let pieceRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Practice study")).firstMatch
+        // Distinct identifier from LibraryView's own, identically-labeled "Add piece" toolbar
+        // button — a plain label lookup here is ambiguous once both can appear in the same
+        // accessibility tree (the sheet's setlist detail screen sits over the Pieces list).
+        app.buttons.matching(identifier: "addSetlistPiece").firstMatch.press(forDuration: 0.15)
+        // Identifier, not a "Practice study" label match: that text is ambiguous with the same
+        // piece's row on Today/the sidebar, which can still be present elsewhere in the tree
+        // while this sheet is up (see `AddSetlistItemView`'s own comment on the same ambiguity).
+        let pieceRow = app.buttons.matching(identifier: "addSetlistItem").firstMatch
         XCTAssertTrue(pieceRow.waitForExistence(timeout: 5), app.debugDescription)
         pieceRow.press(forDuration: 0.15)
-        let start = app.buttons["Start"]
+        collapseSidebarIfShown(app)
+        let start = app.buttons.matching(identifier: "Start").firstMatch
         XCTAssertTrue(start.waitForExistence(timeout: 5), "\u{201c}Open in order\u{201d} must offer Start once the setlist has a piece")
         screenshot("library-setlist")
         start.press(forDuration: 0.15)

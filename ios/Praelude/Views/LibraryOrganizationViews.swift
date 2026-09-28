@@ -235,7 +235,10 @@ private struct SetlistDetailView: View {
         .scrollContentBackground(.hidden).background(PraeludeColor.paper)
         .navigationTitle(setlist?.name ?? "Setlist").navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { Button("Add piece", systemImage: "plus") { addingPiece = true } }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Add piece", systemImage: "plus") { addingPiece = true }
+                    .accessibilityIdentifier("addSetlistPiece") // Distinct from LibraryView's own "Add piece" (same label, adds a new piece to the whole library, not to this setlist).
+            }
             ToolbarItem(placement: .topBarTrailing) { EditButton() }
         }
         .sheet(isPresented: $addingPiece) { AddSetlistItemView(onAdd: appendItem) }
@@ -292,6 +295,10 @@ private struct AddSetlistItemView: View {
                         if !piece.composer.isEmpty { Text(piece.composer).font(.caption).foregroundStyle(.secondary) }
                     }.frame(minHeight: 44)
                 }
+                // A plain "contains the piece title" text match is ambiguous with this same
+                // piece's row on Today/the sidebar, which can still be present (elsewhere in the
+                // view hierarchy) while this sheet is up.
+                .accessibilityIdentifier("addSetlistItem")
             }
             .searchable(text: $search, prompt: "Title or composer")
             .navigationTitle("Add piece").navigationBarTitleDisplayMode(.inline)

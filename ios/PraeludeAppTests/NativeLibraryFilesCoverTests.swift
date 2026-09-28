@@ -88,6 +88,11 @@ final class NativeLibraryFilesCoverTests: XCTestCase {
         try store.addPiece(piece)
         let coverBytes = jpegData(color: .green)
         piece = try files.saveCustomCover(coverBytes, for: piece)
+        // `saveCustomCover` re-encodes JPEG input (see its own doc comment), so the file it
+        // actually wrote — not the pre-save `coverBytes` — is the correct "never lose user data"
+        // baseline for a backup/restore round trip.
+        let savedCoverURL = try XCTUnwrap(files.coverURL(for: piece))
+        let savedCoverBytes = try Data(contentsOf: savedCoverURL)
 
         let backup = try files.makeBackup()
         let restoreRoot = FileManager.default.temporaryDirectory.appendingPathComponent("Praelude-Covers-Restore-\(UUID().uuidString)", isDirectory: true)
@@ -99,7 +104,7 @@ final class NativeLibraryFilesCoverTests: XCTestCase {
         let restoredPiece = try XCTUnwrap(restoredStore.pieces.first)
         XCTAssertNotNil(restoredPiece.customCoverRef)
         let restoredCoverURL = try XCTUnwrap(NativeLibraryFiles(store: restoredStore).coverURL(for: restoredPiece))
-        XCTAssertEqual(try Data(contentsOf: restoredCoverURL).count, coverBytes.count)
+        XCTAssertEqual(try Data(contentsOf: restoredCoverURL), savedCoverBytes)
         XCTAssertNotNil(UIImage(contentsOfFile: restoredCoverURL.path))
     }
 

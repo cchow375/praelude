@@ -19,20 +19,38 @@ enum ScoreScanImport {
     private static let maxDimension: CGFloat = 2200
 
     /// Best-effort document cleanup (contrast/shadow correction tuned for a photographed page) via
-    /// Core Image's built-in document-enhancer filter. Falls back to the untouched image on any
-    /// failure to construct or run the filter — a page that cannot be enhanced still belongs in the
-    /// PDF, just unenhanced, rather than dropped. Thread-safe: Core Image contexts do not touch
-    /// UIKit's main-thread-only state, so this is safe to call from a background `Task`.
+    /// Core Image's built-in document-enhancer filter. Falls back to the untouched (but still
+    /// upright-normalized) image on any failure to construct or run the filter — a page that
+    /// cannot be enhanced still belongs in the PDF, just unenhanced, rather than dropped.
+    /// Thread-safe: neither `normalizedOrientation`'s `UIGraphicsImageRenderer` draw nor Core
+    /// Image's context touch UIKit's main-thread-only state, so this is safe to call from a
+    /// background `Task`.
     static func cleaned(_ image: UIImage) -> UIImage {
-        // `.applyOrientationProperty` bakes the UIImage's own orientation into the CIImage's
-        // pixels up front, so the filtered result is always upright without a separate re-rotate
-        // step, whichever way a camera or photo-library image happened to be shot.
-        guard let input = CIImage(image: image, options: [.applyOrientationProperty: true]) else { return image }
+        // Redraw upright first rather than relying on CIImage's own `.applyOrientationProperty`
+        // to read the orientation back off the image: that only reliably works from real EXIF
+        // metadata (a genuine photo-library JPEG), not every `imageOrientation` a UIImage can
+        // carry, so a filter run directly against a non-EXIF-backed rotated image can silently
+        // keep the filter's raw (still sideways) pixel shape. `UIImage.draw(in:)` always applies
+        // `imageOrientation` when rendering, whichever way it was set, so this is reliable either way.
+        let upright = normalizedOrientation(image)
+        guard let input = CIImage(image: upright) else { return upright }
         let filter = CIFilter.documentEnhancer()
         filter.inputImage = input
         let context = CIContext()
-        guard let output = filter.outputImage, let cg = context.createCGImage(output, from: input.extent) else { return image }
-        return UIImage(cgImage: cg, scale: image.scale, orientation: .up)
+        guard let output = filter.outputImage, let cg = context.createCGImage(output, from: input.extent) else { return upright }
+        return UIImage(cgImage: cg, scale: upright.scale, orientation: .up)
+    }
+
+    /// Redraws `image` into a fresh `.up`-oriented bitmap when it isn't already one. A plain
+    /// `draw(in:)` always honors `imageOrientation`, so this is a reliable normalization
+    /// regardless of whether the source carries real EXIF orientation metadata.
+    private static func normalizedOrientation(_ image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up else { return image }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
     }
 
     /// Renders `images` into one PDF, one page per image at that image's own aspect ratio, each

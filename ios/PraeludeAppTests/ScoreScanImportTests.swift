@@ -5,9 +5,14 @@ import XCTest
 
 final class ScoreScanImportTests: XCTestCase {
     /// A plain solid-color image at a given pixel size — enough to exercise layout/aspect-ratio and
-    /// the document-enhancer filter without needing a real scanned photo.
+    /// the document-enhancer filter without needing a real scanned photo. Pinned to `scale = 1` so
+    /// `size` points and the underlying `cgImage`'s pixel dimensions always match 1:1 regardless of
+    /// the host simulator's own screen scale — `testCleanedNormalizesOrientationSoDrawnSizeMatchesTheVisualSize`
+    /// below reinterprets that `cgImage` at an explicit `scale: 1`, which only holds with this pinned.
     private func image(size: CGSize, color: UIColor) -> UIImage {
-        UIGraphicsImageRenderer(size: size).image { context in
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
             color.setFill(); context.fill(CGRect(origin: .zero, size: size))
         }
     }
