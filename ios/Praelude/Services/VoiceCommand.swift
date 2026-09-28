@@ -2,8 +2,21 @@ import Foundation
 
 /// The entire voice hot loop. Only complete, explicitly recognized phrases are actions.
 /// The recognizer never evaluates piano audio or sends these commands to a model.
+///
+/// §9's fixed vocabulary in three groups: warm verdicts (`clean`/`sloppy`/`again`/`undo`), set
+/// control (`start`/`stop`/`pause`/`slower`/`faster`/`setTempo`/`metronomeStart`/`metronomeStop`/
+/// `next`), and cold-attempt grading (`clean`/`shaky`/`missed` — `clean` is shared with the warm
+/// scale since a cold Clean and a warm Clean are the same spoken word; which one a heard "clean"
+/// means is a caller-side question of whether a cold grade is currently being asked for, not a
+/// parsing question). Every case here is a complete, exact phrase match — no substring or fuzzy
+/// matching — so an ambient conversational fragment ("no thanks", "again, like I said...") can
+/// never masquerade as a command. See "(C) Flaws.md" A1/B24 for why that firewall matters: real use
+/// at an acoustic instrument produced both missed words and false positives from ordinary speech.
 enum VoiceCommand: Equatable, Sendable {
     case clean, sloppy, again, undo, pause, resume
+    case shaky, missed
+    case start, stop, next
+    case slower, faster
     case metronomeStart, metronomeStop
     case setTempo(Double)
     case nextPage, previousPage
@@ -19,6 +32,13 @@ enum VoiceCommand: Equatable, Sendable {
         case "undo": return .undo
         case "pause": return .pause
         case "resume": return .resume
+        case "shaky": return .shaky
+        case "missed": return .missed
+        case "start": return .start
+        case "stop": return .stop
+        case "next": return .next
+        case "slower": return .slower
+        case "faster": return .faster
         case "metronome start", "start metronome", "metronome on": return .metronomeStart
         case "metronome stop", "stop metronome", "metronome off": return .metronomeStop
         case "next page": return .nextPage
