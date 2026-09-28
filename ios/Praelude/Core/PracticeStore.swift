@@ -164,7 +164,7 @@ import Observation
             // Ordinal = position in the caller's own array, before any filtering below, so splitting
             // the same drawing the same way on two devices assigns the same ordinal — and therefore
             // the same stable id (see `InkStroke.stableID`) — to the same stroke on both.
-            var remainingNew: [(ordinal: Int, data: Data)] = Array(strokes.enumerated())
+            var remainingNew: [(ordinal: Int, data: Data)] = strokes.enumerated().map { (ordinal: $0.offset, data: $0.element) }
             for index in next.inkStrokes.indices
             where next.inkStrokes[index].pieceID == pieceID && next.inkStrokes[index].page == page
                 && next.inkStrokes[index].layer == layer && next.inkStrokes[index].deletedAt == nil {
@@ -176,7 +176,18 @@ import Observation
             }
             for (ordinal, data) in remainingNew {
                 let id = InkStroke.stableID(pieceID: pieceID, page: page, layer: layer, data: data, ordinal: ordinal)
-                next.inkStrokes.append(InkStroke(id: id, pieceID: pieceID, page: page, layer: layer, data: data, createdAt: date, updatedAt: date))
+                // Several new rows can land in the same flush (e.g. splitting a legacy multi-stroke
+                // page blob into per-stroke rows for the first time). A shared `date` would make their
+                // draw order (see `inkStrokes`' `createdAt` sort) depend on however `Set`/dictionary
+                // iteration happens to break the tie — not deterministic, and not necessarily the
+                // z-order the strokes were actually drawn in. Spacing new rows a microsecond apart by
+                // their ordinal (their position in the caller's full current array) keeps that order
+                // exact without changing the model: two strokes overlapping (e.g. a highlighter under
+                // a correction) always redraw in their original relative order, on every device that
+                // performs the same split. Real previously-kept rows are never touched here, so this
+                // never perturbs an already-stable `createdAt`.
+                let stamp = date.addingTimeInterval(Double(ordinal) * 0.000_001)
+                next.inkStrokes.append(InkStroke(id: id, pieceID: pieceID, page: page, layer: layer, data: data, createdAt: stamp, updatedAt: stamp))
             }
         }
     }

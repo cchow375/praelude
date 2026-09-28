@@ -750,7 +750,11 @@ final class PracticeCoreTests: XCTestCase {
         XCTAssertThrowsError(try store.savePassage(stale, replacing: newer), "Saving a stale editor must not resurrect a deleted passage")
         var unrelated = original; unrelated.id = UUID()
         XCTAssertThrowsError(try store.savePassage(unrelated, replacing: original))
-        XCTAssertTrue(store.state.passages.isEmpty)
+        // §8: delete archives (tombstones) rather than erasing — the row survives with `archived`/
+        // `deletedAt` set, not removed from `state.passages`.
+        XCTAssertEqual(store.state.passages.map(\.id), [newer.id])
+        XCTAssertEqual(store.state.passages.first?.archived, true)
+        XCTAssertNotNil(store.state.passages.first?.deletedAt)
     }
 
     @MainActor func testPracticeKeepsOriginalVisualPassageAfterEditingAndDeleting() async throws {

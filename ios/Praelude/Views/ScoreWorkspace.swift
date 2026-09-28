@@ -39,7 +39,8 @@ struct ScoreWorkspace: View {
     private var piece: Piece? { store.state.pieces.first { $0.id == pieceID } }
     private var active: ActiveSet? { store.activeSet?.configuration.pieceID == pieceID ? store.activeSet : nil }
     private var scoreURL: URL? { piece.flatMap { NativeLibraryFiles(store: store).scoreURL(for: $0) } }
-    private var savedPassages: [Passage] { store.state.passages.filter { $0.pieceID == pieceID } }
+    // §8: `deletePassage` archives (tombstones) rather than erasing, so every list must filter it out.
+    private var savedPassages: [Passage] { store.state.passages.filter { $0.pieceID == pieceID && !$0.archived } }
     private var visibleRegions: [PassageRegion] {
         let snapshot = active?.configuration.passageSnapshot?.regions ?? []
         let snapshotIDs = Set(snapshot.map(\.id))

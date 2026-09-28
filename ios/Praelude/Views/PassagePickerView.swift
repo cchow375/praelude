@@ -12,8 +12,9 @@ struct PassagePickerView: View {
     let onSelect: (Passage) -> Void
     var onDraw: (Passage?) -> Void = { _ in }
     private var piece: Piece? { store.pieces.first { $0.id == pieceID } }
+    // §8: `deletePassage` archives (tombstones) rather than erasing, so every list must filter it out.
     private var passages: [Passage] {
-        store.state.passages.filter { $0.pieceID == pieceID }.sorted {
+        store.state.passages.filter { $0.pieceID == pieceID && !$0.archived }.sorted {
             $0.page == $1.page ? $0.title.localizedStandardCompare($1.title) == .orderedAscending : $0.page < $1.page
         }
     }
