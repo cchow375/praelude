@@ -2,19 +2,26 @@ import Foundation
 
 // MARK: - Deterministic per-stroke identity (§7 annotate track)
 //
-// `PracticeStore.replaceInk` already stores an arbitrary array of stroke blobs per page/layer and
-// keeps an existing row's id/createdAt stable whenever its content still matches (see
-// "(C) Schema3.md" — "Ink: per-stroke storage"). The one gap: a genuinely *new* row's id was a
-// random `UUID()`, so splitting the same legacy whole-page blob into per-stroke rows on two
-// devices (or twice on one device, before either has synced) produced two different id sets for
-// identical content. This file closes that gap: a new row's id is derived from stable inputs, so
-// the same split always converges on the same ids everywhere it runs.
+// `PracticeStore.replaceInk` stores an arbitrary array of stroke blobs per page/layer and keeps an
+// existing row's id/createdAt stable whenever its content still matches (see "(C) Schema3.md" —
+// "Ink: per-stroke storage"). A genuinely *new* row's id must be derived from stable inputs, not a
+// random `UUID()`, so splitting the same drawing into per-stroke rows on two devices (or twice on
+// one device, before either has synced) converges on the same ids for identical content.
+//
+// The `data` passed in is *not* automatically a stable input to hash: `PKDrawing`'s own binary
+// format embeds a fresh random value on every independent construction (confirmed empirically —
+// re-encoding one already-built `PKDrawing` twice is stable, but building two separate `PKDrawing`
+// values from identical `PKStroke` content is not), so hashing raw re-serialized PencilKit bytes
+// would never converge. `InkPerStroke.fingerprint` is the app layer's fix: a manually-extracted,
+// PencilKit-serializer-independent encoding of a stroke's own geometry, passed here as `data`
+// through `PracticeStore.InkStrokeInput.fingerprint` (`replaceInk` uses `fingerprint ?? data`) —
+// this file only needs a stable `Data` to hash, and does not care which one it was given.
 
 extension InkStroke {
     /// A deterministic id for a brand-new ink row, used by `PracticeStore.replaceInk` in place of
     /// a random `UUID()`. Two devices (or two runs) that independently split the same drawing into
-    /// the same ordered per-stroke blobs — the scenario `PagedScoreView`'s `InkPerStroke.split`
-    /// guarantees — compute the identical id for the identical stroke, so a future sync engine sees
+    /// the same ordered per-stroke content — the scenario `InkPerStroke.split`'s fingerprints
+    /// guarantee — compute the identical id for the identical stroke, so a future sync engine sees
     /// one row appearing twice rather than two unrelated rows.
     ///
     /// Never built from `Hasher`/`hashValue`: Swift randomizes those per process (by design, to

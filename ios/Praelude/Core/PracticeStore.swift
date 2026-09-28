@@ -145,37 +145,55 @@ import Observation
         state.inkStrokes.filter { $0.pieceID == pieceID && $0.page == page && $0.deletedAt == nil && (layer == nil || $0.layer == layer) }
             .sorted { $0.createdAt < $1.createdAt }
     }
-    /// Replaces one page/layer's ink with exactly the given strokes (§4d/§7). Diffs by content
-    /// against the rows already stored for that page/layer: a blob that already exists keeps its
-    /// id/createdAt (so an untouched stroke never looks "updated" to a future sync engine), a blob
-    /// no longer present is tombstoned, and a new blob becomes a new row — so replicas can merge
-    /// annotations by stroke instead of by whole page. Native callers validate PencilKit encoding
-    /// before calling this Foundation-only boundary.
+    /// One new ink row to write via `replaceInk`. `fingerprint` is what identity/diffing is based on
+    /// when present (see `InkStroke.fingerprint`); `nil` falls back to `data` itself, exactly
+    /// matching this method's original (pre-fingerprint) behavior.
+    public struct InkStrokeInput: Sendable {
+        public var data: Data
+        public var fingerprint: Data?
+        public init(data: Data, fingerprint: Data? = nil) { self.data = data; self.fingerprint = fingerprint }
+    }
+    /// Compatibility overload: every stroke's own bytes are its identity, exactly as before this
+    /// type existed. This is what the whole-page shim (`saveDrawing`) still calls, unchanged.
     public func replaceInk(pieceID: UUID, page: Int, layer: InkLayer, strokes: [Data]) throws {
+        try replaceInk(pieceID: pieceID, page: page, layer: layer, strokes: strokes.map { InkStrokeInput(data: $0) })
+    }
+    /// Replaces one page/layer's ink with exactly the given strokes (§4d/§7). Diffs by content
+    /// (`fingerprint ?? data`) against the rows already stored for that page/layer: a stroke whose
+    /// key already exists keeps its id/createdAt (so an untouched stroke never looks "updated" to a
+    /// future sync engine), a key no longer present is tombstoned, and a new key becomes a new row —
+    /// so replicas can merge annotations by stroke instead of by whole page. A caller that can
+    /// compute a real content fingerprint (see `InkPerStroke.fingerprint`) gets identity that
+    /// survives PencilKit re-serializing the same stroke to different bytes; the whole-page overload
+    /// above does not need to, since it always re-diffs its single row against its own prior save.
+    /// Native callers validate PencilKit encoding before calling this Foundation-only boundary.
+    public func replaceInk(pieceID: UUID, page: Int, layer: InkLayer, strokes: [InkStrokeInput]) throws {
         let date = now()
         try transaction { next in
             guard let piece = next.pieces.first(where: { $0.id == pieceID }), piece.pdfFileName != nil,
                   page >= 1, page <= piece.pageCount else { throw PracticeError.invalid("Choose an existing score page before saving ink.") }
             for stroke in strokes {
-                guard !stroke.isEmpty, stroke.count <= Self.maximumDrawingBytes else {
+                guard !stroke.data.isEmpty, stroke.data.count <= Self.maximumDrawingBytes else {
                     throw PracticeError.invalid("This page has reached the supported 8 MB of ink.")
                 }
             }
             // Ordinal = position in the caller's own array, before any filtering below, so splitting
             // the same drawing the same way on two devices assigns the same ordinal — and therefore
             // the same stable id (see `InkStroke.stableID`) — to the same stroke on both.
-            var remainingNew: [(ordinal: Int, data: Data)] = strokes.enumerated().map { (ordinal: $0.offset, data: $0.element) }
+            var remainingNew: [(ordinal: Int, input: InkStrokeInput)] = strokes.enumerated().map { (ordinal: $0.offset, input: $0.element) }
             for index in next.inkStrokes.indices
             where next.inkStrokes[index].pieceID == pieceID && next.inkStrokes[index].page == page
                 && next.inkStrokes[index].layer == layer && next.inkStrokes[index].deletedAt == nil {
-                if let match = remainingNew.firstIndex(where: { $0.data == next.inkStrokes[index].data }) {
+                let existingKey = next.inkStrokes[index].fingerprint ?? next.inkStrokes[index].data
+                if let match = remainingNew.firstIndex(where: { ($0.input.fingerprint ?? $0.input.data) == existingKey }) {
                     remainingNew.remove(at: match)
                 } else {
                     next.inkStrokes[index].deletedAt = date; next.inkStrokes[index].updatedAt = date
                 }
             }
-            for (ordinal, data) in remainingNew {
-                let id = InkStroke.stableID(pieceID: pieceID, page: page, layer: layer, data: data, ordinal: ordinal)
+            for (ordinal, input) in remainingNew {
+                let key = input.fingerprint ?? input.data
+                let id = InkStroke.stableID(pieceID: pieceID, page: page, layer: layer, data: key, ordinal: ordinal)
                 // Several new rows can land in the same flush (e.g. splitting a legacy multi-stroke
                 // page blob into per-stroke rows for the first time). A shared `date` would make their
                 // draw order (see `inkStrokes`' `createdAt` sort) depend on however `Set`/dictionary
@@ -187,7 +205,8 @@ import Observation
                 // performs the same split. Real previously-kept rows are never touched here, so this
                 // never perturbs an already-stable `createdAt`.
                 let stamp = date.addingTimeInterval(Double(ordinal) * 0.000_001)
-                next.inkStrokes.append(InkStroke(id: id, pieceID: pieceID, page: page, layer: layer, data: data, createdAt: stamp, updatedAt: stamp))
+                next.inkStrokes.append(InkStroke(id: id, pieceID: pieceID, page: page, layer: layer, data: input.data,
+                                                 fingerprint: input.fingerprint, createdAt: stamp, updatedAt: stamp))
             }
         }
     }
@@ -778,8 +797,9 @@ import Observation
         for stroke in state.inkStrokes {
             let piece = state.pieces.first { $0.id == stroke.pieceID }
             try require(piece?.pdfFileName != nil && stroke.page >= 1 && stroke.page <= (piece?.pageCount ?? 0), "A stroke references a missing score page.")
-            try require(!stroke.data.isEmpty && stroke.data.count <= maximumDrawingBytes && date(stroke.createdAt) && date(stroke.updatedAt) && stroke.deletedAt.map(date) != false,
-                        "A stroke is empty, exceeds the supported 8 MB size, or has an invalid date.")
+            try require(!stroke.data.isEmpty && stroke.data.count <= maximumDrawingBytes && (stroke.fingerprint?.count ?? 0) <= 8192
+                        && date(stroke.createdAt) && date(stroke.updatedAt) && stroke.deletedAt.map(date) != false,
+                        "A stroke is empty, exceeds the supported 8 MB size, or has an invalid fingerprint or date.")
             inkBytes += stroke.data.count
             try require(inkBytes <= maximumTotalDrawingBytes, "The library has reached its supported 32 MB of ink. Export a backup before continuing.")
         }

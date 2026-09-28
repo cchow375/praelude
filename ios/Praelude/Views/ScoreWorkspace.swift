@@ -382,7 +382,10 @@ struct ScoreWorkspace: View {
     private func persistInk(_ page: Int, _ data: Data, _ expected: Data?) -> Bool {
         do {
             guard mergedInkData(page) == expected else { markup.conflictPage = page; return false }
-            let strokes = data.isEmpty ? [] : InkPerStroke.split(try PKDrawing(data: data))
+            // `reusing:` lets an unchanged stroke keep its own previously-stored bytes instead of a
+            // fresh (but pointlessly different) re-serialization — see InkPerStroke's own doc.
+            let existingRows = store.inkStrokes(pieceID: pieceID, page: page, layer: markup.activeLayer)
+            let strokes = data.isEmpty ? [] : InkPerStroke.split(try PKDrawing(data: data), reusing: existingRows)
             try store.replaceInk(pieceID: pieceID, page: page, layer: markup.activeLayer, strokes: strokes)
             return true
         } catch { markup.errorMessage = "Ink could not be saved. \(error.localizedDescription)"; return false }

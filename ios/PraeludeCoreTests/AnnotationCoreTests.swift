@@ -97,6 +97,56 @@ final class AnnotationCoreTests: XCTestCase {
         XCTAssertEqual(store.inkStrokes(pieceID: piece.id, page: 1).map(\.data), split, "Re-flushing identical content must not duplicate rows")
     }
 
+    /// The realistic cross-device scenario: two replicas independently re-serialize "the same"
+    /// stroke into *different* raw bytes (exactly what real `PKDrawing` re-serialization does — see
+    /// `InkPerStroke`'s own doc), but agree on its `fingerprint`. Ids must still converge, proving
+    /// `replaceInk`'s `fingerprint ?? data` fallback is what identity is actually keyed on.
+    @MainActor func testReplaceInkConvergesOnFingerprintEvenWhenRawDataBytesDifferAcrossDevices() async throws {
+        let (deviceA, directoryA, piece) = try store()
+        let (deviceB, directoryB, _) = try store()
+        defer { try? FileManager.default.removeItem(at: directoryA); try? FileManager.default.removeItem(at: directoryB) }
+        try deviceB.addPiece(Piece(id: piece.id, title: "unused", pdfFileName: "x.pdf", pageCount: 1))
+        let fingerprint = Data([0xAA, 0xBB, 0xCC])
+        try deviceA.replaceInk(pieceID: piece.id, page: 1, layer: .mine,
+                              strokes: [.init(data: Data([1, 1, 1]), fingerprint: fingerprint)])
+        try deviceB.replaceInk(pieceID: piece.id, page: 1, layer: .mine,
+                              strokes: [.init(data: Data([2, 2, 2, 2]), fingerprint: fingerprint)])
+        let rowA = try XCTUnwrap(deviceA.inkStrokes(pieceID: piece.id, page: 1).first)
+        let rowB = try XCTUnwrap(deviceB.inkStrokes(pieceID: piece.id, page: 1).first)
+        XCTAssertEqual(rowA.id, rowB.id, "Different stored bytes, same fingerprint, must still converge on the same row id")
+        XCTAssertNotEqual(rowA.data, rowB.data, "This is the realistic case — raw PencilKit bytes are not expected to match")
+    }
+
+    /// A stroke with the same `fingerprint` as an existing row is recognized as unchanged (keeps its
+    /// id/createdAt) *even when its freshly re-serialized `data` differs* — the whole point of
+    /// separating fingerprint from data.
+    @MainActor func testReplaceInkTreatsAMatchingFingerprintAsUnchangedRegardlessOfDataBytes() async throws {
+        let (store, directory, piece) = try store()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fingerprint = Data([9, 9, 9])
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [.init(data: Data([1]), fingerprint: fingerprint)])
+        let before = try XCTUnwrap(store.inkStrokes(pieceID: piece.id, page: 1).first)
+        // Same fingerprint, deliberately different `data` (as a real re-serialization would produce).
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [.init(data: Data([1, 2, 3, 4, 5]), fingerprint: fingerprint)])
+        let after = try XCTUnwrap(store.inkStrokes(pieceID: piece.id, page: 1).first)
+        XCTAssertEqual(after.id, before.id)
+        XCTAssertEqual(after.createdAt, before.createdAt, "Matched-by-fingerprint must never look updated")
+        // A matched row is left completely untouched — not even `data` is overwritten — which is
+        // stronger than strictly necessary but exactly "never looks updated" taken to its full
+        // conclusion. `InkPerStroke.split`'s own `reusing:` already only ever offers back a matched
+        // row's *own* original bytes anyway, so this never arises from real call sites.
+        XCTAssertEqual(after.data, Data([1]), "A fingerprint match must not even overwrite the stored bytes")
+    }
+
+    @MainActor func testReplaceInkPlainDataOverloadStillUsesDataAsItsOwnIdentityUnchanged() async throws {
+        let (store, directory, piece) = try store()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [Data([5, 5, 5])])
+        let row = try XCTUnwrap(store.inkStrokes(pieceID: piece.id, page: 1).first)
+        XCTAssertNil(row.fingerprint, "The compatibility overload must not synthesize a fingerprint")
+        XCTAssertEqual(row.id, InkStroke.stableID(pieceID: piece.id, page: 1, layer: .mine, data: Data([5, 5, 5]), ordinal: 0))
+    }
+
     // MARK: - Passage split / merge / recolor / archive (§8)
 
     @MainActor func testSplitPassageMovesOnlyChosenRegionsAndStartsTheNewOneFresh() async throws {
@@ -166,6 +216,44 @@ final class AnnotationCoreTests: XCTestCase {
         let archived = Passage(pieceID: piece.id, title: "Gone")
         try store.savePassage(archived); try store.deletePassage(archived.id)
         XCTAssertThrowsError(try store.mergePassages(primary: primary.id, into: [archived.id]), "An archived passage cannot be merged into")
+    }
+
+    // MARK: - Coordinate transforms with page edits (crop)
+
+    func testCropForDisplayMapsAMarkFullyInsideTheCropToTheCropsOwnZeroToOneFrame() throws {
+        let crop = NormalizedRect(x: 0.2, y: 0.1, width: 0.5, height: 0.6)
+        let mark = NormalizedRect(x: 0.3, y: 0.2, width: 0.2, height: 0.1)
+        let displayed = try XCTUnwrap(mark.croppedForDisplay(within: crop))
+        XCTAssertEqual(displayed.x, 0.2, accuracy: 1e-9)
+        XCTAssertEqual(displayed.y, 1.0 / 6.0, accuracy: 1e-9)
+        XCTAssertEqual(displayed.width, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(displayed.height, 1.0 / 6.0, accuracy: 1e-9)
+    }
+
+    func testCropForDisplayAndUncroppedFromDisplayRoundTripForAMarkInsideTheCrop() {
+        let crop = NormalizedRect(x: 0.1, y: 0.15, width: 0.7, height: 0.6)
+        let original = NormalizedRect(x: 0.25, y: 0.3, width: 0.15, height: 0.2)
+        guard let displayed = original.croppedForDisplay(within: crop) else { return XCTFail("Expected an overlap") }
+        let restored = displayed.uncroppedFromDisplay(within: crop)
+        XCTAssertEqual(restored.x, original.x, accuracy: 1e-9)
+        XCTAssertEqual(restored.y, original.y, accuracy: 1e-9)
+        XCTAssertEqual(restored.width, original.width, accuracy: 1e-9)
+        XCTAssertEqual(restored.height, original.height, accuracy: 1e-9)
+    }
+
+    func testCropForDisplayReturnsNilWhenTheMarkDoesNotOverlapTheCropAtAll() {
+        let crop = NormalizedRect(x: 0, y: 0, width: 0.4, height: 0.4)
+        let farAway = NormalizedRect(x: 0.6, y: 0.6, width: 0.2, height: 0.2)
+        XCTAssertNil(farAway.croppedForDisplay(within: crop))
+    }
+
+    func testCropForDisplayClipsAMarkThatOnlyPartlyOverlapsTheCrop() {
+        let crop = NormalizedRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5)
+        // Straddles the crop's top-left corner: only its bottom-right quarter is inside.
+        let straddling = NormalizedRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5)
+        guard let displayed = straddling.croppedForDisplay(within: crop) else { return XCTFail("Expected a partial overlap") }
+        XCTAssertEqual(displayed.x, 0, accuracy: 1e-9); XCTAssertEqual(displayed.y, 0, accuracy: 1e-9)
+        XCTAssertEqual(displayed.width, 0.5, accuracy: 1e-9); XCTAssertEqual(displayed.height, 0.5, accuracy: 1e-9)
     }
 
     @MainActor func testDeletePassageArchivesUnlinksHistoryNavigationButKeepsPracticedSnapshot() async throws {
