@@ -13,6 +13,8 @@
 <key>LSRequiresIPhoneOS</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>Use spoken practice commands when you turn on hands-free mode. Praelude never grades your playing.</string>
 <key>NSSpeechRecognitionUsageDescription</key><string>Recognize your practice commands on this device. Your voice supplies the verdict; Praelude counts the repetitions.</string>
+<key>NSCameraUsageDescription</key><string>Scan a friend's invite QR code.</string>
+<key>NSContactsUsageDescription</key><string>Match your contacts against other Praelude musicians. Numbers and emails are hashed on this device before anything is sent.</string>
 <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><true/></dict>
 <key>UIAppFonts</key><array><string>BodoniModa.ttf</string><string>Bravura.otf</string></array>
 <key>UILaunchScreen</key><dict/>
