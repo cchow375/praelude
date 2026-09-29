@@ -71,6 +71,17 @@ import Observation
                                 xp: Int(seconds / 600) + bonuses, practicedDays: days)
     }
 
+    /// Profile stats (§4c "pieces performance-ready"): a piece counts once it has at least one live
+    /// (non-archived, non-tombstoned) passage and every one of those passages has reached
+    /// `.performanceReady` — a piece with no passages yet, or with any passage still short of that
+    /// state, does not count. Read-only derivation over `state.passages`; nothing is stored.
+    public var piecesPerformanceReadyCount: Int {
+        let livePassagesByPiece = Dictionary(grouping: state.passages.filter { $0.deletedAt == nil && !$0.archived }, by: \.pieceID)
+        return livePassagesByPiece.values.filter { passages in
+            !passages.isEmpty && passages.allSatisfy { $0.learningState == .performanceReady }
+        }.count
+    }
+
     public func addPiece(_ piece: Piece) throws {
         try transaction { next in
             guard !next.pieces.contains(where: { $0.id == piece.id }) else { throw PracticeError.conflict("This piece is already in your library.") }

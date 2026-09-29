@@ -163,6 +163,19 @@ public final class SyncEngine {
     /// account B on the same device.
     public func discardPendingWrites() throws { try queue.removeAll(); firstFailureAt = nil; status = .idle }
 
+    /// Clears every piece of local sync bookkeeping tied to whichever account was just signed out
+    /// of: the outbound queue (see `discardPendingWrites`), every table's pull cursor, and the
+    /// cached backend-only profile fields — called from `SyncCoordinator` on the same `.signedOut`
+    /// auth event `AuthManager` reacts to (sign-out or a successful account deletion), so a stale
+    /// cursor from account A can never suppress rows account B legitimately needs on its first pull,
+    /// and a queued write from A can never reach B. Practice library content itself is untouched —
+    /// this is sync bookkeeping, not library data (spec: never lose user data).
+    public func resetLocalAccountState() throws {
+        try discardPendingWrites()
+        state = SyncEngineState()
+        try persistState()
+    }
+
     // MARK: Draining the outbound queue
 
     /// Sends every queued entry in order, stopping at the first failure (offline, or a real server
