@@ -1,4 +1,6 @@
+import PhotosUI
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct AddPieceView: View {
@@ -10,6 +12,9 @@ struct AddPieceView: View {
     @State private var composer = ""
     @State private var pdfURL: URL?
     @State private var showPicker = false
+    @State private var showScanner = false
+    @State private var photoSelections: [PhotosPickerItem] = []
+    @State private var composing = false
     @State private var error: String?
     @State private var saving = false
     @FocusState private var titleFocused: Bool
@@ -25,7 +30,19 @@ struct AddPieceView: View {
                     Button { showPicker = true } label: {
                         Label(pdfURL?.lastPathComponent ?? "Choose a PDF", systemImage: "doc.badge.plus")
                             .lineLimit(2).frame(minHeight: 36)
-                    }.accessibilityIdentifier("choosePDF")
+                    }.accessibilityIdentifier("choosePDF").disabled(composing)
+                    // §7 import: photo/camera multi-page scan, alongside a plain PDF file. Both
+                    // paths land in the same `pdfURL`, so "Remove PDF" below clears either one.
+                    Button { showScanner = true } label: {
+                        Label("Scan pages with camera", systemImage: "camera").frame(minHeight: 36)
+                    }.accessibilityIdentifier("scanPages").disabled(composing)
+                    PhotosPicker(selection: $photoSelections, maxSelectionCount: 400, matching: .images) {
+                        Label("Choose photos", systemImage: "photo.on.rectangle").frame(minHeight: 36)
+                    }.disabled(composing)
+                    if composing {
+                        HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Preparing scan…") }
+                            .foregroundStyle(.secondary)
+                    }
                     if pdfURL != nil { Button("Remove PDF", role: .destructive) { pdfURL = nil } }
                 } footer: { Text("Your score is copied into Praelude. You can also practice with a paper score.") }
                 if let error { Section { Text(error).foregroundStyle(.red) } }
@@ -35,7 +52,7 @@ struct AddPieceView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add", action: save).fontWeight(.semibold)
-                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || saving)
+                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || saving || composing)
                         .accessibilityIdentifier("savePiece")
                 }
             }
@@ -45,6 +62,11 @@ struct AddPieceView: View {
                 case .failure(let failure): error = failure.localizedDescription
                 }
             }
+            .fullScreenCover(isPresented: $showScanner) {
+                DocumentScannerView(onFinish: handleScan, onCancel: { showScanner = false }, onFailure: handleScanFailure)
+                    .ignoresSafeArea()
+            }
+            .onChange(of: photoSelections) { _, items in composePhotos(items) }
             .onAppear {
                 if let importedURL { select(importedURL) }
                 else { titleFocused = true }
@@ -56,6 +78,51 @@ struct AddPieceView: View {
     private func select(_ url: URL) {
         pdfURL = url
         if title.isEmpty { title = url.deletingPathExtension().lastPathComponent }
+    }
+    /// A composed scan/photo PDF has no meaningful source filename to derive a title from (see
+    /// `select(_:)` above for the Files-import case), so this fills in a plain default instead —
+    /// only when the player has not already typed a title.
+    private func adopt(scannedPDF url: URL, defaultTitle: String) {
+        pdfURL = url
+        if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { title = defaultTitle }
+    }
+    private func handleScan(_ images: [UIImage]) {
+        showScanner = false
+        guard !images.isEmpty else { return }
+        composeAndAdopt(images)
+    }
+    private func handleScanFailure(_ error: Error) {
+        showScanner = false
+        self.error = error.localizedDescription
+    }
+    private func composePhotos(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        composing = true
+        Task {
+            defer { composing = false; photoSelections = [] }
+            do {
+                var images: [UIImage] = []
+                for item in items {
+                    guard let data = try await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else { continue }
+                    images.append(image)
+                }
+                guard !images.isEmpty else { throw PracticeError.invalid("None of the selected photos could be opened.") }
+                try adoptScan(images)
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+    private func composeAndAdopt(_ images: [UIImage]) {
+        composing = true
+        Task {
+            defer { composing = false }
+            do { try adoptScan(images) } catch { self.error = error.localizedDescription }
+        }
+    }
+    private func adoptScan(_ images: [UIImage]) throws {
+        let data = try ScoreScanImport.makePDF(images: images)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("scan-\(UUID().uuidString).pdf")
+        try data.write(to: url)
+        adopt(scannedPDF: url, defaultTitle: "Scanned score")
     }
     private func save() {
         saving = true

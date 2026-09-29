@@ -409,6 +409,20 @@ import Observation
             next.pageEdits[index].deletedAt = date; next.pageEdits[index].updatedAt = date
         }
     }
+    /// Upserts many page edits in one transaction (one validate, one write) — the page-tools editor's
+    /// save point after seeding a full row set or after a reorder/crop/rotate/insert/delete batch,
+    /// so re-laying out a several-hundred-page score is one disk write, not one per row.
+    public func savePageEdits(_ edits: [PageEdit]) throws {
+        guard !edits.isEmpty else { return }
+        let date = now()
+        try transaction { next in
+            for var edit in edits {
+                edit.updatedAt = date
+                if let index = next.pageEdits.firstIndex(where: { $0.id == edit.id }) { next.pageEdits[index] = edit }
+                else { next.pageEdits.append(edit) }
+            }
+        }
+    }
     public func saveScoreLink(_ link: ScoreLink) throws {
         let date = now()
         try transaction { next in
@@ -648,9 +662,16 @@ import Observation
         try require(state.revision < Int.max - 1 && state.pieces.count <= 10000 && state.passages.count <= 100000 && state.history.count <= 100000 && state.sessions.count <= 100000 && state.goals.count <= 10000 && state.routines.count <= 10000, "The library contains more records than this version supports.")
         try require(unique(state.pieces.map(\.id)) && unique(state.passages.map(\.id)) && unique(state.sessions.map(\.id)) && unique(state.goals.map(\.id)) && unique(state.routines.map(\.id)), "The library contains duplicate record identifiers.")
         let pieceIDs = Set(state.pieces.map(\.id)); let sessionIDs = Set(state.sessions.map(\.id))
+        // §7 page tools: once a piece has its own page-edit rows (reorder/insert/delete), its
+        // effective reading order can be longer or shorter than its source `pageCount`. `lastPage`/
+        // bookmarks/score-link pages are display positions, so their bound is whichever of the two
+        // counts is larger — identical to `pageCount` alone for the (overwhelmingly common) piece
+        // with no page edits yet, so this never narrows what earlier data already validated as.
+        let pageEditCounts = Dictionary(grouping: state.pageEdits.filter { $0.deletedAt == nil && !$0.deleted }, by: \.pieceID).mapValues(\.count)
+        func effectivePageBound(_ piece: Piece) -> Int { max(1, piece.pageCount, pageEditCounts[piece.id] ?? 0) }
         for piece in state.pieces {
             try require(text(piece.title) && text(piece.composer, blank: true) && text(piece.notes, maximum: 100_000, blank: true) && date(piece.createdAt), "A piece contains invalid text or dates.")
-            try require((0...10000).contains(piece.pageCount) && (1...max(1, piece.pageCount)).contains(piece.lastPage), "A score contains an invalid page number.")
+            try require((0...10000).contains(piece.pageCount) && (1...effectivePageBound(piece)).contains(piece.lastPage), "A score contains an invalid page number.")
             if let name = piece.pdfFileName {
                 try require(!name.isEmpty && name.count <= 255 && !name.contains("/") && !name.contains("\\") && !name.contains("..") && name.lowercased().hasSuffix(".pdf") && !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }), "A score filename is not a local PDF filename.")
             }
@@ -753,6 +774,11 @@ import Observation
         for piece in state.pieces {
             try require(piece.instrumentID == nil || instrumentIDs.contains(piece.instrumentID!), "A piece references a missing instrument.")
             try require(piece.difficulty == nil || (1...5).contains(piece.difficulty!), "A piece has an invalid difficulty.")
+            if let name = piece.customCoverRef {
+                try require(!name.isEmpty && name.count <= 255 && !name.contains("/") && !name.contains("\\") && !name.contains("..")
+                            && (name.lowercased().hasSuffix(".jpg") || name.lowercased().hasSuffix(".jpeg") || name.lowercased().hasSuffix(".png"))
+                            && !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }), "A piece has an invalid custom cover filename.")
+            }
             try require(piece.performanceDates.allSatisfy(date) && piece.performanceDates.count <= 100, "A piece has invalid performance dates.")
             try require(date(piece.updatedAt) && date(piece.lastPageUpdatedAt) && piece.deletedAt.map(date) != false, "A piece has invalid sync timing.")
         }
@@ -779,7 +805,7 @@ import Observation
         try require(unique(state.bookmarks.map(\.id)) && state.bookmarks.count <= 10000, "The library contains duplicate or too many bookmarks.")
         for bookmark in state.bookmarks {
             let piece = state.pieces.first { $0.id == bookmark.pieceID }
-            try require(piece != nil && bookmark.page >= 1 && bookmark.page <= max(1, piece?.pageCount ?? 0) && text(bookmark.label, maximum: 200), "A bookmark references a missing piece/page or has invalid text.")
+            try require(piece != nil && bookmark.page >= 1 && bookmark.page <= (piece.map(effectivePageBound) ?? 0) && text(bookmark.label, maximum: 200), "A bookmark references a missing piece/page or has invalid text.")
         }
         try require(unique(state.pageEdits.map(\.id)) && state.pageEdits.count <= 20000, "The library contains duplicate or too many page edits.")
         for edit in state.pageEdits {
@@ -791,8 +817,9 @@ import Observation
         try require(unique(state.scoreLinks.map(\.id)) && state.scoreLinks.count <= 20000, "The library contains duplicate or too many score links.")
         for link in state.scoreLinks {
             let piece = state.pieces.first { $0.id == link.pieceID }
-            try require(piece != nil && link.sourcePage >= 1 && link.sourcePage <= max(1, piece?.pageCount ?? 0)
-                        && link.targetPage >= 1 && link.targetPage <= max(1, piece?.pageCount ?? 0), "A score link references a missing piece or page.")
+            let bound = piece.map(effectivePageBound) ?? 0
+            try require(piece != nil && link.sourcePage >= 1 && link.sourcePage <= bound
+                        && link.targetPage >= 1 && link.targetPage <= bound, "A score link references a missing piece or page.")
             try require((link.sourceRegion?.isValid ?? true) && (link.targetRegion?.isValid ?? true) && text(link.label, maximum: 100, blank: true), "A score link has an invalid region or label.")
         }
         try require(unique(state.textAnnotations.map(\.id)) && state.textAnnotations.count <= 20000, "The library contains duplicate or too many text annotations.")
